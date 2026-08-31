@@ -199,7 +199,14 @@ function OrderCard({
 
         <View style={styles.cardBottom}>
           <StatusPill status={order.status} />
-          {onRepeat ? (
+          {running ? (
+            <Button
+              title="Seguir en vivo"
+              icon="ruta"
+              size="sm"
+              onPress={onPress}
+            />
+          ) : onRepeat ? (
             <Button title="Pedir otra vez" icon="repetir" variant="ghost" size="sm" onPress={onRepeat} />
           ) : null}
         </View>

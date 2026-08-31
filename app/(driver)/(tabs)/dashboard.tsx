@@ -1,26 +1,34 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { View, ScrollView, StyleSheet, Pressable, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../../constants';
+import { useRouter } from 'expo-router';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import {
+  Text, Icon, Card, Button, Badge, PulseDot, ErrorState, LoadingScreen,
+} from '../../../components/ui';
 import { useAuthStore } from '../../../stores/authStore';
-import { useDriverProfile, useDriverEarnings, useDriverDebts, useUpdateDriverStatus } from '../../../hooks/useApi';
+import {
+  useDriverProfile, useDriverEarnings, useDriverDebts, useUpdateDriverStatus,
+} from '../../../hooks/useApi';
 import { useLocation } from '../../../hooks/useLocation';
+import { useTheme } from '../../../hooks/useTheme';
 import { socketService } from '../../../services/socket';
 import { driverApi } from '../../../services/endpoints';
+import { BorderRadius, Shadow, Spacing } from '../../../theme/tokens';
+import { money, greeting, firstName } from '../../../lib/format';
+import { tap } from '../../../lib/haptics';
 
-const getGreeting = () => {
-  const h = new Date().getHours();
-  if (h < 12) return 'Buenos días';
-  if (h < 18) return 'Buenas tardes';
-  return 'Buenas noches';
-};
+const BOTTOM_SPACE = 100;
 
 export default function DriverDashboard() {
-  const { user } = useAuthStore();
+  const router = useRouter();
+  const { c } = useTheme();
+  const user = useAuthStore((s) => s.user);
   const [isOnline, setIsOnline] = useState(false);
 
-  const { data: profile, isLoading: loadingProfile, refetch: refetchProfile } = useDriverProfile();
+  const {
+    data: profile, isLoading: loadingProfile, isError: errorProfile, refetch: refetchProfile, isRefetching,
+  } = useDriverProfile();
   const { data: earnings, isLoading: loadingEarnings, refetch: refetchEarnings } = useDriverEarnings();
   const { data: debts, isLoading: loadingDebts, refetch: refetchDebts } = useDriverDebts();
 
@@ -44,6 +52,7 @@ export default function DriverDashboard() {
   }, [isOnline, location]);
 
   const handleToggleOnline = (value: boolean) => {
+    tap(value ? 'success' : 'medium');
     const nextStatus = value ? 'available' : 'offline';
     setIsOnline(value);
     updateStatusMutation.mutate(nextStatus, {
@@ -51,242 +60,284 @@ export default function DriverDashboard() {
         socketService.emitDriverStatus(nextStatus);
         refetchProfile();
       },
-      onError: () => { setIsOnline(!value); }
+      onError: () => {
+        tap('error');
+        setIsOnline(!value);
+      },
     });
   };
 
-  const handleRefresh = () => { refetchProfile(); refetchEarnings(); refetchDebts(); };
+  const handleRefresh = async () => {
+    await Promise.all([refetchProfile(), refetchEarnings(), refetchDebts()]);
+  };
 
   const loading = loadingProfile || loadingEarnings || loadingDebts;
 
-  const stats = {
-    todayOrders: earnings?.totalOrders || 0,
-    todayEarnings: earnings?.totalEarned || 0,
-    completedOrders: profile?.totalDeliveries || 0,
-    pendingDebt: debts?.totalDebt || 0,
-    baseFund: profile?.baseFund || 50000,
-    currentFund: profile?.currentFund || 50000,
-  };
+  if (loading && !isRefetching) {
+    return <LoadingScreen message="Cargando tu turno..." />;
+  }
 
-  const fundPct = Math.min(100, Math.max(0, (stats.currentFund / stats.baseFund) * 100));
-
-  if (loading) {
+  if (errorProfile) {
     return (
-      <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
+      <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
+        <ErrorState
+          title="No pudimos cargar tu perfil de repartidor"
+          message="Revisa tu conexión o intenta nuevamente."
+          onRetry={handleRefresh}
+        />
+      </SafeAreaView>
     );
   }
 
+  const todayOrders = earnings?.totalOrders || 0;
+  const todayEarnings = earnings?.totalEarned || 0;
+  const completedOrders = profile?.totalDeliveries || 0;
+  const pendingDebt = debts?.outstanding || debts?.totalDebt || 0;
+  const baseFund = profile?.baseFund || 50000;
+  const currentFund = profile?.currentFund || 50000;
+  const fundPct = Math.min(100, Math.max(0, Math.round((currentFund / baseFund) * 100)));
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Header */}
+    <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={handleRefresh}
+            tintColor={c.primary}
+            colors={[c.primary]}
+          />
+        }
+      >
+        {/* ── Cabecera ── */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{getGreeting()},</Text>
-            <Text style={styles.driverName}>{user?.name?.split(' ')[0]} 🏍️</Text>
-            <Text style={styles.dateText}>
-              {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
+          <View style={styles.headerLeft}>
+            <Text v="bodyS" tone="textMuted">{greeting()},</Text>
+            <Text v="displayM" numberOfLines={1}>
+              {firstName(user?.name) || 'Repartidor'} 🛵
             </Text>
           </View>
-          <TouchableOpacity onPress={handleRefresh} style={styles.refreshBtn}>
-            <Ionicons name="refresh" size={18} color={Colors.text} />
-          </TouchableOpacity>
+
+          <Pressable
+            onPress={() => { tap('light'); handleRefresh(); }}
+            accessibilityRole="button"
+            accessibilityLabel="Actualizar datos"
+            hitSlop={8}
+            style={[styles.refreshBtn, { backgroundColor: c.surface, borderColor: c.border }]}
+          >
+            <Icon name="reintentar" size="md" color={c.text} />
+          </Pressable>
         </View>
 
-        {/* Online Toggle — hero element */}
-        <View style={styles.toggleSection}>
-          <TouchableOpacity
-            style={[styles.toggleCard, isOnline ? styles.toggleCardOnline : styles.toggleCardOffline]}
-            onPress={() => !updateStatusMutation.isPending && handleToggleOnline(!isOnline)}
-            activeOpacity={0.88}
+        {/* ── Hero: Estado de Conexión (Disponible / Desconectado) ── */}
+        <Animated.View entering={FadeIn.duration(280)}>
+          <Card
+            style={[
+              styles.onlineCard,
+              isOnline
+                ? { backgroundColor: c.limeSoft, borderColor: c.lime }
+                : { backgroundColor: c.surface, borderColor: c.border },
+              Shadow.sm,
+            ]}
           >
-            <View style={styles.toggleLeft}>
-              <View style={[styles.toggleIndicator, { backgroundColor: isOnline ? Colors.success : Colors.error }]} />
-              <View>
-                <Text style={styles.toggleTitle}>{isOnline ? 'En línea' : 'Desconectado'}</Text>
-                <Text style={styles.toggleSub}>
-                  {isOnline ? 'Recibirás pedidos cercanos' : 'Actívate para recibir pedidos'}
+            <View style={styles.onlineHeader}>
+              <View style={styles.onlineStatusRow}>
+                {isOnline ? (
+                  <PulseDot color={c.lime} size={10} />
+                ) : (
+                  <View style={[styles.offlineDot, { backgroundColor: c.textMuted }]} />
+                )}
+                <Text v="titleM" tone={isOnline ? 'limeText' : 'textSecondary'}>
+                  {isOnline ? 'Estás disponible para pedidos' : 'Estás fuera de servicio'}
                 </Text>
               </View>
+
+              <Badge
+                label={isOnline ? 'ACTIVO' : 'PAUSADO'}
+                tone={isOnline ? 'lime' : 'neutral'}
+              />
             </View>
-            <View style={[styles.toggleBtn, isOnline ? styles.toggleBtnOn : styles.toggleBtnOff]}>
-              {updateStatusMutation.isPending ? (
-                <ActivityIndicator size="small" color={Colors.white} />
-              ) : (
-                <View style={[styles.toggleThumb, isOnline ? styles.toggleThumbRight : styles.toggleThumbLeft]} />
-              )}
-            </View>
-          </TouchableOpacity>
+
+            <Text v="bodyS" tone="textSecondary" style={styles.onlineMessage}>
+              {isOnline
+                ? 'Recibirás notificaciones de pedidos cercanos listos en restaurantes de Garzón.'
+                : 'Conéctate para empezar a recibir pedidos y generar ganancias hoy.'}
+            </Text>
+
+            <Button
+              title={isOnline ? 'Desconectarme' : 'Conectarme ahora'}
+              icon={isOnline ? 'cerrar' : 'rayo'}
+              variant={isOnline ? 'secondary' : 'primary'}
+              full
+              loading={updateStatusMutation.isPending}
+              onPress={() => handleToggleOnline(!isOnline)}
+            />
+          </Card>
+        </Animated.View>
+
+        {/* ── Accesos Rápidos a Pedidos ── */}
+        <View style={styles.section}>
+          <Text v="label" tone="textMuted">Gestión de entregas</Text>
+          <View style={styles.quickActions}>
+            <Card
+              onPress={() => { tap('select'); router.push('/(driver)/(tabs)/orders'); }}
+              style={styles.actionCard}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: c.primarySoft }]}>
+                <Icon name="pedidos" size="md" color={c.primaryText} />
+              </View>
+              <View style={styles.flex}>
+                <Text v="strongM">Ver pedidos disponibles</Text>
+                <Text v="caption" tone="textMuted">Acepta y entrega pedidos en tu ruta</Text>
+              </View>
+              <Icon name="siguiente" size="sm" color={c.textMuted} />
+            </Card>
+          </View>
         </View>
 
-        {/* Stats Grid */}
-        <View style={styles.statsSection}>
+        {/* ── Métricas del Día ── */}
+        <View style={styles.section}>
+          <Text v="label" tone="textMuted">Resumen de tu jornada</Text>
           <View style={styles.statsGrid}>
-            <View style={[styles.statCard, styles.statCardHighlight]}>
-              <View style={[styles.statIconBg, { backgroundColor: `${Colors.success}15` }]}>
-                <Ionicons name="cash-outline" size={20} color={Colors.success} />
+            <Card style={styles.statCard}>
+              <View style={styles.statHeader}>
+                <Text v="caption" tone="textMuted">GANANCIAS HOY</Text>
+                <Icon name="billetera" size="sm" color={c.limeText} />
               </View>
-              <Text style={[styles.statValue, { color: Colors.success }]}>${stats.todayEarnings.toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Ganado hoy</Text>
-            </View>
-            <View style={styles.statCard}>
-              <View style={[styles.statIconBg, { backgroundColor: `${Colors.primary}15` }]}>
-                <Ionicons name="receipt-outline" size={20} color={Colors.primary} />
+              <Text v="displayM" tone="limeText">{money(todayEarnings)}</Text>
+              <Text v="caption" tone="textMuted">{todayOrders} entregas completadas</Text>
+            </Card>
+
+            <Card style={styles.statCard}>
+              <View style={styles.statHeader}>
+                <Text v="caption" tone="textMuted">HISTORIAL TOTAL</Text>
+                <Icon name="trofeo" size="sm" color={c.primaryText} />
               </View>
-              <Text style={styles.statValue}>{stats.todayOrders}</Text>
-              <Text style={styles.statLabel}>Pedidos hoy</Text>
-            </View>
-            <View style={styles.statCard}>
-              <View style={[styles.statIconBg, { backgroundColor: `${Colors.statusAccepted}15` }]}>
-                <Ionicons name="checkmark-circle-outline" size={20} color={Colors.statusAccepted} />
-              </View>
-              <Text style={styles.statValue}>{stats.completedOrders}</Text>
-              <Text style={styles.statLabel}>Completados</Text>
-            </View>
-            <View style={[styles.statCard, stats.pendingDebt > 0 && styles.statCardWarning]}>
-              <View style={[styles.statIconBg, { backgroundColor: `${Colors.warning}15` }]}>
-                <Ionicons name="alert-circle-outline" size={20} color={Colors.warning} />
-              </View>
-              <Text style={[styles.statValue, stats.pendingDebt > 0 && { color: Colors.warning }]}>
-                ${stats.pendingDebt.toLocaleString()}
-              </Text>
-              <Text style={styles.statLabel}>Deuda comisión</Text>
-            </View>
+              <Text v="displayM">{completedOrders}</Text>
+              <Text v="caption" tone="textMuted">Entregas de por vida</Text>
+            </Card>
           </View>
         </View>
 
-        {/* Fund Card */}
-        <View style={styles.fundCard}>
-          <View style={styles.fundHeader}>
-            <View style={styles.fundIconBg}>
-              <Ionicons name="wallet-outline" size={20} color={Colors.primary} />
+        {/* ── Base y Efectivo Pendiente ── */}
+        <View style={styles.section}>
+          <Text v="label" tone="textMuted">Caja y base de cambio</Text>
+          <Card style={styles.fundCard}>
+            <View style={styles.fundRow}>
+              <View>
+                <Text v="caption" tone="textMuted">BASE DE CAMBIO DISPONIBLE</Text>
+                <Text v="titleL">{money(currentFund)}</Text>
+              </View>
+              <Badge
+                label={`${fundPct}% disponible`}
+                tone={fundPct >= 50 ? 'lime' : 'warning'}
+              />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fundTitle}>Fondo Base</Text>
-              <Text style={styles.fundSub}>Capital de trabajo disponible</Text>
-            </View>
-            <View style={styles.fundPctBadge}>
-              <Text style={styles.fundPctText}>{Math.round(fundPct)}%</Text>
-            </View>
-          </View>
 
-          <View style={styles.fundAmounts}>
-            <View style={styles.fundAmount}>
-              <Text style={styles.fundAmountLabel}>Disponible</Text>
-              <Text style={[styles.fundAmountValue, { color: Colors.success }]}>
-                ${stats.currentFund.toLocaleString()}
-              </Text>
+            {/* Barra de progreso de base */}
+            <View style={[styles.fundTrack, { backgroundColor: c.surfaceLight }]}>
+              <View
+                style={[
+                  styles.fundFill,
+                  {
+                    width: `${fundPct}%`,
+                    backgroundColor: fundPct >= 50 ? c.lime : c.warning,
+                  },
+                ]}
+              />
             </View>
-            <View style={styles.fundDivider} />
-            <View style={styles.fundAmount}>
-              <Text style={styles.fundAmountLabel}>Total</Text>
-              <Text style={styles.fundAmountValue}>${stats.baseFund.toLocaleString()}</Text>
-            </View>
-          </View>
 
-          <View style={styles.fundBarTrack}>
-            <View style={[styles.fundBarFill, { width: `${fundPct}%` }]} />
-          </View>
-          <Text style={styles.fundBarLabel}>
-            {fundPct >= 80 ? 'Fondo en buen estado' : fundPct >= 40 ? 'Fondo moderado' : 'Fondo bajo — recarga pronto'}
-          </Text>
+            {pendingDebt > 0 ? (
+              <View style={[styles.debtNotice, { backgroundColor: c.warningSoft, borderColor: c.warning }]}>
+                <Icon name="atencion" size="sm" color={c.warningText} />
+                <View style={styles.flex}>
+                  <Text v="strongS" tone="warningText">Efectivo por rendir: {money(pendingDebt)}</Text>
+                  <Text v="caption" tone="warningText">Reporta tu consignación en la pestaña Ganancias</Text>
+                </View>
+              </View>
+            ) : null}
+          </Card>
         </View>
-
-        <View style={{ height: 100 }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
-
-  // Header
+  screen: { flex: 1 },
+  flex: { flex: 1 },
+  content: {
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.md,
+    gap: Spacing.xl,
+    paddingBottom: BOTTOM_SPACE,
+  },
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    paddingHorizontal: Spacing.xl, paddingTop: Spacing.lg, paddingBottom: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  greeting: { fontSize: FontSize.sm, color: Colors.textMuted, fontWeight: '500' },
-  driverName: { fontSize: FontSize.xxl, fontWeight: '800', color: Colors.text, letterSpacing: -0.5, marginTop: 2 },
-  dateText: { fontSize: FontSize.xs, color: Colors.textSecondary, marginTop: 3, textTransform: 'capitalize', fontWeight: '500' },
+  headerLeft: { flex: 1, gap: 2 },
   refreshBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: Colors.surface, justifyContent: 'center', alignItems: 'center',
-    borderWidth: 1, borderColor: Colors.border, marginTop: 4,
+    width: 44, height: 44, borderRadius: BorderRadius.lg,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1,
   },
 
-  // Toggle
-  toggleSection: { paddingHorizontal: Spacing.xl, marginTop: Spacing.lg },
-  toggleCard: {
-    borderRadius: BorderRadius.xl, padding: Spacing.xl,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderWidth: 1.5,
+  onlineCard: { padding: Spacing.xl, gap: Spacing.lg },
+  onlineHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  toggleCardOnline: { backgroundColor: `${Colors.success}08`, borderColor: `${Colors.success}35` },
-  toggleCardOffline: { backgroundColor: Colors.surface, borderColor: Colors.border },
-  toggleLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, flex: 1 },
-  toggleIndicator: { width: 10, height: 10, borderRadius: 5 },
-  toggleTitle: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.text },
-  toggleSub: { fontSize: FontSize.xs, color: Colors.textSecondary, marginTop: 2, fontWeight: '500' },
-  toggleBtn: {
-    width: 56, height: 30, borderRadius: 15, padding: 2,
-    justifyContent: 'center',
+  onlineStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    flex: 1,
   },
-  toggleBtnOn: { backgroundColor: Colors.success },
-  toggleBtnOff: { backgroundColor: Colors.border },
-  toggleThumb: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: Colors.white,
-  },
-  toggleThumbLeft: { alignSelf: 'flex-start' },
-  toggleThumbRight: { alignSelf: 'flex-end' },
+  offlineDot: { width: 10, height: 10, borderRadius: 5 },
+  onlineMessage: { lineHeight: 18 },
 
-  // Stats
-  statsSection: { paddingHorizontal: Spacing.xl, marginTop: Spacing.xl },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
-  statCard: {
-    width: '47.5%', backgroundColor: Colors.surface, borderRadius: BorderRadius.xl,
-    padding: Spacing.lg, borderWidth: 1, borderColor: Colors.border,
-    alignItems: 'center', gap: Spacing.sm,
+  section: { gap: Spacing.sm },
+  quickActions: { gap: Spacing.md },
+  actionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.md,
   },
-  statCardHighlight: { borderColor: `${Colors.success}30`, backgroundColor: `${Colors.success}05` },
-  statCardWarning: { borderColor: `${Colors.warning}30`, backgroundColor: `${Colors.warning}05` },
-  statIconBg: { width: 44, height: 44, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  statValue: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.text },
-  statLabel: { fontSize: 11, color: Colors.textMuted, fontWeight: '500', textAlign: 'center' },
+  actionIcon: {
+    width: 44, height: 44, borderRadius: BorderRadius.md,
+    alignItems: 'center', justifyContent: 'center',
+  },
 
-  // Fund
-  fundCard: {
-    marginHorizontal: Spacing.xl, marginTop: Spacing.xl,
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.xl,
-    padding: Spacing.xl, borderWidth: 1, borderColor: Colors.border, gap: Spacing.md,
+  statsGrid: { flexDirection: 'row', gap: Spacing.md },
+  statCard: { flex: 1, gap: Spacing.xs, padding: Spacing.lg },
+  statHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.xs,
   },
-  fundHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  fundIconBg: { width: 44, height: 44, borderRadius: 14, backgroundColor: `${Colors.primary}15`, justifyContent: 'center', alignItems: 'center' },
-  fundTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.text },
-  fundSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2, fontWeight: '500' },
-  fundPctBadge: {
-    backgroundColor: `${Colors.primary}15`, borderRadius: BorderRadius.full,
-    paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: `${Colors.primary}25`,
+
+  fundCard: { padding: Spacing.xl, gap: Spacing.md },
+  fundRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  fundPctText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '800' },
-  fundAmounts: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.surfaceLight, borderRadius: BorderRadius.lg,
-    padding: Spacing.lg, borderWidth: 1, borderColor: Colors.border,
+  fundTrack: { height: 6, borderRadius: BorderRadius.full, overflow: 'hidden' },
+  fundFill: { height: '100%', borderRadius: BorderRadius.full },
+  debtNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginTop: Spacing.xs,
   },
-  fundAmount: { flex: 1, alignItems: 'center', gap: 3 },
-  fundAmountLabel: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '500' },
-  fundAmountValue: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.text },
-  fundDivider: { width: 1, height: 40, backgroundColor: Colors.border },
-  fundBarTrack: {
-    height: 8, backgroundColor: Colors.surfaceLight, borderRadius: 4,
-    overflow: 'hidden', borderWidth: 1, borderColor: Colors.border,
-  },
-  fundBarFill: { height: '100%', backgroundColor: Colors.success, borderRadius: 4 },
-  fundBarLabel: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', fontWeight: '500' },
-  white: { color: Colors.white },
 });

@@ -132,9 +132,15 @@ export default function OrderTrackingScreen() {
               </View>
 
               {!delivered && order.businessId?.deliveryTime ? (
-                <Notice tone="info" icon="minutos">
-                  {`Cálculo de llegada: alrededor de las ${etaClock(order.businessId.deliveryTime)}.`}
-                </Notice>
+                <View style={[styles.etaPill, { backgroundColor: c.primarySoft, borderColor: c.primary }]}>
+                  <Icon name="minutos" size="md" color={c.primaryText} />
+                  <View style={styles.flex}>
+                    <Text v="caption" tone="textMuted">TIEMPO ESTIMADO DE ENTREGA</Text>
+                    <Text v="strongM" tone="primaryText">
+                      {`Aproximadamente a las ${etaClock(order.businessId.deliveryTime)}`}
+                    </Text>
+                  </View>
+                </View>
               ) : null}
             </Animated.View>
 
@@ -277,6 +283,15 @@ const styles = StyleSheet.create({
   route: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.lg },
   routeEnd: { flex: 1, gap: 2 },
   routeRight: { alignItems: 'flex-end' },
+
+  etaPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+  },
 
   driver: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   avatar: {

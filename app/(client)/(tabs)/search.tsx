@@ -2,13 +2,15 @@ import { useState, useEffect, useMemo } from 'react';
 import { View, FlatList, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import {
   Text, Icon, SearchField, Chip, EmptyState, ErrorState,
-  BusinessCardSkeleton, Badge,
+  BusinessCardSkeleton, Badge, Card,
 } from '../../../components/ui';
 import { BusinessRow, type Business } from '../../../components/domain/BusinessCard';
 import { useBusinesses } from '../../../hooks/useApi';
 import { useTheme } from '../../../hooks/useTheme';
+import { usePrefsStore } from '../../../stores/prefsStore';
 import { BUSINESS_CATEGORIES } from '../../../constants/config';
 import { categoryIcon } from '../../../theme/icons';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
@@ -16,6 +18,11 @@ import { openState } from '../../../lib/business';
 import { tap } from '../../../lib/haptics';
 
 const BOTTOM_SPACE = 190;
+
+const POPULAR_SEARCHES = [
+  'Hamburguesas', 'Pizza', 'Salchipapas', 'Café',
+  'Pollo Broaster', 'Droguería', 'Desayunos', 'Helados',
+];
 
 /** Espera a que el usuario deje de escribir antes de consultar al servidor. */
 function useDebounced<T>(value: T, delay = 320): T {
@@ -32,6 +39,11 @@ export default function SearchScreen() {
   const { c } = useTheme();
   const params = useLocalSearchParams<{ category?: string }>();
 
+  const recentSearches = usePrefsStore((s) => s.recentSearches || []);
+  const addRecentSearch = usePrefsStore((s) => s.addRecentSearch);
+  const removeRecentSearch = usePrefsStore((s) => s.removeRecentSearch);
+  const clearRecentSearches = usePrefsStore((s) => s.clearRecentSearches);
+
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string | null>(params.category ?? null);
   const [openOnly, setOpenOnly] = useState(false);
@@ -43,6 +55,14 @@ export default function SearchScreen() {
   }, [params.category]);
 
   const debouncedQuery = useDebounced(query);
+
+  // Guardar en recientes cuando haya un término de búsqueda válido
+  useEffect(() => {
+    const clean = debouncedQuery.trim();
+    if (clean.length >= 3) {
+      addRecentSearch(clean);
+    }
+  }, [debouncedQuery, addRecentSearch]);
 
   const { data = [], isLoading, isError, refetch } = useBusinesses({
     search: debouncedQuery.trim() || undefined,
@@ -63,6 +83,12 @@ export default function SearchScreen() {
 
   const searching = query.trim().length > 0 || !!category;
   const activeCategory = BUSINESS_CATEGORIES.find((cat) => cat.key === category);
+
+  const handleSelectTag = (term: string) => {
+    tap('select');
+    setQuery(term);
+    addRecentSearch(term);
+  };
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
@@ -88,7 +114,10 @@ export default function SearchScreen() {
               label={item.label}
               icon={categoryIcon(item.key)}
               active={category === item.key}
-              onPress={() => setCategory(category === item.key ? null : item.key)}
+              onPress={() => {
+                tap('select');
+                setCategory(category === item.key ? null : item.key);
+              }}
             />
           )}
         />
@@ -144,13 +173,19 @@ export default function SearchScreen() {
                 message={
                   openOnly
                     ? 'Prueba quitando el filtro de "solo abiertos" o busca otra cosa.'
-                    : 'Revisa cómo lo escribiste o prueba con una categoría.'
+                    : 'Revisa cómo lo escribiste o explora alguna de las categorías disponibles.'
                 }
                 actionLabel="Limpiar filtros"
                 onAction={() => { setQuery(''); setCategory(null); setOpenOnly(false); }}
               />
             ) : (
-              <Suggestions onPick={(key) => { tap('light'); setCategory(key); }} />
+              <DiscoveryHub
+                recentSearches={recentSearches}
+                onSelectSearch={handleSelectTag}
+                onRemoveRecent={(term) => { tap('light'); removeRecentSearch(term); }}
+                onClearRecents={() => { tap('light'); clearRecentSearches(); }}
+                onPickCategory={(key) => { tap('select'); setCategory(key); }}
+              />
             )
           }
         />
@@ -159,31 +194,98 @@ export default function SearchScreen() {
   );
 }
 
-/** Qué mostrar antes de que el usuario escriba nada. */
-function Suggestions({ onPick }: { onPick: (key: string) => void }) {
+/** Descubrimiento inicial: Búsquedas recientes, Tendencias y Categorías */
+function DiscoveryHub({
+  recentSearches,
+  onSelectSearch,
+  onRemoveRecent,
+  onClearRecents,
+  onPickCategory,
+}: {
+  recentSearches: string[];
+  onSelectSearch: (term: string) => void;
+  onRemoveRecent: (term: string) => void;
+  onClearRecents: () => void;
+  onPickCategory: (key: string) => void;
+}) {
   const { c } = useTheme();
 
   return (
-    <View style={styles.suggestions}>
-      <Text v="titleM">Empieza por aquí</Text>
-      <View style={styles.suggestionGrid}>
-        {BUSINESS_CATEGORIES.map((cat) => (
-          <Pressable
-            key={cat.key}
-            onPress={() => onPick(cat.key)}
-            accessibilityRole="button"
-            accessibilityLabel={cat.label}
-            style={[styles.suggestion, { backgroundColor: c.surface, borderColor: c.border }]}
-          >
-            <View style={[styles.suggestionIcon, { backgroundColor: c.primarySoft }]}>
-              <Icon name={categoryIcon(cat.key)} size="md" color={c.primaryText} />
+    <Animated.View entering={FadeIn.duration(250)} style={styles.discovery}>
+      {/* ── Recientes ── */}
+      {recentSearches.length > 0 ? (
+        <View style={styles.discoverySection}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleRow}>
+              <Icon name="reintentar" size="sm" color={c.textMuted} />
+              <Text v="strongS">Búsquedas recientes</Text>
             </View>
-            <Text v="strongS" style={styles.flex}>{cat.label}</Text>
-            <Icon name="siguiente" size="sm" color={c.textMuted} />
-          </Pressable>
-        ))}
+            <Pressable onPress={onClearRecents} hitSlop={8}>
+              <Text v="caption" tone="primaryText">Borrar todo</Text>
+            </Pressable>
+          </View>
+          <View style={styles.tagsWrap}>
+            {recentSearches.map((term) => (
+              <Pressable
+                key={term}
+                onPress={() => onSelectSearch(term)}
+                style={[styles.recentTag, { backgroundColor: c.surface, borderColor: c.border }]}
+              >
+                <Text v="bodyS">{term}</Text>
+                <Pressable
+                  onPress={() => onRemoveRecent(term)}
+                  hitSlop={6}
+                  style={styles.tagClose}
+                >
+                  <Icon name="cerrar" size={12} color={c.textMuted} />
+                </Pressable>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
+
+      {/* ── Populares / Tendencias ── */}
+      <View style={styles.discoverySection}>
+        <View style={styles.sectionTitleRow}>
+          <Icon name="racha" size="sm" color={c.primary} />
+          <Text v="strongS">Lo más buscado en Garzón</Text>
+        </View>
+        <View style={styles.tagsWrap}>
+          {POPULAR_SEARCHES.map((term) => (
+            <Pressable
+              key={term}
+              onPress={() => onSelectSearch(term)}
+              style={[styles.popularTag, { backgroundColor: c.primarySoft, borderColor: 'transparent' }]}
+            >
+              <Text v="bodyS" color={c.primaryText}>{term}</Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
-    </View>
+
+      {/* ── Categorías principales ── */}
+      <View style={styles.discoverySection}>
+        <Text v="titleM">Explorar por categoría</Text>
+        <View style={styles.suggestionGrid}>
+          {BUSINESS_CATEGORIES.map((cat) => (
+            <Pressable
+              key={cat.key}
+              onPress={() => onPickCategory(cat.key)}
+              accessibilityRole="button"
+              accessibilityLabel={cat.label}
+              style={[styles.suggestion, { backgroundColor: c.surface, borderColor: c.border }]}
+            >
+              <View style={[styles.suggestionIcon, { backgroundColor: c.primarySoft }]}>
+                <Icon name={categoryIcon(cat.key)} size="md" color={c.primaryText} />
+              </View>
+              <Text v="strongS" style={styles.flex}>{cat.label}</Text>
+              <Icon name="siguiente" size="sm" color={c.textMuted} />
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </Animated.View>
   );
 }
 
@@ -206,7 +308,43 @@ const styles = StyleSheet.create({
   },
   skeletons: { padding: Spacing.xl, gap: Spacing.md },
 
-  suggestions: { gap: Spacing.lg, paddingTop: Spacing.xl },
+  discovery: { gap: Spacing.xxl, paddingTop: Spacing.md },
+  discoverySection: { gap: Spacing.md },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  tagsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  recentTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs + 2,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+  },
+  tagClose: {
+    padding: 2,
+    marginLeft: 2,
+  },
+  popularTag: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs + 2,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+  },
+
   suggestionGrid: { gap: Spacing.sm },
   suggestion: {
     flexDirection: 'row',
@@ -221,3 +359,4 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 });
+

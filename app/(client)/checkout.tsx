@@ -228,6 +228,34 @@ export default function CheckoutScreen() {
         keyboardVerticalOffset={60}
       >
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {/* ── Progreso del Checkout ── */}
+          <View style={[styles.stepperContainer, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <View style={styles.stepItem}>
+              <View style={[styles.stepDot, { backgroundColor: address ? c.primary : c.border }]}>
+                <Icon name={address ? 'check' : 'ubicacion'} size={12} color={address ? c.textOnPrimary : c.textMuted} />
+              </View>
+              <Text v="captionStrong" tone={address ? 'text' : 'textMuted'}>Entrega</Text>
+            </View>
+
+            <View style={[styles.stepLine, { backgroundColor: address ? c.primary : c.border }]} />
+
+            <View style={styles.stepItem}>
+              <View style={[styles.stepDot, { backgroundColor: payment ? c.primary : c.border }]}>
+                <Icon name={payment ? 'check' : 'tarjeta'} size={12} color={payment ? c.textOnPrimary : c.textMuted} />
+              </View>
+              <Text v="captionStrong" tone={payment ? 'text' : 'textMuted'}>Pago</Text>
+            </View>
+
+            <View style={[styles.stepLine, { backgroundColor: canSubmit ? c.primary : c.border }]} />
+
+            <View style={styles.stepItem}>
+              <View style={[styles.stepDot, { backgroundColor: canSubmit ? c.primary : c.border }]}>
+                <Icon name="bolsa" size={12} color={canSubmit ? c.textOnPrimary : c.textMuted} />
+              </View>
+              <Text v="captionStrong" tone={canSubmit ? 'text' : 'textMuted'}>Listo</Text>
+            </View>
+          </View>
+
           {/* ── Dirección ── */}
           <View style={styles.section}>
             <Text v="label" tone="textMuted">Entregar en</Text>
@@ -357,14 +385,24 @@ export default function CheckoutScreen() {
           <View style={styles.section}>
             <Text v="label" tone="textMuted">Propina al domiciliario</Text>
             <View style={styles.tips}>
-              {TIPS.map((rate) => (
-                <Chip
-                  key={rate}
-                  label={rate === 0 ? 'Sin propina' : `${Math.round(rate * 100)}%`}
-                  active={tipRate === rate}
-                  onPress={() => setTipRate(rate)}
-                />
-              ))}
+              {TIPS.map((rate) => {
+                const label =
+                  rate === 0
+                    ? 'Sin propina'
+                    : rate === 0.05
+                    ? '5% (Un café ☕)'
+                    : rate === 0.1
+                    ? '10% (¡Gran servicio! ⭐)'
+                    : '15% (Extraordinario 🚀)';
+                return (
+                  <Chip
+                    key={rate}
+                    label={label}
+                    active={tipRate === rate}
+                    onPress={() => { tap('select'); setTipRate(rate); }}
+                  />
+                );
+              })}
             </View>
             {tipAmount > 0 ? (
               <Text v="bodyS" tone="successText">
@@ -424,8 +462,6 @@ export default function CheckoutScreen() {
 
             {quote?.coupon ? <Text v="bodyS" tone="textSecondary">Condiciones: {quote.coupon.title}. Aplicación y vigencia verificadas por ZIPP.</Text> : null}
 
-            {/* Línea propia, no escondida dentro del envío: el cliente tiene
-                derecho a ver qué le cobra ZIPP y qué le cobra el domicilio. */}
             {quote?.customerServiceFee ? (
               <DetailRow label="Tarifa de servicio" value={money(quote.customerServiceFee)} />
             ) : null}
@@ -525,6 +561,33 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.lg, padding: Spacing.xxl },
   content: { padding: Spacing.xl, gap: Spacing.xxl, paddingBottom: Spacing.huge },
   section: { gap: Spacing.sm },
+
+  stepperContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+  },
+  stepItem: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  stepDot: {
+    width: 22,
+    height: 22,
+    borderRadius: BorderRadius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepLine: {
+    flex: 1,
+    height: 2,
+    marginHorizontal: Spacing.sm,
+    marginBottom: 16,
+  },
 
   picker: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   pickerIcon: {

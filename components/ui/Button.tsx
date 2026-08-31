@@ -1,4 +1,4 @@
-import { Pressable, View, StyleSheet, type ViewStyle } from 'react-native';
+import { Pressable, View, StyleSheet, type ViewStyle, type StyleProp } from 'react-native';
 import Animated, {
   useSharedValue, useAnimatedStyle, withSpring,
 } from 'react-native-reanimated';
@@ -27,7 +27,7 @@ export interface ButtonProps {
   /** Ocupa todo el ancho disponible. */
   full?: boolean;
   haptic?: 'light' | 'medium' | 'success' | 'none';
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   accessibilityHint?: string;
 }
 

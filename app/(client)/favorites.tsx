@@ -3,23 +3,18 @@ import { useRouter } from 'expo-router';
 import { Text, IconButton, EmptyState, Screen, Header } from '../../components/ui';
 import { BusinessRow } from '../../components/domain/BusinessCard';
 import { useFavoritesStore } from '../../stores/favoritesStore';
-import { Spacing } from '../../theme/tokens';
+import { Spacing, BorderRadius } from '../../theme/tokens';
+import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
 
-/**
- * Favoritos.
- *
- * Se guardan en el teléfono, no en el servidor, así que aparecen al instante
- * y funcionan sin señal. Lo que se guarda es una copia ligera del negocio; al
- * tocarlo se abre la ficha con los datos frescos.
- */
 export default function FavoritesScreen() {
   const router = useRouter();
+  const { c, isDark } = useTheme();
   const { favorites, toggleFavorite } = useFavoritesStore();
 
   return (
-    <Screen>
-      <Header title="Favoritos" fallback="/(client)/(tabs)/profile" />
+    <Screen style={{ backgroundColor: isDark ? '#0C101C' : '#F1F3F7' }}>
+      <Header title="Negocios favoritos" fallback="/(client)/(tabs)/profile" />
 
       <FlatList
         data={favorites}
@@ -28,14 +23,32 @@ export default function FavoritesScreen() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           favorites.length > 0 ? (
-            <Text v="bodyM" tone="textSecondary" style={styles.intro}>
-              {favorites.length} {favorites.length === 1 ? 'negocio guardado' : 'negocios guardados'}.
-              Toca el corazón en cualquier negocio para agregarlo.
-            </Text>
+            <View
+              style={[
+                styles.infoCard,
+                {
+                  backgroundColor: c.surface,
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                },
+              ]}
+            >
+              <Text v="bodyM" tone="textSecondary">
+                {favorites.length} {favorites.length === 1 ? 'negocio guardado' : 'negocios guardados'}.
+                Toca el corazón en cualquier negocio para agregarlo.
+              </Text>
+            </View>
           ) : null
         }
         renderItem={({ item }) => (
-          <View style={styles.row}>
+          <View
+            style={[
+              styles.rowCard,
+              {
+                backgroundColor: c.surface,
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+              },
+            ]}
+          >
             <View style={styles.flex}>
               <BusinessRow
                 business={item}
@@ -53,13 +66,23 @@ export default function FavoritesScreen() {
           </View>
         )}
         ListEmptyComponent={
-          <EmptyState
-            icon="favorito"
-            title="Sin favoritos todavía"
-            message="Guarda los negocios a los que más pides y tenlos siempre a la mano."
-            actionLabel="Explorar negocios"
-            onAction={() => router.push('/(client)/(tabs)/search')}
-          />
+          <View
+            style={[
+              styles.emptyCard,
+              {
+                backgroundColor: c.surface,
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+              },
+            ]}
+          >
+            <EmptyState
+              icon="favorito"
+              title="Sin favoritos todavía"
+              message="Guarda los negocios a los que más pides y tenlos siempre a la mano."
+              actionLabel="Explorar negocios"
+              onAction={() => router.push('/(client)/(tabs)/search')}
+            />
+          </View>
         }
       />
     </Screen>
@@ -68,7 +91,24 @@ export default function FavoritesScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  list: { padding: Spacing.xl, gap: Spacing.md, paddingBottom: Spacing.huge },
-  intro: { marginBottom: Spacing.xs },
-  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  list: { padding: Spacing.lg, gap: Spacing.md, paddingBottom: Spacing.huge },
+  infoCard: {
+    padding: Spacing.lg,
+    borderRadius: 22,
+    borderWidth: 1,
+    marginBottom: Spacing.xs,
+  },
+  rowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: Spacing.sm,
+  },
+  emptyCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
 });

@@ -15,7 +15,9 @@ import { tap } from '../../lib/haptics';
 const TABS: Record<string, { icon: IconName; label: string }> = {
   home: { icon: 'inicio', label: 'Inicio' },
   search: { icon: 'explorar', label: 'Explorar' },
+  dashboard: { icon: 'rayo', label: 'Turno' },
   orders: { icon: 'pedidos', label: 'Pedidos' },
+  earnings: { icon: 'billetera', label: 'Ganancias' },
   profile: { icon: 'perfil', label: 'Perfil' },
 };
 

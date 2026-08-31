@@ -1,7 +1,7 @@
-import { useThemeStore } from '../stores/themeStore';
-import { DarkColors, LightColors, ColorScheme } from '../constants/theme';
+import { useTheme } from './useTheme';
+import { type ColorScheme } from '../theme/tokens';
 
 export function useThemeColors(): ColorScheme {
-  const theme = useThemeStore((s) => s.theme);
-  return theme === 'dark' ? DarkColors : LightColors;
+  const { c } = useTheme();
+  return c;
 }

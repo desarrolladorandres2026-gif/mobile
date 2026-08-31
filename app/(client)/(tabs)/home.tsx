@@ -147,6 +147,7 @@ export default function HomeScreen() {
         ) : null}
 
         {/* ── Categorías ── */}
+        {/* ── Categorías ── */}
         <View style={styles.section}>
           <SectionHeader title="Categorías" />
           <View style={styles.categories}>
@@ -224,7 +225,7 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <SectionHeader
             title="Abiertos ahora"
-            subtitle={openNow.length ? `${openNow.length} en Garzón` : undefined}
+            subtitle={openNow.length ? `${openNow.length} locales disponibles en Garzón` : undefined}
           />
 
           {isError ? (
@@ -240,6 +241,8 @@ export default function HomeScreen() {
               icon="reloj"
               title="Todo cerrado por ahora"
               message="Los negocios de Garzón abren temprano. Vuelve en un rato y te esperamos con todo listo."
+              actionLabel="Ver todos los negocios"
+              onAction={() => router.push('/(client)/(tabs)/search')}
               compact
             />
           ) : (
@@ -258,7 +261,7 @@ export default function HomeScreen() {
         {/* ── Cerrados ── */}
         {closed.length > 0 ? (
           <View style={styles.section}>
-            <SectionHeader title="Abren más tarde" />
+            <SectionHeader title="Abren más tarde" subtitle="Puedes ver sus menús y horarios" />
             <View style={styles.list}>
               {closed.map((business) => (
                 <BusinessRow

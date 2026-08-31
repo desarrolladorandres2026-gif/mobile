@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import {
   View, Pressable, Modal, StyleSheet, ScrollView,
-  KeyboardAvoidingView, Platform, type ViewStyle,
+  KeyboardAvoidingView, Platform, type ViewStyle, type StyleProp,
 } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { Text } from './Text';
@@ -20,7 +20,7 @@ export interface CardProps {
   /** `flat` sin sombra · `raised` con sombra · `outline` solo borde. */
   tone?: 'flat' | 'raised' | 'outline' | 'accent';
   padded?: boolean;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
   accessibilityHint?: string;
 }

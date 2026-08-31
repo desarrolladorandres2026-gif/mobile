@@ -1,68 +1,197 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { useState } from 'react';
+import { View, ScrollView, StyleSheet, Pressable, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../../constants';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import {
+  Text, Icon, Card, Button, Badge, Notice, DetailRow,
+} from '../../../components/ui';
 import { useAuthStore } from '../../../stores/authStore';
+import { useDriverProfile } from '../../../hooks/useApi';
+import { useTheme } from '../../../hooks/useTheme';
+import { BorderRadius, Spacing } from '../../../theme/tokens';
+import { initials } from '../../../lib/format';
+import { tap } from '../../../lib/haptics';
+
+const BOTTOM_SPACE = 100;
 
 export default function DriverProfileScreen() {
   const router = useRouter();
+  const { c, isDark, toggleTheme } = useTheme();
   const { user, logout } = useAuthStore();
+  const { data: profile } = useDriverProfile();
 
   const handleLogout = () => {
-    Alert.alert('Cerrar sesión', '¿Estás seguro?', [
+    tap('warning');
+    Alert.alert('Cerrar sesión', '¿Estás seguro de que deseas salir?', [
       { text: 'Cancelar', style: 'cancel' },
-      { text: 'Salir', style: 'destructive', onPress: () => { logout(); router.replace('/(auth)/login'); } },
+      {
+        text: 'Cerrar sesión',
+        style: 'destructive',
+        onPress: () => {
+          logout();
+          router.replace('/(auth)/login');
+        },
+      },
     ]);
   };
 
+  const completedDeliveries = profile?.totalDeliveries || 0;
+  const vehicleType = profile?.vehicleType === 'bicycle' ? 'Bicicleta' : 'Motocicleta';
+  const licensePlate = profile?.licensePlate;
+
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView>
-        <Text style={styles.title}>Mi Perfil</Text>
-        <View style={styles.card}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{user?.name?.charAt(0)?.toUpperCase() || 'D'}</Text>
-          </View>
-          <Text style={styles.name}>{user?.name}</Text>
-          <Text style={styles.phone}>{user?.phone}</Text>
-          <View style={styles.ratingRow}>
-            <Ionicons name="star" size={18} color={Colors.warning} />
-            <Text style={styles.ratingText}>4.9</Text>
-            <Text style={styles.ratingCount}>(128 entregas)</Text>
-          </View>
+    <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <Text v="displayM">Mi Perfil</Text>
+
+        {/* ── Tarjeta de Perfil ── */}
+        <Animated.View entering={FadeIn.duration(280)}>
+          <Card style={styles.profileCard}>
+            <View style={styles.avatarRow}>
+              <View style={[styles.avatar, { backgroundColor: c.primary }]}>
+                <Text v="displayM" color={c.textOnPrimary}>
+                  {initials(user?.name) || 'D'}
+                </Text>
+              </View>
+
+              <View style={styles.flex}>
+                <Text v="titleL" numberOfLines={1}>{user?.name || 'Repartidor ZIPP'}</Text>
+                <Text v="bodyS" tone="textMuted">{user?.phone || 'Sin teléfono'}</Text>
+                <View style={styles.vehicleRow}>
+                  <Icon name="domiciliario" size="sm" color={c.primaryText} />
+                  <Text v="strongS" tone="primaryText">
+                    {vehicleType} {licensePlate ? `· ${licensePlate}` : ''}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={[styles.divider, { backgroundColor: c.border }]} />
+
+            {/* Estadísticas clave */}
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <View style={styles.ratingRow}>
+                  <Icon name="calificacion" size="sm" color="#f59e0b" />
+                  <Text v="titleM">4.9</Text>
+                </View>
+                <Text v="caption" tone="textMuted">Calificación</Text>
+              </View>
+
+              <View style={[styles.statDivider, { backgroundColor: c.border }]} />
+
+              <View style={styles.statItem}>
+                <Text v="titleM">{completedDeliveries}</Text>
+                <Text v="caption" tone="textMuted">Entregas</Text>
+              </View>
+
+              <View style={[styles.statDivider, { backgroundColor: c.border }]} />
+
+              <View style={styles.statItem}>
+                <Text v="titleM" tone="limeText">99%</Text>
+                <Text v="caption" tone="textMuted">Cumplimiento</Text>
+              </View>
+            </View>
+          </Card>
+        </Animated.View>
+
+        {/* ── Preferencias y Tema ── */}
+        <View style={styles.section}>
+          <Text v="label" tone="textMuted">Preferencias de la aplicación</Text>
+          <Card style={styles.menuCard}>
+            <Pressable
+              onPress={() => { tap('select'); toggleTheme(); }}
+              style={styles.menuRow}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: c.primarySoft }]}>
+                <Icon name={isDark ? 'temaOscuro' : 'temaClaro'} size="md" color={c.primaryText} />
+              </View>
+              <View style={styles.flex}>
+                <Text v="strongS">Tema visual</Text>
+                <Text v="caption" tone="textMuted">
+                  {isDark ? 'Modo oscuro activado' : 'Modo claro activado'}
+                </Text>
+              </View>
+              <Badge label={isDark ? 'Oscuro' : 'Claro'} tone="neutral" />
+            </Pressable>
+          </Card>
         </View>
 
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={20} color={Colors.error} />
-          <Text style={styles.logoutText}>Cerrar sesión</Text>
-        </TouchableOpacity>
+        {/* ── Soporte ── */}
+        <View style={styles.section}>
+          <Text v="label" tone="textMuted">Ayuda y Soporte</Text>
+          <Card style={styles.menuCard}>
+            <Pressable
+              onPress={() => { tap('light'); router.push('/(client)/help'); }}
+              style={styles.menuRow}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: c.primarySoft }]}>
+                <Icon name="soporte" size="md" color={c.primaryText} />
+              </View>
+              <View style={styles.flex}>
+                <Text v="strongS">Soporte ZIPP Garzón</Text>
+                <Text v="caption" tone="textMuted">Asistencia directa con despachos</Text>
+              </View>
+              <Icon name="siguiente" size="sm" color={c.textMuted} />
+            </Pressable>
+          </Card>
+        </View>
+
+        {/* ── Botón Cerrar Sesión ── */}
+        <Button
+          title="Cerrar sesión"
+          icon="salir"
+          variant="danger"
+          full
+          onPress={handleLogout}
+        />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background, paddingHorizontal: Spacing.xl },
-  title: { fontSize: FontSize.xxxl, fontWeight: '800', color: Colors.text, marginTop: Spacing.md },
-  card: {
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.xxl,
-    alignItems: 'center', marginTop: Spacing.xl, borderWidth: 1, borderColor: Colors.border,
+  screen: { flex: 1 },
+  flex: { flex: 1 },
+  content: {
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.md,
+    gap: Spacing.xl,
+    paddingBottom: BOTTOM_SPACE,
   },
+  profileCard: { padding: Spacing.xl, gap: Spacing.lg },
+  avatarRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.lg },
   avatar: {
-    width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.primary,
-    justifyContent: 'center', alignItems: 'center',
+    width: 64, height: 64, borderRadius: 32,
+    alignItems: 'center', justifyContent: 'center',
   },
-  avatarText: { fontSize: 32, fontWeight: '700', color: Colors.white },
-  name: { fontSize: FontSize.xxl, fontWeight: '700', color: Colors.text, marginTop: Spacing.md },
-  phone: { fontSize: FontSize.md, color: Colors.textSecondary, marginTop: 4 },
-  ratingRow: { flexDirection: 'row', alignItems: 'center', marginTop: Spacing.md, gap: 6 },
-  ratingText: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.text },
-  ratingCount: { fontSize: FontSize.sm, color: Colors.textMuted },
-  logoutBtn: {
-    flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: Spacing.sm,
-    backgroundColor: `${Colors.error}10`, borderRadius: BorderRadius.md,
-    padding: Spacing.lg, marginTop: Spacing.xxl,
+  vehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    marginTop: 2,
   },
-  logoutText: { color: Colors.error, fontSize: FontSize.md, fontWeight: '600' },
+  divider: { height: StyleSheet.hairlineWidth },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+  },
+  statItem: { alignItems: 'center', gap: 2 },
+  statDivider: { width: StyleSheet.hairlineWidth, height: 28 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+
+  section: { gap: Spacing.sm },
+  menuCard: { padding: 0, overflow: 'hidden' },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.md,
+  },
+  menuIcon: {
+    width: 40, height: 40, borderRadius: BorderRadius.md,
+    alignItems: 'center', justifyContent: 'center',
+  },
 });

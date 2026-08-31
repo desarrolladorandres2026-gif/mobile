@@ -1,26 +1,26 @@
 import { FlatList, View, StyleSheet, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
-  Text, Icon, Card, Button, EmptyState, ErrorState, Screen, Header, Skeleton,
+  Text, Icon, Button, EmptyState, ErrorState, Screen, Header, Skeleton,
 } from '../../components/ui';
 import { useNotifications, useMarkAllRead, useMarkRead } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
 import type { IconName } from '../../theme/icons';
-import { BorderRadius, Spacing } from '../../theme/tokens';
+import { BorderRadius, Spacing, FontSize } from '../../theme/tokens';
 import { orderDate } from '../../lib/format';
 
-/** Icono y color según de qué trata el aviso. */
-function look(type: string): { icon: IconName; tone: 'primary' | 'lime' | 'warning' | 'error' } {
-  if (type?.includes('order')) return { icon: 'paquete', tone: 'primary' };
-  if (type?.includes('promo') || type?.includes('coupon')) return { icon: 'cupon', tone: 'lime' };
-  if (type?.includes('payment')) return { icon: 'tarjeta', tone: 'primary' };
-  if (type?.includes('cancel')) return { icon: 'error', tone: 'error' };
-  return { icon: 'info', tone: 'warning' };
+/** Icono y color squircle según de qué trata el aviso. */
+function look(type: string): { icon: IconName; bg: string; fg: string } {
+  if (type?.includes('order')) return { icon: 'paquete', bg: '#6268A0', fg: '#FFFFFF' };
+  if (type?.includes('promo') || type?.includes('coupon')) return { icon: 'cupon', bg: '#6268A0', fg: '#FFFFFF' };
+  if (type?.includes('payment')) return { icon: 'tarjeta', bg: '#6268A0', fg: '#FFFFFF' };
+  if (type?.includes('cancel')) return { icon: 'error', bg: '#6268A0', fg: '#FFFFFF' };
+  return { icon: 'notificaciones', bg: '#6268A0', fg: '#FFFFFF' };
 }
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { c } = useTheme();
+  const { c, isDark } = useTheme();
 
   const { data, isLoading, isError, refetch, isRefetching } = useNotifications();
   const markAll = useMarkAllRead();
@@ -30,9 +30,9 @@ export default function NotificationsScreen() {
   const unread = notifications.filter((n) => !n.isRead).length;
 
   return (
-    <Screen>
+    <Screen style={{ backgroundColor: isDark ? '#0C101C' : '#F1F3F7' }}>
       <Header
-        title="Avisos"
+        title="Avisos y notificaciones"
         subtitle={unread > 0 ? `${unread} sin leer` : undefined}
         fallback="/(client)/(tabs)/profile"
         right={
@@ -53,10 +53,19 @@ export default function NotificationsScreen() {
       ) : isLoading ? (
         <View style={styles.skeletons}>
           {[0, 1, 2, 3].map((i) => (
-            <View key={i} style={styles.skeletonRow}>
-              <Skeleton width={40} height={40} radius={BorderRadius.sm} />
+            <View
+              key={i}
+              style={[
+                styles.itemCard,
+                {
+                  backgroundColor: c.surface,
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                },
+              ]}
+            >
+              <Skeleton width={44} height={44} radius={14} />
               <View style={styles.flex}>
-                <Skeleton width="55%" height={15} />
+                <Skeleton width="55%" height={16} />
                 <Skeleton width="88%" height={13} style={{ marginTop: 8 }} />
               </View>
             </View>
@@ -72,65 +81,62 @@ export default function NotificationsScreen() {
             <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={c.primary} />
           }
           renderItem={({ item }) => {
-            const { icon, tone } = look(item.type ?? '');
+            const { icon, bg, fg } = look(item.type ?? '');
             const orderId = item.data?.orderId;
 
             return (
-              <Card
-                padded={false}
-                tone={item.isRead ? 'flat' : 'accent'}
-                onPress={() => {
-                  if (!item.isRead) markOne.mutate(item._id);
-                  if (orderId) {
-                    router.push({ pathname: '/(client)/order-tracking', params: { id: String(orderId) } });
-                  }
-                }}
-                accessibilityLabel={`${item.title}. ${item.body}`}
-                accessibilityHint={orderId ? 'Abre el pedido relacionado' : undefined}
-                style={styles.item}
+              <View
+                style={[
+                  styles.itemCard,
+                  {
+                    backgroundColor: c.surface,
+                    borderColor: !item.isRead
+                      ? isDark ? 'rgba(75, 59, 255, 0.40)' : 'rgba(75, 59, 255, 0.25)'
+                      : isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                  },
+                ]}
               >
-                <View
-                  style={[
-                    styles.itemIcon,
-                    {
-                      backgroundColor:
-                        tone === 'lime' ? c.limeSoft
-                        : tone === 'error' ? c.errorSoft
-                        : tone === 'warning' ? c.warningSoft
-                        : c.primarySoft,
-                    },
-                  ]}
-                >
-                  <Icon
-                    name={icon}
-                    size="md"
-                    color={
-                      tone === 'lime' ? c.limeText
-                      : tone === 'error' ? c.errorText
-                      : tone === 'warning' ? c.warningText
-                      : c.primaryText
-                    }
-                  />
+                <View style={styles.cleanIcon}>
+                  <Icon name={icon} size="lg" color="#6268A0" />
                 </View>
 
                 <View style={styles.itemBody}>
-                  <Text v={item.isRead ? 'strongS' : 'titleS'} numberOfLines={2}>
-                    {item.title}
+                  <View style={styles.itemTitleRow}>
+                    <Text v="strongM" numberOfLines={2} style={styles.flex}>
+                      {item.title}
+                    </Text>
+                    {!item.isRead ? (
+                      <View style={[styles.unreadPill, { backgroundColor: c.primary }]}>
+                        <Text v="dataXS" color="#FFFFFF">Nuevo</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text v="bodyS" tone="textSecondary" numberOfLines={3}>
+                    {item.body}
                   </Text>
-                  <Text v="bodyS" tone="textSecondary" numberOfLines={3}>{item.body}</Text>
-                  <Text v="dataXS" tone="textMuted">{orderDate(item.createdAt)}</Text>
+                  <Text v="dataXS" tone="textMuted">
+                    {orderDate(item.createdAt)}
+                  </Text>
                 </View>
-
-                {!item.isRead ? <View style={[styles.unreadDot, { backgroundColor: c.lime }]} /> : null}
-              </Card>
+              </View>
             );
           }}
           ListEmptyComponent={
-            <EmptyState
-              icon="notificaciones"
-              title="Nada por aquí"
-              message="Cuando tengas un pedido en curso o una promoción nueva, te avisamos en esta pantalla."
-            />
+            <View
+              style={[
+                styles.emptyCard,
+                {
+                  backgroundColor: c.surface,
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                },
+              ]}
+            >
+              <EmptyState
+                icon="notificaciones"
+                title="Sin avisos todavía"
+                message="Cuando tengas novedades sobre tus pedidos o promociones activas las verás aquí."
+              />
+            </View>
           }
         />
       )}
@@ -140,15 +146,38 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  list: { padding: Spacing.xl, gap: Spacing.md, paddingBottom: Spacing.huge },
-  skeletons: { padding: Spacing.xl, gap: Spacing.lg },
-  skeletonRow: { flexDirection: 'row', gap: Spacing.md },
+  list: { padding: Spacing.lg, gap: Spacing.md, paddingBottom: Spacing.huge },
+  skeletons: { padding: Spacing.lg, gap: Spacing.md },
 
-  item: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md, padding: Spacing.md },
-  itemIcon: {
-    width: 40, height: 40, borderRadius: BorderRadius.sm,
-    alignItems: 'center', justifyContent: 'center',
+  itemCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.md,
+    padding: Spacing.lg,
+    borderRadius: 22,
+    borderWidth: 1,
   },
-  itemBody: { flex: 1, gap: 3 },
-  unreadDot: { width: 8, height: 8, borderRadius: 4, marginTop: Spacing.sm },
+  cleanIcon: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  itemBody: { flex: 1, gap: 4 },
+  itemTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  unreadPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  emptyCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
 });

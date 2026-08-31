@@ -1,39 +1,52 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, RefreshControl } from 'react-native';
+import {
+  View, FlatList, StyleSheet, Pressable, RefreshControl, Linking, Alert,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../../constants';
-import { useAvailableOrders, useDriverOrders, useDriverProfile, useAssignDriver, useUpdateOrderStatus } from '../../../hooks/useApi';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import {
+  Text, Icon, Card, Button, Badge, StatusPill, EmptyState, ErrorState,
+  LoadingScreen, PulseDot, Notice, DetailRow,
+} from '../../../components/ui';
+import {
+  useAvailableOrders, useDriverOrders, useDriverProfile, useAssignDriver, useUpdateOrderStatus,
+} from '../../../hooks/useApi';
+import { useTheme } from '../../../hooks/useTheme';
 import { socketService } from '../../../services/socket';
+import { BorderRadius, Spacing } from '../../../theme/tokens';
+import { money, orderCode, orderDate } from '../../../lib/format';
+import { tap } from '../../../lib/haptics';
+
+const BOTTOM_SPACE = 100;
+type OrderTab = 'available' | 'my_deliveries';
 
 export default function DriverOrdersScreen() {
-  const [activeTab, setActiveTab] = useState<'available' | 'my_deliveries'>('available');
-  
-  // React query hooks
-  const { data: driverProfile, isLoading: loadingProfile } = useDriverProfile();
-  const { data: availableOrdersData, isLoading: loadingAvailable, refetch: refetchAvailable } = useAvailableOrders();
-  const { data: driverOrdersData, isLoading: loadingDriverOrders, refetch: refetchMy } = useDriverOrders();
+  const { c } = useTheme();
+  const [tab, setTab] = useState<OrderTab>('available');
+
+  const { data: driverProfile } = useDriverProfile();
+  const {
+    data: availableOrdersData, isLoading: loadingAvailable, refetch: refetchAvailable, isRefetching: refetchingAvailable,
+  } = useAvailableOrders();
+  const {
+    data: driverOrdersData, isLoading: loadingDriverOrders, refetch: refetchMy, isRefetching: refetchingMy,
+  } = useDriverOrders();
 
   const assignDriverMutation = useAssignDriver();
   const updateStatusMutation = useUpdateOrderStatus();
 
-  // Socket connection
   useEffect(() => {
     socketService.connect();
-    
-    // Listen for new available orders
     socketService.onOrderAvailable(() => {
-      console.log('⚡ New order available via socket');
       refetchAvailable();
     });
-
-    return () => {
-      socketService.removeAllListeners();
-    };
+    return () => { socketService.removeAllListeners(); };
   }, []);
 
+  const isRefetching = tab === 'available' ? refetchingAvailable : refetchingMy;
+
   const handleRefresh = async () => {
-    if (activeTab === 'available') {
+    if (tab === 'available') {
       await refetchAvailable();
     } else {
       await refetchMy();
@@ -45,174 +58,140 @@ export default function DriverOrdersScreen() {
       Alert.alert('Error', 'No se encontró tu perfil de domiciliario');
       return;
     }
-
+    tap('medium');
     assignDriverMutation.mutate(
       { orderId, driverId: driverProfile._id },
       {
         onSuccess: (updatedOrder: any) => {
-          Alert.alert('Éxito', 'Has aceptado el pedido');
+          tap('success');
+          Alert.alert('¡Pedido aceptado!', 'Dirígete al negocio para recoger los productos.');
           refetchAvailable();
           refetchMy();
-          
-          // Emit socket update
+          setTab('my_deliveries');
+
           socketService.emitOrderStatusUpdate({
             orderId,
             status: 'ready',
             clientId: updatedOrder.clientId,
-            driverId: driverProfile.userId?._id || driverProfile.userId
+            driverId: driverProfile.userId?._id || driverProfile.userId,
           });
         },
         onError: (error: any) => {
+          tap('error');
           Alert.alert('Error', error.response?.data?.message || 'No se pudo aceptar el pedido');
-        }
+        },
       }
     );
   };
 
   const handleUpdateStatus = (order: any, nextStatus: string) => {
+    tap('medium');
     updateStatusMutation.mutate(
       { id: order._id, status: nextStatus },
       {
-        onSuccess: (updatedOrder: any) => {
+        onSuccess: () => {
+          tap('success');
           refetchMy();
-          
-          // Emit socket status update
+
           socketService.emitOrderStatusUpdate({
             orderId: order._id,
             status: nextStatus,
             clientId: order.clientId?._id || order.clientId,
-            driverId: driverProfile?.userId?._id || driverProfile?.userId
+            driverId: driverProfile?.userId?._id || driverProfile?.userId,
           });
         },
         onError: (error: any) => {
+          tap('error');
           Alert.alert('Error', error.response?.data?.message || 'No se pudo actualizar el estado');
-        }
+        },
       }
     );
   };
 
-  const getStatusButtonConfig = (order: any) => {
-    switch (order.status) {
-      case 'ready':
-        return { label: 'Recoger en local', status: 'picked_up', color: Colors.primary };
-      case 'picked_up':
-        return { label: 'Iniciar entrega', status: 'on_way', color: Colors.statusOnWay };
-      case 'on_way':
-        return { label: 'Entregado', status: 'delivered', color: Colors.success };
-      default:
-        return null;
-    }
+  const openMap = (address: string, lat?: number, lng?: number) => {
+    tap('light');
+    const query = lat && lng ? `${lat},${lng}` : encodeURIComponent(address);
+    const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
+    Linking.openURL(url).catch(() => {});
   };
 
-  const loading = loadingProfile || loadingAvailable || loadingDriverOrders;
-  const availableOrders = availableOrdersData || [];
-  const activeDeliveries = (driverOrdersData || []).filter((o: any) => 
-    ['ready', 'picked_up', 'on_way'].includes(o.status)
-  );
+  const callPhone = (phone: string) => {
+    tap('light');
+    Linking.openURL(`tel:${phone}`).catch(() => {});
+  };
+
+  const availableOrders = availableOrdersData?.data || availableOrdersData || [];
+  const myOrders = driverOrdersData?.data || driverOrdersData || [];
+  const list = tab === 'available' ? availableOrders : myOrders;
+  const isLoading = tab === 'available' ? loadingAvailable : loadingDriverOrders;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <Text style={styles.title}>Logística de Entregas</Text>
+    <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
+      <View style={styles.top}>
+        <Text v="displayM">Entregas</Text>
 
-      {/* Tabs */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'available' && styles.tabActive]}
-          onPress={() => setActiveTab('available')}
-        >
-          <Text style={[styles.tabText, activeTab === 'available' && styles.tabTextActive]}>
-            Disponibles ({availableOrders.length})
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'my_deliveries' && styles.tabActive]}
-          onPress={() => setActiveTab('my_deliveries')}
-        >
-          <Text style={[styles.tabText, activeTab === 'my_deliveries' && styles.tabTextActive]}>
-            Mis Rutas ({activeDeliveries.length})
-          </Text>
-        </TouchableOpacity>
+        {/* ── Selector de Pestañas ── */}
+        <View style={[styles.segments, { backgroundColor: c.surfaceLight, borderColor: c.border }]}>
+          <Segment
+            label="Disponibles"
+            count={availableOrders.length}
+            live={availableOrders.length > 0}
+            active={tab === 'available'}
+            onPress={() => { tap('select'); setTab('available'); }}
+          />
+          <Segment
+            label="Mis Entregas"
+            count={myOrders.length}
+            active={tab === 'my_deliveries'}
+            onPress={() => { tap('select'); setTab('my_deliveries'); }}
+          />
+        </View>
       </View>
 
-      {loading ? (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
+      {isLoading && !isRefetching ? (
+        <LoadingScreen message="Actualizando pedidos..." />
       ) : (
         <FlatList
-          data={activeTab === 'available' ? availableOrders : activeDeliveries}
+          data={list}
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={loading}
+              refreshing={isRefetching}
               onRefresh={handleRefresh}
-              tintColor={Colors.primary}
+              tintColor={c.primary}
+              colors={[c.primary]}
             />
           }
-          renderItem={({ item }) => {
-            const btnConfig = getStatusButtonConfig(item);
-            return (
-              <View style={styles.orderCard}>
-                <View style={styles.cardHeader}>
-                  <Text style={styles.businessName}>{item.businessId?.name}</Text>
-                  <View style={[styles.paymentBadge, item.paymentMethod === 'online' ? styles.onlineBadge : styles.cashBadge]}>
-                    <Text style={styles.paymentText}>{item.paymentMethod === 'online' ? '💳 Digital' : '💵 Contra entrega'}</Text>
-                  </View>
-                </View>
-                <View style={styles.detailRow}>
-                  <Ionicons name="location-outline" size={14} color={Colors.textMuted} />
-                  <Text style={styles.detailText}>{item.deliveryAddress}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Ionicons name="person-outline" size={14} color={Colors.textMuted} />
-                  <Text style={styles.detailText}>Cliente: {item.clientId?.name || 'Usuario'}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Ionicons name="cash-outline" size={14} color={Colors.textMuted} />
-                  <Text style={styles.detailText}>Valor del pedido: ${item.total?.toLocaleString()}</Text>
-                </View>
-                <View style={styles.cardFooter}>
-                  <View>
-                    <Text style={styles.feeLabel}>Tu ganancia</Text>
-                    <Text style={styles.feeValue}>${item.deliveryFee?.toLocaleString()}</Text>
-                  </View>
-                  
-                  {activeTab === 'available' ? (
-                    <View style={styles.actions}>
-                      <TouchableOpacity
-                        style={[styles.acceptBtn, assignDriverMutation.isPending && { opacity: 0.7 }]}
-                        onPress={() => handleAcceptOrder(item._id)}
-                        disabled={assignDriverMutation.isPending}
-                      >
-                        <Text style={styles.acceptText}>Aceptar</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    btnConfig && (
-                      <TouchableOpacity
-                        style={[styles.statusUpdateBtn, { backgroundColor: btnConfig.color }, updateStatusMutation.isPending && { opacity: 0.7 }]}
-                        onPress={() => handleUpdateStatus(item, btnConfig.status)}
-                        disabled={updateStatusMutation.isPending}
-                      >
-                        <Text style={styles.statusUpdateText}>{btnConfig.label}</Text>
-                      </TouchableOpacity>
-                    )
-                  )}
-                </View>
-              </View>
-            );
-          }}
+          renderItem={({ item }) => (
+            <DriverOrderCard
+              order={item}
+              isAvailable={tab === 'available'}
+              onAccept={() => handleAcceptOrder(item._id)}
+              onNextStatus={(nextStatus) => handleUpdateStatus(item, nextStatus)}
+              onOpenMap={openMap}
+              onCall={callPhone}
+            />
+          )}
           ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Ionicons name="bicycle-outline" size={64} color={Colors.border} />
-              <Text style={styles.emptyTitle}>
-                {activeTab === 'available' ? 'No hay pedidos disponibles' : 'No tienes entregas activas'}
-              </Text>
-              <Text style={styles.emptySubtitle}>
-                {activeTab === 'available' ? 'Vuelve a revisar en unos minutos.' : '¡Acepta un pedido para empezar!'}
-              </Text>
-            </View>
+            tab === 'available' ? (
+              <EmptyState
+                icon="ruta"
+                title="Sin pedidos disponibles"
+                message="En cuanto un restaurante de Garzón prepare un pedido, aparecerá aquí al instante."
+                actionLabel="Actualizar"
+                onAction={handleRefresh}
+              />
+            ) : (
+              <EmptyState
+                icon="pedidos"
+                title="No tienes pedidos asignados"
+                message="Pasa a la pestaña 'Disponibles' para aceptar tu próxima entrega."
+                actionLabel="Ver disponibles"
+                onAction={() => setTab('available')}
+              />
+            )
           }
         />
       )}
@@ -220,34 +199,196 @@ export default function DriverOrdersScreen() {
   );
 }
 
+function Segment({
+  label, count, active, live, onPress,
+}: { label: string; count: number; active: boolean; live?: boolean; onPress: () => void }) {
+  const { c } = useTheme();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
+      style={[styles.segment, active && { backgroundColor: c.surface }]}
+    >
+      {live ? <PulseDot color={c.lime} size={6} /> : null}
+      <Text v="strongS" tone={active ? 'text' : 'textMuted'}>{label}</Text>
+      {count > 0 ? (
+        <Text v="dataXS" tone={active ? 'primaryText' : 'textMuted'}>{count}</Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function DriverOrderCard({
+  order, isAvailable, onAccept, onNextStatus, onOpenMap, onCall,
+}: {
+  order: any;
+  isAvailable: boolean;
+  onAccept: () => void;
+  onNextStatus: (status: string) => void;
+  onOpenMap: (addr: string, lat?: number, lng?: number) => void;
+  onCall: (phone: string) => void;
+}) {
+  const { c } = useTheme();
+
+  const business = order.businessId;
+  const client = order.clientId;
+  const deliveryFee = order.deliveryFee || 0;
+  const tip = order.tip || 0;
+  const totalEarning = deliveryFee + tip;
+
+  return (
+    <Animated.View entering={FadeIn.duration(240)}>
+      <Card style={styles.card}>
+        <View style={styles.cardHeader}>
+          <View>
+            <Text v="caption" tone="textMuted">{orderDate(order.createdAt)}</Text>
+            <Text v="titleM">{business?.name || 'Local comercial'}</Text>
+          </View>
+          <Badge
+            label={money(totalEarning)}
+            tone="lime"
+          />
+        </View>
+
+        {/* ── Ruta de entrega ── */}
+        <View style={[styles.routeBox, { backgroundColor: c.surfaceLight, borderColor: c.border }]}>
+          {/* Origen */}
+          <Pressable
+            onPress={() => onOpenMap(business?.address, business?.location?.coordinates?.[1], business?.location?.coordinates?.[0])}
+            style={styles.routeRow}
+          >
+            <View style={[styles.pointDot, { backgroundColor: c.primary }]} />
+            <View style={styles.flex}>
+              <Text v="caption" tone="textMuted">RECOGER EN</Text>
+              <Text v="strongS" numberOfLines={1}>{business?.address || 'Dirección del negocio'}</Text>
+            </View>
+            <Icon name="navegar" size="sm" color={c.primaryText} />
+          </Pressable>
+
+          <View style={[styles.routeDivider, { backgroundColor: c.border }]} />
+
+          {/* Destino */}
+          <Pressable
+            onPress={() => onOpenMap(order.deliveryAddress, order.deliveryLatitude, order.deliveryLongitude)}
+            style={styles.routeRow}
+          >
+            <View style={[styles.pointDot, { backgroundColor: c.lime }]} />
+            <View style={styles.flex}>
+              <Text v="caption" tone="textMuted">ENTREGAR A {client?.name?.toUpperCase() || 'CLIENTE'}</Text>
+              <Text v="strongS" numberOfLines={1}>{order.deliveryAddress}</Text>
+            </View>
+            <Icon name="navegar" size="sm" color={c.limeText} />
+          </Pressable>
+        </View>
+
+        {/* ── Alerta si es Pago en Efectivo ── */}
+        {order.paymentMethod === 'cash_on_delivery' ? (
+          <Notice tone="warning" icon="efectivo">
+            Cobrar al cliente: {money(order.total)} en efectivo.
+          </Notice>
+        ) : (
+          <Notice tone="info" icon="tarjeta">
+            Pedido pagado digitalmente. No cobrar nada en la entrega.
+          </Notice>
+        )}
+
+        {/* ── Botones de Acción ── */}
+        <View style={styles.cardActions}>
+          {client?.phone ? (
+            <Button
+              title="Llamar"
+              icon="llamar"
+              variant="secondary"
+              onPress={() => onCall(client.phone)}
+            />
+          ) : null}
+
+          {isAvailable ? (
+            <Button
+              title="Aceptar pedido"
+              icon="check"
+              style={styles.flex}
+              onPress={onAccept}
+            />
+          ) : order.status === 'ready' ? (
+            <Button
+              title="Recoger en local"
+              icon="paquete"
+              style={styles.flex}
+              onPress={() => onNextStatus('picked_up')}
+            />
+          ) : order.status === 'picked_up' ? (
+            <Button
+              title="Iniciar camino"
+              icon="ruta"
+              style={styles.flex}
+              onPress={() => onNextStatus('on_way')}
+            />
+          ) : order.status === 'on_way' ? (
+            <Button
+              title="Confirmar entrega"
+              icon="check"
+              style={styles.flex}
+              onPress={() => onNextStatus('delivered')}
+            />
+          ) : (
+            <StatusPill status={order.status} />
+          )}
+        </View>
+      </Card>
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  title: { fontSize: FontSize.xxxl, fontWeight: '800', color: Colors.text, paddingHorizontal: Spacing.xl, marginTop: Spacing.md },
-  tabContainer: { flexDirection: 'row', paddingHorizontal: Spacing.xl, marginTop: Spacing.lg, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  tab: { flex: 1, paddingVertical: Spacing.md, alignItems: 'center' },
-  tabActive: { borderBottomWidth: 2, borderBottomColor: Colors.primary },
-  tabText: { fontSize: FontSize.sm, color: Colors.textMuted, fontWeight: '600' },
-  tabTextActive: { color: Colors.primary, fontWeight: '700' },
-  list: { padding: Spacing.xl, gap: Spacing.md, paddingBottom: 100 },
-  orderCard: { backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, padding: Spacing.lg, borderWidth: 1, borderColor: Colors.border },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  businessName: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.text },
-  paymentBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: BorderRadius.full },
-  onlineBadge: { backgroundColor: `${Colors.statusAccepted}20` },
-  cashBadge: { backgroundColor: `${Colors.warning}20` },
-  paymentText: { fontSize: FontSize.xs, fontWeight: '600', color: Colors.text },
-  detailRow: { flexDirection: 'row', alignItems: 'center', marginTop: Spacing.sm, gap: 6 },
-  detailText: { fontSize: FontSize.sm, color: Colors.textSecondary },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: Spacing.lg },
-  feeLabel: { fontSize: FontSize.xs, color: Colors.textMuted },
-  feeValue: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.success },
-  actions: { flexDirection: 'row', gap: Spacing.sm },
-  acceptBtn: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.sm, borderRadius: BorderRadius.md, backgroundColor: Colors.primary },
-  acceptText: { color: Colors.white, fontWeight: '700', fontSize: FontSize.sm },
-  statusUpdateBtn: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md, borderRadius: BorderRadius.md },
-  statusUpdateText: { color: Colors.white, fontWeight: '700', fontSize: FontSize.sm },
-  emptyState: { alignItems: 'center', paddingTop: 100 },
-  emptyTitle: { fontSize: FontSize.xl, fontWeight: '600', color: Colors.text, marginTop: Spacing.lg },
-  emptySubtitle: { fontSize: FontSize.md, color: Colors.textMuted, marginTop: Spacing.xs },
+  screen: { flex: 1 },
+  flex: { flex: 1 },
+  top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.lg },
+  segments: {
+    flexDirection: 'row',
+    gap: Spacing.xs,
+    padding: 4,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+  },
+  segment: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs + 2,
+    height: 42,
+    borderRadius: BorderRadius.full,
+  },
+
+  list: { padding: Spacing.xl, gap: Spacing.lg, paddingBottom: BOTTOM_SPACE },
+  card: { padding: Spacing.lg, gap: Spacing.md },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  routeBox: {
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  pointDot: { width: 10, height: 10, borderRadius: 5 },
+  routeDivider: { height: StyleSheet.hairlineWidth, marginVertical: 2 },
+
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
 });
