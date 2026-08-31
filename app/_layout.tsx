@@ -21,6 +21,7 @@ import {
 import { useAuthStore } from '../stores/authStore';
 import { useTheme } from '../hooks/useTheme';
 import { ZippMarkDrawing } from '../components/brand/ZippLogo';
+import { registerServiceWorker } from '../lib/pwa';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,6 +53,20 @@ function RootLayoutContent() {
 
   useEffect(() => {
     loadStoredAuth();
+
+    // TODO(usuario): cuando hay una versión nueva del shell esperando, ¿qué
+    // hace la PWA? Dos caminos válidos, con trade-offs distintos:
+    //  a) Recargar sola (`window.location.reload()`) — el usuario siempre
+    //     tiene la última versión, pero puede perder texto sin enviar o
+    //     interrumpir un flujo (ej. a mitad del checkout).
+    //  b) Mostrar un banner tipo "Hay una versión nueva, toca para
+    //     actualizar" — más respetuoso del flujo en curso, pero exige que
+    //     construyas ese componente y que el usuario note el aviso.
+    // El proyecto ya tiene banners/toasts en components/? revisa ahí antes
+    // de crear uno nuevo.
+    registerServiceWorker(() => {
+      // placeholder: hoy no hace nada, ver TODO arriba.
+    });
   }, []);
 
   // Mientras cargan fuentes y sesión, la marca se dibuja sola. Es la misma
