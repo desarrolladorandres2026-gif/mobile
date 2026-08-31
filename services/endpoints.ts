@@ -52,6 +52,8 @@ export const ordersApi = {
   getById: (id: string) =>
     api.get(`/orders/${id}`).then((r) => r.data.data),
 
+  getReceipt: (id: string) => api.get(`/orders/${id}/receipt`).then((r) => r.data.data),
+
   updateStatus: (id: string, status: string, cancellationReason?: string) =>
     api.patch(`/orders/${id}/status`, { status, cancellationReason }).then((r) => r.data.data),
 
@@ -134,7 +136,9 @@ export const couponsApi = {
     api.get('/coupons/public', { params }).then((r) => r.data.data),
 
   validate: (data: { code: string; businessId: string; subtotal: number; deliveryFee?: number }) =>
-    api.post('/coupons/validate', data).then((r) => r.data.data),
+    // The authoritative validation is ordersApi.quote; never send prices to
+    // a coupon endpoint as a source of truth.
+    Promise.reject(new Error('Usa ordersApi.quote para validar promociones')),
 };
 
 export const notificationsApi = {
@@ -171,4 +175,16 @@ export const addressApi = {
 
   setDefault: (id: string) =>
     api.patch(`/addresses/${id}/default`).then((r) => r.data.data),
+};
+
+export const legalApi = {
+  documents: () => api.get('/legal/documents').then((r) => r.data.data),
+  accept: (id: string) => api.post(`/legal/documents/${id}/accept`).then((r) => r.data.data),
+  dataRequests: () => api.get('/legal/data-requests').then((r) => r.data.data),
+  createDataRequest: (type: string, detail: string) => api.post('/legal/data-requests', { type, detail }).then((r) => r.data.data),
+};
+
+export const pqrsApi = {
+  mine: () => api.get('/pqrs/my').then((r) => r.data.data),
+  create: (type: string, subject: string, detail: string) => api.post('/pqrs', { type, subject, detail }).then((r) => r.data.data),
 };

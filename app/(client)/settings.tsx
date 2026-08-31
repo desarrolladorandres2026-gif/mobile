@@ -104,6 +104,14 @@ export default function SettingsScreen() {
               onPress={() => router.push('/(client)/help')}
             />
             <SettingLink
+              icon="seguridad"
+              label="Centro legal, datos y SIC"
+              detail="Políticas, promociones y derechos"
+              divider
+              onPress={() => router.push('/(client)/legal')}
+            />
+            <SettingLink icon="soporte" label="PQRS y solicitudes de datos" detail="Radica y consulta tus solicitudes" divider onPress={() => router.push('/(client)/requests')} />
+            <SettingLink
               icon="rayo"
               label="Ver la introducción otra vez"
               divider

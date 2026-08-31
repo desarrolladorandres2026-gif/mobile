@@ -41,6 +41,8 @@ export default function ClientLayout() {
       <Stack.Screen name="notifications" />
       <Stack.Screen name="settings" />
       <Stack.Screen name="help" />
+      <Stack.Screen name="legal" />
+      <Stack.Screen name="requests" />
     </Stack>
   );
 }

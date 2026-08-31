@@ -403,7 +403,10 @@ export default function CheckoutScreen() {
                 {quoting ? <Skeleton width={64} height={16} /> : <Text v="dataM" tone="textMuted">—</Text>}
               </View>
             ) : quote.coupon?.deliveryDiscount ? (
-              <DetailRow label="Envío" value="GRATIS" tone="successText" />
+              <>
+                <DetailRow label="Envío" value={money(quote.deliveryFee)} />
+                <DetailRow label="Descuento de envío" value={`−${money(quote.coupon.deliveryDiscount)}`} tone="successText" />
+              </>
             ) : (
               <DetailRow
                 label={quote.deliveryDistanceKm ? `Envío · ${km(quote.deliveryDistanceKm)}` : 'Envío'}
@@ -413,11 +416,13 @@ export default function CheckoutScreen() {
 
             {quote?.coupon?.productDiscount ? (
               <DetailRow
-                label={`Cupón ${quote.coupon.code}`}
+                label="Descuento"
                 value={`−${money(quote.coupon.productDiscount)}`}
                 tone="successText"
               />
             ) : null}
+
+            {quote?.coupon ? <Text v="bodyS" tone="textSecondary">Condiciones: {quote.coupon.title}. Aplicación y vigencia verificadas por ZIPP.</Text> : null}
 
             {/* Línea propia, no escondida dentro del envío: el cliente tiene
                 derecho a ver qué le cobra ZIPP y qué le cobra el domicilio. */}
@@ -431,7 +436,7 @@ export default function CheckoutScreen() {
             <View style={[styles.divider, { backgroundColor: c.border }]} />
 
             <View style={styles.totalRow}>
-              <Text v="titleM">Total</Text>
+              <Text v="titleM">Total final</Text>
               {quote ? (
                 <Text v="dataXL" tone="primaryText">{money(quote.total)}</Text>
               ) : quoting ? (
