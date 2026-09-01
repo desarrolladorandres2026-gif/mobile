@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, Alert, Linking, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Text, Icon, Screen } from '../../components/ui';
+import { ZippMark } from '../../components/brand/ZippLogo';
 import { useThemeStore, type Theme as ThemeMode } from '../../stores/themeStore';
 import { usePrefsStore } from '../../stores/prefsStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -16,7 +17,6 @@ import { tap } from '../../lib/haptics';
 interface SettingItemData {
   id: string;
   icon: IconName;
-  iconBg: string;
   label: string;
   detail?: string;
   badge?: string;
@@ -63,7 +63,6 @@ export default function SettingsScreen() {
       {
         id: 'location',
         icon: 'ubicacion',
-        iconBg: '#6268A0',
         label: 'Ubicación y GPS',
         detail: 'Permiso para calcular tiempos y rutas de entrega',
         action: () => Linking.openSettings().catch(() => {}),
@@ -72,7 +71,6 @@ export default function SettingsScreen() {
       {
         id: 'notifications',
         icon: 'notificaciones',
-        iconBg: '#6268A0',
         label: 'Notificaciones del sistema',
         detail: 'Avisos en vivo del estado de tus pedidos',
         action: () => Linking.openSettings().catch(() => {}),
@@ -81,7 +79,6 @@ export default function SettingsScreen() {
       {
         id: 'help',
         icon: 'ayuda',
-        iconBg: '#6268A0',
         label: 'Centro de ayuda',
         detail: 'Preguntas frecuentes y cómo usar Zipp',
         action: () => router.push('/(client)/help'),
@@ -90,7 +87,6 @@ export default function SettingsScreen() {
       {
         id: 'legal',
         icon: 'seguridad',
-        iconBg: '#6268A0',
         label: 'Centro legal, datos y SIC',
         detail: 'Políticas de privacidad y términos del servicio',
         action: () => router.push('/(client)/legal'),
@@ -99,7 +95,6 @@ export default function SettingsScreen() {
       {
         id: 'requests',
         icon: 'soporte',
-        iconBg: '#6268A0',
         label: 'PQRS y solicitudes de datos',
         detail: 'Radica consultas, quejas o reclamos',
         action: () => router.push('/(client)/requests'),
@@ -108,7 +103,6 @@ export default function SettingsScreen() {
       {
         id: 'onboarding',
         icon: 'rayo',
-        iconBg: '#6268A0',
         label: 'Ver la introducción otra vez',
         detail: 'Reinicia el tutorial de bienvenida',
         action: replayOnboarding,
@@ -448,7 +442,7 @@ export default function SettingsScreen() {
             >
               <View style={styles.aboutHeader}>
                 <View style={styles.aboutCleanIcon}>
-                  <Icon name="destello" size="md" color="#6268A0" />
+                  <ZippMark size={22} mono="#6268A0" />
                 </View>
                 <View style={styles.aboutHeaderText}>
                   <Text v="strongL">ZIPP Delivery</Text>
@@ -465,7 +459,7 @@ export default function SettingsScreen() {
 
               <View style={styles.aboutFooterRow}>
                 <Text v="caption" tone="textMuted">
-                  Hecho con ❤️ para Garzón, Huila
+                  Hecho en Garzón, Huila
                 </Text>
                 <Text v="dataXS" tone="textMuted">
                   El Trazo OS
@@ -962,13 +956,6 @@ const styles = StyleSheet.create({
   cleanIconContainer: {
     width: 32,
     height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  squircleIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },

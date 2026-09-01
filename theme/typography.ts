@@ -1,29 +1,21 @@
 import type { TextStyle } from 'react-native';
 
 /**
- * Tres familias, tres trabajos. Ninguna hace el trabajo de otra.
- *
- * — Bricolage Grotesque (display): tiene rarezas deliberadas en la 'g', la 'a'
- *   y las aperturas cerradas. Da carácter en titulares sin gritar.
- *
- * — Inter (texto): la mejor pantalla pequeña que existe. Invisible a propósito.
- *
- * — JetBrains Mono (datos): toda cifra de la app va en mono. No es decoración:
- *   el total se recotiza en el servidor cada vez que cambias algo del carrito,
- *   y con cifras tabulares el precio no baila mientras se recalcula. Además le
- *   da a Zipp una textura de tiquete de despacho que nadie más tiene.
+ * Una sola familia, Inter, para todo. Se mantienen los nombres semánticos
+ * (display, data, etc.) porque las pantallas componen desde `Type` por rol,
+ * no por familia: cambiar la fuente no obliga a tocar cada pantalla.
  */
 export const FontFamily = {
-  display: 'BricolageGrotesque_800ExtraBold',
-  displayBold: 'BricolageGrotesque_700Bold',
+  display: 'Inter_800ExtraBold',
+  displayBold: 'Inter_700Bold',
 
   regular: 'Inter_400Regular',
   medium: 'Inter_500Medium',
   semibold: 'Inter_600SemiBold',
   bold: 'Inter_700Bold',
 
-  data: 'JetBrainsMono_500Medium',
-  dataBold: 'JetBrainsMono_700Bold',
+  data: 'Inter_500Medium',
+  dataBold: 'Inter_700Bold',
 } as const;
 
 /**
@@ -31,7 +23,7 @@ export const FontFamily = {
  * fontSize/fontWeight sueltos, que es como una app pierde consistencia.
  */
 export const Type = {
-  // ── Display: Bricolage. Se usa con moderación, solo donde hay jerarquía real.
+  // ── Display: Inter ExtraBold. Se usa con moderación, solo donde hay jerarquía real.
   displayXL: {
     fontFamily: FontFamily.display,
     fontSize: 40,

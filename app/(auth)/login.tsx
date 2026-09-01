@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown, FadeInUp, FadeIn } from 'react-native-reanimated';
-import { Text, Input, Button, Notice, Card } from '../../components/ui';
+import { Text, Input, Button, GoogleButton, Notice, Card } from '../../components/ui';
 import { ZippMarkDrawing } from '../../components/brand/ZippLogo';
 import { useAuthStore } from '../../stores/authStore';
 import { authApi } from '../../services/endpoints';
@@ -11,6 +11,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { Spacing, BorderRadius, palette, Shadow } from '../../theme/tokens';
 import { apiMessage, validatePhone, validatePassword } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
+import { useGoogleAuth } from '../../lib/googleAuth';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -22,6 +23,38 @@ export default function LoginScreen() {
   const [errors, setErrors] = useState<{ phone?: string; password?: string }>({});
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const { request: googleRequest, idToken: googleIdToken, promptAsync: promptGoogle } = useGoogleAuth();
+
+  const routeAfterAuth = (user: { role: string; isVerified: boolean }, needsPhone: boolean) => {
+    if (needsPhone) router.replace('/(auth)/complete-profile');
+    else if (!user.isVerified) router.replace('/(auth)/otp');
+    else if (user.role === 'driver') router.replace('/(driver)/(tabs)/dashboard');
+    else router.replace('/(client)/(tabs)/home');
+  };
+
+  useEffect(() => {
+    if (!googleIdToken) return;
+
+    (async () => {
+      setGoogleLoading(true);
+      setFormError('');
+      try {
+        const data = await authApi.google(googleIdToken);
+        const { user, accessToken, refreshToken, needsPhone } = data;
+        await setAuth(user, accessToken, refreshToken);
+        tap('success');
+        routeAfterAuth(user, needsPhone);
+      } catch (error) {
+        setFormError(apiMessage(error, 'No pudimos iniciar sesión con Google.'));
+        tap('error');
+      } finally {
+        setGoogleLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [googleIdToken]);
 
   const handleLogin = async () => {
     const phoneError = validatePhone(phone);
@@ -173,6 +206,19 @@ export default function LoginScreen() {
                   onPress={handleLogin}
                   haptic="medium"
                 />
+
+                <View style={styles.dividerRow}>
+                  <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
+                  <Text v="captionStrong" tone="textMuted">O</Text>
+                  <View style={[styles.dividerLine, { backgroundColor: c.border }]} />
+                </View>
+
+                <GoogleButton
+                  full
+                  loading={googleLoading}
+                  disabled={!googleRequest}
+                  onPress={() => promptGoogle()}
+                />
               </View>
             </Card>
           </Animated.View>
@@ -291,6 +337,15 @@ const styles = StyleSheet.create({
   forgotWrapper: {
     alignSelf: 'flex-end',
     marginTop: -Spacing.xs,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
   },
   footer: {
     flexDirection: 'row',

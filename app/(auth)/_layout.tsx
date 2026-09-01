@@ -15,6 +15,7 @@ export default function AuthLayout() {
       <Stack.Screen name="welcome" options={{ animation: 'fade' }} />
       <Stack.Screen name="login" options={{ animation: 'fade' }} />
       <Stack.Screen name="register" />
+      <Stack.Screen name="complete-profile" />
       <Stack.Screen name="otp" />
       <Stack.Screen name="forgot-password" />
     </Stack>

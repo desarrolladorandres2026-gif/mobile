@@ -116,7 +116,7 @@ export default function DriverDashboard() {
           <View style={styles.headerLeft}>
             <Text v="bodyS" tone="textMuted">{greeting()},</Text>
             <Text v="displayM" numberOfLines={1}>
-              {firstName(user?.name) || 'Repartidor'} 🛵
+              {firstName(user?.name) || 'Repartidor'}
             </Text>
           </View>
 

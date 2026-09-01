@@ -7,6 +7,12 @@
  *
  * Paleta "Andén": una noche índigo del Huila (Ink), un azul eléctrico que
  * empuja la acción (Zipp) y un lima que marca todo lo que se gana (Lima).
+ *
+ * La fuente única de verdad del color en todo el proyecto es
+ * /variables de color/colores.css (la consumen admin y business vía
+ * @import). Este archivo es TypeScript y no puede importar ese .css
+ * directamente, así que los hex de `palette` de abajo deben mantenerse
+ * manualmente en sincronía con ese archivo cuando cambie.
  */
 
 // ──────────────────────────────────────────────────────────────

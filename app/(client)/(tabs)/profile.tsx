@@ -23,7 +23,6 @@ const BOTTOM_SPACE = 190;
 
 interface MenuLink {
   icon: IconName;
-  iconBg: string;
   label: string;
   detail?: string;
   badge?: string;
@@ -45,21 +44,18 @@ export default function ProfileScreen() {
   const accountLinks: MenuLink[] = [
     {
       icon: 'ubicacion',
-      iconBg: '#6268A0',
       label: 'Mis direcciones',
       detail: `${addresses.length} guardada${addresses.length === 1 ? '' : 's'}`,
       route: '/(client)/addresses',
     },
     {
       icon: 'favorito',
-      iconBg: '#6268A0',
       label: 'Negocios favoritos',
       detail: `${favorites.length} guardado${favorites.length === 1 ? '' : 's'}`,
       route: '/(client)/favorites',
     },
     {
       icon: 'notificaciones',
-      iconBg: '#6268A0',
       label: 'Avisos y notificaciones',
       route: '/(client)/notifications',
     },
@@ -68,7 +64,6 @@ export default function ProfileScreen() {
   const zippLinks: MenuLink[] = [
     {
       icon: 'trofeo',
-      iconBg: '#6268A0',
       label: 'Tus puntos Zipp y cupones',
       detail: `${stats.points} puntos acumulados`,
       badge: `${stats.points} pts`,
@@ -79,14 +74,12 @@ export default function ProfileScreen() {
   const supportLinks: MenuLink[] = [
     {
       icon: 'ayuda',
-      iconBg: '#6268A0',
       label: 'Centro de ayuda',
       detail: 'Preguntas y soporte técnico',
       route: '/(client)/help',
     },
     {
       icon: 'ajustes',
-      iconBg: '#6268A0',
       label: 'Ajustes y configuración',
       detail: 'Tema, permisos y cuenta',
       route: '/(client)/settings',
@@ -150,36 +143,6 @@ export default function ProfileScreen() {
               <Text v="dataS" tone="textMuted">
                 {user?.phone ? `+57 ${user.phone}` : 'Usuario Zipp'}
               </Text>
-
-              <View style={styles.verificationRow}>
-                <View
-                  style={[
-                    styles.verificationPill,
-                    {
-                      backgroundColor: user?.isVerified
-                        ? isDark ? 'rgba(16, 185, 129, 0.16)' : '#E6F9F0'
-                        : isDark ? 'rgba(245, 158, 11, 0.16)' : '#FEF3C7',
-                    },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.statusDot,
-                      { backgroundColor: user?.isVerified ? '#10B981' : '#F59E0B' },
-                    ]}
-                  />
-                  <Text
-                    v="captionStrong"
-                    color={
-                      user?.isVerified
-                        ? isDark ? '#34D399' : '#059669'
-                        : isDark ? '#FBBF24' : '#D97706'
-                    }
-                  >
-                    {user?.isVerified ? 'Verificado' : 'Sin verificar'}
-                  </Text>
-                </View>
-              </View>
             </View>
 
             <Pressable
@@ -399,7 +362,7 @@ function EditProfileSheet({ visible, onClose }: { visible: boolean; onClose: () 
     if (!user) return;
     setName(user.name);
     setEmail(user.email ?? '');
-    setPhone(user.phone);
+    setPhone(user.phone ?? '');
   }, [user, visible]);
 
   const phoneChanged = phone.replace(/\D/g, '') !== user?.phone;
@@ -551,23 +514,6 @@ const styles = StyleSheet.create({
   },
   userName: {
     fontSize: FontSize.lg,
-  },
-  verificationRow: {
-    flexDirection: 'row',
-    marginTop: 2,
-  },
-  verificationPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
   },
   editPillButton: {
     flexDirection: 'row',

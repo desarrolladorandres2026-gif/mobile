@@ -91,6 +91,22 @@ export const usePayOrder = () => {
   });
 };
 
+/**
+ * Polls a payment until Wompi (or whatever gateway is active) settles it.
+ *
+ * `transactionId` here is really the payment's reference — the id
+ * `usePayOrder` hands back — since a redirect-based gateway has nothing
+ * else to track the payment by until its own webhook lands on the backend.
+ * Polling stops itself once the status is no longer 'pending'.
+ */
+export const usePaymentStatus = (transactionId: string | undefined, enabled = true) =>
+  useQuery({
+    queryKey: ['payments', 'status', transactionId],
+    queryFn: () => paymentsApi.getStatus(transactionId!),
+    enabled: !!transactionId && enabled,
+    refetchInterval: (query) => (query.state.data?.status === 'pending' ? 3000 : false),
+  });
+
 export const useAvailableOrders = (page = 1) =>
   useQuery({ queryKey: ['orders', 'available', page], queryFn: () => ordersApi.getAvailableOrders(page) });
 

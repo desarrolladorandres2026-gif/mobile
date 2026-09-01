@@ -4,6 +4,7 @@ import {
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
 import {
   Text, Icon, Button, Card, Chip, DetailRow, Notice, Screen, Header, Skeleton,
 } from '../../components/ui';
@@ -164,14 +165,19 @@ export default function CheckoutScreen() {
           // exactamente lo que antes se asumía sin cobrar nada.
           if (payment === 'online') {
             try {
-              const intent = await payOrder.mutateAsync({ orderId: order._id });
+              // Los grupos de rutas entre paréntesis, como (client), no
+              // existen en la URL real: el deep link es solo /payment-result.
+              const redirectUrl = Linking.createURL('payment-result');
+              const intent = await payOrder.mutateAsync({ orderId: order._id, redirectUrl });
               if (intent?.checkoutUrl) {
                 router.replace({
-                  pathname: '/(client)/order-confirmed',
+                  pathname: '/(client)/payment-result',
                   params: {
                     id: order._id,
                     code: order.orderNumber ?? '',
                     checkoutUrl: intent.checkoutUrl,
+                    transactionId: intent.transactionId ?? '',
+                    redirectUrl,
                   },
                 });
                 setSubmitting(false);
@@ -390,10 +396,10 @@ export default function CheckoutScreen() {
                   rate === 0
                     ? 'Sin propina'
                     : rate === 0.05
-                    ? '5% (Un café ☕)'
+                    ? '5% (Un café)'
                     : rate === 0.1
-                    ? '10% (¡Gran servicio! ⭐)'
-                    : '15% (Extraordinario 🚀)';
+                    ? '10% (Gran servicio)'
+                    : '15% (Extraordinario)';
                 return (
                   <Chip
                     key={rate}

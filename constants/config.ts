@@ -67,3 +67,9 @@ export const ORDER_STATUS_DETAIL: Record<string, string> = {
 export const ACTIVE_ORDER_STATUSES = [
   'pending', 'accepted', 'preparing', 'ready', 'picked_up', 'on_way',
 ] as const;
+
+/**
+ * Número de soporte de Zipp (WhatsApp / llamada).
+ * Se incluye el código de país 57 donde sea necesario.
+ */
+export const SUPPORT_PHONE = '3001234567';

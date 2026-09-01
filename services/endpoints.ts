@@ -111,6 +111,9 @@ export const authApi = {
   login: (phone: string, password: string) =>
     api.post('/auth/login', { phone, password }).then((r) => r.data.data),
 
+  google: (idToken: string) =>
+    api.post('/auth/google', { idToken }).then((r) => r.data.data),
+
   register: (data: { name: string; phone: string; password: string; role?: string }) =>
     api.post('/auth/register', data).then((r) => r.data.data),
 

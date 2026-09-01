@@ -5,18 +5,14 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
-import { Ionicons } from '@expo/vector-icons';
 
 import {
-  BricolageGrotesque_700Bold,
-  BricolageGrotesque_800ExtraBold,
-} from '@expo-google-fonts/bricolage-grotesque';
-import {
-  Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
 } from '@expo-google-fonts/inter';
-import {
-  JetBrainsMono_500Medium, JetBrainsMono_700Bold,
-} from '@expo-google-fonts/jetbrains-mono';
 
 import { useAuthStore } from '../stores/authStore';
 import { useTheme } from '../hooks/useTheme';
@@ -39,16 +35,11 @@ function RootLayoutContent() {
   const { c, isDark } = useTheme();
 
   const [fontsLoaded] = useFonts({
-    BricolageGrotesque_700Bold,
-    BricolageGrotesque_800ExtraBold,
     Inter_400Regular,
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
-    JetBrainsMono_500Medium,
-    JetBrainsMono_700Bold,
-    // La app del domiciliario todavía dibuja con Ionicons.
-    ...Ionicons.font,
+    Inter_800ExtraBold,
   });
 
   useEffect(() => {

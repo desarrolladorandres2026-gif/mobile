@@ -8,46 +8,14 @@ import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing, FontSize } from '../../theme/tokens';
 import { orderCode } from '../../lib/format';
 import { tap } from '../../lib/haptics';
-
-const SUPPORT_PHONE = '3001234567';
+import { SUPPORT_PHONE } from '../../constants/config';
 
 interface Faq {
   question: string;
   answer: string;
 }
 
-const FAQS: Faq[] = [
-  {
-    question: '¿Cuánto cuesta el envío?',
-    answer:
-      'Depende de la distancia entre el negocio y tu dirección. Se calcula con una tarifa base más un valor por kilómetro, y siempre lo ves en el desglose antes de confirmar. Nunca cobramos un valor distinto al que te mostramos.',
-  },
-  {
-    question: 'Mi pedido se está demorando',
-    answer:
-      'Primero mira en qué paso va desde Pedidos: si sigue en "Preparando", el local todavía lo tiene. Si ya está "En camino", puedes llamar al domiciliario desde la pantalla de seguimiento. Si pasaron más de 20 minutos del estimado, escríbenos.',
-  },
-  {
-    question: 'Llegó algo equivocado o incompleto',
-    answer:
-      'Escríbenos con el número del pedido dentro de las siguientes 24 horas. Revisamos con el negocio y resolvemos: reponemos el producto o te devolvemos ese valor.',
-  },
-  {
-    question: '¿Cómo uso un cupón?',
-    answer:
-      'Al confirmar el pedido hay un campo de cupón. Escribe el código y toca Aplicar. Si el cupón tiene condiciones —monto mínimo, un solo negocio, primer pedido— te lo decimos ahí mismo.',
-  },
-  {
-    question: 'Pagué en línea y el pedido se canceló',
-    answer:
-      'La devolución sale automáticamente cuando se cancela un pedido pagado. Según tu banco puede tardar entre uno y cinco días hábiles en aparecer.',
-  },
-  {
-    question: 'Quiero cambiar mi dirección',
-    answer:
-      'En Perfil → Mis direcciones puedes agregar, editar o eliminar. Recuerda confirmar el punto en el mapa: sin él no podemos calcular el envío ni el domiciliario te encuentra.',
-  },
-];
+const FAQS: Faq[] = [];
 
 export default function HelpScreen() {
   const router = useRouter();
