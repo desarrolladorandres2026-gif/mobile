@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, notificationsApi, paymentsApi } from '../services/endpoints';
+import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, notificationsApi, paymentsApi, adsApi, bannersApi, homeCategoriesApi, orderFlowApi } from '../services/endpoints';
+import type { PromoBanner, HomeCategory } from '../services/endpoints';
 
 // ── Businesses ──
 export const useBusinesses = (params?: Record<string, any>) =>
@@ -52,6 +53,135 @@ export const useUpdateOrderStatus = () => {
     mutationFn: ({ id, status, reason }: { id: string; status: string; reason?: string }) =>
       ordersApi.updateStatus(id, status, reason),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['orders'] }); },
+  });
+};
+
+// ── Traspaso físico del pedido ──────────────────────────────────────
+
+/**
+ * Estado agregado del flujo: códigos, evidencias, chat y llamada.
+ *
+ * `refetchInterval` es la red de seguridad, no el mecanismo principal — la
+ * app se refresca de verdad por el socket (`useOrderFlowRealtime` invalida
+ * esta misma key). Sin el polling, un evento perdido por una reconexión
+ * dejaría la pantalla congelada hasta el próximo cambio; con solo polling
+ * a 20s, un código bloqueado por intentos fallidos tardaría hasta 20
+ * segundos en reflejarse. Juntos, el uno cubre el hueco del otro.
+ */
+export const useOrderFlow = (orderId: string | undefined) =>
+  useQuery({
+    queryKey: ['orderFlow', orderId],
+    queryFn: () => orderFlowApi.getState(orderId!),
+    enabled: !!orderId,
+    refetchInterval: 20_000,
+  });
+
+export const useOrderArrive = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, stage, coords }: {
+      orderId: string; stage: 'pickup' | 'delivery'; coords?: { latitude: number; longitude: number };
+    }) => orderFlowApi.arrive(orderId, stage, coords),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['orderFlow', vars.orderId] });
+    },
+  });
+};
+
+export const useUploadOrderEvidence = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, stage, uri, coords }: {
+      orderId: string; stage: 'pickup' | 'delivery'; uri: string; coords?: { latitude: number; longitude: number };
+    }) => orderFlowApi.uploadEvidence(orderId, stage, uri, coords),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['orderFlow', vars.orderId] });
+    },
+  });
+};
+
+/**
+ * Valida el código de recogida o de entrega.
+ *
+ * Al tener éxito invalida `order` además de `orderFlow`: el backend, no
+ * esta mutación, es quien acaba de mover el pedido a "recogido" o
+ * "entregado" — la app solo se pone al día con lo que ya pasó del lado
+ * del servidor.
+ */
+export const useVerifyOrderCode = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, stage, code, coords }: {
+      orderId: string; stage: 'pickup' | 'delivery'; code: string; coords?: { latitude: number; longitude: number };
+    }) => orderFlowApi.verify(orderId, stage, code, coords),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['orderFlow', vars.orderId] });
+      queryClient.invalidateQueries({ queryKey: ['order', vars.orderId] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    },
+  });
+};
+
+export const useOrderChat = (orderId: string | undefined) =>
+  useQuery({
+    queryKey: ['orderChat', orderId],
+    queryFn: () => orderFlowApi.messages(orderId!),
+    enabled: !!orderId,
+  });
+
+export const useSendOrderMessage = (orderId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (message: string) => orderFlowApi.sendMessage(orderId, message),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orderChat', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] });
+    },
+  });
+};
+
+export const useMarkOrderChatRead = (orderId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => orderFlowApi.markRead(orderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orderChat', orderId] });
+      queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] });
+    },
+  });
+};
+
+/**
+ * Sesión de llamada del pedido.
+ *
+ * Hoy es solo eso — una sesión: quién llamó, a quién, cuándo se contestó
+ * y cuánto duró. No transporta audio; avisa en la app y dentro del
+ * pedido, sin exponer el teléfono de nadie. Es la base sobre la que se
+ * conecta un transporte de voz real (WebRTC o un puente telefónico) el
+ * día que ZIPP lo decida, sin tocar nada de lo que hay aquí.
+ */
+export const useStartCall = (orderId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => orderFlowApi.startCall(orderId),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] }); },
+  });
+};
+
+export const useAnswerCall = (orderId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (callId: string) => orderFlowApi.answerCall(orderId, callId),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] }); },
+  });
+};
+
+export const useEndCall = (orderId: string) => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ callId, reason }: { callId: string; reason?: string }) =>
+      orderFlowApi.endCall(orderId, callId, reason),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] }); },
   });
 };
 
@@ -267,3 +397,55 @@ export const useSetDefaultAddress = () => {
   });
 };
 
+// ── Publicidad ──
+/**
+ * La campaña que debe mostrarse al abrir la app, si hay una activa. Sin
+ * reintentos: si la llamada falla, la app simplemente no muestra publicidad
+ * — nunca debe demorar ni bloquear el arranque.
+ */
+export const useActiveAd = (enabled: boolean) =>
+  useQuery({
+    queryKey: ['ads', 'active'],
+    queryFn: adsApi.getActive,
+    enabled,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+
+// ── Banners promocionales ──
+/**
+ * Los banners de la pantalla inicial.
+ *
+ * `staleTime` de 5 minutos porque un banner es contenido editorial, no
+ * estado del pedido: refetchear en cada foco solo gastaría datos del
+ * cliente. `retry: false` para que una API caída no deje al carrusel
+ * girando en "cargando" — devuelve error y la pantalla sigue sin él.
+ *
+ * El arreglo vacío por defecto hace que "sin banners", "sin conexión" y
+ * "API caída" terminen en el mismo lugar: el componente no se dibuja.
+ */
+export const useHomeBanners = () =>
+  useQuery<PromoBanner[]>({
+    queryKey: ['banners', 'home'],
+    queryFn: bannersApi.getHome,
+    retry: false,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+  });
+
+// ── Categorías de Home ──
+/**
+ * Las categorías tal como las configuró el admin, sin resolver todavía el
+ * fallback local: eso lo hace `useHomeCategories` en un hook propio, para que
+ * quien solo necesite los datos crudos (o testee el fallback) no tenga que
+ * pasar por ahí.
+ */
+export const useHomeCategoriesQuery = () =>
+  useQuery<HomeCategory[]>({
+    queryKey: ['homeCategories'],
+    queryFn: homeCategoriesApi.getAll,
+    retry: false,
+    // Cambian poco: el admin no reordena categorías todos los días.
+    staleTime: 10 * 60_000,
+    gcTime: 60 * 60_000,
+  });

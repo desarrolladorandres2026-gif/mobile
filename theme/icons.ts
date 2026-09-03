@@ -6,13 +6,15 @@ import {
   ShoppingBag, ShoppingCart, Store, TicketPercent, BadgePercent,
   CreditCard, Banknote, HandCoins, Wallet,
   Bike, MapPin, Navigation, LocateFixed, Clock, Timer, Route, Package,
+  Camera, Image as ImageIcon,
   UtensilsCrossed, Sandwich, Pill, Coffee,
-  Heart, Star, Phone, MessageCircle, Headset,
+  Heart, Star, Phone, PhoneCall, PhoneOff, MessageCircle, Send, Headset,
   TriangleAlert, Info, CircleX, CircleAlert, WifiOff, Zap,
   Gift, Trophy, Flame, Award, Sparkles, PartyPopper,
   Bell, Settings, CircleQuestionMark, LogOut,
   ShieldCheck, KeyRound, Lock, Eye, EyeOff, Smartphone, Mail,
   Moon, Sun,
+  FileText, FileLock, FileCheck,
 } from 'lucide-react-native';
 
 /**
@@ -75,6 +77,8 @@ export const IconRegistry = {
   minutos: Timer,
   ruta: Route,
   paquete: Package,
+  camara: Camera,
+  foto: ImageIcon,
 
   // Categorías de negocio
   catRestaurante: UtensilsCrossed,
@@ -87,7 +91,10 @@ export const IconRegistry = {
   favorito: Heart,
   calificacion: Star,
   llamar: Phone,
+  llamando: PhoneCall,
+  colgar: PhoneOff,
   chat: MessageCircle,
+  enviar: Send,
   soporte: Headset,
 
   // Estados del sistema
@@ -121,6 +128,11 @@ export const IconRegistry = {
   correo: Mail,
   temaOscuro: Moon,
   temaClaro: Sun,
+
+  // Documentos legales
+  documento: FileText,
+  privacidad: FileLock,
+  consentimiento: FileCheck,
 } as const;
 
 export type IconName = keyof typeof IconRegistry;

@@ -1,10 +1,11 @@
+import { memo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Text } from '../ui/Text';
 import { Icon } from '../ui/Icon';
 import { Card } from '../ui/Surface';
 import { Badge, MetaRow } from '../ui/Badge';
-import { categoryIcon } from '../../theme/icons';
+import { categoryIllustration } from '../illustrations';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
 import { businessAccent, openState } from '../../lib/business';
@@ -32,10 +33,10 @@ export interface Business {
  * negocio con el icono de su categoría, que es mucho mejor que un recuadro
  * gris vacío y hace la lista reconocible de un vistazo.
  */
-export function BusinessTile({
+export const BusinessTile = memo(function BusinessTile({
   business, size = 60, radius = BorderRadius.md,
 }: { business: Business; size?: number; radius?: number }) {
-  const accent = businessAccent(business._id);
+  const { c } = useTheme();
 
   if (business.logo) {
     return (
@@ -49,27 +50,32 @@ export function BusinessTile({
     );
   }
 
+  const Illustration = categoryIllustration(business.category);
+
   return (
     <View
       style={{
         width: size,
         height: size,
         borderRadius: radius,
-        backgroundColor: accent,
+        backgroundColor: c.surfaceLight,
+        borderWidth: 1,
+        borderColor: c.border,
         alignItems: 'center',
         justifyContent: 'center',
+        overflow: 'hidden',
       }}
     >
-      <Icon name={categoryIcon(business.category)} size={size * 0.42} color="#FFFFFF" />
+      <Illustration size={size * 0.62} />
     </View>
   );
-}
+});
 
 // ──────────────────────────────────────────────────────────────
 // Fila de lista
 // ──────────────────────────────────────────────────────────────
 
-export function BusinessRow({
+export const BusinessRow = memo(function BusinessRow({
   business, onPress, showStatus = true,
 }: { business: Business; onPress: () => void; showStatus?: boolean }) {
   const { c } = useTheme();
@@ -118,19 +124,20 @@ export function BusinessRow({
       </View>
     </Card>
   );
-}
+});
 
 // ──────────────────────────────────────────────────────────────
 // Tarjeta destacada
 // ──────────────────────────────────────────────────────────────
 
 /** Tarjeta ancha para los carruseles. El color del negocio ocupa la portada. */
-export function BusinessFeatured({
+export const BusinessFeatured = memo(function BusinessFeatured({
   business, onPress, width = 220,
 }: { business: Business; onPress: () => void; width?: number }) {
   const { c } = useTheme();
   const accent = businessAccent(business._id);
   const status = openState(business.schedule);
+  const Illustration = categoryIllustration(business.category);
 
   return (
     <Card
@@ -151,7 +158,9 @@ export function BusinessFeatured({
             accessible={false}
           />
         ) : (
-          <Icon name={categoryIcon(business.category)} size={44} color="rgba(255,255,255,0.9)" />
+          <View style={styles.coverBadgeCircle}>
+            <Illustration size={40} />
+          </View>
         )}
 
         <View style={styles.coverBadge}>
@@ -181,7 +190,7 @@ export function BusinessFeatured({
       </View>
     </Card>
   );
-}
+});
 
 const styles = StyleSheet.create({
   row: {
@@ -204,6 +213,12 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   coverBadge: { position: 'absolute', bottom: Spacing.sm, left: Spacing.sm, ...Shadow.sm },
+  coverBadgeCircle: {
+    width: 64, height: 64, borderRadius: 32,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    ...Shadow.sm,
+  },
   closedVeil: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(8, 11, 20, 0.62)',

@@ -12,7 +12,7 @@ export default function Root({ children }: { children: React.ReactNode }) {
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
         />
-        <meta name="description" content="Domicilios en Garzón, Huila. Pide en tus comercios favoritos y sigue tu pedido en tiempo real." />
+        <meta name="description" content="Pide en tus comercios favoritos y sigue tu pedido en tiempo real." />
         <meta name="theme-color" content="#141A2E" />
 
         {/* Instalable como PWA */}

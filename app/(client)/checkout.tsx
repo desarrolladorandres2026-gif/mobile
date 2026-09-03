@@ -15,6 +15,7 @@ import {
   useAddresses, useOrderQuote, useCreateOrder, usePaymentMethods, usePayOrder,
 } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
+import { ContentIcon } from '../../components/illustrations';
 import { Type } from '../../theme/typography';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { money, km } from '../../lib/format';
@@ -267,7 +268,7 @@ export default function CheckoutScreen() {
             <Text v="label" tone="textMuted">Entregar en</Text>
             <Card onPress={() => { tap('light'); setAddressSheet(true); }} style={styles.picker}>
               <View style={[styles.pickerIcon, { backgroundColor: c.primarySoft }]}>
-                <Icon name="ubicacion" size="md" color={c.primaryText} />
+                <ContentIcon name="ubicacion" size={26} />
               </View>
               <View style={styles.flex}>
                 {address ? (
@@ -358,7 +359,7 @@ export default function CheckoutScreen() {
                       { backgroundColor: c.surface, borderColor: couponError ? c.error : c.border },
                     ]}
                   >
-                    <Icon name="cupon" size="md" color={c.textMuted} />
+                    <ContentIcon name="cupon" size={24} />
                     <TextInput
                       value={couponInput}
                       onChangeText={(t) => { setCouponInput(t.toUpperCase()); setCouponError(''); }}
@@ -555,7 +556,7 @@ function PaymentOption({
         },
       ]}
     >
-      <Icon name={icon} size="lg" color={active ? c.primaryText : c.textMuted} />
+      <ContentIcon name={icon} size={32} />
       <Text v="strongS" tone={active ? 'text' : 'textSecondary'}>{title}</Text>
       <Text v="caption" tone="textMuted" center>{subtitle}</Text>
     </Pressable>

@@ -21,6 +21,10 @@ export default function FavoritesScreen() {
         keyExtractor={(item) => item._id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        maxToRenderPerBatch={10}
+        windowSize={9}
+        initialNumToRender={8}
         ListHeaderComponent={
           favorites.length > 0 ? (
             <View

@@ -68,6 +68,151 @@ export const ordersApi = {
 };
 
 
+// ── Traspaso físico del pedido ───────────────────────────────────────
+
+/** Estado de un código, tal como lo nombra el backend. */
+export type OrderCodeStatus = 'pending' | 'used' | 'expired' | 'blocked' | 'void';
+
+export interface OrderEvidenceView {
+  id: string;
+  type: 'pickup_evidence' | 'delivery_evidence';
+  url: string;
+  uploadedAt: string;
+  metadata: { bytes: number; format: string; checksum: string };
+}
+
+/** Una de las dos etapas del traspaso, ya resuelta para quien pregunta. */
+export interface OrderStageState {
+  arrivedAt: string | null;
+  codeStatus: OrderCodeStatus | null;
+  attempts: number;
+  lockedUntil: string | null;
+  verifiedAt: string | null;
+  /**
+   * El código en claro — o `null`.
+   *
+   * Quién lo recibe lo decide el servidor: el comercio ve el de recogida,
+   * el cliente el de entrega, y el domiciliario ninguno. La app nunca
+   * oculta un código que le llegó; si llegó, es porque le toca mostrarlo.
+   */
+  code: string | null;
+  evidence: OrderEvidenceView | null;
+}
+
+export interface OrderCallView {
+  id: string;
+  orderId: string;
+  status: 'ringing' | 'active' | 'ended' | 'rejected' | 'missed' | 'failed';
+  caller: { userId: string; name: string; avatar: string | null; role: string };
+  receiver: { userId: string; name: string; avatar: string | null; role: string };
+  startedAt: string;
+  answeredAt: string | null;
+  endedAt: string | null;
+  durationSeconds: number;
+  channel: string;
+}
+
+export interface OrderFlowState {
+  orderId: string;
+  orderNumber: string;
+  status: string;
+  participant: 'client' | 'driver' | 'business' | 'admin';
+  pickup: OrderStageState;
+  delivery: OrderStageState;
+  chat: { available: boolean; unread: number };
+  call: { available: boolean; active: OrderCallView | null };
+  counterpart: { userId: string; name: string; avatar: string | null; role: string } | null;
+}
+
+export interface OrderChatMessage {
+  id: string;
+  orderId: string;
+  senderId: string;
+  senderRole: 'client' | 'driver';
+  message: string;
+  mine: boolean;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export const orderFlowApi = {
+  /** Todo lo que la pantalla del pedido necesita, en una llamada. */
+  getState: (orderId: string): Promise<OrderFlowState> =>
+    api.get(`/orders/${orderId}/flow`).then((r) => r.data.data),
+
+  arrive: (orderId: string, stage: 'pickup' | 'delivery', coords?: { latitude: number; longitude: number }) =>
+    api.post(`/orders/${orderId}/${stage}/arrive`, coords ?? {}).then((r) => r.data.data),
+
+  /**
+   * Sube la evidencia fotográfica.
+   *
+   * `uri` es la foto ya comprimida en el dispositivo — el backend valida
+   * de nuevo tamaño, MIME y los bytes reales del archivo, así que esto es
+   * una cortesía con los datos del usuario, no un control de seguridad.
+   */
+  uploadEvidence: (
+    orderId: string,
+    stage: 'pickup' | 'delivery',
+    uri: string,
+    coords?: { latitude: number; longitude: number }
+  ): Promise<OrderEvidenceView> => {
+    const form = new FormData();
+    form.append('photo', { uri, name: `${stage}.jpg`, type: 'image/jpeg' } as unknown as Blob);
+    if (coords) {
+      form.append('latitude', String(coords.latitude));
+      form.append('longitude', String(coords.longitude));
+    }
+    return api
+      .post(`/orders/${orderId}/${stage}/evidence`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data.data);
+  },
+
+  /**
+   * Envía el código al backend, que es quien decide.
+   *
+   * La app no compara nada: no conoce el código correcto y no debe
+   * conocerlo. Lo único que hace con la respuesta es pintar el resultado.
+   */
+  verify: (
+    orderId: string,
+    stage: 'pickup' | 'delivery',
+    code: string,
+    coords?: { latitude: number; longitude: number }
+  ) =>
+    api
+      .post(`/orders/${orderId}/${stage}/verify`, { code, ...(coords ?? {}) })
+      .then((r) => r.data.data),
+
+  evidence: (orderId: string): Promise<OrderEvidenceView[]> =>
+    api.get(`/orders/${orderId}/evidence`).then((r) => r.data.data),
+
+  // ── Chat ──
+  messages: (orderId: string, page = 1, limit = 50): Promise<OrderChatMessage[]> =>
+    api.get(`/orders/${orderId}/chat`, { params: { page, limit } }).then((r) => r.data.data),
+
+  sendMessage: (orderId: string, message: string): Promise<OrderChatMessage> =>
+    api.post(`/orders/${orderId}/chat/messages`, { message }).then((r) => r.data.data),
+
+  markRead: (orderId: string) =>
+    api.post(`/orders/${orderId}/chat/read`).then((r) => r.data.data),
+
+  // ── Llamadas ──
+  startCall: (orderId: string): Promise<OrderCallView> =>
+    api.post(`/orders/${orderId}/call`).then((r) => r.data.data),
+
+  answerCall: (orderId: string, callId: string): Promise<OrderCallView> =>
+    api.post(`/orders/${orderId}/call/${callId}/answer`).then((r) => r.data.data),
+
+  endCall: (orderId: string, callId: string, reason?: string): Promise<OrderCallView> =>
+    api.post(`/orders/${orderId}/call/${callId}/end`, { reason }).then((r) => r.data.data),
+
+  calls: (orderId: string): Promise<OrderCallView[]> =>
+    api.get(`/orders/${orderId}/calls`).then((r) => r.data.data),
+};
+
+
 export const driverApi = {
   getProfile: () =>
     api.get('/drivers/profile').then((r) => r.data.data),
@@ -126,11 +271,36 @@ export const authApi = {
   verifyOtp: (phone: string, otpCode: string) =>
     api.post('/auth/verify-otp', { phone, otpCode }).then((r) => r.data.data),
 
+  sendEmailOtp: (email: string) =>
+    api.post('/auth/send-email-otp', { email }).then((r) => r.data),
+
+  verifyEmailOtp: (email: string, otpCode: string) =>
+    api.post('/auth/verify-email-otp', { email, otpCode }).then((r) => r.data.data),
+
   resetPassword: (data: { phone: string; otpCode: string; password: string }) =>
     api.post('/auth/reset-password', data).then((r) => r.data.data),
 
   updateProfile: (data: { name?: string; email?: string; phone?: string }) =>
     api.patch('/auth/profile', data).then((r) => r.data.data),
+
+  /**
+   * Sube una foto de perfil ya comprimida en el dispositivo. `uri` es la
+   * ruta local que devuelve expo-image-manipulator; el backend la reenvía
+   * a Cloudinary y responde con el usuario actualizado.
+   */
+  uploadAvatar: (uri: string) => {
+    const form = new FormData();
+    form.append('avatar', {
+      uri,
+      name: 'avatar.jpg',
+      type: 'image/jpeg',
+    } as unknown as Blob);
+    return api
+      .post('/auth/profile/avatar', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data.data);
+  },
 };
 
 export const couponsApi = {
@@ -190,4 +360,82 @@ export const legalApi = {
 export const pqrsApi = {
   mine: () => api.get('/pqrs/my').then((r) => r.data.data),
   create: (type: string, subject: string, detail: string) => api.post('/pqrs', { type, subject, detail }).then((r) => r.data.data),
+};
+
+export interface ActiveAd {
+  id: string;
+  campaignName: string;
+  flyerUrl: string;
+  actionType: 'none' | 'url' | 'business';
+  actionUrl: string;
+  businessId: string | null;
+}
+
+export const adsApi = {
+  /** La única campaña, si hay alguna, que debe mostrarse al abrir la app. */
+  getActive: (): Promise<ActiveAd | null> =>
+    api.get('/advertisements/active').then((r) => r.data.data),
+
+  /** Se llama solo cuando el flyer ya se pintó en pantalla, no al recibirlo. */
+  registerImpression: (id: string, deviceId: string) =>
+    api.post(`/advertisements/${id}/impression`, { deviceId }).then((r) => r.data),
+
+  registerClick: (id: string, deviceId: string) =>
+    api.post(`/advertisements/${id}/click`, { deviceId }).then((r) => r.data),
+};
+
+// ── Banners promocionales de inicio ──
+
+/** Tipos de acción que un banner puede llevar. Los define el backend. */
+export type BannerActionType = 'none' | 'url' | 'business' | 'category' | 'screen';
+
+/**
+ * Un banner tal como llega a la app.
+ *
+ * Nada aquí decide si el banner se muestra: eso ya lo resolvió el servidor.
+ * No hay fechas ni `isActive` porque la app no tiene que —ni puede—
+ * re-evaluar la vigencia.
+ */
+export interface PromoBanner {
+  id: string;
+  imageUrl: string;
+  title: string;
+  description: string;
+  buttonText: string;
+  actionType: BannerActionType;
+  actionValue: string;
+  /** Segundos que la tarjeta queda al frente antes de rotar. */
+  durationSeconds: number;
+}
+
+export const bannersApi = {
+  /** Los banners vigentes de la pantalla inicial, ya en el orden de aparición. */
+  getHome: (): Promise<PromoBanner[]> =>
+    api
+      .get('/promotion-banners/active', { params: { placement: 'home' } })
+      .then((r) => r.data.data ?? []),
+};
+
+// ── Categorías de Home (panel del admin) ──
+
+/**
+ * Una categoría de negocio tal como la configura el admin.
+ *
+ * `imageUrl` es opcional: mientras el admin no suba una imagen para esa
+ * categoría, la app cae en su ilustración local (ver
+ * `components/illustrations`).
+ */
+export interface HomeCategory {
+  _id: string;
+  key: string;
+  name: string;
+  imageUrl?: string;
+  status: 'active' | 'inactive';
+  order: number;
+}
+
+export const homeCategoriesApi = {
+  /** Ya viene ordenada por `order` y filtrada a `status: 'active'`. */
+  getAll: (): Promise<HomeCategory[]> =>
+    api.get('/home-categories').then((r) => r.data.data ?? []),
 };

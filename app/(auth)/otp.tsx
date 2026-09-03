@@ -116,7 +116,7 @@ export default function OtpScreen() {
           <Animated.View entering={FadeInDown.duration(400)} style={styles.intro}>
             <Text v="displayL">Confirma tu celular</Text>
             <Text v="bodyL" tone="textSecondary">
-              Te mandamos un código de 6 dígitos por mensaje de texto al
+              Te mandamos un código de 6 dígitos por WhatsApp al
             </Text>
             <Text v="dataL" tone="primaryText">+57 {phone}</Text>
           </Animated.View>

@@ -1,11 +1,11 @@
 /**
  * ZIPP — Sistema de diseño "El Trazo"
  *
- * Zipp no es un catálogo infinito: es un pueblo que se mueve rápido. En Garzón
+ * Zipp no es un catálogo infinito: es un pueblo que se mueve rápido. Aquí
  * casi nada queda a más de diez minutos, así que la interfaz se organiza
  * alrededor de la cercanía y los minutos, no del tamaño del catálogo.
  *
- * Paleta "Andén": una noche índigo del Huila (Ink), un azul eléctrico que
+ * Paleta "Andén": una noche índigo (Ink), un azul eléctrico que
  * empuja la acción (Zipp) y un lima que marca todo lo que se gana (Lima).
  *
  * La fuente única de verdad del color en todo el proyecto es
@@ -20,7 +20,7 @@
 // las pantallas consumen los tokens semánticos de más abajo.
 // ──────────────────────────────────────────────────────────────
 const palette = {
-  // Noche índigo del Huila. No es negro: tiene horizonte.
+  // Noche índigo. No es negro: tiene horizonte.
   ink900: '#080B14',
   ink800: '#0D1120',
   ink700: '#141A2E',
@@ -335,6 +335,18 @@ export const Shadow = {
     shadowOpacity: 0.35,
     shadowRadius: 20,
     elevation: 10,
+  },
+  /**
+   * Halo cálido del mango — lo más cercano a un dorado que tiene la paleta.
+   * Reservado para lo destacado que no es una acción: la tarjeta al frente
+   * del carrusel promocional, no un botón.
+   */
+  goldGlow: {
+    shadowColor: palette.mango500,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    elevation: 12,
   },
 } as const;
 

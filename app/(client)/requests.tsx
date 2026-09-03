@@ -50,7 +50,7 @@ export default function RequestsScreen() {
 
   return (
     <Screen style={{ backgroundColor: isDark ? '#0C101C' : '#F1F3F7' }}>
-      <Header title="PQRS y solicitudes de datos" fallback="/(client)/settings" />
+      <Header title="PQRS y solicitudes de datos" fallback="/(client)/(tabs)/profile" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* ── Segment Selector One UI ── */}

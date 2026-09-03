@@ -22,6 +22,9 @@
     "expo-constants": "~55.0.0",
     "expo-font": "~55.0.7",
     "expo-haptics": "~55.0.16",
+    "expo-image": "~55.0.10",
+    "expo-image-manipulator": "~55.0.21",
+    "expo-image-picker": "~55.0.24",
     "expo-linear-gradient": "~55.0.16",
     "expo-linking": "~55.0.0",
     "expo-location": "~55.1.10",
@@ -46,6 +49,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.10",
+    "babel-preset-expo": "~55.0.21",
     "typescript": "~5.9.2"
   },
   "private": true

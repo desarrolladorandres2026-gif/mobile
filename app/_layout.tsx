@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -18,6 +18,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useTheme } from '../hooks/useTheme';
 import { ZippMarkDrawing } from '../components/brand/ZippLogo';
 import { registerServiceWorker } from '../lib/pwa';
+import { AdModal } from '../components/domain/AdModal';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -60,6 +61,15 @@ function RootLayoutContent() {
     });
   }, []);
 
+  // Antes del return condicional de abajo: un hook no puede depender de si
+  // ya cargaron fuentes/sesión, o el conteo de hooks cambia entre el primer
+  // render (boot) y el siguiente (listo) y React lo rechaza.
+  const screenOptions = useMemo(() => ({
+    headerShown: false,
+    contentStyle: { backgroundColor: c.background },
+    animation: 'slide_from_right' as const,
+  }), [c.background]);
+
   // Mientras cargan fuentes y sesión, la marca se dibuja sola. Es la misma
   // animación del splash, así que la transición no se percibe como una espera.
   if (isLoading || !fontsLoaded) {
@@ -73,18 +83,13 @@ function RootLayoutContent() {
   return (
     <>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: c.background },
-          animation: 'slide_from_right',
-        }}
-      >
+      <Stack screenOptions={screenOptions}>
         <Stack.Screen name="index" options={{ animation: 'fade' }} />
         <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
         <Stack.Screen name="(client)" options={{ animation: 'fade' }} />
         <Stack.Screen name="(driver)" options={{ animation: 'fade' }} />
       </Stack>
+      <AdModal />
     </>
   );
 }

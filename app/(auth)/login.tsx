@@ -122,10 +122,6 @@ export default function LoginScreen() {
               <View style={[styles.logoBackdrop, { backgroundColor: isDark ? '#1a2234' : '#edf2ff' }]}>
                 <ZippMarkDrawing size={64} />
               </View>
-              <View style={styles.liveBadge}>
-                <View style={styles.liveDot} />
-                <Text v="captionStrong" style={styles.liveText}>GARZÓN</Text>
-              </View>
             </View>
 
             <View style={styles.greeting}>
@@ -133,7 +129,7 @@ export default function LoginScreen() {
                 ¡Hola de nuevo!
               </Text>
               <Text v="bodyM" tone="textSecondary">
-                Entra a tu cuenta y disfruta de tus restaurantes y tiendas favoritas en Garzón.
+                Entra a tu cuenta y disfruta de tus restaurantes y tiendas favoritas.
               </Text>
             </View>
           </Animated.View>
@@ -219,6 +215,20 @@ export default function LoginScreen() {
                   disabled={!googleRequest}
                   onPress={() => promptGoogle()}
                 />
+
+                <Pressable
+                  onPress={() => {
+                    tap('light');
+                    router.push('/(auth)/email-login');
+                  }}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  style={styles.emailLoginLink}
+                >
+                  <Text v="strongS" tone="textSecondary">
+                    ¿Prefieres entrar con tu correo?
+                  </Text>
+                </Pressable>
               </View>
             </Card>
           </Animated.View>
@@ -296,29 +306,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.25)',
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10b981',
-  },
-  liveText: {
-    color: '#10b981',
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    fontSize: 9,
-  },
   greeting: {
     gap: Spacing.xs,
   },
@@ -337,6 +324,9 @@ const styles = StyleSheet.create({
   forgotWrapper: {
     alignSelf: 'flex-end',
     marginTop: -Spacing.xs,
+  },
+  emailLoginLink: {
+    alignSelf: 'center',
   },
   dividerRow: {
     flexDirection: 'row',

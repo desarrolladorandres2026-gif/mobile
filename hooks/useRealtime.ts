@@ -97,6 +97,71 @@ export function useActiveOrder() {
   );
 }
 
+/**
+ * Tiempo real del traspaso del pedido: chat, llegadas y llamadas.
+ *
+ * Se une a la sala del pedido mientras la pantalla está montada — el
+ * servidor decide si el socket puede quedarse (ver `resolveOrderAccess`
+ * en `sockets/index.ts`), así que unirse no es más que pedirlo — y la
+ * abandona al salir. Es intencionalmente independiente de
+ * `useOrderRealtime`: aquella vive en toda la sesión y refresca las
+ * listas de pedidos; esta solo tiene sentido dentro de la pantalla de un
+ * pedido concreto.
+ *
+ * Expone la llamada entrante como estado local en vez de un evento
+ * disparado una sola vez: si la pantalla se vuelve a montar (navegación,
+ * cambio de pestaña) sin que la llamada se haya cerrado, sigue
+ * apareciendo — no se pierde por no haber estado escuchando el instante
+ * exacto en que llegó.
+ */
+export function useOrderFlowRealtime(orderId: string | undefined) {
+  const queryClient = useQueryClient();
+  const [incomingCall, setIncomingCall] = useState<any>(null);
+
+  useEffect(() => {
+    if (!orderId) return;
+
+    socketService.connect();
+    socketService.joinOrderRoom(orderId);
+
+    const refreshFlow = () => {
+      queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] });
+    };
+    const refreshChat = () => {
+      queryClient.invalidateQueries({ queryKey: ['orderChat', orderId] });
+      refreshFlow();
+    };
+    const onIncoming = (data: any) => {
+      if (data?.orderId === orderId) setIncomingCall(data.call);
+    };
+    const onCallSettled = (data: any) => {
+      if (data?.call?.orderId === orderId) {
+        setIncomingCall((current: any) => (current?.id === data.call.id ? null : current));
+      }
+      refreshFlow();
+    };
+
+    socketService.onDriverArrived(refreshFlow);
+    socketService.onChatMessage(refreshChat);
+    socketService.onChatRead(refreshChat);
+    socketService.onCallIncoming(onIncoming);
+    socketService.onCallAnswered(onCallSettled);
+    socketService.onCallEnded(onCallSettled);
+
+    return () => {
+      socketService.leaveOrderRoom(orderId);
+      socketService.offDriverArrived(refreshFlow);
+      socketService.offChatMessage(refreshChat);
+      socketService.offChatRead(refreshChat);
+      socketService.offCallIncoming(onIncoming);
+      socketService.offCallAnswered(onCallSettled);
+      socketService.offCallEnded(onCallSettled);
+    };
+  }, [orderId]);
+
+  return { incomingCall, clearIncomingCall: () => setIncomingCall(null) };
+}
+
 /** Avance del pedido de 0 a 1, para el trazo y la barra de progreso. */
 export function orderProgress(status: string): number {
   const map: Record<string, number> = {

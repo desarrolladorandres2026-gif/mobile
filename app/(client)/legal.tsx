@@ -14,7 +14,7 @@ export default function LegalCenter() {
 
   return (
     <Screen style={{ backgroundColor: isDark ? '#0C101C' : '#F1F3F7' }}>
-      <Header title="Centro legal y datos" fallback="/(client)/settings" />
+      <Header title="Centro legal y datos" fallback="/(client)/(tabs)/profile" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View

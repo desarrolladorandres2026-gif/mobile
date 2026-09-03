@@ -1,8 +1,9 @@
 import { View, ScrollView, StyleSheet, Share } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
-  Text, Icon, Button, Badge, Notice, Screen, Header, EmptyState,
+  Text, Button, Badge, Notice, Screen, Header, EmptyState,
 } from '../../components/ui';
+import { ContentIcon } from '../../components/illustrations';
 import { useZippStats } from '../../hooks/useUsual';
 import { usePublicCoupons } from '../../hooks/useApi';
 import { useAuthStore } from '../../stores/authStore';
@@ -22,7 +23,7 @@ export default function RewardsScreen() {
     try {
       await Share.share({
         message:
-          `Pide a domicilio en Garzón con Zipp. Usa el código BIENVENIDO en tu primer pedido ` +
+          `Pide a domicilio con Zipp. Usa el código BIENVENIDO en tu primer pedido ` +
           `y te descuentan el 20%. Yo ya llevo ${stats.orderCount} ${stats.orderCount === 1 ? 'pedido' : 'pedidos'}.`,
       });
     } catch {
@@ -47,7 +48,7 @@ export default function RewardsScreen() {
             ]}
           >
             <View style={[styles.pointsBadge, { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.16)' : '#FEF3C7' }]}>
-              <Icon name="trofeo" size="sm" color="#F59E0B" />
+              <ContentIcon name="trofeo" size={20} />
               <Text v="captionStrong" color={isDark ? '#FBBF24' : '#D97706'}>
                 PROGRAMA DE RECOMPENSAS
               </Text>
@@ -66,7 +67,7 @@ export default function RewardsScreen() {
             <View style={styles.metricsRow}>
               <View style={styles.metricCol}>
                 <View style={styles.streakRow}>
-                  <Icon name="racha" size="sm" color={isDark ? '#34D399' : '#10B981'} />
+                  <ContentIcon name="racha" size={20} />
                   <Text v="titleL" color={isDark ? '#34D399' : '#059669'}>
                     {stats.streak}
                   </Text>
@@ -95,7 +96,7 @@ export default function RewardsScreen() {
 
         {stats.streak >= 2 ? (
           <Notice tone="lime" icon="racha">
-            {`Llevas ${stats.streak} semanas seguidas pidiendo. Eres de los clientes más fieles de Garzón.`}
+            {`Llevas ${stats.streak} semanas seguidas pidiendo. Eres de nuestros clientes más fieles.`}
           </Notice>
         ) : null}
 
@@ -110,7 +111,7 @@ export default function RewardsScreen() {
             ]}
           >
             <View style={styles.cleanIcon}>
-              <Icon name="favorito" size="lg" color="#6268A0" />
+              <ContentIcon name="favorito" size={30} />
             </View>
             <View style={styles.flex}>
               <Text v="captionStrong" tone="textMuted">TU NEGOCIO DE CABECERA</Text>
@@ -156,7 +157,7 @@ export default function RewardsScreen() {
               >
                 <View style={styles.couponTop}>
                   <View style={styles.cleanIcon}>
-                    <Icon name="cupon" size="lg" color="#6268A0" />
+                    <ContentIcon name="cupon" size={30} />
                   </View>
                   <View style={styles.flex}>
                     <Text v="strongL" numberOfLines={1}>{coupon.title}</Text>
@@ -202,7 +203,7 @@ export default function RewardsScreen() {
             ]}
           >
             <View style={styles.inviteCleanIcon}>
-              <Icon name="amigos" size={36} color="#6268A0" />
+              <ContentIcon name="regalo" size={40} />
             </View>
             <Text v="titleM" center>
               {firstName(user?.name)

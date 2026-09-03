@@ -1,7 +1,7 @@
 {
-  "name": "Zipp — Domicilios Garzón",
+  "name": "Zipp — Domicilios",
   "short_name": "Zipp",
-  "description": "Pide en tus comercios favoritos de Garzón, Huila y sigue tu pedido en tiempo real.",
+  "description": "Pide en tus comercios favoritos y sigue tu pedido en tiempo real.",
   "start_url": "/",
   "id": "/",
   "display": "standalone",

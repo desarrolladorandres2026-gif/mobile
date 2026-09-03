@@ -35,7 +35,7 @@ export default function OrderConfirmedScreen() {
     tap('light');
     try {
       await Share.share({
-        message: `Acabo de pedir por Zipp. Pedido ${reference}. Domicilios en Garzón, Huila.`,
+        message: `Acabo de pedir por Zipp. Pedido ${reference}.`,
       });
     } catch {
       // Cancelar la hoja de compartir no es un error.

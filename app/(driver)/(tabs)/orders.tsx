@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import {
   View, FlatList, StyleSheet, Pressable, RefreshControl, Linking, Alert,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
@@ -37,11 +38,10 @@ export default function DriverOrdersScreen() {
 
   useEffect(() => {
     socketService.connect();
-    socketService.onOrderAvailable(() => {
-      refetchAvailable();
-    });
-    return () => { socketService.removeAllListeners(); };
-  }, []);
+    const handleOrderAvailable = () => { refetchAvailable(); };
+    socketService.onOrderAvailable(handleOrderAvailable);
+    return () => { socketService.offOrderAvailable(handleOrderAvailable); };
+  }, [refetchAvailable]);
 
   const isRefetching = tab === 'available' ? refetchingAvailable : refetchingMy;
 
@@ -53,7 +53,12 @@ export default function DriverOrdersScreen() {
     }
   };
 
-  const handleAcceptOrder = (orderId: string) => {
+  const availableOrders = availableOrdersData?.data || availableOrdersData || [];
+  const myOrders = driverOrdersData?.data || driverOrdersData || [];
+  const list = tab === 'available' ? availableOrders : myOrders;
+  const isLoading = tab === 'available' ? loadingAvailable : loadingDriverOrders;
+
+  const handleAcceptOrder = useCallback((orderId: string) => {
     if (!driverProfile) {
       Alert.alert('Error', 'No se encontró tu perfil de domiciliario');
       return;
@@ -82,21 +87,22 @@ export default function DriverOrdersScreen() {
         },
       }
     );
-  };
+  }, [driverProfile, assignDriverMutation, refetchAvailable, refetchMy]);
 
-  const handleUpdateStatus = (order: any, nextStatus: string) => {
+  const handleUpdateStatus = useCallback((orderId: string, nextStatus: string) => {
+    const order = list.find((o: any) => o._id === orderId);
     tap('medium');
     updateStatusMutation.mutate(
-      { id: order._id, status: nextStatus },
+      { id: orderId, status: nextStatus },
       {
         onSuccess: () => {
           tap('success');
           refetchMy();
 
           socketService.emitOrderStatusUpdate({
-            orderId: order._id,
+            orderId,
             status: nextStatus,
-            clientId: order.clientId?._id || order.clientId,
+            clientId: order?.clientId?._id || order?.clientId,
             driverId: driverProfile?.userId?._id || driverProfile?.userId,
           });
         },
@@ -106,24 +112,15 @@ export default function DriverOrdersScreen() {
         },
       }
     );
-  };
+  }, [list, updateStatusMutation, refetchMy, driverProfile]);
 
-  const openMap = (address: string, lat?: number, lng?: number) => {
+  const openMap = useCallback((address: string, lat?: number, lng?: number) => {
     tap('light');
     const query = lat && lng ? `${lat},${lng}` : encodeURIComponent(address);
     const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
     Linking.openURL(url).catch(() => {});
-  };
+  }, []);
 
-  const callPhone = (phone: string) => {
-    tap('light');
-    Linking.openURL(`tel:${phone}`).catch(() => {});
-  };
-
-  const availableOrders = availableOrdersData?.data || availableOrdersData || [];
-  const myOrders = driverOrdersData?.data || driverOrdersData || [];
-  const list = tab === 'available' ? availableOrders : myOrders;
-  const isLoading = tab === 'available' ? loadingAvailable : loadingDriverOrders;
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
@@ -156,6 +153,10 @@ export default function DriverOrdersScreen() {
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews
+          maxToRenderPerBatch={8}
+          windowSize={7}
+          initialNumToRender={6}
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}
@@ -168,10 +169,9 @@ export default function DriverOrdersScreen() {
             <DriverOrderCard
               order={item}
               isAvailable={tab === 'available'}
-              onAccept={() => handleAcceptOrder(item._id)}
-              onNextStatus={(nextStatus) => handleUpdateStatus(item, nextStatus)}
+              onAccept={handleAcceptOrder}
+              onNextStatus={handleUpdateStatus}
               onOpenMap={openMap}
-              onCall={callPhone}
             />
           )}
           ListEmptyComponent={
@@ -179,7 +179,7 @@ export default function DriverOrdersScreen() {
               <EmptyState
                 icon="ruta"
                 title="Sin pedidos disponibles"
-                message="En cuanto un restaurante de Garzón prepare un pedido, aparecerá aquí al instante."
+                message="En cuanto un restaurante prepare un pedido, aparecerá aquí al instante."
                 actionLabel="Actualizar"
                 onAction={handleRefresh}
               />
@@ -220,17 +220,17 @@ function Segment({
   );
 }
 
-function DriverOrderCard({
-  order, isAvailable, onAccept, onNextStatus, onOpenMap, onCall,
+const DriverOrderCard = memo(function DriverOrderCard({
+  order, isAvailable, onAccept, onNextStatus, onOpenMap,
 }: {
   order: any;
   isAvailable: boolean;
-  onAccept: () => void;
-  onNextStatus: (status: string) => void;
+  onAccept: (orderId: string) => void;
+  onNextStatus: (orderId: string, status: string) => void;
   onOpenMap: (addr: string, lat?: number, lng?: number) => void;
-  onCall: (phone: string) => void;
 }) {
   const { c } = useTheme();
+  const router = useRouter();
 
   const business = order.businessId;
   const client = order.clientId;
@@ -238,9 +238,20 @@ function DriverOrderCard({
   const tip = order.tip || 0;
   const totalEarning = deliveryFee + tip;
 
+  // La recogida y la entrega ya exigen evidencia y código de seguridad —
+  // ver esta pantalla es donde eso se resuelve. Sin el badge de reparto
+  // activo bien podría confundirse con "toca para aceptar".
+  const goToDetail = () => router.push(`/(driver)/order/${order._id}` as never);
+
   return (
     <Animated.View entering={FadeIn.duration(240)}>
-      <Card style={styles.card}>
+      <Card style={styles.card} onPress={!isAvailable ? goToDetail : undefined}>
+        {!isAvailable ? (
+          <View style={styles.detailHint}>
+            <Icon name="candado" size="sm" color={c.textMuted} />
+            <Text v="caption" tone="textMuted">Toca para ver evidencia, código, chat y llamada</Text>
+          </View>
+        ) : null}
         <View style={styles.cardHeader}>
           <View>
             <Text v="caption" tone="textMuted">{orderDate(order.createdAt)}</Text>
@@ -295,43 +306,43 @@ function DriverOrderCard({
         )}
 
         {/* ── Botones de Acción ── */}
+        {/*
+          Sin botón de llamada directa aquí: llamar al cliente expondría su
+          número personal, justo lo que la sesión de llamada en la pantalla
+          del pedido evita. "Toca para ver..." arriba ya lleva hasta ahí.
+        */}
         <View style={styles.cardActions}>
-          {client?.phone ? (
-            <Button
-              title="Llamar"
-              icon="llamar"
-              variant="secondary"
-              onPress={() => onCall(client.phone)}
-            />
-          ) : null}
-
           {isAvailable ? (
             <Button
               title="Aceptar pedido"
               icon="check"
               style={styles.flex}
-              onPress={onAccept}
+              onPress={() => onAccept(order._id)}
             />
           ) : order.status === 'ready' ? (
+            // Recoger ya exige foto + código de seguridad del comercio: se
+            // resuelve en la pantalla del pedido, no con un solo toque aquí.
             <Button
               title="Recoger en local"
               icon="paquete"
               style={styles.flex}
-              onPress={() => onNextStatus('picked_up')}
+              onPress={goToDetail}
             />
           ) : order.status === 'picked_up' ? (
+            // Sin código de por medio: es un simple cambio de estado.
             <Button
               title="Iniciar camino"
               icon="ruta"
               style={styles.flex}
-              onPress={() => onNextStatus('on_way')}
+              onPress={() => onNextStatus(order._id, 'on_way')}
             />
           ) : order.status === 'on_way' ? (
+            // Entregar exige foto + el código que le pide al cliente.
             <Button
               title="Confirmar entrega"
               icon="check"
               style={styles.flex}
-              onPress={() => onNextStatus('delivered')}
+              onPress={goToDetail}
             />
           ) : (
             <StatusPill status={order.status} />
@@ -340,7 +351,7 @@ function DriverOrderCard({
       </Card>
     </Animated.View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
@@ -365,6 +376,7 @@ const styles = StyleSheet.create({
 
   list: { padding: Spacing.xl, gap: Spacing.lg, paddingBottom: BOTTOM_SPACE },
   card: { padding: Spacing.lg, gap: Spacing.md },
+  detailHint: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4 },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',

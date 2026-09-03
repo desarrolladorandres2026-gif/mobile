@@ -3,19 +3,21 @@ import { useRouter } from 'expo-router';
 import {
   Text, Icon, Button, EmptyState, ErrorState, Screen, Header, Skeleton,
 } from '../../components/ui';
+import { ContentIcon, type ContentIllustrationName } from '../../components/illustrations';
 import { useNotifications, useMarkAllRead, useMarkRead } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
-import type { IconName } from '../../theme/icons';
 import { BorderRadius, Spacing, FontSize } from '../../theme/tokens';
 import { orderDate } from '../../lib/format';
 
-/** Icono y color squircle según de qué trata el aviso. */
-function look(type: string): { icon: IconName; bg: string; fg: string } {
-  if (type?.includes('order')) return { icon: 'paquete', bg: '#6268A0', fg: '#FFFFFF' };
-  if (type?.includes('promo') || type?.includes('coupon')) return { icon: 'cupon', bg: '#6268A0', fg: '#FFFFFF' };
-  if (type?.includes('payment')) return { icon: 'tarjeta', bg: '#6268A0', fg: '#FFFFFF' };
-  if (type?.includes('cancel')) return { icon: 'error', bg: '#6268A0', fg: '#FFFFFF' };
-  return { icon: 'notificaciones', bg: '#6268A0', fg: '#FFFFFF' };
+/** Qué mini-ilustración (o alerta funcional) va en cada tipo de aviso. */
+type Look = { kind: 'illustration'; name: ContentIllustrationName } | { kind: 'alert' };
+
+function look(type: string): Look {
+  if (type?.includes('order')) return { kind: 'illustration', name: 'paquete' };
+  if (type?.includes('promo') || type?.includes('coupon')) return { kind: 'illustration', name: 'cupon' };
+  if (type?.includes('payment')) return { kind: 'illustration', name: 'tarjeta' };
+  if (type?.includes('cancel')) return { kind: 'alert' };
+  return { kind: 'illustration', name: 'notificaciones' };
 }
 
 export default function NotificationsScreen() {
@@ -77,11 +79,15 @@ export default function NotificationsScreen() {
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews
+          maxToRenderPerBatch={10}
+          windowSize={9}
+          initialNumToRender={8}
           refreshControl={
             <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={c.primary} />
           }
           renderItem={({ item }) => {
-            const { icon, bg, fg } = look(item.type ?? '');
+            const info = look(item.type ?? '');
             const orderId = item.data?.orderId;
 
             return (
@@ -97,7 +103,11 @@ export default function NotificationsScreen() {
                 ]}
               >
                 <View style={styles.cleanIcon}>
-                  <Icon name={icon} size="lg" color="#6268A0" />
+                  {info.kind === 'illustration' ? (
+                    <ContentIcon name={info.name} size={30} />
+                  ) : (
+                    <Icon name="error" size="lg" color={c.errorText} />
+                  )}
                 </View>
 
                 <View style={styles.itemBody}>

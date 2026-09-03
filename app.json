@@ -44,7 +44,14 @@
           ]
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Zipp usa tus fotos para que elijas una imagen de perfil.",
+          "cameraPermission": "Zipp usa la cámara para que tomes tu foto de perfil."
+        }
+      ]
     ],
     "extra": {
       "googleAuth": {

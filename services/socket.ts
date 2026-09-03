@@ -68,12 +68,24 @@ class SocketService {
     this.socket?.on('order:status:changed', callback);
   }
 
+  offOrderStatusChanged(callback: (data: any) => void) {
+    this.socket?.off('order:status:changed', callback);
+  }
+
   onOrderIncoming(callback: (data: any) => void) {
     this.socket?.on('order:incoming', callback);
   }
 
+  offOrderIncoming(callback: (data: any) => void) {
+    this.socket?.off('order:incoming', callback);
+  }
+
   onOrderAvailable(callback: (data: any) => void) {
     this.socket?.on('order:available', callback);
+  }
+
+  offOrderAvailable(callback: (data: any) => void) {
+    this.socket?.off('order:available', callback);
   }
 
   emitNewOrder(orderData: any) {
@@ -82,6 +94,100 @@ class SocketService {
 
   emitOrderStatusUpdate(data: any) {
     this.socket?.emit('order:status:update', data);
+  }
+
+  // ── Sala del pedido: chat en vivo y llegadas ──
+  //
+  // Entrar a la sala no es opcional ni automático: el servidor comprueba
+  // la relación con el pedido antes de admitir el socket (ver
+  // `resolveOrderAccess` en `sockets/index.ts`), así que unirse a la sala
+  // de un pedido ajeno simplemente no tiene efecto — no llega nada por ahí.
+  joinOrderRoom(orderId: string) {
+    this.socket?.emit('order:join', orderId);
+  }
+
+  leaveOrderRoom(orderId: string) {
+    this.socket?.emit('order:leave', orderId);
+  }
+
+  onDriverArrived(callback: (data: any) => void) {
+    this.socket?.on('order:driver:arrived', callback);
+  }
+  offDriverArrived(callback: (data: any) => void) {
+    this.socket?.off('order:driver:arrived', callback);
+  }
+
+  onChatMessage(callback: (data: any) => void) {
+    this.socket?.on('order:chat:message', callback);
+  }
+  offChatMessage(callback: (data: any) => void) {
+    this.socket?.off('order:chat:message', callback);
+  }
+
+  onChatRead(callback: (data: any) => void) {
+    this.socket?.on('order:chat:read', callback);
+  }
+  offChatRead(callback: (data: any) => void) {
+    this.socket?.off('order:chat:read', callback);
+  }
+
+  emitChatTyping(orderId: string, typing: boolean) {
+    this.socket?.emit('order:chat:typing', { orderId, typing });
+  }
+  onChatTyping(callback: (data: any) => void) {
+    this.socket?.on('order:chat:typing', callback);
+  }
+  offChatTyping(callback: (data: any) => void) {
+    this.socket?.off('order:chat:typing', callback);
+  }
+
+  // ── Llamadas: notificación de estado ──
+  //
+  // El timbrado, la respuesta y el fin de la llamada son hechos que confirma
+  // el backend (`OrderCall`), así que se avisan por aquí. La sala
+  // `call:<id>` (unida con `joinCallRoom`) es aparte y solo transporta la
+  // señalización WebRTC — nunca reemplaza esta confirmación de estado.
+  onCallIncoming(callback: (data: any) => void) {
+    this.socket?.on('order:call:incoming', callback);
+  }
+  offCallIncoming(callback: (data: any) => void) {
+    this.socket?.off('order:call:incoming', callback);
+  }
+
+  onCallAnswered(callback: (data: any) => void) {
+    this.socket?.on('order:call:answered', callback);
+  }
+  offCallAnswered(callback: (data: any) => void) {
+    this.socket?.off('order:call:answered', callback);
+  }
+
+  onCallEnded(callback: (data: any) => void) {
+    this.socket?.on('order:call:ended', callback);
+  }
+  offCallEnded(callback: (data: any) => void) {
+    this.socket?.off('order:call:ended', callback);
+  }
+
+  joinCallRoom(orderId: string, callId: string) {
+    this.socket?.emit('call:join', { orderId, callId });
+  }
+  leaveCallRoom(callId: string) {
+    this.socket?.emit('call:leave', callId);
+  }
+  emitCallSignal(callId: string, signal: unknown) {
+    this.socket?.emit('call:signal', { callId, signal });
+  }
+  onCallSignal(callback: (data: any) => void) {
+    this.socket?.on('call:signal', callback);
+  }
+  offCallSignal(callback: (data: any) => void) {
+    this.socket?.off('call:signal', callback);
+  }
+  onCallPeerJoined(callback: (data: any) => void) {
+    this.socket?.on('call:peer:joined', callback);
+  }
+  offCallPeerJoined(callback: (data: any) => void) {
+    this.socket?.off('call:peer:joined', callback);
   }
 
   // ── Driver Events ──
@@ -97,7 +203,14 @@ class SocketService {
     this.socket?.on('driver:location:update', callback);
   }
 
+  offDriverLocationUpdate(callback: (data: any) => void) {
+    this.socket?.off('driver:location:update', callback);
+  }
+
   // ── Cleanup ──
+  // OJO: solo se usa al hacer logout (disconnect()). Nunca llamarlo desde el
+  // cleanup de una pantalla: el socket es un singleton compartido y esto
+  // borraría también los listeners registrados por otras pantallas activas.
   removeAllListeners() {
     this.socket?.removeAllListeners();
   }

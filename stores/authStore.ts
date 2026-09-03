@@ -9,6 +9,8 @@ interface User {
   role: string;
   avatar?: string;
   isVerified: boolean;
+  phoneVerified?: boolean;
+  emailVerified?: boolean;
 }
 
 interface AuthState {
@@ -49,7 +51,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ accessToken, refreshToken });
   },
 
-  setUser: (user) => set({ user }),
+  setUser: (user) => {
+    void AsyncStorage.setItem('@zipp_user', JSON.stringify(user));
+    set({ user });
+  },
 
   logout: async () => {
     await AsyncStorage.multiRemove(['@zipp_access_token', '@zipp_refresh_token', '@zipp_user']);

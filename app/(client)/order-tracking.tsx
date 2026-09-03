@@ -1,4 +1,6 @@
-import { View, ScrollView, StyleSheet, Linking, Share, useWindowDimensions } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, ScrollView, StyleSheet, Share, useWindowDimensions } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
@@ -6,8 +8,11 @@ import {
   DetailRow, Screen, Header, LoadingScreen, ErrorState, PulseDot,
 } from '../../components/ui';
 import { TrazoRuta, TrazoConnector } from '../../components/brand/Trazo';
-import { useOrder } from '../../hooks/useApi';
-import { useOrderRealtime, orderProgress } from '../../hooks/useRealtime';
+import { SecurityCodeBox, SecurityCodePending } from '../../components/domain/SecurityCodeBox';
+import { OrderChatSheet } from '../../components/domain/OrderChatSheet';
+import { OrderCallSheet } from '../../components/domain/OrderCallSheet';
+import { useOrder, useOrderFlow } from '../../hooks/useApi';
+import { useOrderRealtime, useOrderFlowRealtime, orderProgress } from '../../hooks/useRealtime';
 import { useTheme } from '../../hooks/useTheme';
 import { ORDER_STATUS_DETAIL } from '../../constants/config';
 import { BorderRadius, Spacing } from '../../theme/tokens';
@@ -36,6 +41,22 @@ export default function OrderTrackingScreen() {
 
   const { data: order, isLoading, isError, refetch } = useOrder(id);
   const { connected } = useOrderRealtime();
+  const { data: flow } = useOrderFlow(order?._id);
+  const { incomingCall, clearIncomingCall } = useOrderFlowRealtime(order?._id);
+
+  const [chatOpen, setChatOpen] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
+  const [callStartedByMe, setCallStartedByMe] = useState(false);
+
+  // Una llamada entrante abre la hoja sola, aunque el cliente esté leyendo
+  // el detalle del pedido en ese momento — no depende de que haya tocado
+  // "Llamar" para enterarse.
+  useEffect(() => {
+    if (incomingCall) {
+      setCallStartedByMe(false);
+      setCallOpen(true);
+    }
+  }, [incomingCall]);
 
   if (isLoading) return <LoadingScreen message="Buscando tu pedido…" />;
 
@@ -62,7 +83,7 @@ export default function OrderTrackingScreen() {
     tap('light');
     try {
       await Share.share({
-        message: `Mi pedido en Zipp (${reference}) de ${order.businessId?.name ?? 'un negocio de Garzón'}: ${ORDER_STATUS_DETAIL[order.status] ?? ''}`,
+        message: `Mi pedido en Zipp (${reference}) de ${order.businessId?.name ?? 'un negocio'}: ${ORDER_STATUS_DETAIL[order.status] ?? ''}`,
       });
     } catch {
       // Cancelar la hoja de compartir no es un error.
@@ -165,15 +186,51 @@ export default function OrderTrackingScreen() {
                     </Text>
                   </View>
                 </View>
-                {order.driverId.userId?.phone ? (
-                  <IconButton
+              </Card>
+            ) : null}
+
+            {/* ── Comunicación: nunca el teléfono directo ── */}
+            {flow?.chat.available || flow?.call.available ? (
+              <View style={styles.commsRow}>
+                <Button
+                  title={flow?.chat.unread ? `Chat (${flow.chat.unread})` : 'Chat'}
+                  icon="chat"
+                  variant="secondary"
+                  style={styles.flex}
+                  onPress={() => { tap('light'); setChatOpen(true); }}
+                />
+                {flow?.call.available ? (
+                  <Button
+                    title="Llamar"
                     icon="llamar"
-                    label={`Llamar a ${order.driverId.userId?.name ?? 'el domiciliario'}`}
-                    tone="lime"
-                    size={50}
-                    onPress={() => Linking.openURL(`tel:${order.driverId.userId.phone}`).catch(() => {})}
+                    variant="lime"
+                    style={styles.flex}
+                    onPress={() => { tap('light'); setCallStartedByMe(true); setCallOpen(true); }}
                   />
                 ) : null}
+              </View>
+            ) : null}
+
+            {/* ── Código de seguridad de la entrega ── */}
+            {flow?.delivery.code ? (
+              <SecurityCodeBox
+                code={flow.delivery.code}
+                warning="No lo compartas hasta recibir tu pedido en mano."
+              />
+            ) : order.driverId && !delivered && flow?.pickup.codeStatus !== 'used' ? (
+              <SecurityCodePending label="Tu código de entrega aparecerá aquí en cuanto el domiciliario recoja tu pedido." />
+            ) : null}
+
+            {/* ── Evidencia de entrega ── */}
+            {delivered && flow?.delivery.evidence ? (
+              <Card style={styles.evidenceCard}>
+                <Text v="label" tone="textMuted">Foto de entrega</Text>
+                <Image
+                  source={{ uri: flow.delivery.evidence.url }}
+                  style={styles.evidenceImage}
+                  contentFit="cover"
+                  transition={200}
+                />
               </Card>
             ) : null}
 
@@ -269,6 +326,16 @@ export default function OrderTrackingScreen() {
           onPress={() => router.push('/(client)/help')}
         />
       </ScrollView>
+
+      <OrderChatSheet visible={chatOpen} onClose={() => setChatOpen(false)} orderId={order._id} />
+      <OrderCallSheet
+        visible={callOpen}
+        onClose={() => { setCallOpen(false); clearIncomingCall(); }}
+        orderId={order._id}
+        orderNumber={reference}
+        startOnOpen={callStartedByMe}
+        onOpenChat={() => { setCallOpen(false); setChatOpen(true); }}
+      />
     </Screen>
   );
 }
@@ -294,6 +361,9 @@ const styles = StyleSheet.create({
   },
 
   driver: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  commsRow: { flexDirection: 'row', gap: Spacing.sm },
+  evidenceCard: { gap: Spacing.sm },
+  evidenceImage: { width: '100%', height: 220, borderRadius: BorderRadius.lg },
   avatar: {
     width: 54, height: 54, borderRadius: 27,
     alignItems: 'center', justifyContent: 'center',

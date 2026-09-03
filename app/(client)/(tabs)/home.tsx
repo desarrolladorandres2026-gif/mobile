@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, memo } from 'react';
 import {
   View, ScrollView, FlatList, Pressable, RefreshControl,
   StyleSheet, useWindowDimensions,
@@ -13,15 +13,17 @@ import {
 import {
   BusinessRow, BusinessFeatured, type Business,
 } from '../../../components/domain/BusinessCard';
+import { PromoCarousel } from '../../../components/domain/PromoCarousel';
+import { CategoryTile } from '../../../components/domain/CategoryTile';
 import { useAuthStore } from '../../../stores/authStore';
 import { useBusinesses, usePublicCoupons, useAddresses } from '../../../hooks/useApi';
 import { useUsual, reorder, type UsualOrder } from '../../../hooks/useUsual';
+import { useHomeCategories } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
-import { BUSINESS_CATEGORIES } from '../../../constants/config';
-import { categoryIcon } from '../../../theme/icons';
-import { BorderRadius, Shadow, Spacing } from '../../../theme/tokens';
+import { categoryIllustration, ContentIcon } from '../../../components/illustrations';
+import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { greeting, firstName, money } from '../../../lib/format';
-import { openState, businessAccent } from '../../../lib/business';
+import { openState } from '../../../lib/business';
 import { tap } from '../../../lib/haptics';
 
 /** Deja aire suficiente para el dock y la barra de pestañas. */
@@ -38,6 +40,7 @@ export default function HomeScreen() {
   const { data: coupons = [] } = usePublicCoupons();
   const { data: addresses = [] } = useAddresses();
   const { usual } = useUsual();
+  const { categories } = useHomeCategories();
 
   const defaultAddress = addresses.find((a: any) => a.isDefault) ?? addresses[0];
 
@@ -139,6 +142,10 @@ export default function HomeScreen() {
               keyExtractor={(item) => item.orderId}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.hList}
+              removeClippedSubviews
+              maxToRenderPerBatch={10}
+              windowSize={9}
+              initialNumToRender={6}
               renderItem={({ item }) => (
                 <UsualCard item={item} onPress={() => repeatOrder(item)} />
               )}
@@ -146,37 +153,28 @@ export default function HomeScreen() {
           </Animated.View>
         ) : null}
 
-        {/* ── Categorías ── */}
+        {/* ── Promociones ── */}
+        {/* Se dibuja solo si el servidor mandó banners vigentes; si no,
+            Categorías sube y no queda ningún hueco. */}
+        <PromoCarousel />
+
         {/* ── Categorías ── */}
         <View style={styles.section}>
           <SectionHeader title="Categorías" />
           <View style={styles.categories}>
-            {BUSINESS_CATEGORIES.map((cat) => (
-              <Pressable
+            {categories.map((cat) => (
+              <CategoryTile
                 key={cat.key}
-                onPress={() => {
-                  tap('light');
+                categoryKey={cat.key}
+                label={cat.label}
+                imageUrl={cat.imageUrl}
+                onPress={() =>
                   router.push({
                     pathname: '/(client)/(tabs)/search',
                     params: { category: cat.key },
-                  });
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={cat.label}
-                style={styles.category}
-              >
-                <View
-                  style={[
-                    styles.categoryTile,
-                    { backgroundColor: c.surface, borderColor: c.border },
-                  ]}
-                >
-                  <Icon name={categoryIcon(cat.key)} size="lg" color={c.primaryText} />
-                </View>
-                <Text v="caption" tone="textSecondary" center numberOfLines={2}>
-                  {cat.label}
-                </Text>
-              </Pressable>
+                  })
+                }
+              />
             ))}
           </View>
         </View>
@@ -191,6 +189,10 @@ export default function HomeScreen() {
               keyExtractor={(item: any) => item._id}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.hList}
+              removeClippedSubviews
+              maxToRenderPerBatch={10}
+              windowSize={9}
+              initialNumToRender={6}
               renderItem={({ item }) => <CouponCard coupon={item} />}
             />
           </View>
@@ -210,6 +212,10 @@ export default function HomeScreen() {
               keyExtractor={(item) => item._id}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.hList}
+              removeClippedSubviews
+              maxToRenderPerBatch={10}
+              windowSize={9}
+              initialNumToRender={6}
               renderItem={({ item }) => (
                 <BusinessFeatured
                   business={item}
@@ -225,7 +231,7 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <SectionHeader
             title="Abiertos ahora"
-            subtitle={openNow.length ? `${openNow.length} locales disponibles en Garzón` : undefined}
+            subtitle={openNow.length ? `${openNow.length} locales disponibles` : undefined}
           />
 
           {isError ? (
@@ -240,7 +246,7 @@ export default function HomeScreen() {
             <EmptyState
               icon="reloj"
               title="Todo cerrado por ahora"
-              message="Los negocios de Garzón abren temprano. Vuelve en un rato y te esperamos con todo listo."
+              message="Los negocios abren temprano. Vuelve en un rato y te esperamos con todo listo."
               actionLabel="Ver todos los negocios"
               onAction={() => router.push('/(client)/(tabs)/search')}
               compact
@@ -281,9 +287,9 @@ export default function HomeScreen() {
 // ──────────────────────────────────────────────────────────────
 
 /** Tarjeta de "lo de siempre". Un toque rearma la bolsa completa. */
-function UsualCard({ item, onPress }: { item: UsualOrder; onPress: () => void }) {
+const UsualCard = memo(function UsualCard({ item, onPress }: { item: UsualOrder; onPress: () => void }) {
   const { c } = useTheme();
-  const accent = businessAccent(item.businessId);
+  const Illustration = categoryIllustration(item.businessCategory);
 
   return (
     <Card
@@ -294,8 +300,8 @@ function UsualCard({ item, onPress }: { item: UsualOrder; onPress: () => void })
       accessibilityHint="Agrega estos productos a tu bolsa"
     >
       <View style={styles.usualTop}>
-        <View style={[styles.usualIcon, { backgroundColor: accent }]}>
-          <Icon name={categoryIcon(item.businessCategory)} size="md" color="#FFFFFF" />
+        <View style={[styles.usualIcon, { backgroundColor: c.surfaceLight }]}>
+          <Illustration size={30} />
         </View>
         {item.timesOrdered > 1 ? (
           <Badge label={`${item.timesOrdered} veces`} tone="lime" icon="racha" />
@@ -314,10 +320,10 @@ function UsualCard({ item, onPress }: { item: UsualOrder; onPress: () => void })
       </View>
     </Card>
   );
-}
+});
 
 /** Cupón vigente. El código se muestra grande porque hay que escribirlo. */
-function CouponCard({ coupon }: { coupon: any }) {
+const CouponCard = memo(function CouponCard({ coupon }: { coupon: any }) {
   const { c } = useTheme();
 
   const benefit =
@@ -332,7 +338,7 @@ function CouponCard({ coupon }: { coupon: any }) {
   return (
     <View style={[styles.coupon, { backgroundColor: c.limeSoft, borderColor: c.limeSoftBorder }]}>
       <View style={styles.couponTop}>
-        <Icon name="cupon" size="md" color={c.limeText} />
+        <ContentIcon name="cupon" size={28} />
         <Text v="strongM" numberOfLines={1} style={styles.flex}>{benefit}</Text>
       </View>
       <Text v="bodyS" tone="textSecondary" numberOfLines={2}>{coupon.title}</Text>
@@ -341,7 +347,7 @@ function CouponCard({ coupon }: { coupon: any }) {
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
@@ -413,16 +419,6 @@ const styles = StyleSheet.create({
   usualPrice: { marginLeft: 'auto' },
 
   categories: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm },
-  category: { flex: 1, alignItems: 'center', gap: Spacing.sm },
-  categoryTile: {
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: BorderRadius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    ...Shadow.sm,
-  },
 
   coupon: {
     width: 232,

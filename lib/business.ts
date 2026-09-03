@@ -3,7 +3,7 @@ import { palette } from '../theme/tokens';
 /**
  * Colores de identidad para los negocios.
  *
- * Pocos comercios de Garzón tienen una foto decente cargada, y una app llena
+ * Pocos comercios tienen una foto decente cargada, y una app llena
  * de placeholders grises se ve rota. En vez de eso, cada negocio recibe
  * siempre el mismo color, derivado de su id: Burger House es el rojo, Café
  * Aroma es el ámbar. Con dos o tres pedidos ya los reconoces por el color

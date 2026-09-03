@@ -1,32 +1,121 @@
 import { useState, useEffect } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, Alert } from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import {
   Text, Icon, Button, Input, Sheet, Notice,
 } from '../../../components/ui';
+import {
+  ContentIcon,
+  type ContentIllustrationName,
+} from '../../../components/illustrations';
 import { useAuthStore } from '../../../stores/authStore';
 import { useCartStore } from '../../../stores/cartStore';
 import { useFavoritesStore } from '../../../stores/favoritesStore';
+import { useThemeStore } from '../../../stores/themeStore';
+import { usePrefsStore } from '../../../stores/prefsStore';
 import { useAddresses } from '../../../hooks/useApi';
 import { useZippStats } from '../../../hooks/useUsual';
 import { useTheme } from '../../../hooks/useTheme';
 import { authApi } from '../../../services/endpoints';
 import { socketService } from '../../../services/socket';
 import type { IconName } from '../../../theme/icons';
-import { BorderRadius, Spacing, FontSize } from '../../../theme/tokens';
+import { Spacing, FontSize } from '../../../theme/tokens';
 import { initials } from '../../../lib/format';
 import { apiMessage, validateName, validatePhone } from '../../../lib/errors';
 import { tap } from '../../../lib/haptics';
+import { SUPPORT_PHONE } from '../../../constants/config';
 
 const BOTTOM_SPACE = 190;
 
+// Cloudinary vuelve a recortar y optimizar, pero comprimir aquí es lo que
+// ahorra datos y hace la subida rápida: el original de la cámara puede
+// pesar 4–8 MB y sólo necesitamos una miniatura cuadrada.
+//
+// ── Ajusta tú estos dos valores (ver la petición en la conversación) ──
+const AVATAR_UPLOAD_SIZE = 640; // lado máximo en px antes de subir
+const AVATAR_UPLOAD_QUALITY = 0.8; // 0 = mínima calidad, 1 = sin comprimir
+
+/**
+ * Toma la imagen elegida en la galería y devuelve un archivo local ya
+ * reducido y recomprimido en JPEG, listo para subir.
+ */
+async function prepareAvatarForUpload(uri: string): Promise<string> {
+  const rendered = await ImageManipulator.manipulate(uri)
+    .resize({ width: AVATAR_UPLOAD_SIZE })
+    .renderAsync();
+  const result = await rendered.saveAsync({
+    compress: AVATAR_UPLOAD_QUALITY,
+    format: SaveFormat.JPEG,
+  });
+  return result.uri;
+}
+
+// ──────────────────────────────────────────────────────────────
+// Avatar: foto de perfil con degradado a iniciales si no hay imagen
+// ──────────────────────────────────────────────────────────────
+
+function Avatar({
+  uri,
+  name,
+  size,
+  fontVariant = 'displayM',
+}: {
+  uri?: string;
+  name?: string;
+  size: number;
+  fontVariant?: 'displayM' | 'titleL';
+}) {
+  const { c } = useTheme();
+  const radius = size / 2;
+
+  if (uri) {
+    return (
+      <Image
+        source={{ uri }}
+        style={{ width: size, height: size, borderRadius: radius }}
+        contentFit="cover"
+        transition={150}
+        accessibilityLabel="Foto de perfil"
+      />
+    );
+  }
+
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        backgroundColor: c.primary,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Text v={fontVariant} color="#FFFFFF">
+        {initials(name)}
+      </Text>
+    </View>
+  );
+}
+
 interface MenuLink {
-  icon: IconName;
+  /** Ilustración de contenido (categorías, beneficios, módulos). */
+  illustration?: ContentIllustrationName;
+  /** Icono funcional lucide, para acciones simples como ajustes. */
+  icon?: IconName;
   label: string;
   detail?: string;
   badge?: string;
-  route: string;
+  /** Navega a esta ruta al tocar la fila. */
+  route?: string;
+  /** Parámetros de la ruta, para pantallas que sirven a varias filas. */
+  params?: Record<string, string>;
+  /** O, en vez de navegar, ejecuta esta acción (permisos del sistema, etc.). */
+  action?: () => void;
 }
 
 export default function ProfileScreen() {
@@ -39,23 +128,46 @@ export default function ProfileScreen() {
   const clearCart = useCartStore((s) => s.clearCart);
   const stats = useZippStats();
 
+  const theme = useThemeStore((s) => s.theme);
+  const setTheme = useThemeStore((s) => s.setTheme);
+  const resetPrefs = usePrefsStore((s) => s.reset);
+
   const [editing, setEditing] = useState(false);
+
+  const replayOnboarding = () => {
+    tap('light');
+    resetPrefs();
+    router.replace('/(auth)/welcome');
+  };
+
+  /**
+   * Abre WhatsApp con el mensaje ya escrito. Todavía no existe un registro de
+   * aliados ni de domiciliarios dentro de la app, así que la postulación se
+   * hace por el mismo canal que soporte, y no por un formulario que no lleva
+   * a ninguna parte. Si WhatsApp no está instalado, cae a la llamada.
+   */
+  const writeToZipp = (text: string) => {
+    const url = `whatsapp://send?phone=57${SUPPORT_PHONE}&text=${encodeURIComponent(text)}`;
+    Linking.openURL(url).catch(() => {
+      Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {});
+    });
+  };
 
   const accountLinks: MenuLink[] = [
     {
-      icon: 'ubicacion',
+      illustration: 'ubicacion',
       label: 'Mis direcciones',
       detail: `${addresses.length} guardada${addresses.length === 1 ? '' : 's'}`,
       route: '/(client)/addresses',
     },
     {
-      icon: 'favorito',
+      illustration: 'favorito',
       label: 'Negocios favoritos',
       detail: `${favorites.length} guardado${favorites.length === 1 ? '' : 's'}`,
       route: '/(client)/favorites',
     },
     {
-      icon: 'notificaciones',
+      illustration: 'notificaciones',
       label: 'Avisos y notificaciones',
       route: '/(client)/notifications',
     },
@@ -63,7 +175,7 @@ export default function ProfileScreen() {
 
   const zippLinks: MenuLink[] = [
     {
-      icon: 'trofeo',
+      illustration: 'trofeo',
       label: 'Tus puntos Zipp y cupones',
       detail: `${stats.points} puntos acumulados`,
       badge: `${stats.points} pts`,
@@ -71,18 +183,82 @@ export default function ProfileScreen() {
     },
   ];
 
-  const supportLinks: MenuLink[] = [
+  const joinLinks: MenuLink[] = [
     {
-      icon: 'ayuda',
+      illustration: 'negocio',
+      label: 'Aliar mi negocio a Zipp',
+      detail: 'Escríbenos para registrar tu comercio',
+      action: () => writeToZipp('Hola, quiero aliar mi negocio a Zipp.'),
+    },
+    {
+      illustration: 'domiciliario',
+      label: 'Empezar a repartir con Zipp',
+      detail: 'Escríbenos para postularte como domiciliario',
+      action: () => writeToZipp('Hola, quiero empezar a repartir con Zipp.'),
+    },
+  ];
+
+  const helpLinks: MenuLink[] = [
+    {
+      illustration: 'ayuda',
       label: 'Centro de ayuda',
       detail: 'Preguntas y soporte técnico',
       route: '/(client)/help',
     },
     {
-      icon: 'ajustes',
-      label: 'Ajustes y configuración',
-      detail: 'Tema, permisos y cuenta',
-      route: '/(client)/settings',
+      illustration: 'seguridad',
+      label: 'Centro legal, datos y SIC',
+      detail: 'Políticas de privacidad y términos del servicio',
+      route: '/(client)/legal',
+    },
+    {
+      illustration: 'soporte',
+      label: 'PQRS y solicitudes de datos',
+      detail: 'Radica consultas, quejas o reclamos',
+      route: '/(client)/requests',
+    },
+  ];
+
+  // Cada fila abre el mismo lector y le dice qué documento buscar.
+  const legalLinks: MenuLink[] = [
+    {
+      illustration: 'documento',
+      label: 'Términos y condiciones',
+      route: '/(client)/legal-document',
+      params: { kind: 'terms', title: 'Términos y condiciones' },
+    },
+    {
+      illustration: 'documento',
+      label: 'Políticas de privacidad',
+      route: '/(client)/legal-document',
+      params: { kind: 'privacy', title: 'Políticas de privacidad' },
+    },
+    {
+      illustration: 'documento',
+      label: 'Autorización de tratamiento de datos personales',
+      route: '/(client)/legal-document',
+      params: { kind: 'habeas_data', title: 'Autorización de datos' },
+    },
+  ];
+
+  const systemLinks: MenuLink[] = [
+    {
+      illustration: 'ubicacion',
+      label: 'Ubicación y GPS',
+      detail: 'Permiso para calcular tiempos y rutas de entrega',
+      action: () => Linking.openSettings().catch(() => {}),
+    },
+    {
+      illustration: 'notificaciones',
+      label: 'Notificaciones del sistema',
+      detail: 'Avisos en vivo del estado de tus pedidos',
+      action: () => Linking.openSettings().catch(() => {}),
+    },
+    {
+      icon: 'rayo',
+      label: 'Ver la introducción otra vez',
+      detail: 'Reinicia el tutorial de bienvenida',
+      action: replayOnboarding,
     },
   ];
 
@@ -109,7 +285,7 @@ export default function ProfileScreen() {
       edges={['top']}
     >
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* ── One UI Reachability Header ── */}
+        {/* ── Encabezado ── */}
         <View style={styles.headerArea}>
           <Text v="displayM" style={styles.headerTitle}>
             Perfil
@@ -119,54 +295,37 @@ export default function ProfileScreen() {
           </Text>
         </View>
 
-        {/* ── Hero / Samsung Account Profile Card ── */}
-        <View
-          style={[
-            styles.heroCard,
-            {
-              backgroundColor: c.surface,
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-            },
-          ]}
-        >
-          <View style={styles.heroTopRow}>
-            <View style={[styles.avatar, { backgroundColor: c.primary }]}>
-              <Text v="displayM" color="#FFFFFF">
-                {initials(user?.name)}
-              </Text>
-            </View>
+        {/* ── Cuenta: sin card, integrada al fondo de la pantalla ── */}
+        <View style={styles.heroRow}>
+          <Avatar uri={user?.avatar} name={user?.name} size={56} />
 
-            <View style={styles.heroInfo}>
-              <Text v="strongL" numberOfLines={1} style={styles.userName}>
-                {user?.name ?? 'Tu cuenta Zipp'}
-              </Text>
-              <Text v="dataS" tone="textMuted">
-                {user?.phone ? `+57 ${user.phone}` : 'Usuario Zipp'}
-              </Text>
-            </View>
-
-            <Pressable
-              onPress={() => {
-                tap('light');
-                setEditing(true);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Editar perfil"
-              style={[
-                styles.editPillButton,
-                {
-                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.08)',
-                },
-              ]}
-            >
-              <Icon name="editar" size="sm" color={c.text} />
-              <Text v="strongS">Editar</Text>
-            </Pressable>
+          <View style={styles.heroInfo}>
+            <Text v="strongL" numberOfLines={1} style={styles.userName}>
+              {user?.name ?? 'Tu cuenta Zipp'}
+            </Text>
+            <Text v="dataS" tone="textMuted">
+              {user?.phone ? `+57 ${user.phone}` : 'Usuario Zipp'}
+            </Text>
           </View>
+
+          <Pressable
+            onPress={() => {
+              tap('light');
+              setEditing(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Editar perfil"
+            hitSlop={8}
+            style={styles.editTouch}
+          >
+            <Icon name="editar" size="sm" color={c.textMuted} />
+            <Text v="strongS" tone="textMuted">Editar</Text>
+          </Pressable>
         </View>
 
-        {/* ── Resumen Zipp Activity Widget (Samsung One UI Widget Style) ── */}
+        <View style={[styles.hairline, { backgroundColor: c.borderLight }]} />
+
+        {/* ── Resumen de actividad Zipp: fila simple, sin caja pesada ── */}
         <Pressable
           onPress={() => {
             tap('light');
@@ -174,84 +333,88 @@ export default function ProfileScreen() {
           }}
           accessibilityRole="button"
           accessibilityLabel={`Tus puntos Zipp: ${stats.points} puntos, ${stats.orderCount} pedidos, racha de ${stats.streak} semanas`}
-          style={({ pressed }) => [
-            styles.statsWidget,
-            {
-              backgroundColor: c.surface,
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-            },
-            pressed && { transform: [{ scale: 0.985 }] },
-          ]}
+          style={({ pressed }) => [styles.statsRow, pressed && { opacity: 0.7 }]}
         >
           <View style={styles.statCol}>
-            <View style={[styles.statIconBadge, { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.16)' : '#FEF3C7' }]}>
-              <Icon name="trofeo" size="sm" color="#F59E0B" />
-            </View>
-            <Text v="titleL" tone="primaryText">
-              {stats.points}
-            </Text>
+            <ContentIcon name="trofeo" size={30} />
+            <Text v="titleL" tone="primaryText">{stats.points}</Text>
             <Text v="caption" tone="textMuted">Puntos</Text>
           </View>
 
-          <View style={[styles.statDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)' }]} />
-
           <View style={styles.statCol}>
-            <View style={[styles.statIconBadge, { backgroundColor: isDark ? 'rgba(75, 59, 255, 0.16)' : '#EEF2FF' }]}>
-              <Icon name="paquete" size="sm" color="#4B3BFF" />
-            </View>
-            <Text v="titleL" color={c.text}>
-              {stats.orderCount}
-            </Text>
+            <ContentIcon name="paquete" size={30} />
+            <Text v="titleL" color={c.text}>{stats.orderCount}</Text>
             <Text v="caption" tone="textMuted">Pedidos</Text>
           </View>
 
-          <View style={[styles.statDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)' }]} />
-
           <View style={styles.statCol}>
-            <View style={[styles.statIconBadge, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.16)' : '#E6F9F0' }]}>
-              <Icon name="racha" size="sm" color="#10B981" />
-            </View>
-            <Text v="titleL" color={isDark ? '#34D399' : '#059669'}>
-              {stats.streak}
-            </Text>
+            <ContentIcon name="racha" size={30} />
+            <Text v="titleL" color={c.text}>{stats.streak}</Text>
             <Text v="caption" tone="textMuted">Semanas</Text>
           </View>
         </Pressable>
 
         {/* ── Grupo 1: Mi Cuenta ── */}
-        <OneUiMenuGroup title="MI CUENTA" links={accountLinks} />
+        <MenuGroup title="MI CUENTA" links={accountLinks} />
 
         {/* ── Grupo 2: Beneficios Zipp ── */}
-        <OneUiMenuGroup title="BENEFICIOS Y PUNTOS" links={zippLinks} />
+        <MenuGroup title="BENEFICIOS Y PUNTOS" links={zippLinks} />
 
-        {/* ── Grupo 3: Ayuda y Configuración ── */}
-        <OneUiMenuGroup title="CONFIGURACIÓN Y ASISTENCIA" links={supportLinks} />
+        {/* ── Grupo 3: Trabajar con Zipp ── */}
+        <MenuGroup title="TRABAJA CON ZIPP" links={joinLinks} />
 
-        {/* ── Cerrar Sesión (Samsung One UI Danger Action) ── */}
+        {/* ── Pantalla y apariencia: mockups, sin caja alrededor ── */}
+        <View style={styles.groupContainer}>
+          <Text v="captionStrong" tone="textMuted" style={styles.groupTitle}>
+            PANTALLA Y APARIENCIA
+          </Text>
+          <View style={styles.themeCardsRow}>
+            <ThemePreviewCard
+              mode="light"
+              label="Claro"
+              isSelected={theme === 'light'}
+              onSelect={() => { tap('select'); setTheme('light'); }}
+            />
+            <ThemePreviewCard
+              mode="dark"
+              label="Oscuro"
+              isSelected={theme === 'dark'}
+              onSelect={() => { tap('select'); setTheme('dark'); }}
+            />
+            <ThemePreviewCard
+              mode="auto"
+              label="Sistema"
+              isSelected={theme === 'auto'}
+              onSelect={() => { tap('select'); setTheme('auto'); }}
+            />
+          </View>
+        </View>
+
+        {/* ── Grupo 4: Ayuda y legal ── */}
+        <MenuGroup title="AYUDA Y LEGAL" links={helpLinks} />
+
+        {/* ── Grupo 5: los documentos legales, cada uno por separado ── */}
+        <MenuGroup title="TÉRMINOS Y PRIVACIDAD" links={legalLinks} />
+
+        {/* ── Grupo 6: Permisos y sistema ── */}
+        <MenuGroup title="PERMISOS Y SISTEMA" links={systemLinks} last />
+
+        {/* ── Cerrar sesión: fila discreta, sin card ── */}
         <Pressable
           onPress={confirmLogout}
           accessibilityRole="button"
           accessibilityLabel="Cerrar sesión"
-          style={[
-            styles.logoutCard,
-            {
-              backgroundColor: isDark ? 'rgba(239, 68, 68, 0.10)' : 'rgba(239, 68, 68, 0.06)',
-              borderColor: isDark ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.15)',
-            },
-          ]}
+          style={({ pressed }) => [styles.logoutRow, pressed && { opacity: 0.6 }]}
         >
-          <View style={styles.logoutCleanIcon}>
-            <Icon name="salir" size="md" color="#EF4444" />
-          </View>
-          <Text v="strongM" color={isDark ? '#FCA5A5' : '#DC2626'} style={{ flex: 1 }}>
+          <Icon name="salir" size="md" color={c.error} />
+          <Text v="strongM" color={c.error}>
             Cerrar sesión
           </Text>
-          <Icon name="siguiente" size="sm" color={isDark ? '#F87171' : '#EF4444'} />
         </Pressable>
 
         {/* ── Footer ── */}
         <View style={styles.footer}>
-          <Text v="dataS" tone="textMuted">ZIPP • Garzón, Huila</Text>
+          <Text v="dataS" tone="textMuted">ZIPP</Text>
           <Text v="caption" tone="textMuted" center>
             Versión 1.0.0 • El Trazo OS
           </Text>
@@ -265,10 +428,10 @@ export default function ProfileScreen() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Componente de Grupo de Menú One UI
+// Grupo de menú: título + filas con divisor delgado, sin caja
 // ──────────────────────────────────────────────────────────────
 
-function OneUiMenuGroup({ title, links }: { title: string; links: MenuLink[] }) {
+function MenuGroup({ title, links, last }: { title: string; links: MenuLink[]; last?: boolean }) {
   const { c, isDark } = useTheme();
   const router = useRouter();
 
@@ -277,69 +440,153 @@ function OneUiMenuGroup({ title, links }: { title: string; links: MenuLink[] }) 
       <Text v="captionStrong" tone="textMuted" style={styles.groupTitle}>
         {title}
       </Text>
+
+      {links.map((link, idx) => (
+        <Pressable
+          key={link.label}
+          onPress={() => {
+            tap('light');
+            if (link.action) link.action();
+            else if (link.route) {
+              router.push(
+                (link.params
+                  ? { pathname: link.route, params: link.params }
+                  : link.route) as never,
+              );
+            }
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={link.detail ? `${link.label}. ${link.detail}` : link.label}
+          style={({ pressed }) => [
+            styles.linkPressable,
+            idx < links.length - 1 || !last
+              ? { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)' }
+              : null,
+            pressed && { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)' },
+          ]}
+        >
+          <View style={styles.linkIconSlot}>
+            {link.illustration ? (
+              <ContentIcon name={link.illustration} size={30} />
+            ) : (
+              <Icon name={link.icon ?? 'ajustes'} size="md" color={c.textMuted} />
+            )}
+          </View>
+
+          <View style={styles.linkTextBody}>
+            {/* Dos líneas: los nombres de los documentos legales son largos. */}
+            <Text v="strongM" numberOfLines={2}>
+              {link.label}
+            </Text>
+            {link.detail ? (
+              <Text v="caption" tone="textMuted" numberOfLines={1}>
+                {link.detail}
+              </Text>
+            ) : null}
+          </View>
+
+          {link.badge ? (
+            <View style={[styles.badgePill, { backgroundColor: c.primarySoft }]}>
+              <Text v="captionStrong" tone="primaryText">{link.badge}</Text>
+            </View>
+          ) : null}
+
+          <Icon name="siguiente" size="sm" color={c.textMuted} />
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// Miniatura de teléfono para elegir tema (claro / oscuro / sistema)
+// ──────────────────────────────────────────────────────────────
+
+function ThemePreviewCard({
+  mode,
+  label,
+  isSelected,
+  onSelect,
+}: {
+  mode: 'light' | 'dark' | 'auto';
+  label: string;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const { c, isDark } = useTheme();
+
+  return (
+    <Pressable
+      onPress={onSelect}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: isSelected }}
+      accessibilityLabel={`Seleccionar tema ${label}`}
+      style={[styles.themeCardWrapper, isSelected && { transform: [{ scale: 1.02 }] }]}
+    >
       <View
         style={[
-          styles.oneUiIsland,
+          styles.phoneMockup,
+          mode === 'light' && styles.phoneMockupLight,
+          mode === 'dark' && styles.phoneMockupDark,
+          mode === 'auto' && styles.phoneMockupAuto,
           {
-            backgroundColor: c.surface,
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+            borderColor: isSelected ? c.primary : isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.10)',
+            borderWidth: isSelected ? 2.5 : 1.5,
           },
         ]}
       >
-        {links.map((link, idx) => (
-          <View key={link.label} style={styles.rowWrapper}>
-            <Pressable
-              onPress={() => {
-                tap('light');
-                router.push(link.route as never);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={link.detail ? `${link.label}. ${link.detail}` : link.label}
-              style={({ pressed }) => [
-                styles.linkPressable,
-                pressed && {
-                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                },
-              ]}
-            >
-              {/* Clean Icon without Pill */}
-              <View style={styles.cleanIconContainer}>
-                <Icon name={link.icon} size="md" color="#6268A0" />
-              </View>
+        <View style={[styles.mockupNotch, { backgroundColor: mode === 'light' ? '#D1D5DB' : '#374151' }]} />
 
-              <View style={styles.linkTextBody}>
-                <Text v="strongM" numberOfLines={1}>
-                  {link.label}
-                </Text>
-                {link.detail ? (
-                  <Text v="caption" tone="textMuted" numberOfLines={1}>
-                    {link.detail}
-                  </Text>
-                ) : null}
-              </View>
-
-              {link.badge ? (
-                <View style={[styles.badgePill, { backgroundColor: c.primarySoft }]}>
-                  <Text v="captionStrong" tone="primaryText">{link.badge}</Text>
-                </View>
-              ) : null}
-
-              <Icon name="siguiente" size="md" color={c.textMuted} />
-            </Pressable>
-
-            {/* Indented Divider (Signature Samsung One UI) */}
-            {idx < links.length - 1 ? (
-              <View
-                style={[
-                  styles.indentedDivider,
-                  { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.05)' },
-                ]}
-              />
-            ) : null}
+        {mode === 'auto' ? (
+          <View style={styles.splitMockupContent}>
+            <View style={styles.splitLightHalf}>
+              <View style={[styles.mockupCardLine, { backgroundColor: '#4B3BFF', width: '70%' }]} />
+              <View style={[styles.mockupContentBlock, { backgroundColor: '#E5E7EB' }]} />
+            </View>
+            <View style={styles.splitDarkHalf}>
+              <View style={[styles.mockupCardLine, { backgroundColor: '#7D72FF', width: '70%' }]} />
+              <View style={[styles.mockupContentBlock, { backgroundColor: '#262C40' }]} />
+            </View>
           </View>
-        ))}
+        ) : (
+          <View style={styles.mockupContent}>
+            <View
+              style={[
+                styles.mockupCardLine,
+                { backgroundColor: mode === 'light' ? '#4B3BFF' : '#7D72FF', width: '60%', marginTop: 2 },
+              ]}
+            />
+            <View style={[styles.mockupContentBlock, { backgroundColor: mode === 'light' ? '#E5E7EB' : '#262C40' }]}>
+              <View
+                style={[styles.mockupMiniLine, { backgroundColor: mode === 'light' ? '#9CA3AF' : '#4B5563', width: '40%' }]}
+              />
+            </View>
+            <View style={[styles.mockupContentBlock, { backgroundColor: mode === 'light' ? '#E5E7EB' : '#262C40' }]}>
+              <View
+                style={[styles.mockupMiniLine, { backgroundColor: mode === 'light' ? '#9CA3AF' : '#4B5563', width: '55%' }]}
+              />
+            </View>
+          </View>
+        )}
       </View>
-    </View>
+
+      <View style={styles.themeLabelContainer}>
+        <View
+          style={[
+            styles.radioIndicator,
+            {
+              borderColor: isSelected ? c.primary : c.borderStrong,
+              backgroundColor: isSelected ? c.primary : 'transparent',
+            },
+          ]}
+        >
+          {isSelected ? <View style={styles.radioIndicatorDot} /> : null}
+        </View>
+        <Text v={isSelected ? 'strongS' : 'bodyS'} color={isSelected ? c.primaryText : c.textSecondary}>
+          {label}
+        </Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -349,6 +596,7 @@ function OneUiMenuGroup({ title, links }: { title: string; links: MenuLink[] }) 
 
 function EditProfileSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const router = useRouter();
+  const { c } = useTheme();
   const { user, setUser } = useAuthStore();
 
   const [name, setName] = useState(user?.name ?? '');
@@ -357,6 +605,38 @@ function EditProfileSheet({ visible, onClose }: { visible: boolean; onClose: () 
   const [errors, setErrors] = useState<{ name?: string; phone?: string }>({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const pickAvatar = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      setFormError('Necesitamos permiso para acceder a tus fotos.');
+      tap('error');
+      return;
+    }
+
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 1,
+    });
+    if (picked.canceled) return;
+
+    setFormError('');
+    setUploadingAvatar(true);
+    try {
+      const ready = await prepareAvatarForUpload(picked.assets[0].uri);
+      const data = await authApi.uploadAvatar(ready);
+      setUser(data.user);
+      tap('success');
+    } catch (error) {
+      setFormError(apiMessage(error, 'No pudimos actualizar tu foto de perfil.'));
+      tap('error');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -417,6 +697,26 @@ function EditProfileSheet({ visible, onClose }: { visible: boolean; onClose: () 
         />
       }
     >
+      <View style={styles.avatarEditRow}>
+        <Avatar uri={user?.avatar} name={name} size={72} fontVariant="titleL" />
+        <Pressable
+          onPress={pickAvatar}
+          disabled={uploadingAvatar}
+          accessibilityRole="button"
+          accessibilityLabel="Cambiar foto de perfil"
+          style={({ pressed }) => [
+            styles.avatarEditBtn,
+            { borderColor: c.borderStrong },
+            pressed && { opacity: 0.6 },
+          ]}
+        >
+          <Icon name="editar" size="sm" color={c.primaryText} />
+          <Text v="strongS" tone="primaryText">
+            {uploadingAvatar ? 'Subiendo…' : 'Cambiar foto'}
+          </Text>
+        </Pressable>
+      </View>
+
       <Input
         label="Nombre completo"
         icon="perfil"
@@ -437,6 +737,8 @@ function EditProfileSheet({ visible, onClose }: { visible: boolean; onClose: () 
         onChangeText={setEmail}
         keyboardType="email-address"
         autoCapitalize="none"
+        editable={!user?.emailVerified}
+        hint={user?.emailVerified ? 'Correo verificado. Solo soporte puede cambiarlo.' : undefined}
       />
 
       <Input
@@ -452,11 +754,13 @@ function EditProfileSheet({ visible, onClose }: { visible: boolean; onClose: () 
         keyboardType="phone-pad"
         maxLength={10}
         numeric
+        editable={!user?.phoneVerified}
+        hint={user?.phoneVerified ? 'Celular verificado. Solo soporte puede cambiarlo.' : undefined}
       />
 
       {phoneChanged ? (
         <Notice tone="warning">
-          Si cambias tu número de celular deberás verificarlo nuevamente con un código SMS.
+          Si cambias tu número de celular deberás verificarlo nuevamente con un código de WhatsApp.
         </Notice>
       ) : null}
 
@@ -475,7 +779,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
     paddingBottom: BOTTOM_SPACE,
-    gap: Spacing.lg,
+    gap: Spacing.xxl,
   },
 
   // Header
@@ -490,23 +794,35 @@ const styles = StyleSheet.create({
     letterSpacing: -0.8,
   },
 
-  // Hero Card (Samsung Account Profile Banner)
-  heroCard: {
-    padding: Spacing.lg,
-    borderRadius: 24,
-    borderWidth: 1,
-  },
-  heroTopRow: {
+  // Cuenta (sin card)
+  heroRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
   },
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // Editar foto de perfil (dentro de la hoja)
+  avatarEditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  avatarEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   heroInfo: {
     flex: 1,
@@ -515,70 +831,49 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: FontSize.lg,
   },
-  editPillButton: {
+  editTouch: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  hairline: {
+    height: StyleSheet.hairlineWidth,
+    marginTop: -Spacing.md,
   },
 
-  // Stats Widget
-  statsWidget: {
+  // Resumen de actividad (fila simple)
+  statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing.md,
-    borderRadius: 24,
-    borderWidth: 1,
+    justifyContent: 'space-between',
+    marginTop: -Spacing.md,
   },
   statCol: {
     flex: 1,
     alignItems: 'center',
-    gap: 3,
-  },
-  statIconBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 2,
-  },
-  statDivider: {
-    width: 1,
-    height: 40,
+    gap: 2,
   },
 
-  // Grouped Islands
+  // Grupos de menú
   groupContainer: {
-    gap: 8,
+    gap: 0,
   },
   groupTitle: {
-    marginLeft: Spacing.md,
     letterSpacing: 0.8,
     fontSize: 11,
-  },
-  oneUiIsland: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-  },
-  rowWrapper: {
-    width: '100%',
+    marginBottom: Spacing.sm,
   },
   linkPressable: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: 14,
+    paddingVertical: 12,
     gap: Spacing.md,
   },
-  cleanIconContainer: {
-    width: 32,
-    height: 32,
+  linkIconSlot: {
+    width: 34,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -591,27 +886,92 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 8,
   },
-  indentedDivider: {
-    height: StyleSheet.hairlineWidth,
-    marginLeft: 56,
-    marginRight: Spacing.lg,
-  },
 
-  // Logout Card
-  logoutCard: {
+  // Selector de tema (miniaturas de teléfono)
+  themeCardsRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    justifyContent: 'space-between',
+  },
+  themeCardWrapper: {
+    flex: 1,
+    alignItems: 'center',
+    gap: Spacing.xs + 1,
+  },
+  phoneMockup: {
+    width: '100%',
+    height: 70,
+    borderRadius: 13,
+    alignItems: 'center',
+    paddingTop: 5,
+    paddingHorizontal: 6,
+    overflow: 'hidden',
+  },
+  phoneMockupLight: { backgroundColor: '#FFFFFF' },
+  phoneMockupDark: { backgroundColor: '#121727' },
+  phoneMockupAuto: { backgroundColor: '#F3F4F6' },
+  mockupNotch: {
+    width: 18,
+    height: 2.5,
+    borderRadius: 1.25,
+    marginBottom: 5,
+  },
+  mockupContent: { width: '100%', gap: 3 },
+  mockupCardLine: { height: 4, borderRadius: 2 },
+  mockupContentBlock: {
+    height: 13,
+    borderRadius: 5,
+    padding: 2.5,
+    justifyContent: 'center',
+  },
+  mockupMiniLine: { height: 2.5, borderRadius: 1.25 },
+  splitMockupContent: {
+    flexDirection: 'row',
+    width: '100%',
+    height: '100%',
+    gap: 2,
+  },
+  splitLightHalf: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 4,
+    padding: 2.5,
+    gap: 2.5,
+  },
+  splitDarkHalf: {
+    flex: 1,
+    backgroundColor: '#121727',
+    borderRadius: 4,
+    padding: 2.5,
+    gap: 2.5,
+  },
+  themeLabelContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: 14,
-    borderRadius: 22,
-    borderWidth: 1,
-    gap: Spacing.md,
+    gap: 5,
   },
-  logoutCleanIcon: {
-    width: 32,
-    height: 32,
+  radioIndicator: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  radioIndicatorDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#FFFFFF',
+  },
+
+  // Cerrar sesión (fila discreta)
+  logoutRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
   },
 
   // Footer

@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
-import { View, ScrollView, StyleSheet, Pressable, RefreshControl } from 'react-native';
+import {
+  View, ScrollView, StyleSheet, Pressable, RefreshControl, Alert,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
   Text, Icon, Card, Button, Badge, PulseDot, ErrorState, LoadingScreen,
 } from '../../../components/ui';
+import { ContentIcon } from '../../../components/illustrations';
 import { useAuthStore } from '../../../stores/authStore';
 import {
   useDriverProfile, useDriverEarnings, useDriverDebts, useUpdateDriverStatus,
@@ -16,6 +19,7 @@ import { socketService } from '../../../services/socket';
 import { driverApi } from '../../../services/endpoints';
 import { BorderRadius, Shadow, Spacing } from '../../../theme/tokens';
 import { money, greeting, firstName } from '../../../lib/format';
+import { apiMessage } from '../../../lib/errors';
 import { tap } from '../../../lib/haptics';
 
 const BOTTOM_SPACE = 100;
@@ -37,7 +41,6 @@ export default function DriverDashboard() {
 
   useEffect(() => {
     socketService.connect();
-    return () => { socketService.removeAllListeners(); };
   }, []);
 
   useEffect(() => {
@@ -60,9 +63,13 @@ export default function DriverDashboard() {
         socketService.emitDriverStatus(nextStatus);
         refetchProfile();
       },
-      onError: () => {
+      onError: (error) => {
         tap('error');
         setIsOnline(!value);
+        Alert.alert(
+          'No pudimos conectarte',
+          apiMessage(error, 'Inténtalo de nuevo en un momento.'),
+        );
       },
     });
   };
@@ -162,7 +169,7 @@ export default function DriverDashboard() {
 
             <Text v="bodyS" tone="textSecondary" style={styles.onlineMessage}>
               {isOnline
-                ? 'Recibirás notificaciones de pedidos cercanos listos en restaurantes de Garzón.'
+                ? 'Recibirás notificaciones de pedidos cercanos listos en los restaurantes.'
                 : 'Conéctate para empezar a recibir pedidos y generar ganancias hoy.'}
             </Text>
 
@@ -204,7 +211,7 @@ export default function DriverDashboard() {
             <Card style={styles.statCard}>
               <View style={styles.statHeader}>
                 <Text v="caption" tone="textMuted">GANANCIAS HOY</Text>
-                <Icon name="billetera" size="sm" color={c.limeText} />
+                <ContentIcon name="billetera" size={22} />
               </View>
               <Text v="displayM" tone="limeText">{money(todayEarnings)}</Text>
               <Text v="caption" tone="textMuted">{todayOrders} entregas completadas</Text>
@@ -213,7 +220,7 @@ export default function DriverDashboard() {
             <Card style={styles.statCard}>
               <View style={styles.statHeader}>
                 <Text v="caption" tone="textMuted">HISTORIAL TOTAL</Text>
-                <Icon name="trofeo" size="sm" color={c.primaryText} />
+                <ContentIcon name="trofeo" size={22} />
               </View>
               <Text v="displayM">{completedOrders}</Text>
               <Text v="caption" tone="textMuted">Entregas de por vida</Text>

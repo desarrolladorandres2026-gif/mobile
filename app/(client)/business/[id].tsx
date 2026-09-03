@@ -14,7 +14,7 @@ import { useBusiness, useBusinessCategories, useBusinessProducts } from '../../.
 import { useCartStore } from '../../../stores/cartStore';
 import { useFavoritesStore } from '../../../stores/favoritesStore';
 import { useTheme } from '../../../hooks/useTheme';
-import { categoryIcon } from '../../../theme/icons';
+import { categoryIllustration } from '../../../components/illustrations';
 import { Type } from '../../../theme/typography';
 import { BorderRadius, Shadow, Spacing } from '../../../theme/tokens';
 import { businessAccent, openState } from '../../../lib/business';
@@ -83,10 +83,12 @@ export default function BusinessScreen() {
     );
   }
 
+  const HeroIllustration = categoryIllustration(business.category);
+
   const share = async () => {
     try {
       await Share.share({
-        message: `${business.name} está en Zipp. ${business.description || 'Pide a domicilio en Garzón.'}`,
+        message: `${business.name} está en Zipp. ${business.description || 'Pide a domicilio.'}`,
       });
     } catch {
       // El usuario canceló la hoja de compartir. No hay nada que reportar.
@@ -163,7 +165,9 @@ export default function BusinessScreen() {
                 accessible={false}
               />
             ) : (
-              <Icon name={categoryIcon(business.category)} size={72} color="rgba(255,255,255,0.85)" />
+              <View style={styles.heroBadgeCircle}>
+                <HeroIllustration size={56} />
+              </View>
             )}
             <View style={[styles.heroFade, { backgroundColor: c.background }]} />
           </View>
@@ -261,6 +265,7 @@ export default function BusinessScreen() {
                 key={product._id}
                 product={product}
                 accent={accent}
+                category={business.category}
                 disabled={!status.open}
                 onPress={() => { tap('light'); setSelected(product); }}
               />
@@ -273,6 +278,7 @@ export default function BusinessScreen() {
         <ProductSheet
           product={selected}
           accent={accent}
+          category={business.category}
           businessId={business._id}
           businessName={business.name}
           onClose={() => setSelected(null)}
@@ -311,11 +317,12 @@ function SectionTab({
 }
 
 function ProductRow({
-  product, accent, disabled, onPress,
-}: { product: Product; accent: string; disabled: boolean; onPress: () => void }) {
+  product, accent, category, disabled, onPress,
+}: { product: Product; accent: string; category: string; disabled: boolean; onPress: () => void }) {
   const { c } = useTheme();
   const unavailable = !product.isAvailable || disabled;
   const hasDiscount = product.discountPrice != null;
+  const Illustration = categoryIllustration(category);
 
   return (
     <Pressable
@@ -331,7 +338,7 @@ function ProductRow({
         unavailable && styles.productOff,
       ]}
     >
-      <View style={[styles.productImage, { backgroundColor: accent }]}>
+      <View style={[styles.productImage, { backgroundColor: product.image ? accent : c.surfaceLight }]}>
         {product.image ? (
           <Image
             source={{ uri: product.image }}
@@ -341,7 +348,7 @@ function ProductRow({
             accessible={false}
           />
         ) : (
-          <Icon name="catRestaurante" size="lg" color="rgba(255,255,255,0.9)" />
+          <Illustration size={44} />
         )}
         {!product.isAvailable ? (
           <View style={styles.soldOut}>
@@ -382,16 +389,18 @@ function ProductRow({
 // ──────────────────────────────────────────────────────────────
 
 function ProductSheet({
-  product, accent, businessId, businessName, onClose,
+  product, accent, category, businessId, businessName, onClose,
 }: {
   product: Product;
   accent: string;
+  category: string;
   businessId: string;
   businessName: string;
   onClose: () => void;
 }) {
   const { c } = useTheme();
   const addItem = useCartStore((s) => s.addItem);
+  const Illustration = categoryIllustration(category);
 
   const [quantity, setQuantity] = useState(1);
   const [extras, setExtras] = useState<Extra[]>([]);
@@ -442,7 +451,10 @@ function ProductSheet({
         </View>
       }
     >
-      <Animated.View entering={FadeIn.duration(220)} style={[styles.sheetHero, { backgroundColor: accent }]}>
+      <Animated.View
+        entering={FadeIn.duration(220)}
+        style={[styles.sheetHero, { backgroundColor: product.image ? accent : c.surfaceLight }]}
+      >
         {product.image ? (
           <Image
             source={{ uri: product.image }}
@@ -452,7 +464,7 @@ function ProductSheet({
             accessible={false}
           />
         ) : (
-          <Icon name="catRestaurante" size={52} color="rgba(255,255,255,0.9)" />
+          <Illustration size={64} />
         )}
       </Animated.View>
 
@@ -540,6 +552,11 @@ const styles = StyleSheet.create({
   navRight: { flexDirection: 'row', gap: Spacing.sm },
 
   hero: { height: 210, alignItems: 'center', justifyContent: 'center' },
+  heroBadgeCircle: {
+    width: 96, height: 96, borderRadius: 48,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.94)',
+  },
   heroFade: {
     position: 'absolute', bottom: -1, left: 0, right: 0, height: 28,
     borderTopLeftRadius: BorderRadius.xxl, borderTopRightRadius: BorderRadius.xxl,

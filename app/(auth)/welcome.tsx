@@ -10,6 +10,7 @@ import { Text, Button } from '../../components/ui';
 import { ZippWordmark } from '../../components/brand/ZippLogo';
 import { OnboardingArt, type ArtName } from '../../components/brand/OnboardingArt';
 import { usePrefsStore } from '../../stores/prefsStore';
+import { useAuthStore } from '../../stores/authStore';
 import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing, palette } from '../../theme/tokens';
 import { tap } from '../../lib/haptics';
@@ -30,7 +31,7 @@ interface Slide {
 const SLIDES: Slide[] = [
   {
     art: 'pueblo',
-    title: 'Garzón entero,\nen tu bolsillo',
+    title: 'Tu pueblo entero,\nen tu bolsillo',
     body: 'Restaurantes, droguerías, cafés y mercados del pueblo. Los mismos de siempre, ahora sin salir de casa.',
   },
   {
@@ -51,9 +52,29 @@ export default function WelcomeScreen() {
   const { width } = useWindowDimensions();
   const completeOnboarding = usePrefsStore((s) => s.completeOnboarding);
 
+  // El primer arranque nunca está autenticado. Si hay sesión, esta pantalla
+  // se abrió desde Ajustes → "Ver la introducción otra vez": es una vista
+  // previa, no un embudo de registro.
+  const isReplay = useAuthStore((s) => s.isAuthenticated);
+
   const [index, setIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const isLast = index === SLIDES.length - 1;
+
+  // TODO(tú): salida de la intro en modo replay.
+  //
+  // El bug que estamos arreglando: al ver la intro otra vez, el usuario
+  // terminaba en /(auth)/login o /(auth)/register y sentía que le habían
+  // cerrado la sesión (aunque authStore nunca se toca).
+  //
+  // En replay NO llames a completeOnboarding() (ya está en true) ni navegues
+  // a rutas de (auth). Decisión tomada: volver al Inicio del cliente.
+  // Son 2-3 líneas: feedback háptico con tap(...) + navegar a
+  // '/(client)/(tabs)/home'. Usa router.replace (no push): la intro no debe
+  // quedar en el historial detrás de la app.
+  const exitReplay = () => {
+    // tu código aquí
+  };
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const next = Math.round(e.nativeEvent.contentOffset.x / width);
@@ -65,6 +86,7 @@ export default function WelcomeScreen() {
 
   const advance = () => {
     if (isLast) {
+      if (isReplay) return exitReplay();
       completeOnboarding();
       router.replace('/(auth)/register');
       return;
@@ -73,6 +95,7 @@ export default function WelcomeScreen() {
   };
 
   const skip = () => {
+    if (isReplay) return exitReplay();
     completeOnboarding();
     router.replace('/(auth)/login');
   };
@@ -81,7 +104,13 @@ export default function WelcomeScreen() {
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]}>
       <View style={styles.top}>
         <ZippWordmark size={26} color={c.text} />
-        <Button title="Saltar" variant="ghost" size="sm" onPress={skip} haptic="light" />
+        <Button
+          title={isReplay ? 'Cerrar' : 'Saltar'}
+          variant="ghost"
+          size="sm"
+          onPress={skip}
+          haptic="light"
+        />
       </View>
 
       <ScrollView
@@ -126,21 +155,34 @@ export default function WelcomeScreen() {
           ))}
         </View>
 
-        <Button
-          title={isLast ? 'Crear mi cuenta' : 'Siguiente'}
-          iconRight={isLast ? undefined : 'adelante'}
-          size="lg"
-          full
-          onPress={advance}
-          haptic={isLast ? 'medium' : 'light'}
-        />
+        {isReplay ? (
+          <Button
+            title={isLast ? 'Listo' : 'Siguiente'}
+            iconRight={isLast ? undefined : 'adelante'}
+            size="lg"
+            full
+            onPress={advance}
+            haptic={isLast ? 'medium' : 'light'}
+          />
+        ) : (
+          <>
+            <Button
+              title={isLast ? 'Crear mi cuenta' : 'Siguiente'}
+              iconRight={isLast ? undefined : 'adelante'}
+              size="lg"
+              full
+              onPress={advance}
+              haptic={isLast ? 'medium' : 'light'}
+            />
 
-        <Button
-          title="Ya tengo cuenta"
-          variant="ghost"
-          full
-          onPress={() => { completeOnboarding(); router.replace('/(auth)/login'); }}
-        />
+            <Button
+              title="Ya tengo cuenta"
+              variant="ghost"
+              full
+              onPress={() => { completeOnboarding(); router.replace('/(auth)/login'); }}
+            />
+          </>
+        )}
       </View>
     </SafeAreaView>
   );

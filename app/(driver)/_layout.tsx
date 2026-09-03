@@ -10,6 +10,8 @@ export default function DriverLayout() {
       }}
     >
       <Stack.Screen name="(tabs)" />
+      {/* Recogida y entrega: evidencia, código de seguridad, chat y llamada. */}
+      <Stack.Screen name="order/[id]" />
     </Stack>
   );
 }

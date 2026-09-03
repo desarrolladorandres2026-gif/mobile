@@ -3,6 +3,7 @@ import { View, ScrollView, Pressable, StyleSheet, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn, Layout } from 'react-native-reanimated';
 import { Text, Icon, Button, Screen, Header } from '../../components/ui';
+import { ContentIcon } from '../../components/illustrations';
 import { useActiveOrder } from '../../hooks/useRealtime';
 import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing, FontSize } from '../../theme/tokens';
@@ -57,7 +58,7 @@ export default function HelpScreen() {
           >
             <View style={styles.activeTop}>
               <View style={styles.cleanIcon}>
-                <Icon name="paquete" size="md" color="#6268A0" />
+                <ContentIcon name="paquete" size={30} />
               </View>
               <View style={styles.flex}>
                 <Text v="captionStrong" color="#6268A0">TU PEDIDO EN CURSO</Text>

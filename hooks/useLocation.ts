@@ -18,7 +18,7 @@ export interface CapturedPosition {
  * Requests the device position once, on demand.
  *
  * Saving an address without real coordinates used to fall back to the
- * centre of Garzón, which produced orders pointing at the wrong place and
+ * centre of the city, which produced orders pointing at the wrong place and
  * a delivery fee for a distance nobody was travelling. Callers must get a
  * real position (or let the user place the pin) before saving.
  *

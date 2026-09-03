@@ -49,7 +49,7 @@ export default function CartScreen() {
         <EmptyState
           icon="bolsa"
           title="Tu bolsa está vacía"
-          message="Mira qué hay abierto cerca de ti. En Garzón casi todo llega en menos de 20 minutos."
+          message="Mira qué hay abierto cerca de ti. Casi todo llega en menos de 20 minutos."
           actionLabel="Ver negocios"
           onAction={() => router.replace('/(client)/(tabs)/home')}
         />

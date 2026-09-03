@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { View, FlatList, RefreshControl, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  Text, Icon, Card, Button, StatusPill, EmptyState, ErrorState,
+  Text, Card, Button, StatusPill, EmptyState, ErrorState,
   BusinessCardSkeleton, PulseDot,
 } from '../../../components/ui';
 import { useMyOrders } from '../../../hooks/useApi';
@@ -12,10 +12,9 @@ import { useOrderRealtime, orderProgress } from '../../../hooks/useRealtime';
 import { reorder, type UsualOrder } from '../../../hooks/useUsual';
 import { useTheme } from '../../../hooks/useTheme';
 import { ACTIVE_ORDER_STATUSES } from '../../../constants/config';
-import { categoryIcon } from '../../../theme/icons';
+import { categoryIllustration } from '../../../components/illustrations';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { money, orderDate, orderCode } from '../../../lib/format';
-import { businessAccent } from '../../../lib/business';
 import { tap } from '../../../lib/haptics';
 
 const BOTTOM_SPACE = 190;
@@ -95,6 +94,10 @@ export default function OrdersScreen() {
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews
+          maxToRenderPerBatch={10}
+          windowSize={9}
+          initialNumToRender={8}
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}
@@ -125,7 +128,7 @@ export default function OrdersScreen() {
               <EmptyState
                 icon="pedidos"
                 title="Sin pedidos todavía"
-                message="Tu primer pedido en Zipp te está esperando. Casi todo en Garzón llega en menos de 20 minutos."
+                message="Tu primer pedido en Zipp te está esperando. Casi todo llega en menos de 20 minutos."
                 actionLabel="Explorar negocios"
                 onAction={() => router.push('/(client)/(tabs)/search')}
               />
@@ -159,13 +162,13 @@ function Segment({
   );
 }
 
-function OrderCard({
+const OrderCard = memo(function OrderCard({
   order, onPress, onRepeat,
 }: { order: any; onPress: () => void; onRepeat?: () => void }) {
   const { c } = useTheme();
-  const accent = businessAccent(order.businessId?._id);
   const running = (ACTIVE_ORDER_STATUSES as readonly string[]).includes(order.status);
   const progress = orderProgress(order.status);
+  const Illustration = categoryIllustration(order.businessId?.category ?? '');
 
   return (
     <Animated.View entering={FadeIn.duration(240)}>
@@ -177,12 +180,8 @@ function OrderCard({
         style={styles.card}
       >
         <View style={styles.cardTop}>
-          <View style={[styles.cardIcon, { backgroundColor: accent }]}>
-            <Icon
-              name={categoryIcon(order.businessId?.category ?? '')}
-              size="md"
-              color="#FFFFFF"
-            />
+          <View style={[styles.cardIcon, { backgroundColor: c.surfaceLight }]}>
+            <Illustration size={32} />
           </View>
 
           <View style={styles.cardBody}>
@@ -220,7 +219,7 @@ function OrderCard({
       </Card>
     </Animated.View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },

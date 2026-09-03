@@ -6,6 +6,7 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import {
   Text, Icon, Card, Button, Badge, Notice, DetailRow,
 } from '../../../components/ui';
+import { ContentIcon } from '../../../components/illustrations';
 import { useAuthStore } from '../../../stores/authStore';
 import { useDriverProfile } from '../../../hooks/useApi';
 import { useTheme } from '../../../hooks/useTheme';
@@ -73,7 +74,7 @@ export default function DriverProfileScreen() {
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <View style={styles.ratingRow}>
-                  <Icon name="calificacion" size="sm" color="#f59e0b" />
+                  <ContentIcon name="calificacion" size={20} />
                   <Text v="titleM">4.9</Text>
                 </View>
                 <Text v="caption" tone="textMuted">Calificación</Text>
@@ -126,11 +127,11 @@ export default function DriverProfileScreen() {
               onPress={() => { tap('light'); router.push('/(client)/help'); }}
               style={styles.menuRow}
             >
-              <View style={[styles.menuIcon, { backgroundColor: c.primarySoft }]}>
-                <Icon name="soporte" size="md" color={c.primaryText} />
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceLight }]}>
+                <ContentIcon name="soporte" size={26} />
               </View>
               <View style={styles.flex}>
-                <Text v="strongS">Soporte ZIPP Garzón</Text>
+                <Text v="strongS">Soporte ZIPP</Text>
                 <Text v="caption" tone="textMuted">Asistencia directa con despachos</Text>
               </View>
               <Icon name="siguiente" size="sm" color={c.textMuted} />

@@ -8,10 +8,11 @@ import {
   BusinessCardSkeleton, Badge, Card,
 } from '../../../components/ui';
 import { BusinessRow, type Business } from '../../../components/domain/BusinessCard';
+import { CategoryTile } from '../../../components/domain/CategoryTile';
 import { useBusinesses } from '../../../hooks/useApi';
+import { useHomeCategories, type DisplayCategory } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
 import { usePrefsStore } from '../../../stores/prefsStore';
-import { BUSINESS_CATEGORIES } from '../../../constants/config';
 import { categoryIcon } from '../../../theme/icons';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { openState } from '../../../lib/business';
@@ -43,6 +44,8 @@ export default function SearchScreen() {
   const addRecentSearch = usePrefsStore((s) => s.addRecentSearch);
   const removeRecentSearch = usePrefsStore((s) => s.removeRecentSearch);
   const clearRecentSearches = usePrefsStore((s) => s.clearRecentSearches);
+
+  const { categories } = useHomeCategories();
 
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<string | null>(params.category ?? null);
@@ -82,7 +85,7 @@ export default function SearchScreen() {
   }, [data, openOnly]);
 
   const searching = query.trim().length > 0 || !!category;
-  const activeCategory = BUSINESS_CATEGORIES.find((cat) => cat.key === category);
+  const activeCategory = categories.find((cat) => cat.key === category);
 
   const handleSelectTag = (term: string) => {
     tap('select');
@@ -105,10 +108,14 @@ export default function SearchScreen() {
 
         <FlatList
           horizontal
-          data={BUSINESS_CATEGORIES}
+          data={categories}
           keyExtractor={(item) => item.key}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chips}
+          removeClippedSubviews
+          maxToRenderPerBatch={10}
+          windowSize={9}
+          initialNumToRender={6}
           renderItem={({ item }) => (
             <Chip
               label={item.label}
@@ -159,6 +166,10 @@ export default function SearchScreen() {
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
+          removeClippedSubviews
+          maxToRenderPerBatch={10}
+          windowSize={9}
+          initialNumToRender={8}
           renderItem={({ item }) => (
             <BusinessRow
               business={item}
@@ -181,6 +192,7 @@ export default function SearchScreen() {
             ) : (
               <DiscoveryHub
                 recentSearches={recentSearches}
+                categories={categories}
                 onSelectSearch={handleSelectTag}
                 onRemoveRecent={(term) => { tap('light'); removeRecentSearch(term); }}
                 onClearRecents={() => { tap('light'); clearRecentSearches(); }}
@@ -197,12 +209,14 @@ export default function SearchScreen() {
 /** Descubrimiento inicial: Búsquedas recientes, Tendencias y Categorías */
 function DiscoveryHub({
   recentSearches,
+  categories,
   onSelectSearch,
   onRemoveRecent,
   onClearRecents,
   onPickCategory,
 }: {
   recentSearches: string[];
+  categories: DisplayCategory[];
   onSelectSearch: (term: string) => void;
   onRemoveRecent: (term: string) => void;
   onClearRecents: () => void;
@@ -249,7 +263,7 @@ function DiscoveryHub({
       <View style={styles.discoverySection}>
         <View style={styles.sectionTitleRow}>
           <Icon name="racha" size="sm" color={c.primary} />
-          <Text v="strongS">Lo más buscado en Garzón</Text>
+          <Text v="strongS">Lo más buscado</Text>
         </View>
         <View style={styles.tagsWrap}>
           {POPULAR_SEARCHES.map((term) => (
@@ -268,7 +282,7 @@ function DiscoveryHub({
       <View style={styles.discoverySection}>
         <Text v="titleM">Explorar por categoría</Text>
         <View style={styles.suggestionGrid}>
-          {BUSINESS_CATEGORIES.map((cat) => (
+          {categories.map((cat) => (
             <Pressable
               key={cat.key}
               onPress={() => onPickCategory(cat.key)}
@@ -276,9 +290,12 @@ function DiscoveryHub({
               accessibilityLabel={cat.label}
               style={[styles.suggestion, { backgroundColor: c.surface, borderColor: c.border }]}
             >
-              <View style={[styles.suggestionIcon, { backgroundColor: c.primarySoft }]}>
-                <Icon name={categoryIcon(cat.key)} size="md" color={c.primaryText} />
-              </View>
+              <CategoryTile
+                categoryKey={cat.key}
+                label={cat.label}
+                imageUrl={cat.imageUrl}
+                layout="icon"
+              />
               <Text v="strongS" style={styles.flex}>{cat.label}</Text>
               <Icon name="siguiente" size="sm" color={c.textMuted} />
             </Pressable>
@@ -353,10 +370,6 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
-  },
-  suggestionIcon: {
-    width: 38, height: 38, borderRadius: BorderRadius.sm,
-    alignItems: 'center', justifyContent: 'center',
   },
 });
 
