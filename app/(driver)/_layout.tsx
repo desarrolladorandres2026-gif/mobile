@@ -18,6 +18,10 @@ export default function DriverLayout() {
         <Stack.Screen name="(tabs)" />
         {/* Recogida y entrega: evidencia, código de seguridad, chat y llamada. */}
         <Stack.Screen name="order/[id]" />
+        {/* Aspectos legales: mismo centro que ve el cliente, en el stack del repartidor. */}
+        <Stack.Screen name="legal" />
+        <Stack.Screen name="legal-document" />
+        <Stack.Screen name="requests" />
       </Stack>
     </DriverTrackingProvider>
   );

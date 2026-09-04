@@ -2,9 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import {
   Text, Icon, Button, Input, Sheet, Notice,
 } from '../../../components/ui';
@@ -12,6 +10,7 @@ import {
   ContentIcon,
   type ContentIllustrationName,
 } from '../../../components/illustrations';
+import { Avatar } from '../../../components/domain/Avatar';
 import { useAuthStore } from '../../../stores/authStore';
 import { useCartStore } from '../../../stores/cartStore';
 import { useFavoritesStore } from '../../../stores/favoritesStore';
@@ -25,83 +24,12 @@ import { authApi } from '../../../services/endpoints';
 import { socketService } from '../../../services/socket';
 import { unregisterPush } from '../../../hooks/usePushNotifications';
 import type { IconName } from '../../../theme/icons';
-import { Spacing, FontSize } from '../../../theme/tokens';
-import { initials } from '../../../lib/format';
+import { Spacing, FontSize, BorderRadius } from '../../../theme/tokens';
+import { prepareAvatarForUpload } from '../../../lib/avatarImage';
 import { apiMessage, validateName, validatePhone } from '../../../lib/errors';
 import { tap } from '../../../lib/haptics';
 import { SUPPORT_PHONE } from '../../../constants/config';
 
-
-// Cloudinary vuelve a recortar y optimizar, pero comprimir aquí es lo que
-// ahorra datos y hace la subida rápida: el original de la cámara puede
-// pesar 4–8 MB y sólo necesitamos una miniatura cuadrada.
-//
-// ── Ajusta tú estos dos valores (ver la petición en la conversación) ──
-const AVATAR_UPLOAD_SIZE = 640; // lado máximo en px antes de subir
-const AVATAR_UPLOAD_QUALITY = 0.8; // 0 = mínima calidad, 1 = sin comprimir
-
-/**
- * Toma la imagen elegida en la galería y devuelve un archivo local ya
- * reducido y recomprimido en JPEG, listo para subir.
- */
-async function prepareAvatarForUpload(uri: string): Promise<string> {
-  const rendered = await ImageManipulator.manipulate(uri)
-    .resize({ width: AVATAR_UPLOAD_SIZE })
-    .renderAsync();
-  const result = await rendered.saveAsync({
-    compress: AVATAR_UPLOAD_QUALITY,
-    format: SaveFormat.JPEG,
-  });
-  return result.uri;
-}
-
-// ──────────────────────────────────────────────────────────────
-// Avatar: foto de perfil con degradado a iniciales si no hay imagen
-// ──────────────────────────────────────────────────────────────
-
-function Avatar({
-  uri,
-  name,
-  size,
-  fontVariant = 'displayM',
-}: {
-  uri?: string;
-  name?: string;
-  size: number;
-  fontVariant?: 'displayM' | 'titleL';
-}) {
-  const { c } = useTheme();
-  const radius = size / 2;
-
-  if (uri) {
-    return (
-      <Image
-        source={{ uri }}
-        style={{ width: size, height: size, borderRadius: radius }}
-        contentFit="cover"
-        transition={150}
-        accessibilityLabel="Foto de perfil"
-      />
-    );
-  }
-
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: radius,
-        backgroundColor: c.primary,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <Text v={fontVariant} color="#FFFFFF">
-        {initials(name)}
-      </Text>
-    </View>
-  );
-}
 
 interface MenuLink {
   /** Ilustración de contenido (categorías, beneficios, módulos). */
@@ -410,17 +338,47 @@ export default function ProfileScreen() {
         {/* ── Grupo 6: Permisos y sistema ── */}
         <MenuGroup title="PERMISOS Y SISTEMA" links={systemLinks} last />
 
-        {/* ── Cerrar sesión: fila discreta, sin card ── */}
+        {/* ── Cerrar sesión ── */}
         <Pressable
           onPress={confirmLogout}
           accessibilityRole="button"
           accessibilityLabel="Cerrar sesión"
-          style={({ pressed }) => [styles.logoutRow, pressed && { opacity: 0.6 }]}
+          accessibilityHint="Cierra tu sesión en este dispositivo"
+          style={({ pressed }) => [
+            styles.logoutButton,
+            {
+              backgroundColor: isDark ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.05)',
+              borderColor: isDark ? 'rgba(239, 68, 68, 0.22)' : 'rgba(239, 68, 68, 0.16)',
+            },
+            pressed && {
+              backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.10)',
+              transform: [{ scale: 0.985 }],
+            },
+          ]}
         >
-          <Icon name="salir" size="md" color={c.error} />
-          <Text v="strongM" color={c.error}>
-            Cerrar sesión
-          </Text>
+          <View
+            style={[
+              styles.logoutIconBadge,
+              {
+                backgroundColor: isDark ? 'rgba(239, 68, 68, 0.18)' : 'rgba(239, 68, 68, 0.12)',
+              },
+            ]}
+          >
+            <Icon name="salir" size="md" color={c.error} />
+          </View>
+
+          <View style={styles.logoutTextBody}>
+            <Text v="strongM" color={c.error}>
+              Cerrar sesión
+            </Text>
+            <Text v="caption" tone="textMuted">
+              Desconectar tu cuenta de este dispositivo
+            </Text>
+          </View>
+
+          <View style={styles.logoutArrow}>
+            <Icon name="siguiente" size="sm" color={c.error} />
+          </View>
         </Pressable>
 
         {/* ── Footer ── */}
@@ -975,13 +933,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
-  // Cerrar sesión (fila discreta)
-  logoutRow: {
+  // Cerrar sesión
+  logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    gap: Spacing.md,
+    marginTop: Spacing.xs,
+  },
+  logoutIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.sm,
-    paddingVertical: Spacing.sm,
+  },
+  logoutTextBody: {
+    flex: 1,
+    gap: 2,
+  },
+  logoutArrow: {
+    opacity: 0.45,
   },
 
   // Footer

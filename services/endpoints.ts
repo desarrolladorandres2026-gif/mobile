@@ -421,15 +421,21 @@ export interface ActiveAd {
   id: string;
   campaignName: string;
   flyerUrl: string;
-  actionType: 'none' | 'url' | 'business';
-  actionUrl: string;
+  actionType: 'none' | 'business';
   businessId: string | null;
+  /** Segundos que la pantalla de carga debe mostrarla antes de continuar sola. */
+  durationSeconds: number;
 }
 
 export const adsApi = {
-  /** La única campaña, si hay alguna, que debe mostrarse al abrir la app. */
+  /**
+   * La única campaña, si hay alguna, que debe mostrarse en la pantalla de
+   * carga. Timeout propio y corto: el arranque de la app no puede esperar
+   * los 15 s por defecto del resto de la API por algo que es puramente
+   * decorativo.
+   */
   getActive: (): Promise<ActiveAd | null> =>
-    api.get('/advertisements/active').then((r) => r.data.data),
+    api.get('/advertisements/active', { timeout: 2500 }).then((r) => r.data.data),
 
   /** Se llama solo cuando el flyer ya se pintó en pantalla, no al recibirlo. */
   registerImpression: (id: string, deviceId: string) =>

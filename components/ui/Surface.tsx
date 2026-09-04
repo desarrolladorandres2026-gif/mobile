@@ -36,13 +36,41 @@ export function Card({
 
   const skin: ViewStyle = {
     flat: { backgroundColor: c.surface, borderColor: c.border, borderWidth: 1 },
-    raised: { backgroundColor: c.surface, borderColor: c.border, borderWidth: 1, ...Shadow.md },
+    raised: { backgroundColor: c.surface, borderColor: c.border, borderWidth: 1 },
     outline: { backgroundColor: 'transparent', borderColor: c.border, borderWidth: 1.5 },
     accent: { backgroundColor: c.primarySoft, borderColor: c.primarySoftBorder, borderWidth: 1 },
   }[tone];
 
+  const cardShadow = tone === 'raised' ? Shadow.md : Shadow.none;
+
+  // Combina el style que llega por props (puede traer su propia sombra, p.
+  // ej. `Shadow.sm` en el estado de turno) con la de la tarjeta.
+  const flatStyle = StyleSheet.flatten([style]) ?? {};
+  const {
+    shadowColor, shadowOffset, shadowOpacity, shadowRadius, elevation, ...restStyle
+  } = flatStyle as ViewStyle;
+  const outerShadow: ViewStyle = {
+    ...cardShadow,
+    ...(shadowColor !== undefined && { shadowColor }),
+    ...(shadowOffset !== undefined && { shadowOffset }),
+    ...(shadowOpacity !== undefined && { shadowOpacity }),
+    ...(shadowRadius !== undefined && { shadowRadius }),
+    ...(elevation !== undefined && { elevation }),
+  };
+
+  /**
+   * La sombra y el recorte viven en Views distintas.
+   *
+   * En Android, `elevation` y `overflow: 'hidden'` sobre la misma vista con
+   * esquinas redondeadas y un fondo translúcido (p. ej. `limeSoft`) hacen que
+   * el rectángulo que Android dibuja para la sombra se filtre como una franja
+   * clara encima del contenido en vez de quedar oculto detrás. La vista
+   * externa solo lleva la sombra; la interna recorta y pinta el fondo.
+   */
   const body = (
-    <View style={[styles.card, skin, padded && styles.cardPadded, style]}>{children}</View>
+    <View style={outerShadow}>
+      <View style={[styles.card, skin, padded && styles.cardPadded, restStyle]}>{children}</View>
+    </View>
   );
 
   if (!onPress) return body;

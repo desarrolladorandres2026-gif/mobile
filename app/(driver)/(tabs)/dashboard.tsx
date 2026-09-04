@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View, ScrollView, StyleSheet, Pressable, RefreshControl, Alert,
 } from 'react-native';
@@ -29,6 +29,18 @@ export default function DriverDashboard() {
   const user = useAuthStore((s) => s.user);
   const [isOnline, setIsOnline] = useState(false);
 
+  /**
+   * Mientras el servidor no conteste, manda el interruptor.
+   *
+   * `refetchOnWindowFocus` está activo para toda la app, y pedir el permiso
+   * de ubicación manda la app a segundo plano: al volver del diálogo el
+   * perfil llega todavía en `offline`, el efecto de abajo revertía el botón
+   * y —lo grave— llamaba a `setOnDuty(false)`, apagando el GPS justo en el
+   * turno que el repartidor acababa de abrir. Durante el vuelo de la
+   * mutación, el perfil no toca el interruptor.
+   */
+  const toggling = useRef(false);
+
   const {
     data: profile, isLoading: loadingProfile, isError: errorProfile, refetch: refetchProfile, isRefetching,
   } = useDriverProfile();
@@ -56,7 +68,7 @@ export default function DriverDashboard() {
   // en otro teléfono o un admin lo desconectó, el estado real es el del
   // perfil, no el que quedó pintado en esta pantalla.
   useEffect(() => {
-    if (!profile) return;
+    if (!profile || toggling.current) return;
     const online = profile.status === 'available';
     setIsOnline(online);
     tracking.setOnDuty(online);
@@ -64,6 +76,7 @@ export default function DriverDashboard() {
 
   const handleToggleOnline = async (value: boolean) => {
     tap(value ? 'success' : 'medium');
+    toggling.current = true;
 
     // El permiso se pide justo al conectarse, no al abrir la app.
     //
@@ -80,10 +93,12 @@ export default function DriverDashboard() {
     tracking.setOnDuty(value);
     updateStatusMutation.mutate(nextStatus, {
       onSuccess: () => {
+        toggling.current = false;
         socketService.emitDriverStatus(nextStatus);
         refetchProfile();
       },
       onError: (error) => {
+        toggling.current = false;
         tap('error');
         setIsOnline(!value);
         // El GPS vuelve atrás con el interruptor. Si no, un fallo al
@@ -128,6 +143,28 @@ export default function DriverDashboard() {
   const currentFund = profile?.currentFund || 50000;
   const fundPct = Math.min(100, Math.max(0, Math.round((currentFund / baseFund) * 100)));
 
+  /**
+   * Una línea para las dos cosas que el repartidor necesita saber de un
+   * vistazo: si está en servicio y si su ubicación está saliendo del
+   * teléfono. Lo segundo era antes un bloque aparte que, con todo en orden,
+   * solo repetía lo que el punto que late ya decía.
+   */
+  const dutyHint = !isOnline
+    ? 'Conéctate y recibe pedidos'
+    : tracking.active
+      ? 'Ubicación activa'
+      : 'Buscando ubicación...';
+
+  /** Solo lo que el repartidor puede arreglar. `null` = nada que avisar. */
+  const gpsWarning = !isOnline
+    ? null
+    : tracking.problem
+      ?? (tracking.permission === 'blocked' || tracking.permission === 'denied'
+        ? 'Sin permiso de ubicación no te llegan pedidos cercanos.'
+        : tracking.permission === 'granted_foreground'
+          ? 'Solo te ubicamos con la app abierta.'
+          : null);
+
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
       <ScrollView
@@ -162,69 +199,71 @@ export default function DriverDashboard() {
           </Pressable>
         </View>
 
-        {/* ── Hero: Estado de Conexión (Disponible / Desconectado) ── */}
+        {/* ── Estado de servicio ── */}
         <Animated.View entering={FadeIn.duration(280)}>
           <Card
             style={[
-              styles.onlineCard,
+              styles.dutyCard,
               isOnline
-                ? { backgroundColor: c.limeSoft, borderColor: c.lime }
+                ? { backgroundColor: c.successSoft, borderColor: c.successSoftBorder }
                 : { backgroundColor: c.surface, borderColor: c.border },
               Shadow.sm,
             ]}
           >
-            <View style={styles.onlineHeader}>
-              <View style={styles.onlineStatusRow}>
-                {isOnline ? (
-                  <PulseDot color={c.lime} size={10} />
-                ) : (
-                  <View style={[styles.offlineDot, { backgroundColor: c.textMuted }]} />
-                )}
-                <Text v="titleM" tone={isOnline ? 'limeText' : 'textSecondary'}>
-                  {isOnline ? 'Estás disponible para pedidos' : 'Estás fuera de servicio'}
+            <View style={styles.dutyRow}>
+              {isOnline ? (
+                <PulseDot color={c.successText} size={9} />
+              ) : (
+                <View style={[styles.dutyDot, { backgroundColor: c.textMuted }]} />
+              )}
+
+              <View style={styles.flex}>
+                <Text
+                  v="titleS"
+                  tone={isOnline ? 'successText' : 'textSecondary'}
+                  numberOfLines={1}
+                >
+                  {isOnline ? 'Disponible' : 'Fuera de servicio'}
+                </Text>
+                <Text v="caption" tone="textMuted" numberOfLines={1}>
+                  {dutyHint}
                 </Text>
               </View>
 
-              <Badge
-                label={isOnline ? 'ACTIVO' : 'PAUSADO'}
-                tone={isOnline ? 'lime' : 'neutral'}
+              <Button
+                title={isOnline ? 'Desconectar' : 'Conectarme'}
+                icon={isOnline ? undefined : 'rayo'}
+                variant={isOnline ? 'secondary' : 'primary'}
+                size="sm"
+                loading={updateStatusMutation.isPending}
+                onPress={() => handleToggleOnline(!isOnline)}
+                style={styles.dutyBtn}
               />
             </View>
 
-            <Text v="bodyS" tone="textSecondary" style={styles.onlineMessage}>
-              {isOnline
-                ? 'Recibirás notificaciones de pedidos cercanos listos en los restaurantes.'
-                : 'Conéctate para empezar a recibir pedidos y generar ganancias hoy.'}
-            </Text>
-
             {/*
-              El estado del GPS se muestra donde se decide estar en
-              servicio, no escondido en ajustes. Un repartidor conectado
-              cuyo GPS no reporta no recibe pedidos cercanos y no tiene
-              forma de saber por qué: para él la app dice "ACTIVO" y no
-              pasa nada. Este bloque es esa explicación.
+              El aviso de GPS solo aparece cuando hay algo que arreglar.
+
+              Antes ocupaba una fila fija que, con el permiso concedido y el
+              GPS reportando, solo repetía "todo bien" — información que el
+              punto que late ya daba. Lo que sí es invisible sin este bloque
+              es lo contrario: un repartidor "ACTIVO" al que no le entran
+              pedidos porque su ubicación no sale del teléfono. Ese caso, y
+              solo ese, se gana el espacio.
             */}
-            {isOnline ? (
-              <View style={[styles.gpsRow, { borderColor: c.border }]}>
-                <Icon
-                  name={tracking.active ? 'ubicacion' : 'atencion'}
-                  size="sm"
-                  color={tracking.active ? c.limeText : c.warningText}
-                />
-                <View style={styles.flex}>
-                  <Text v="captionStrong" tone={tracking.active ? 'limeText' : 'warningText'}>
-                    {tracking.active ? 'Ubicación activa' : 'Ubicación inactiva'}
-                  </Text>
-                  {tracking.problem ? (
-                    <Text v="caption" tone="textMuted">{tracking.problem}</Text>
-                  ) : tracking.permission === 'granted_foreground' ? (
-                    <Text v="caption" tone="textMuted">
-                      Solo mientras la app esté abierta.
-                    </Text>
-                  ) : null}
-                </View>
+            {gpsWarning ? (
+              <View style={[styles.gpsRow, { borderTopColor: c.border }]}>
+                <Icon name="atencion" size="sm" color={c.warningText} />
+                <Text v="caption" tone="warningText" style={styles.flex}>
+                  {gpsWarning}
+                </Text>
                 {tracking.permission === 'blocked' ? (
-                  <Button title="Ajustes" size="sm" variant="secondary" onPress={tracking.openSettings} />
+                  <Button
+                    title="Ajustes"
+                    size="sm"
+                    variant="secondary"
+                    onPress={tracking.openSettings}
+                  />
                 ) : tracking.permission !== 'granted_always' ? (
                   <Button
                     title="Permitir"
@@ -235,15 +274,6 @@ export default function DriverDashboard() {
                 ) : null}
               </View>
             ) : null}
-
-            <Button
-              title={isOnline ? 'Desconectarme' : 'Conectarme ahora'}
-              icon={isOnline ? 'cerrar' : 'rayo'}
-              variant={isOnline ? 'secondary' : 'primary'}
-              full
-              loading={updateStatusMutation.isPending}
-              onPress={() => handleToggleOnline(!isOnline)}
-            />
           </Card>
         </Animated.View>
 
@@ -355,20 +385,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
 
-  onlineCard: { padding: Spacing.xl, gap: Spacing.lg },
-  onlineHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  onlineStatusRow: {
+  /**
+   * El interruptor de turno es una fila, no un póster.
+   *
+   * Antes eran cuatro bloques apilados —punto, título, badge, párrafo, fila
+   * de GPS y botón a lo ancho— para expresar un booleano: ~282dp, casi un
+   * tercio de la primera pantalla. Ahora punto, estado y botón comparten
+   * una sola línea de 40dp y la tarjeta cabe en ~72dp sin perder ninguna
+   * de las decisiones que ofrecía.
+   */
+  dutyCard: { padding: Spacing.lg, gap: Spacing.md },
+  dutyRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    flex: 1,
   },
-  offlineDot: { width: 10, height: 10, borderRadius: 5 },
-  onlineMessage: { lineHeight: 18 },
+  dutyDot: { width: 9, height: 9, borderRadius: 4.5 },
+  /**
+   * Ancho mínimo: al cargar, `Button` cambia el título por el loader. Sin
+   * esto el botón se encogería a la mitad en cada toque.
+   */
+  dutyBtn: { minWidth: 120 },
   gpsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -376,7 +413,6 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-
   section: { gap: Spacing.sm },
   quickActions: { gap: Spacing.md },
   actionCard: {

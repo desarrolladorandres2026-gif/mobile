@@ -21,7 +21,6 @@ import { useNotificationsRealtime } from '../hooks/useRealtime';
 import { useSessionGuard } from '../hooks/useSessionGuard';
 import { ZippSplashLoader } from '../components/brand/ZippSplashLoader';
 import { registerServiceWorker } from '../lib/pwa';
-import { AdModal } from '../components/domain/AdModal';
 
 // Registra la tarea de ubicación en segundo plano.
 //
@@ -111,7 +110,6 @@ function RootLayoutContent() {
         <Stack.Screen name="(client)" options={{ animation: 'fade' }} />
         <Stack.Screen name="(driver)" options={{ animation: 'fade' }} />
       </Stack>
-      <AdModal />
     </>
   );
 }

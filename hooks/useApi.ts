@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, notificationsApi, paymentsApi, adsApi, bannersApi, homeCategoriesApi, orderFlowApi } from '../services/endpoints';
+import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, notificationsApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi } from '../services/endpoints';
 import type { PromoBanner, HomeCategory } from '../services/endpoints';
 
 // ── Businesses ──
@@ -409,21 +409,6 @@ export const useSetDefaultAddress = () => {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['addresses'] }); },
   });
 };
-
-// ── Publicidad ──
-/**
- * La campaña que debe mostrarse al abrir la app, si hay una activa. Sin
- * reintentos: si la llamada falla, la app simplemente no muestra publicidad
- * — nunca debe demorar ni bloquear el arranque.
- */
-export const useActiveAd = (enabled: boolean) =>
-  useQuery({
-    queryKey: ['ads', 'active'],
-    queryFn: adsApi.getActive,
-    enabled,
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
 
 // ── Banners promocionales ──
 /**

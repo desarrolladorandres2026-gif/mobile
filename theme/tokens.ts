@@ -245,6 +245,7 @@ export const DarkColors = {
   successText: palette.emerald400,
   successLight: palette.emerald400,
   successSoft: 'rgba(16, 185, 129, 0.16)',
+  successSoftBorder: 'rgba(16, 185, 129, 0.34)',
 
   warning: palette.amber500,
   warningText: palette.amber400,
@@ -295,6 +296,7 @@ export const LightColors: ColorScheme = {
   successText: palette.emerald700,
   successLight: palette.emerald500,
   successSoft: 'rgba(5, 150, 105, 0.12)',
+  successSoftBorder: 'rgba(5, 150, 105, 0.28)',
 
   warning: palette.amber600,
   warningText: palette.amber700,
