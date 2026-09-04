@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
 import Animated, {
   useSharedValue, useAnimatedProps, useAnimatedStyle,
@@ -35,8 +35,8 @@ export interface ZippMarkProps {
 }
 
 export function ZippMark({ size = 40, stroke, dot, mono }: ZippMarkProps) {
-  const strokeColor = mono ?? stroke ?? palette.zipp500;
-  const dotColor = mono ?? dot ?? palette.lima500;
+  const strokeColor = mono ?? stroke ?? palette.gold400;
+  const dotColor = mono ?? dot ?? palette.gold300;
 
   return (
     <Svg width={size} height={size} viewBox="0 0 48 48" accessible={false}>
@@ -59,8 +59,8 @@ export function ZippMark({ size = 40, stroke, dot, mono }: ZippMarkProps) {
  */
 export function ZippMarkDrawing({
   size = 88,
-  stroke = palette.zipp400,
-  dot = palette.lima500,
+  stroke = palette.gold400,
+  dot = palette.gold300,
   delay = 0,
 }: ZippMarkProps & { delay?: number }) {
   const progress = useSharedValue(Z_LENGTH);
@@ -118,28 +118,42 @@ export interface ZippWordmarkProps {
   /** Color del texto. El trazo mantiene siempre los colores de marca. */
   color?: string;
   mono?: string;
+  showMark?: boolean;
+  useCrown?: boolean;
 }
 
-/** Marca + nombre. En minúsculas y muy apretado: es un logotipo, no un título. */
-export function ZippWordmark({ size = 32, color, mono }: ZippWordmarkProps) {
+/** Logotipo oficial ZIPP con coronita en oro cepillado de alta gama. */
+export function ZippWordmark({
+  size = 32,
+  showMark = false,
+  useCrown = true,
+}: ZippWordmarkProps) {
+  if (useCrown) {
+    const logoHeight = size * 1.1;
+    const logoWidth = logoHeight * 0.92;
+    return (
+      <View style={styles.wordmark} accessibilityRole="header">
+        {showMark && <ZippMark size={size} />}
+        <Image
+          source={require('../../assets/zipp-crown-logo.png')}
+          style={{ width: logoWidth, height: logoHeight }}
+          resizeMode="contain"
+        />
+      </View>
+    );
+  }
+
+  const logoHeight = size * 0.78;
+  const logoWidth = (logoHeight * 374) / 131;
+
   return (
-    <View style={styles.wordmark}>
-      <ZippMark size={size} mono={mono} />
-      <Text
-        style={[
-          Type.displayXL,
-          {
-            fontSize: size * 0.82,
-            lineHeight: size * 0.95,
-            letterSpacing: -size * 0.05,
-            color: mono ?? color ?? palette.paper0,
-          },
-        ]}
-        // El logotipo es una sola palabra para el lector de pantalla.
-        accessibilityRole="header"
-      >
-        zipp
-      </Text>
+    <View style={styles.wordmark} accessibilityRole="header">
+      {showMark && <ZippMark size={size} />}
+      <Image
+        source={require('../../assets/zipp-gold-logo.png')}
+        style={{ width: logoWidth, height: logoHeight }}
+        resizeMode="contain"
+      />
     </View>
   );
 }

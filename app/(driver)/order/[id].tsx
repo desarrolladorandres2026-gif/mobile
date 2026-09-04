@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { View, ScrollView, StyleSheet, Alert, Pressable, Linking } from 'react-native';
+import {
+  View, ScrollView, StyleSheet, Alert, Pressable, Linking,
+  KeyboardAvoidingView, Platform,
+} from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
@@ -9,12 +12,15 @@ import {
 } from '../../../components/ui';
 import { OrderChatSheet } from '../../../components/domain/OrderChatSheet';
 import { OrderCallSheet } from '../../../components/domain/OrderCallSheet';
+import { DriverRouteCard } from '../../../components/domain/DriverRouteCard';
+import { useDriverTrackingContext } from '../../../hooks/useDriverTracking';
 import {
   useOrder, useOrderFlow, useOrderArrive, useUploadOrderEvidence,
   useVerifyOrderCode, useUpdateOrderStatus,
 } from '../../../hooks/useApi';
 import { useOrderRealtime, useOrderFlowRealtime } from '../../../hooks/useRealtime';
 import { useTheme } from '../../../hooks/useTheme';
+import { useBottomInset } from '../../../hooks/useBottomSpace';
 import { captureEvidence } from '../../../lib/evidence';
 import { captureCurrentPosition } from '../../../hooks/useLocation';
 import { apiMessage } from '../../../lib/errors';
@@ -34,6 +40,7 @@ export default function DriverActiveOrderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { c } = useTheme();
+  const bottomInset = useBottomInset();
 
   const { data: order, isLoading, isError, refetch } = useOrder(id);
   const { data: flow } = useOrderFlow(id);
@@ -58,6 +65,24 @@ export default function DriverActiveOrderScreen() {
   useEffect(() => {
     if (incomingCall) { setCallStartedByMe(false); setCallOpen(true); }
   }, [incomingCall]);
+
+  /**
+   * Avisa al seguimiento de que hay una entrega en curso.
+   *
+   * Es lo que sube la precisión del GPS: un repartidor esperando pedidos
+   * solo tiene que estar localizable, pero con una entrega encima hay un
+   * cliente mirando su punto en tiempo real. Se limpia al salir para que
+   * el teléfono vuelva al muestreo económico en cuanto la pantalla se
+   * cierra — si no, la precisión alta se quedaría encendida el resto del
+   * turno.
+   */
+  const tracking = useDriverTrackingContext();
+
+  useEffect(() => {
+    if (!id) return;
+    tracking.setActiveOrder(id);
+    return () => tracking.setActiveOrder(null);
+  }, [id]);
 
   if (isLoading) return <LoadingScreen message="Cargando el pedido…" />;
 
@@ -163,11 +188,30 @@ export default function DriverActiveOrderScreen() {
         fallback="/(driver)/(tabs)/orders"
       />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={60}
+      >
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + Spacing.huge }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.headRow}>
           <StatusPill status={order.status} />
           <Badge label={money((order.deliveryFee || 0) + (order.tip || 0))} tone="lime" />
         </View>
+
+        {/*
+          La ruta va arriba del todo: es lo que el repartidor mira con el
+          teléfono en el soporte de la moto. La evidencia y los códigos
+          solo importan cuando ya llegó, y para entonces tiene el teléfono
+          en la mano y puede desplazarse.
+        */}
+        {!isDelivered && !isCancelled ? (
+          <DriverRouteCard orderId={orderId} status={order.status} />
+        ) : null}
 
         {isCancelled ? (
           <Notice tone="error">Este pedido se canceló. No hay nada más que hacer aquí.</Notice>
@@ -326,6 +370,7 @@ export default function DriverActiveOrderScreen() {
           </View>
         ) : null}
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <OrderChatSheet visible={chatOpen} onClose={() => setChatOpen(false)} orderId={orderId} />
       <OrderCallSheet

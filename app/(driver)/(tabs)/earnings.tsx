@@ -5,18 +5,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  Text, Icon, Card, Button, Input, Badge, Notice, DetailRow, LoadingScreen, ErrorState,
+  Text, Icon, Card, Button, Input, Badge, Notice, DetailRow, LoadingScreen, ErrorState, SectionHeader,
 } from '../../../components/ui';
 import { useDriverEarnings, useDriverDebts, useReportCash } from '../../../hooks/useApi';
+import { useTabContentPadding } from '../../../hooks/useBottomSpace';
 import { useTheme } from '../../../hooks/useTheme';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { money } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
 
-const BOTTOM_SPACE = 100;
-
 export default function DriverEarningsScreen() {
   const { c } = useTheme();
+  const bottomSpace = useTabContentPadding();
   const [referencia, setReferencia] = useState('');
   const [mostrarReporte, setMostrarReporte] = useState(false);
 
@@ -85,7 +85,7 @@ export default function DriverEarningsScreen() {
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomSpace }]}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -108,7 +108,7 @@ export default function DriverEarningsScreen() {
 
         {/* ── Control de Efectivo y Rendición de Cuentas ── */}
         <View style={styles.section}>
-          <Text v="label" tone="textMuted">Efectivo de pedidos por rendir</Text>
+          <SectionHeader title="Efectivo de pedidos por rendir" />
 
           <Card style={styles.debtCard}>
             <View style={styles.debtHeader}>
@@ -173,7 +173,7 @@ export default function DriverEarningsScreen() {
 
         {/* ── Desglose de Liquidación ── */}
         <View style={styles.section}>
-          <Text v="label" tone="textMuted">Cuentas claras</Text>
+          <SectionHeader title="Cuentas claras" />
           <Card style={styles.breakdownCard}>
             <DetailRow label="Total cobrado en efectivo" value={money(debtsData?.totalCollected || 0)} />
             <DetailRow label="Tus domicilios y propinas" value={`−${money(totalEarned)}`} tone="successText" />
@@ -193,7 +193,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.md,
     gap: Spacing.xl,
-    paddingBottom: BOTTOM_SPACE,
   },
   heroCard: { padding: Spacing.xl, gap: Spacing.xs },
   section: { gap: Spacing.sm },

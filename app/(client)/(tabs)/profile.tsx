@@ -17,11 +17,13 @@ import { useCartStore } from '../../../stores/cartStore';
 import { useFavoritesStore } from '../../../stores/favoritesStore';
 import { useThemeStore } from '../../../stores/themeStore';
 import { usePrefsStore } from '../../../stores/prefsStore';
-import { useAddresses } from '../../../hooks/useApi';
+import { useAddresses, useUnreadCount } from '../../../hooks/useApi';
 import { useZippStats } from '../../../hooks/useUsual';
 import { useTheme } from '../../../hooks/useTheme';
+import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
 import { authApi } from '../../../services/endpoints';
 import { socketService } from '../../../services/socket';
+import { unregisterPush } from '../../../hooks/usePushNotifications';
 import type { IconName } from '../../../theme/icons';
 import { Spacing, FontSize } from '../../../theme/tokens';
 import { initials } from '../../../lib/format';
@@ -29,7 +31,6 @@ import { apiMessage, validateName, validatePhone } from '../../../lib/errors';
 import { tap } from '../../../lib/haptics';
 import { SUPPORT_PHONE } from '../../../constants/config';
 
-const BOTTOM_SPACE = 190;
 
 // Cloudinary vuelve a recortar y optimizar, pero comprimir aquí es lo que
 // ahorra datos y hace la subida rápida: el original de la cámara puede
@@ -121,9 +122,11 @@ interface MenuLink {
 export default function ProfileScreen() {
   const router = useRouter();
   const { c, isDark } = useTheme();
+  const bottomSpace = useTabContentPadding(CLIENT_DOCK_CLEARANCE);
   const { user, logout } = useAuthStore();
 
   const { data: addresses = [] } = useAddresses();
+  const { data: unreadCount = 0 } = useUnreadCount();
   const favorites = useFavoritesStore((s) => s.favorites);
   const clearCart = useCartStore((s) => s.clearCart);
   const stats = useZippStats();
@@ -169,6 +172,8 @@ export default function ProfileScreen() {
     {
       illustration: 'notificaciones',
       label: 'Avisos y notificaciones',
+      detail: unreadCount > 0 ? `${unreadCount} sin leer` : undefined,
+      badge: unreadCount > 0 ? `${unreadCount}` : undefined,
       route: '/(client)/notifications',
     },
   ];
@@ -269,7 +274,10 @@ export default function ProfileScreen() {
       {
         text: 'Cerrar sesión',
         style: 'destructive',
-        onPress: () => {
+        onPress: async () => {
+          // Baja del push antes de soltar la sesión: después, la petición
+          // fallaría y el backend seguiría notificando a este teléfono.
+          await unregisterPush();
           socketService.disconnect();
           clearCart();
           logout();
@@ -284,7 +292,10 @@ export default function ProfileScreen() {
       style={[styles.screen, { backgroundColor: isDark ? '#0C101C' : '#F1F3F7' }]}
       edges={['top']}
     >
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomSpace }]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* ── Encabezado ── */}
         <View style={styles.headerArea}>
           <Text v="displayM" style={styles.headerTitle}>
@@ -778,7 +789,6 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
-    paddingBottom: BOTTOM_SPACE,
     gap: Spacing.xxl,
   },
 

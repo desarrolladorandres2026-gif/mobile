@@ -16,9 +16,25 @@ import {
 
 import { useAuthStore } from '../stores/authStore';
 import { useTheme } from '../hooks/useTheme';
-import { ZippMarkDrawing } from '../components/brand/ZippLogo';
+import { usePushNotifications } from '../hooks/usePushNotifications';
+import { useNotificationsRealtime } from '../hooks/useRealtime';
+import { useSessionGuard } from '../hooks/useSessionGuard';
+import { ZippSplashLoader } from '../components/brand/ZippSplashLoader';
 import { registerServiceWorker } from '../lib/pwa';
 import { AdModal } from '../components/domain/AdModal';
+
+// Registra la tarea de ubicación en segundo plano.
+//
+// Tiene que estar aquí, en el módulo raíz, y no dentro del layout del
+// repartidor: el sistema operativo puede lanzar la app *directamente en
+// la tarea*, sin abrir ninguna pantalla, para entregarle posiciones
+// acumuladas. En ese arranque el layout de `(driver)` no llega a montarse
+// nunca, y si la tarea se definiera allí Expo la daría por desconocida y
+// descartaría el lote entero de posiciones.
+//
+// El `import` sin nombre es intencional: el efecto de cargar el módulo
+// —el `defineTask`— es exactamente lo que se busca.
+import '../lib/locationTask';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,6 +50,17 @@ const queryClient = new QueryClient({
 function RootLayoutContent() {
   const { isLoading, loadStoredAuth } = useAuthStore();
   const { c, isDark } = useTheme();
+
+  // Notificaciones: push del sistema (app cerrada) + campana en vivo (app abierta).
+  usePushNotifications();
+  useNotificationsRealtime();
+
+  // Si la sesión muere estando dentro de la app, devuelve al login en vez
+  // de dejar la pantalla montada reintentando peticiones que ya no pueden
+  // funcionar. Vive aquí porque es el único punto que sobrevive a toda
+  // navegación — el guardián tiene que seguir mirando esté donde esté el
+  // usuario.
+  useSessionGuard();
 
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -70,14 +97,9 @@ function RootLayoutContent() {
     animation: 'slide_from_right' as const,
   }), [c.background]);
 
-  // Mientras cargan fuentes y sesión, la marca se dibuja sola. Es la misma
-  // animación del splash, así que la transición no se percibe como una espera.
+  // Mientras cargan fuentes y sesión, mostramos la pantalla de carga limpia con fondo blanco.
   if (isLoading || !fontsLoaded) {
-    return (
-      <View style={[styles.boot, { backgroundColor: c.background }]}>
-        <ZippMarkDrawing size={80} />
-      </View>
-    );
+    return <ZippSplashLoader />;
   }
 
   return (

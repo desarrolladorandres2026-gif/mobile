@@ -11,18 +11,19 @@ import { useMyOrders } from '../../../hooks/useApi';
 import { useOrderRealtime, orderProgress } from '../../../hooks/useRealtime';
 import { reorder, type UsualOrder } from '../../../hooks/useUsual';
 import { useTheme } from '../../../hooks/useTheme';
+import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
 import { ACTIVE_ORDER_STATUSES } from '../../../constants/config';
 import { categoryIllustration } from '../../../components/illustrations';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { money, orderDate, orderCode } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
 
-const BOTTOM_SPACE = 190;
 type Tab = 'active' | 'past';
 
 export default function OrdersScreen() {
   const router = useRouter();
   const { c } = useTheme();
+  const bottomSpace = useTabContentPadding(CLIENT_DOCK_CLEARANCE);
   const [tab, setTab] = useState<Tab>('active');
 
   const { data, isLoading, isError, refetch, isRefetching } = useMyOrders(1);
@@ -92,7 +93,7 @@ export default function OrdersScreen() {
         <FlatList
           data={list}
           keyExtractor={(item) => item._id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: bottomSpace }]}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews
           maxToRenderPerBatch={10}
@@ -241,7 +242,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
   },
 
-  list: { padding: Spacing.xl, gap: Spacing.md, paddingBottom: BOTTOM_SPACE },
+  list: { padding: Spacing.xl, gap: Spacing.md },
   skeletons: { padding: Spacing.xl, gap: Spacing.md },
 
   card: { padding: Spacing.md, gap: Spacing.md, overflow: 'hidden' },

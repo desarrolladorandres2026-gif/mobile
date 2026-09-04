@@ -14,12 +14,17 @@ import { useBusiness, useBusinessCategories, useBusinessProducts } from '../../.
 import { useCartStore } from '../../../stores/cartStore';
 import { useFavoritesStore } from '../../../stores/favoritesStore';
 import { useTheme } from '../../../hooks/useTheme';
+import { useBottomInset } from '../../../hooks/useBottomSpace';
 import { categoryIllustration } from '../../../components/illustrations';
 import { Type } from '../../../theme/typography';
 import { BorderRadius, Shadow, Spacing } from '../../../theme/tokens';
 import { businessAccent, openState } from '../../../lib/business';
 import { money, minutes } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
+import {
+  productImageUri, productImagePlaceholder, hasProductImage,
+  type ProductImages,
+} from '../../../lib/productImage';
 
 interface Extra { name: string; price: number }
 
@@ -29,13 +34,15 @@ interface Product {
   description?: string;
   price: number;
   discountPrice?: number;
+  /** URL de catálogo. Los productos antiguos solo tienen esto. */
   image?: string;
+  /** Las cuatro variantes que calcula el servidor. */
+  images?: ProductImages | null;
   isAvailable: boolean;
   extras?: Extra[];
   categoryId?: string;
 }
 
-const BOTTOM_SPACE = 150;
 
 export default function BusinessScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -51,7 +58,7 @@ export default function BusinessScreen() {
   const [selected, setSelected] = useState<Product | null>(null);
 
   const { toggleFavorite, isFavorite } = useFavoritesStore();
-  const cartCount = useCartStore((s) => s.getItemCount());
+  const bottomInset = useBottomInset();
 
   const status = openState(business?.schedule);
   const accent = businessAccent(id);
@@ -151,7 +158,7 @@ export default function BusinessScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         stickyHeaderIndices={sections.length > 0 ? [1] : undefined}
-        contentContainerStyle={{ paddingBottom: cartCount > 0 ? BOTTOM_SPACE : Spacing.huge }}
+        contentContainerStyle={{ paddingBottom: bottomInset + Spacing.huge }}
       >
         {/* ── Portada e identidad ── */}
         <View>
@@ -338,10 +345,16 @@ function ProductRow({
         unavailable && styles.productOff,
       ]}
     >
-      <View style={[styles.productImage, { backgroundColor: product.image ? accent : c.surfaceLight }]}>
-        {product.image ? (
+      {/*
+        84 pt en pantalla: se pide la variante de 200 px, no la de
+        catálogo. En una lista de treinta productos la diferencia es de
+        megabytes sobre datos móviles.
+      */}
+      <View style={[styles.productImage, { backgroundColor: hasProductImage(product) ? accent : c.surfaceLight }]}>
+        {hasProductImage(product) ? (
           <Image
-            source={{ uri: product.image }}
+            source={{ uri: productImageUri(product, 'thumb')! }}
+            placeholder={productImagePlaceholder(product)}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={180}
@@ -453,11 +466,12 @@ function ProductSheet({
     >
       <Animated.View
         entering={FadeIn.duration(220)}
-        style={[styles.sheetHero, { backgroundColor: product.image ? accent : c.surfaceLight }]}
+        style={[styles.sheetHero, { backgroundColor: hasProductImage(product) ? accent : c.surfaceLight }]}
       >
-        {product.image ? (
+        {hasProductImage(product) ? (
           <Image
-            source={{ uri: product.image }}
+            source={{ uri: productImageUri(product, 'detail')! }}
+            placeholder={productImagePlaceholder(product)}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={200}

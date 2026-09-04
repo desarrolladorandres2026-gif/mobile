@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
 import { TabBar } from '../../../components/nav/TabBar';
 import { Dock } from '../../../components/nav/Dock';
 import { OfflineBanner } from '../../../components/ui';
+import { DockHeightContext } from '../../../hooks/useDockHeight';
 import { useOrderRealtime } from '../../../hooks/useRealtime';
 import { useTheme } from '../../../hooks/useTheme';
 
@@ -12,26 +14,32 @@ import { useTheme } from '../../../hooks/useTheme';
  * El dock y la banda de conexión viven aquí, fuera del navegador, para que
  * sobrevivan al cambio de pestaña: la bolsa y el pedido en curso no deberían
  * desaparecer solo porque te moviste a Explorar.
+ *
+ * El dock además publica su altura real por contexto, para que cada pantalla
+ * reserve exactamente ese espacio al final de su scroll —ni de más ni de menos.
  */
 export default function ClientTabsLayout() {
   const { c } = useTheme();
   const { connected } = useOrderRealtime();
+  const [dockHeight, setDockHeight] = useState(0);
 
   return (
-    <View style={[styles.root, { backgroundColor: c.background }]}>
-      <Tabs
-        screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: c.background } }}
-        tabBar={(props) => <TabBar {...props} />}
-      >
-        <Tabs.Screen name="home" options={{ title: 'Inicio' }} />
-        <Tabs.Screen name="search" options={{ title: 'Explorar' }} />
-        <Tabs.Screen name="orders" options={{ title: 'Pedidos' }} />
-        <Tabs.Screen name="profile" options={{ title: 'Perfil' }} />
-      </Tabs>
+    <DockHeightContext.Provider value={dockHeight}>
+      <View style={[styles.root, { backgroundColor: c.background }]}>
+        <Tabs
+          screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: c.background } }}
+          tabBar={(props) => <TabBar {...props} />}
+        >
+          <Tabs.Screen name="home" options={{ title: 'Inicio' }} />
+          <Tabs.Screen name="search" options={{ title: 'Explorar' }} />
+          <Tabs.Screen name="orders" options={{ title: 'Pedidos' }} />
+          <Tabs.Screen name="profile" options={{ title: 'Perfil' }} />
+        </Tabs>
 
-      <Dock />
-      <OfflineBanner visible={!connected} />
-    </View>
+        <Dock onHeightChange={setDockHeight} />
+        <OfflineBanner visible={!connected} />
+      </View>
+    </DockHeightContext.Provider>
   );
 }
 

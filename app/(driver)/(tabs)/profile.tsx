@@ -4,21 +4,22 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  Text, Icon, Card, Button, Badge, Notice, DetailRow,
+  Text, Icon, Card, Button, Badge, Notice, DetailRow, SectionHeader,
 } from '../../../components/ui';
 import { ContentIcon } from '../../../components/illustrations';
 import { useAuthStore } from '../../../stores/authStore';
 import { useDriverProfile } from '../../../hooks/useApi';
+import { useTabContentPadding } from '../../../hooks/useBottomSpace';
 import { useTheme } from '../../../hooks/useTheme';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { initials } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
-
-const BOTTOM_SPACE = 100;
+import { unregisterPush } from '../../../hooks/usePushNotifications';
 
 export default function DriverProfileScreen() {
   const router = useRouter();
   const { c, isDark, toggleTheme } = useTheme();
+  const bottomSpace = useTabContentPadding();
   const { user, logout } = useAuthStore();
   const { data: profile } = useDriverProfile();
 
@@ -29,7 +30,8 @@ export default function DriverProfileScreen() {
       {
         text: 'Cerrar sesión',
         style: 'destructive',
-        onPress: () => {
+        onPress: async () => {
+          await unregisterPush();
           logout();
           router.replace('/(auth)/login');
         },
@@ -43,7 +45,10 @@ export default function DriverProfileScreen() {
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomSpace }]}
+      >
         <Text v="displayM">Mi Perfil</Text>
 
         {/* ── Tarjeta de Perfil ── */}
@@ -75,7 +80,7 @@ export default function DriverProfileScreen() {
               <View style={styles.statItem}>
                 <View style={styles.ratingRow}>
                   <ContentIcon name="calificacion" size={20} />
-                  <Text v="titleM">4.9</Text>
+                  <Text v="titleM">{(profile?.rating ?? 5).toFixed(1)}</Text>
                 </View>
                 <Text v="caption" tone="textMuted">Calificación</Text>
               </View>
@@ -86,20 +91,13 @@ export default function DriverProfileScreen() {
                 <Text v="titleM">{completedDeliveries}</Text>
                 <Text v="caption" tone="textMuted">Entregas</Text>
               </View>
-
-              <View style={[styles.statDivider, { backgroundColor: c.border }]} />
-
-              <View style={styles.statItem}>
-                <Text v="titleM" tone="limeText">99%</Text>
-                <Text v="caption" tone="textMuted">Cumplimiento</Text>
-              </View>
             </View>
           </Card>
         </Animated.View>
 
         {/* ── Preferencias y Tema ── */}
         <View style={styles.section}>
-          <Text v="label" tone="textMuted">Preferencias de la aplicación</Text>
+          <SectionHeader title="Preferencias de la aplicación" />
           <Card style={styles.menuCard}>
             <Pressable
               onPress={() => { tap('select'); toggleTheme(); }}
@@ -121,7 +119,7 @@ export default function DriverProfileScreen() {
 
         {/* ── Soporte ── */}
         <View style={styles.section}>
-          <Text v="label" tone="textMuted">Ayuda y Soporte</Text>
+          <SectionHeader title="Ayuda y Soporte" />
           <Card style={styles.menuCard}>
             <Pressable
               onPress={() => { tap('light'); router.push('/(client)/help'); }}
@@ -159,7 +157,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.md,
     gap: Spacing.xl,
-    paddingBottom: BOTTOM_SPACE,
   },
   profileCard: { padding: Spacing.xl, gap: Spacing.lg },
   avatarRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.lg },

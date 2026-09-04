@@ -6,7 +6,7 @@ import {
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import {
-  Text, Icon, Button, Card, Chip, DetailRow, Notice, Screen, Header, Skeleton,
+  Text, Icon, Button, Card, Chip, DetailRow, Notice, Screen, ScreenFooter, Header, Skeleton,
 } from '../../components/ui';
 import { AddressSheet, hasCoordinates, type Address } from '../../components/domain/AddressPicker';
 import { useCartStore } from '../../stores/cartStore';
@@ -501,7 +501,7 @@ export default function CheckoutScreen() {
           {submitError ? <Notice tone="error">{submitError}</Notice> : null}
         </ScrollView>
 
-        <View style={[styles.footer, { backgroundColor: c.background, borderTopColor: c.border }]}>
+        <ScreenFooter>
           <Button
             title="Confirmar pedido"
             trailing={quote ? money(quote.total) : undefined}
@@ -517,7 +517,7 @@ export default function CheckoutScreen() {
                 : 'El cobro se hace desde la app'
             }
           />
-        </View>
+        </ScreenFooter>
       </KeyboardAvoidingView>
 
       <AddressSheet
@@ -640,10 +640,4 @@ const styles = StyleSheet.create({
   pendingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   divider: { height: StyleSheet.hairlineWidth },
   totalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-
-  footer: {
-    padding: Spacing.xl,
-    paddingBottom: Spacing.xxl,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
 });

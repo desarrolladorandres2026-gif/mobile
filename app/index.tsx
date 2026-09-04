@@ -1,28 +1,16 @@
 import { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import Animated, { FadeInUp } from 'react-native-reanimated';
-import { Text } from '../components/ui';
-import { ZippMarkDrawing } from '../components/brand/ZippLogo';
+import { ZippSplashLoader } from '../components/brand/ZippSplashLoader';
 import { useAuthStore } from '../stores/authStore';
 import { usePrefsStore } from '../stores/prefsStore';
-import { useTheme } from '../hooks/useTheme';
-import { Spacing } from '../theme/tokens';
 
-/** Lo que dura el trazo dibujándose, más un respiro para leer la marca. */
-const HOLD_MS = 1700;
+/** Tiempo de bienvenida para apreciar la marca y el efecto de reflejo metálico */
+const HOLD_MS = 2200;
 
-/**
- * Apertura.
- *
- * La marca se dibuja sola: el mismo trazo que después recorre el seguimiento
- * del pedido. Es lo primero que se ve de Zipp y lo último que queda.
- */
 export default function SplashScreen() {
   const router = useRouter();
   const { isAuthenticated, user } = useAuthStore();
   const onboardingSeen = usePrefsStore((s) => s.onboardingSeen);
-  const { c } = useTheme();
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -47,20 +35,5 @@ export default function SplashScreen() {
     return () => clearTimeout(timer);
   }, [isAuthenticated, user, onboardingSeen]);
 
-  return (
-    <View style={[styles.container, { backgroundColor: c.background }]}>
-      <ZippMarkDrawing size={104} />
-
-      <Animated.View entering={FadeInUp.delay(760).duration(420)} style={styles.words}>
-        <Text v="displayXL" style={styles.wordmark}>zipp</Text>
-        <Text v="bodyM" tone="textSecondary">Tu pueblo, a domicilio</Text>
-      </Animated.View>
-    </View>
-  );
+  return <ZippSplashLoader />;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  words: { alignItems: 'center', marginTop: Spacing.lg, gap: Spacing.xs },
-  wordmark: { letterSpacing: -2 },
-});

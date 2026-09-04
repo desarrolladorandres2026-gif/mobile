@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { View, Pressable, StyleSheet, type ViewStyle } from 'react-native';
-import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets, type Edge } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { Text } from './Text';
@@ -17,6 +17,37 @@ export function Screen({
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }, style]} edges={edges}>
       {children}
     </SafeAreaView>
+  );
+}
+
+/**
+ * Barra fija al pie de una pantalla, para la acción principal.
+ *
+ * Añade el inset inferior real del dispositivo al relleno: así el botón nunca
+ * queda bajo el home indicator de iPhone ni bajo la barra de navegación de
+ * Android, en vez de confiar en un número fijo que solo funciona en algunos
+ * teléfonos. Pensada para pantallas con `Screen` (safe area solo arriba).
+ */
+export function ScreenFooter({
+  children, style,
+}: { children: ReactNode; style?: ViewStyle }) {
+  const { c } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View
+      style={[
+        styles.footer,
+        {
+          borderTopColor: c.border,
+          backgroundColor: c.background,
+          paddingBottom: Math.max(insets.bottom, Spacing.md) + Spacing.sm,
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
   );
 }
 
@@ -162,6 +193,11 @@ function StepperButton({
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  footer: {
+    paddingTop: Spacing.xl,
+    paddingHorizontal: Spacing.xl,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

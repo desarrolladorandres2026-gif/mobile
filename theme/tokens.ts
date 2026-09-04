@@ -1,70 +1,104 @@
 /**
- * ZIPP — Sistema de diseño "El Trazo"
+ * ZIPP — Sistema de diseño "Obsidian & Gold Titanium"
  *
- * Zipp no es un catálogo infinito: es un pueblo que se mueve rápido. Aquí
- * casi nada queda a más de diez minutos, así que la interfaz se organiza
- * alrededor de la cercanía y los minutos, no del tamaño del catálogo.
+ * Zipp no es un catálogo genérico: es una experiencia de movilidad y entregas
+ * de alta gama, rápida, segura y distinguida.
  *
- * Paleta "Andén": una noche índigo (Ink), un azul eléctrico que
- * empuja la acción (Zipp) y un lima que marca todo lo que se gana (Lima).
+ * Paleta de marca:
+ * - Modo Oscuro: Noche Obsidiana (#080B11), Titanio ahumado (#141B2A) y Oro Champagne satinado (#E5B242).
+ * - Modo Claro: Platino perla (#F6F8FA), Blanco puro (#FFFFFF) y Oro Real (#D69E26 / #B88214) con contraste AAA.
+ * - Seguridad y Domicilios: Verde Esmeralda (#10B981) para entregas seguras y Ámbar (#F59E0B) para preparación.
  *
  * La fuente única de verdad del color en todo el proyecto es
- * /variables de color/colores.css (la consumen admin y business vía
- * @import). Este archivo es TypeScript y no puede importar ese .css
- * directamente, así que los hex de `palette` de abajo deben mantenerse
- * manualmente en sincronía con ese archivo cuando cambie.
+ * /variables de color/colores.css (la consumen admin, business y web vía @import).
+ * Este archivo es TypeScript y mantiene los valores sincronizados para React Native.
  */
 
 // ──────────────────────────────────────────────────────────────
-// Paleta cruda. Nadie fuera de este archivo debería usarla directo:
-// las pantallas consumen los tokens semánticos de más abajo.
+// Paleta cruda. Las pantallas consumen los tokens semánticos abajo.
 // ──────────────────────────────────────────────────────────────
 const palette = {
-  // Noche índigo. No es negro: tiene horizonte.
-  ink900: '#080B14',
-  ink800: '#0D1120',
-  ink700: '#141A2E',
-  ink600: '#1C2338',
-  ink500: '#252E47',
-  ink400: '#323C59',
-  ink300: '#46527A',
-  ink200: '#6B78A0',
+  // Obsidiana & Titanio (Dark base). Profundo, cinematográfico, de alta gama.
+  ink900: '#080B11',
+  ink800: '#0E131E',
+  ink700: '#141B2A',
+  ink600: '#1B2437',
+  ink500: '#232E46',
+  ink400: '#2E3D5C',
+  ink300: '#465A84',
+  ink200: '#7184A8',
+  ink100: '#A4B3CD',
 
-  // Blanco frío, no crema: acompaña al índigo sin ensuciarlo.
+  // Platino & Perla (Light base). Limpio, sólido, editorial y premium.
   paper0: '#FFFFFF',
-  paper50: '#F4F4F8',
-  paper100: '#ECECF3',
-  paper200: '#DFDFEA',
-  paper300: '#C5C5D6',
-  paper400: '#8E8EA8',
-  paper500: '#5C5C73',
+  paper50: '#F6F8FA',
+  paper100: '#EDF1F5',
+  paper200: '#E1E6ED',
+  paper300: '#CBD5E1',
+  paper400: '#7C8BA1',
+  paper500: '#475569',
+  paper600: '#0B0F19',
 
-  // Azul eléctrico: el color de "hazlo ya".
-  zipp700: '#2A1BC9',
-  zipp600: '#3A29E8',
-  zipp500: '#4B3BFF',
-  zipp400: '#7D72FF',
-  zipp300: '#A79FFF',
-  zipp100: '#E4E1FF',
+  // Oro Champagne Zipp (El alma de la nueva identidad visual).
+  // Diseñado para irradiar valor, solidez y velocidad sin ser opaco ni chillón.
+  gold700: '#8A5D08',
+  gold600: '#B88214',
+  gold500: '#D69E26',
+  gold400: '#E5B242',
+  gold300: '#F3CE72',
+  gold200: '#FCE7B2',
+  gold100: '#FDF7E7',
 
-  // Lima: el trazo, la recompensa, lo que sale bien.
-  lima800: '#3F5106',
-  lima700: '#5A7208',
-  lima600: '#9DBB25',
-  lima500: '#D9F55B',
-  lima400: '#E6FA8C',
-  lima100: '#F4FDD2',
+  // Titanio & Cromo (Inspirado en el casco metálico y detalles de la equipación)
+  chrome700: '#475569',
+  chrome500: '#94A3B8',
+  chrome300: '#CBD5E1',
+  chrome100: '#F1F5F9',
+  chrome50: '#F8FAFC',
 
-  // Estados
-  cereza700: '#B01829',
-  cereza500: '#FF4D5E',
-  cereza400: '#FF7A87',
-  cereza100: '#FFE3E6',
+  // Estados de Entrega y Seguridad
+  emerald700: '#047857',
+  emerald600: '#059669',
+  emerald500: '#10B981',
+  emerald400: '#34D399',
+  emerald100: '#D1FAE5',
 
-  mango700: '#8A5A00',
-  mango500: '#FFB020',
-  mango400: '#FFC85C',
-  mango100: '#FFF0D1',
+  coral700: '#B91C1C',
+  coral600: '#DC2626',
+  coral500: '#EF4444',
+  coral400: '#F87171',
+  coral100: '#FEE2E2',
+
+  amber700: '#B45309',
+  amber600: '#D97706',
+  amber500: '#F59E0B',
+  amber400: '#FBBF24',
+  amber100: '#FEF3C7',
+
+  // Mapeos de compatibilidad retroactiva
+  zipp700: '#8A5D08',
+  zipp600: '#B88214',
+  zipp500: '#D69E26',
+  zipp400: '#E5B242',
+  zipp300: '#F3CE72',
+  zipp100: '#FDF7E7',
+
+  lima800: '#8A5D08',
+  lima700: '#B88214',
+  lima600: '#D69E26',
+  lima500: '#E5B242',
+  lima400: '#F3CE72',
+  lima100: '#FDF7E7',
+
+  cereza700: '#B91C1C',
+  cereza500: '#EF4444',
+  cereza400: '#F87171',
+  cereza100: '#FEE2E2',
+
+  mango700: '#B45309',
+  mango500: '#F59E0B',
+  mango400: '#FBBF24',
+  mango100: '#FEF3C7',
 } as const;
 
 // ──────────────────────────────────────────────────────────────
@@ -142,17 +176,17 @@ export const Size = {
 // ──────────────────────────────────────────────────────────────
 
 /**
- * Colores de estado del pedido. Se leen de un vistazo y en el mismo orden que
- * avanza el pedido: espera → cocina → calle → entregado.
+ * Colores de estado del pedido. Claridad instantánea en cada fase:
+ * espera → cocina → calle → entregado.
  */
 const orderStatus = {
-  statusPending: palette.mango500,
-  statusAccepted: palette.zipp400,
-  statusPreparing: palette.mango500,
-  statusReady: palette.zipp400,
-  statusOnWay: palette.zipp500,
-  statusDelivered: palette.lima600,
-  statusCancelled: palette.cereza500,
+  statusPending: palette.amber500,
+  statusAccepted: palette.gold400,
+  statusPreparing: palette.amber500,
+  statusReady: palette.gold400,
+  statusOnWay: palette.gold500,
+  statusDelivered: palette.emerald500,
+  statusCancelled: palette.coral500,
 } as const;
 
 const shared = {
@@ -160,17 +194,20 @@ const shared = {
   black: palette.ink900,
   transparent: 'transparent',
 
-  /** Azul eléctrico. Siempre lleva texto blanco encima. */
-  primary: palette.zipp500,
-  primaryLight: palette.zipp400,
-  primaryDark: palette.zipp700,
+  /** Oro Champagne de alta gama. */
+  primary: palette.gold400,
+  primaryLight: palette.gold300,
+  primaryDark: palette.gold600,
 
-  /** Lima. Nunca es color de texto sobre fondo claro: es superficie. */
-  lime: palette.lima500,
-  limeDeep: palette.lima700,
+  gold: palette.gold400,
+  goldLight: palette.gold300,
+  goldDark: palette.gold600,
+
+  lime: palette.gold400,
+  limeDeep: palette.gold600,
 
   secondary: palette.ink700,
-  accent: palette.lima500,
+  accent: palette.gold400,
 
   ...orderStatus,
 } as const;
@@ -178,63 +215,52 @@ const shared = {
 export const DarkColors = {
   ...shared,
 
-  background: palette.ink700,
-  backgroundDeep: palette.ink800,
-  surface: palette.ink600,
-  surfaceLight: palette.ink500,
-  surfaceRaised: palette.ink500,
-  card: palette.ink600,
+  background: palette.ink900,
+  backgroundDeep: '#05070B',
+  surface: palette.ink700,
+  surfaceLight: palette.ink600,
+  surfaceRaised: palette.ink600,
+  card: palette.ink700,
 
   text: palette.paper0,
-  textSecondary: '#B9C0D8',
+  textSecondary: palette.ink100,
   textMuted: palette.ink200,
-  /** Texto sobre relleno primario sólido. */
-  textOnPrimary: palette.paper0,
-  /** Texto sobre relleno lima sólido. */
-  textOnLime: palette.ink800,
+  /** Texto sobre botón dorado sólido: obsidiana puro con máximo impacto y legibilidad */
+  textOnPrimary: palette.ink900,
+  textOnLime: palette.ink900,
 
   border: palette.ink500,
-  borderLight: palette.ink400,
-  borderStrong: palette.ink300,
+  borderLight: palette.ink600,
+  borderStrong: palette.ink400,
 
-  /** El azul puro no alcanza contraste como texto sobre índigo: se aclara. */
-  primaryText: palette.zipp400,
-  primarySoft: 'rgba(75, 59, 255, 0.18)',
-  primarySoftBorder: 'rgba(125, 114, 255, 0.32)',
+  primaryText: palette.gold400,
+  primarySoft: 'rgba(229, 178, 66, 0.14)',
+  primarySoftBorder: 'rgba(229, 178, 66, 0.32)',
 
-  limeText: palette.lima500,
-  limeSoft: 'rgba(217, 245, 91, 0.14)',
-  limeSoftBorder: 'rgba(217, 245, 91, 0.28)',
+  limeText: palette.gold400,
+  limeSoft: 'rgba(229, 178, 66, 0.14)',
+  limeSoftBorder: 'rgba(229, 178, 66, 0.32)',
 
-  success: palette.lima500,
-  successText: palette.lima500,
-  successLight: palette.lima400,
-  successSoft: 'rgba(217, 245, 91, 0.14)',
+  success: palette.emerald500,
+  successText: palette.emerald400,
+  successLight: palette.emerald400,
+  successSoft: 'rgba(16, 185, 129, 0.16)',
 
-  warning: palette.mango500,
-  warningText: palette.mango400,
-  warningLight: palette.mango400,
-  warningSoft: 'rgba(255, 176, 32, 0.14)',
+  warning: palette.amber500,
+  warningText: palette.amber400,
+  warningLight: palette.amber400,
+  warningSoft: 'rgba(245, 158, 11, 0.16)',
 
-  error: palette.cereza500,
-  errorText: palette.cereza400,
-  errorLight: palette.cereza400,
-  errorSoft: 'rgba(255, 77, 94, 0.14)',
+  error: palette.coral500,
+  errorText: palette.coral400,
+  errorLight: palette.coral400,
+  errorSoft: 'rgba(239, 68, 68, 0.16)',
 
-  overlay: 'rgba(8, 11, 20, 0.72)',
-  skeleton: palette.ink500,
-  skeletonHighlight: palette.ink400,
+  overlay: 'rgba(8, 11, 17, 0.78)',
+  skeleton: palette.ink600,
+  skeletonHighlight: palette.ink500,
 } as const;
 
-/**
- * El tema oscuro define el contrato. Los valores se ensanchan a `string`
- * porque si no, TypeScript trataría cada hex como su propio tipo literal y el
- * tema claro nunca sería asignable al oscuro.
- *
- * El beneficio real: anotar `LightColors` con este tipo hace que olvidar una
- * clave en el tema claro sea un error de compilación, no un `undefined` que
- * aparece como color transparente en producción.
- */
 export type ColorScheme = { readonly [K in keyof typeof DarkColors]: string };
 
 export const LightColors: ColorScheme = {
@@ -247,104 +273,93 @@ export const LightColors: ColorScheme = {
   surfaceRaised: palette.paper0,
   card: palette.paper0,
 
-  text: palette.ink700,
+  text: palette.paper600,
   textSecondary: palette.paper500,
   textMuted: palette.paper400,
-  textOnPrimary: palette.paper0,
-  textOnLime: palette.ink800,
+  textOnPrimary: palette.ink900,
+  textOnLime: palette.ink900,
 
   border: palette.paper200,
   borderLight: palette.paper100,
   borderStrong: palette.paper300,
 
-  primaryText: palette.zipp600,
-  primarySoft: 'rgba(75, 59, 255, 0.08)',
-  primarySoftBorder: 'rgba(75, 59, 255, 0.20)',
+  primaryText: palette.gold600,
+  primarySoft: 'rgba(214, 158, 38, 0.12)',
+  primarySoftBorder: 'rgba(214, 158, 38, 0.28)',
 
-  /** Sobre papel, el lima se oscurece hasta ser legible. */
-  limeText: palette.lima700,
-  limeSoft: 'rgba(157, 187, 37, 0.14)',
-  limeSoftBorder: 'rgba(157, 187, 37, 0.32)',
+  limeText: palette.gold600,
+  limeSoft: 'rgba(214, 158, 38, 0.12)',
+  limeSoftBorder: 'rgba(214, 158, 38, 0.28)',
 
-  success: palette.lima600,
-  successText: palette.lima700,
-  successLight: palette.lima500,
-  successSoft: 'rgba(157, 187, 37, 0.14)',
+  success: palette.emerald600,
+  successText: palette.emerald700,
+  successLight: palette.emerald500,
+  successSoft: 'rgba(5, 150, 105, 0.12)',
 
-  warning: palette.mango500,
-  warningText: palette.mango700,
-  warningLight: palette.mango400,
-  warningSoft: 'rgba(255, 176, 32, 0.16)',
+  warning: palette.amber600,
+  warningText: palette.amber700,
+  warningLight: palette.amber500,
+  warningSoft: 'rgba(217, 119, 6, 0.14)',
 
-  error: palette.cereza500,
-  errorText: palette.cereza700,
-  errorLight: palette.cereza400,
-  errorSoft: 'rgba(255, 77, 94, 0.10)',
+  error: palette.coral600,
+  errorText: palette.coral700,
+  errorLight: palette.coral400,
+  errorSoft: 'rgba(220, 38, 38, 0.12)',
 
-  overlay: 'rgba(20, 26, 46, 0.55)',
+  overlay: 'rgba(8, 11, 17, 0.55)',
   skeleton: palette.paper100,
   skeletonHighlight: palette.paper200,
 };
 
-/** Alias histórico. Código antiguo que asumía tema oscuro sigue funcionando. */
+/** Alias histórico. */
 export const Colors = DarkColors;
 
 // ──────────────────────────────────────────────────────────────
-// Elevación
+// Elevación & Halos
 // ──────────────────────────────────────────────────────────────
 
-/**
- * En modo oscuro una sombra negra es invisible, así que la elevación se
- * comunica con el color de la superficie y una sombra muy difusa. En claro
- * la sombra sí hace el trabajo.
- */
 export const Shadow = {
   none: {},
   sm: {
-    shadowColor: '#080B14',
+    shadowColor: '#080B11',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 2,
   },
   md: {
-    shadowColor: '#080B14',
+    shadowColor: '#080B11',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.14,
+    shadowOpacity: 0.12,
     shadowRadius: 18,
     elevation: 6,
   },
   lg: {
-    shadowColor: '#080B14',
+    shadowColor: '#080B11',
     shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.18,
     shadowRadius: 32,
     elevation: 14,
   },
-  /** Halo de color bajo los botones primarios: el "empuje" de la marca. */
+  /** Halo dorado bajo los botones primarios: el aura champagne premium de la marca */
   primaryGlow: {
-    shadowColor: palette.zipp500,
+    shadowColor: palette.gold400,
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.42,
     shadowRadius: 20,
     elevation: 10,
   },
   limeGlow: {
-    shadowColor: palette.lima500,
+    shadowColor: palette.gold400,
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.42,
     shadowRadius: 20,
     elevation: 10,
   },
-  /**
-   * Halo cálido del mango — lo más cercano a un dorado que tiene la paleta.
-   * Reservado para lo destacado que no es una acción: la tarjeta al frente
-   * del carrusel promocional, no un botón.
-   */
   goldGlow: {
-    shadowColor: palette.mango500,
+    shadowColor: palette.gold400,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.45,
     shadowRadius: 24,
     elevation: 12,
   },

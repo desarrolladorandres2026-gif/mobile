@@ -240,6 +240,54 @@ export const driverApi = {
     api.post('/drivers/cash/report', { reference, ids }).then((r) => r.data.data),
 };
 
+/**
+ * Seguimiento en vivo: mapas, posiciones y rutas.
+ *
+ * El grueso del seguimiento viaja por socket; esto es el arranque y el
+ * respaldo. Abrir la pantalla de un pedido pide `getOrder` una vez para
+ * tener algo que dibujar de inmediato — esperar al primer evento del
+ * socket sería medio minuto de mapa en blanco si el repartidor está
+ * parado en un semáforo.
+ */
+export const trackingApi = {
+  /** Token y estilos de Mapbox. Requiere sesión. */
+  getConfig: () =>
+    api.get('/tracking/config').then((r) => r.data.data),
+
+  /** Posición del repartidor, ruta y ETA de un pedido. */
+  getOrder: (orderId: string, includeTrail = false) =>
+    api
+      .get(`/tracking/orders/${orderId}`, { params: { trail: includeTrail || undefined } })
+      .then((r) => r.data.data),
+
+  /**
+   * Ruta óptima hacia el destino de la etapa en curso.
+   *
+   * Mandar la posición actual es opcional pero conviene: sin ella el
+   * servidor rutea desde la última posición que le llegó, que en un
+   * recálculo tras un desvío es justo la que ya no sirve.
+   */
+  getRoute: (orderId: string, from?: { lat: number; lng: number }) =>
+    api.post(`/tracking/orders/${orderId}/route`, from ?? {}).then((r) => r.data.data),
+
+  /**
+   * Respaldo REST para reportar posición.
+   *
+   * Lo usa la tarea en segundo plano: cuando Android duerme la app, el
+   * socket está cerrado y esta es la única vía que queda.
+   */
+  ping: (payload: {
+    lat: number;
+    lng: number;
+    accuracy?: number;
+    heading?: number;
+    speed?: number;
+    batteryLevel?: number;
+    isMocked?: boolean;
+    recordedAt?: string;
+  }) => api.post('/tracking/ping', payload).then((r) => r.data.data),
+};
+
 export const paymentsApi = {
   getMethods: () =>
     api.get('/payments/methods').then((r) => r.data.data),
@@ -329,6 +377,13 @@ export const notificationsApi = {
 
   remove: (id: string) =>
     api.delete(`/notifications/${id}`).then((r) => r.data.data),
+
+  // ── Push ──
+  registerDevice: (token: string, platform: string) =>
+    api.post('/notifications/devices', { token, platform }).then((r) => r.data.data),
+
+  unregisterDevice: (token: string) =>
+    api.delete('/notifications/devices', { data: { token } }).then((r) => r.data.data),
 };
 
 export const zonesApi = {

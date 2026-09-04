@@ -77,6 +77,45 @@ export function useOrderRealtime() {
 }
 
 /**
+ * Notificaciones en vivo durante toda la sesión.
+ *
+ * Escucha los eventos de socket que emite el backend al crear cualquier
+ * notificación y refresca la campana: la lista de avisos y el contador de
+ * no leídas se actualizan solos, sin pull-to-refresh. Es deliberadamente
+ * "silencioso" — no lanza toasts: los eventos de pedido ya se ven en la
+ * pantalla de seguimiento, y con la app cerrada el mismo aviso llega como
+ * push del sistema.
+ *
+ * Vive junto a `useOrderRealtime`, en un punto alto del árbol (el layout
+ * del cliente), no dentro de la pantalla de avisos.
+ */
+export function useNotificationsRealtime() {
+  const queryClient = useQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    socketService.connect();
+
+    const onNew = () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    };
+    const onUnread = (data: { unreadCount: number }) => {
+      queryClient.setQueryData(['notifications', 'unread'], { unreadCount: data.unreadCount });
+    };
+
+    socketService.onNotificationNew(onNew);
+    socketService.onNotificationUnread(onUnread);
+
+    return () => {
+      socketService.offNotificationNew(onNew);
+      socketService.offNotificationUnread(onUnread);
+    };
+  }, [isAuthenticated]);
+}
+
+/**
  * El pedido que todavía se está moviendo.
  *
  * Solo puede haber uno visible a la vez: si hay varios en curso se muestra el

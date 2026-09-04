@@ -190,9 +190,42 @@ class SocketService {
     this.socket?.off('call:peer:joined', callback);
   }
 
-  // ── Driver Events ──
-  emitDriverLocation(lat: number, lng: number) {
-    this.socket?.emit('driver:location', { lat, lng });
+  // ── Notificaciones ──
+  //
+  // `notification:new` llega con la app abierta: la campana y la lista de
+  // avisos se refrescan sin que el usuario haga pull-to-refresh. Con la app
+  // cerrada, el mismo aviso llega como push del sistema (ver lib/push.ts).
+  onNotificationNew(callback: (data: any) => void) {
+    this.socket?.on('notification:new', callback);
+  }
+  offNotificationNew(callback: (data: any) => void) {
+    this.socket?.off('notification:new', callback);
+  }
+
+  onNotificationUnread(callback: (data: { unreadCount: number }) => void) {
+    this.socket?.on('notification:unread', callback);
+  }
+  offNotificationUnread(callback: (data: { unreadCount: number }) => void) {
+    this.socket?.off('notification:unread', callback);
+  }
+
+  // ── Seguimiento GPS ──
+  //
+  // El servidor filtra: descarta lo impreciso, lo demasiado frecuente y lo
+  // que no se ha movido (ver `tracking.service.ts`). La app no recibe
+  // confirmación de cada punto a propósito — responder a cada ping para
+  // decir "descartado" gastaría los datos que el filtro ahorra.
+  emitDriverLocation(payload: {
+    lat: number;
+    lng: number;
+    accuracy?: number;
+    heading?: number;
+    speed?: number;
+    batteryLevel?: number;
+    isMocked?: boolean;
+    recordedAt?: string;
+  }) {
+    this.socket?.emit('driver:location', payload);
   }
 
   emitDriverStatus(status: string) {
@@ -205,6 +238,52 @@ class SocketService {
 
   offDriverLocationUpdate(callback: (data: any) => void) {
     this.socket?.off('driver:location:update', callback);
+  }
+
+  /**
+   * Suscribe la pantalla a la posición de un repartidor.
+   *
+   * Pedirlo no basta: el servidor comprueba contra la base que quien pide
+   * tiene un pedido activo con ese repartidor (ver `track:driver` en
+   * `sockets/index.ts`). Suscribirse a un repartidor ajeno simplemente no
+   * recibe nada.
+   */
+  trackDriver(driverUserId: string) {
+    this.socket?.emit('track:driver', driverUserId);
+  }
+
+  untrackDriver(driverUserId: string) {
+    this.socket?.emit('untrack:driver', driverUserId);
+  }
+
+  onTrackingDenied(callback: (data: any) => void) {
+    this.socket?.on('driver:tracking:denied', callback);
+  }
+  offTrackingDenied(callback: (data: any) => void) {
+    this.socket?.off('driver:tracking:denied', callback);
+  }
+
+  // ── Ruta del repartidor ──
+  //
+  // Va por socket porque el recálculo ocurre conduciendo: el canal ya está
+  // abierto mandando posiciones y no hay que esperar un handshake nuevo
+  // justo en el momento en que el repartidor está perdido.
+  requestRoute(orderId: string, from?: { lat: number; lng: number }) {
+    this.socket?.emit('driver:route', { orderId, ...(from ?? {}) });
+  }
+
+  onRouteUpdated(callback: (data: any) => void) {
+    this.socket?.on('driver:route:updated', callback);
+  }
+  offRouteUpdated(callback: (data: any) => void) {
+    this.socket?.off('driver:route:updated', callback);
+  }
+
+  onRouteError(callback: (data: any) => void) {
+    this.socket?.on('driver:route:error', callback);
+  }
+  offRouteError(callback: (data: any) => void) {
+    this.socket?.off('driver:route:error', callback);
   }
 
   // ── Cleanup ──

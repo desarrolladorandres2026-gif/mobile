@@ -12,17 +12,18 @@ import {
 import {
   useAvailableOrders, useDriverOrders, useDriverProfile, useAssignDriver, useUpdateOrderStatus,
 } from '../../../hooks/useApi';
+import { useTabContentPadding } from '../../../hooks/useBottomSpace';
 import { useTheme } from '../../../hooks/useTheme';
 import { socketService } from '../../../services/socket';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { money, orderCode, orderDate } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
 
-const BOTTOM_SPACE = 100;
 type OrderTab = 'available' | 'my_deliveries';
 
 export default function DriverOrdersScreen() {
   const { c } = useTheme();
+  const bottomSpace = useTabContentPadding();
   const [tab, setTab] = useState<OrderTab>('available');
 
   const { data: driverProfile } = useDriverProfile();
@@ -151,7 +152,7 @@ export default function DriverOrdersScreen() {
         <FlatList
           data={list}
           keyExtractor={(item) => item._id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: bottomSpace }]}
           showsVerticalScrollIndicator={false}
           removeClippedSubviews
           maxToRenderPerBatch={8}
@@ -374,7 +375,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
   },
 
-  list: { padding: Spacing.xl, gap: Spacing.lg, paddingBottom: BOTTOM_SPACE },
+  list: { padding: Spacing.xl, gap: Spacing.lg },
   card: { padding: Spacing.lg, gap: Spacing.md },
   detailHint: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4 },
   cardHeader: {

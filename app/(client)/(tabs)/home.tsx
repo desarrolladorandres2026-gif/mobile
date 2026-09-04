@@ -20,19 +20,18 @@ import { useBusinesses, usePublicCoupons, useAddresses } from '../../../hooks/us
 import { useUsual, reorder, type UsualOrder } from '../../../hooks/useUsual';
 import { useHomeCategories } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
+import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
 import { categoryIllustration, ContentIcon } from '../../../components/illustrations';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { greeting, firstName, money } from '../../../lib/format';
 import { openState } from '../../../lib/business';
 import { tap } from '../../../lib/haptics';
 
-/** Deja aire suficiente para el dock y la barra de pestañas. */
-const BOTTOM_SPACE = 190;
-
 export default function HomeScreen() {
   const router = useRouter();
   const { c } = useTheme();
   const { width } = useWindowDimensions();
+  const bottomSpace = useTabContentPadding(CLIENT_DOCK_CLEARANCE);
   const user = useAuthStore((s) => s.user);
 
   const { data: businesses = [], isLoading, isError, refetch, isRefetching } =
@@ -63,7 +62,7 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={{ paddingBottom: bottomSpace }}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -352,7 +351,6 @@ const CouponCard = memo(function CouponCard({ coupon }: { coupon: any }) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   flex: { flex: 1 },
-  content: { paddingBottom: BOTTOM_SPACE },
 
   header: {
     flexDirection: 'row',

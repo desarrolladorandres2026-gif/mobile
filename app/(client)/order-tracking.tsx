@@ -11,9 +11,12 @@ import { TrazoRuta, TrazoConnector } from '../../components/brand/Trazo';
 import { SecurityCodeBox, SecurityCodePending } from '../../components/domain/SecurityCodeBox';
 import { OrderChatSheet } from '../../components/domain/OrderChatSheet';
 import { OrderCallSheet } from '../../components/domain/OrderCallSheet';
+import { ZippMap } from '../../components/domain/ZippMap';
 import { useOrder, useOrderFlow } from '../../hooks/useApi';
 import { useOrderRealtime, useOrderFlowRealtime, orderProgress } from '../../hooks/useRealtime';
+import { useOrderTracking, formatEta } from '../../hooks/useOrderTracking';
 import { useTheme } from '../../hooks/useTheme';
+import { useBottomInset } from '../../hooks/useBottomSpace';
 import { ORDER_STATUS_DETAIL } from '../../constants/config';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { money, orderCode, etaClock, initials } from '../../lib/format';
@@ -37,12 +40,14 @@ export default function OrderTrackingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { c } = useTheme();
+  const bottomInset = useBottomInset();
   const { width } = useWindowDimensions();
 
   const { data: order, isLoading, isError, refetch } = useOrder(id);
   const { connected } = useOrderRealtime();
   const { data: flow } = useOrderFlow(order?._id);
   const { incomingCall, clearIncomingCall } = useOrderFlowRealtime(order?._id);
+  const { markers, route, trail, trackable, etaSeconds, etaIsPrecise } = useOrderTracking(order);
 
   const [chatOpen, setChatOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
@@ -100,7 +105,10 @@ export default function OrderTrackingScreen() {
         right={<IconButton icon="compartir" label="Compartir el estado del pedido" onPress={share} />}
       />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + Spacing.huge }]}
+        showsVerticalScrollIndicator={false}
+      >
         {cancelled ? (
           <Card style={styles.cancelled}>
             <View style={[styles.cancelledIcon, { backgroundColor: c.errorSoft }]}>
@@ -152,7 +160,31 @@ export default function OrderTrackingScreen() {
                 </View>
               </View>
 
-              {!delivered && order.businessId?.deliveryTime ? (
+              {/*
+                El ETA del seguimiento gana al del negocio cuando existe.
+                Uno es el tiempo de preparación que declaró el local al
+                registrarse; el otro es dónde está el repartidor ahora
+                mismo. Mostrar el primero teniendo el segundo sería
+                preferir un dato de hace meses a uno de hace un segundo.
+              */}
+              {!delivered && etaSeconds != null ? (
+                <View style={[styles.etaPill, { backgroundColor: c.primarySoft, borderColor: c.primary }]}>
+                  <Icon name="minutos" size="md" color={c.primaryText} />
+                  <View style={styles.flex}>
+                    <Text v="caption" tone="textMuted">LLEGA EN</Text>
+                    <Text v="strongM" tone="primaryText">
+                      {/*
+                        El "~" no es adorno: aparece solo cuando el tiempo
+                        sale de una estimación en línea recta porque Mapbox
+                        no respondió. Prometer "8 min" con la precisión de
+                        "unos 8 min" es la clase de detalle por la que la
+                        gente deja de creerle al ETA.
+                      */}
+                      {etaIsPrecise ? formatEta(etaSeconds) : `~${formatEta(etaSeconds)}`}
+                    </Text>
+                  </View>
+                </View>
+              ) : !delivered && order.businessId?.deliveryTime ? (
                 <View style={[styles.etaPill, { backgroundColor: c.primarySoft, borderColor: c.primary }]}>
                   <Icon name="minutos" size="md" color={c.primaryText} />
                   <View style={styles.flex}>
@@ -164,6 +196,16 @@ export default function OrderTrackingScreen() {
                 </View>
               ) : null}
             </Animated.View>
+
+            {/*
+              El mapa solo aparece cuando hay algo que seguir. Mientras el
+              local prepara el pedido no hay repartidor asignado y un mapa
+              vacío no informa: ocupa media pantalla para decir nada y hace
+              que el cliente crea que algo falló.
+            */}
+            {trackable && markers.length > 0 ? (
+              <ZippMap markers={markers} route={route} trail={trail} fitAll height={240} />
+            ) : null}
 
             {/* ── Domiciliario ── */}
             {order.driverId ? (

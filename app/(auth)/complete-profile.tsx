@@ -3,6 +3,7 @@ import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-na
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Text, Input, Button, Notice, Screen } from '../../components/ui';
+import { useBottomInset } from '../../hooks/useBottomSpace';
 import { useAuthStore } from '../../stores/authStore';
 import { authApi } from '../../services/endpoints';
 import { Spacing } from '../../theme/tokens';
@@ -16,6 +17,7 @@ import { tap } from '../../lib/haptics';
  */
 export default function CompleteProfileScreen() {
   const router = useRouter();
+  const bottomInset = useBottomInset();
   const { user, setUser, logout } = useAuthStore();
 
   const [phone, setPhone] = useState('');
@@ -54,7 +56,10 @@ export default function CompleteProfileScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: bottomInset + Spacing.xxl }]}
+          keyboardShouldPersistTaps="handled"
+        >
           <Animated.View entering={FadeInDown.duration(400)} style={styles.intro}>
             <Text v="displayL">¡Hola, {user?.name?.split(' ')[0] || ''}!</Text>
             <Text v="bodyL" tone="textSecondary">

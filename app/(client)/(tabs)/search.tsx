@@ -12,13 +12,13 @@ import { CategoryTile } from '../../../components/domain/CategoryTile';
 import { useBusinesses } from '../../../hooks/useApi';
 import { useHomeCategories, type DisplayCategory } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
+import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
 import { usePrefsStore } from '../../../stores/prefsStore';
 import { categoryIcon } from '../../../theme/icons';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { openState } from '../../../lib/business';
 import { tap } from '../../../lib/haptics';
 
-const BOTTOM_SPACE = 190;
 
 const POPULAR_SEARCHES = [
   'Hamburguesas', 'Pizza', 'Salchipapas', 'Café',
@@ -38,6 +38,7 @@ function useDebounced<T>(value: T, delay = 320): T {
 export default function SearchScreen() {
   const router = useRouter();
   const { c } = useTheme();
+  const bottomSpace = useTabContentPadding(CLIENT_DOCK_CLEARANCE);
   const params = useLocalSearchParams<{ category?: string }>();
 
   const recentSearches = usePrefsStore((s) => s.recentSearches || []);
@@ -162,7 +163,7 @@ export default function SearchScreen() {
         <FlatList
           data={results}
           keyExtractor={(item) => item._id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: bottomSpace }]}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
@@ -321,7 +322,6 @@ const styles = StyleSheet.create({
     padding: Spacing.xl,
     paddingTop: Spacing.lg,
     gap: Spacing.md,
-    paddingBottom: BOTTOM_SPACE,
   },
   skeletons: { padding: Spacing.xl, gap: Spacing.md },
 

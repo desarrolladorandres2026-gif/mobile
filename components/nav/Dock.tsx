@@ -1,4 +1,5 @@
-import { View, Pressable, StyleSheet } from 'react-native';
+import { useEffect } from 'react';
+import { View, Pressable, StyleSheet, type LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown, FadeOutDown, Layout } from 'react-native-reanimated';
@@ -22,7 +23,7 @@ import { tap } from '../../lib/haptics';
  * esquina superior derecha —donde suele ir el carrito— no se alcanzan con una
  * mano en un teléfono grande.
  */
-export function Dock() {
+export function Dock({ onHeightChange }: { onHeightChange?: (height: number) => void }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const itemCount = useCartStore((s) => s.getItemCount());
@@ -30,12 +31,25 @@ export function Dock() {
   const businessName = useCartStore((s) => s.businessName);
   const activeOrder = useActiveOrder();
 
-  if (itemCount === 0 && !activeOrder) return null;
+  const hidden = itemCount === 0 && !activeOrder;
+
+  // Sin dock a la vista, no reserva espacio. El caso contrario lo mide
+  // `onLayout` con la altura real de las tiras visibles.
+  useEffect(() => {
+    if (hidden) onHeightChange?.(0);
+  }, [hidden, onHeightChange]);
+
+  if (hidden) return null;
+
+  const reportHeight = (e: LayoutChangeEvent) => {
+    onHeightChange?.(e.nativeEvent.layout.height + Spacing.sm);
+  };
 
   return (
     <View
       style={[styles.dock, { bottom: Size.tabBar + insets.bottom + Spacing.sm }]}
       pointerEvents="box-none"
+      onLayout={reportHeight}
     >
       {activeOrder ? (
         <LiveOrderStrip

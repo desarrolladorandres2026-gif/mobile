@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import Animated, { FadeIn, Layout, FadeOut } from 'react-native-reanimated';
 import {
   Text, Icon, Button, IconButton, Card, QtyStepper, EmptyState,
-  Screen, Header, DetailRow,
+  Screen, ScreenFooter, Header, DetailRow,
 } from '../../components/ui';
 import { useCartStore } from '../../stores/cartStore';
 import { useTheme } from '../../hooks/useTheme';
@@ -143,7 +143,7 @@ export default function CartScreen() {
         </Card>
       </ScrollView>
 
-      <View style={[styles.footer, { backgroundColor: c.background, borderTopColor: c.border }]}>
+      <ScreenFooter>
         <Button
           title="Continuar"
           trailing={money(subtotal)}
@@ -153,7 +153,7 @@ export default function CartScreen() {
           onPress={() => router.push('/(client)/checkout')}
           haptic="medium"
         />
-      </View>
+      </ScreenFooter>
     </Screen>
   );
 }
@@ -178,10 +178,4 @@ const styles = StyleSheet.create({
   itemBody: { flex: 1, gap: 3 },
 
   summary: { gap: Spacing.sm },
-
-  footer: {
-    padding: Spacing.xl,
-    paddingBottom: Spacing.xxl,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
 });

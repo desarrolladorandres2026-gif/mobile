@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Text, Input, Button, Notice, Screen, Header } from '../../components/ui';
+import { useBottomInset } from '../../hooks/useBottomSpace';
 import { useAuthStore } from '../../stores/authStore';
 import { authApi } from '../../services/endpoints';
 import { useTheme } from '../../hooks/useTheme';
@@ -15,6 +16,7 @@ type Errors = Partial<Record<'name' | 'phone' | 'password' | 'confirm', string>>
 export default function RegisterScreen() {
   const router = useRouter();
   const { c } = useTheme();
+  const bottomInset = useBottomInset();
   const setAuth = useAuthStore((s) => s.setAuth);
 
   const [name, setName] = useState('');
@@ -153,7 +155,7 @@ export default function RegisterScreen() {
           </Animated.View>
         </ScrollView>
 
-        <View style={[styles.footer, { borderTopColor: c.border }]}>
+        <View style={[styles.footer, { borderTopColor: c.border, paddingBottom: bottomInset + Spacing.sm }]}>
           <Text v="bodyM" tone="textSecondary">¿Ya tienes cuenta?</Text>
           <Pressable
             onPress={() => { tap('light'); router.replace('/(auth)/login'); }}

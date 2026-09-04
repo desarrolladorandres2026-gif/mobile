@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#141A2E"
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "supportsTablet": true,
@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#141A2E"
+        "backgroundColor": "#FFFFFF"
       },
       "package": "com.zipp.app",
       "config": {
@@ -35,7 +35,16 @@
     },
     "plugins": [
       "expo-router",
-      "expo-location",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Zipp usa tu ubicación para asignarte pedidos cercanos y para que el cliente vea tu llegada en el mapa.",
+          "locationWhenInUsePermission": "Zipp usa tu ubicación para mostrarte negocios cercanos y calcular el costo del domicilio.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
       [
         "expo-font",
         {
@@ -51,9 +60,19 @@
           "photosPermission": "Zipp usa tus fotos para que elijas una imagen de perfil.",
           "cameraPermission": "Zipp usa la cámara para que tomes tu foto de perfil."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#141A2E"
+        }
       ]
     ],
     "extra": {
+      "eas": {
+        "projectId": "REEMPLAZAR_CON_TU_PROJECT_ID_DE_EAS"
+      },
       "googleAuth": {
         "webClientId": "YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com",
         "iosClientId": "YOUR_GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com",

@@ -3,6 +3,7 @@ import {
   View, Pressable, Modal, StyleSheet, ScrollView,
   KeyboardAvoidingView, Platform, type ViewStyle, type StyleProp,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { Text } from './Text';
 import { IconButton } from './Button';
@@ -115,7 +116,12 @@ export function Sheet({
   visible, onClose, title, children, height = 0.8, footer, scroll = true,
 }: SheetProps) {
   const { c } = useTheme();
+  const insets = useSafeAreaInsets();
   const Body = scroll ? ScrollView : View;
+
+  // El home indicator de iPhone / la barra de Android van por debajo de la
+  // hoja: el contenido y el pie tienen que dejar libre ese inset real.
+  const safeBottom = Math.max(insets.bottom, Spacing.md);
 
   return (
     <Modal
@@ -134,7 +140,7 @@ export function Sheet({
           accessibilityLabel="Cerrar"
         />
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={[
             styles.sheet,
             { backgroundColor: c.background, height: `${height * 100}%` },
@@ -150,7 +156,12 @@ export function Sheet({
             style={styles.sheetBody}
             {...(scroll
               ? {
-                  contentContainerStyle: styles.sheetContent,
+                  contentContainerStyle: [
+                    styles.sheetContent,
+                    // Sin pie fijo, el último elemento no debe morir contra el
+                    // borde: se suma el inset del dispositivo al relleno.
+                    !footer && { paddingBottom: Spacing.xxxl + safeBottom },
+                  ],
                   showsVerticalScrollIndicator: false,
                   keyboardShouldPersistTaps: 'handled' as const,
                 }
@@ -160,7 +171,16 @@ export function Sheet({
           </Body>
 
           {footer ? (
-            <View style={[styles.sheetFooter, { borderTopColor: c.border, backgroundColor: c.background }]}>
+            <View
+              style={[
+                styles.sheetFooter,
+                {
+                  borderTopColor: c.border,
+                  backgroundColor: c.background,
+                  paddingBottom: safeBottom + Spacing.sm,
+                },
+              ]}
+            >
               {footer}
             </View>
           ) : null}
@@ -232,8 +252,8 @@ const styles = StyleSheet.create({
   sheetBody: { flex: 1 },
   sheetContent: { padding: Spacing.xl, gap: Spacing.lg, paddingBottom: Spacing.xxxl },
   sheetFooter: {
-    padding: Spacing.xl,
-    paddingBottom: Spacing.xxl,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xl,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
 

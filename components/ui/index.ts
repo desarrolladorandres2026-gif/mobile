@@ -33,5 +33,5 @@ export {
 } from './Feedback';
 export type { EmptyStateProps } from './Feedback';
 
-export { Screen, Header, QtyStepper } from './Screen';
+export { Screen, ScreenFooter, Header, QtyStepper } from './Screen';
 export type { HeaderProps } from './Screen';

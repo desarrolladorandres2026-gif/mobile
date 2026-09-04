@@ -6,27 +6,26 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  Text, Icon, Card, Button, Badge, PulseDot, ErrorState, LoadingScreen,
+  Text, Icon, Card, Button, Badge, PulseDot, ErrorState, LoadingScreen, SectionHeader,
 } from '../../../components/ui';
 import { ContentIcon } from '../../../components/illustrations';
 import { useAuthStore } from '../../../stores/authStore';
 import {
   useDriverProfile, useDriverEarnings, useDriverDebts, useUpdateDriverStatus,
 } from '../../../hooks/useApi';
-import { useLocation } from '../../../hooks/useLocation';
+import { useDriverTrackingContext } from '../../../hooks/useDriverTracking';
+import { useTabContentPadding } from '../../../hooks/useBottomSpace';
 import { useTheme } from '../../../hooks/useTheme';
 import { socketService } from '../../../services/socket';
-import { driverApi } from '../../../services/endpoints';
 import { BorderRadius, Shadow, Spacing } from '../../../theme/tokens';
 import { money, greeting, firstName } from '../../../lib/format';
 import { apiMessage } from '../../../lib/errors';
 import { tap } from '../../../lib/haptics';
 
-const BOTTOM_SPACE = 100;
-
 export default function DriverDashboard() {
   const router = useRouter();
   const { c } = useTheme();
+  const bottomSpace = useTabContentPadding();
   const user = useAuthStore((s) => s.user);
   const [isOnline, setIsOnline] = useState(false);
 
@@ -37,27 +36,48 @@ export default function DriverDashboard() {
   const { data: debts, isLoading: loadingDebts, refetch: refetchDebts } = useDriverDebts();
 
   const updateStatusMutation = useUpdateDriverStatus();
-  const { location } = useLocation(isOnline);
+
+  /**
+   * El GPS lo gobierna el estado de servicio, no esta pantalla.
+   *
+   * Antes, cada posición se mandaba dos veces —por socket y por REST— y
+   * solo mientras el dashboard estuviera montado y en primer plano. Ahora
+   * el seguimiento vive en el layout de `(driver)` y sigue con la app
+   * cerrada: el repartidor deja de desaparecer del mapa en cuanto bloquea
+   * el teléfono, que es precisamente cuando está conduciendo.
+   */
+  const tracking = useDriverTrackingContext();
 
   useEffect(() => {
     socketService.connect();
   }, []);
 
+  // El servidor manda sobre el interruptor: si el repartidor cerró sesión
+  // en otro teléfono o un admin lo desconectó, el estado real es el del
+  // perfil, no el que quedó pintado en esta pantalla.
   useEffect(() => {
-    if (profile) setIsOnline(profile.status === 'available');
+    if (!profile) return;
+    const online = profile.status === 'available';
+    setIsOnline(online);
+    tracking.setOnDuty(online);
   }, [profile]);
 
-  useEffect(() => {
-    if (isOnline && location) {
-      socketService.emitDriverLocation(location.latitude, location.longitude);
-      driverApi.updateLocation(location.latitude, location.longitude).catch(console.error);
-    }
-  }, [isOnline, location]);
-
-  const handleToggleOnline = (value: boolean) => {
+  const handleToggleOnline = async (value: boolean) => {
     tap(value ? 'success' : 'medium');
+
+    // El permiso se pide justo al conectarse, no al abrir la app.
+    //
+    // Un diálogo de ubicación sin contexto se rechaza casi siempre, y en
+    // Android ese rechazo puede ser definitivo — el sistema deja de
+    // mostrar el diálogo para siempre. Aquí el repartidor acaba de tocar
+    // "Conectarme": el permiso tiene una razón evidente en ese instante.
+    if (value && tracking.permission !== 'granted_always') {
+      await tracking.requestPermission();
+    }
+
     const nextStatus = value ? 'available' : 'offline';
     setIsOnline(value);
+    tracking.setOnDuty(value);
     updateStatusMutation.mutate(nextStatus, {
       onSuccess: () => {
         socketService.emitDriverStatus(nextStatus);
@@ -66,6 +86,10 @@ export default function DriverDashboard() {
       onError: (error) => {
         tap('error');
         setIsOnline(!value);
+        // El GPS vuelve atrás con el interruptor. Si no, un fallo al
+        // conectarse dejaría el teléfono reportando posición para un turno
+        // que el servidor nunca llegó a abrir.
+        tracking.setOnDuty(!value);
         Alert.alert(
           'No pudimos conectarte',
           apiMessage(error, 'Inténtalo de nuevo en un momento.'),
@@ -108,7 +132,7 @@ export default function DriverDashboard() {
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomSpace }]}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -173,6 +197,45 @@ export default function DriverDashboard() {
                 : 'Conéctate para empezar a recibir pedidos y generar ganancias hoy.'}
             </Text>
 
+            {/*
+              El estado del GPS se muestra donde se decide estar en
+              servicio, no escondido en ajustes. Un repartidor conectado
+              cuyo GPS no reporta no recibe pedidos cercanos y no tiene
+              forma de saber por qué: para él la app dice "ACTIVO" y no
+              pasa nada. Este bloque es esa explicación.
+            */}
+            {isOnline ? (
+              <View style={[styles.gpsRow, { borderColor: c.border }]}>
+                <Icon
+                  name={tracking.active ? 'ubicacion' : 'atencion'}
+                  size="sm"
+                  color={tracking.active ? c.limeText : c.warningText}
+                />
+                <View style={styles.flex}>
+                  <Text v="captionStrong" tone={tracking.active ? 'limeText' : 'warningText'}>
+                    {tracking.active ? 'Ubicación activa' : 'Ubicación inactiva'}
+                  </Text>
+                  {tracking.problem ? (
+                    <Text v="caption" tone="textMuted">{tracking.problem}</Text>
+                  ) : tracking.permission === 'granted_foreground' ? (
+                    <Text v="caption" tone="textMuted">
+                      Solo mientras la app esté abierta.
+                    </Text>
+                  ) : null}
+                </View>
+                {tracking.permission === 'blocked' ? (
+                  <Button title="Ajustes" size="sm" variant="secondary" onPress={tracking.openSettings} />
+                ) : tracking.permission !== 'granted_always' ? (
+                  <Button
+                    title="Permitir"
+                    size="sm"
+                    variant="secondary"
+                    onPress={tracking.requestPermission}
+                  />
+                ) : null}
+              </View>
+            ) : null}
+
             <Button
               title={isOnline ? 'Desconectarme' : 'Conectarme ahora'}
               icon={isOnline ? 'cerrar' : 'rayo'}
@@ -186,7 +249,7 @@ export default function DriverDashboard() {
 
         {/* ── Accesos Rápidos a Pedidos ── */}
         <View style={styles.section}>
-          <Text v="label" tone="textMuted">Gestión de entregas</Text>
+          <SectionHeader title="Gestión de entregas" />
           <View style={styles.quickActions}>
             <Card
               onPress={() => { tap('select'); router.push('/(driver)/(tabs)/orders'); }}
@@ -206,7 +269,7 @@ export default function DriverDashboard() {
 
         {/* ── Métricas del Día ── */}
         <View style={styles.section}>
-          <Text v="label" tone="textMuted">Resumen de tu jornada</Text>
+          <SectionHeader title="Resumen de tu jornada" />
           <View style={styles.statsGrid}>
             <Card style={styles.statCard}>
               <View style={styles.statHeader}>
@@ -230,7 +293,7 @@ export default function DriverDashboard() {
 
         {/* ── Base y Efectivo Pendiente ── */}
         <View style={styles.section}>
-          <Text v="label" tone="textMuted">Caja y base de cambio</Text>
+          <SectionHeader title="Caja y base de cambio" />
           <Card style={styles.fundCard}>
             <View style={styles.fundRow}>
               <View>
@@ -279,7 +342,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.md,
     gap: Spacing.xl,
-    paddingBottom: BOTTOM_SPACE,
   },
   header: {
     flexDirection: 'row',
@@ -307,6 +369,13 @@ const styles = StyleSheet.create({
   },
   offlineDot: { width: 10, height: 10, borderRadius: 5 },
   onlineMessage: { lineHeight: 18 },
+  gpsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingTop: Spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
 
   section: { gap: Spacing.sm },
   quickActions: { gap: Spacing.md },

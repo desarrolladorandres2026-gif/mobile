@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Text, Button, Notice, OtpInput, Screen, Header, SuccessCheck } from '../../components/ui';
+import { useBottomInset } from '../../hooks/useBottomSpace';
 import { useAuthStore } from '../../stores/authStore';
 import { authApi } from '../../services/endpoints';
 import { Spacing } from '../../theme/tokens';
@@ -13,6 +14,7 @@ const RESEND_SECONDS = 60;
 
 export default function OtpScreen() {
   const router = useRouter();
+  const bottomInset = useBottomInset();
   const { user, setAuth, logout } = useAuthStore();
   const phone = user?.phone ?? '';
 
@@ -112,7 +114,10 @@ export default function OtpScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: bottomInset + Spacing.xxl }]}
+          keyboardShouldPersistTaps="handled"
+        >
           <Animated.View entering={FadeInDown.duration(400)} style={styles.intro}>
             <Text v="displayL">Confirma tu celular</Text>
             <Text v="bodyL" tone="textSecondary">

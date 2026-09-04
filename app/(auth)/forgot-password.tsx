@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { Text, Input, Button, Notice, OtpInput, Screen, Header } from '../../components/ui';
+import { useBottomInset } from '../../hooks/useBottomSpace';
 import { useAuthStore } from '../../stores/authStore';
 import { authApi } from '../../services/endpoints';
 import { Spacing } from '../../theme/tokens';
@@ -20,6 +21,7 @@ const RESEND_SECONDS = 60;
  */
 export default function ForgotPasswordScreen() {
   const router = useRouter();
+  const bottomInset = useBottomInset();
   const setAuth = useAuthStore((s) => s.setAuth);
 
   const [step, setStep] = useState<1 | 2>(1);
@@ -117,7 +119,10 @@ export default function ForgotPasswordScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: bottomInset + Spacing.xxl }]}
+          keyboardShouldPersistTaps="handled"
+        >
           {step === 1 ? (
             <Animated.View entering={FadeIn.duration(300)} style={styles.section}>
               <View style={styles.intro}>
