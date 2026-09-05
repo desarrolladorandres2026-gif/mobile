@@ -1,12 +1,14 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View, ScrollView, Pressable, StyleSheet, TextInput,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
+import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
 import {
-  Text, Icon, Button, Card, Chip, DetailRow, Notice, Screen, ScreenFooter, Header, Skeleton,
+  Text, Icon, Button, Card, Chip, DetailRow, Notice, Screen, ScreenFooter, Header,
+  Skeleton, EmptyState,
 } from '../../components/ui';
 import { AddressSheet, hasCoordinates, type Address } from '../../components/domain/AddressPicker';
 import { useCartStore } from '../../stores/cartStore';
@@ -16,6 +18,7 @@ import {
 } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
 import { ContentIcon } from '../../components/illustrations';
+import type { IconName } from '../../theme/icons';
 import { Type } from '../../theme/typography';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { money, km } from '../../lib/format';
@@ -25,7 +28,24 @@ import { tap } from '../../lib/haptics';
 /** Propinas como porcentaje del subtotal. Van completas al domiciliario. */
 const TIPS = [0, 0.05, 0.1, 0.15];
 
+const MAX_NOTES = 120;
+
 type PaymentMethod = 'cash_on_delivery' | 'online';
+
+/**
+ * Lo que impide confirmar, con la salida a la mano.
+ *
+ * No es un mensaje de error: es el siguiente paso. La pantalla nunca apaga su
+ * botón principal —un botón gris es un callejón sin salida más silencioso que
+ * un error—, así que cuando algo falta, el botón deja de decir "Confirmar
+ * pedido" y pasa a hacer justo lo que falta.
+ */
+type Blocker = {
+  label: string;
+  icon: IconName;
+  hint: string;
+  onPress: () => void;
+};
 
 export default function CheckoutScreen() {
   const router = useRouter();
@@ -35,6 +55,8 @@ export default function CheckoutScreen() {
   const businessId = useCartStore((s) => s.businessId);
   const businessName = useCartStore((s) => s.businessName);
   const subtotal = useCartStore((s) => s.getSubtotal());
+  const itemCount = useCartStore((s) => s.getItemCount());
+  const getLineTotal = useCartStore((s) => s.getLineTotal);
   const clearCart = useCartStore((s) => s.clearCart);
 
   const { data: addresses = [] } = useAddresses() as { data: Address[] };
@@ -43,10 +65,16 @@ export default function CheckoutScreen() {
 
   const [addressId, setAddressId] = useState<string | null>(null);
   const [addressSheet, setAddressSheet] = useState(false);
-  const { data: methods } = usePaymentMethods();
-  const [payment, setPayment] = useState<PaymentMethod>('online');
+  const { data: methods, refetch: refetchMethods } = usePaymentMethods();
+  // Sin preselección: elegir cómo se paga es una decisión del cliente, no
+  // un valor por defecto que se acepta por inercia. Antes venía marcado
+  // "pago digital" y bastaba con no mirar esta sección para acabar en la
+  // pasarela sin haberlo decidido.
+  const [payment, setPayment] = useState<PaymentMethod | null>(null);
   const [tipRate, setTipRate] = useState(0);
   const [notes, setNotes] = useState('');
+
+  const [showItems, setShowItems] = useState(false);
 
   const [couponInput, setCouponInput] = useState('');
   const [appliedCode, setAppliedCode] = useState<string | null>(null);
@@ -54,6 +82,25 @@ export default function CheckoutScreen() {
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+
+  // Para poder llevar al cliente hasta la sección de pago cuando es lo que
+  // falta. La posición se mide sola: el checkout crece y encoge según haya
+  // cupón, propina o avisos, así que una constante quedaría mal a la
+  // primera edición.
+  const scrollRef = useRef<ScrollView>(null);
+  const paymentY = useRef(0);
+  const [highlightPayment, setHighlightPayment] = useState(false);
+
+  const scrollToPayment = () => {
+    scrollRef.current?.scrollTo({ y: Math.max(0, paymentY.current - 12), animated: true });
+    setHighlightPayment(true);
+  };
+
+  // El realce se apaga en cuanto elige: es una señal de "mira aquí", no un
+  // estado de error que haya que quitarse de encima.
+  useEffect(() => {
+    if (payment) setHighlightPayment(false);
+  }, [payment]);
 
   // Una clave por visita al checkout. Si el usuario toca dos veces o la red
   // reintenta, el servidor reconoce el duplicado y no crea dos pedidos.
@@ -76,11 +123,13 @@ export default function CheckoutScreen() {
   // con un método que el servidor rechaza sólo produce un error confuso.
   useEffect(() => {
     if (!methods) return;
-    if (payment === 'online' && !methods.online && methods.cashOnDelivery) {
-      setPayment('cash_on_delivery');
-    } else if (payment === 'cash_on_delivery' && !methods.cashOnDelivery && methods.online) {
-      setPayment('online');
-    }
+    // Solo se retira lo que dejó de estar disponible; nunca se elige por
+    // el cliente. Quedarse sin selección es un estado legítimo —el pie lo
+    // dice y el botón lleva hasta aquí—, y es preferible a moverle el
+    // método de pago por debajo entre el momento en que lo eligió y el
+    // momento en que confirma.
+    if (payment === 'online' && !methods.online) setPayment(null);
+    if (payment === 'cash_on_delivery' && !methods.cashOnDelivery) setPayment(null);
   }, [methods]);
 
   const address = addresses.find((a) => a._id === addressId);
@@ -103,12 +152,26 @@ export default function CheckoutScreen() {
     [items]
   );
 
+  /**
+   * Con qué método se cotiza mientras el cliente no ha elegido.
+   *
+   * El método de pago no entra en ninguna cifra del presupuesto —solo
+   * decide si el pedido es *admisible* en efectivo—, así que el total que
+   * se muestra es el mismo con cualquiera de los dos. Esperar a que elija
+   * para enseñárselo sería esconderle el precio justo cuando lo necesita
+   * para decidir. El tope del efectivo se comprueba aparte, en cuanto lo
+   * elige, y por eso se cotiza en línea cuando está disponible: es el
+   * método sin límite de monto.
+   */
+  const quoteMethod: PaymentMethod =
+    payment ?? (methods?.online ? 'online' : 'cash_on_delivery');
+
   const quoteInput =
     businessId && deliverable && destination
       ? {
           businessId,
           items: orderItems,
-          paymentMethod: payment,
+          paymentMethod: quoteMethod,
           deliveryLatitude: destination[1],
           deliveryLongitude: destination[0],
           couponCode: appliedCode || undefined,
@@ -116,7 +179,9 @@ export default function CheckoutScreen() {
         }
       : null;
 
-  const { data: quote, isFetching: quoting, error: quoteError } = useOrderQuote(quoteInput);
+  const {
+    data: quote, isFetching: quoting, error: quoteError, refetch: refetchQuote,
+  } = useOrderQuote(quoteInput);
 
   const quoteMessage = quoteError
     ? apiMessage(quoteError, 'No pudimos calcular el total de tu pedido.')
@@ -132,11 +197,91 @@ export default function CheckoutScreen() {
     }
   }, [quoteError]);
 
-  const canSubmit =
-    !!businessId && !!quote && !quoteError && !submitting && !createOrder.isPending;
+  // ── Reglas que el servidor también aplica ──
+  // Se comprueban aquí para poder resolverlas antes de gastar un intento y
+  // recibir un rechazo que el cliente no sabe traducir.
+  const noMethods = !!methods && !methods.online && !methods.cashOnDelivery;
+  const cashMax = methods?.cashOnDeliveryMaxAmount ?? 0;
+  const cashOverLimit =
+    payment === 'cash_on_delivery' && cashMax > 0 && !!quote && quote.total > cashMax;
+  const missingForMin =
+    quote?.minOrder && quote.subtotal < quote.minOrder ? quote.minOrder - quote.subtotal : 0;
+
+  const blocker: Blocker | null = !address
+    ? {
+        label: 'Elegir dirección',
+        icon: 'ubicacion',
+        hint: 'Falta decir dónde te lo dejamos.',
+        onPress: () => setAddressSheet(true),
+      }
+    : !deliverable
+    ? {
+        label: 'Cambiar dirección',
+        icon: 'ubicacion',
+        hint: 'Esta dirección no tiene punto en el mapa.',
+        onPress: () => setAddressSheet(true),
+      }
+    : noMethods
+    ? {
+        label: 'Reintentar',
+        icon: 'reintentar',
+        hint: 'No hay métodos de pago disponibles ahora mismo.',
+        onPress: () => { refetchMethods(); },
+      }
+    : !payment
+    ? {
+        // El pedido no se confirma sin método, pero el botón no se apaga:
+        // lleva hasta la sección que falta. Un botón gris no dice qué
+        // falta ni dónde está, y aquí lo que falta es una decisión que
+        // está tres pantallazos más arriba.
+        label: 'Elegir cómo pagas',
+        icon: 'tarjeta',
+        hint: 'Falta elegir cómo vas a pagar.',
+        onPress: () => scrollToPayment(),
+      }
+    : cashOverLimit
+    ? methods?.online
+      ? {
+          label: 'Pagar desde la app',
+          icon: 'tarjeta',
+          hint: `En efectivo aceptamos hasta ${money(cashMax)}.`,
+          onPress: () => setPayment('online'),
+        }
+      : {
+          label: 'Revisar la bolsa',
+          icon: 'bolsa',
+          hint: `En efectivo aceptamos hasta ${money(cashMax)}.`,
+          onPress: () => router.push('/(client)/cart'),
+        }
+    : missingForMin > 0
+    ? {
+        label: `Agregar ${money(missingForMin)} más`,
+        icon: 'mas',
+        hint: `Este negocio pide mínimo ${money(quote!.minOrder)}.`,
+        onPress: () => {
+          if (businessId) router.push(`/(client)/business/${businessId}`);
+          else router.replace('/(client)/(tabs)/home');
+        },
+      }
+    : quoteError
+    ? {
+        // El motivo completo va en la tarjeta del detalle: el pie es una
+        // línea corta y un mensaje del servidor no cabe sin recortarse.
+        label: 'Reintentar',
+        icon: 'reintentar',
+        hint: 'No pudimos calcular el total.',
+        onPress: () => { refetchQuote(); },
+      }
+    : null;
+
+  const busy = submitting || createOrder.isPending;
+  /** Cotizando por primera vez: el botón espera en vez de no hacer nada al tocarlo. */
+  const awaitingFirstQuote = !blocker && !quote && quoting;
 
   const placeOrder = () => {
-    if (!businessId || !address || !destination || !quote || submitting) return;
+    // `payment` entra en el guardia igual que la dirección: sin método no
+    // hay pedido que crear, y el servidor lo rechazaría de todos modos.
+    if (!businessId || !address || !destination || !quote || !payment || submitting) return;
 
     setSubmitting(true);
     setSubmitError('');
@@ -214,59 +359,116 @@ export default function CheckoutScreen() {
     return (
       <Screen>
         <Header title="Confirmar pedido" fallback="/(client)/(tabs)/home" />
-        <View style={styles.center}>
-          <Text v="titleL" center>Tu bolsa quedó vacía</Text>
-          <Button
-            title="Ver negocios"
-            onPress={() => router.replace('/(client)/(tabs)/home')}
-          />
-        </View>
+        <EmptyState
+          icon="bolsa"
+          title="Tu bolsa quedó vacía"
+          message="Se vació mientras confirmabas. Mira qué hay abierto cerca de ti."
+          actionLabel="Ver negocios"
+          onAction={() => router.replace('/(client)/(tabs)/home')}
+        />
       </Screen>
     );
   }
 
   return (
     <Screen>
-      <Header title="Confirmar pedido" subtitle={businessName ?? undefined} fallback="/(client)/cart" />
+      <Header
+        title="Confirmar pedido"
+        subtitle={businessName ?? undefined}
+        fallback="/(client)/cart"
+      />
 
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={60}
       >
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {/* ── Progreso del Checkout ── */}
-          <View style={[styles.stepperContainer, { backgroundColor: c.surface, borderColor: c.border }]}>
-            <View style={styles.stepItem}>
-              <View style={[styles.stepDot, { backgroundColor: address ? c.primary : c.border }]}>
-                <Icon name={address ? 'check' : 'ubicacion'} size={12} color={address ? c.textOnPrimary : c.textMuted} />
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* ── Qué estás confirmando ──
+              La pantalla se llama "Confirmar pedido" y hasta ahora no mostraba
+              un solo producto. Va cerrada porque el usuario acaba de verlos en
+              la bolsa; abrirla cuesta un toque y despeja la duda de siempre. */}
+          <Card padded={false}>
+            <Pressable
+              onPress={() => { tap('light'); setShowItems((v) => !v); }}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showItems }}
+              accessibilityLabel={`${itemCount} ${itemCount === 1 ? 'producto' : 'productos'} de ${businessName ?? 'el negocio'}. ${showItems ? 'Ocultar' : 'Ver'} el detalle`}
+              style={({ pressed }) => [styles.summaryHead, pressed && styles.pressed]}
+            >
+              <View style={[styles.summaryIcon, { backgroundColor: c.primarySoft }]}>
+                <Icon name="bolsa" size="md" color={c.primaryText} />
               </View>
-              <Text v="captionStrong" tone={address ? 'text' : 'textMuted'}>Entrega</Text>
-            </View>
-
-            <View style={[styles.stepLine, { backgroundColor: address ? c.primary : c.border }]} />
-
-            <View style={styles.stepItem}>
-              <View style={[styles.stepDot, { backgroundColor: payment ? c.primary : c.border }]}>
-                <Icon name={payment ? 'check' : 'tarjeta'} size={12} color={payment ? c.textOnPrimary : c.textMuted} />
+              <View style={styles.flex}>
+                <Text v="strongM" numberOfLines={1}>
+                  {itemCount} {itemCount === 1 ? 'producto' : 'productos'}
+                </Text>
+                <Text v="bodyS" tone="textSecondary" numberOfLines={1}>
+                  {businessName ?? 'Tu pedido'}
+                </Text>
               </View>
-              <Text v="captionStrong" tone={payment ? 'text' : 'textMuted'}>Pago</Text>
-            </View>
+              <Text v="dataM" tone="textSecondary">{money(subtotal)}</Text>
+              <Icon name={showItems ? 'plegar' : 'desplegar'} size="md" color={c.textMuted} />
+            </Pressable>
 
-            <View style={[styles.stepLine, { backgroundColor: canSubmit ? c.primary : c.border }]} />
+            {showItems ? (
+              <Animated.View
+                entering={FadeIn.duration(160)}
+                exiting={FadeOut.duration(120)}
+                layout={Layout.springify().damping(18)}
+                style={[styles.summaryBody, { borderTopColor: c.border }]}
+              >
+                {items.map((item) => (
+                  <View key={item.lineId} style={styles.line}>
+                    <View style={[styles.lineQty, { backgroundColor: c.surfaceLight }]}>
+                      <Text v="captionStrong" tone="textSecondary">{item.quantity}</Text>
+                    </View>
+                    <View style={styles.flex}>
+                      <Text v="strongS" numberOfLines={1}>{item.productName}</Text>
+                      {item.selectedExtras.length > 0 ? (
+                        <Text v="caption" tone="textMuted" numberOfLines={2}>
+                          {item.selectedExtras
+                            .map((e) => (e.quantity > 1 ? `${e.name} x${e.quantity}` : e.name))
+                            .join(' · ')}
+                        </Text>
+                      ) : null}
+                      {item.notes ? (
+                        <Text v="caption" tone="textMuted" numberOfLines={1}>“{item.notes}”</Text>
+                      ) : null}
+                    </View>
+                    <Text v="dataS" tone="textSecondary">{money(getLineTotal(item))}</Text>
+                  </View>
+                ))}
 
-            <View style={styles.stepItem}>
-              <View style={[styles.stepDot, { backgroundColor: canSubmit ? c.primary : c.border }]}>
-                <Icon name="bolsa" size={12} color={canSubmit ? c.textOnPrimary : c.textMuted} />
-              </View>
-              <Text v="captionStrong" tone={canSubmit ? 'text' : 'textMuted'}>Listo</Text>
-            </View>
-          </View>
+                <Button
+                  title="Editar la bolsa"
+                  icon="editar"
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => router.push('/(client)/cart')}
+                />
+              </Animated.View>
+            ) : null}
+          </Card>
 
           {/* ── Dirección ── */}
           <View style={styles.section}>
             <Text v="label" tone="textMuted">Entregar en</Text>
-            <Card onPress={() => { tap('light'); setAddressSheet(true); }} style={styles.picker}>
+            <Card
+              onPress={() => { tap('light'); setAddressSheet(true); }}
+              tone={address && deliverable ? 'flat' : 'accent'}
+              style={styles.picker}
+              accessibilityLabel={
+                address
+                  ? `Entregar en ${address.label}, ${address.address}`
+                  : 'Elegir dirección de entrega'
+              }
+              accessibilityHint="Abre la lista de tus direcciones"
+            >
               <View style={[styles.pickerIcon, { backgroundColor: c.primarySoft }]}>
                 <ContentIcon name="ubicacion" size={26} />
               </View>
@@ -279,7 +481,12 @@ export default function CheckoutScreen() {
                     </Text>
                   </>
                 ) : (
-                  <Text v="strongM" tone="textMuted">Elige dónde te lo dejamos</Text>
+                  <>
+                    <Text v="strongM">Elige dónde te lo dejamos</Text>
+                    <Text v="bodyS" tone="textSecondary">
+                      El envío se calcula con la distancia real.
+                    </Text>
+                  </>
                 )}
               </View>
               <Icon name="siguiente" size="md" color={c.textMuted} />
@@ -288,24 +495,24 @@ export default function CheckoutScreen() {
             {address && !deliverable ? (
               <Notice tone="warning">
                 Esta dirección no tiene punto en el mapa, así que no podemos calcular el
-                envío. Agrégala de nuevo usando "Usar mi ubicación actual".
+                envío. Agrégala de nuevo y marca dónde queda: con el GPS o arrastrando el mapa.
               </Notice>
-            ) : null}
-            {!address ? (
-              <Notice tone="info">Elige una dirección para ver el costo del envío.</Notice>
             ) : null}
           </View>
 
           {/* ── Pago ── */}
-          <View style={styles.section}>
+          <View
+            style={styles.section}
+            onLayout={(e) => { paymentY.current = e.nativeEvent.layout.y; }}
+          >
             <Text v="label" tone="textMuted">Cómo pagas</Text>
-            <View style={styles.payments}>
+            <View style={styles.payments} accessibilityRole="radiogroup">
               {methods?.cashOnDelivery ? (
                 <PaymentOption
                   active={payment === 'cash_on_delivery'}
                   icon="efectivo"
                   title="Efectivo"
-                  subtitle="Le pagas al domiciliario"
+                  subtitle={cashMax > 0 ? `Hasta ${money(cashMax)}` : 'Le pagas al domiciliario'}
                   onPress={() => { tap('select'); setPayment('cash_on_delivery'); }}
                 />
               ) : null}
@@ -314,13 +521,29 @@ export default function CheckoutScreen() {
                   active={payment === 'online'}
                   icon="tarjeta"
                   title="Pago digital"
-                  subtitle="Desde la app"
+                  subtitle="Se cobra desde la app"
                   onPress={() => { tap('select'); setPayment('online'); }}
                 />
               ) : null}
             </View>
 
-            {methods && !methods.online && !methods.cashOnDelivery ? (
+            {highlightPayment && !payment ? (
+              <Notice tone="warning" icon="tarjeta">
+                Elige cómo vas a pagar para confirmar el pedido.
+              </Notice>
+            ) : null}
+
+            {/* El tope del efectivo lo define el servidor. Antes se ignoraba
+                aquí y el rechazo llegaba al crear el pedido, cuando el
+                cliente ya daba el pago por hecho. */}
+            {cashOverLimit ? (
+              <Notice tone="warning">
+                En efectivo aceptamos hasta {money(cashMax)} por pedido, y este va en{' '}
+                {money(quote!.total)}.
+              </Notice>
+            ) : null}
+
+            {noMethods ? (
               <Notice tone="error">
                 No hay métodos de pago disponibles en este momento. Inténtalo más tarde.
               </Notice>
@@ -388,28 +611,24 @@ export default function CheckoutScreen() {
             )}
           </View>
 
-          {/* ── Propina ── */}
+          {/* ── Propina ──
+              El monto en pesos va en la etiqueta: "10%" no dice nada hasta que
+              se traduce a plata, y traducirla es decisión del que paga. */}
           <View style={styles.section}>
             <Text v="label" tone="textMuted">Propina al domiciliario</Text>
             <View style={styles.tips}>
-              {TIPS.map((rate) => {
-                const label =
-                  rate === 0
-                    ? 'Sin propina'
-                    : rate === 0.05
-                    ? '5% (Un café)'
-                    : rate === 0.1
-                    ? '10% (Gran servicio)'
-                    : '15% (Extraordinario)';
-                return (
-                  <Chip
-                    key={rate}
-                    label={label}
-                    active={tipRate === rate}
-                    onPress={() => { tap('select'); setTipRate(rate); }}
-                  />
-                );
-              })}
+              {TIPS.map((rate) => (
+                <Chip
+                  key={rate}
+                  label={
+                    rate === 0
+                      ? 'Sin propina'
+                      : `${Math.round(rate * 100)}% · ${money(Math.round(subtotal * rate))}`
+                  }
+                  active={tipRate === rate}
+                  onPress={() => { tap('select'); setTipRate(rate); }}
+                />
+              ))}
             </View>
             {tipAmount > 0 ? (
               <Text v="bodyS" tone="successText">
@@ -420,13 +639,19 @@ export default function CheckoutScreen() {
 
           {/* ── Indicaciones ── */}
           <View style={styles.section}>
-            <Text v="label" tone="textMuted">Algo que deba saber</Text>
+            <View style={styles.notesHead}>
+              <Text v="label" tone="textMuted">Algo que deba saber</Text>
+              {notes.length > 0 ? (
+                <Text v="caption" tone="textMuted">{notes.length}/{MAX_NOTES}</Text>
+              ) : null}
+            </View>
             <TextInput
               value={notes}
               onChangeText={setNotes}
               placeholder="Tocar el timbre, dejar en portería, llamar al llegar…"
               placeholderTextColor={c.textMuted}
-              maxLength={120}
+              maxLength={MAX_NOTES}
+              multiline
               accessibilityLabel="Indicaciones para el domiciliario"
               style={[
                 styles.notes,
@@ -467,8 +692,6 @@ export default function CheckoutScreen() {
               />
             ) : null}
 
-            {quote?.coupon ? <Text v="bodyS" tone="textSecondary">Condiciones: {quote.coupon.title}. Aplicación y vigencia verificadas por ZIPP.</Text> : null}
-
             {quote?.customerServiceFee ? (
               <DetailRow label="Tarifa de servicio" value={money(quote.customerServiceFee)} />
             ) : null}
@@ -489,10 +712,21 @@ export default function CheckoutScreen() {
               )}
             </View>
 
-            {quote?.minOrder && quote.subtotal < quote.minOrder ? (
+            {quote?.coupon?.totalDiscount ? (
+              <Text v="strongS" tone="successText">
+                Ahorras {money(quote.coupon.totalDiscount)} con {quote.coupon.code}.
+              </Text>
+            ) : null}
+            {quote?.coupon ? (
+              <Text v="caption" tone="textMuted">
+                Condiciones: {quote.coupon.title}. Aplicación y vigencia verificadas por Zipp.
+              </Text>
+            ) : null}
+
+            {missingForMin > 0 ? (
               <Notice tone="warning">
-                Este negocio pide mínimo {money(quote.minOrder)}. Te faltan{' '}
-                {money(quote.minOrder - quote.subtotal)}.
+                Este negocio pide mínimo {money(quote!.minOrder)}. Te faltan{' '}
+                {money(missingForMin)}.
               </Notice>
             ) : null}
           </Card>
@@ -501,18 +735,37 @@ export default function CheckoutScreen() {
           {submitError ? <Notice tone="error">{submitError}</Notice> : null}
         </ScrollView>
 
-        <ScreenFooter>
+        <ScreenFooter style={styles.footer}>
+          {/* Una línea sola: o lo que falta, o qué va a pasar al confirmar.
+              El total vive en el botón, así que repetirlo aquí sería ruido. */}
+          <Text
+            v="bodyS"
+            tone={blocker ? 'warningText' : 'textSecondary'}
+            numberOfLines={2}
+            center
+          >
+            {blocker
+              ? blocker.hint
+              : payment === 'cash_on_delivery'
+              ? 'Pagas en efectivo al recibir el pedido.'
+              : 'El cobro se hace desde la app en el siguiente paso.'}
+
+          </Text>
+
           <Button
-            title="Confirmar pedido"
-            trailing={quote ? money(quote.total) : undefined}
+            title={blocker ? blocker.label : 'Confirmar pedido'}
+            icon={blocker?.icon}
+            trailing={!blocker && quote ? money(quote.total) : undefined}
+            variant={blocker ? 'secondary' : 'primary'}
             size="lg"
             full
-            disabled={!canSubmit}
-            loading={submitting || createOrder.isPending}
-            onPress={placeOrder}
-            haptic="medium"
+            loading={busy || awaitingFirstQuote}
+            onPress={blocker ? blocker.onPress : placeOrder}
+            haptic={blocker ? 'light' : 'medium'}
             accessibilityHint={
-              payment === 'cash_on_delivery'
+              blocker
+                ? blocker.hint
+                : payment === 'cash_on_delivery'
                 ? 'Pagarás en efectivo al recibir'
                 : 'El cobro se hace desde la app'
             }
@@ -556,6 +809,11 @@ function PaymentOption({
         },
       ]}
     >
+      {/* El check ocupa un hueco reservado: sin él, elegir un método
+          desplazaría el texto de las dos tarjetas medio pixel. */}
+      <View style={styles.paymentCheck}>
+        {active ? <Icon name="checkCirculo" size="sm" color={c.primaryText} /> : null}
+      </View>
       <ContentIcon name={icon} size={32} />
       <Text v="strongS" tone={active ? 'text' : 'textSecondary'}>{title}</Text>
       <Text v="caption" tone="textMuted" center>{subtitle}</Text>
@@ -565,35 +823,32 @@ function PaymentOption({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.lg, padding: Spacing.xxl },
   content: { padding: Spacing.xl, gap: Spacing.xxl, paddingBottom: Spacing.huge },
   section: { gap: Spacing.sm },
+  pressed: { opacity: 0.7 },
 
-  stepperContainer: {
+  summaryHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xl,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
+    gap: Spacing.md,
+    padding: Spacing.lg,
   },
-  stepItem: {
-    alignItems: 'center',
-    gap: 4,
+  summaryIcon: {
+    width: 40, height: 40, borderRadius: BorderRadius.sm,
+    alignItems: 'center', justifyContent: 'center',
   },
-  stepDot: {
-    width: 22,
-    height: 22,
-    borderRadius: BorderRadius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
+  summaryBody: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    paddingTop: Spacing.md,
+    gap: Spacing.md,
   },
-  stepLine: {
-    flex: 1,
-    height: 2,
-    marginHorizontal: Spacing.sm,
-    marginBottom: 16,
+  line: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  lineQty: {
+    minWidth: 24, height: 24, paddingHorizontal: 6,
+    borderRadius: BorderRadius.sm,
+    alignItems: 'center', justifyContent: 'center',
   },
 
   picker: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
@@ -607,10 +862,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     gap: Spacing.xs,
-    paddingVertical: Spacing.lg,
+    paddingBottom: Spacing.lg,
     paddingHorizontal: Spacing.sm,
     borderRadius: BorderRadius.lg,
   },
+  paymentCheck: { height: 20, justifyContent: 'center', marginTop: Spacing.sm },
 
   couponRow: { flexDirection: 'row', gap: Spacing.sm },
   couponField: {
@@ -628,16 +884,21 @@ const styles = StyleSheet.create({
 
   tips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
 
+  notesHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   notes: {
-    minHeight: 52,
+    minHeight: 76,
+    maxHeight: 130,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
+    textAlignVertical: 'top',
   },
 
   breakdown: { gap: Spacing.md },
   pendingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   divider: { height: StyleSheet.hairlineWidth },
   totalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+
+  footer: { gap: Spacing.md },
 });

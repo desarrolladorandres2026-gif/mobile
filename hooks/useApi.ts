@@ -122,6 +122,31 @@ export const useVerifyOrderCode = () => {
   });
 };
 
+/**
+ * Declara si el efectivo llegó a manos del domiciliario.
+ *
+ * Al terminar invalida el pedido además del flujo: lo que cambia es el
+ * estado del cobro, que vive en `order`, no en `orderFlow`. Sin esa
+ * invalidación la tarjeta seguiría preguntando por un efectivo que ya se
+ * confirmó hasta que alguien saliera y volviera a entrar.
+ */
+export const useConfirmCash = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, received, note }: {
+      orderId: string; received: boolean; note?: string;
+    }) => orderFlowApi.confirmCash(orderId, received, note),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['order', vars.orderId] });
+      queryClient.invalidateQueries({ queryKey: ['orderFlow', vars.orderId] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      // El saldo pendiente y las ganancias del domiciliario acaban de
+      // moverse: las dos cuelgan de la clave `driver`.
+      queryClient.invalidateQueries({ queryKey: ['driver'] });
+    },
+  });
+};
+
 export const useOrderChat = (orderId: string | undefined) =>
   useQuery({
     queryKey: ['orderChat', orderId],

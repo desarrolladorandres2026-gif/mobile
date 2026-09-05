@@ -63,6 +63,12 @@ export const ordersApi = {
   getDriverOrders: (page = 1, limit = 20) =>
     api.get('/orders/driver/my', { params: { page, limit } }).then((r) => r.data.data),
 
+  /** Cambia el método de pago mientras el comercio no haya aceptado. */
+  changePaymentMethod: (orderId: string, paymentMethod: 'online' | 'cash_on_delivery') =>
+    api
+      .patch(`/orders/${orderId}/payment-method`, { paymentMethod })
+      .then((r) => r.data.data),
+
   assignDriver: (orderId: string, driverId: string) =>
     api.patch(`/orders/${orderId}/assign-driver`, { driverId }).then((r) => r.data.data),
 };
@@ -135,6 +141,17 @@ export interface OrderChatMessage {
   createdAt: string;
 }
 
+export interface CashConfirmationResult {
+  orderId: string;
+  orderNumber: string;
+  paymentStatus: string;
+  amount: number;
+  currency: string;
+  confirmedAt: string | null;
+  /** `false` cuando la confirmación ya estaba hecha (reintento de red). */
+  changed: boolean;
+}
+
 export const orderFlowApi = {
   /** Todo lo que la pantalla del pedido necesita, en una llamada. */
   getState: (orderId: string): Promise<OrderFlowState> =>
@@ -187,6 +204,21 @@ export const orderFlowApi = {
 
   evidence: (orderId: string): Promise<OrderEvidenceView[]> =>
     api.get(`/orders/${orderId}/evidence`).then((r) => r.data.data),
+
+  /**
+   * "¿Recibiste el efectivo?" — la declaración del domiciliario.
+   *
+   * No lleva monto, y no es un olvido: el importe lo pone el servidor a
+   * partir del pedido. Si viajara desde aquí, sería negociable.
+   */
+  confirmCash: (
+    orderId: string,
+    received: boolean,
+    note?: string
+  ): Promise<CashConfirmationResult> =>
+    api
+      .post(`/orders/${orderId}/cash/confirm`, { received, ...(note ? { note } : {}) })
+      .then((r) => r.data.data),
 
   // ── Chat ──
   messages: (orderId: string, page = 1, limit = 50): Promise<OrderChatMessage[]> =>
@@ -403,7 +435,26 @@ export const addressApi = {
 
   setDefault: (id: string) =>
     api.patch(`/addresses/${id}/default`).then((r) => r.data.data),
+
+  /**
+   * Qué dirección hay en un punto del mapa.
+   *
+   * Devuelve `null` cuando ahí no hay nada cartografiado, que no es un
+   * error: la coordenada sigue sirviendo para cobrar el envío y para que
+   * el repartidor llegue. Solo falta el nombre de la calle.
+   */
+  reverseGeocode: (point: { lat: number; lng: number }): Promise<GeocodedPlace | null> =>
+    api.get('/addresses/reverse-geocode', { params: point }).then((r) => r.data.data ?? null),
 };
+
+export interface GeocodedPlace {
+  address: string;
+  neighborhood?: string;
+  city?: string;
+  full: string;
+  /** 'address' trae número de casa; 'street' solo la vía; 'area' ni eso. */
+  precision: 'address' | 'street' | 'area';
+}
 
 export const legalApi = {
   documents: () => api.get('/legal/documents').then((r) => r.data.data),

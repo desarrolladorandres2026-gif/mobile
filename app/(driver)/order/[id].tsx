@@ -16,13 +16,13 @@ import { DriverRouteCard } from '../../../components/domain/DriverRouteCard';
 import { useDriverTrackingContext } from '../../../hooks/useDriverTracking';
 import {
   useOrder, useOrderFlow, useOrderArrive, useUploadOrderEvidence,
-  useVerifyOrderCode, useUpdateOrderStatus,
+  useVerifyOrderCode, useUpdateOrderStatus, useConfirmCash,
 } from '../../../hooks/useApi';
 import { useOrderRealtime, useOrderFlowRealtime } from '../../../hooks/useRealtime';
 import { useTheme } from '../../../hooks/useTheme';
 import { useBottomInset } from '../../../hooks/useBottomSpace';
 import { captureEvidence } from '../../../lib/evidence';
-import { captureCurrentPosition } from '../../../hooks/useLocation';
+import { captureCoordsForEvidence } from '../../../hooks/useLocation';
 import { apiMessage } from '../../../lib/errors';
 import { money, orderCode } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
@@ -51,6 +51,7 @@ export default function DriverActiveOrderScreen() {
   const uploadEvidence = useUploadOrderEvidence();
   const verifyCode = useVerifyOrderCode();
   const updateStatus = useUpdateOrderStatus();
+  const confirmCash = useConfirmCash();
 
   const [chatOpen, setChatOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
@@ -61,6 +62,7 @@ export default function DriverActiveOrderScreen() {
   const [deliveryError, setDeliveryError] = useState('');
   const [justCompleted, setJustCompleted] = useState<'pickup' | 'delivery' | null>(null);
   const [uploadingStage, setUploadingStage] = useState<'pickup' | 'delivery' | null>(null);
+  const [cashError, setCashError] = useState('');
 
   useEffect(() => {
     if (incomingCall) { setCallStartedByMe(false); setCallOpen(true); }
@@ -108,7 +110,7 @@ export default function DriverActiveOrderScreen() {
       const uri = await captureEvidence();
       if (!uri) return;
       setUploadingStage(stage);
-      const coords = await captureCurrentPosition();
+      const coords = await captureCoordsForEvidence();
       await uploadEvidence.mutateAsync({
         orderId,
         stage,
@@ -127,7 +129,7 @@ export default function DriverActiveOrderScreen() {
   const markArrived = async (stage: 'pickup' | 'delivery') => {
     tap('medium');
     try {
-      const coords = await captureCurrentPosition();
+      const coords = await captureCoordsForEvidence();
       await arrive.mutateAsync({
         orderId,
         stage,
@@ -143,7 +145,7 @@ export default function DriverActiveOrderScreen() {
     const setError = stage === 'pickup' ? setPickupError : setDeliveryError;
     setError('');
     try {
-      const coords = await captureCurrentPosition();
+      const coords = await captureCoordsForEvidence();
       await verifyCode.mutateAsync({
         orderId,
         stage,
@@ -173,6 +175,30 @@ export default function DriverActiveOrderScreen() {
     );
   };
 
+  // ── Cobro en efectivo ──
+  // El servidor no acepta la confirmación hasta que el pedido está
+  // entregado, así que la tarjeta aparece exactamente cuando la acción es
+  // posible. Enseñarla antes sería ofrecer un botón que va a fallar.
+  const isCashOrder = order.paymentMethod === 'cash_on_delivery';
+  const cashPending = isCashOrder && order.paymentStatus === 'pending_cash';
+  const cashCollected = isCashOrder && order.paymentStatus === 'paid';
+  const cashDisputed = isCashOrder && order.paymentStatus === 'cash_not_received';
+
+  const declareCash = (received: boolean) => {
+    tap(received ? 'success' : 'warning');
+    setCashError('');
+    confirmCash.mutate(
+      { orderId, received },
+      {
+        onSuccess: () => refetch(),
+        onError: (error) => {
+          tap('error');
+          setCashError(apiMessage(error, 'No pudimos registrar el cobro. Inténtalo de nuevo.'));
+        },
+      }
+    );
+  };
+
   const isReady = order.status === 'ready';
   const isPickedUp = order.status === 'picked_up';
   const isOnWay = order.status === 'on_way';
@@ -190,7 +216,7 @@ export default function DriverActiveOrderScreen() {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={60}
       >
       <ScrollView
@@ -215,11 +241,89 @@ export default function DriverActiveOrderScreen() {
 
         {isCancelled ? (
           <Notice tone="error">Este pedido se canceló. No hay nada más que hacer aquí.</Notice>
+        ) : isDelivered && cashPending ? (
+          /*
+            La entrega terminó, pero el pedido todavía no está cerrado: falta
+            el dinero. Esta tarjeta ocupa el sitio de "entrega completada" a
+            propósito — enseñar el mensaje de éxito y la pregunta a la vez
+            invitaría a salirse sin contestarla, y entonces el cobro quedaría
+            pendiente sin que nadie sepa por qué.
+          */
+          <Card style={styles.section}>
+            <SectionTitle icon="efectivo" label="COBRO EN EFECTIVO" />
+            <Text v="titleM">¿Recibiste el efectivo?</Text>
+            <Text v="bodyM" tone="textSecondary">
+              El cliente debía pagarte {money(order.total)} al recibir el pedido.
+            </Text>
+
+            <Button
+              title="Sí, recibí el efectivo"
+              icon="checkCirculo"
+              full
+              loading={confirmCash.isPending}
+              onPress={() => declareCash(true)}
+            />
+            <Button
+              title="No, no lo recibí"
+              variant="secondary"
+              full
+              disabled={confirmCash.isPending}
+              onPress={() =>
+                Alert.alert(
+                  'No recibiste el efectivo',
+                  'Se abrirá una revisión con soporte. La comisión de este ' +
+                    'pedido sigue en tu saldo hasta que se resuelva.',
+                  [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Confirmar', style: 'destructive', onPress: () => declareCash(false) },
+                  ]
+                )
+              }
+            />
+
+            {cashError ? <Notice tone="error">{cashError}</Notice> : null}
+
+            {/* Decir de antemano qué implica cada botón evita la pregunta
+                que sigue: "¿y ahora quién me cobra la comisión?". */}
+            <Notice tone="info">
+              De este cobro, la comisión de Zipp queda en tu saldo pendiente y la
+              liquidas como siempre.
+            </Notice>
+          </Card>
+        ) : isDelivered && cashDisputed ? (
+          <Card style={styles.section}>
+            <SectionTitle icon="alerta" label="COBRO EN REVISIÓN" />
+            <Text v="titleM">El incidente fue registrado</Text>
+            {/*
+              Dos frases, en este orden, y ninguna acusatoria. La primera
+              porque un domiciliario que reporta un faltante necesita saber
+              que su reporte llegó a algún sitio; la segunda porque lo
+              siguiente que se pregunta es si el saldo ya desapareció — y
+              enterarse de que no cuando intente tomar otro pedido sería
+              peor que leerlo aquí.
+            */}
+            <Text v="bodyM" tone="textSecondary">
+              No se eliminará automáticamente el saldo pendiente. Nuestro equipo
+              revisará el caso.
+            </Text>
+            <Text v="bodyS" tone="textMuted">
+              Te avisamos aquí mismo en cuanto haya una decisión.
+            </Text>
+            <Button
+              title="Volver a mis entregas"
+              full
+              onPress={() => router.replace('/(driver)/(tabs)/orders')}
+            />
+          </Card>
         ) : isDelivered ? (
           <Card style={styles.doneCard}>
             <SuccessCheck size={72} />
             <Text v="titleL" center>Entrega completada</Text>
-            <Text v="bodyM" tone="textSecondary" center>Buen trabajo. Ya puedes tomar tu próximo pedido.</Text>
+            <Text v="bodyM" tone="textSecondary" center>
+              {cashCollected
+                ? `Cobraste ${money(order.total)} en efectivo. Buen trabajo.`
+                : 'Buen trabajo. Ya puedes tomar tu próximo pedido.'}
+            </Text>
             <Button title="Volver a mis entregas" full onPress={() => router.replace('/(driver)/(tabs)/orders')} />
           </Card>
         ) : !inDeliveryPhase ? (

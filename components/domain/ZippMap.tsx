@@ -13,8 +13,17 @@ import {
   MapPalette,
 } from '../../lib/mapbox';
 
+/**
+ * Sin marcadores. Constante de módulo y no un `[]` recién creado: el efecto
+ * que empuja el estado al mapa compara por identidad, y un array nuevo en
+ * cada render volvería a inyectar JavaScript en el WebView sin que nada
+ * hubiera cambiado.
+ */
+const NO_MARKERS: MapMarker[] = [];
+
 export interface ZippMapProps {
-  markers: MapMarker[];
+  /** Vacío en modo `pick`, donde el objetivo del centro sustituye al pin. */
+  markers?: MapMarker[];
   route?: MapRoute | null;
   trail?: MapPoint[] | null;
   center?: MapPoint | null;
@@ -25,6 +34,21 @@ export interface ZippMapProps {
   fitAll?: boolean;
   height?: number;
   style?: ViewStyle;
+  /**
+   * Modo "elegir punto": objetivo fijo en el centro, el mapa se arrastra
+   * debajo. Cambia el contrato del componente — deja de dibujar `markers`
+   * y `route`, y su salida pasa a ser `onPick`.
+   */
+  pick?: boolean;
+  /** Coordenada bajo el objetivo, al soltar el arrastre. Solo con `pick`. */
+  onPick?: (point: MapPoint) => void;
+  /**
+   * Cambia este número para devolver la cámara a `center`.
+   *
+   * En modo `pick` la cámara ignora `center` mientras esta llave no cambie,
+   * porque el arrastre del usuario manda sobre el estado del padre.
+   */
+  recenterKey?: number;
 }
 
 /**
@@ -43,7 +67,7 @@ export interface ZippMapProps {
  * segundos.
  */
 export function ZippMap({
-  markers,
+  markers = NO_MARKERS,
   route,
   trail,
   center,
@@ -52,6 +76,9 @@ export function ZippMap({
   fitAll = false,
   height = 260,
   style,
+  pick = false,
+  onPick,
+  recenterKey,
 }: ZippMapProps) {
   const { c, isDark } = useTheme();
   const webRef = useRef<WebView>(null);
@@ -95,19 +122,19 @@ export function ZippMap({
   // lo que más ocurre aquí) generaría una cadena distinta, `source`
   // cambiaría de identidad y el WebView recargaría el mapa entero.
   const html = useMemo(
-    () => (token && styleUrl ? buildMapHtml({ accessToken: token, style: styleUrl, palette }) : null),
-    [token, styleUrl, palette]
+    () => (token && styleUrl ? buildMapHtml({ accessToken: token, style: styleUrl, palette, pick }) : null),
+    [token, styleUrl, palette, pick]
   );
 
   // Empuja el estado al mapa cada vez que cambia algo dibujable.
   useEffect(() => {
     if (!ready || !webRef.current) return;
 
-    const state = { markers, route, trail, center, zoom, follow, fitAll };
+    const state = { markers, route, trail, center, zoom, follow, fitAll, recenterKey };
     webRef.current.injectJavaScript(
       `window.__zippMap && window.__zippMap.apply(${JSON.stringify(state)}); true;`
     );
-  }, [ready, markers, route, trail, center, zoom, follow, fitAll]);
+  }, [ready, markers, route, trail, center, zoom, follow, fitAll, recenterKey]);
 
   const frame = [styles.frame, { height, backgroundColor: c.surfaceLight, borderColor: c.border }, style];
 
@@ -167,6 +194,7 @@ export function ZippMap({
           try {
             const data = JSON.parse(event.nativeEvent.data);
             if (data.type === 'ready') setReady(true);
+            if (data.type === 'moved' && onPick) onPick({ lat: data.lat, lng: data.lng });
             if (data.type === 'error' && __DEV__) console.log('[Mapa]', data.message);
           } catch {
             // Un mensaje que no es JSON no viene de nuestro puente.

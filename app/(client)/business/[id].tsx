@@ -5,7 +5,7 @@ import {
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, FadeOutDown, Layout } from 'react-native-reanimated';
 import {
   Text, Icon, IconButton, Button, Badge, MetaRow, Notice, Sheet,
   QtyStepper, EmptyState, ErrorState, Skeleton, LoadingScreen,
@@ -43,6 +43,10 @@ interface Product {
   categoryId?: string;
 }
 
+/** Espacio que reserva el scroll cuando la barra de "mi coronita" está a la vista. */
+const STORE_CART_CLEARANCE = 92;
+/** Cuántos platos sugeridos como acompañamiento se muestran como máximo. */
+const MAX_SUGGESTIONS = 6;
 
 export default function BusinessScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -59,6 +63,10 @@ export default function BusinessScreen() {
 
   const { toggleFavorite, isFavorite } = useFavoritesStore();
   const bottomInset = useBottomInset();
+
+  const cartBusinessId = useCartStore((s) => s.businessId);
+  const cartItemCount = useCartStore((s) => s.getItemCount());
+  const cartSubtotal = useCartStore((s) => s.getSubtotal());
 
   const status = openState(business?.schedule);
   const accent = businessAccent(id);
@@ -91,6 +99,12 @@ export default function BusinessScreen() {
   }
 
   const HeroIllustration = categoryIllustration(business.category);
+
+  // Solo se ofrece "seguir agregando" cuando lo que hay en la bolsa es de
+  // ESTE negocio: la bolsa es de un solo negocio a la vez, así que si el
+  // cliente trae algo de otro lado, esta pantalla no debe insinuar que
+  // puede sumarlo aquí.
+  const showCartBar = cartItemCount > 0 && cartBusinessId === business._id;
 
   const share = async () => {
     try {
@@ -158,7 +172,9 @@ export default function BusinessScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         stickyHeaderIndices={sections.length > 0 ? [1] : undefined}
-        contentContainerStyle={{ paddingBottom: bottomInset + Spacing.huge }}
+        contentContainerStyle={{
+          paddingBottom: bottomInset + Spacing.huge + (showCartBar ? STORE_CART_CLEARANCE : 0),
+        }}
       >
         {/* ── Portada e identidad ── */}
         <View>
@@ -284,11 +300,28 @@ export default function BusinessScreen() {
       {selected ? (
         <ProductSheet
           product={selected}
+          allProducts={products}
           accent={accent}
           category={business.category}
           businessId={business._id}
           businessName={business.name}
           onClose={() => setSelected(null)}
+        />
+      ) : null}
+
+      {/*
+        Resumen fijo de la bolsa mientras se sigue viendo la misma tienda.
+        Vive en esta pantalla (no en el Dock de las pestañas) porque solo
+        tiene sentido dentro del negocio donde se está agregando: al salir,
+        el Dock retoma el aviso y el cliente puede seguir sumando cosas
+        desde el inicio o la búsqueda.
+      */}
+      {showCartBar ? (
+        <StoreCartBar
+          count={cartItemCount}
+          subtotal={cartSubtotal}
+          bottomInset={bottomInset}
+          onPress={() => router.push('/(client)/cart')}
         />
       ) : null}
     </View>
@@ -397,14 +430,51 @@ function ProductRow({
   );
 }
 
+/** Barra de "mi coronita": lo que ya lleva de esta tienda, siempre a la mano. */
+function StoreCartBar({
+  count, subtotal, bottomInset, onPress,
+}: { count: number; subtotal: number; bottomInset: number; onPress: () => void }) {
+  const { c } = useTheme();
+
+  return (
+    <Animated.View
+      entering={FadeInDown.springify().damping(18)}
+      exiting={FadeOutDown}
+      layout={Layout}
+      style={[styles.storeCartWrap, { bottom: bottomInset + Spacing.md }]}
+      pointerEvents="box-none"
+    >
+      <Pressable
+        onPress={() => { tap('medium'); onPress(); }}
+        accessibilityRole="button"
+        accessibilityLabel={`Ir a mi coronita. ${count} ${count === 1 ? 'producto' : 'productos'}. Subtotal ${money(subtotal)}`}
+        accessibilityHint="Abre tu pedido para revisarlo o pagarlo"
+        style={[styles.storeCart, { backgroundColor: c.primary }, Shadow.primaryGlow]}
+      >
+        <View style={[styles.storeCartCount, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+          <Text v="dataM" color={c.textOnPrimary}>{count}</Text>
+        </View>
+
+        <View style={styles.flex}>
+          <Text v="buttonMd" color={c.textOnPrimary}>Ir a mi coronita</Text>
+          <Text v="caption" color="rgba(255,255,255,0.75)">Puedes seguir agregando más</Text>
+        </View>
+
+        <Text v="dataL" color={c.textOnPrimary}>{money(subtotal)}</Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 // ──────────────────────────────────────────────────────────────
 // Hoja de producto
 // ──────────────────────────────────────────────────────────────
 
 function ProductSheet({
-  product, accent, category, businessId, businessName, onClose,
+  product, allProducts, accent, category, businessId, businessName, onClose,
 }: {
   product: Product;
+  allProducts: Product[];
   accent: string;
   category: string;
   businessId: string;
@@ -418,10 +488,41 @@ function ProductSheet({
   const [quantity, setQuantity] = useState(1);
   const [extras, setExtras] = useState<Extra[]>([]);
   const [notes, setNotes] = useState('');
+  const [justAdded, setJustAdded] = useState<string | null>(null);
 
   const unitPrice = product.discountPrice ?? product.price;
   const extrasTotal = extras.reduce((sum, e) => sum + e.price, 0);
   const lineTotal = (unitPrice + extrasTotal) * quantity;
+
+  // Primero lo de otras secciones del menú (la bebida, el postre, el
+  // adicional que no es del mismo plato): eso es lo que de verdad "acompaña".
+  // Si el negocio no tiene más secciones, se completa con lo que haya.
+  const suggestions = useMemo(() => {
+    return allProducts
+      .filter((p) => p._id !== product._id && p.isAvailable)
+      .sort((a, b) => {
+        const aPaired = a.categoryId !== product.categoryId ? 0 : 1;
+        const bPaired = b.categoryId !== product.categoryId ? 0 : 1;
+        return aPaired - bPaired;
+      })
+      .slice(0, MAX_SUGGESTIONS);
+  }, [allProducts, product]);
+
+  const quickAdd = (suggested: Product) => {
+    tap('success');
+    addItem(businessId, businessName, {
+      productId: suggested._id,
+      productName: suggested.name,
+      quantity: 1,
+      unitPrice: suggested.discountPrice ?? suggested.price,
+      selectedExtras: [],
+      notes: '',
+    });
+    setJustAdded(suggested._id);
+    setTimeout(() => {
+      setJustAdded((current) => (current === suggested._id ? null : current));
+    }, 1200);
+  };
 
   const toggleExtra = (extra: Extra) => {
     tap('select');
@@ -524,6 +625,62 @@ function ProductSheet({
               );
             })}
           </View>
+        </View>
+      ) : null}
+
+      {suggestions.length > 0 ? (
+        <View style={styles.sheetSection}>
+          <Text v="label" tone="textMuted">Para acompañar</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.suggestRow}
+          >
+            {suggestions.map((item) => {
+              const added = justAdded === item._id;
+              const itemPrice = item.discountPrice ?? item.price;
+              return (
+                <View
+                  key={item._id}
+                  style={[styles.suggestCard, { backgroundColor: c.surface, borderColor: c.border }]}
+                >
+                  <View
+                    style={[
+                      styles.suggestImage,
+                      { backgroundColor: hasProductImage(item) ? accent : c.surfaceLight },
+                    ]}
+                  >
+                    {hasProductImage(item) ? (
+                      <Image
+                        source={{ uri: productImageUri(item, 'thumb')! }}
+                        placeholder={productImagePlaceholder(item)}
+                        style={StyleSheet.absoluteFill}
+                        contentFit="cover"
+                        accessible={false}
+                      />
+                    ) : (
+                      <Illustration size={26} />
+                    )}
+                  </View>
+
+                  <Text v="bodyS" numberOfLines={1}>{item.name}</Text>
+
+                  <View style={styles.suggestFooter}>
+                    <Text v="dataS" tone="textMuted">{money(itemPrice)}</Text>
+                    <Pressable
+                      onPress={() => quickAdd(item)}
+                      disabled={added}
+                      accessibilityRole="button"
+                      accessibilityLabel={added ? `${item.name} agregado` : `Agregar ${item.name}, ${money(itemPrice)} adicional`}
+                      style={[styles.suggestAddBtn, { backgroundColor: added ? c.lime : c.primary }]}
+                    >
+                      <Icon name={added ? 'check' : 'mas'} size="sm" color={c.textOnPrimary} strong />
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
         </View>
       ) : null}
 
@@ -644,4 +801,39 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   sheetFooter: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+
+  suggestRow: { gap: Spacing.md, paddingRight: Spacing.md },
+  suggestCard: {
+    width: 128,
+    padding: Spacing.sm + 2,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    gap: Spacing.xs + 1,
+  },
+  suggestImage: {
+    width: '100%', height: 64, borderRadius: BorderRadius.md,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  suggestFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  suggestAddBtn: {
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  storeCartWrap: { position: 'absolute', left: Spacing.lg, right: Spacing.lg },
+  storeCart: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    height: 60,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.lg,
+  },
+  storeCartCount: {
+    minWidth: 34, height: 34, borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.sm,
+    alignItems: 'center', justifyContent: 'center',
+  },
 });

@@ -3,7 +3,7 @@ import { View, StyleSheet, ActivityIndicator, ViewStyle } from 'react-native';
 import { Text, Icon } from '../ui';
 import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius } from '../../theme/tokens';
-import { getMapConfig, buildMapHtml, MapPalette } from '../../lib/mapbox';
+import { getMapConfig, buildMapHtml, MapMarker, MapPalette } from '../../lib/mapbox';
 import type { ZippMapProps } from './ZippMap';
 
 /**
@@ -21,8 +21,10 @@ import type { ZippMapProps } from './ZippMap';
  * `allow-top-navigation`, un enlace inesperado dentro del mapa no puede
  * sacar al usuario de la app.
  */
+const NO_MARKERS: MapMarker[] = [];
+
 export function ZippMap({
-  markers,
+  markers = NO_MARKERS,
   route,
   trail,
   center,
@@ -31,9 +33,17 @@ export function ZippMap({
   fitAll = false,
   height = 260,
   style,
+  pick = false,
+  onPick,
+  recenterKey,
 }: ZippMapProps) {
   const { c, isDark } = useTheme();
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  // El listener de `message` se monta una sola vez. Guardar el callback en
+  // una ref evita re-suscribirlo en cada render solo porque el padre creó
+  // una función nueva — y evita la ventana en la que no hay ninguno puesto.
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
   const [token, setToken] = useState<string | null>(null);
   const [styleUrl, setStyleUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -70,8 +80,8 @@ export function ZippMap({
   );
 
   const html = useMemo(
-    () => (token && styleUrl ? buildMapHtml({ accessToken: token, style: styleUrl, palette }) : null),
-    [token, styleUrl, palette]
+    () => (token && styleUrl ? buildMapHtml({ accessToken: token, style: styleUrl, palette, pick }) : null),
+    [token, styleUrl, palette, pick]
   );
 
   useEffect(() => {
@@ -83,6 +93,9 @@ export function ZippMap({
       try {
         const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
         if (data?.type === 'ready') setReady(true);
+        if (data?.type === 'moved' && onPickRef.current) {
+          onPickRef.current({ lat: data.lat, lng: data.lng });
+        }
         if (data?.type === 'error' && __DEV__) console.log('[Mapa]', data.message);
       } catch {
         // Mensaje ajeno al puente.
@@ -98,11 +111,11 @@ export function ZippMap({
     frameRef.current?.contentWindow?.postMessage(
       JSON.stringify({
         __zipp: 'state',
-        state: { markers, route, trail, center, zoom, follow, fitAll },
+        state: { markers, route, trail, center, zoom, follow, fitAll, recenterKey },
       }),
       '*'
     );
-  }, [ready, markers, route, trail, center, zoom, follow, fitAll]);
+  }, [ready, markers, route, trail, center, zoom, follow, fitAll, recenterKey]);
 
   const frame = [
     styles.frame,
@@ -134,7 +147,7 @@ export function ZippMap({
       <iframe
         ref={frameRef}
         srcDoc={html}
-        title="Mapa de seguimiento"
+        title={pick ? 'Elegir punto en el mapa' : 'Mapa de seguimiento'}
         sandbox="allow-scripts allow-same-origin"
         style={{ border: 'none', width: '100%', height: '100%', background: 'transparent' }}
       />

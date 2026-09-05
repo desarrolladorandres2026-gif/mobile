@@ -119,6 +119,17 @@ export interface MapState {
   fitAll?: boolean;
   /** Centra la cámara en el repartidor en cada actualización. */
   follow?: boolean;
+  /**
+   * Solo en modo `pick`: mueve la cámara al `center` cuando cambia de valor.
+   *
+   * En el mapa de elegir punto la cámara y el estado se persiguen — el
+   * usuario arrastra, el mapa reporta el centro nuevo, el host lo guarda y
+   * lo devolvería como `center`, que dispararía otro movimiento y otro
+   * reporte. Obedecer solo cuando esta llave cambia deja que el arrastre
+   * mande y reserva la cámara para lo que sí la pide: el botón de volver a
+   * mi ubicación.
+   */
+  recenterKey?: number;
 }
 
 export interface MapPalette {
@@ -148,8 +159,19 @@ export function buildMapHtml(config: {
   accessToken: string;
   style: string;
   palette: MapPalette;
+  /**
+   * Modo "elegir punto": una cruz fija en el centro y el mapa moviéndose
+   * debajo, en vez de un pin que se arrastra.
+   *
+   * Se eligió así porque el pin arrastrable obliga a tapar con el dedo
+   * justo el punto que se está intentando ver, y en una pantalla de
+   * teléfono eso es la mitad de la manzana. Con el objetivo fijo, el dedo
+   * empuja el mapa desde cualquier parte y el punto queda siempre a la
+   * vista.
+   */
+  pick?: boolean;
 }): string {
-  const { accessToken, style, palette } = config;
+  const { accessToken, style, palette, pick = false } = config;
 
   return `<!DOCTYPE html>
 <html>
@@ -186,10 +208,46 @@ export function buildMapHtml(config: {
   .zipp-pin.client { background: ${palette.client}; }
   .zipp-pin.stale { background: ${palette.stale}; opacity: .55; }
   .zipp-arrow { transition: transform .5s linear; }
+
+  /*
+    Objetivo del modo "elegir punto".
+
+    La punta de la gota tiene que caer en el centro exacto del mapa, que es
+    la coordenada que se guarda. Girada -45deg, la esquina afilada de un
+    cuadrado de 26px queda 18.4px (26 * 0.7071) por debajo de su centro, así
+    que el elemento se sube esos 18.4px más su media altura. Sin esa cuenta
+    el pin miente por casi dos centímetros de calle.
+  */
+  .zipp-target-head {
+    position: absolute; left: 50%; top: 50%;
+    width: 26px; height: 26px;
+    margin-left: -13px; margin-top: -31.4px;
+    border-radius: 50% 50% 50% 0;
+    background: ${palette.client};
+    border: 2.5px solid ${palette.onMarker};
+    box-shadow: 0 4px 12px rgba(0,0,0,.35);
+    transform: rotate(-45deg);
+    transition: transform .18s ease-out;
+    pointer-events: none;
+    z-index: 3;
+  }
+  /* Levantado mientras el mapa se mueve: dice "esto se está recolocando". */
+  .zipp-target-head.lifted { transform: translateY(-7px) rotate(-45deg); }
+
+  /* Marca en el suelo. Es lo que hace legible la altura del salto. */
+  .zipp-target-dot {
+    position: absolute; left: 50%; top: 50%;
+    width: 9px; height: 9px; margin-left: -4.5px; margin-top: -4.5px;
+    border-radius: 50%;
+    background: rgba(0,0,0,.28);
+    pointer-events: none;
+    z-index: 2;
+  }
 </style>
 </head>
 <body>
 <div id="map"></div>
+${pick ? '<div class="zipp-target-dot"></div><div class="zipp-target-head" id="target"></div>' : ''}
 <script>
 (function () {
   mapboxgl.accessToken = ${JSON.stringify(accessToken)};
@@ -208,10 +266,13 @@ export function buildMapHtml(config: {
   });
   map.touchZoomRotate.disableRotation();
 
+  var PICK = ${pick ? 'true' : 'false'};
+
   var markers = {};
   var ready = false;
   var pending = null;
   var animations = {};
+  var lastRecenterKey = null;
 
   /**
    * Avisa al anfitrión, sea cual sea.
@@ -348,6 +409,17 @@ export function buildMapHtml(config: {
     setLine('zipp-trail', (state.trail || []).map(function (p) { return [p.lng, p.lat]; }), ${JSON.stringify(palette.trail)}, true);
     setLine('zipp-route', state.route ? state.route.coordinates : [], ${JSON.stringify(palette.route)}, false);
 
+    // En modo pick el arrastre del usuario es la fuente de verdad de la
+    // cámara. Solo se le quita el mando cuando llega una llave nueva —
+    // esto es, cuando alguien tocó "volver a mi ubicación".
+    if (PICK) {
+      if (state.center && state.recenterKey !== lastRecenterKey) {
+        lastRecenterKey = state.recenterKey;
+        map.easeTo({ center: [state.center.lng, state.center.lat], zoom: state.zoom || 17, duration: 600 });
+      }
+      return;
+    }
+
     if (state.follow) {
       var driver = (state.markers || []).filter(function (m) { return m.kind === 'driver'; })[0];
       if (driver) map.easeTo({ center: [driver.lng, driver.lat], zoom: state.zoom || 16, duration: 900 });
@@ -385,6 +457,26 @@ export function buildMapHtml(config: {
       // Mensaje ajeno al puente. Ignorado a propósito.
     }
   });
+
+  if (PICK) {
+    var target = document.getElementById('target');
+
+    map.on('movestart', function () { if (target) target.classList.add('lifted'); });
+
+    /*
+      El punto se reporta al soltar, no mientras se arrastra.
+
+      El evento "move" se dispara en cada fotograma del gesto; cruzar ese
+      puente sesenta veces por segundo satura el canal con el WebView y, del
+      otro lado, provoca un render de React por fotograma. "moveend" da el
+      único dato que importa —dónde quedó— una sola vez.
+    */
+    map.on('moveend', function () {
+      if (target) target.classList.remove('lifted');
+      var c = map.getCenter();
+      post({ type: 'moved', lat: c.lat, lng: c.lng });
+    });
+  }
 
   map.on('load', function () {
     ready = true;

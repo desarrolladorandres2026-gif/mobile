@@ -147,6 +147,19 @@ export function Sheet({
   const insets = useSafeAreaInsets();
   const Body = scroll ? ScrollView : View;
 
+  /**
+   * El teclado lo resuelve Android solo; iOS necesita ayuda.
+   *
+   * React Native crea el diálogo de cada `Modal` con `SOFT_INPUT_ADJUST_RESIZE`,
+   * así que en Android la ventana ya encoge sola cuando sube el teclado. Si
+   * encima se envuelve en un `KeyboardAvoidingView`, la altura del teclado se
+   * descuenta dos veces: la hoja pega un salto, el campo se va de debajo del
+   * dedo, el toque termina fuera, se pierde el foco y el teclado se cierra
+   * sin dejar escribir. En iOS no existe ese redimensionado y sin el
+   * `KeyboardAvoidingView` el teclado tapa el pie de la hoja.
+   */
+  const Frame = Platform.OS === 'ios' ? KeyboardAvoidingView : View;
+
   // El home indicator de iPhone / la barra de Android van por debajo de la
   // hoja: el contenido y el pie tienen que dejar libre ese inset real.
   const safeBottom = Math.max(insets.bottom, Spacing.md);
@@ -167,8 +180,8 @@ export function Sheet({
           accessibilityRole="button"
           accessibilityLabel="Cerrar"
         />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        <Frame
+          {...(Platform.OS === 'ios' ? { behavior: 'padding' as const } : null)}
           style={[
             styles.sheet,
             { backgroundColor: c.background, height: `${height * 100}%` },
@@ -212,7 +225,7 @@ export function Sheet({
               {footer}
             </View>
           ) : null}
-        </KeyboardAvoidingView>
+        </Frame>
       </View>
     </Modal>
   );
@@ -258,7 +271,10 @@ const styles = StyleSheet.create({
   sectionTitles: { flex: 1, gap: 2 },
 
   sheetOverlay: { flex: 1, justifyContent: 'flex-end' },
-  sheetBackdrop: { ...StyleSheet.absoluteFillObject },
+  // Ocupa solo el hueco que queda encima de la hoja. Si cubriera también la
+  // hoja por debajo, cualquier toque que un hijo no consuma —el hueco entre
+  // dos campos, por ejemplo— la cerraría de golpe mientras se escribe.
+  sheetBackdrop: { flex: 1 },
   sheet: {
     borderTopLeftRadius: BorderRadius.xxl,
     borderTopRightRadius: BorderRadius.xxl,

@@ -1,11 +1,13 @@
+import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Text, Screen, Header } from '../../components/ui';
-import { AddressList } from '../../components/domain/AddressPicker';
+import { AddressList, NewAddressSheet } from '../../components/domain/AddressPicker';
 import { Spacing, BorderRadius } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
 
 export default function AddressesScreen() {
   const { c, isDark } = useTheme();
+  const [creating, setCreating] = useState(false);
 
   return (
     <Screen style={{ backgroundColor: isDark ? '#0C101C' : '#F1F3F7' }}>
@@ -24,8 +26,14 @@ export default function AddressesScreen() {
             La dirección principal es la que aparece primero al confirmar tus pedidos.
           </Text>
         </View>
-        <AddressList manage />
+        <AddressList manage onAddPress={() => setCreating(true)} />
       </ScrollView>
+
+      <NewAddressSheet
+        visible={creating}
+        onClose={() => setCreating(false)}
+        onCreated={() => setCreating(false)}
+      />
     </Screen>
   );
 }
