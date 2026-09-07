@@ -1,0 +1,132 @@
+/**
+ * ZIPP — Sistema de diseño "Obsidian & Gold Titanium"
+ *
+ * Fuente única de verdad de color para todo el proyecto (admin, business, mobile, web).
+ * Paleta de alta gama inspirada en la nueva identidad ZIPP:
+ * - Modo Oscuro: Negro Obsidiana (#080B11), Titanio ahumado (#141B2A) y Oro Champagne satinado (#E5B242).
+ * - Modo Claro: Platino perla (#F6F8FA), Blanco puro (#FFFFFF) y Oro Real (#D69E26 / #B88214) con contraste AAA.
+ * - Seguridad y Domicilios: Verde Esmeralda (#10B981) para entregas seguras y confiabilidad, Ámbar (#F59E0B) para tiempos.
+ *
+ * admin/src/index.css, business/src/index.css y web/src/index.css importan este archivo directamente.
+ * mobile/theme/tokens.ts es TypeScript: sus valores se mantienen en sincronía con los de aquí.
+ */
+@theme {
+  /* ── Canvas & Surfaces (Modo Claro de Alto Impacto) ── */
+  --color-bg: #F6F8FA;
+  --color-bg-alt: #EDF1F5;
+  --color-surface: #FFFFFF;
+  --color-surface-hover: #F1F4F9;
+  --color-border: #E1E6ED;
+  --color-border-light: #EDF1F5;
+  --color-border-strong: #CBD5E1;
+
+  /* ── Sidebar (Lujo Obsidiana & Titanio) ── */
+  --color-sidebar: #0E131E;
+  --color-sidebar-deep: #080B11;
+  --color-sidebar-hover: #141B2A;
+  --color-sidebar-border: #232E46;
+  --color-sidebar-text: #7184A8;
+  --color-sidebar-text-active: #E5B242;
+
+  /* ── Typography Colors ── */
+  --color-text-main: #0B0F19;
+  --color-text-secondary: #475569;
+  --color-text-muted: #7C8BA1;
+
+  /* ── Brand Accent (Oro Champagne Zipp & Acento Cromo) ── */
+  --color-primary: #D69E26;
+  --color-primary-light: #E5B242;
+  --color-primary-dark: #9C6E0E;
+  --color-primary-bg: #FDF7E7;
+  --color-accent: #E2E8F0;
+
+  /* ── Chart & Secondary Accents ── */
+  --color-chart-blue: #D69E26;
+  --color-chart-lime: #E5B242;
+  --color-chart-emerald: #10B981;
+  --color-chart-orange: #F59E0B;
+  --color-chart-purple: #B88214;
+  --color-chart-gold: #E5B242;
+  --color-chart-titanium: #94A3B8;
+
+  /* ── Status Colors (Seguridad y Claridad de Entregas) ── */
+  --color-success: #10B981;
+  --color-success-bg: #D1FAE5;
+  --color-warning: #F59E0B;
+  --color-warning-bg: #FEF3C7;
+  --color-danger: #EF4444;
+  --color-danger-bg: #FEE2E2;
+  --color-info: #D69E26;
+  --color-info-bg: #FDF7E7;
+
+  /* ── Typography ── */
+  --font-display: 'Inter Variable', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Inter Variable', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Inter Variable', system-ui, -apple-system, sans-serif;
+}
+
+:root {
+  --zipp-gold: #E5B242;
+  --zipp-gold-deep: #D69E26;
+  --zipp-gold-glow: rgba(229, 178, 66, 0.35);
+  --zipp-obsidian: #080B11;
+  --zipp-card-dark: #141B2A;
+}
+
+/**
+ * ── Modo oscuro ──────────────────────────────────────────────────────
+ *
+ * Los tokens de arriba viven en `@theme`, que Tailwind resuelve a un
+ * único valor. Sin este bloque, `text-[var(--color-text-main)]` seguía
+ * siendo #0B0F19 —negro— también sobre el fondo obsidiana: los paneles
+ * usan 197 referencias a `var(--color-*)` y solo 26 clases `dark:`, así
+ * que la mayor parte de la interfaz quedaba escrita en negro sobre negro.
+ * El `Layout` lo disimulaba forzando el color en la raíz, pero cualquier
+ * hijo que nombrara el token volvía a perderse.
+ *
+ * No es una inversión: el oro sube de tono porque el #D69E26 que da
+ * contraste AAA sobre platino se apaga sobre obsidiana, y los fondos de
+ * estado pasan a translúcidos porque un #D1FAE5 sólido sería una mancha
+ * de menta encendida en una pantalla oscura. Las superficies son la
+ * escala de titanio ahumado de la identidad, no grises neutros.
+ *
+ * `.dark` la ponen `themeStore` de admin y de business en <html>, que es
+ * el mismo gancho que usa `@custom-variant dark`.
+ */
+.dark {
+  /* ── Lienzo y superficies ── */
+  --color-bg: #080B11;
+  --color-bg-alt: #0E131E;
+  --color-surface: #141B2A;
+  --color-surface-hover: #1B2437;
+  --color-border: #232E46;
+  --color-border-light: #1B2437;
+  --color-border-strong: #2E3D5C;
+
+  /* ── Texto ── */
+  --color-text-main: #FFFFFF;
+  --color-text-secondary: #A4B3CD;
+  --color-text-muted: #7184A8;
+
+  /* ── Marca ── */
+  --color-primary: #E5B242;
+  --color-primary-light: #F3CE72;
+  --color-primary-dark: #D69E26;
+  --color-primary-bg: rgba(229, 178, 66, 0.12);
+  --color-accent: #2E3D5C;
+
+  /* ── Estado ── */
+  /* El color de tinta se mantiene y solo cambia el fondo: es lo que deja
+     legible un texto de estado sobre su propia pastilla en los dos temas. */
+  --color-success: #34D399;
+  --color-success-bg: rgba(16, 185, 129, 0.14);
+  --color-warning: #FBBF24;
+  --color-warning-bg: rgba(245, 158, 11, 0.14);
+  --color-danger: #F87171;
+  --color-danger-bg: rgba(239, 68, 68, 0.14);
+  --color-info: #E5B242;
+  --color-info-bg: rgba(229, 178, 66, 0.12);
+
+  /* ── Gráficas ── */
+  --color-chart-titanium: #7184A8;
+}

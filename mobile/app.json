@@ -1,0 +1,83 @@
+{
+  "expo": {
+    "name": "Zipp",
+    "slug": "zipp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "zipp",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.zipp.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.zipp.app",
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"
+        }
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Zipp usa tu ubicación para asignarte pedidos cercanos y para que el cliente vea tu llegada en el mapa.",
+          "locationWhenInUsePermission": "Zipp usa tu ubicación para mostrarte negocios cercanos y calcular el costo del domicilio.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./node_modules/@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf"
+          ]
+        }
+      ],
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Zipp usa tus fotos para que elijas una imagen de perfil.",
+          "cameraPermission": "Zipp usa la cámara para que tomes tu foto de perfil."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#141A2E"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "REEMPLAZAR_CON_TU_PROJECT_ID_DE_EAS"
+      },
+      "googleAuth": {
+        "webClientId": "YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com",
+        "iosClientId": "YOUR_GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com",
+        "androidClientId": "YOUR_GOOGLE_ANDROID_CLIENT_ID.apps.googleusercontent.com"
+      }
+    }
+  }
+}

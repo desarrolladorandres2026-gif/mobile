@@ -1,0 +1,222 @@
+@import "tailwindcss";
+
+/**
+ * Tailwind v4 activa `dark:` por `prefers-color-scheme` a menos que se
+ * redefina el variant. ThemeToggle/themeStore controlan el tema alternando
+ * la clase `.dark` en <html> (modo manual + "Automático"), así que `dark:`
+ * debe engancharse a esa clase y no solo al SO — si no, elegir "Modo claro"
+ * u "Oscuro" a mano no tiene efecto en ningún elemento que use `dark:`.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/**
+ * ZIPP Admin — Zipp Design System "El Trazo"
+ *
+ * Las variables de color viven en /variables de color/colores.css (fuente
+ * única para admin, business y mobile). No dupliques valores hex aquí.
+ */
+@import "../../variables de color/colores.css";
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-bg);
+    color: var(--color-text-main);
+    min-height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.02em;
+    color: var(--color-text-main);
+  }
+
+  button:not(:disabled) {
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  button:not(:disabled):active {
+    transform: scale(0.98);
+  }
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #232E46;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #7C8BA1;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #2E3D5C;
+}
+
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #232E46;
+  border-radius: 4px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #2E3D5C;
+}
+
+/* ── Animations ── */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* KPI Numbers */
+.kpi-value {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--color-text-main);
+}
+
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tarjeta Zipp */
+.zipp-card {
+  background-color: var(--color-surface);
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-border);
+  transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.zipp-card:hover {
+  border-color: var(--color-border-strong);
+}
+
+/* Sidebar Labels */
+.nav-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-sidebar-text);
+  padding: 14px 16px 6px;
+}
+
+/* Layout Utilities */
+.page-container {
+  width: 100%;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.page-header {
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .page-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.page-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.page-subtitle {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  margin-top: 0.25rem;
+}
+
+/* Tablas Zipp */
+.table-container {
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background-color: var(--color-surface);
+}
+
+.table-header-cell {
+  padding: 0.875rem 1.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  /* `bg-alt` y no `bg`: la cabecera tiene que separarse de la superficie
+     de la tabla, y ese es justo el token que existe para eso. */
+  background-color: var(--color-bg-alt);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table-body-cell {
+  padding: 0.95rem 1.25rem;
+  font-size: 0.8125rem;
+  vertical-align: middle;
+  color: var(--color-text-main);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Modal Zipp */
+.zipp-modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  /* La sombra sí se queda con su regla `.dark`: no es un color de la
+     paleta sino una opacidad, y en oscuro necesita ser mucho más densa
+     para leerse contra el obsidiana. */
+  box-shadow: 0 25px 50px -12px rgba(8, 11, 17, 0.12);
+}
+
+.dark .zipp-modal {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
+}

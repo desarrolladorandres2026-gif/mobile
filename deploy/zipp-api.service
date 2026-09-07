@@ -1,0 +1,51 @@
+# ZIPP · API · unit de systemd  (ALTERNATIVA a PM2, sin PM2)
+#
+# Usa esto si prefieres una sola pieza en vez de "PM2 + pm2 startup".
+# Pierdes `pm2 logs`, `pm2 monit` y la rotación de logs de PM2, pero
+# ganas simplicidad: journald recoge stdout/stderr y systemd reinicia.
+#
+#   sudo cp deploy/zipp-api.service /etc/systemd/system/zipp-api.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now zipp-api
+#   journalctl -u zipp-api -f
+#
+# NADA de EnvironmentFile= : el .env lo carga la app con dotenv desde
+# WorkingDirectory. Meter aquí el .env rompería con los comentarios en
+# línea de .env.example (systemd no los quita del valor).
+
+[Unit]
+Description=ZIPP API (Express + Socket.IO)
+Documentation=file:///var/www/zipp/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zipp
+Group=zipp
+WorkingDirectory=/var/www/zipp/backend
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/app.js
+
+# app.ts hace apagado ordenado con SIGTERM (cierra HTTP + Mongo).
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# Endurecimiento básico.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/zipp
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zipp-api
+
+[Install]
+WantedBy=multi-user.target

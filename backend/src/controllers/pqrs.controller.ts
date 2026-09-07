@@ -1,0 +1,10 @@
+import { Request, Response, NextFunction } from 'express';
+import { Pqrs } from '../models'; import { AppError } from '../middlewares'; import { sendResponse, param } from '../utils'; import { AuditAction, logAudit } from '../security';
+export class PqrsController {
+  async create(req: Request, res: Response, next: NextFunction) { try { const item = await Pqrs.create({ ...req.body, userId: req.user!._id }); sendResponse(res, 201, 'PQRS recibida', item); } catch (e) { next(e); } }
+  async mine(req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'PQRS', await Pqrs.find({ userId: req.user!._id }).sort({ createdAt: -1 })); } catch (e) { next(e); } }
+  async addEvidence(req: Request, res: Response, next: NextFunction) { try { const item = await Pqrs.findOneAndUpdate({ _id: param(req, 'id'), userId: req.user!._id, status: { $nin: ['closed'] } }, { $push: { evidence: { url: req.body.url, name: req.body.name } } }, { new: true, runValidators: true }); if (!item) throw new AppError('PQRS no encontrada o cerrada', 404); sendResponse(res, 201, 'Evidencia registrada', item); } catch (e) { next(e); } }
+  async list(_req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'PQRS', await Pqrs.find().populate('userId', 'name email phone').sort({ createdAt: -1 })); } catch (e) { next(e); } }
+  async respond(req: Request, res: Response, next: NextFunction) { try { const item = await Pqrs.findByIdAndUpdate(param(req, 'id'), { $push: { responses: { message: req.body.message, userId: req.user!._id } }, $set: { status: req.body.status || 'answered' } }, { new: true, runValidators: true }); if (!item) throw new AppError('PQRS no encontrada', 404); void logAudit(req, { action: AuditAction.PQRS_ANSWERED, entity: 'pqrs', entityId: item._id.toString(), description: 'PQRS respondida', metadata: { status: item.status } }); sendResponse(res, 200, 'Respuesta registrada', item); } catch (e) { next(e); } }
+}
+export const pqrsController = new PqrsController();

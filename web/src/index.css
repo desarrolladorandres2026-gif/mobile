@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+/**
+ * ZIPP — Sitio público, Zipp Design System "El Trazo"
+ *
+ * Las variables de color viven en /variables de color/colores.css (fuente
+ * única para admin, business, mobile y este sitio). No dupliques valores hex
+ * aquí.
+ */
+@import "../../variables de color/colores.css";
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    background-color: #080B11;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #080B11;
+    color: #F6F8FA;
+    min-height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background-color: #E5B242;
+    color: #080B11;
+  }
+}
+
+/* ── Animaciones ── */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes drawStroke {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.hero-stroke-path {
+  stroke-dasharray: 340;
+  stroke-dashoffset: 340;
+  animation: drawStroke 1.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.animate-float {
+  animation: float 5s ease-in-out infinite;
+}
+
+@keyframes pulseSlow {
+  0%, 100% {
+    opacity: 0.15;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(1.08);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulseSlow 6s ease-in-out infinite;
+}
+
+/* Texto dorado de alta gama */
+.text-gold-gradient {
+  background: linear-gradient(135deg, #FFFFFF 20%, #F3CE72 60%, #D69E26 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gold-pure {
+  background: linear-gradient(135deg, #F3CE72 0%, #E5B242 50%, #B88214 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Scrollbar fina de lujo */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #080B11;
+}
+::-webkit-scrollbar-thumb {
+  background: #232E46;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #D69E26;
+}

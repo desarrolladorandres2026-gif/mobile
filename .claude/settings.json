@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "PowerShell(npm install --prefix \"C:\\\\Users\\\\desar\\\\OneDrive\\\\Desktop\\\\ZIPP\\\\backend\")",
+      "PowerShell(Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 3000,4000,5000,8000,8080,27017 } | Select-Object LocalAddress, LocalPort, OwningProcess | Format-Table -AutoSize)",
+      "PowerShell(npm run dev --prefix \"C:\\\\Users\\\\desar\\\\OneDrive\\\\Desktop\\\\ZIPP\\\\backend\")",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/health\" -UseBasicParsing -TimeoutSec 10; \"HEALTH: $\\($r.StatusCode\\) $\\($r.Content\\)\" } catch { \"HEALTH ERROR: $\\($_.Exception.Message\\)\" }; try { $body = '{\"email\":\"prueba_no_existe@test.com\",\"password\":\"clave12345\"}'; $r2 = Invoke-WebRequest -Uri \"http://localhost:3000/api/v1/auth/login\" -Method POST -ContentType \"application/json\" -Body $body -UseBasicParsing -TimeoutSec 15; \"LOGIN: $\\($r2.StatusCode\\) $\\($r2.Content\\)\" } catch { $resp = $_.Exception.Response; if \\($resp\\) { $sr = New-Object System.IO.StreamReader\\($resp.GetResponseStream\\(\\)\\); \"LOGIN: $\\([int]$resp.StatusCode\\) $\\($sr.ReadToEnd\\(\\)\\)\" } else { \"LOGIN ERROR: $\\($_.Exception.Message\\)\" } })",
+      "PowerShell(curl.exe -s -w \"`nSTATUS:%{http_code}\" -X POST \"http://localhost:3000/api/v1/auth/login\" -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"prueba_no_existe@test.com\\\\\",\\\\\"password\\\\\":\\\\\"clave12345\\\\\"}\")",
+      "PowerShell($body = @{ phone = \"3001234567\"; password = \"clave_incorrecta\" } | ConvertTo-Json; try { $r = Invoke-RestMethod -Uri \"http://localhost:3000/api/v1/auth/login\" -Method POST -ContentType \"application/json\" -Body $body; $r | ConvertTo-Json -Depth 5 } catch { $resp = $_.Exception.Response; $sr = New-Object System.IO.StreamReader\\($resp.GetResponseStream\\(\\)\\); \"STATUS $\\([int]$resp.StatusCode\\): $\\($sr.ReadToEnd\\(\\)\\)\" })",
+      "PowerShell(Set-Content -Path \"$env:TEMP\\\\login_test.json\" -Value '{\"phone\":\"3001234567\",\"password\":\"clave_incorrecta\"}' -Encoding Ascii; curl.exe -s -w \"`nSTATUS:%{http_code}\" -X POST \"http://localhost:3000/api/v1/auth/login\" -H \"Content-Type: application/json\" -d \"@$env:TEMP\\\\login_test.json\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\desar\\\\OneDrive\\\\Desktop\\\\ZIPP\" -Recurse)",
+      "Bash(Select-Object -Property FullName)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\desar\\\\OneDrive\\\\Desktop\\\\ZIPP\" -Recurse -Depth 2)",
+      "Bash(Select-Object FullName)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\desar\\\\OneDrive\\\\Desktop\\\\ZIPP\" -Recurse | Select-Object -First 100 | ForEach-Object { $_.FullName })",
+      "Bash(xargs grep -l \"UserRole\\\\|enum.*role\\\\|type.*role\")",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\desar\\\\OneDrive\\\\Desktop\\\\ZIPP\" -Recurse -Depth 3 -Exclude node_modules | Where-Object {$_.PSIsContainer} | Select-Object -ExpandProperty FullName | Sort-Object)",
+      "Bash(xargs grep -l \"Colors\\\\|Spacing\\\\|FontSize\")",
+      "Bash(xargs grep -l \"export.*Colors\")",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\desar\\\\OneDrive\\\\Desktop\\\\ZIPP\" -Force | Select-Object Name, @{Name='Type'; Expression={if\\($_.PSIsContainer\\){'Directory'}else{'File'}}} | Format-Table -AutoSize)",
+      "Bash(findstr /V node_modules)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\desar\\\\OneDrive\\\\Desktop\\\\ZIPP\\\\mobile\" -Depth 0 | Where-Object { $_.PSIsContainer } | Select-Object -ExpandProperty Name)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\desar\\OneDrive\\Desktop\\ZIPP\\backend\\node_modules"
+    ]
+  }
+}

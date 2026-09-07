@@ -1,0 +1,35 @@
+# Lo que nunca debe entrar en la imagen.
+#
+# `node_modules` es el más importante y el menos obvio: la imagen instala
+# el suyo con `npm ci` para la plataforma correcta, y copiar el del host
+# —compilado contra Windows o macOS— rompe los binarios nativos (argon2).
+
+node_modules
+dist
+
+# Secretos. La imagen los recibe como variables de entorno en tiempo de
+# ejecución, nunca horneados: cualquiera con acceso al registro puede
+# extraer las capas de una imagen publicada.
+.env
+.env.*
+!.env.example
+
+# Ruido del desarrollo
+*.log
+npm-debug.log*
+coverage
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Pruebas y scripts de siembra: no se ejecutan en producción y arrastran
+# `mongodb-memory-server`, que descarga un binario de mongod entero.
+src/__tests__
+vitest.config.ts
+
+.git
+.gitignore
+Dockerfile
+.dockerignore
+README.md

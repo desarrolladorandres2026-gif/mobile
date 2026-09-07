@@ -1,0 +1,61 @@
+/**
+ * Qué versión de la foto de un producto pedir.
+ *
+ * El servidor devuelve cuatro tamaños ya calculados en `product.images`.
+ * Elegir el que toca no es una optimización cosmética: la miniatura de la
+ * lista mide 84 pt y servirle la variante de catálogo significa descargar
+ * cuatro veces más bytes por fila, con datos móviles, en la pantalla que
+ * más productos muestra a la vez.
+ *
+ * `product.image` sigue funcionando como respaldo. Es lo que tienen los
+ * productos anteriores a este sistema, y una app instalada no puede
+ * quedarse sin fotos porque el backend cambiara de forma.
+ */
+
+export interface ProductImages {
+  thumb: string;
+  catalog: string;
+  detail: string;
+  large: string;
+  placeholder: string;
+  width: number;
+  height: number;
+}
+
+export interface WithProductImage {
+  image?: string;
+  images?: ProductImages | null;
+}
+
+export type ProductImageSize = keyof Pick<
+  ProductImages,
+  'thumb' | 'catalog' | 'detail' | 'large'
+>;
+
+/** La URL de la variante pedida, o la antigua si el producto no las tiene. */
+export function productImageUri(
+  product: WithProductImage | null | undefined,
+  size: ProductImageSize = 'catalog'
+): string | null {
+  if (!product) return null;
+  return product.images?.[size] ?? product.image ?? null;
+}
+
+/**
+ * Miniatura borrosa para el hueco mientras carga.
+ *
+ * `expo-image` la pinta en el mismo sitio y con los colores reales de la
+ * foto, así que la lista no parpadea en gris. Devuelve `undefined` —y no
+ * `null`— porque es lo que espera la prop `placeholder`.
+ */
+export function productImagePlaceholder(
+  product: WithProductImage | null | undefined
+): { uri: string } | undefined {
+  const uri = product?.images?.placeholder;
+  return uri ? { uri } : undefined;
+}
+
+/** Si hay algo que pintar, sin importar de qué generación venga. */
+export function hasProductImage(product: WithProductImage | null | undefined): boolean {
+  return Boolean(product?.images?.catalog || product?.image);
+}

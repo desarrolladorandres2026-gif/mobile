@@ -1,0 +1,72 @@
+# ZIPP — entorno de desarrollo y staging
+#
+# Levanta MongoDB y la API. Los tres frontends (admin, business, web) son
+# estáticos y se sirven con Vite en desarrollo, así que no están aquí: meter
+# un `vite dev` en un contenedor solo añade una capa entre el editor y el
+# recambio en caliente, sin ganar nada.
+#
+#   docker compose up -d          arranca Mongo y la API
+#   docker compose logs -f api    sigue los logs de la API
+#   docker compose down           para todo, conservando los datos
+#   docker compose down -v        para todo y BORRA la base de datos
+#
+# Antes de la primera ejecución hace falta un `backend/.env` con los
+# secretos (ver `backend/.env.example`). No se generan aquí a propósito:
+# un secreto con valor por defecto en un compose es un secreto que acaba
+# en producción.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    # Solo en loopback. Sin el `127.0.0.1:`, Docker abre el puerto en
+    # todas las interfaces y se salta el cortafuegos del host: una base de
+    # datos sin autenticación quedaría expuesta a la red local entera.
+    ports:
+      - '127.0.0.1:27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    # `service_healthy` y no `service_started`: Mongo acepta conexiones
+    # bastante después de que su contenedor arranque, y la API falla al
+    # iniciar si la base no responde todavía.
+    depends_on:
+      mongo:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    environment:
+      # Pisa lo que diga el .env: dentro de la red de compose la base de
+      # datos se llama `mongo`, no `localhost`.
+      MONGODB_URI: mongodb://mongo:27017/zipp
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: '3000'
+    ports:
+      - '3000:3000'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://127.0.0.1:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    # El apagado ordenado de `app.ts` cierra el servidor HTTP, espera a las
+    # peticiones en curso y desconecta Mongo. Con los 10 segundos por
+    # defecto, una petición lenta se cortaba a media escritura.
+    stop_grace_period: 30s
+
+volumes:
+  mongo-data:

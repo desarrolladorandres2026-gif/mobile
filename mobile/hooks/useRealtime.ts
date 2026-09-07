@@ -1,0 +1,217 @@
+import { useEffect, useState, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { socketService } from '../services/socket';
+import { useAuthStore } from '../stores/authStore';
+import { useMyOrders } from './useApi';
+import { ACTIVE_ORDER_STATUSES } from '../constants/config';
+
+/**
+ * Conexión en vivo con el servidor.
+ *
+ * Mantiene el socket abierto mientras la sesión esté activa y refresca los
+ * pedidos cuando el servidor avisa de un cambio. Devuelve si hay conexión,
+ * que es lo que alimenta la banda de "sin conexión": en una app donde el
+ * pedido cambia solo, saber que dejaste de recibir novedades importa tanto
+ * como las novedades.
+ */
+/** Margen antes de declarar la conexión caída, en milisegundos. */
+const OFFLINE_GRACE = 4000;
+
+export function useOrderRealtime() {
+  const queryClient = useQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const [connected, setConnected] = useState(true);
+  const graceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    socketService.connect();
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    const clearGrace = () => {
+      if (graceTimer.current) {
+        clearTimeout(graceTimer.current);
+        graceTimer.current = null;
+      }
+    };
+
+    const refresh = () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['order'] });
+    };
+
+    const onConnect = () => {
+      clearGrace();
+      setConnected(true);
+      refresh();
+    };
+
+    // Abrir la app siempre implica unos segundos de negociación, y una
+    // reconexión normal tarda un par más. Avisar de inmediato haría parpadear
+    // "sin conexión" en cada arranque, que es la forma más rápida de que la
+    // gente deje de creerle al aviso.
+    const onDisconnect = () => {
+      clearGrace();
+      graceTimer.current = setTimeout(() => setConnected(false), OFFLINE_GRACE);
+    };
+
+    if (!socket.connected) onDisconnect();
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onDisconnect);
+    socket.on('order:status:changed', refresh);
+
+    return () => {
+      clearGrace();
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onDisconnect);
+      socket.off('order:status:changed', refresh);
+    };
+  }, [isAuthenticated]);
+
+  return { connected };
+}
+
+/**
+ * Notificaciones en vivo durante toda la sesión.
+ *
+ * Escucha los eventos de socket que emite el backend al crear cualquier
+ * notificación y refresca la campana: la lista de avisos y el contador de
+ * no leídas se actualizan solos, sin pull-to-refresh. Es deliberadamente
+ * "silencioso" — no lanza toasts: los eventos de pedido ya se ven en la
+ * pantalla de seguimiento, y con la app cerrada el mismo aviso llega como
+ * push del sistema.
+ *
+ * Vive junto a `useOrderRealtime`, en un punto alto del árbol (el layout
+ * del cliente), no dentro de la pantalla de avisos.
+ */
+export function useNotificationsRealtime() {
+  const queryClient = useQueryClient();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    socketService.connect();
+
+    const onNew = () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    };
+    const onUnread = (data: { unreadCount: number }) => {
+      queryClient.setQueryData(['notifications', 'unread'], { unreadCount: data.unreadCount });
+    };
+
+    socketService.onNotificationNew(onNew);
+    socketService.onNotificationUnread(onUnread);
+
+    return () => {
+      socketService.offNotificationNew(onNew);
+      socketService.offNotificationUnread(onUnread);
+    };
+  }, [isAuthenticated]);
+}
+
+/**
+ * El pedido que todavía se está moviendo.
+ *
+ * Solo puede haber uno visible a la vez: si hay varios en curso se muestra el
+ * más reciente, que es del que el cliente está pendiente.
+ */
+export function useActiveOrder() {
+  const { data } = useMyOrders(1);
+  const orders: any[] = data?.orders ?? [];
+
+  const active = orders.filter((o) =>
+    (ACTIVE_ORDER_STATUSES as readonly string[]).includes(o.status)
+  );
+
+  if (active.length === 0) return null;
+
+  return active.reduce((newest, o) =>
+    new Date(o.createdAt) > new Date(newest.createdAt) ? o : newest
+  );
+}
+
+/**
+ * Tiempo real del traspaso del pedido: chat, llegadas y llamadas.
+ *
+ * Se une a la sala del pedido mientras la pantalla está montada — el
+ * servidor decide si el socket puede quedarse (ver `resolveOrderAccess`
+ * en `sockets/index.ts`), así que unirse no es más que pedirlo — y la
+ * abandona al salir. Es intencionalmente independiente de
+ * `useOrderRealtime`: aquella vive en toda la sesión y refresca las
+ * listas de pedidos; esta solo tiene sentido dentro de la pantalla de un
+ * pedido concreto.
+ *
+ * Expone la llamada entrante como estado local en vez de un evento
+ * disparado una sola vez: si la pantalla se vuelve a montar (navegación,
+ * cambio de pestaña) sin que la llamada se haya cerrado, sigue
+ * apareciendo — no se pierde por no haber estado escuchando el instante
+ * exacto en que llegó.
+ */
+export function useOrderFlowRealtime(orderId: string | undefined) {
+  const queryClient = useQueryClient();
+  const [incomingCall, setIncomingCall] = useState<any>(null);
+
+  useEffect(() => {
+    if (!orderId) return;
+
+    socketService.connect();
+    socketService.joinOrderRoom(orderId);
+
+    const refreshFlow = () => {
+      queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] });
+    };
+    const refreshChat = () => {
+      queryClient.invalidateQueries({ queryKey: ['orderChat', orderId] });
+      refreshFlow();
+    };
+    const onIncoming = (data: any) => {
+      if (data?.orderId === orderId) setIncomingCall(data.call);
+    };
+    const onCallSettled = (data: any) => {
+      if (data?.call?.orderId === orderId) {
+        setIncomingCall((current: any) => (current?.id === data.call.id ? null : current));
+      }
+      refreshFlow();
+    };
+
+    socketService.onDriverArrived(refreshFlow);
+    socketService.onChatMessage(refreshChat);
+    socketService.onChatRead(refreshChat);
+    socketService.onCallIncoming(onIncoming);
+    socketService.onCallAnswered(onCallSettled);
+    socketService.onCallEnded(onCallSettled);
+
+    return () => {
+      socketService.leaveOrderRoom(orderId);
+      socketService.offDriverArrived(refreshFlow);
+      socketService.offChatMessage(refreshChat);
+      socketService.offChatRead(refreshChat);
+      socketService.offCallIncoming(onIncoming);
+      socketService.offCallAnswered(onCallSettled);
+      socketService.offCallEnded(onCallSettled);
+    };
+  }, [orderId]);
+
+  return { incomingCall, clearIncomingCall: () => setIncomingCall(null) };
+}
+
+/** Avance del pedido de 0 a 1, para el trazo y la barra de progreso. */
+export function orderProgress(status: string): number {
+  const map: Record<string, number> = {
+    pending: 0.06,
+    accepted: 0.24,
+    preparing: 0.42,
+    ready: 0.6,
+    picked_up: 0.76,
+    on_way: 0.9,
+    delivered: 1,
+    cancelled: 0,
+  };
+  return map[status] ?? 0;
+}

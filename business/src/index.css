@@ -1,0 +1,274 @@
+@import "tailwindcss";
+
+/**
+ * Tailwind v4 activa `dark:` por `prefers-color-scheme` a menos que se
+ * redefina el variant. ThemeToggle/themeStore controlan el tema alternando
+ * la clase `.dark` en <html> (modo manual + "Automático"), así que `dark:`
+ * debe engancharse a esa clase y no solo al SO — si no, elegir "Modo claro"
+ * u "Oscuro" a mano no tiene efecto en ningún elemento que use `dark:`.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/**
+ * ZIPP Business — Zipp Design System "El Trazo"
+ *
+ * Las variables de color viven en /variables de color/colores.css (fuente
+ * única para admin, business y mobile). No dupliques valores hex aquí.
+ */
+@import "../../variables de color/colores.css";
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #F6F8FA;
+    color: #0B0F19;
+    min-height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  .dark body {
+    background-color: #080B11;
+    color: #F6F8FA;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.02em;
+    color: #0B0F19;
+  }
+
+  .dark h1,
+  .dark h2,
+  .dark h3,
+  .dark h4 {
+    color: #ffffff;
+  }
+
+  button:not(:disabled) {
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  button:not(:disabled):active {
+    transform: scale(0.98);
+  }
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #232E46;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #7C8BA1;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #2E3D5C;
+}
+
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #232E46;
+  border-radius: 4px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #2E3D5C;
+}
+
+/* ── Animations ── */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* KPI Numbers */
+.kpi-value {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: #0B0F19;
+}
+
+.dark .kpi-value {
+  color: #ffffff;
+}
+
+.tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tarjeta Zipp */
+.zipp-card {
+  background-color: #ffffff;
+  border-radius: 0.875rem;
+  border: 1px solid #E1E6ED;
+  box-shadow: 0 1px 3px 0 rgba(8, 11, 17, 0.04), 0 1px 2px -1px rgba(8, 11, 17, 0.02);
+  transition: all 0.2s ease-in-out;
+}
+
+.zipp-card:hover {
+  box-shadow: 0 4px 12px -2px rgba(8, 11, 17, 0.08), 0 2px 6px -2px rgba(8, 11, 17, 0.04);
+  border-color: #CBD5E1;
+}
+
+.dark .zipp-card {
+  background-color: #141B2A;
+  border-color: #232E46;
+  box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.5);
+}
+
+.dark .zipp-card:hover {
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.7);
+  border-color: #2E3D5C;
+}
+
+/* Sidebar Labels */
+.nav-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7184A8;
+  padding: 14px 16px 6px;
+}
+
+/* Layout Utilities */
+.page-container {
+  width: 100%;
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.page-header {
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .page-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.page-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0B0F19;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.dark .page-title {
+  color: #ffffff;
+}
+
+.page-subtitle {
+  font-size: 0.8125rem;
+  color: #475569;
+  margin-top: 0.25rem;
+}
+
+.dark .page-subtitle {
+  color: #7184A8;
+}
+
+/* Tablas Zipp */
+.table-container {
+  border: 1px solid #E1E6ED;
+  border-radius: 0.875rem;
+  overflow: hidden;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px 0 rgba(8, 11, 17, 0.03);
+}
+
+.dark .table-container {
+  background-color: #141B2A;
+  border-color: #232E46;
+  box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.5);
+}
+
+.table-header-cell {
+  padding: 0.875rem 1.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background-color: #F6F8FA;
+  border-bottom: 1px solid #E1E6ED;
+}
+
+.dark .table-header-cell {
+  background-color: #0E131E;
+  color: #7184A8;
+  border-bottom-color: #232E46;
+}
+
+.table-body-cell {
+  padding: 0.95rem 1.25rem;
+  font-size: 0.8125rem;
+  vertical-align: middle;
+  color: #0B0F19;
+  border-bottom: 1px solid #E1E6ED;
+}
+
+.dark .table-body-cell {
+  color: #A4B3CD;
+  border-bottom-color: #232E46;
+}
+
+/* Modal Zipp */
+.zipp-modal {
+  background: #ffffff;
+  border: 1px solid #E1E6ED;
+  box-shadow: 0 25px 50px -12px rgba(8, 11, 17, 0.12);
+}
+
+.dark .zipp-modal {
+  background: #141B2A;
+  border-color: #232E46;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
+}

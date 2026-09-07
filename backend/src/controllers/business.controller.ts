@@ -1,0 +1,167 @@
+import { Request, Response, NextFunction } from 'express';
+import { businessService, payoutService } from '../services';
+import { AppError } from '../middlewares';
+import { PayoutStatus } from '../types';
+import { sendResponse, param, query } from '../utils';
+
+export class BusinessController {
+  async create(req: Request, res: Response, next: NextFunction) {
+    try {
+      // An admin may register a business on an owner's behalf; a merchant is
+      // always the owner of what it creates, whatever the payload claims.
+      const isAdmin = req.user?.role === 'admin';
+      const ownerId =
+        isAdmin && req.body.ownerId ? req.body.ownerId : req.user!._id.toString();
+
+      const business = await businessService.create({ ...req.body, ownerId });
+      sendResponse(res, 201, 'Negocio creado exitosamente', business);
+    } catch (error) { next(error); }
+  }
+
+  async getAll(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await businessService.getAll({
+        city: query(req, 'city'),
+        category: query(req, 'category'),
+        featured: query(req, 'featured') === 'true',
+        search: query(req, 'search'),
+        lat: query(req, 'lat') ? Number(query(req, 'lat')) : undefined,
+        lng: query(req, 'lng') ? Number(query(req, 'lng')) : undefined,
+        maxDistance: query(req, 'maxDistance') ? Number(query(req, 'maxDistance')) : undefined,
+        page: Number(query(req, 'page')) || 1,
+        limit: Number(query(req, 'limit')) || 20,
+        includeInactive: query(req, 'includeInactive') === 'true' || query(req, 'all') === 'true' || req.user?.role === 'admin',
+      });
+      sendResponse(res, 200, 'Negocios obtenidos', result.businesses, result.meta);
+    } catch (error) { next(error); }
+  }
+
+  async getById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const business = await businessService.getById(param(req, 'id'));
+      sendResponse(res, 200, 'Negocio obtenido', business);
+    } catch (error) { next(error); }
+  }
+
+  async getBySlug(req: Request, res: Response, next: NextFunction) {
+    try {
+      const business = await businessService.getBySlug(param(req, 'slug'));
+      sendResponse(res, 200, 'Negocio obtenido', business);
+    } catch (error) { next(error); }
+  }
+
+  async update(req: Request, res: Response, next: NextFunction) {
+    try {
+      const isAdmin = req.user?.role === 'admin';
+      const business = await businessService.update(param(req, 'id'), req.user!._id.toString(), req.body, isAdmin);
+      sendResponse(res, 200, 'Negocio actualizado', business);
+    } catch (error) { next(error); }
+  }
+  async delete(req: Request, res: Response, next: NextFunction) {
+    try {
+      const isAdmin = req.user?.role === 'admin';
+      await businessService.delete(param(req, 'id'), req.user!._id.toString(), isAdmin);
+      sendResponse(res, 200, 'Negocio eliminado exitosamente');
+    } catch (error) { next(error); }
+  }
+
+  async getMyBusinesses(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businesses = await businessService.getByOwner(req.user!._id.toString());
+      sendResponse(res, 200, 'Mis negocios', businesses);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Comprueba que quien pregunta puede leer las cuentas de este comercio.
+   *
+   * Un comercio solo lee lo suyo; administración lee cualquiera, que es lo
+   * que usa la trastienda. Está extraído en vez de repetido porque la
+   * comprobación de propiedad es justo el tipo de cosa que se copia mal la
+   * tercera vez que se escribe.
+   */
+  private async assertCanReadFinance(req: Request, businessId: string) {
+    const business = await businessService.getById(businessId);
+    const isAdmin = req.user?.role === 'admin';
+    if (!isAdmin && business.ownerId.toString() !== req.user!._id.toString()) {
+      throw new AppError('No autorizado', 403);
+    }
+    return business;
+  }
+
+  /**
+   * El extracto de liquidación del comercio: lo que se le debe, de qué
+   * semana viene y qué se le ha liquidado ya.
+   *
+   * Absorbe al antiguo `/payouts`, que devolvía este mismo resumen sin el
+   * desglose semanal ni la próxima liquidación. Dos endpoints contando el
+   * mismo dinero es la forma habitual de que un día cuenten distinto.
+   *
+   * Sustituye además a la suma que el panel hacía en el navegador, y la
+   * diferencia no es de estilo: el listado de pedidos viene paginado, así
+   * que sumar en el cliente significaba enseñar como "ganancia neta" la
+   * suma de los pedidos que cupieron en la primera página.
+   */
+  async getStatement(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      await this.assertCanReadFinance(req, businessId);
+
+      const statement = await payoutService.merchantStatement({
+        businessId,
+        weeks: Number(query(req, 'weeks')) || undefined,
+      });
+
+      sendResponse(res, 200, 'Extracto del comercio', statement);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Las ventas que componen una liquidación, o las que entrarán en la
+   * próxima.
+   *
+   * Es el enlace que faltaba en las dos direcciones: desde una venta se
+   * llega a la liquidación que la pagó (`settlementId` en cada fila) y
+   * desde una liquidación se llega a sus ventas (`?settlementId=`).
+   */
+  async getStatementLines(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      await this.assertCanReadFinance(req, businessId);
+
+      const rawStatus = query(req, 'status');
+      const statuses = rawStatus
+        ? rawStatus
+            .split(',')
+            .map((value) => value.trim())
+            .filter((value): value is PayoutStatus =>
+              Object.values(PayoutStatus).includes(value as PayoutStatus)
+            )
+        : undefined;
+
+      const parseDate = (value?: string) => {
+        if (!value) return undefined;
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? undefined : date;
+      };
+
+      const result = await payoutService.merchantStatementLines({
+        businessId,
+        orderId: query(req, 'orderId'),
+        settlementId: query(req, 'settlementId'),
+        statuses,
+        from: parseDate(query(req, 'from')),
+        to: parseDate(query(req, 'to')),
+        page: Number(query(req, 'page')) || 1,
+        limit: Number(query(req, 'limit')) || 50,
+      });
+
+      sendResponse(res, 200, 'Ventas del extracto', result.lines, {
+        ...result.meta,
+        totals: result.totals,
+      });
+    } catch (error) { next(error); }
+  }
+}
+
+export const businessController = new BusinessController();
