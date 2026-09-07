@@ -395,22 +395,6 @@ export const couponsApi = {
 };
 
 export const notificationsApi = {
-  getAll: (page = 1, limit = 30) =>
-    api.get('/notifications', { params: { page, limit } }).then((r) => r.data.data),
-
-  getUnreadCount: () =>
-    api.get('/notifications/unread-count').then((r) => r.data.data),
-
-  markAsRead: (id: string) =>
-    api.patch(`/notifications/${id}/read`).then((r) => r.data.data),
-
-  markAllAsRead: () =>
-    api.patch('/notifications/read-all').then((r) => r.data.data),
-
-  remove: (id: string) =>
-    api.delete(`/notifications/${id}`).then((r) => r.data.data),
-
-  // ── Push ──
   registerDevice: (token: string, platform: string) =>
     api.post('/notifications/devices', { token, platform }).then((r) => r.data.data),
 

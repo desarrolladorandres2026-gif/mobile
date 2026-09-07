@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
-import { useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useAuthStore } from '../stores/authStore';
@@ -33,13 +32,12 @@ export async function unregisterPush(): Promise<void> {
  *
  *  - Al autenticarse: pide permiso (si hace falta), obtiene el Expo push
  *    token y lo registra en el backend.
- *  - App en primer plano: cuando entra una push, refresca la campana.
- *  - Al tocar una push: navega al pedido si el `data` la trae, o a la
- *    lista de avisos.
+ *  - Al tocar una push de un pedido: navega directo a su seguimiento. El
+ *    resto (promos, etc.) se queda como notificación normal del sistema,
+ *    sin pantalla propia dentro de la app.
  */
 export function usePushNotifications() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const registered = useRef(false);
 
@@ -72,14 +70,8 @@ export function usePushNotifications() {
     const openFromData = (data: any) => {
       const orderId = data?.orderId ?? data?.order?._id;
       if (orderId) router.push(`/(client)/order-tracking?orderId=${orderId}`);
-      else router.push('/(client)/notifications');
     };
 
-    return addPushListeners({
-      onReceived: () => {
-        queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      },
-      onOpen: openFromData,
-    });
+    return addPushListeners({ onOpen: openFromData });
   }, []);
 }

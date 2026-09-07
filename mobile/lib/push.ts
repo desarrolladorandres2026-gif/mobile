@@ -144,7 +144,7 @@ export const pushPlatform = (): string => Platform.OS;
 /** Handlers para las push que llegan con la app abierta o al tocarlas. */
 export type PushListeners = {
   /** Una push entró con la app en primer plano. */
-  onReceived: () => void;
+  onReceived?: () => void;
   /** El usuario tocó una push; `data` es el `content.data` del mensaje. */
   onOpen: (data: unknown) => void;
 };
@@ -158,7 +158,7 @@ export function addPushListeners({ onReceived, onOpen }: PushListeners): () => v
   const N = getNotifications();
   if (!N) return () => {};
 
-  const received = N.addNotificationReceivedListener(() => onReceived());
+  const received = N.addNotificationReceivedListener(() => onReceived?.());
   const responded = N.addNotificationResponseReceivedListener((response) => {
     onOpen(response.notification.request.content.data);
   });

@@ -97,7 +97,11 @@ export function AdSplash({ ad, onDone }: AdSplashProps) {
         <Image
           source={{ uri: ad.flyerUrl }}
           style={StyleSheet.absoluteFillObject}
-          contentFit="contain"
+          // Regla de flyers: siempre a pantalla completa, sin deformar y sin
+          // márgenes. `cover` (igual que object-fit: cover en la web) escala
+          // manteniendo proporción y recorta solo el sobrante de los bordes
+          // — nunca estira la imagen ni dibuja un fondo alrededor.
+          contentFit="cover"
           transition={200}
         />
       </Pressable>

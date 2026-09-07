@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Megaphone, Plus, Search, X, AlertCircle, Trash2, Pencil, Eye,
+  Megaphone, Plus, Search, X, AlertCircle, AlertTriangle, Trash2, Pencil, Eye,
   ToggleLeft, ToggleRight, ImagePlus, Store, Ban, MousePointerClick,
   XOctagon, BarChart3, Clock, Wallet,
 } from 'lucide-react';
@@ -54,6 +54,42 @@ interface AdStats {
   todayClicks: number;
 }
 
+// Regla visual de flyers: la app siempre los pinta a pantalla completa en
+// 9:16 con recorte proporcional de bordes (nunca deformación). El tamaño
+// recomendado es 1080×1920 — cualquier imagen fuera de esa relación se
+// acepta igual, solo se advierte que perderá algo de borde al recortarse.
+const FLYER_RATIO = { w: 1080, h: 1920 } as const;
+const FLYER_ASPECT = FLYER_RATIO.w / FLYER_RATIO.h;
+const FLYER_ASPECT_TOLERANCE = 0.03;
+
+function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('No se pudo leer la imagen'));
+    };
+    img.src = url;
+  });
+}
+
+/** `null` cuando la imagen ya cumple la regla — nada que advertir. */
+function checkFlyerAspect(width: number, height: number): string | null {
+  if (height <= width) {
+    return `La imagen es horizontal (${width}×${height}). Los flyers deben ser verticales — se mostrarán recortados a pantalla completa.`;
+  }
+  const ratio = width / height;
+  if (Math.abs(ratio - FLYER_ASPECT) > FLYER_ASPECT_TOLERANCE) {
+    return `La imagen es ${width}×${height}, no 9:16. Al mostrarse a pantalla completa se recortará el sobrante de los bordes — recomendado ${FLYER_RATIO.w}×${FLYER_RATIO.h} px.`;
+  }
+  return null;
+}
+
 const toDatetimeLocal = (iso: string) => {
   const d = new Date(iso);
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -101,6 +137,7 @@ export default function Campaigns() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<CampaignForm>(emptyForm());
   const [uploading, setUploading] = useState(false);
+  const [aspectWarning, setAspectWarning] = useState('');
   const [previewCampaign, setPreviewCampaign] = useState<Campaign | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Campaign | null>(null);
   const [confirmCancel, setConfirmCancel] = useState<Campaign | null>(null);
@@ -151,11 +188,13 @@ export default function Campaigns() {
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyForm());
+    setAspectWarning('');
     setShowModal(true);
   };
 
   const openEdit = (c: Campaign) => {
     setEditingId(c._id);
+    setAspectWarning('');
     setForm({
       campaignName: c.campaignName,
       advertiserName: c.advertiserName,
@@ -179,7 +218,18 @@ export default function Campaigns() {
     if (!file) return;
     setUploading(true);
     setError('');
+    setAspectWarning('');
     try {
+      // Se lee el archivo elegido, antes de subirlo, para poder advertir de
+      // inmediato — no depende de que el backend devuelva las dimensiones.
+      try {
+        const { width, height } = await readImageDimensions(file);
+        setAspectWarning(checkFlyerAspect(width, height) || '');
+      } catch {
+        // Si el navegador no puede leer las dimensiones, se sigue con la
+        // subida igual: la validación de formato real corre en el backend.
+      }
+
       const fd = new FormData();
       fd.append('flyer', file);
       const { data } = await api.post('/advertisements/upload', fd, {
@@ -530,7 +580,17 @@ export default function Campaigns() {
               <X className="w-6 h-6" />
             </button>
             <div className="rounded-2xl overflow-hidden bg-[var(--color-surface)] shadow-xl">
-              <img src={previewCampaign.flyerUrl} alt={previewCampaign.campaignName} className="w-full object-cover" />
+              {/* Misma composición que la app: pantalla completa 9:16 con recorte
+                  proporcional (cover), nunca deformado. El recuadro punteado es la
+                  zona segura — ahí deben quedar título, precio y logo. */}
+              <div className="relative w-full" style={{ aspectRatio: `${FLYER_RATIO.w} / ${FLYER_RATIO.h}` }}>
+                <img
+                  src={previewCampaign.flyerUrl}
+                  alt={previewCampaign.campaignName}
+                  className="absolute inset-0 w-full h-full object-cover"
+                />
+                <div className="absolute inset-x-6 inset-y-10 border-2 border-dashed border-white/70 rounded-lg pointer-events-none" />
+              </div>
               <div className="p-4">
                 <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">Publicidad</span>
                 <h3 className="text-sm font-bold text-[var(--color-text-main)] mt-0.5">{previewCampaign.campaignName}</h3>
@@ -557,12 +617,21 @@ export default function Campaigns() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className={labelClass}>Flyer Publicitario</label>
+                <p className="text-[11px] text-[var(--color-text-secondary)] mb-2">
+                  Vertical 9:16 · recomendado {FLYER_RATIO.w}×{FLYER_RATIO.h} px. Se muestra a pantalla
+                  completa; el sobrante de los bordes se recorta, la imagen nunca se deforma.
+                </p>
                 {form.flyerUrl ? (
-                  <div className="relative rounded-xl overflow-hidden border border-[var(--color-border)] group">
-                    <img src={form.flyerUrl} alt="Flyer" className="w-full h-40 object-cover" />
+                  <div
+                    className="relative mx-auto w-36 rounded-xl overflow-hidden border border-[var(--color-border)] group"
+                    style={{ aspectRatio: `${FLYER_RATIO.w} / ${FLYER_RATIO.h}` }}
+                  >
+                    <img src={form.flyerUrl} alt="Flyer" className="absolute inset-0 w-full h-full object-cover" />
+                    {/* Zona segura: título, precio y logo deben quedar dentro de este recuadro. */}
+                    <div className="absolute inset-x-2.5 inset-y-4 border-2 border-dashed border-white/70 rounded-md pointer-events-none" />
                     <label
                       htmlFor="flyer-upload"
-                      className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer text-white text-xs font-bold"
+                      className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer text-white text-xs font-bold text-center px-2"
                     >
                       Cambiar imagen
                     </label>
@@ -577,6 +646,12 @@ export default function Campaigns() {
                   </label>
                 )}
                 <input id="flyer-upload" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} className="hidden" disabled={uploading} />
+                {aspectWarning && (
+                  <div className="mt-2 flex items-start gap-2 text-[11px] font-medium text-[var(--color-warning)] bg-[var(--color-warning-bg)] border border-[var(--color-warning)]/30 rounded-lg p-2.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>{aspectWarning} Puedes continuar y usarla igual.</span>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

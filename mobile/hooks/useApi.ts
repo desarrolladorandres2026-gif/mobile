@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, notificationsApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi } from '../services/endpoints';
+import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi } from '../services/endpoints';
 import type { PromoBanner, HomeCategory } from '../services/endpoints';
 
 // ── Businesses ──
@@ -373,39 +373,6 @@ export const useCoverageCheck = (lat?: number, lng?: number, businessId?: string
     queryFn: () => zonesApi.checkCoverage(lat!, lng!, businessId),
     enabled: typeof lat === 'number' && typeof lng === 'number',
   });
-
-// ── Notifications ──
-export const useNotifications = () =>
-  useQuery({ queryKey: ['notifications'], queryFn: () => notificationsApi.getAll() });
-
-/**
- * Contador de no leídas para el punto rojo de la campana. Se mantiene al
- * día por socket (`useNotificationsRealtime`), así que un intervalo largo
- * basta como red de seguridad si el socket estuvo caído.
- */
-export const useUnreadCount = () =>
-  useQuery({
-    queryKey: ['notifications', 'unread'],
-    queryFn: () => notificationsApi.getUnreadCount(),
-    refetchInterval: 5 * 60_000,
-    select: (d: any) => d?.unreadCount ?? 0,
-  });
-
-export const useMarkAllRead = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: notificationsApi.markAllAsRead,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['notifications'] }); },
-  });
-};
-
-export const useMarkRead = () => {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: notificationsApi.markAsRead,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['notifications'] }); },
-  });
-};
 
 // ── Addresses ──
 export const useAddresses = () =>

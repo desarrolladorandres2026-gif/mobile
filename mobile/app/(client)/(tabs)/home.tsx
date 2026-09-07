@@ -72,50 +72,30 @@ export default function HomeScreen() {
           />
         }
       >
-        {/* ── Cabecera ── */}
+        {/* ── Cabecera: saludo + dirección en una sola línea ── */}
         <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Text v="bodyS" tone="textMuted">{greeting()},</Text>
-            <Text v="displayM" numberOfLines={1}>
-              {firstName(user?.name) || 'qué más'}
-            </Text>
-          </View>
-
           <Pressable
-            onPress={() => { tap('light'); router.push('/(client)/notifications'); }}
+            onPress={() => { tap('light'); router.push('/(client)/addresses'); }}
             accessibilityRole="button"
-            accessibilityLabel="Avisos"
-            hitSlop={8}
-            style={[styles.bell, { backgroundColor: c.surface, borderColor: c.border }]}
+            accessibilityLabel={
+              defaultAddress
+                ? `${greeting()}, ${firstName(user?.name) || 'qué más'}. Entregar en ${defaultAddress.label}, ${defaultAddress.address}. Toca para cambiar`
+                : `${greeting()}, ${firstName(user?.name) || 'qué más'}. Toca para agregar una dirección de entrega`
+            }
+            style={styles.greetingRow}
           >
-            <Icon name="notificaciones" size="md" color={c.text} />
+            <Icon name="ubicacion" size="sm" color={c.textMuted} />
+            <Text v="bodyM" numberOfLines={1} style={styles.flex}>
+              <Text v="bodyM" tone="textMuted">{greeting()}, </Text>
+              <Text v="titleS">{firstName(user?.name) || 'qué más'}</Text>
+              <Text v="bodyM" tone="textMuted"> · Entregar en </Text>
+              <Text v="strongM">
+                {defaultAddress ? defaultAddress.label : 'agrega tu dirección'}
+              </Text>
+            </Text>
+            <Icon name="desplegar" size="sm" color={c.textMuted} />
           </Pressable>
         </View>
-
-        {/* ── Dónde entregamos ── */}
-        <Pressable
-          onPress={() => { tap('light'); router.push('/(client)/addresses'); }}
-          accessibilityRole="button"
-          accessibilityLabel={
-            defaultAddress
-              ? `Entregar en ${defaultAddress.label}, ${defaultAddress.address}. Toca para cambiar`
-              : 'Agregar una dirección de entrega'
-          }
-          style={[styles.address, { backgroundColor: c.surface, borderColor: c.border }]}
-        >
-          <View style={[styles.addressIcon, { backgroundColor: c.primarySoft }]}>
-            <Icon name="ubicacion" size="sm" color={c.primaryText} />
-          </View>
-          <View style={styles.addressBody}>
-            <Text v="caption" tone="textMuted">ENTREGAR EN</Text>
-            <Text v="strongS" numberOfLines={1}>
-              {defaultAddress
-                ? `${defaultAddress.label} · ${defaultAddress.address}`
-                : 'Agrega tu dirección'}
-            </Text>
-          </View>
-          <Icon name="desplegar" size="sm" color={c.textMuted} />
-        </Pressable>
 
         {/* ── Buscar ── */}
         <Pressable
@@ -360,34 +340,18 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.md,
     gap: Spacing.md,
   },
-  headerLeft: { flex: 1, gap: 1 },
-  bell: {
-    width: 42, height: 42, borderRadius: 21,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
-  },
-
-  address: {
+  greetingRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.md,
-    marginHorizontal: Spacing.xl,
-    marginTop: Spacing.lg,
-    padding: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
+    gap: Spacing.xs,
   },
-  addressIcon: {
-    width: 34, height: 34, borderRadius: BorderRadius.sm,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  addressBody: { flex: 1, gap: 1 },
-
   searchStub: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
     marginHorizontal: Spacing.xl,
-    marginTop: Spacing.md,
+    marginTop: Spacing.lg,
     paddingHorizontal: Spacing.lg,
     height: 54,
     borderRadius: BorderRadius.full,

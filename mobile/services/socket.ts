@@ -190,25 +190,6 @@ class SocketService {
     this.socket?.off('call:peer:joined', callback);
   }
 
-  // ── Notificaciones ──
-  //
-  // `notification:new` llega con la app abierta: la campana y la lista de
-  // avisos se refrescan sin que el usuario haga pull-to-refresh. Con la app
-  // cerrada, el mismo aviso llega como push del sistema (ver lib/push.ts).
-  onNotificationNew(callback: (data: any) => void) {
-    this.socket?.on('notification:new', callback);
-  }
-  offNotificationNew(callback: (data: any) => void) {
-    this.socket?.off('notification:new', callback);
-  }
-
-  onNotificationUnread(callback: (data: { unreadCount: number }) => void) {
-    this.socket?.on('notification:unread', callback);
-  }
-  offNotificationUnread(callback: (data: { unreadCount: number }) => void) {
-    this.socket?.off('notification:unread', callback);
-  }
-
   // ── Seguimiento GPS ──
   //
   // El servidor filtra: descarta lo impreciso, lo demasiado frecuente y lo

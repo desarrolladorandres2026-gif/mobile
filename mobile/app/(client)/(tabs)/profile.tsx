@@ -16,7 +16,7 @@ import { useCartStore } from '../../../stores/cartStore';
 import { useFavoritesStore } from '../../../stores/favoritesStore';
 import { useThemeStore } from '../../../stores/themeStore';
 import { usePrefsStore } from '../../../stores/prefsStore';
-import { useAddresses, useUnreadCount } from '../../../hooks/useApi';
+import { useAddresses } from '../../../hooks/useApi';
 import { useZippStats } from '../../../hooks/useUsual';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
@@ -54,7 +54,6 @@ export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
 
   const { data: addresses = [] } = useAddresses();
-  const { data: unreadCount = 0 } = useUnreadCount();
   const favorites = useFavoritesStore((s) => s.favorites);
   const clearCart = useCartStore((s) => s.clearCart);
   const stats = useZippStats();
@@ -96,13 +95,6 @@ export default function ProfileScreen() {
       label: 'Negocios favoritos',
       detail: `${favorites.length} guardado${favorites.length === 1 ? '' : 's'}`,
       route: '/(client)/favorites',
-    },
-    {
-      illustration: 'notificaciones',
-      label: 'Avisos y notificaciones',
-      detail: unreadCount > 0 ? `${unreadCount} sin leer` : undefined,
-      badge: unreadCount > 0 ? `${unreadCount}` : undefined,
-      route: '/(client)/notifications',
     },
   ];
 

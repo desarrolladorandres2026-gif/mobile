@@ -214,10 +214,15 @@ export class AdvertisementService {
    * Sube el flyer de una campaña. Las dimensiones se comprueban sobre la
    * cabecera del binario, antes de subir nada — mismo criterio que las
    * imágenes de producto, reutilizando su lector de cabeceras en vez de
-   * duplicarlo. A diferencia del catálogo, el flyer no se recorta a
-   * cuadrado: se muestra completo con `contain` en distintas relaciones de
-   * aspecto, así que aquí solo se valida que sea una imagen real, de un
-   * tamaño razonable y no demasiado pequeña.
+   * duplicarlo.
+   *
+   * Regla de flyers: la app siempre los pinta a pantalla completa en 9:16
+   * con `cover` (recorte proporcional de bordes, nunca deformación), así
+   * que aquí solo se valida que sea una imagen real, de un tamaño razonable
+   * y no demasiado pequeña — la relación de aspecto recomendada (1080×1920)
+   * se advierte en el panel al elegir el archivo, no se fuerza aquí: un
+   * admin puede seguir usando una imagen fuera de 9:16 a sabiendas de que
+   * se recortará en el dispositivo.
    */
   async uploadFlyer(buffer: Buffer, declaredMime: string): Promise<string> {
     this.inspectFlyer(buffer, declaredMime);

@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#141A2E"
+        "backgroundColor": "#BA954F"
       },
       "package": "com.zipp.app",
       "config": {

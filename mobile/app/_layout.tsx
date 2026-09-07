@@ -17,7 +17,6 @@ import {
 import { useAuthStore } from '../stores/authStore';
 import { useTheme } from '../hooks/useTheme';
 import { usePushNotifications } from '../hooks/usePushNotifications';
-import { useNotificationsRealtime } from '../hooks/useRealtime';
 import { useSessionGuard } from '../hooks/useSessionGuard';
 import { ZippSplashLoader } from '../components/brand/ZippSplashLoader';
 import { registerServiceWorker } from '../lib/pwa';
@@ -50,9 +49,8 @@ function RootLayoutContent() {
   const { isLoading, loadStoredAuth } = useAuthStore();
   const { c, isDark } = useTheme();
 
-  // Notificaciones: push del sistema (app cerrada) + campana en vivo (app abierta).
+  // Notificaciones del sistema: llegan como push normal, con la app cerrada o abierta.
   usePushNotifications();
-  useNotificationsRealtime();
 
   // Si la sesión muere estando dentro de la app, devuelve al login en vez
   // de dejar la pantalla montada reintentando peticiones que ya no pueden
