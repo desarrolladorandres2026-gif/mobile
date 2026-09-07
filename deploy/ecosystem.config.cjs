@@ -13,11 +13,17 @@
 // El .env lo lee la propia app con dotenv desde `cwd`, no PM2. Aquí solo
 // forzamos NODE_ENV por si el .env se quedara sin él.
 
+const path = require('path');
+
 module.exports = {
   apps: [
     {
       name: 'zipp-api',
-      cwd: '/var/www/zipp/backend',
+      // Derivada de dónde vive este archivo, no escrita a mano: el mismo
+      // config sirve en /var/www/zipp y en un árbol de staging como
+      // /var/www/zipp-next. Una ruta fija obligaría a editar el archivo
+      // justo durante el cambio, que es el peor momento para tocarlo.
+      cwd: path.join(__dirname, '..', 'backend'),
       script: 'dist/app.js',
       exec_mode: 'fork',
       instances: 1,
