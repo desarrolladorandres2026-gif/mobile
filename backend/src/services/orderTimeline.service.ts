@@ -32,6 +32,7 @@ const LABELS: Record<string, string> = {
   [OrderTimelineAction.PREPARING]: 'En preparación',
   [OrderTimelineAction.READY]: 'Listo para recoger',
   [OrderTimelineAction.DRIVER_ASSIGNED]: 'Domiciliario asignado',
+  [OrderTimelineAction.DRIVER_UNASSIGNED]: 'Domiciliario liberado del pedido',
   [OrderTimelineAction.ARRIVED_PICKUP]: 'El domiciliario llegó al comercio',
   [OrderTimelineAction.EVIDENCE_PICKUP]: 'Evidencia de recogida registrada',
   [OrderTimelineAction.CODE_VERIFIED_PICKUP]: 'Código de recogida validado',

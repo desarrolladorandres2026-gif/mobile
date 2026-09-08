@@ -24,6 +24,28 @@ export interface Business {
   minOrder?: number;
   isFeatured?: boolean;
   schedule?: Record<string, { open?: string; close?: string; isOpen?: boolean }>;
+  /**
+   * Distancia en línea recta hasta el cliente, en metros.
+   *
+   * Solo llega cuando la consulta se hizo con coordenadas. Se muestra
+   * porque entre dos sitios parecidos la distancia es lo que decide, y
+   * hasta ahora la lista enseñaba minutos estimados sin decir de dónde
+   * salían.
+   */
+  distanceMeters?: number;
+}
+
+/** La distancia como la diría una persona, no como la calcula un mapa. */
+export function formatDistance(meters: number | undefined): string | null {
+  if (typeof meters !== 'number' || !Number.isFinite(meters)) return null;
+
+  // Por debajo de un kilómetro, los metros son más útiles y más honestos:
+  // "0,4 km" se lee peor que "400 m" y aparenta una precisión que el GPS
+  // de un teléfono no tiene.
+  if (meters < 1000) return `${Math.round(meters / 50) * 50} m`;
+
+  const km = meters / 1000;
+  return `${km < 10 ? km.toFixed(1) : Math.round(km)} km`;
 }
 
 /**
@@ -106,6 +128,9 @@ export const BusinessRow = memo(function BusinessRow({
               tone: 'text',
             },
             { icon: 'minutos', text: minutes(business.deliveryTime) },
+            ...(formatDistance(business.distanceMeters)
+              ? [{ icon: 'navegar' as const, text: formatDistance(business.distanceMeters)! }]
+              : []),
             ...(business.minOrder
               ? [{ text: `Mín. $${business.minOrder / 1000}k` }]
               : []),

@@ -29,6 +29,24 @@ const orderItemSchema = z.object({
 const moneyExtras = {
   couponCode: z.string().trim().max(24).optional(),
   tip: z.number().min(0).optional(),
+
+  /**
+   * Para quién es el pedido, si no es para quien lo paga.
+   *
+   * El teléfono es obligatorio junto con el nombre: sin él, el
+   * domiciliario llamaría a quien pagó —que puede estar en otra ciudad— y
+   * el pedido se quedaría en la puerta.
+   */
+  recipient: z
+    .object({
+      name: z.string().trim().min(2).max(80),
+      phone: z.string().trim().min(7).max(20),
+      note: z.string().trim().max(200).optional(),
+    })
+    .optional(),
+
+  /** Cuándo debe llegar. El servidor valida el margen contra su propio reloj. */
+  scheduledFor: z.coerce.date().optional(),
 };
 
 export const createOrderSchema = z.object({
@@ -100,6 +118,28 @@ export const updateOrderStatusSchema = z.object({
   body: z.object({
     status: z.enum(['accepted', 'preparing', 'ready', 'picked_up', 'on_way', 'delivered', 'cancelled']),
     cancellationReason: z.string().max(200).optional(),
+    /**
+     * Motivo del catálogo cerrado. Es lo que permite responder si se
+     * cancela por falta de repartidores o porque los negocios no dan
+     * abasto — un texto libre no se puede contar.
+     */
+    cancellationCode: z
+      .enum([
+        'client_changed_mind',
+        'client_ordered_by_mistake',
+        'client_too_slow',
+        'client_wrong_address',
+        'business_out_of_stock',
+        'business_closed',
+        'business_too_busy',
+        'no_driver_available',
+        'driver_incident',
+        'client_unreachable',
+        'payment_failed',
+        'suspected_fraud',
+        'other',
+      ])
+      .optional(),
   }),
   query: z.object({}).optional(),
   params: z.object({ id: z.string() }),

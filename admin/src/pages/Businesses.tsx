@@ -122,9 +122,13 @@ export default function Businesses() {
         deliveryTime: Number(form.deliveryTime),
       });
 
+      // Se fija la comisión, pero NO se aprueba: el alta y la aprobación son
+      // dos actos distintos. Aprobar es dar por buenos los papeles de alguien
+      // a quien se le va a transferir dinero, y hasta ahora ocurría solo
+      // porque este formulario mandaba `isApproved: true` fijo. La aprobación
+      // vive ahora en Verificación de Comercios, con los documentos delante.
       await api.patch(`/finance/businesses/${data.data._id}/terms`, {
         commissionRateBps: Math.round(Number(form.commissionRate) * 10000),
-        isApproved: true,
       });
 
       setShowModal(false);

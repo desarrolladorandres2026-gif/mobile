@@ -9,7 +9,10 @@ import {
 } from '../../../components/ui';
 import { BusinessRow, type Business } from '../../../components/domain/BusinessCard';
 import { CategoryTile } from '../../../components/domain/CategoryTile';
-import { useBusinesses } from '../../../hooks/useApi';
+import { useBusinesses, useSearch, usePopularSearches, useDeliveryCoords } from '../../../hooks/useApi';
+import type { ProductSearchHit } from '../../../services/endpoints';
+import { productImageUri } from '../../../lib/productImage';
+import { Image } from 'expo-image';
 import { useHomeCategories, type DisplayCategory } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
@@ -20,7 +23,10 @@ import { openState } from '../../../lib/business';
 import { tap } from '../../../lib/haptics';
 
 
-const POPULAR_SEARCHES = [
+// Red de seguridad: el servidor ya devuelve las categorías reales del
+// catálogo en `/search/popular`, pero si esa consulta falla, una lista vacía
+// dejaría la pantalla de descubrimiento en blanco.
+const FALLBACK_SEARCHES = [
   'Hamburguesas', 'Pizza', 'Salchipapas', 'Café',
   'Pollo Broaster', 'Droguería', 'Desayunos', 'Helados',
 ];
@@ -68,10 +74,32 @@ export default function SearchScreen() {
     }
   }, [debouncedQuery, addRecentSearch]);
 
-  const { data = [], isLoading, isError, refetch } = useBusinesses({
-    search: debouncedQuery.trim() || undefined,
+  const term = debouncedQuery.trim();
+  const hasTerm = term.length >= 2;
+
+  // Dos fuentes según lo que esté haciendo el usuario. Con término escrito
+  // manda la búsqueda de catálogo, que también encuentra platos; navegando
+  // por categorías manda el listado de negocios de siempre, que es el que
+  // sabe filtrar por categoría.
+  // Las tendencias salen de las categorías reales del catálogo. Antes era
+  // una lista escrita a mano que podía anunciar cosas que nadie vende.
+  const { data: serverPopular } = usePopularSearches();
+  const popularTerms = serverPopular?.length ? serverPopular : FALLBACK_SEARCHES;
+
+  const catalog = useSearch(term);
+  const coords = useDeliveryCoords();
+  const listing = useBusinesses({
     category: category || undefined,
+    ...(coords ?? {}),
   }) as { data: Business[]; isLoading: boolean; isError: boolean; refetch: () => void };
+
+  const data: Business[] = hasTerm
+    ? ((catalog.data?.businesses ?? []) as Business[])
+    : listing.data;
+  const products: ProductSearchHit[] = hasTerm ? catalog.data?.products ?? [] : [];
+  const isLoading = hasTerm ? catalog.isLoading : listing.isLoading;
+  const isError = hasTerm ? catalog.isError : listing.isError;
+  const refetch = hasTerm ? catalog.refetch : listing.refetch;
 
   const results = useMemo(() => {
     const list = openOnly ? data.filter((b) => openState(b.schedule).open) : data;
@@ -177,8 +205,40 @@ export default function SearchScreen() {
               onPress={() => router.push(`/(client)/business/${item._id}`)}
             />
           )}
+          ListHeaderComponent={
+            products.length ? (
+              <View style={styles.productsBlock}>
+                <View style={styles.sectionTitleRow}>
+                  <Icon name="bolsa" size="sm" color={c.primary} />
+                  <Text v="strongS">Platos y productos</Text>
+                </View>
+
+                {products.map((product) => (
+                  <ProductHit
+                    key={product._id}
+                    product={product}
+                    onPress={() => {
+                      tap('select');
+                      // Se navega al negocio, no a una ficha suelta: para
+                      // pedir un plato hay que entrar en su carta de todas
+                      // formas, y saltarse ese paso deja el carrito sin
+                      // saber a qué local pertenece.
+                      router.push(`/(client)/business/${product.businessId}`);
+                    }}
+                  />
+                ))}
+
+                {data.length ? (
+                  <View style={styles.sectionTitleRow}>
+                    <Icon name="negocio" size="sm" color={c.primary} />
+                    <Text v="strongS">Negocios</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
-            searching ? (
+            products.length ? null : searching ? (
               <EmptyState
                 icon="explorar"
                 title="Nada con esa búsqueda"
@@ -192,6 +252,7 @@ export default function SearchScreen() {
               />
             ) : (
               <DiscoveryHub
+                popularTerms={popularTerms}
                 recentSearches={recentSearches}
                 categories={categories}
                 onSelectSearch={handleSelectTag}
@@ -207,8 +268,52 @@ export default function SearchScreen() {
   );
 }
 
+/**
+ * Un producto en los resultados.
+ *
+ * Lleva el nombre del negocio debajo porque, sin él, encontrar "hamburguesa
+ * doble" no dice dónde pedirla: el plato solo es útil junto al sitio que lo
+ * hace.
+ */
+function ProductHit({
+  product,
+  onPress,
+}: {
+  product: ProductSearchHit;
+  onPress: () => void;
+}) {
+  const { c } = useTheme();
+  const uri = productImageUri(product as never, 'thumb');
+  const price = product.discountPrice ?? product.price;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.hit, { backgroundColor: c.surface, borderColor: c.border }]}
+      accessibilityRole="button"
+      accessibilityLabel={`${product.name} en ${product.businessName}`}
+    >
+      {uri ? (
+        <Image source={{ uri }} style={styles.hitImage} contentFit="cover" transition={150} />
+      ) : (
+        <View style={[styles.hitImage, { backgroundColor: c.background }]} />
+      )}
+
+      <View style={styles.hitBody}>
+        <Text v="strongS" numberOfLines={1}>{product.name}</Text>
+        <Text v="caption" tone="textMuted" numberOfLines={1}>{product.businessName}</Text>
+      </View>
+
+      <Text v="dataM" color={c.primary}>
+        ${price.toLocaleString('es-CO')}
+      </Text>
+    </Pressable>
+  );
+}
+
 /** Descubrimiento inicial: Búsquedas recientes, Tendencias y Categorías */
 function DiscoveryHub({
+  popularTerms,
   recentSearches,
   categories,
   onSelectSearch,
@@ -216,6 +321,7 @@ function DiscoveryHub({
   onClearRecents,
   onPickCategory,
 }: {
+  popularTerms: string[];
   recentSearches: string[];
   categories: DisplayCategory[];
   onSelectSearch: (term: string) => void;
@@ -267,7 +373,7 @@ function DiscoveryHub({
           <Text v="strongS">Lo más buscado</Text>
         </View>
         <View style={styles.tagsWrap}>
-          {POPULAR_SEARCHES.map((term) => (
+          {popularTerms.map((term) => (
             <Pressable
               key={term}
               onPress={() => onSelectSearch(term)}
@@ -308,6 +414,18 @@ function DiscoveryHub({
 }
 
 const styles = StyleSheet.create({
+  productsBlock: { gap: Spacing.sm, marginBottom: Spacing.md },
+  hit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+  },
+  hitImage: { width: 52, height: 52, borderRadius: BorderRadius.md },
+  hitBody: { flex: 1, gap: 2 },
+
   screen: { flex: 1 },
   flex: { flex: 1 },
   top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.lg },

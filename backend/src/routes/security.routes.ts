@@ -89,4 +89,26 @@ router.get(
   (req, res, next) => securityController.getUserRiskProfile(req, res, next)
 );
 
+// ── Centro de incidentes ──
+//
+// Nada de esto es nuevo: alertas de fraude, faltantes de efectivo, botones
+// de pánico, reclamos y pedidos detenidos ya existían, pero en cinco
+// pantallas distintas. Nadie mira cinco pantallas a la vez, así que en la
+// práctica se miraba una y las otras cuatro acumulaban.
+router.get('/incidents', authenticate, authorize(UserRole.ADMIN), async (req, res, next) => {
+  try {
+    const { incidentCenterService } = await import('../services/incidentCenter.service');
+    const { sendResponse } = await import('../utils');
+    sendResponse(res, 200, 'Incidentes abiertos', await incidentCenterService.open());
+  } catch (error) { next(error); }
+});
+
+router.get('/incidents/summary', authenticate, authorize(UserRole.ADMIN), async (req, res, next) => {
+  try {
+    const { incidentCenterService } = await import('../services/incidentCenter.service');
+    const { sendResponse } = await import('../utils');
+    sendResponse(res, 200, 'Resumen de incidentes', await incidentCenterService.summary());
+  } catch (error) { next(error); }
+});
+
 export default router;

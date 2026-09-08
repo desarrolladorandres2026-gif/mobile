@@ -25,6 +25,8 @@ export interface ProductImages {
 export interface WithProductImage {
   image?: string;
   images?: ProductImages | null;
+  /** Fotos adicionales de la ficha. La principal no está aquí. */
+  galleryImages?: ProductImages[] | null;
 }
 
 export type ProductImageSize = keyof Pick<
@@ -58,4 +60,19 @@ export function productImagePlaceholder(
 /** Si hay algo que pintar, sin importar de qué generación venga. */
 export function hasProductImage(product: WithProductImage | null | undefined): boolean {
   return Boolean(product?.images?.catalog || product?.image);
+}
+
+/**
+ * Todas las fotos de un producto, en orden, para el visor.
+ *
+ * La principal va primera y siempre: es la que el cliente tocó para abrir
+ * el visor, así que empezar por otra sería cambiarle la foto debajo del
+ * dedo. Las adicionales van detrás, en el orden en que el comercio las
+ * subió.
+ */
+export function productGallery(
+  product: WithProductImage | null | undefined
+): ProductImages[] {
+  if (!product?.images) return [];
+  return [product.images, ...(product.galleryImages ?? [])];
 }

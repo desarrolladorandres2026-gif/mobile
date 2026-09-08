@@ -26,4 +26,14 @@ export interface Product {
   extras?: ExtraOption[];
   /** Variantes ya calculadas por el servidor. Nulo si no tiene foto. */
   images?: ProductImages | null;
+  /** Variantes de las fotos adicionales. La principal no está aquí. */
+  galleryImages?: ProductImages[] | null;
+  /** Identificadores de las fotos adicionales, para poder borrarlas. */
+  gallery?: Array<{ publicId: string }> | null;
+  /**
+   * Unidades restantes. `null` significa que el negocio no lleva cuenta,
+   * que no es lo mismo que cero: cero es "se acabó".
+   */
+  stock?: number | null;
+  lowStockThreshold?: number;
 }

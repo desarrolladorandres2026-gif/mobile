@@ -16,6 +16,7 @@ import { errorHandler, securityHeaders, sanitizeRequest, requestId } from './mid
 import routes from './routes';
 import { initializeSocket } from './sockets';
 import { setIO } from './sockets/emitter';
+import { startDispatchSweeper, stopDispatchSweeper } from './services/dispatch.service';
 
 const app = express();
 const httpServer = createServer(app);
@@ -198,6 +199,12 @@ export default app;
 // ── Start server ──
 const start = async () => {
   await connectDB();
+
+  // Arranca aquí y no al importar el módulo: las pruebas de integración
+  // cargan `app` con supertest y un intervalo de reparto suelto las
+  // dejaría escribiendo en la base entre casos.
+  startDispatchSweeper();
+
   httpServer.listen(config.port, '0.0.0.0', () => {
     console.log(`\n🚀 ZIPP API en puerto ${config.port}`);
     console.log(`📍 Entorno: ${config.nodeEnv}`);
@@ -213,6 +220,7 @@ const start = async () => {
 // ── Graceful shutdown ──
 const shutdown = async (signal: string) => {
   console.log(`\n[${signal}] Cerrando servidor...`);
+  stopDispatchSweeper();
   httpServer.close(async () => {
     try {
       await mongoose.connection.close();

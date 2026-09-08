@@ -1,60 +1,66 @@
+import mongoose, { Schema, Document } from 'mongoose';
+
 /**
- * In-memory brute force protection
- * For production, replace with Redis-backed implementation
+ * Freno a los intentos de acceso por fuerza bruta.
+ *
+ * Vivía en dos `Map` de memoria del proceso, con una nota que decía
+ * "reemplazar por Redis en producción". El problema no era la elegancia:
+ * un contador de intentos fallidos que se borra al reiniciar convierte
+ * cualquier despliegue en una amnistía, y con dos instancias de PM2 cada
+ * una contaba la mitad de los intentos, así que el atacante disponía del
+ * doble antes del bloqueo.
+ *
+ * Está en Mongo y no en Redis porque Mongo ya es una dependencia de este
+ * proyecto y Redis no. Un intento de acceso ya escribe en la base de datos
+ * de todas formas —hay que leer el usuario—, así que el coste añadido de
+ * una lectura indexada más no cambia nada, y evita montar y operar una
+ * pieza de infraestructura entera para dos contadores.
  */
 
-interface LoginAttempt {
+export interface ILoginAttempt extends Document {
+  scope: 'ip' | 'user';
+  key: string;
   count: number;
-  firstAttempt: number;
-  lockedUntil?: number;
+  firstAttemptAt: Date;
+  lockedUntil?: Date;
+  updatedAt: Date;
 }
 
-// Track attempts by IP and by user identifier
-const ipAttempts = new Map<string, LoginAttempt>();
-const userAttempts = new Map<string, LoginAttempt>();
+const loginAttemptSchema = new Schema<ILoginAttempt>({
+  scope: { type: String, enum: ['ip', 'user'], required: true },
+  key: { type: String, required: true },
+  count: { type: Number, default: 0 },
+  firstAttemptAt: { type: Date, default: Date.now },
+  lockedUntil: { type: Date },
+  updatedAt: { type: Date, default: Date.now },
+});
 
-// Configuration
-const MAX_ATTEMPTS_PER_IP = 20;         // Max login attempts per IP in window
-const MAX_ATTEMPTS_PER_USER = 5;        // Max login attempts per user in window
-const WINDOW_MS = 15 * 60 * 1000;       // 15 minute window
-const LOCK_DURATION_BASE_MS = 60 * 1000;  // Base lock: 1 minute
-const LOCK_MULTIPLIER = 2;               // Lock doubles each time
-const MAX_LOCK_DURATION_MS = 30 * 60 * 1000; // Max 30 minute lock
+loginAttemptSchema.index({ scope: 1, key: 1 }, { unique: true });
 
-// Cleanup old entries every 10 minutes.
-// unref() so this housekeeping timer never keeps the process alive on its
-// own — otherwise scripts and test runners hang waiting for it.
-const cleanupTimer = setInterval(() => {
-  const now = Date.now();
-  for (const [key, attempt] of ipAttempts.entries()) {
-    if (now - attempt.firstAttempt > WINDOW_MS && !attempt.lockedUntil) {
-      ipAttempts.delete(key);
-    }
-    if (attempt.lockedUntil && now > attempt.lockedUntil) {
-      ipAttempts.delete(key);
-    }
-  }
-  for (const [key, attempt] of userAttempts.entries()) {
-    if (now - attempt.firstAttempt > WINDOW_MS && !attempt.lockedUntil) {
-      userAttempts.delete(key);
-    }
-    if (attempt.lockedUntil && now > attempt.lockedUntil) {
-      userAttempts.delete(key);
-    }
-  }
-}, 10 * 60 * 1000);
+// Una hora cubre de sobra la ventana de quince minutos y el bloqueo máximo
+// de treinta. El TTL solo limpia: la corrección la da la comparación de
+// `lockedUntil` contra el reloj, que no depende de cuándo pase el barrendero
+// de Mongo.
+loginAttemptSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 60 * 60 });
 
-cleanupTimer.unref?.();
+export const LoginAttempt = mongoose.model<ILoginAttempt>('LoginAttempt', loginAttemptSchema);
+
+// ── Configuración ──
+const MAX_ATTEMPTS_PER_IP = 20;
+const MAX_ATTEMPTS_PER_USER = 5;
+const WINDOW_MS = 15 * 60 * 1000;
+const LOCK_DURATION_BASE_MS = 60 * 1000;
+const LOCK_MULTIPLIER = 2;
+const MAX_LOCK_DURATION_MS = 30 * 60 * 1000;
 
 /**
- * Clears all tracked attempts.
+ * Borra todos los contadores.
  *
- * Counters are process-wide and in-memory, so tests must reset them between
- * cases or one suite's failed logins lock out the next.
+ * Las pruebas lo necesitan entre casos: sin esto, los inicios de sesión
+ * fallidos de una suite bloquean a la siguiente.
  */
-export function resetBruteForce(): void {
-  ipAttempts.clear();
-  userAttempts.clear();
+export async function resetBruteForce(): Promise<void> {
+  await LoginAttempt.deleteMany({});
 }
 
 export interface BruteForceCheckResult {
@@ -63,28 +69,30 @@ export interface BruteForceCheckResult {
   reason?: string;
 }
 
-/**
- * Check if a login attempt should be allowed
- */
-export function checkBruteForce(ip: string, userIdentifier: string): BruteForceCheckResult {
+/** ¿Se puede intentar entrar, o hay un bloqueo vivo? */
+export async function checkBruteForce(
+  ip: string,
+  userIdentifier: string
+): Promise<BruteForceCheckResult> {
   const now = Date.now();
 
-  // Check IP-based lockout
-  const ipRecord = ipAttempts.get(ip);
-  if (ipRecord?.lockedUntil && now < ipRecord.lockedUntil) {
+  const [ipRecord, userRecord] = await Promise.all([
+    LoginAttempt.findOne({ scope: 'ip', key: ip }).lean(),
+    LoginAttempt.findOne({ scope: 'user', key: userIdentifier }).lean(),
+  ]);
+
+  if (ipRecord?.lockedUntil && now < ipRecord.lockedUntil.getTime()) {
     return {
       allowed: false,
-      retryAfterMs: ipRecord.lockedUntil - now,
+      retryAfterMs: ipRecord.lockedUntil.getTime() - now,
       reason: 'Demasiados intentos desde esta IP. Intenta más tarde.',
     };
   }
 
-  // Check user-based lockout
-  const userRecord = userAttempts.get(userIdentifier);
-  if (userRecord?.lockedUntil && now < userRecord.lockedUntil) {
+  if (userRecord?.lockedUntil && now < userRecord.lockedUntil.getTime()) {
     return {
       allowed: false,
-      retryAfterMs: userRecord.lockedUntil - now,
+      retryAfterMs: userRecord.lockedUntil.getTime() - now,
       reason: 'Cuenta temporalmente bloqueada por múltiples intentos fallidos.',
     };
   }
@@ -92,55 +100,62 @@ export function checkBruteForce(ip: string, userIdentifier: string): BruteForceC
   return { allowed: true };
 }
 
-/**
- * Record a failed login attempt
- */
-export function recordFailedAttempt(ip: string, userIdentifier: string): BruteForceCheckResult {
-  const now = Date.now();
+/** Suma un intento fallido a un contador y decide si toca bloquear. */
+async function bump(
+  scope: 'ip' | 'user',
+  key: string,
+  maxAttempts: number
+): Promise<{ count: number; lockedForMs?: number }> {
+  const now = new Date();
+  const existing = await LoginAttempt.findOne({ scope, key });
 
-  // Update IP attempts
-  const ipRecord = ipAttempts.get(ip) || { count: 0, firstAttempt: now };
-  if (now - ipRecord.firstAttempt > WINDOW_MS) {
-    ipRecord.count = 0;
-    ipRecord.firstAttempt = now;
-  }
-  ipRecord.count++;
+  // Fuera de la ventana, el contador empieza de cero: quien falló una vez
+  // hace media hora no está atacando nada.
+  const stale = existing && now.getTime() - existing.firstAttemptAt.getTime() > WINDOW_MS;
+  const count = !existing || stale ? 1 : existing.count + 1;
+  const firstAttemptAt = !existing || stale ? now : existing.firstAttemptAt;
 
-  if (ipRecord.count >= MAX_ATTEMPTS_PER_IP) {
-    const lockDuration = Math.min(
-      LOCK_DURATION_BASE_MS * Math.pow(LOCK_MULTIPLIER, Math.floor(ipRecord.count / MAX_ATTEMPTS_PER_IP)),
+  let lockedUntil: Date | undefined;
+  let lockedForMs: number | undefined;
+
+  if (count >= maxAttempts) {
+    // El bloqueo se duplica en cada tanda: molesta poco a quien se equivocó
+    // de contraseña y mucho a quien está probando una lista.
+    lockedForMs = Math.min(
+      LOCK_DURATION_BASE_MS * Math.pow(LOCK_MULTIPLIER, Math.floor(count / maxAttempts)),
       MAX_LOCK_DURATION_MS
     );
-    ipRecord.lockedUntil = now + lockDuration;
+    lockedUntil = new Date(now.getTime() + lockedForMs);
   }
-  ipAttempts.set(ip, ipRecord);
 
-  // Update user attempts
-  const userRecord = userAttempts.get(userIdentifier) || { count: 0, firstAttempt: now };
-  if (now - userRecord.firstAttempt > WINDOW_MS) {
-    userRecord.count = 0;
-    userRecord.firstAttempt = now;
-  }
-  userRecord.count++;
+  await LoginAttempt.updateOne(
+    { scope, key },
+    { $set: { count, firstAttemptAt, updatedAt: now, ...(lockedUntil ? { lockedUntil } : {}) } },
+    { upsert: true }
+  );
 
-  if (userRecord.count >= MAX_ATTEMPTS_PER_USER) {
-    const lockDuration = Math.min(
-      LOCK_DURATION_BASE_MS * Math.pow(LOCK_MULTIPLIER, Math.floor(userRecord.count / MAX_ATTEMPTS_PER_USER)),
-      MAX_LOCK_DURATION_MS
-    );
-    userRecord.lockedUntil = now + lockDuration;
-    userAttempts.set(userIdentifier, userRecord);
+  return { count, lockedForMs };
+}
 
+/** Registra un intento fallido contra la IP y contra la cuenta. */
+export async function recordFailedAttempt(
+  ip: string,
+  userIdentifier: string
+): Promise<BruteForceCheckResult> {
+  const [, user] = await Promise.all([
+    bump('ip', ip, MAX_ATTEMPTS_PER_IP),
+    bump('user', userIdentifier, MAX_ATTEMPTS_PER_USER),
+  ]);
+
+  if (user.lockedForMs) {
     return {
       allowed: false,
-      retryAfterMs: lockDuration,
-      reason: `Cuenta bloqueada temporalmente. Intenta en ${Math.ceil(lockDuration / 1000)} segundos.`,
+      retryAfterMs: user.lockedForMs,
+      reason: `Cuenta bloqueada temporalmente. Intenta en ${Math.ceil(user.lockedForMs / 1000)} segundos.`,
     };
   }
 
-  userAttempts.set(userIdentifier, userRecord);
-
-  const remaining = MAX_ATTEMPTS_PER_USER - userRecord.count;
+  const remaining = MAX_ATTEMPTS_PER_USER - user.count;
   return {
     allowed: true,
     reason: remaining <= 2 ? `${remaining} intento(s) restante(s) antes del bloqueo.` : undefined,
@@ -148,25 +163,30 @@ export function recordFailedAttempt(ip: string, userIdentifier: string): BruteFo
 }
 
 /**
- * Clear attempts after successful login
+ * Limpia tras un acceso correcto.
+ *
+ * La cuenta se libera del todo; la IP solo baja un punto. Detrás de una
+ * misma IP hay una casa entera o un café: que uno acierte no demuestra que
+ * los otros diecinueve intentos fueran legítimos.
  */
-export function clearAttempts(ip: string, userIdentifier: string): void {
-  userAttempts.delete(userIdentifier);
-  // Don't clear IP attempts entirely - just reduce
-  const ipRecord = ipAttempts.get(ip);
-  if (ipRecord) {
-    ipRecord.count = Math.max(0, ipRecord.count - 1);
-    if (ipRecord.count === 0) {
-      ipAttempts.delete(ip);
-    }
+export async function clearAttempts(ip: string, userIdentifier: string): Promise<void> {
+  await LoginAttempt.deleteOne({ scope: 'user', key: userIdentifier });
+
+  const ipRecord = await LoginAttempt.findOne({ scope: 'ip', key: ip });
+  if (!ipRecord) return;
+
+  const count = Math.max(0, ipRecord.count - 1);
+  if (count === 0) {
+    await LoginAttempt.deleteOne({ _id: ipRecord._id });
+    return;
   }
+
+  await LoginAttempt.updateOne({ _id: ipRecord._id }, { $set: { count, updatedAt: new Date() } });
 }
 
-/**
- * Get remaining attempts for a user
- */
-export function getRemainingAttempts(userIdentifier: string): number {
-  const record = userAttempts.get(userIdentifier);
+/** Intentos que le quedan a una cuenta antes del bloqueo. */
+export async function getRemainingAttempts(userIdentifier: string): Promise<number> {
+  const record = await LoginAttempt.findOne({ scope: 'user', key: userIdentifier }).lean();
   if (!record) return MAX_ATTEMPTS_PER_USER;
   return Math.max(0, MAX_ATTEMPTS_PER_USER - record.count);
 }

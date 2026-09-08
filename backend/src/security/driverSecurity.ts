@@ -11,6 +11,8 @@ export enum VerificationType {
 }
 
 export enum VerificationStatus {
+  /** La plataforma la pidió y el domiciliario todavía no ha mandado nada. */
+  REQUESTED = 'requested',
   PENDING = 'pending',
   APPROVED = 'approved',
   REJECTED = 'rejected',
@@ -22,7 +24,10 @@ export interface IDriverVerification extends Document {
   userId: string;
   type: VerificationType;
   status: VerificationStatus;
-  imageUrl: string;
+  /** Ausente mientras la verificación está solicitada y sin responder. */
+  imageUrl?: string;
+  /** Plazo para responder una verificación solicitada. */
+  dueAt?: Date;
   reviewedBy?: string;
   reviewedAt?: Date;
   rejectionReason?: string;
@@ -46,7 +51,11 @@ const driverVerificationSchema = new Schema<IDriverVerification>(
       enum: Object.values(VerificationStatus),
       default: VerificationStatus.PENDING,
     },
-    imageUrl: { type: String, required: true },
+    // No es obligatoria: una verificación solicitada existe antes de que
+    // haya foto, y es justo ese hueco —pedida y sin responder— el que
+    // permite exigirla.
+    imageUrl: { type: String },
+    dueAt: { type: Date },
     reviewedBy: { type: String },
     reviewedAt: { type: Date },
     rejectionReason: { type: String },
@@ -150,6 +159,45 @@ export class DriverSecurityService {
   }
 
   /**
+   * Sube la selfie y la deja pendiente de revisión, en un solo paso.
+   *
+   * Va a una carpeta aparte de los avatares: esta foto no es la imagen
+   * pública de nadie, es una prueba de identidad que se pidió por sospecha
+   * y que solo debería ver quien la revisa.
+   */
+  async fulfillWithImage(
+    driverId: string,
+    type: VerificationType,
+    buffer: Buffer,
+    metadata?: Record<string, any>
+  ): Promise<IDriverVerification | null> {
+    const { cloudinary } = await import('../config');
+
+    const url = await new Promise<string>((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'zipp/verifications',
+          resource_type: 'image',
+          transformation: [
+            { width: 800, height: 800, crop: 'limit' },
+            { quality: 'auto', fetch_format: 'auto' },
+          ],
+        },
+        (error: unknown, result: { secure_url: string } | undefined) => {
+          if (error || !result) {
+            reject(new Error('No se pudo subir la imagen'));
+            return;
+          }
+          resolve(result.secure_url);
+        }
+      );
+      stream.end(buffer);
+    });
+
+    return this.fulfillVerification(driverId, type, url, metadata);
+  }
+
+  /**
    * Check if driver has all required verifications
    */
   async hasRequiredVerifications(driverId: string): Promise<{
@@ -181,20 +229,85 @@ export class DriverSecurityService {
   }
 
   /**
-   * Request random selfie verification during operation
+   * Pide una verificación en mitad del turno.
+   *
+   * Existe para responder una pregunta que las verificaciones del alta no
+   * pueden: la cuenta se aprobó una vez, pero ¿quién conduce la moto hoy?
+   * Prestar la cuenta a un tercero sin documentos ni antecedentes es el
+   * fraude más fácil de esta operación, y el único momento en que se puede
+   * detectar es mientras está ocurriendo.
+   *
+   * Crea la solicitud de verdad, con su plazo. La versión anterior de este
+   * método solo miraba si ya había una pendiente y devolvía un booleano sin
+   * escribir nada: nadie podía enterarse de que se le había pedido algo.
    */
-  async requestRandomVerification(driverId: string): Promise<boolean> {
-    // Check if there's already a pending random verification
+  async requestVerification(
+    driverId: string,
+    userId: string,
+    type: VerificationType = VerificationType.RANDOM_SELFIE,
+    windowMinutes = 15
+  ): Promise<IDriverVerification | null> {
+    // Una sola a la vez. Acumular solicitudes sin responder no aporta
+    // información nueva y convierte el bloqueo en algo imposible de
+    // resolver para quien lo sufre.
     const existing = await DriverVerification.findOne({
       driverId,
-      type: VerificationType.RANDOM_SELFIE,
-      status: VerificationStatus.PENDING,
+      type,
+      status: { $in: [VerificationStatus.REQUESTED, VerificationStatus.PENDING] },
     });
 
-    if (existing) return false;
+    if (existing) return null;
 
-    // Will be fulfilled when driver submits selfie
-    return true;
+    return DriverVerification.create({
+      driverId,
+      userId,
+      type,
+      status: VerificationStatus.REQUESTED,
+      dueAt: new Date(Date.now() + windowMinutes * 60 * 1000),
+    });
+  }
+
+  /** Compatibilidad con el nombre anterior. */
+  async requestRandomVerification(
+    driverId: string,
+    userId: string
+  ): Promise<IDriverVerification | null> {
+    return this.requestVerification(driverId, userId, VerificationType.RANDOM_SELFIE);
+  }
+
+  /**
+   * El domiciliario responde a una verificación que se le pidió.
+   *
+   * Pasa de "solicitada" a "pendiente de revisión": la foto ya está, falta
+   * que alguien la mire. Mientras tanto deja de estar bloqueado, porque el
+   * retraso a partir de aquí es de la plataforma y no suyo.
+   */
+  async fulfillVerification(
+    driverId: string,
+    type: VerificationType,
+    imageUrl: string,
+    metadata?: Record<string, any>
+  ): Promise<IDriverVerification | null> {
+    return DriverVerification.findOneAndUpdate(
+      { driverId, type, status: VerificationStatus.REQUESTED },
+      { status: VerificationStatus.PENDING, imageUrl, metadata },
+      { new: true }
+    );
+  }
+
+  /**
+   * ¿Tiene una verificación pedida cuyo plazo ya venció?
+   *
+   * Es la única consecuencia real de todo esto. Sin una puerta que consulte
+   * esta pregunta, pedir una selfie es mandar una notificación que se puede
+   * ignorar, y quien está usando la cuenta de otro la ignorará.
+   */
+  async hasOverdueVerification(driverId: string): Promise<IDriverVerification | null> {
+    return DriverVerification.findOne({
+      driverId,
+      status: VerificationStatus.REQUESTED,
+      dueAt: { $lt: new Date() },
+    });
   }
 
   /**

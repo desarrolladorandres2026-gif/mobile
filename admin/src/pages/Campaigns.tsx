@@ -29,6 +29,14 @@ interface Campaign {
   pricePaid: number;
   internalNotes: string;
   status: AdStatus;
+  /** Solo en las que compra un comercio por su cuenta. */
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  billedToBusinessId?: string | null;
+  pricingModel?: string;
+  cpmRate?: number;
+  cpcRate?: number;
+  budget?: number;
+  rejectionReason?: string;
 }
 
 interface CampaignForm {
@@ -288,6 +296,55 @@ export default function Campaigns() {
     }
   };
 
+  const handleApprove = async (c: Campaign) => {
+    try {
+      const { data } = await api.patch(`/advertisements/${c._id}/approve`);
+      setCampaigns((prev) => prev.map((x) => (x._id === c._id ? data.data : x)));
+    } catch (err) {
+      setError(apiMessage(err, 'No se pudo aprobar la campaña.'));
+    }
+  };
+
+  /**
+   * Rechazar exige un motivo, y el servidor tambien lo exige.
+   *
+   * Un "no" sin explicacion obliga al comercio a adivinar que cambiar, y lo
+   * normal es que reenvie exactamente lo mismo.
+   */
+  const handleReject = async (c: Campaign) => {
+    const reason = window.prompt('¿Por qué se rechaza? El comercio va a leer esto.');
+    if (!reason?.trim()) return;
+    try {
+      const { data } = await api.patch(`/advertisements/${c._id}/reject`, { reason: reason.trim() });
+      setCampaigns((prev) => prev.map((x) => (x._id === c._id ? data.data : x)));
+    } catch (err) {
+      setError(apiMessage(err, 'No se pudo rechazar la campaña.'));
+    }
+  };
+
+  /**
+   * Cierra la campaña y emite su factura.
+   *
+   * Es el disparador de toda la cadena de cobro: sin este paso las
+   * facturas no existen y el descuento en la liquidación del comercio no
+   * se produce nunca. Se hace a mano y no por fecha porque cerrar es
+   * cobrar, y cobrar solo debería pasar cuando alguien lo decide.
+   */
+  const handleClose = async (c: Campaign) => {
+    try {
+      const { data } = await api.post(`/advertisements/${c._id}/close`);
+      await fetchAll();
+      window.alert(
+        `Campaña cerrada. Se facturaron $${(data.data.amount ?? 0).toLocaleString('es-CO')}` +
+          (data.data.settledAgainstPayout
+            ? ', que se descontarán de la próxima liquidación del comercio.'
+            : '. Se cobra por fuera: aquí solo queda constancia.')
+      );
+    } catch (err) {
+      setError(apiMessage(err, 'No se pudo cerrar la campaña.'));
+    }
+  };
+
   const handleDelete = async () => {
     if (!confirmDelete) return;
     try {
@@ -420,6 +477,25 @@ export default function Campaigns() {
                       </span>
                     </div>
                     <p className="text-xs text-[var(--color-text-secondary)] font-medium">{c.advertiserName}</p>
+                    {/* Una campaña que compró un comercio y nadie ha
+                        mirado no sale en la app. Se avisa aquí porque
+                        esta es la lista donde se revisa. */}
+                    {c.approvalStatus === 'pending' ? (
+                      <p className="text-xs font-bold text-[var(--color-warning)]">
+                        La compró el comercio y espera revisión — no se está mostrando
+                      </p>
+                    ) : null}
+                    {c.approvalStatus === 'rejected' && c.rejectionReason ? (
+                      <p className="text-xs text-[var(--color-danger)]">Rechazada: {c.rejectionReason}</p>
+                    ) : null}
+                    {c.budget ? (
+                      <p className="text-xs text-[var(--color-text-secondary)]">
+                        {c.pricingModel === 'cpc'
+                          ? `$${(c.cpcRate ?? 0).toLocaleString('es-CO')} por clic`
+                          : `$${(c.cpmRate ?? 0).toLocaleString('es-CO')} por mil impresiones`}{' '}
+                        · tope ${c.budget.toLocaleString('es-CO')}
+                      </p>
+                    ) : null}
                     <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--color-text-secondary)]">
                       <span>{new Date(c.startDate).toLocaleDateString('es-CO')} — {new Date(c.endDate).toLocaleDateString('es-CO')}</span>
                       <span className="px-2 py-0.5 rounded bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-primary)] font-mono font-bold text-[11px]">
@@ -448,6 +524,34 @@ export default function Campaigns() {
                 </div>
 
                 <div className="flex items-center justify-between md:justify-end gap-2 border-t border-[var(--color-border-light)] md:border-0 pt-3 md:pt-0">
+                  {c.approvalStatus === 'pending' ? (
+                    <>
+                      <button
+                        onClick={() => handleApprove(c)}
+                        className="px-3 py-1.5 rounded-lg bg-[var(--color-primary)] text-white text-[11px] font-bold uppercase tracking-wider cursor-pointer"
+                      >
+                        Aprobar
+                      </button>
+                      <button
+                        onClick={() => handleReject(c)}
+                        className="px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-main)] text-[11px] font-bold uppercase tracking-wider cursor-pointer"
+                      >
+                        Rechazar
+                      </button>
+                    </>
+                  ) : null}
+                  {/* Cerrar es cobrar: solo cuando ya terminó o se
+                      canceló, y solo si nadie la ha facturado antes
+                      —el índice único del servidor lo garantiza igual. */}
+                  {(c.status === 'finished' || c.status === 'cancelled') && c.budget ? (
+                    <button
+                      onClick={() => handleClose(c)}
+                      className="px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-main)] text-[11px] font-bold uppercase tracking-wider cursor-pointer"
+                      title="Cerrar la campaña y emitir su factura"
+                    >
+                      Cerrar y facturar
+                    </button>
+                  ) : null}
                   <button
                     onClick={() => openStats(c)}
                     className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"

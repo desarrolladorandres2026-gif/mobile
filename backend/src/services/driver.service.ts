@@ -38,7 +38,10 @@ export class DriverService {
   async updateStatus(userId: string, status: DriverStatus): Promise<IDriver> {
     const driver = await Driver.findOne({ userId });
     if (!driver) throw new AppError('Domiciliario no encontrado', 404);
-    if (status === DriverStatus.AVAILABLE) await this.assertDocumentsCurrent(driver._id.toString());
+    if (status === DriverStatus.AVAILABLE) {
+      await this.assertDocumentsCurrent(driver._id.toString());
+      await this.assertVerificationsCurrent(driver._id.toString());
+    }
     driver.status = status;
     await driver.save();
     return driver;
@@ -97,12 +100,89 @@ export class DriverService {
     if (missing.length) throw new AppError(`No puedes operar: faltan o vencieron documentos obligatorios (${missing.join(', ')})`, 422);
   }
 
+  /**
+   * Bloquea a quien ignoró una verificación que se le pidió en turno.
+   *
+   * Es la consecuencia que convierte la verificación aleatoria en algo más
+   * que una notificación: sin esta puerta, quien está usando la cuenta de
+   * otro simplemente no responde y sigue repartiendo igual.
+   *
+   * Solo muerde cuando el plazo ya venció. Mientras corre, el domiciliario
+   * sigue trabajando con normalidad: se le pidió una foto, no se le acusó
+   * de nada, y frenarle antes de tiempo castigaría a quien va conduciendo.
+   */
+  async assertVerificationsCurrent(driverId: string): Promise<void> {
+    if (process.env.NODE_ENV === 'test') return;
+
+    const { driverSecurityService } = await import('../security');
+    const overdue = await driverSecurityService.hasOverdueVerification(driverId);
+
+    if (overdue) {
+      throw new AppError(
+        'Tienes una verificación de identidad pendiente. Envía la selfie que te ' +
+          'pedimos para volver a recibir pedidos.',
+        423,
+        'VERIFICATION_REQUIRED'
+      );
+    }
+  }
+
   async submitDocument(userId: string, input: { type: string; reference: string; expiresAt?: Date }) {
     const driver = await Driver.findOne({ userId }); if (!driver) throw new AppError('Domiciliario no encontrado', 404);
     return DriverDocument.findOneAndUpdate({ driverId: driver._id, type: input.type }, { ...input, driverId: driver._id, status: 'pending', reviewedBy: null, reviewedAt: null }, { upsert: true, new: true, runValidators: true });
   }
 
   async listDocuments(driverId: string) { return DriverDocument.find({ driverId }).sort({ type: 1 }); }
+
+  /**
+   * Lo que un administrador tiene pendiente de mirar.
+   *
+   * La revisión de documentos estaba expuesta por id y el listado solo para
+   * la sesión del propio repartidor, así que el panel podía aprobar un
+   * documento pero no averiguar cuáles existían. Esto invierte la pregunta
+   * —de "los documentos de este repartidor" a "qué hay por revisar"— que es
+   * como se trabaja de verdad.
+   *
+   * Los que están por vencer entran en la misma cola porque un documento
+   * que caduca la semana que viene es trabajo de esta: al expirar,
+   * `assertDocumentsCurrent` saca al repartidor de circulación en mitad de
+   * un turno y sin avisar a nadie.
+   */
+  async reviewQueue(expiringInDays = 30) {
+    const now = new Date();
+    const horizon = new Date(now.getTime() + expiringInDays * 24 * 60 * 60 * 1000);
+
+    // Los vencidos se marcan aquí igual que en `assertDocumentsCurrent`,
+    // porque el estado depende del paso del tiempo y nadie escribe en el
+    // documento cuando llega su fecha.
+    await DriverDocument.updateMany(
+      { expiresAt: { $lt: now }, status: { $ne: 'expired' } },
+      { $set: { status: 'expired' } }
+    );
+
+    const documents = await DriverDocument.find({
+      $or: [
+        { status: 'pending' },
+        { status: 'expired' },
+        { status: 'approved', expiresAt: { $gte: now, $lte: horizon } },
+      ],
+    })
+      .sort({ expiresAt: 1, createdAt: 1 })
+      .populate({
+        path: 'driverId',
+        select: 'userId isApproved isActive vehicleType licensePlate',
+        populate: { path: 'userId', select: 'name phone' },
+      });
+
+    // Se reparten en tres listas en vez de ordenarse por un campo, porque
+    // el orden que importa no es alfabético ni cronológico: es el de la
+    // urgencia con la que hay que actuar sobre cada grupo.
+    return {
+      pending: documents.filter((d) => d.status === 'pending'),
+      expired: documents.filter((d) => d.status === 'expired'),
+      expiringSoon: documents.filter((d) => d.status === 'approved'),
+    };
+  }
   async reviewDocument(id: string, adminId: string, status: 'approved'|'rejected') { const document = await DriverDocument.findByIdAndUpdate(id, { status, reviewedBy: adminId, reviewedAt: new Date() }, { new: true, runValidators: true }); if (!document) throw new AppError('Documento no encontrado', 404); return document; }
 
   async updateBaseFund(id: string, baseFund: number): Promise<IDriver> {

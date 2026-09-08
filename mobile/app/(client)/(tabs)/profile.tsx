@@ -13,7 +13,8 @@ import {
 import { Avatar } from '../../../components/domain/Avatar';
 import { useAuthStore } from '../../../stores/authStore';
 import { useCartStore } from '../../../stores/cartStore';
-import { useFavoritesStore } from '../../../stores/favoritesStore';
+import { useFavorites } from '../../../hooks/useFavorites';
+import { useLoyalty } from '../../../hooks/useApi';
 import { useThemeStore } from '../../../stores/themeStore';
 import { usePrefsStore } from '../../../stores/prefsStore';
 import { useAddresses } from '../../../hooks/useApi';
@@ -54,9 +55,12 @@ export default function ProfileScreen() {
   const { user, logout } = useAuthStore();
 
   const { data: addresses = [] } = useAddresses();
-  const favorites = useFavoritesStore((s) => s.favorites);
+  const { businessIds: favorites } = useFavorites();
   const clearCart = useCartStore((s) => s.clearCart);
   const stats = useZippStats();
+  // El saldo viene del servidor; `stats` solo aporta racha y pedidos.
+  const { data: loyalty } = useLoyalty();
+  const points = loyalty?.balance ?? 0;
 
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
@@ -102,8 +106,8 @@ export default function ProfileScreen() {
     {
       illustration: 'trofeo',
       label: 'Tus puntos Zipp y cupones',
-      detail: `${stats.points} puntos acumulados`,
-      badge: `${stats.points} pts`,
+      detail: `${points.toLocaleString('es-CO')} puntos acumulados`,
+      badge: `${points.toLocaleString('es-CO')} pts`,
       route: '/(client)/rewards',
     },
   ];
@@ -263,12 +267,12 @@ export default function ProfileScreen() {
             router.push('/(client)/rewards');
           }}
           accessibilityRole="button"
-          accessibilityLabel={`Tus puntos Zipp: ${stats.points} puntos, ${stats.orderCount} pedidos, racha de ${stats.streak} semanas`}
+          accessibilityLabel={`Tus puntos Zipp: ${points} puntos, ${stats.orderCount} pedidos, racha de ${stats.streak} semanas`}
           style={({ pressed }) => [styles.statsRow, pressed && { opacity: 0.7 }]}
         >
           <View style={styles.statCol}>
             <ContentIcon name="trofeo" size={30} />
-            <Text v="titleL" tone="primaryText">{stats.points}</Text>
+            <Text v="titleL" tone="primaryText">{points.toLocaleString('es-CO')}</Text>
             <Text v="caption" tone="textMuted">Puntos</Text>
           </View>
 

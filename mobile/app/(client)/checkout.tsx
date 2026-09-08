@@ -8,7 +8,7 @@ import * as Linking from 'expo-linking';
 import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
 import {
   Text, Icon, Button, Card, Chip, DetailRow, Notice, Screen, ScreenFooter, Header,
-  Skeleton, EmptyState,
+  Skeleton, EmptyState, Input,
 } from '../../components/ui';
 import { AddressSheet, hasCoordinates, type Address } from '../../components/domain/AddressPicker';
 import { useCartStore } from '../../stores/cartStore';
@@ -20,7 +20,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { ContentIcon } from '../../components/illustrations';
 import type { IconName } from '../../theme/icons';
 import { Type } from '../../theme/typography';
-import { BorderRadius, Spacing } from '../../theme/tokens';
+import { BorderRadius, Spacing, Motion } from '../../theme/tokens';
 import { money, km } from '../../lib/format';
 import { apiMessage } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
@@ -46,6 +46,39 @@ type Blocker = {
   hint: string;
   onPress: () => void;
 };
+
+/**
+ * Atajos de programación.
+ *
+ * El servidor exige media hora de margen, así que "En 1 hora" es el primero
+ * que existe de verdad. Las horas fijas se saltan al día siguiente cuando
+ * ya pasaron: ofrecer "Hoy 8:00 pm" a las nueve de la noche es ofrecer un
+ * botón que devuelve un error.
+ */
+const SCHEDULE_SLOTS: Array<{ label: string; at: () => Date }> = [
+  {
+    label: 'En 1 hora',
+    at: () => new Date(Date.now() + 60 * 60 * 1000),
+  },
+  {
+    label: 'Hoy 12:00 pm',
+    at: () => nextAt(12),
+  },
+  {
+    label: 'Hoy 7:00 pm',
+    at: () => nextAt(19),
+  },
+];
+
+/** La próxima vez que den esas horas, hoy o mañana. */
+function nextAt(hour: number): Date {
+  const when = new Date();
+  when.setHours(hour, 0, 0, 0);
+  if (when.getTime() < Date.now() + 30 * 60 * 1000) {
+    when.setDate(when.getDate() + 1);
+  }
+  return when;
+}
 
 export default function CheckoutScreen() {
   const router = useRouter();
@@ -109,6 +142,24 @@ export default function CheckoutScreen() {
   );
 
   const createOrder = useCreateOrder();
+
+  // ── Para otra persona ──
+  //
+  // Sin esto, mandarle almuerzo a alguien significaba que el domiciliario
+  // llamara al número de quien pagó, que podía estar en otra ciudad, y el
+  // pedido se quedaba en la puerta.
+  const [forOther, setForOther] = useState(false);
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [recipientNote, setRecipientNote] = useState('');
+
+  /**
+   * Hora de entrega, o null para "cuanto antes".
+   *
+   * El servidor exige media hora de margen y valida contra su propio reloj:
+   * un teléfono con la hora mal puesta podría programar algo que ya pasó.
+   */
+  const [scheduledFor, setScheduledFor] = useState<Date | null>(null);
   const payOrder = usePayOrder();
 
   // Se preselecciona la última dirección usada, luego la principal.
@@ -298,6 +349,16 @@ export default function CheckoutScreen() {
         notes: notes.trim() || undefined,
         couponCode: appliedCode || undefined,
         tip: tipAmount,
+        // Solo viajan si el usuario los eligió. Mandar un destinatario
+        // vacío haría que el domiciliario llamara a un número en blanco.
+        recipient: forOther && recipientName.trim() && recipientPhone.trim()
+          ? {
+              name: recipientName.trim(),
+              phone: recipientPhone.trim(),
+              note: recipientNote.trim() || undefined,
+            }
+          : undefined,
+        scheduledFor: scheduledFor ? scheduledFor.toISOString() : undefined,
         idempotencyKey,
       },
       {
@@ -498,6 +559,99 @@ export default function CheckoutScreen() {
                 envío. Agrégala de nuevo y marca dónde queda: con el GPS o arrastrando el mapa.
               </Notice>
             ) : null}
+          </View>
+
+          {/* ── Para quién y para cuándo ── */}
+          <View style={styles.section}>
+            <Text v="label" tone="textMuted">Para quién y cuándo</Text>
+
+            <Card tone="flat" style={styles.optionsCard}>
+              <Pressable
+                onPress={() => { tap('select'); setForOther((v) => !v); }}
+                style={styles.optionRow}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: forOther }}
+                accessibilityLabel="El pedido es para otra persona"
+              >
+                <View style={styles.flex}>
+                  <Text v="strongS">Es para otra persona</Text>
+                  <Text v="caption" tone="textMuted">
+                    Llamaremos a quien lo recibe, no a ti
+                  </Text>
+                </View>
+                <Icon
+                  name={forOther ? 'checkCirculo' : 'mas'}
+                  size="md"
+                  color={forOther ? c.lime : c.textMuted}
+                />
+              </Pressable>
+
+              {forOther ? (
+                <Animated.View entering={FadeIn.duration(Motion.fast)} style={styles.optionBody}>
+                  <Input
+                    value={recipientName}
+                    onChangeText={setRecipientName}
+                    placeholder="¿Quién lo recibe?"
+                    maxLength={80}
+                  />
+                  <Input
+                    value={recipientPhone}
+                    onChangeText={setRecipientPhone}
+                    placeholder="Su teléfono"
+                    keyboardType="phone-pad"
+                    maxLength={20}
+                  />
+                  <Input
+                    value={recipientNote}
+                    onChangeText={setRecipientNote}
+                    placeholder="Algo que deba saber (opcional)"
+                    maxLength={200}
+                  />
+                </Animated.View>
+              ) : null}
+            </Card>
+
+            <Card tone="flat" style={styles.optionsCard}>
+              <View style={styles.optionRow}>
+                <View style={styles.flex}>
+                  <Text v="strongS">
+                    {scheduledFor ? 'Programado' : 'Lo antes posible'}
+                  </Text>
+                  <Text v="caption" tone="textMuted">
+                    {scheduledFor
+                      ? scheduledFor.toLocaleString('es-CO', {
+                          weekday: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'Sale en cuanto el negocio lo prepare'}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Atajos en vez de un selector de fecha: casi todo lo que se
+                  programa es para hoy o para mañana temprano, y elegir eso
+                  con un calendario cuesta cinco toques. */}
+              <View style={styles.slots}>
+                <Chip
+                  label="Ahora"
+                  active={!scheduledFor}
+                  onPress={() => { tap('select'); setScheduledFor(null); }}
+                />
+                {SCHEDULE_SLOTS.map((slot) => {
+                  const when = slot.at();
+                  const active = scheduledFor?.getTime() === when.getTime();
+                  return (
+                    <Chip
+                      key={slot.label}
+                      label={slot.label}
+                      active={active}
+                      onPress={() => { tap('select'); setScheduledFor(active ? null : when); }}
+                    />
+                  );
+                })}
+              </View>
+            </Card>
           </View>
 
           {/* ── Pago ── */}
@@ -822,6 +976,11 @@ function PaymentOption({
 }
 
 const styles = StyleSheet.create({
+  optionsCard: { gap: Spacing.md },
+  optionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  optionBody: { gap: Spacing.sm },
+  slots: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' },
+
   flex: { flex: 1 },
   content: { padding: Spacing.xl, gap: Spacing.xxl, paddingBottom: Spacing.huge },
   section: { gap: Spacing.sm },

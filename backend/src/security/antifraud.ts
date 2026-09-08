@@ -38,6 +38,10 @@ export interface IFraudAlert extends Document {
   riskScore: number;
   description: string;
   evidence: Record<string, any>;
+  /** Veces que se ha vuelto a observar lo mismo mientras la alerta sigue abierta. */
+  occurrences: number;
+  /** Última vez que se repitió. Distinto de `createdAt`, que es la primera. */
+  lastOccurredAt: Date;
   actionTaken?: string;
   resolvedBy?: string;
   resolvedAt?: Date;
@@ -68,6 +72,8 @@ const fraudAlertSchema = new Schema<IFraudAlert>(
     riskScore: { type: Number, required: true, min: 0, max: 100 },
     description: { type: String, required: true },
     evidence: { type: Schema.Types.Mixed },
+    occurrences: { type: Number, default: 1, min: 1 },
+    lastOccurredAt: { type: Date, default: Date.now },
     actionTaken: { type: String },
     resolvedBy: { type: String },
     resolvedAt: { type: Date },
@@ -132,11 +138,45 @@ export const UserRiskProfile = mongoose.model<IUserRiskProfile>(
   userRiskProfileSchema
 );
 
-// ── Antifraude Service ──
+// ── Vínculos identidad ↔ cuenta ──
 
-// Track IP-to-account mappings
-const ipAccountMap = new Map<string, Set<string>>();
-const deviceAccountMap = new Map<string, Set<string>>();
+/**
+ * Qué cuentas se han visto desde un mismo dispositivo o una misma IP.
+ *
+ * Antes esto vivía en dos `Map` de memoria del proceso, y esa decisión
+ * tenía tres consecuencias que no se notaban hasta producción: se perdía
+ * entero en cada reinicio —así que el defraudador solo tenía que esperar a
+ * un despliegue—, no se compartía entre instancias —con dos procesos de
+ * PM2, cada uno veía la mitad de las cuentas y ninguno llegaba al umbral—,
+ * y crecía sin límite, porque nada borraba nunca una entrada.
+ *
+ * En Mongo las tres desaparecen. El índice TTL resuelve además el problema
+ * que el `Map` ni siquiera planteaba: un vínculo de hace un año no dice
+ * nada útil sobre quién está usando este teléfono hoy.
+ */
+export interface IIdentityLink extends Document {
+  kind: 'device' | 'ip';
+  key: string;
+  userId: string;
+  lastSeenAt: Date;
+}
+
+const identityLinkSchema = new Schema<IIdentityLink>({
+  kind: { type: String, enum: ['device', 'ip'], required: true },
+  key: { type: String, required: true },
+  userId: { type: String, required: true },
+  lastSeenAt: { type: Date, default: Date.now },
+});
+
+// Una fila por (tipo, clave, cuenta): el upsert refresca la que ya existe
+// en vez de acumular una por cada visita.
+identityLinkSchema.index({ kind: 1, key: 1, userId: 1 }, { unique: true });
+// Noventa días sin volver a verse y el vínculo se olvida solo.
+identityLinkSchema.index({ lastSeenAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
+
+export const IdentityLink = mongoose.model<IIdentityLink>('IdentityLink', identityLinkSchema);
+
+// ── Antifraude Service ──
 
 export class AntiFraudService {
   /**
@@ -147,20 +187,31 @@ export class AntiFraudService {
     deviceId: string,
     ip: string
   ): Promise<{ suspicious: boolean; alert?: Partial<IFraudAlert> }> {
-    // Track device-to-account mapping
-    if (!deviceAccountMap.has(deviceId)) {
-      deviceAccountMap.set(deviceId, new Set());
-    }
-    deviceAccountMap.get(deviceId)!.add(userId);
+    const now = new Date();
 
-    // Track IP-to-account mapping
-    if (!ipAccountMap.has(ip)) {
-      ipAccountMap.set(ip, new Set());
-    }
-    ipAccountMap.get(ip)!.add(userId);
+    // Se registran los dos vínculos antes de contar, para que la cuenta
+    // actual entre en el recuento: si el umbral son tres cuentas por
+    // dispositivo, la tercera tiene que verse a sí misma para disparar.
+    await Promise.all([
+      IdentityLink.updateOne(
+        { kind: 'device', key: deviceId, userId },
+        { $set: { lastSeenAt: now } },
+        { upsert: true }
+      ),
+      IdentityLink.updateOne(
+        { kind: 'ip', key: ip, userId },
+        { $set: { lastSeenAt: now } },
+        { upsert: true }
+      ),
+    ]);
 
-    const deviceAccounts = deviceAccountMap.get(deviceId)!;
-    const ipAccounts = ipAccountMap.get(ip)!;
+    const [deviceAccountIds, ipAccountCount] = await Promise.all([
+      IdentityLink.find({ kind: 'device', key: deviceId }).distinct('userId'),
+      IdentityLink.countDocuments({ kind: 'ip', key: ip }),
+    ]);
+
+    const deviceAccounts = { size: deviceAccountIds.length };
+    const ipAccounts = { size: ipAccountCount };
 
     if (deviceAccounts.size > 2) {
       return {
@@ -173,7 +224,7 @@ export class AntiFraudService {
           description: `${deviceAccounts.size} cuentas detectadas desde el mismo dispositivo`,
           evidence: {
             deviceId,
-            accountIds: Array.from(deviceAccounts),
+            accountIds: deviceAccountIds,
             ip,
           },
         },
@@ -401,6 +452,80 @@ export class AntiFraudService {
     return alert;
   }
 
+
+  /**
+   * Registra una señal sin duplicar la alerta que ya está abierta.
+   *
+   * Un detector que corre en un bucle caliente —cada posición GPS, cada
+   * intento de cupón— vuelve a ver el mismo problema una y otra vez. Crear
+   * un documento por observación llenaría la colección y, peor, dejaría el
+   * panel de seguridad inservible justo cuando hay algo que mirar: mil
+   * avisos idénticos esconden al que es distinto.
+   *
+   * Así que la primera observación abre la alerta y las siguientes suman a
+   * su contador mientras nadie la haya cerrado. Que se repita no es ruido,
+   * es información —distingue un fix raro de un patrón sostenido— pero cabe
+   * en un número, no en mil documentos.
+   *
+   * Al resolverla, la próxima observación vuelve a abrir una: si el problema
+   * sigue después de que alguien lo dio por cerrado, eso merece saberse.
+   *
+   * El upsert deja el caso normal en una sola escritura y funciona igual con
+   * varias instancias del servidor, a diferencia del estado en memoria que
+   * usa el resto de este archivo. Sin índice único, dos observaciones
+   * simultáneas del mismo problema pueden abrir dos alertas; es cosmético y
+   * se corrige cuando la deduplicación tenga índice propio.
+   */
+  async raiseAlertOnce(
+    alert: Partial<IFraudAlert> & { userId: string; type: FraudAlertType }
+  ): Promise<{ alert: IFraudAlert; isNew: boolean }> {
+    const now = new Date();
+    const { userId, type, evidence, ...rest } = alert;
+
+    const before = await FraudAlert.findOne({
+      userId,
+      type,
+      status: { $in: [FraudAlertStatus.OPEN, FraudAlertStatus.INVESTIGATING] },
+    }).select('_id');
+
+    const saved = await FraudAlert.findOneAndUpdate(
+      {
+        userId,
+        type,
+        status: { $in: [FraudAlertStatus.OPEN, FraudAlertStatus.INVESTIGATING] },
+      },
+      {
+        // La evidencia se pisa con la última observación: para investigar
+        // sirve más el caso reciente que el primero que se vio.
+        $set: { evidence, lastOccurredAt: now },
+        // Incrementar un campo que todavía no existe lo crea valiendo el
+        // incremento, así que este `$inc` sirve igual para la primera
+        // observación y para las siguientes. Lo que no puede es aparecer
+        // también en `$setOnInsert`: Mongo rechaza la escritura entera si
+        // dos operadores tocan el mismo campo.
+        $inc: { occurrences: 1 },
+        $setOnInsert: {
+          userId,
+          type,
+          status: FraudAlertStatus.OPEN,
+          ...rest,
+        },
+      },
+      // Los valores por defecto del esquema quedan fuera a propósito: el de
+      // `occurrences` volvería a chocar con el `$inc`. Todo lo que el
+      // documento necesita al nacer se escribe aquí de forma explícita.
+      { new: true, upsert: true, setDefaultsOnInsert: false }
+    );
+
+    const isNew = !before;
+
+    // El perfil de riesgo solo se recalcula al abrir una alerta nueva.
+    // Rehacerlo en cada repetición sería la misma inundación que este
+    // método existe para evitar, con el coste añadido de una agregación.
+    if (isNew) await this.assessUserRisk(userId);
+
+    return { alert: saved, isNew };
+  }
   /**
    * Resolve a fraud alert
    */

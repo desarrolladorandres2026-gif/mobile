@@ -52,7 +52,11 @@ export { Refund, IRefund, ProcessedWebhook, IProcessedWebhook } from './Refund';
 export { LegalDocument, ILegalDocument, LegalAcceptance, ILegalAcceptance, DataRequest, IDataRequest } from './Legal';
 export { Pqrs, IPqrs } from './Pqrs';
 export { DriverDocument, IDriverDocument } from './DriverDocument';
-export { Advertisement, IAdvertisement, AdActionType, AD_DURATION } from './Advertisement';
+export {
+  Advertisement, IAdvertisement, AdActionType, AD_DURATION,
+  AdPricingModel, AdApprovalStatus,
+} from './Advertisement';
+export { AdInvoice, IAdInvoice } from './AdInvoice';
 export { AdEvent, IAdEvent, AdEventType } from './AdEvent';
 export {
   PromotionBanner,
@@ -64,3 +68,29 @@ export {
   BANNER_DURATION,
 } from './PromotionBanner';
 export { HomeCategory, IHomeCategory } from './HomeCategory';
+
+export { FeatureFlag, IFeatureFlag, FeatureAudience } from './FeatureFlag';
+
+export {
+  BusinessDocument,
+  IBusinessDocument,
+  BusinessDocumentType,
+  REQUIRED_BUSINESS_DOCUMENTS,
+  FOOD_CATEGORIES,
+} from './BusinessDocument';
+
+export { Favorite, IFavorite, FavoriteKind } from './Favorite';
+
+export {
+  BusinessStaff,
+  IBusinessStaff,
+  BusinessRole,
+  BusinessPermission,
+  BUSINESS_ROLE_PERMISSIONS,
+} from './BusinessStaff';
+
+export { LoyaltyMovement, ILoyaltyMovement, LoyaltyMovementKind } from './LoyaltyMovement';
+
+export { LoyaltyBalance, ILoyaltyBalance } from './LoyaltyBalance';
+
+export { SosAlert, ISosAlert, SosStatus } from './SosAlert';

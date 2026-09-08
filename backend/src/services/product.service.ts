@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import { Product, IProduct, Category } from '../models';
 import { AppError } from '../middlewares';
 import { productImageService } from './productImage.service';
@@ -12,9 +13,62 @@ interface CreateProductInput {
   extras?: Array<{ name: string; price: number }>;
   isAvailable?: boolean;
   isFeatured?: boolean;
+  stock?: number | null;
+  lowStockThreshold?: number;
+  requiresAgeVerification?: boolean;
 }
 
 export class ProductService {
+  /**
+   * Los productos que más se piden de un negocio.
+   *
+   * Sale de los pedidos entregados, no de un campo que alguien marca a
+   * mano: "destacado" dice lo que el negocio quiere vender y esto dice lo
+   * que la gente compra, que rara vez es lo mismo y es lo que de verdad
+   * ayuda a decidir a quien entra por primera vez.
+   *
+   * Solo cuentan los entregados. Incluir cancelados premiaría justamente
+   * los platos que fallan.
+   */
+  async topSellers(businessId: string, limit = 5, withinDays = 30) {
+    const { Order } = await import('../models');
+    const { OrderStatus } = await import('../types');
+    const since = new Date(Date.now() - withinDays * 24 * 60 * 60 * 1000);
+
+    const rows = await Order.aggregate([
+      {
+        $match: {
+          businessId: new Types.ObjectId(businessId),
+          status: OrderStatus.DELIVERED,
+          deliveredAt: { $gte: since },
+        },
+      },
+      { $unwind: '$items' },
+      { $group: { _id: '$items.productId', sold: { $sum: '$items.quantity' } } },
+      { $sort: { sold: -1 } },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: '$product' },
+      // Un producto retirado de la carta no puede seguir apareciendo como
+      // el más vendido: lleva a una ficha que no se puede pedir.
+      { $match: { 'product.isAvailable': true } },
+      {
+        $replaceRoot: {
+          newRoot: { $mergeObjects: ['$product', { soldCount: '$sold' }] },
+        },
+      },
+    ]);
+
+    return rows;
+  }
+
   async create(input: CreateProductInput): Promise<IProduct> {
     if (!input.categoryId) {
       throw new AppError(
@@ -86,6 +140,26 @@ export class ProductService {
     if (data.extras !== undefined) product.extras = data.extras;
     if (data.isAvailable !== undefined) product.isAvailable = data.isAvailable;
     if (data.isFeatured !== undefined) product.isFeatured = data.isFeatured;
+
+    // El inventario se escribe explícitamente y admite `null`, que no es lo
+    // mismo que cero: null desactiva el control, cero dice que se acabó.
+    if (data.stock !== undefined) {
+      product.stock = data.stock;
+
+      // Reponer devuelve el producto a la carta sin un segundo paso. Un
+      // negocio que acaba de escribir "quedan 12" no espera tener que
+      // acordarse además de reactivarlo.
+      if (data.stock !== null && data.stock > 0 && data.isAvailable === undefined) {
+        product.isAvailable = true;
+      }
+      if (data.stock === 0) product.isAvailable = false;
+    }
+    if (data.requiresAgeVerification !== undefined) {
+      product.requiresAgeVerification = data.requiresAgeVerification;
+    }
+    if (data.lowStockThreshold !== undefined) {
+      product.lowStockThreshold = data.lowStockThreshold;
+    }
 
     await product.save();
     return product;

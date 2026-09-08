@@ -49,6 +49,14 @@ export interface ICoupon extends Document {
   city: string;
   /** Only true for a user's very first delivered order. */
   firstOrderOnly: boolean;
+  /**
+   * Si está, el cupón es de una sola persona.
+   *
+   * Lo usan los canjes de puntos: un cupón nominal que circula por WhatsApp
+   * deja de ser un canje y pasa a ser un agujero, porque quien lo usa no
+   * gastó ningún punto.
+   */
+  restrictedToUserId?: Types.ObjectId | null;
   /** Optional targeting. Empty arrays mean every eligible customer. */
   zoneIds: Types.ObjectId[];
   eligibleRoles: string[];
@@ -141,6 +149,7 @@ const couponSchema = new Schema<ICoupon>(
     businessId: { type: Schema.Types.ObjectId, ref: 'Business', default: null },
     city: { type: String, default: '', trim: true },
     firstOrderOnly: { type: Boolean, default: false },
+    restrictedToUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     zoneIds: { type: [Schema.Types.ObjectId], ref: 'Zone', default: [] },
     eligibleRoles: { type: [String], default: ['client'] },
     validDays: { type: [Number], default: [], validate: { validator: (v: number[]) => v.every((d) => Number.isInteger(d) && d >= 0 && d <= 6), message: 'Días de promoción inválidos' } },

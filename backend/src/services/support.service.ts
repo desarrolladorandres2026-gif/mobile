@@ -1,0 +1,178 @@
+import { Pqrs, IPqrs } from '../models';
+import { AppError } from '../middlewares/errorHandler';
+import { emitToUser } from '../sockets/emitter';
+
+/**
+ * Centro de soporte.
+ *
+ * No parte de cero: `Pqrs` ya guardaba tipo, estado, evidencias y
+ * respuestas. Lo que le faltaba para ser una bandeja de trabajo eran las
+ * tres cosas que convierten una lista en una cola: quién lo tiene, cuándo
+ * vence y cuánto se tardó en contestar.
+ *
+ * Sin asignación, una bandeja compartida acaba con todo el mundo mirando
+ * los mismos tres casos fáciles y nadie tocando el difícil.
+ */
+
+export type Priority = 'low' | 'normal' | 'high' | 'urgent';
+
+/**
+ * Cuánto se tarda como máximo en responder, por prioridad.
+ *
+ * Son horas, no días: en una operación de comida a domicilio, un reclamo
+ * de ayer ya no tiene arreglo — la comida se comió o se tiró.
+ */
+const SLA_HOURS: Record<Priority, number> = {
+  urgent: 1,
+  high: 4,
+  normal: 24,
+  low: 72,
+};
+
+/**
+ * Qué se considera urgente sin que nadie lo decida a mano.
+ *
+ * Un reclamo es dinero en disputa y una queja es una experiencia mala:
+ * ambas escuecen, pero solo una tiene un plazo real detrás.
+ */
+function defaultPriority(type: IPqrs['type']): Priority {
+  if (type === 'claim') return 'high';
+  if (type === 'complaint') return 'normal';
+  return 'low';
+}
+
+export class SupportService {
+  /** Fija prioridad y plazo al abrir el caso. */
+  async classify(pqrsId: string, priority?: Priority): Promise<IPqrs> {
+    const ticket = await Pqrs.findById(pqrsId);
+    if (!ticket) throw new AppError('Caso no encontrado', 404);
+
+    const level = priority ?? defaultPriority(ticket.type);
+
+    ticket.priority = level;
+    // El plazo se fija al abrir y no se recalcula: uno que se ajusta
+    // después es un plazo que se mueve para no incumplirlo.
+    ticket.dueAt = new Date(Date.now() + SLA_HOURS[level] * 60 * 60 * 1000);
+
+    await ticket.save();
+    return ticket;
+  }
+
+  async assign(pqrsId: string, agentId: string): Promise<IPqrs> {
+    const ticket = await Pqrs.findByIdAndUpdate(
+      pqrsId,
+      { assignedTo: agentId, assignedAt: new Date(), status: 'in_review' },
+      { new: true }
+    );
+
+    if (!ticket) throw new AppError('Caso no encontrado', 404);
+    return ticket;
+  }
+
+  /**
+   * Responde al cliente.
+   *
+   * La primera respuesta se sella aparte: es la métrica que mide de verdad
+   * a soporte, y no se puede reconstruir después mirando el array de
+   * respuestas si alguna se borra.
+   */
+  async reply(pqrsId: string, agentId: string, message: string): Promise<IPqrs> {
+    const ticket = await Pqrs.findById(pqrsId);
+    if (!ticket) throw new AppError('Caso no encontrado', 404);
+
+    ticket.responses.push({
+      message,
+      userId: agentId as never,
+      createdAt: new Date(),
+    });
+
+    if (!ticket.firstResponseAt) ticket.firstResponseAt = new Date();
+    if (ticket.status === 'received') ticket.status = 'in_review';
+
+    await ticket.save();
+
+    // El cliente se entera en el momento. Un caso respondido que nadie ve
+    // es un caso sin responder.
+    emitToUser(ticket.userId.toString(), 'support:replied', {
+      pqrsId: ticket._id.toString(),
+      subject: ticket.subject,
+    });
+
+    return ticket;
+  }
+
+  async close(pqrsId: string, agentId: string, message?: string): Promise<IPqrs> {
+    if (message) await this.reply(pqrsId, agentId, message);
+
+    const ticket = await Pqrs.findByIdAndUpdate(
+      pqrsId,
+      { status: 'closed' },
+      { new: true }
+    );
+
+    if (!ticket) throw new AppError('Caso no encontrado', 404);
+    return ticket;
+  }
+
+  /**
+   * La cola de trabajo.
+   *
+   * Ordenada por vencimiento y no por antigüedad: lo que llegó primero no
+   * es necesariamente lo que hay que atender primero, y ordenar por fecha
+   * de llegada deja los urgentes debajo de una pila de sugerencias.
+   */
+  async queue(options: { assignedTo?: string; onlyOverdue?: boolean } = {}) {
+    const filter: Record<string, unknown> = {
+      status: { $in: ['received', 'in_review'] },
+    };
+
+    if (options.assignedTo) filter.assignedTo = options.assignedTo;
+    if (options.onlyOverdue) filter.dueAt = { $lt: new Date() };
+
+    return Pqrs.find(filter)
+      .sort({ dueAt: 1, createdAt: 1 })
+      .limit(100)
+      .populate('userId', 'name phone email')
+      .populate('assignedTo', 'name')
+      .lean();
+  }
+
+  /** Cuántos casos hay, cuántos vencidos y cuánto se tarda en contestar. */
+  async metrics() {
+    const now = new Date();
+
+    const [open, overdue, unassigned, responseRows] = await Promise.all([
+      Pqrs.countDocuments({ status: { $in: ['received', 'in_review'] } }),
+      Pqrs.countDocuments({
+        status: { $in: ['received', 'in_review'] },
+        dueAt: { $lt: now },
+      }),
+      Pqrs.countDocuments({
+        status: { $in: ['received', 'in_review'] },
+        assignedTo: null,
+      }),
+      Pqrs.aggregate([
+        { $match: { firstResponseAt: { $ne: null } } },
+        {
+          $group: {
+            _id: null,
+            avgMinutes: {
+              $avg: {
+                $divide: [{ $subtract: ['$firstResponseAt', '$createdAt'] }, 60000],
+              },
+            },
+          },
+        },
+      ]),
+    ]);
+
+    return {
+      open,
+      overdue,
+      unassigned,
+      averageFirstResponseMinutes: Math.round(responseRows[0]?.avgMinutes ?? 0),
+    };
+  }
+}
+
+export const supportService = new SupportService();

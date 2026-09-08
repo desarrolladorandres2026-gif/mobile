@@ -235,6 +235,26 @@ const DriverOrderCard = memo(function DriverOrderCard({
 
   const business = order.businessId;
   const client = order.clientId;
+  const errand = order.kind === 'errand' ? order.errand : null;
+
+  /**
+   * De dónde sale el pedido.
+   *
+   * Un mandado no tiene comercio, y dejar el texto por defecto pintaría
+   * "Local comercial" y "Direccion del negocio" sobre un encargo que no
+   * tiene ninguno de los dos — justo en la pantalla donde se decide si se
+   * acepta.
+   */
+  const originName = errand ? 'Mandado' : business?.name || 'Local comercial';
+  const originAddress = errand
+    ? errand.pickupAddress
+    : business?.address || 'Direccion del negocio';
+  const originLat = errand
+    ? errand.pickupLocation?.coordinates?.[1]
+    : business?.location?.coordinates?.[1];
+  const originLng = errand
+    ? errand.pickupLocation?.coordinates?.[0]
+    : business?.location?.coordinates?.[0];
   const deliveryFee = order.deliveryFee || 0;
   const tip = order.tip || 0;
   const totalEarning = deliveryFee + tip;
@@ -256,7 +276,7 @@ const DriverOrderCard = memo(function DriverOrderCard({
         <View style={styles.cardHeader}>
           <View>
             <Text v="caption" tone="textMuted">{orderDate(order.createdAt)}</Text>
-            <Text v="titleM">{business?.name || 'Local comercial'}</Text>
+            <Text v="titleM">{originName}</Text>
           </View>
           <Badge
             label={money(totalEarning)}
@@ -268,13 +288,13 @@ const DriverOrderCard = memo(function DriverOrderCard({
         <View style={[styles.routeBox, { backgroundColor: c.surfaceLight, borderColor: c.border }]}>
           {/* Origen */}
           <Pressable
-            onPress={() => onOpenMap(business?.address, business?.location?.coordinates?.[1], business?.location?.coordinates?.[0])}
+            onPress={() => onOpenMap(originAddress, originLat, originLng)}
             style={styles.routeRow}
           >
             <View style={[styles.pointDot, { backgroundColor: c.primary }]} />
             <View style={styles.flex}>
-              <Text v="caption" tone="textMuted">RECOGER EN</Text>
-              <Text v="strongS" numberOfLines={1}>{business?.address || 'Dirección del negocio'}</Text>
+              <Text v="caption" tone="textMuted">{errand ? 'COMPRAR EN' : 'RECOGER EN'}</Text>
+              <Text v="strongS" numberOfLines={1}>{originAddress}</Text>
             </View>
             <Icon name="navegar" size="sm" color={c.primaryText} />
           </Pressable>
@@ -294,6 +314,19 @@ const DriverOrderCard = memo(function DriverOrderCard({
             <Icon name="navegar" size="sm" color={c.limeText} />
           </Pressable>
         </View>
+
+        {/* ── Lo que hay que comprar y con cuánto dinero ── */}
+        {/* El tope se enseña aquí y no solo al abrir el pedido: es lo que
+            se va a retener del fondo al aceptar, y aceptar es lo que se
+            hace desde esta tarjeta. */}
+        {errand ? (
+          <>
+            <Text v="bodyM" numberOfLines={3}>{errand.description}</Text>
+            <Notice tone="warning" icon="efectivo">
+              Adelantas hasta {money(errand.maxCost)} de tu fondo. Se te devuelve al entregar.
+            </Notice>
+          </>
+        ) : null}
 
         {/* ── Alerta si es Pago en Efectivo ── */}
         {order.paymentMethod === 'cash_on_delivery' ? (

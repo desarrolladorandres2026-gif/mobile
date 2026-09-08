@@ -1,11 +1,11 @@
-import { View, ScrollView, StyleSheet, Share } from 'react-native';
+import { View, ScrollView, StyleSheet, Share, Alert } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import {
   Text, Button, Badge, Notice, Screen, Header, EmptyState,
 } from '../../components/ui';
 import { ContentIcon } from '../../components/illustrations';
 import { useZippStats } from '../../hooks/useUsual';
-import { usePublicCoupons } from '../../hooks/useApi';
+import { usePublicCoupons, useLoyalty, useRedeemPoints } from '../../hooks/useApi';
 import { useAuthStore } from '../../stores/authStore';
 import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing, FontSize } from '../../theme/tokens';
@@ -16,6 +16,13 @@ export default function RewardsScreen() {
   const { c, isDark } = useTheme();
   const user = useAuthStore((s) => s.user);
   const stats = useZippStats();
+
+  // Los puntos vienen del servidor. `useZippStats` sigue dando la racha y
+  // el conteo de pedidos, que sí son del historial local y no son deuda de
+  // nadie.
+  const { data: loyalty } = useLoyalty();
+  const redeem = useRedeemPoints();
+  const points = loyalty?.balance ?? 0;
   const { data: coupons = [] } = usePublicCoupons();
 
   const invite = async () => {
@@ -55,11 +62,43 @@ export default function RewardsScreen() {
             </View>
 
             <Text v="displayXL" tone="primaryText" style={styles.pointsNumber}>
-              {stats.points}
+              {points.toLocaleString('es-CO')}
             </Text>
             <Text v="bodyM" tone="textSecondary" center>
-              Ganas 1 punto por cada $1.000 que pides en Zipp
+              {points > 0
+                ? `Valen ${money(points)} en tu próximo pedido`
+                : 'Ganas puntos con cada pedido entregado'}
             </Text>
+
+            {/* Un punto vale un peso: la equivalencia se dice en voz alta.
+                Los programas donde "1000 puntos son 12.500 pesos" existen
+                para que el cliente no sepa cuánto tiene. */}
+            {points > 0 ? (
+              <Button
+                title={redeem.isPending ? 'Canjeando…' : `Canjear ${points.toLocaleString('es-CO')} puntos`}
+                icon="cupon"
+                style={styles.redeemBtn}
+                onPress={() => {
+                  tap('medium');
+                  redeem.mutate(points, {
+                    onSuccess: (result: any) => {
+                      tap('success');
+                      Alert.alert(
+                        '¡Cupón listo!',
+                        `Usa el código ${result.coupon.code} en tu próximo pedido. ` +
+                          `Te descuenta ${money(result.value)}.`
+                      );
+                    },
+                    onError: (err: any) => {
+                      Alert.alert(
+                        'No pudimos canjear',
+                        err?.response?.data?.message ?? 'Inténtalo de nuevo.'
+                      );
+                    },
+                  });
+                }}
+              />
+            ) : null}
 
             <View style={[styles.cardDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
 
@@ -239,6 +278,7 @@ function describe(coupon: any): string {
 }
 
 const styles = StyleSheet.create({
+  redeemBtn: { marginTop: Spacing.md, alignSelf: 'stretch' },
   flex: { flex: 1 },
   content: {
     paddingHorizontal: Spacing.lg,

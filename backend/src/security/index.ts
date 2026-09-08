@@ -15,7 +15,8 @@ export {
   hashRecoveryCodes, verifyRecoveryCode
 } from './totp';
 export {
-  checkBruteForce, recordFailedAttempt, clearAttempts, getRemainingAttempts, resetBruteForce
+  checkBruteForce, recordFailedAttempt, clearAttempts, getRemainingAttempts, resetBruteForce,
+  LoginAttempt, ILoginAttempt
 } from './bruteforce';
 export {
   Permission, ExtendedRole, SUPER_ADMIN_ROLE_SLUG,
@@ -25,7 +26,8 @@ export {
 export {
   FraudAlert, IFraudAlert, FraudAlertType, FraudAlertStatus,
   UserRiskProfile, IUserRiskProfile, RiskLevel,
-  AntiFraudService, antiFraudService
+  AntiFraudService, antiFraudService,
+  IdentityLink, IIdentityLink
 } from './antifraud';
 export {
   OrderEvent, IOrderEvent,

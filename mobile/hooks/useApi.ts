@@ -1,19 +1,146 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi } from '../services/endpoints';
+import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi } from '../services/endpoints';
 import type { PromoBanner, HomeCategory } from '../services/endpoints';
 
 // ── Businesses ──
 export const useBusinesses = (params?: Record<string, any>) =>
   useQuery({ queryKey: ['businesses', params], queryFn: () => businessesApi.getAll(params) });
 
+/**
+ * Coordenadas desde las que medir la distancia a los negocios.
+ *
+ * Se usa la dirección de entrega y no el GPS del momento. Parece menos
+ * preciso y es más correcto: el domicilio se cobra desde donde se va a
+ * entregar, así que enseñar "300 m" porque el cliente está pasando por el
+ * centro sería prometerle un envío que no le van a cobrar.
+ */
+export const useDeliveryCoords = () => {
+  const { data: addresses = [] } = useAddresses();
+  const preferred = addresses.find((a: any) => a.isDefault) ?? addresses[0];
+  const coords = preferred?.location?.coordinates;
+
+  if (!Array.isArray(coords) || coords.length !== 2) return undefined;
+  return { lng: coords[0], lat: coords[1] };
+};
+
 export const useBusiness = (id: string) =>
   useQuery({ queryKey: ['business', id], queryFn: () => businessesApi.getById(id), enabled: !!id });
 
+/**
+ * Negocios ordenados por cercanía real.
+ *
+ * Sin usar todavía: la lista y las tarjetas muestran rating y minutos, nunca
+ * distancia. Se consume al pintar los km en `BusinessRow`/`BusinessFeatured`
+ * — `Business.location` ya tiene índice 2dsphere, el trabajo es de UI.
+ */
 export const useNearbyBusinesses = (lat: number, lng: number) =>
   useQuery({
     queryKey: ['businesses', 'nearby', lat, lng],
     queryFn: () => businessesApi.getNearby(lat, lng),
     enabled: !!lat && !!lng,
+  });
+
+/**
+ * Búsqueda de catálogo: negocios y productos en una sola consulta.
+ *
+ * Sustituye a filtrar la lista de negocios por nombre, que no encontraba un
+ * plato si el local no se llamaba como él.
+ */
+export const useSearch = (term: string) =>
+  useQuery({
+    queryKey: ['search', term],
+    queryFn: () => searchApi.query(term),
+    enabled: term.trim().length >= 2,
+    staleTime: 60_000,
+  });
+
+/** Lo que más se busca de verdad, según el catálogo. */
+export const usePopularSearches = () =>
+  useQuery({
+    queryKey: ['search', 'popular'],
+    queryFn: () => searchApi.popular(),
+    staleTime: 30 * 60_000,
+  });
+
+// ── Calificaciones ──
+
+/**
+ * Lo que el cliente tiene pendiente de calificar.
+ *
+ * El backend de reseñas existía completo desde hacía tiempo, pero la app no
+ * tenía ninguna pantalla para calificar: la nota que se muestra en cada
+ * tarjeta de negocio nunca se movía de la que dejó el sembrado inicial.
+ */
+export const usePendingRatings = () =>
+  useQuery({
+    queryKey: ['reviews', 'pending'],
+    queryFn: () => reviewsApi.pending(),
+    staleTime: 60_000,
+  });
+
+export const useCreateReview = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: reviewsApi.create,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['reviews'] });
+      // La nota del negocio acaba de cambiar: las listas que la muestran
+      // tienen que volver a pedirla.
+      qc.invalidateQueries({ queryKey: ['businesses'] });
+      qc.invalidateQueries({ queryKey: ['business'] });
+    },
+  });
+};
+
+/**
+ * Los más pedidos de un negocio.
+ *
+ * Distinto de `isFeatured`: aquello es lo que el negocio quiere vender,
+ * esto es lo que la gente compra.
+ */
+export const useTopSellers = (businessId: string) =>
+  useQuery({
+    queryKey: ['products', 'top', businessId],
+    queryFn: () => topSellersApi.forBusiness(businessId),
+    enabled: !!businessId,
+    staleTime: 10 * 60_000,
+  });
+
+// ── Puntos ZIPP ──
+
+/**
+ * Saldo real de puntos, del servidor.
+ *
+ * Sustituye a `useZippStats().points`, que los derivaba del historial local
+ * del teléfono: cambiaban de dispositivo a dispositivo y desaparecían al
+ * reinstalar, porque no existían en ninguna parte.
+ */
+export const useLoyalty = () =>
+  useQuery({
+    queryKey: ['loyalty'],
+    queryFn: () => loyaltyApi.mine(),
+    staleTime: 60_000,
+  });
+
+export const useRedeemPoints = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (points: number) => loyaltyApi.redeem(points),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['loyalty'] });
+      // El canje genera un cupón: la lista de promociones cambió.
+      qc.invalidateQueries({ queryKey: ['coupons'] });
+    },
+  });
+};
+
+/** Pulgares por plato de un negocio, para pintarlos en la carta. */
+export const useProductSentiment = (businessId: string) =>
+  useQuery({
+    queryKey: ['products', 'sentiment', businessId],
+    queryFn: () => productSentimentApi.forBusiness(businessId),
+    enabled: !!businessId,
+    staleTime: 10 * 60_000,
   });
 
 /** Secciones del menú de un negocio: Entradas, Hamburguesas, Bebidas… */
@@ -142,6 +269,28 @@ export const useConfirmCash = () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       // El saldo pendiente y las ganancias del domiciliario acaban de
       // moverse: las dos cuelgan de la clave `driver`.
+      queryClient.invalidateQueries({ queryKey: ['driver'] });
+    },
+  });
+};
+
+/**
+ * El domiciliario declara lo que costó la compra de un mandado.
+ *
+ * Mueve el total del pedido —el cliente paga el gasto real, no el tope— y
+ * el saldo comprometido del propio domiciliario, así que invalida las tres
+ * claves: el pedido, su flujo y el resumen del repartidor.
+ */
+export const useDeclareErrandCost = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, actualCost, receiptUrl }: {
+      orderId: string; actualCost: number; receiptUrl: string;
+    }) => errandsApi.declareCost(orderId, actualCost, receiptUrl),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['order', vars.orderId] });
+      queryClient.invalidateQueries({ queryKey: ['orderFlow', vars.orderId] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
       queryClient.invalidateQueries({ queryKey: ['driver'] });
     },
   });
@@ -367,6 +516,12 @@ export const usePublicCoupons = (params?: { city?: string; businessId?: string }
     staleTime: 5 * 60_000,
   });
 
+/**
+ * ¿Hay cobertura en este punto?
+ *
+ * Sin usar todavía. El checkout confía en que la dirección guardada es
+ * entregable y solo falla al cotizar; esto permitiría avisar antes.
+ */
 export const useCoverageCheck = (lat?: number, lng?: number, businessId?: string) =>
   useQuery({
     queryKey: ['coverage', lat, lng, businessId],

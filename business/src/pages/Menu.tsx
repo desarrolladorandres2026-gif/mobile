@@ -10,6 +10,7 @@ import { money } from '../lib/orderFlow';
 import ConfirmDialog from '../components/ConfirmDialog';
 import SmartImage from '../components/SmartImage';
 import type { Product } from '../lib/catalog';
+import ProductGalleryField from '../components/ProductGalleryField';
 import ProductImageField, {
   type ImageCapabilities, type PendingProductImage,
 } from '../components/ProductImageField';
@@ -461,6 +462,21 @@ export default function Menu() {
                               Sin foto
                             </span>
                           )}
+                          {/* Solo aparece si el negocio lleva la cuenta.
+                              `null` es "no lo cuento" y no se muestra. */}
+                          {typeof product.stock === 'number' && (
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                product.stock === 0
+                                  ? 'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger)]/30'
+                                  : product.stock <= (product.lowStockThreshold || 3)
+                                    ? 'bg-[var(--color-warning-bg)] text-[var(--color-warning)] border-[var(--color-warning)]/30'
+                                    : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] border-[var(--color-border)]'
+                              }`}
+                            >
+                              {product.stock === 0 ? 'Sin unidades' : `Quedan ${product.stock}`}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-[var(--color-text-secondary)] truncate">
                           {product.description || 'Sin descripción'}
@@ -632,6 +648,19 @@ export default function Menu() {
                 onPendingChange={setPendingImage}
                 onUpdated={onProductImageUpdated}
               />
+
+              {/* Solo al editar: una galería sin portada no tiene sentido
+                  y el servidor la rechaza. */}
+              {editingProduct ? (
+                <ProductGalleryField
+                  productId={editingProduct._id}
+                  businessId={businessId!}
+                  images={editingProduct.galleryImages ?? []}
+                  publicIds={(editingProduct.gallery ?? []).map((g) => g.publicId)}
+                  hasCover={Boolean(editingProduct.images)}
+                  onUpdated={(updated) => onProductImageUpdated(updated as Product)}
+                />
+              ) : null}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 border-t border-[var(--color-border-light)] pt-4">
                 <Field label="Nombre" htmlFor="product-name">

@@ -332,3 +332,180 @@ describe('Capacidades del entorno', () => {
     expect(res.body.data.aspectRatio).toBe('1:1');
   });
 });
+
+/**
+ * Galería del producto.
+ *
+ * La foto principal la leen las listas, las tarjetas y el carrito; estas
+ * son las que se deslizan dentro de la ficha y enseñan lo que la portada
+ * no puede — el plato por dentro, el tamaño real, la etiqueta.
+ *
+ * Son un campo aparte y no `images[0]` a propósito: convertir la principal
+ * en el primer elemento de un array obligaría a tocar todos esos sitios, y
+ * bastaría olvidar uno para que un producto se quedara sin miniatura.
+ */
+describe('Galería del producto', () => {
+  /** Cada subida devuelve un `publicId` distinto, como haría Cloudinary. */
+  const distinctUploads = () => {
+    let n = 0;
+    (productImageService as any).store.mockImplementation(async () => {
+      n += 1;
+      return {
+        publicId: `zipp/products/gallery-${n}`,
+        width: 1200,
+        height: 1200,
+        bytes: 180_000,
+        format: 'jpg',
+      };
+    });
+  };
+
+  const withCover = async () => {
+    const ctx = await scenario();
+    await productImageService.replace({
+      product: ctx.product,
+      buffer: png(1200, 1200),
+      mimetype: 'image/png',
+    });
+    return ctx;
+  };
+
+  it('exige portada antes de la galería', async () => {
+    const ctx = await scenario();
+
+    // Un producto con cuatro fotos dentro y ninguna en la carta parecería
+    // subido y no se vería en ninguna parte.
+    await expect(
+      productImageService.addToGallery({
+        product: ctx.product,
+        buffer: png(1200, 1200),
+        mimetype: 'image/png',
+      })
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('añade una foto sin tocar la principal', async () => {
+    distinctUploads();
+    const ctx = await withCover();
+    const before = ctx.product.imageAsset!.publicId;
+
+    const updated = await productImageService.addToGallery({
+      product: ctx.product,
+      buffer: jpeg(1400, 1400),
+      mimetype: 'image/jpeg',
+    });
+
+    expect(updated.gallery).toHaveLength(1);
+    expect(updated.imageAsset!.publicId).toBe(before);
+    expect(updated.image).toBeTruthy();
+  });
+
+  it('rechaza la misma foto dos veces', async () => {
+    distinctUploads();
+    const ctx = await withCover();
+
+    await productImageService.addToGallery({
+      product: ctx.product,
+      buffer: jpeg(1400, 1400),
+      mimetype: 'image/jpeg',
+    });
+
+    // Un deslizamiento que enseña lo mismo no es una foto más.
+    await expect(
+      productImageService.addToGallery({
+        product: ctx.product,
+        buffer: jpeg(1400, 1400),
+        mimetype: 'image/jpeg',
+      })
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('no deja pasar del tope', async () => {
+    distinctUploads();
+    const ctx = await withCover();
+
+    for (let i = 0; i < 5; i += 1) {
+      await productImageService.addToGallery({
+        product: ctx.product,
+        buffer: jpeg(1200 + i, 1200 + i),
+        mimetype: 'image/jpeg',
+      });
+    }
+
+    // El tope es de producto, no de almacenamiento: a partir de la quinta
+    // nadie sigue deslizando y cada foto es una descarga con datos
+    // contados.
+    await expect(
+      productImageService.addToGallery({
+        product: ctx.product,
+        buffer: jpeg(1300, 1300),
+        mimetype: 'image/jpeg',
+      })
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('borrar una foto borra también su archivo', async () => {
+    distinctUploads();
+    const ctx = await withCover();
+
+    const withPhoto = await productImageService.addToGallery({
+      product: ctx.product,
+      buffer: jpeg(1400, 1400),
+      mimetype: 'image/jpeg',
+    });
+    const publicId = withPhoto.gallery[0].publicId;
+
+    const updated = await productImageService.removeFromGallery(ctx.product, publicId);
+
+    expect(updated.gallery).toHaveLength(0);
+    expect(destroyed).toContain(publicId);
+  });
+
+  it('borrar una foto que no está da 404', async () => {
+    const ctx = await withCover();
+
+    await expect(
+      productImageService.removeFromGallery(ctx.product, 'zipp/products/no-existe')
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('borrar el producto se lleva la galería entera', async () => {
+    distinctUploads();
+    const ctx = await withCover();
+
+    await productImageService.addToGallery({
+      product: ctx.product,
+      buffer: jpeg(1400, 1400),
+      mimetype: 'image/jpeg',
+    });
+    await productImageService.addToGallery({
+      product: ctx.product,
+      buffer: jpeg(1500, 1500),
+      mimetype: 'image/jpeg',
+    });
+
+    // Sin esto, un producto con cinco fotos deja cinco archivos huérfanos.
+    await productImageService.forget(ctx.product);
+
+    expect(destroyed).toHaveLength(3);
+  });
+
+  it('la API entrega variantes, no identificadores de almacenamiento', async () => {
+    distinctUploads();
+    const ctx = await withCover();
+
+    await productImageService.addToGallery({
+      product: ctx.product,
+      buffer: jpeg(1400, 1400),
+      mimetype: 'image/jpeg',
+    });
+
+    const json = (await Product.findById(ctx.product._id))!.toJSON() as any;
+
+    // La app no necesita `publicId` para pintar un carrusel, y no mandarlo
+    // evita filtrar la estructura del almacenamiento a cualquiera que abra
+    // la carta.
+    expect(json.galleryImages).toHaveLength(1);
+    expect(json.galleryImages[0].detail).toContain('http');
+  });
+});

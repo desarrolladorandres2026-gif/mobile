@@ -11,6 +11,36 @@ export enum AdActionType {
 /** How long the app holds the flyer on screen before it continues on its own. */
 export const AD_DURATION = { min: 3, max: 15, default: 5 } as const;
 
+/**
+ * Cómo se le cobra al anunciante.
+ *
+ * `flat` es lo que había: un precio cerrado que el equipo comercial pacta
+ * por fuera y un admin anota. Los otros dos son lo que hace falta para que
+ * un comercio pueda comprar solo, sin que nadie negocie nada.
+ */
+export enum AdPricingModel {
+  /** Precio cerrado por la campaña entera. */
+  FLAT = 'flat',
+  /** Por cada mil impresiones servidas. */
+  CPM = 'cpm',
+  /** Por cada clic. */
+  CPC = 'cpc',
+}
+
+/**
+ * En qué punto de la revisión está una campaña.
+ *
+ * Solo importa en las que compra un comercio por su cuenta: las que crea un
+ * admin nacen aprobadas, porque el propio hecho de que las cree un admin es
+ * la aprobación. Un comercio no puede publicar en la app de ZIPP sin que
+ * alguien mire lo que va a salir.
+ */
+export enum AdApprovalStatus {
+  PENDING = 'pending',
+  APPROVED = 'approved',
+  REJECTED = 'rejected',
+}
+
 export interface IAdvertisement extends Document {
   campaignName: string;
   advertiserName: string;
@@ -20,17 +50,67 @@ export interface IAdvertisement extends Document {
   isActive: boolean;
   /** Higher runs first when several campaigns are eligible at once. */
   priority: number;
+
+  /**
+   * A quién se le enseña.
+   *
+   * Listas vacías significan "a todos", que es lo que había antes y sigue
+   * siendo el caso normal. Mandarle a todo Garzón la promoción de una
+   * pizzería es tolerable; mandársela a alguien de otro municipio es
+   * quemar impresiones que el anunciante paga.
+   */
+  targetCities: string[];
+  targetCategories: string[];
+  targetRoles: string[];
+
+  /**
+   * Cuántas veces puede ver esto la misma persona.
+   *
+   * Cero: sin límite. El anunciante paga por impresiones, así que
+   * enseñarle el mismo anuncio quince veces al mismo usuario le cobra
+   * quince veces por un alcance de uno.
+   */
+  maxImpressionsPerUser: number;
   actionType: AdActionType;
   /** Required when actionType = BUSINESS. */
   businessId?: Types.ObjectId | null;
   /** Impressions this campaign may serve in total. 0 = unlimited. */
   maxImpressions: number;
+  /**
+   * Clics que puede llegar a pagar. Cero = sin tope.
+   *
+   * Existe por la misma razón que `maxImpressions` y llegó mucho después:
+   * `registerClick` no comprobaba nada, así que una campaña con el tope de
+   * impresiones agotado seguía cobrando clics sin límite.
+   */
+  maxClicks: number;
   impressionCount: number;
   clickCount: number;
   /** Seconds the flyer stays on screen before the app moves on by itself. */
   durationSeconds: number;
   /** What ZIPP charged the advertiser. Never leaves the admin panel. */
   pricePaid: number;
+
+  // ── Facturación ──
+
+  pricingModel: AdPricingModel;
+  /** Pesos por cada mil impresiones. Solo con `cpm`. */
+  cpmRate: number;
+  /** Pesos por clic. Solo con `cpc`. */
+  cpcRate: number;
+  /**
+   * Tope de gasto. Cero significa sin tope.
+   *
+   * Obligatorio en las campañas que compra un comercio: sin él está
+   * firmando un gasto abierto contra una liquidación que todavía no ha
+   * cobrado, y el primer disgusto se lo lleva cuando le llegue.
+   */
+  budget: number;
+  /** A quién se le cobra. Nulo en las campañas que vende ZIPP por fuera. */
+  billedToBusinessId?: Types.ObjectId | null;
+  approvalStatus: AdApprovalStatus;
+  /** Por qué se rechazó, para que el comercio pueda corregir y reenviar. */
+  rejectionReason: string;
   /** Notas internas del equipo comercial. Nunca sale del panel. */
   internalNotes: string;
   /**
@@ -78,6 +158,10 @@ const advertisementSchema = new Schema<IAdvertisement>(
     },
     isActive: { type: Boolean, default: true },
     priority: { type: Number, default: 0, min: 0, max: 100 },
+    targetCities: { type: [String], default: [] },
+    targetCategories: { type: [String], default: [] },
+    targetRoles: { type: [String], default: [] },
+    maxImpressionsPerUser: { type: Number, default: 0, min: 0 },
     actionType: {
       type: String,
       enum: Object.values(AdActionType),
@@ -96,6 +180,7 @@ const advertisementSchema = new Schema<IAdvertisement>(
       },
     },
     maxImpressions: { type: Number, default: 0, min: 0 },
+    maxClicks: { type: Number, default: 0, min: 0 },
     impressionCount: { type: Number, default: 0, min: 0 },
     clickCount: { type: Number, default: 0, min: 0 },
     durationSeconds: {
@@ -105,6 +190,26 @@ const advertisementSchema = new Schema<IAdvertisement>(
       max: AD_DURATION.max,
     },
     pricePaid: { type: Number, default: 0, min: 0 },
+
+    pricingModel: {
+      type: String,
+      enum: Object.values(AdPricingModel),
+      default: AdPricingModel.FLAT,
+    },
+    cpmRate: { type: Number, default: 0, min: 0 },
+    cpcRate: { type: Number, default: 0, min: 0 },
+    budget: { type: Number, default: 0, min: 0 },
+    billedToBusinessId: { type: Schema.Types.ObjectId, ref: 'Business', default: null },
+    approvalStatus: {
+      type: String,
+      enum: Object.values(AdApprovalStatus),
+      // Las campañas de siempre las crea un admin y salen aprobadas: no
+      // tendría sentido que el admin tuviera que aprobarse a sí mismo, y
+      // este default deja intactas las que ya existen en la base.
+      default: AdApprovalStatus.APPROVED,
+    },
+    rejectionReason: { type: String, default: '', trim: true, maxlength: 300 },
+
     internalNotes: { type: String, default: '', trim: true, maxlength: 500 },
     cancelledAt: { type: Date, default: null },
   },

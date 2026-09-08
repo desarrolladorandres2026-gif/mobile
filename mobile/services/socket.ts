@@ -2,6 +2,25 @@ import { io, Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../constants';
 import { useAuthStore } from '../stores/authStore';
 
+/** Oferta de un pedido, tal como la manda el reparto automático. */
+export interface OrderOffer {
+  orderId: string;
+  orderNumber: string;
+  businessName?: string;
+  /** Ronda de la cascada. Cuanto más alta, más gente la está viendo. */
+  round: number;
+  /** Cuándo deja de ser suya. El contador de la pantalla sale de aquí. */
+  expiresAt: string;
+  etaSeconds: number;
+}
+
+export interface VerificationRequest {
+  verificationId: string;
+  type: string;
+  dueAt: string;
+}
+
+
 class SocketService {
   private socket: Socket | null = null;
 
@@ -86,6 +105,28 @@ class SocketService {
 
   offOrderAvailable(callback: (data: any) => void) {
     this.socket?.off('order:available', callback);
+  }
+
+  // ── Oferta de reparto ──
+  //
+  // El servidor ya no espera a que el domiciliario mire la lista: le ofrece
+  // el pedido directamente, por rondas, y solo quien tiene la oferta puede
+  // aceptarla mientras dura. Ver `dispatch.service.ts` en el backend.
+  onOrderOffer(callback: (data: OrderOffer) => void) {
+    this.socket?.on('order:offer', callback);
+  }
+
+  offOrderOffer(callback: (data: OrderOffer) => void) {
+    this.socket?.off('order:offer', callback);
+  }
+
+  /** El servidor pide una selfie para comprobar quién está conduciendo. */
+  onVerificationRequested(callback: (data: VerificationRequest) => void) {
+    this.socket?.on('driver:verification:requested', callback);
+  }
+
+  offVerificationRequested(callback: (data: VerificationRequest) => void) {
+    this.socket?.off('driver:verification:requested', callback);
   }
 
   emitNewOrder(orderData: any) {

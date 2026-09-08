@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import RefundPanel from '../components/RefundPanel';
+import { PermissionGate } from '../components/PermissionGate';
 
 interface OrderItem {
   name: string;
@@ -13,6 +15,15 @@ interface OrderType {
   _id: string;
   orderNumber?: string;
   businessId?: { name: string; address?: string };
+  /** Un mandado no tiene comercio de origen. */
+  kind?: 'delivery' | 'errand';
+  errand?: {
+    description: string;
+    pickupAddress: string;
+    estimatedCost: number;
+    maxCost: number;
+    actualCost?: number;
+  };
   clientId?: { name: string; phone: string };
   driverId?: { userId?: { name: string; phone?: string } };
   deliveryAddress?: { address: string; notes?: string };
@@ -188,7 +199,9 @@ export default function Orders() {
                         #{o._id.slice(-8).toUpperCase()}
                       </td>
                       <td className="table-body-cell font-semibold text-[var(--color-text-main)]">
-                        {o.businessId?.name || 'Establecimiento'}
+                        {o.kind === 'errand'
+                          ? `Mandado · ${o.errand?.pickupAddress ?? ''}`
+                          : o.businessId?.name || 'Establecimiento'}
                       </td>
                       <td className="table-body-cell text-[var(--color-text-secondary)] text-xs">
                         {o.clientId?.name || 'Cliente'}
@@ -268,9 +281,19 @@ export default function Orders() {
               <div className="grid grid-cols-2 gap-4 pb-4">
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1">
-                    <Store className="w-3 h-3 text-[var(--color-primary)]" /> Negocio
+                    <Store className="w-3 h-3 text-[var(--color-primary)]" />{' '}
+                    {selectedOrder.kind === 'errand' ? 'Recoger en' : 'Negocio'}
                   </span>
-                  <p className="font-bold text-[var(--color-text-main)] text-sm">{selectedOrder.businessId?.name || 'Comercio'}</p>
+                  <p className="font-bold text-[var(--color-text-main)] text-sm">
+                    {selectedOrder.kind === 'errand'
+                      ? selectedOrder.errand?.pickupAddress
+                      : selectedOrder.businessId?.name || 'Comercio'}
+                  </p>
+                  {selectedOrder.kind === 'errand' ? (
+                    <p className="text-[var(--color-text-secondary)]">
+                      {selectedOrder.errand?.description}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1">
@@ -299,6 +322,20 @@ export default function Orders() {
                 </span>
                 <p className="font-bold text-[var(--color-text-main)]">{selectedOrder.driverId?.userId?.name || 'Por asignar'}</p>
               </div>
+
+              {/*
+                Los reembolsos van aquí, pegados al pedido y no en una
+                pantalla aparte: se deciden mirando quién pidió y qué
+                pagó. El backend reparte el coste por línea; desde aquí
+                solo se decide cuánto y por qué.
+              */}
+              <PermissionGate permission="finance:manage">
+                <RefundPanel
+                  orderId={selectedOrder._id}
+                  orderTotal={selectedOrder.total || 0}
+                  onDone={fetchOrders}
+                />
+              </PermissionGate>
 
               {/* Total summary */}
               <div className="pt-4 flex items-center justify-between">

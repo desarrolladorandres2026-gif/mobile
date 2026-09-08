@@ -6,6 +6,7 @@ import { AppError } from '../middlewares/errorHandler';
 import { haversineMeters, isValidCoordinate, fromGeoPoint, LatLng } from '../utils/geo';
 import { getRoute, getDurationsToPoint, RouteLeg } from './mapbox.service';
 import { resolveOrderAccess } from './orderAccess.service';
+import { antiFraudService, FraudAlertType } from '../security';
 
 /**
  * Seguimiento en vivo de repartidores.
@@ -148,6 +149,84 @@ async function activeOrderIdFor(driverId: string): Promise<string | null> {
   return order ? order._id.toString() : null;
 }
 
+
+/**
+ * Revisa una posición ya aceptada en busca de señales de manipulación.
+ *
+ * Los dos detectores existían desde hace tiempo en `security/antifraud.ts`
+ * sin que nadie los llamara: la app marcaba `isMocked` y el servidor lo
+ * guardaba en cada punto del rastro, pero ese campo no se leía nunca. Un
+ * repartidor podía simular el recorrido entero y la bandera quedaba escrita
+ * en la base sin que nadie se enterara.
+ *
+ * Se ejecuta sobre pings aceptados por dos razones: analizar lo que ya se
+ * descartó multiplicaría el trabajo sin cambiar ninguna conclusión, y a
+ * esta altura ya se sabe que detrás del usuario hay un repartidor real.
+ *
+ * Nunca interrumpe el seguimiento. Si el antifraude falla, el pedido tiene
+ * que seguir viéndose en el mapa: perder la vigilancia es malo, perder la
+ * posición del repartidor durante una entrega lo es más. Por eso el error
+ * se registra y se traga.
+ *
+ * Tampoco rechaza la posición sospechosa. Una entrega en curso necesita el
+ * punto aunque sea falso —el cliente está mirando el mapa— y descartarlo
+ * borraría justamente la evidencia de lo que se quiere demostrar.
+ */
+async function screenPing(
+  userId: string,
+  ping: LocationPing,
+  previous: LastAccepted | undefined,
+  now: number
+): Promise<void> {
+  try {
+    // Una precisión imposiblemente buena delata al simulador, pero el
+    // detector lee ese umbral de un número que aquí puede no venir. Sin
+    // dato no hay sospecha: mandarle un cero fabricado convertiría "no sé
+    // qué precisión tiene" en "precisión perfecta", que es justo la señal
+    // que busca.
+    const accuracy = typeof ping.accuracy === 'number' ? ping.accuracy : Number.POSITIVE_INFINITY;
+
+    const mock = await antiFraudService.checkMockLocation(
+      userId,
+      ping.lat,
+      ping.lng,
+      accuracy,
+      ping.isMocked
+    );
+    if (mock.suspicious && mock.alert) {
+      await antiFraudService.raiseAlertOnce({
+        ...mock.alert,
+        userId,
+        type: FraudAlertType.MOCK_LOCATION,
+      });
+    }
+
+    // El salto se mide contra el último punto *aceptado*, no contra el
+    // último recibido: entre ambos hay pings descartados por frecuencia, y
+    // usarlos daría intervalos de milisegundos que convierten cualquier
+    // movimiento normal en teletransporte.
+    if (previous) {
+      const seconds = (now - previous.at) / 1000;
+      const jump = await antiFraudService.checkLocationVelocity(
+        userId,
+        ping.lat,
+        ping.lng,
+        previous.lat,
+        previous.lng,
+        seconds
+      );
+      if (jump.suspicious && jump.alert) {
+        await antiFraudService.raiseAlertOnce({
+          ...jump.alert,
+          userId,
+          type: FraudAlertType.SUSPICIOUS_LOCATION_CHANGE,
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[Tracking] Falló la revisión antifraude del ping:', err);
+  }
+}
 /**
  * Recibe una posición del dispositivo y decide qué hacer con ella.
  *
@@ -243,6 +322,8 @@ export async function ingestPing(userId: string, ping: LocationPing): Promise<Pi
       recordedAt,
     });
   }
+
+  await screenPing(userId, ping, previous, now);
 
   return { accepted: true, driverId, orderId, location, recordedAt };
 }
@@ -389,10 +470,18 @@ export async function getOrderTracking(
             stale,
           }
         : null,
+    // En un mandado, el "origen" es la dirección de recogida que escribió
+    // el cliente, no un comercio. El mapa necesita un punto de partida
+    // igual: sin él no puede dibujar la primera etapa del viaje.
     business: {
-      id: order.businessId.toString(),
-      name: business?.name ?? '',
-      location: businessLocation,
+      id: order.businessId ? order.businessId.toString() : '',
+      name: business?.name ?? (order.errand ? order.errand.pickupAddress : ''),
+      location: businessLocation ?? (order.errand
+        ? {
+            lat: order.errand.pickupLocation.coordinates[1],
+            lng: order.errand.pickupLocation.coordinates[0],
+          }
+        : null),
     },
     destination: {
       address: order.deliveryAddress,

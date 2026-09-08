@@ -33,6 +33,7 @@ const navGroups: Array<{
       { path: '/orders', Illustration: PackageIllustration, label: 'Pedidos' },
       { path: '/evidences', Illustration: EvidenceIllustration, label: 'Evidencias' },
       { path: '/drivers', Illustration: DeliveryIllustration, label: 'Domiciliarios' },
+      { path: '/driver-documents', Illustration: LegalIllustration, label: 'Documentos' },
       { path: '/fleet', Illustration: LocationIllustration, label: 'Flota en Vivo' },
     ],
   },
@@ -40,6 +41,8 @@ const navGroups: Array<{
     category: 'CUSTOM',
     items: [
       { path: '/businesses', Illustration: StoreIllustration, label: 'Negocios' },
+      { path: '/business-approvals', Illustration: LegalIllustration, label: 'Verificar Comercios' },
+      { path: '/reviews', Illustration: PeopleIllustration, label: 'Reseñas' },
       { path: '/pricing', Illustration: PricingIllustration, label: 'Tarifas y Precios' },
       { path: '/coupons', Illustration: CouponIllustration, label: 'Cupones' },
       { path: '/zones', Illustration: LocationIllustration, label: 'Zonas' },
@@ -58,6 +61,9 @@ const navGroups: Array<{
       { path: '/positions', Illustration: PositionsIllustration, label: 'Cargos', permission: Permission.POSITIONS_VIEW },
       { path: '/roles', Illustration: RolesIllustration, label: 'Roles', permission: Permission.ROLES_VIEW },
       { path: '/security', Illustration: SecurityIllustration, label: 'Seguridad', permission: Permission.SECURITY_VIEW },
+      // El centro de incidentes vive junto a Seguridad porque es donde se
+      // mira cuando algo va mal, no en una seccion de informes.
+      { path: '/incidents', Illustration: EvidenceIllustration, label: 'Incidentes', permission: Permission.SECURITY_VIEW },
     ],
   },
   {
@@ -65,6 +71,7 @@ const navGroups: Array<{
     items: [
       { path: '/financials', Illustration: WalletIllustration, label: 'Finanzas' },
       { path: '/legal', Illustration: LegalIllustration, label: 'Legal y PQRS' },
+      { path: '/support', Illustration: PeopleIllustration, label: 'Soporte' },
     ],
   },
 ];

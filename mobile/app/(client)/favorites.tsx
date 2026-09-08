@@ -2,7 +2,7 @@ import { FlatList, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Text, IconButton, EmptyState, Screen, Header } from '../../components/ui';
 import { BusinessRow } from '../../components/domain/BusinessCard';
-import { useFavoritesStore } from '../../stores/favoritesStore';
+import { useFavorites, useFavoritesList } from '../../hooks/useFavorites';
 import { Spacing, BorderRadius } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
@@ -10,7 +10,10 @@ import { tap } from '../../lib/haptics';
 export default function FavoritesScreen() {
   const router = useRouter();
   const { c, isDark } = useTheme();
-  const { favorites, toggleFavorite } = useFavoritesStore();
+  // La lista viene del servidor: sobrevive a cambiar de teléfono.
+  const { data, isLoading } = useFavoritesList();
+  const { toggle: toggleFavorite } = useFavorites();
+  const favorites = data?.businesses ?? [];
 
   return (
     <Screen style={{ backgroundColor: isDark ? '#0C101C' : '#F1F3F7' }}>
@@ -65,11 +68,15 @@ export default function FavoritesScreen() {
               label={`Quitar ${item.name} de favoritos`}
               tone="danger"
               filled
-              onPress={() => { tap('light'); toggleFavorite(item); }}
+              onPress={() => { tap('light'); toggleFavorite(item._id); }}
             />
           </View>
         )}
         ListEmptyComponent={
+          // Mientras carga no se dice "no tienes favoritos": el usuario que
+          // sí los tiene vería un vacío falso durante el primer segundo y
+          // pensaría que se le borraron.
+          isLoading ? null : (
           <View
             style={[
               styles.emptyCard,
@@ -87,6 +94,7 @@ export default function FavoritesScreen() {
               onAction={() => router.push('/(client)/(tabs)/search')}
             />
           </View>
+          )
         }
       />
     </Screen>

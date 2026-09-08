@@ -1,5 +1,14 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
-import { OrderStatus, PaymentMethod, PaymentStatus, GeoPoint, SelectedExtra } from '../types';
+import {
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  GeoPoint,
+  SelectedExtra,
+  OrderKind,
+  CancellationReason,
+  CancelledBy,
+} from '../types';
 import { getNextSequence } from './Counter';
 
 export interface IOrderItem {
@@ -45,15 +54,97 @@ export interface IOrderFinance {
   appliedCommissionBps: number;
 }
 
+/**
+ * Cómo va la búsqueda de domiciliario para este pedido.
+ *
+ * Vive en el pedido y no en memoria del proceso a propósito: una oferta que
+ * caduca en cuarenta y cinco segundos no puede depender de que el servidor
+ * siga siendo el mismo dentro de cuarenta y cinco segundos. Reiniciar el
+ * backend con pedidos en la calle es normal; perder por eso todas las
+ * ofertas en vuelo, no.
+ */
+export interface IOrderDispatch {
+  /** Ronda actual de la cascada. 0 = todavía no se ha ofrecido. */
+  round: number;
+  /** Vueltas completas dadas a la lista sin que nadie aceptara. */
+  cycle: number;
+  /** A quién se le está ofreciendo ahora mismo. */
+  offeredDriverIds: Types.ObjectId[];
+  /** Quién dijo que no. No se les vuelve a ofrecer en el mismo ciclo. */
+  declinedDriverIds: Types.ObjectId[];
+  /** Cuándo deja de valer la ronda actual. */
+  expiresAt?: Date | null;
+  lastOfferedAt?: Date | null;
+}
+
 export interface IOrder extends Document {
   orderNumber: string;
   clientId: Types.ObjectId;
-  businessId: Types.ObjectId;
+  kind: OrderKind;
+  /** Ausente solo en mandados: ahí no hay comercio afiliado detrás. */
+  businessId?: Types.ObjectId;
+
+  /**
+   * Los datos propios de un mandado.
+   *
+   * Un mandado no tiene catálogo: tiene una descripción escrita por el
+   * cliente y un sitio del que recoger. El tope de gasto existe porque el
+   * cliente autoriza una compra que todavía no ha visto — sin techo, está
+   * firmando un cheque en blanco.
+   */
+  errand?: {
+    description: string;
+    pickupAddress: string;
+    pickupLocation: GeoPoint;
+    /** Lo que el cliente cree que costará. Orientativo. */
+    estimatedCost: number;
+    /** Lo máximo que autoriza gastar. Esto sí es un límite duro. */
+    maxCost: number;
+    /** Lo que costó de verdad, cuando se sabe. */
+    actualCost?: number | null;
+  };
   driverId?: Types.ObjectId;
   items: IOrderItem[];
   status: OrderStatus;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
+  /**
+   * Para quién es el pedido, cuando no es para quien lo paga.
+   *
+   * Un regalo, un almuerzo a los padres, algo a un amigo enfermo. Sin esto
+   * el domiciliario llamaba al número de quien pagó, que estaba en otra
+   * ciudad, y el pedido se quedaba en la puerta.
+   *
+   * El código de entrega no cambia: sigue siendo del pedido, y quien lo
+   * recibe es quien lo tiene. Lo que cambia es a quién llamar.
+   */
+  recipient?: { name: string; phone: string; note?: string };
+
+  /**
+   * Cuándo quiere el cliente que llegue, si no es cuanto antes.
+   *
+   * Ausente en la inmensa mayoría de pedidos. Cuando está, el pedido
+   * espera: no se le ofrece a ningún domiciliario hasta que se acerca su
+   * hora.
+   */
+  /**
+   * El pedido lleva algo que no se le puede vender a un menor.
+   *
+   * Se calcula al crearlo y se congela: si el comercio quita la marca del
+   * producto mañana, este pedido siguió necesitando la cédula hoy.
+   */
+  requiresAgeVerification: boolean;
+
+  scheduledFor?: Date | null;
+  /**
+   * Cuándo se le enseñó al negocio.
+   *
+   * Un pedido programado existe desde que se paga, pero no aparece en la
+   * cocina hasta que toca: enseñarlo doce horas antes solo sirve para que
+   * lo preparen doce horas antes.
+   */
+  scheduledActivatedAt?: Date | null;
+
   deliveryAddress: string;
   deliveryDetails?: string;
   deliveryLocation: GeoPoint;
@@ -78,12 +169,22 @@ export interface IOrder extends Document {
   pricingConfigVersion: number;
   notes?: string;
   estimatedDelivery?: Date;
+  /** Cuándo se asignó el domiciliario. Sin esto no se puede saber si tarda. */
+  assignedAt?: Date;
   acceptedAt?: Date;
   preparedAt?: Date;
   pickedUpAt?: Date;
   deliveredAt?: Date;
   cancelledAt?: Date;
+  /** Texto libre. Se conserva para los pedidos anteriores al catálogo. */
   cancellationReason?: string;
+  /** Motivo del catálogo cerrado. Es lo que se puede contar y agrupar. */
+  cancellationCode?: CancellationReason;
+  /** Quién decidió cancelar. Antes solo quedaba en el registro de eventos. */
+  cancelledBy?: CancelledBy;
+  cancelledByUserId?: Types.ObjectId;
+  /** Estado de la oferta automática. Ausente en pedidos anteriores al reparto. */
+  dispatch?: IOrderDispatch;
   city: string;
   idempotencyKey?: string;
   createdAt: Date;
@@ -147,12 +248,54 @@ const orderSchema = new Schema<IOrder>(
   {
     orderNumber: { type: String, unique: true },
     clientId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    businessId: { type: Schema.Types.ObjectId, ref: 'Business', required: true },
+    kind: { type: String, enum: Object.values(OrderKind), default: OrderKind.DELIVERY },
+    businessId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Business',
+      // Obligatorio salvo en mandados. Se expresa como condición y no como
+      // `required: false` porque un pedido normal sin comercio es un
+      // documento roto, y el esquema es el único sitio donde se puede
+      // impedir que exista.
+      required: function (this: { kind?: OrderKind }) {
+        return this.kind !== OrderKind.ERRAND;
+      },
+    },
+    errand: {
+      type: new Schema(
+        {
+          description: { type: String, required: true, trim: true, maxlength: 500 },
+          pickupAddress: { type: String, required: true, trim: true, maxlength: 300 },
+          pickupLocation: {
+            type: { type: String, enum: ['Point'], default: 'Point' },
+            coordinates: { type: [Number], required: true },
+          },
+          estimatedCost: { type: Number, default: 0, min: 0 },
+          maxCost: { type: Number, required: true, min: 0 },
+          actualCost: { type: Number, default: null, min: 0 },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     driverId: { type: Schema.Types.ObjectId, ref: 'Driver', default: null },
     items: { type: [orderItemSchema], required: true },
     status: { type: String, enum: Object.values(OrderStatus), default: OrderStatus.PENDING },
     paymentMethod: { type: String, enum: Object.values(PaymentMethod), required: true },
     paymentStatus: { type: String, enum: Object.values(PaymentStatus), default: PaymentStatus.PENDING },
+    recipient: {
+      type: new Schema(
+        {
+          name: { type: String, required: true, trim: true, maxlength: 80 },
+          phone: { type: String, required: true, trim: true, maxlength: 20 },
+          note: { type: String, trim: true, maxlength: 200 },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
+    requiresAgeVerification: { type: Boolean, default: false },
+    scheduledFor: { type: Date, default: null },
+    scheduledActivatedAt: { type: Date, default: null },
     deliveryAddress: { type: String, required: true },
     deliveryDetails: { type: String, default: '' },
     deliveryLocation: { type: { type: String, enum: ['Point'], default: 'Point' }, coordinates: { type: [Number], required: true } },
@@ -173,12 +316,30 @@ const orderSchema = new Schema<IOrder>(
     pricingConfigVersion: { type: Number, default: 0, index: true },
     notes: { type: String, default: '' },
     estimatedDelivery: Date,
+    assignedAt: Date,
     acceptedAt: Date,
     preparedAt: Date,
     pickedUpAt: Date,
     deliveredAt: Date,
     cancelledAt: Date,
     cancellationReason: String,
+    cancellationCode: { type: String, enum: Object.values(CancellationReason) },
+    cancelledBy: { type: String, enum: Object.values(CancelledBy) },
+    cancelledByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
+    dispatch: {
+      type: new Schema<IOrderDispatch>(
+        {
+          round: { type: Number, default: 0 },
+          cycle: { type: Number, default: 0 },
+          offeredDriverIds: [{ type: Schema.Types.ObjectId, ref: 'Driver' }],
+          declinedDriverIds: [{ type: Schema.Types.ObjectId, ref: 'Driver' }],
+          expiresAt: { type: Date, default: null },
+          lastOfferedAt: { type: Date, default: null },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     city: { type: String, default: 'Garzón' },
     idempotencyKey: { type: String, unique: true, sparse: true },
   },
@@ -198,6 +359,12 @@ orderSchema.index({ clientId: 1, createdAt: -1 });
 orderSchema.index({ businessId: 1, status: 1 });
 orderSchema.index({ driverId: 1, status: 1 });
 orderSchema.index({ status: 1, city: 1 });
+// El barrido del reparto pregunta por ofertas vencidas cada pocos segundos.
+// Sin índice sería un recorrido completo de la colección varias veces por
+// minuto, y crecería con el histórico de pedidos en vez de con los activos.
+orderSchema.index({ status: 1, driverId: 1, 'dispatch.expiresAt': 1 });
+// El barrido de programados pregunta por lo que ya toca activar.
+orderSchema.index({ scheduledFor: 1, status: 1 });
 // `orderNumber` already declares `unique: true` on the path.
 orderSchema.index({ createdAt: -1 });
 

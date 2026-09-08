@@ -222,6 +222,101 @@ export class ProductImageService {
     return product;
   }
 
+  // ── Galería ────────────────────────────────────────────────────────
+
+  /** Cuántas fotos adicionales admite un producto. */
+  static readonly MAX_GALLERY = 5;
+
+  /**
+   * Añade una foto a la galería del producto.
+   *
+   * No toca `imageAsset`: la principal se cambia con `replace` y es la que
+   * leen las listas. Esto es lo que se desliza en la ficha.
+   *
+   * Exige que ya haya principal. Una galería sin portada dejaría al
+   * producto sin miniatura en el catálogo mientras tiene cuatro fotos
+   * dentro — el comercio creería que subió la foto y en la carta no
+   * aparecería nada.
+   */
+  async addToGallery(params: {
+    product: IProduct;
+    buffer: Buffer;
+    mimetype: string;
+    removeBackground?: boolean;
+  }): Promise<IProduct> {
+    const { product, buffer } = params;
+
+    if (!this.isConfigured) {
+      throw new AppError(
+        'El almacenamiento de imágenes no está configurado en este entorno',
+        503,
+        PRODUCT_IMAGE_ERROR.NOT_CONFIGURED
+      );
+    }
+
+    if (!product.imageAsset) {
+      throw new AppError(
+        'Sube primero la foto principal: es la que aparece en la carta',
+        409,
+        PRODUCT_IMAGE_ERROR.NO_IMAGE
+      );
+    }
+
+    if (product.gallery.length >= ProductImageService.MAX_GALLERY) {
+      throw new AppError(
+        `Máximo ${ProductImageService.MAX_GALLERY} fotos adicionales. Borra una para subir otra.`,
+        409
+      );
+    }
+
+    const inspected = this.inspect(buffer, params.mimetype);
+
+    // La misma foto dos veces es un deslizamiento que no enseña nada nuevo,
+    // y el checksum ya se calcula igualmente para el master.
+    const duplicate =
+      product.imageAsset.checksum === inspected.checksum ||
+      product.gallery.some((image) => image.checksum === inspected.checksum);
+    if (duplicate) {
+      throw new AppError('Esa foto ya está en este producto', 409);
+    }
+
+    const uploaded = await this.store({
+      buffer,
+      businessId: product.businessId.toString(),
+      productId: product._id.toString(),
+      removeBackground: params.removeBackground === true && this.backgroundRemovalAvailable,
+    });
+
+    product.gallery.push({
+      publicId: uploaded.publicId,
+      width: uploaded.width,
+      height: uploaded.height,
+      bytes: uploaded.bytes,
+      format: uploaded.format,
+      checksum: inspected.checksum,
+      enhanced: true,
+      backgroundRemoved: params.removeBackground === true && this.backgroundRemovalAvailable,
+      uploadedAt: new Date(),
+    } as IProductImage);
+
+    await product.save();
+    return product;
+  }
+
+  /** Quita una foto concreta de la galería. */
+  async removeFromGallery(product: IProduct, publicId: string): Promise<IProduct> {
+    const index = product.gallery.findIndex((image) => image.publicId === publicId);
+    if (index === -1) {
+      throw new AppError('Esa foto no está en este producto', 404);
+    }
+
+    product.gallery.splice(index, 1);
+    await product.save();
+
+    await this.destroy(publicId);
+    return product;
+  }
+
   /** Quita la imagen del producto y el archivo que la respaldaba. */
   async remove(product: IProduct): Promise<IProduct> {
     const publicId = product.imageAsset?.publicId ?? null;
@@ -242,6 +337,11 @@ export class ProductImageService {
    */
   async forget(product: IProduct): Promise<void> {
     if (product.imageAsset?.publicId) await this.destroy(product.imageAsset.publicId);
+    // La galería también: si no, borrar un producto con cinco fotos deja
+    // cinco archivos huérfanos en vez de uno.
+    for (const image of product.gallery ?? []) {
+      await this.destroy(image.publicId);
+    }
   }
 
   // ── Entrega ──────────────────────────────────────────────────────────

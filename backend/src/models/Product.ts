@@ -47,10 +47,47 @@ export interface IProduct extends Document {
    */
   image?: string | null;
   imageAsset?: IProductImage | null;
+  /**
+   * Fotos adicionales, para la ficha del producto.
+   *
+   * Aparte de `imageAsset` y no como `images[0]` a propósito: la imagen
+   * principal la leen las listas, las tarjetas, el carrito y el histórico
+   * de pedidos. Convertirla en el primer elemento de un array obligaría a
+   * tocar todos esos sitios, y bastaría con olvidar uno para que un
+   * producto se quedara sin miniatura sin que nadie lo notara.
+   *
+   * Aquí van las que enseñan lo que la principal no puede: el plato por
+   * dentro, el tamaño real al lado de una mano, la etiqueta de una
+   * botella.
+   */
+  gallery: IProductImage[];
   price: number;
   discountPrice?: number | null;
   extras: ProductExtra[];
+  /**
+   * El producto solo se vende a mayores de edad.
+   *
+   * En Colombia aplica a licor y cigarrillos, y la responsabilidad de no
+   * vendérselo a un menor es del comercio y de quien entrega, no de la
+   * plataforma que los conecta. Marcarlo aquí es lo que permite que ambos
+   * sepan que tienen que pedir la cédula.
+   */
+  requiresAgeVerification: boolean;
+
   isAvailable: boolean;
+
+  /**
+   * Unidades que quedan, o null si el negocio no lleva cuenta.
+   *
+   * Null y cero significan cosas opuestas y por eso no se puede usar cero
+   * como "sin control": null es "hay de sobra, no lo cuento" —el caso de
+   * una cocina— y cero es "se acabó" —el caso de una panadería a las ocho
+   * de la noche—. Confundirlos apagaría media carta del pueblo.
+   */
+  stock?: number | null;
+
+  /** Aviso al negocio cuando queda poco. Cero lo desactiva. */
+  lowStockThreshold: number;
   isFeatured: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -110,6 +147,17 @@ const productSchema = new Schema<IProduct>(
       type: productImageSchema,
       default: null,
     },
+    gallery: {
+      type: [productImageSchema],
+      default: [],
+      // Un tope bajo a propósito: cada foto es una descarga en un móvil
+      // con datos contados, y a partir de la cuarta o quinta nadie sigue
+      // deslizando. Es un límite de producto, no de almacenamiento.
+      validate: {
+        validator: (value: unknown[]) => value.length <= 5,
+        message: 'Máximo 5 fotos adicionales por producto',
+      },
+    },
     price: {
       type: Number,
       required: [true, 'El precio es requerido'],
@@ -124,6 +172,9 @@ const productSchema = new Schema<IProduct>(
       type: [productExtraSchema],
       default: [],
     },
+    requiresAgeVerification: { type: Boolean, default: false },
+    stock: { type: Number, default: null, min: 0 },
+    lowStockThreshold: { type: Number, default: 0, min: 0 },
     isAvailable: {
       type: Boolean,
       default: true,
@@ -151,11 +202,41 @@ productSchema.virtual('images').get(function (this: IProduct) {
   return productImageUrls(this.imageAsset);
 });
 
+/**
+ * Las fotos adicionales, con sus variantes, por el mismo camino.
+ *
+ * Devuelve solo lo derivable: la app no necesita `publicId` ni `checksum`
+ * para pintar un carrusel, y no mandarlos evita filtrar la estructura del
+ * almacenamiento a cualquiera que abra la carta.
+ */
+productSchema.virtual('galleryImages').get(function (this: IProduct) {
+  return (this.gallery ?? [])
+    .map((image) => productImageUrls(image))
+    .filter(Boolean);
+});
+
 productSchema.set('toJSON', { virtuals: true });
 productSchema.set('toObject', { virtuals: true });
 
 productSchema.index({ businessId: 1, categoryId: 1 });
 productSchema.index({ businessId: 1, isAvailable: 1 });
 productSchema.index({ isFeatured: 1 });
+
+/**
+ * Búsqueda por texto del catálogo.
+ *
+ * Con idioma español, que no es un detalle cosmético: le enseña a Mongo a
+ * reducir "empanadas" y "empanada" a la misma raíz y a ignorar palabras
+ * vacías como "de" o "con". Sin eso, buscar "arroz con pollo" trata "con"
+ * como término de búsqueda.
+ *
+ * El nombre pesa diez veces más que la descripción: quien escribe "pollo"
+ * quiere el plato que se llama pollo, no la hamburguesa cuya descripción
+ * menciona que también hay pollo.
+ */
+productSchema.index(
+  { name: 'text', description: 'text' },
+  { weights: { name: 10, description: 1 }, default_language: 'spanish', name: 'product_search' }
+);
 
 export const Product = mongoose.model<IProduct>('Product', productSchema);

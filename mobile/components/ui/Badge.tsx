@@ -10,6 +10,7 @@ import { BorderRadius, Spacing } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
 import { ORDER_STATUS_LABELS } from '../../constants/config';
 import { tap } from '../../lib/haptics';
+import { catalogBadges, type BadgeableProduct, type CatalogBadgeKind } from '../../lib/catalog';
 
 export type BadgeTone = 'neutral' | 'primary' | 'lime' | 'warning' | 'error' | 'live';
 
@@ -45,6 +46,56 @@ export function Badge({ label, tone = 'neutral', icon, pulse, style }: BadgeProp
       {pulse ? <PulseDot color={skin.fg} /> : null}
       {icon ? <Icon name={icon} size="sm" color={skin.fg} /> : null}
       <Text v="captionStrong" color={skin.fg}>{label}</Text>
+    </View>
+  );
+}
+
+/**
+ * Distintivo de catálogo.
+ *
+ * Es una capa fina sobre `Badge` y no un componente nuevo: lo que aporta es
+ * fijar qué tono le toca a cada significado, para que "-20%" sea del mismo
+ * color en la carta, en el buscador y en la ficha. Cuando cada pantalla
+ * elige su tono, el mismo distintivo acaba diciendo cosas distintas.
+ *
+ * Las reglas de cuándo aparece cada uno viven en `lib/catalog.ts`.
+ */
+export function CatalogBadge({
+  kind,
+  label,
+  style,
+}: {
+  kind: CatalogBadgeKind;
+  label: string;
+  style?: ViewStyle;
+}) {
+  const tone: BadgeTone = {
+    // El descuento usa el color de marca: es lo que se quiere que mire.
+    descuento: 'primary' as const,
+    nuevo: 'lime' as const,
+    destacado: 'warning' as const,
+    agotado: 'error' as const,
+  }[kind];
+
+  return <Badge label={label} tone={tone} style={style} />;
+}
+
+/** Los distintivos de un producto, ya resueltos. Vacío si no hay ninguno. */
+export function CatalogBadges({
+  product,
+  style,
+}: {
+  product: BadgeableProduct;
+  style?: ViewStyle;
+}) {
+  const badges = catalogBadges(product);
+  if (!badges.length) return null;
+
+  return (
+    <View style={[styles.badgeRow, style]}>
+      {badges.map((badge) => (
+        <CatalogBadge key={badge.kind} kind={badge.kind} label={badge.label} />
+      ))}
     </View>
   );
 }
@@ -223,6 +274,7 @@ export function CountBadge({ count, tone = 'lime' }: { count: number; tone?: 'li
 }
 
 const styles = StyleSheet.create({
+  badgeRow: { flexDirection: 'row', gap: Spacing.xs, flexWrap: 'wrap' },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',

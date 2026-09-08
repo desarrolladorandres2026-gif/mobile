@@ -17,6 +17,7 @@ import { GiftIllustration } from './GiftIllustration';
 import { DocumentIllustration } from './DocumentIllustration';
 import { DefaultIllustration } from './DefaultIllustration';
 import type { IllustrationProps } from './types';
+import type { IconName } from '../../theme/icons';
 
 export {
   TrophyIllustration,
@@ -72,3 +73,50 @@ export type ContentIllustrationName = keyof typeof ContentIllustrationRegistry;
 export const contentIllustration = (
   name: ContentIllustrationName,
 ): ComponentType<IllustrationProps> => ContentIllustrationRegistry[name];
+
+/**
+ * Puente icono → ilustración.
+ *
+ * Los estados vacíos se escribieron pidiendo un icono lucide, pero buena parte
+ * de esos conceptos ya tiene ilustración propia y el vocabulario de ambos
+ * registros coincide. Este mapa deja que `EmptyState` la use sin tocar los
+ * dieciséis sitios que lo invocan: si el icono está aquí se pinta la
+ * ilustración, y si no se conserva el glifo dentro del cuadro.
+ *
+ * Solo entra lo que representa el mismo concepto. Un icono sin equivalente
+ * exacto se queda fuera a propósito: es mejor un glifo honesto que una
+ * ilustración que habla de otra cosa.
+ */
+export const IconToIllustration: Partial<Record<IconName, ContentIllustrationName>> = {
+  favorito: 'favorito',
+  cupon: 'cupon',
+  descuento: 'cupon',
+  soporte: 'soporte',
+  ayuda: 'ayuda',
+  documento: 'documento',
+  privacidad: 'seguridad',
+  seguridad: 'seguridad',
+  ubicacion: 'ubicacion',
+  navegar: 'ubicacion',
+  pedidos: 'paquete',
+  paquete: 'paquete',
+  ruta: 'domiciliario',
+  domiciliario: 'domiciliario',
+  notificaciones: 'notificaciones',
+  trofeo: 'trofeo',
+  racha: 'racha',
+  regalo: 'regalo',
+  calificacion: 'calificacion',
+  efectivo: 'efectivo',
+  tarjeta: 'tarjeta',
+  billetera: 'billetera',
+  negocio: 'negocio',
+};
+
+/** Ilustración equivalente a un icono, si el concepto la tiene. */
+export const illustrationForIcon = (
+  icon: IconName,
+): ComponentType<IllustrationProps> | undefined => {
+  const name = IconToIllustration[icon];
+  return name ? ContentIllustrationRegistry[name] : undefined;
+};

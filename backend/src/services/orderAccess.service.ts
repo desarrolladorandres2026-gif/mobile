@@ -114,7 +114,8 @@ export interface OrderParticipants {
   /** Usuario del repartidor asignado, si hay. */
   driverUserId: string | null;
   businessOwnerId: string | null;
-  businessId: string;
+  /** Null en un mandado: no hay comercio con derecho a mirarlo. */
+  businessId: string | null;
 }
 
 /**
@@ -133,6 +134,7 @@ export async function getOrderParticipants(order: IOrder): Promise<OrderParticip
     clientUserId: order.clientId.toString(),
     driverUserId: driver ? driver.userId.toString() : null,
     businessOwnerId: business ? business.ownerId.toString() : null,
-    businessId: order.businessId.toString(),
+    // Null en un mandado: no hay comercio con derecho a mirarlo.
+    businessId: order.businessId ? order.businessId.toString() : null,
   };
 }

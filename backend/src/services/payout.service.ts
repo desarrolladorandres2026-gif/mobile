@@ -97,13 +97,19 @@ export class PayoutService {
       amount: number;
       businessId?: Types.ObjectId | null;
       driverId?: Types.ObjectId | null;
-    }> = [
-      {
+    }> = [];
+
+    // Un mandado no tiene comercio al que pagar. Crear igualmente la fila
+    // con `businessId: null` metería en la cola de liquidaciones un cobro
+    // de cero pesos a nadie, y el índice `{businessId, status}` los iría
+    // acumulando todos bajo la misma clave nula.
+    if (order.businessId) {
+      specs.push({
         beneficiary: PayoutBeneficiary.BUSINESS,
         amount: finance.businessPayout,
         businessId: order.businessId,
-      },
-    ];
+      });
+    }
 
     if (order.driverId) {
       specs.push({
@@ -292,7 +298,37 @@ export class PayoutService {
 
     const grossAmount = payouts.reduce((sum, p) => sum + p.amount, 0);
     const reversedAmount = payouts.reduce((sum, p) => sum + p.reversedAmount, 0);
-    const netAmount = grossAmount - reversedAmount;
+
+    // ── Publicidad que compró el comercio ──
+    //
+    // Es lo que permite anunciarse sin tarjeta ni pasarela: ya recibe un
+    // pago semanal de ZIPP y esto es una resta sobre él. Se cobra aquí y no
+    // antes porque hasta que no hay liquidación no hay de dónde restar.
+    //
+    // Solo se cobra lo que cabe. Un mes flojo no puede dejar al comercio
+    // debiendo dinero a ZIPP: lo que no alcance sigue pendiente para la
+    // siguiente liquidación, que es lo mismo que hace cualquier proveedor
+    // serio y evita convertir una compra de publicidad en una deuda.
+    const { AdInvoice } = await import('../models');
+    let adSpendAmount = 0;
+    let adInvoiceIds: Types.ObjectId[] = [];
+
+    if (params.beneficiary === PayoutBeneficiary.BUSINESS && params.businessId) {
+      const pending = await AdInvoice.find({
+        businessId: new Types.ObjectId(params.businessId),
+        settledAgainstPayout: true,
+        settledAt: null,
+      }).sort({ createdAt: 1 });
+
+      const affordable = grossAmount - reversedAmount;
+      for (const invoice of pending) {
+        if (adSpendAmount + invoice.amount > affordable) break;
+        adSpendAmount += invoice.amount;
+        adInvoiceIds.push(invoice._id as Types.ObjectId);
+      }
+    }
+
+    const netAmount = grossAmount - reversedAmount - adSpendAmount;
 
     if (netAmount < 0) {
       throw new AppError(
@@ -312,10 +348,22 @@ export class PayoutService {
       payoutCount: payouts.length,
       grossAmount,
       reversedAmount,
+      adSpendAmount,
       netAmount,
       reference: params.reference ?? '',
       createdBy: params.createdBy,
     });
+
+    // Después del `Settlement`, por el mismo motivo que los payouts: si el
+    // proceso se cae aquí, las facturas siguen pendientes y se vuelven a
+    // cobrar en la siguiente liquidación. Marcarlas antes las daría por
+    // cobradas sin que exista el pago que las cobró.
+    if (adInvoiceIds.length) {
+      await AdInvoice.updateMany(
+        { _id: { $in: adInvoiceIds } },
+        { $set: { settledAt: new Date() } }
+      );
+    }
 
     await Payout.updateMany(
       { _id: { $in: payouts.map((p) => p._id) } },

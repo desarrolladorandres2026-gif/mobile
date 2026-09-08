@@ -23,7 +23,7 @@ export type { CardProps, SheetProps } from './Surface';
 export { Input, OtpInput, SearchField } from './Input';
 export type { InputProps, OtpInputProps } from './Input';
 
-export { Badge, PulseDot, StatusPill, Chip, MetaRow, CountBadge } from './Badge';
+export { Badge, PulseDot, StatusPill, Chip, MetaRow, CountBadge, CatalogBadge, CatalogBadges } from './Badge';
 export type { BadgeProps, BadgeTone, ChipProps, MetaItem } from './Badge';
 
 export {

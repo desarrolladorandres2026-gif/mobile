@@ -7,7 +7,7 @@ import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  Text, Icon, Button, Card, Notice, OtpInput, Badge, StatusPill,
+  Text, Icon, Button, Card, Notice, OtpInput, Input, Badge, StatusPill,
   Screen, Header, LoadingScreen, ErrorState, SuccessCheck,
 } from '../../../components/ui';
 import { OrderChatSheet } from '../../../components/domain/OrderChatSheet';
@@ -16,7 +16,7 @@ import { DriverRouteCard } from '../../../components/domain/DriverRouteCard';
 import { useDriverTrackingContext } from '../../../hooks/useDriverTracking';
 import {
   useOrder, useOrderFlow, useOrderArrive, useUploadOrderEvidence,
-  useVerifyOrderCode, useUpdateOrderStatus, useConfirmCash,
+  useVerifyOrderCode, useUpdateOrderStatus, useConfirmCash, useDeclareErrandCost,
 } from '../../../hooks/useApi';
 import { useOrderRealtime, useOrderFlowRealtime } from '../../../hooks/useRealtime';
 import { useTheme } from '../../../hooks/useTheme';
@@ -63,6 +63,9 @@ export default function DriverActiveOrderScreen() {
   const [justCompleted, setJustCompleted] = useState<'pickup' | 'delivery' | null>(null);
   const [uploadingStage, setUploadingStage] = useState<'pickup' | 'delivery' | null>(null);
   const [cashError, setCashError] = useState('');
+  const [spentText, setSpentText] = useState('');
+  const [spentError, setSpentError] = useState('');
+  const declareCost = useDeclareErrandCost();
 
   useEffect(() => {
     if (incomingCall) { setCallStartedByMe(false); setCallOpen(true); }
@@ -164,6 +167,33 @@ export default function DriverActiveOrderScreen() {
     }
   };
 
+  /**
+   * Registra lo que costó y da la recogida por hecha.
+   *
+   * Son dos pasos del servidor y uno solo para el domiciliario, a
+   * propósito: en la calle, con el mercado en una mano y el teléfono en la
+   * otra, dos botones seguidos son un botón que alguien se deja sin pulsar
+   * — y un mandado a medias es un pedido que nadie sabe si va o no va.
+   */
+  const submitSpent = async () => {
+    const spent = Number(spentText.replace(/[^\d]/g, ''));
+    const receipt = flow?.pickup.evidence?.url;
+
+    if (!spent) return setSpentError('Escribe cuánto pagaste.');
+    if (!receipt) return setSpentError('Falta la foto del recibo.');
+
+    setSpentError('');
+    try {
+      await declareCost.mutateAsync({ orderId, actualCost: spent, receiptUrl: receipt });
+      await updateStatus.mutateAsync({ id: orderId, status: 'picked_up' });
+      tap('success');
+      await refetch();
+    } catch (error) {
+      tap('error');
+      setSpentError(apiMessage(error, 'No pudimos registrar el gasto.'));
+    }
+  };
+
   const startWay = () => {
     tap('medium');
     updateStatus.mutate(
@@ -205,6 +235,7 @@ export default function DriverActiveOrderScreen() {
   const isDelivered = order.status === 'delivered';
   const isCancelled = order.status === 'cancelled';
   const inDeliveryPhase = isPickedUp || isOnWay;
+  const isErrand = order.kind === 'errand';
 
   return (
     <Screen>
@@ -326,6 +357,95 @@ export default function DriverActiveOrderScreen() {
             </Text>
             <Button title="Volver a mis entregas" full onPress={() => router.replace('/(driver)/(tabs)/orders')} />
           </Card>
+        ) : isErrand && !inDeliveryPhase ? (
+          <>
+            {/* ── Fase 1 de un mandado: comprar ── */}
+            {/*
+              No hay comercio que entregue nada ni que dicte un código: la
+              prueba de que la recogida ocurrió es el recibo, y además es la
+              única que dice qué se compró y por cuánto.
+            */}
+            <Card style={styles.section}>
+              <SectionTitle icon="mercado" label="COMPRAR EN" />
+              <Text v="titleM">{order.errand?.pickupAddress}</Text>
+              <Pressable
+                onPress={() =>
+                  openMap(
+                    order.errand?.pickupAddress,
+                    order.errand?.pickupLocation?.coordinates?.[1],
+                    order.errand?.pickupLocation?.coordinates?.[0]
+                  )
+                }
+              >
+                <View style={styles.addrRow}>
+                  <Icon name="ubicacion" size="sm" color={c.textMuted} />
+                  <Text v="bodyS" tone="textSecondary" style={styles.flex}>Abrir en el mapa</Text>
+                  <Icon name="navegar" size="sm" color={c.primaryText} />
+                </View>
+              </Pressable>
+
+              <View style={styles.errandBrief}>
+                <Text v="strongS" tone="textSecondary">EL ENCARGO</Text>
+                <Text v="bodyM">{order.errand?.description}</Text>
+                {order.notes ? (
+                  <Text v="bodyS" tone="textSecondary">{order.notes}</Text>
+                ) : null}
+              </View>
+
+              {/* El tope no es una sugerencia: por encima, el servidor lo
+                  rechaza. Enseñarlo antes de la caja evita descubrirlo con
+                  las bolsas ya empacadas. */}
+              <Notice tone="warning" icon="efectivo">
+                Puedes gastar hasta {money(order.errand?.maxCost)}. El cliente calculó{' '}
+                {money(order.errand?.estimatedCost)}.
+              </Notice>
+
+              {!flow?.pickup.arrivedAt ? (
+                <Button
+                  title="Llegué al sitio"
+                  icon="ubicacion"
+                  onPress={() => markArrived('pickup')}
+                  loading={arrive.isPending}
+                  full
+                />
+              ) : (
+                <>
+                  <EvidenceStep
+                    label="Foto del recibo de la compra"
+                    evidence={flow?.pickup.evidence ?? null}
+                    uploading={uploadingStage === 'pickup'}
+                    onCapture={() => takePhoto('pickup')}
+                  />
+
+                  {flow?.pickup.evidence ? (
+                    <View style={styles.codeBlock}>
+                      <Input
+                        label="¿Cuánto pagaste?"
+                        placeholder={String(order.errand?.estimatedCost ?? '')}
+                        value={spentText}
+                        onChangeText={(t) => { setSpentText(t); setSpentError(''); }}
+                        keyboardType="number-pad"
+                        numeric
+                        prefix="$"
+                        error={spentError || undefined}
+                      />
+                      <Button
+                        title="Registrar gasto y salir"
+                        icon="check"
+                        full
+                        loading={declareCost.isPending || updateStatus.isPending}
+                        onPress={submitSpent}
+                      />
+                      <Text v="caption" tone="textMuted">
+                        Se te devuelve este dinero al entregar, junto con lo que ganas por
+                        el viaje.
+                      </Text>
+                    </View>
+                  ) : null}
+                </>
+              )}
+            </Card>
+          </>
         ) : !inDeliveryPhase ? (
           <>
             {/* ── Fase 1: recogida en el comercio ── */}
@@ -452,6 +572,46 @@ export default function DriverActiveOrderScreen() {
           </>
         )}
 
+        {/* ── Este pedido exige cédula ──
+            Va lo más arriba posible: la responsabilidad de no venderle
+            licor a un menor es de quien entrega, y enterarse al final del
+            recorrido no sirve de nada. */}
+        {order?.requiresAgeVerification ? (
+          <Notice tone="error">
+            Este pedido lleva productos para mayores de edad. Pide la cédula antes
+            de entregarlo. Si quien recibe es menor, no lo entregues y repórtalo.
+          </Notice>
+        ) : null}
+
+        {/* ── El pedido es para otra persona ──
+            Va antes de los botones de contacto a propósito: el domiciliario
+            tiene que saber a quién busca ANTES de pulsar "Llamar", o llamará
+            a quien pagó, que puede estar en otra ciudad. */}
+        {order?.recipient ? (
+          <Card tone="accent" style={styles.recipientCard}>
+            <View style={styles.recipientHead}>
+              <Icon name="amigos" size="md" color={c.primary} />
+              <Text v="strongS">Entregar a otra persona</Text>
+            </View>
+
+            <Text v="titleM">{order.recipient.name}</Text>
+
+            <Pressable
+              onPress={() => { tap('light'); Linking.openURL(`tel:${order.recipient.phone}`); }}
+              accessibilityRole="button"
+              accessibilityLabel={`Llamar a ${order.recipient.name}`}
+              style={styles.recipientPhone}
+            >
+              <Icon name="llamar" size="sm" color={c.primary} />
+              <Text v="bodyM" color={c.primary}>{order.recipient.phone}</Text>
+            </Pressable>
+
+            {order.recipient.note ? (
+              <Text v="bodyS" tone="textSecondary">“{order.recipient.note}”</Text>
+            ) : null}
+          </Card>
+        ) : null}
+
         {/* ── Comunicación con el cliente ── */}
         {!isDelivered && !isCancelled && (flow?.chat.available || flow?.call.available) ? (
           <View style={styles.commsRow}>
@@ -531,6 +691,10 @@ function EvidenceStep({
 }
 
 const styles = StyleSheet.create({
+  recipientCard: { gap: Spacing.sm },
+  recipientHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  recipientPhone: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+
   flex: { flex: 1 },
   content: { padding: Spacing.xl, gap: Spacing.lg, paddingBottom: Spacing.huge },
   headRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -539,6 +703,7 @@ const styles = StyleSheet.create({
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   addrRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
 
+  errandBrief: { gap: Spacing.xs },
   evidenceStep: { gap: Spacing.sm },
   evidenceThumb: { width: '100%', height: 180, borderRadius: BorderRadius.lg },
 

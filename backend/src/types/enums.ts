@@ -35,6 +35,69 @@ export enum OrderStatus {
  * renombrarlo a 'cash' obligaría a migrar datos históricos a cambio de
  * nada funcional. La etiqueta que ve el usuario vive en la interfaz.
  */
+/**
+ * Por qué se canceló un pedido.
+ *
+ * Un texto libre no se puede contar. Con motivos cerrados se puede
+ * responder la pregunta que de verdad importa —¿cancelamos por falta de
+ * repartidores o porque los negocios no dan abasto?— y esa respuesta
+ * cambia qué hay que arreglar.
+ *
+ * Los motivos van agrupados por quién cancela, porque las consecuencias no
+ * son las mismas: que un cliente se arrepienta y que un negocio no tenga el
+ * producto son dos problemas distintos aunque el pedido acabe igual.
+ */
+export enum CancellationReason {
+  // Cliente
+  CLIENT_CHANGED_MIND = 'client_changed_mind',
+  CLIENT_ORDERED_BY_MISTAKE = 'client_ordered_by_mistake',
+  CLIENT_TOO_SLOW = 'client_too_slow',
+  CLIENT_WRONG_ADDRESS = 'client_wrong_address',
+
+  // Comercio
+  BUSINESS_OUT_OF_STOCK = 'business_out_of_stock',
+  BUSINESS_CLOSED = 'business_closed',
+  BUSINESS_TOO_BUSY = 'business_too_busy',
+
+  // Operación
+  NO_DRIVER_AVAILABLE = 'no_driver_available',
+  DRIVER_INCIDENT = 'driver_incident',
+  CLIENT_UNREACHABLE = 'client_unreachable',
+
+  // Plataforma
+  PAYMENT_FAILED = 'payment_failed',
+  SUSPECTED_FRAUD = 'suspected_fraud',
+  OTHER = 'other',
+}
+
+/** Quién tomó la decisión de cancelar. */
+export enum CancelledBy {
+  CLIENT = 'client',
+  BUSINESS = 'business',
+  DRIVER = 'driver',
+  ADMIN = 'admin',
+  /** El propio sistema, por ejemplo al agotarse los reintentos de reparto. */
+  SYSTEM = 'system',
+}
+
+/**
+ * Qué clase de encargo es.
+ *
+ * `delivery` es todo lo que ZIPP ha hecho hasta ahora: comprar en un
+ * comercio de la plataforma y llevarlo. `errand` es un mandado — recoger
+ * algo de un sitio cualquiera y llevarlo a otro, sin catálogo, sin comercio
+ * afiliado y sin comisión de venta.
+ *
+ * Son el mismo objeto `Order` a propósito: todo lo caro de construir —el
+ * reparto en cascada, el seguimiento en vivo, los códigos de entrega, la
+ * evidencia fotográfica, el chat, la bitácora— sirve igual para los dos, y
+ * duplicarlo en un modelo aparte sería duplicar también sus errores.
+ */
+export enum OrderKind {
+  DELIVERY = 'delivery',
+  ERRAND = 'errand',
+}
+
 export enum PaymentMethod {
   ONLINE = 'online',
   CASH_ON_DELIVERY = 'cash_on_delivery',
@@ -209,6 +272,30 @@ export enum LedgerAccount {
    * para decidir si el método se mantiene.
    */
   CASH_SHORTAGE_EXPENSE = 'cash_shortage_expense',
+  /**
+   * Pasivo: puntos emitidos que el cliente todavía puede canjear.
+   *
+   * Un punto no es un contador en el perfil de nadie: es una promesa de
+   * descuento futuro, y por tanto dinero que ZIPP debe. Tenerlo en el libro
+   * es lo que permite responder cuánto vale el programa de fidelización
+   * antes de que la factura llegue sola.
+   */
+  LOYALTY_PAYABLE = 'loyalty_payable',
+  /**
+   * Pasivo: dinero de compras de mandados que ZIPP ya cobró y todavía debe.
+   *
+   * En un mandado el cliente paga por adelantado algo que aún no ha
+   * comprado nadie. Ese dinero no es ingreso ni es del comercio —no hay
+   * comercio—: es una obligación de ZIPP con quien acabe poniéndolo de su
+   * bolsillo, que en esta operación es el domiciliario.
+   *
+   * Es una cuenta propia y no `DRIVER_PAYABLE` porque responde a otra
+   * pregunta: cuánto dinero de terceros hay comprometido en compras ahora
+   * mismo. Mezclado con las tarifas de reparto, esa exposición —la única
+   * cifra que dice si el producto de mandados es sostenible— quedaría
+   * invisible dentro de un saldo que sube y baja por otros motivos.
+   */
+  ERRAND_ADVANCE_PAYABLE = 'errand_advance_payable',
   /** Contra-revenue: money returned to the customer. */
   REFUND = 'refund',
   /** Contra-revenue: forced reversal by the gateway. */
@@ -232,6 +319,16 @@ export enum LedgerEventType {
   PAYOUT_SETTLED = 'payout_settled',
   /** Finanzas resolvió un faltante a favor del domiciliario: se da de baja. */
   CASH_SHORTAGE_WRITTEN_OFF = 'cash_shortage_written_off',
+  /** Se emitieron puntos por una compra: nace el pasivo. */
+  LOYALTY_EARNED = 'loyalty_earned',
+  /** El cliente cambió sus puntos por un cupón: se extingue el pasivo. */
+  LOYALTY_REDEEMED = 'loyalty_redeemed',
+  /** Los puntos caducaron sin canjearse: se libera la provisión. */
+  LOYALTY_EXPIRED = 'loyalty_expired',
+  /** El domiciliario declaró lo que costó de verdad la compra del mandado. */
+  ERRAND_COST_ADJUSTED = 'errand_cost_adjusted',
+  /** Se le devolvió al domiciliario el dinero que adelantó. */
+  ERRAND_ADVANCE_REIMBURSED = 'errand_advance_reimbursed',
 }
 
 /** Lifecycle of an amount the platform owes a merchant or a driver. */
@@ -379,6 +476,8 @@ export enum OrderTimelineAction {
   PREPARING = 'order_preparing',
   READY = 'order_ready',
   DRIVER_ASSIGNED = 'driver_assigned',
+  /** Se le quitó el pedido: aceptó y no llegó a recogerlo. */
+  DRIVER_UNASSIGNED = 'driver_unassigned',
   ARRIVED_PICKUP = 'arrived_pickup',
   EVIDENCE_PICKUP = 'evidence_pickup_evidence',
   CODE_VERIFIED_PICKUP = 'code_verified_pickup',

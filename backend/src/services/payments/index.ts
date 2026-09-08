@@ -9,7 +9,7 @@ import {
   canTransitionPayment,
 } from '../../models';
 import { AppError } from '../../middlewares';
-import { PaymentType, PaymentStatus, PaymentMethod, OrderStatus } from '../../types';
+import { PaymentType, PaymentStatus, PaymentMethod, OrderStatus, OrderKind } from '../../types';
 import { AuditAction, AuditSeverity, logSystemAudit } from '../../security';
 import { PaymentProvider, PaymentIntent, PaymentIntentStatus } from './provider';
 import { SandboxPaymentProvider } from './sandbox.provider';
@@ -375,6 +375,19 @@ export class PaymentService {
 
       // The money is ours, so what we owe becomes payable.
       await payoutService.release(order._id);
+
+      // ── El mandado empieza a buscar domiciliario aquí ──
+      //
+      // Un pedido normal arranca la búsqueda cuando el comercio lo marca
+      // listo. Un mandado no tiene comercio que lo marque, así que el
+      // disparador es el cobro — y tiene que serlo: mandar a alguien a
+      // adelantar $50.000 de su bolsillo por un pedido que todavía no está
+      // pagado sería ponerle su dinero a jugar por nosotros.
+      if (order.kind === OrderKind.ERRAND && !order.driverId) {
+        import('../dispatch.service')
+          .then(({ startDispatch }) => startDispatch(order._id.toString()))
+          .catch((err) => console.error('[Errand] No se pudo iniciar el reparto:', err));
+      }
     }
 
     return { order, changed: true };

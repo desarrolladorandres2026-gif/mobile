@@ -9,7 +9,12 @@ import Login from './pages/Login';
 import Orders from './pages/Orders';
 import Evidences from './pages/Evidences';
 import Businesses from './pages/Businesses';
+import BusinessApprovals from './pages/BusinessApprovals';
+import ReviewModeration from './pages/ReviewModeration';
+import Incidents from './pages/Incidents';
+import Support from './pages/Support';
 import Drivers from './pages/Drivers';
+import DriverDocuments from './pages/DriverDocuments';
 
 /**
  * El mapa de flota se carga solo al abrirlo.
@@ -53,7 +58,10 @@ function App() {
             <Route path="orders" element={<Orders />} />
             <Route path="evidences" element={<Evidences />} />
             <Route path="businesses" element={<Businesses />} />
+            <Route path="business-approvals" element={<BusinessApprovals />} />
+            <Route path="reviews" element={<ReviewModeration />} />
             <Route path="drivers" element={<Drivers />} />
+            <Route path="driver-documents" element={<DriverDocuments />} />
             <Route
               path="fleet"
               element={
@@ -68,6 +76,8 @@ function App() {
             <Route path="financials" element={<Financials />} />
             <Route path="pricing" element={<Pricing />} />
             <Route path="security" element={<Security />} />
+            <Route path="incidents" element={<Incidents />} />
+            <Route path="support" element={<Support />} />
             <Route path="legal" element={<LegalOps />} />
             <Route path="campaigns" element={<Campaigns />} />
             <Route path="coupons" element={<Coupons />} />

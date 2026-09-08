@@ -2,9 +2,214 @@ import { Request, Response, NextFunction } from 'express';
 import { businessService, payoutService } from '../services';
 import { AppError } from '../middlewares';
 import { PayoutStatus } from '../types';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, toCsv, csvFilename } from '../utils';
+import { UserRole } from '../types';
+import { AuditAction, logAudit } from '../security';
 
 export class BusinessController {
+  /**
+   * Descarga las ventas del comercio en CSV.
+   *
+   * Va al mismo sitio que el extracto que ya ve en pantalla, pero en un
+   * archivo: quien lleva la contabilidad de un negocio pequeño no consulta
+   * un panel, abre Excel. Reutiliza el generador del panel de
+   * administración, con su defensa contra fórmulas y su separador para
+   * configuración regional española.
+   */
+  async exportSales(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      const user = req.user!;
+
+      // Un comercio solo descarga lo suyo. Sin esto, cambiar el id en la
+      // URL entregaría las ventas del vecino.
+      if (user.role !== UserRole.ADMIN) {
+        const { Business } = await import('../models');
+        const owns = await Business.exists({ _id: businessId, ownerId: user._id });
+        if (!owns) throw new AppError('No autorizado', 403);
+      }
+
+      const from = query(req, 'from');
+      const to = query(req, 'to');
+
+      const { lines } = await payoutService.merchantStatementLines({
+        businessId,
+        ...(from ? { from: new Date(from) } : {}),
+        ...(to ? { to: new Date(to) } : {}),
+        // Tope alto pero finito: un informe es un archivo que alguien abre,
+        // no un volcado de la base.
+        limit: 5000,
+      });
+
+      const body = toCsv(lines, [
+        { header: 'Pedido', value: (l: any) => l.orderNumber },
+        { header: 'Fecha', value: (l: any) => l.createdAt },
+        { header: 'Entregado', value: (l: any) => l.deliveredAt },
+        { header: 'Estado', value: (l: any) => l.orderStatus },
+        { header: 'Pago', value: (l: any) => l.paymentMethod },
+        { header: 'Venta', value: (l: any) => l.productSubtotal },
+        { header: 'Comisión ZIPP', value: (l: any) => l.merchantCommission },
+        { header: 'Descuento asumido', value: (l: any) => l.merchantFundedDiscount },
+        { header: 'Reversado', value: (l: any) => l.reversedAmount },
+        { header: 'Neto a recibir', value: (l: any) => l.netAmount },
+      ]);
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${csvFilename('ventas')}"`);
+      res.send(body);
+    } catch (error) { next(error); }
+  }
+
+  // ── Empleados del comercio ──
+
+  async listStaff(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { businessStaffService } = await import('../services/businessStaff.service');
+      const { BusinessPermission } = await import('../models');
+
+      await businessStaffService.assertCan(
+        req.user!._id.toString(),
+        param(req, 'id'),
+        BusinessPermission.STAFF_MANAGE
+      );
+
+      sendResponse(res, 200, 'Empleados', await businessStaffService.list(param(req, 'id')));
+    } catch (error) { next(error); }
+  }
+
+  async addStaff(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { businessStaffService } = await import('../services/businessStaff.service');
+      const { BusinessPermission } = await import('../models');
+
+      await businessStaffService.assertCan(
+        req.user!._id.toString(),
+        param(req, 'id'),
+        BusinessPermission.STAFF_MANAGE
+      );
+
+      const staff = await businessStaffService.add(
+        param(req, 'id'),
+        req.body.phone,
+        req.body.role,
+        req.user!._id.toString()
+      );
+
+      void logAudit(req, {
+        action: AuditAction.BUSINESS_UPDATED,
+        entity: 'business',
+        entityId: param(req, 'id'),
+        description: `Empleado agregado con papel ${req.body.role}`,
+        metadata: { phone: req.body.phone, role: req.body.role },
+      });
+
+      sendResponse(res, 201, 'Empleado agregado', staff);
+    } catch (error) { next(error); }
+  }
+
+  async removeStaff(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { businessStaffService } = await import('../services/businessStaff.service');
+      const { BusinessPermission } = await import('../models');
+
+      await businessStaffService.assertCan(
+        req.user!._id.toString(),
+        param(req, 'id'),
+        BusinessPermission.STAFF_MANAGE
+      );
+
+      const staff = await businessStaffService.remove(param(req, 'id'), param(req, 'staffId'));
+      sendResponse(res, 200, 'Acceso retirado', staff);
+    } catch (error) { next(error); }
+  }
+
+  /** Qué puede hacer quien pregunta, en este negocio. */
+  async myPermissions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { businessStaffService } = await import('../services/businessStaff.service');
+      const permissions = await businessStaffService.permissionsFor(
+        req.user!._id.toString(),
+        param(req, 'id')
+      );
+      sendResponse(res, 200, 'Permisos', { permissions });
+    } catch (error) { next(error); }
+  }
+
+  /** Analíticas del comercio, calculadas en la base y no en el navegador. */
+  async analytics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      const user = req.user!;
+
+      if (user.role !== UserRole.ADMIN) {
+        const { Business } = await import('../models');
+        const owns = await Business.exists({ _id: businessId, ownerId: user._id });
+        if (!owns) throw new AppError('No autorizado', 403);
+      }
+
+      const { businessAnalyticsService } = await import('../services/businessAnalytics.service');
+      const data = await businessAnalyticsService.analyticsFor(businessId, {
+        days: Number(query(req, 'days')) || 30,
+      });
+
+      sendResponse(res, 200, 'Analíticas', data);
+    } catch (error) { next(error); }
+  }
+
+  // ── Alta y verificación documental ──
+
+  /** Cola de negocios esperando revisión, con lo que le falta a cada uno. */
+  async pendingApprovals(req: Request, res: Response, next: NextFunction) {
+    try {
+      sendResponse(res, 200, 'Negocios por revisar', await businessService.pendingApprovals());
+    } catch (error) { next(error); }
+  }
+
+  async approve(req: Request, res: Response, next: NextFunction) {
+    try {
+      const business = await businessService.approve(param(req, 'id'), req.user!._id.toString());
+      void logAudit(req, {
+        action: AuditAction.BUSINESS_UPDATED,
+        entity: 'business',
+        entityId: business._id.toString(),
+        description: `Negocio aprobado tras revisión documental: ${business.name}`,
+      });
+      sendResponse(res, 200, 'Negocio aprobado', business);
+    } catch (error) { next(error); }
+  }
+
+  async listDocuments(req: Request, res: Response, next: NextFunction) {
+    try {
+      sendResponse(res, 200, 'Documentos', await businessService.listDocuments(param(req, 'id')));
+    } catch (error) { next(error); }
+  }
+
+  async submitDocument(req: Request, res: Response, next: NextFunction) {
+    try {
+      const document = await businessService.submitDocument(param(req, 'id'), req.body);
+      sendResponse(res, 201, 'Documento recibido para verificación', document);
+    } catch (error) { next(error); }
+  }
+
+  async reviewDocument(req: Request, res: Response, next: NextFunction) {
+    try {
+      const document = await businessService.reviewDocument(
+        param(req, 'documentId'),
+        req.user!._id.toString(),
+        req.body.status,
+        req.body.rejectionReason
+      );
+      void logAudit(req, {
+        action: AuditAction.DOCUMENT_REVIEWED,
+        entity: 'business_document',
+        entityId: document._id.toString(),
+        description: 'Documento de comercio verificado',
+        metadata: { status: document.status, type: document.type },
+      });
+      sendResponse(res, 200, 'Documento verificado', document);
+    } catch (error) { next(error); }
+  }
+
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       // An admin may register a business on an owner's behalf; a merchant is
@@ -67,7 +272,13 @@ export class BusinessController {
 
   async getMyBusinesses(req: Request, res: Response, next: NextFunction) {
     try {
-      const businesses = await businessService.getByOwner(req.user!._id.toString());
+      // Incluye los negocios donde solo es empleado. Antes solo devolvía
+      // los propios, así que un encargado se autenticaba bien y se
+      // encontraba un panel vacío sin ninguna explicación.
+      const { businessStaffService } = await import('../services/businessStaff.service');
+      const businesses = await businessStaffService.accessibleBusinesses(
+        req.user!._id.toString()
+      );
       sendResponse(res, 200, 'Mis negocios', businesses);
     } catch (error) { next(error); }
   }

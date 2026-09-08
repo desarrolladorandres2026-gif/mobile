@@ -58,6 +58,14 @@ export const createProductSchema = z.object({
     price,
     discountPrice: z.number().positive().nullable().optional(),
     extras: extras.optional(),
+    /**
+     * Unidades disponibles. `null` desactiva el control: es el caso de una
+     * cocina, que no cuenta bandejas. Cero significa agotado, que es lo
+     * contrario, y por eso no se pueden confundir.
+     */
+    requiresAgeVerification: z.boolean().optional(),
+    stock: z.number().int().min(0).nullable().optional(),
+    lowStockThreshold: z.number().int().min(0).optional(),
     isAvailable: z.boolean().optional(),
     /** Destaca el producto dentro del propio menú, no en la plataforma. */
     isFeatured: z.boolean().optional(),
@@ -78,6 +86,14 @@ export const updateProductSchema = z.object({
     price: price.optional(),
     discountPrice: z.number().positive().nullable().optional(),
     extras: extras.optional(),
+    /**
+     * Unidades disponibles. `null` desactiva el control: es el caso de una
+     * cocina, que no cuenta bandejas. Cero significa agotado, que es lo
+     * contrario, y por eso no se pueden confundir.
+     */
+    requiresAgeVerification: z.boolean().optional(),
+    stock: z.number().int().min(0).nullable().optional(),
+    lowStockThreshold: z.number().int().min(0).optional(),
     isAvailable: z.boolean().optional(),
     isFeatured: z.boolean().optional(),
   }),

@@ -2,11 +2,16 @@ import { useEffect } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { useAuthStore } from '../../stores/authStore';
 import { useTheme } from '../../hooks/useTheme';
+import { useFavoritesMigration } from '../../hooks/useFavorites';
 
 export default function ClientLayout() {
   const { user, isAuthenticated } = useAuthStore();
   const router = useRouter();
   const { c } = useTheme();
+
+  // Sube una sola vez los favoritos que quedaron en el teléfono. Sin esto,
+  // estrenar la sincronización empezaría vaciándole la lista al cliente.
+  useFavoritesMigration();
 
   useEffect(() => {
     if (isAuthenticated && user && !user.isVerified) {
@@ -28,6 +33,9 @@ export default function ClientLayout() {
       {/* La compra sube desde abajo: es una tarea, no un lugar al que se navega. */}
       <Stack.Screen name="cart" options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="checkout" />
+
+      {/* Un mandado no pasa por el carrito: no hay carta que recorrer. */}
+      <Stack.Screen name="errand" />
       <Stack.Screen
         name="order-confirmed"
         options={{ animation: 'fade', gestureEnabled: false }}
@@ -38,7 +46,6 @@ export default function ClientLayout() {
       <Stack.Screen name="addresses" />
       <Stack.Screen name="favorites" />
       <Stack.Screen name="rewards" />
-      <Stack.Screen name="notifications" />
       <Stack.Screen name="help" />
       <Stack.Screen name="legal" />
       <Stack.Screen name="legal-document" />

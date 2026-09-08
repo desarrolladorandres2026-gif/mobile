@@ -72,6 +72,10 @@ export interface Quote {
   merchantCommission: number;
   customerServiceFee: number;
   deliveryCustomerFee: number;
+  /** Lo que el cliente paga de domicilio tras cupón y envío gratis. */
+  deliveryPayable: number;
+  /** El comercio regaló el domicilio por haber alcanzado su compra mínima. */
+  freeDeliveryApplied: boolean;
   driverDeliveryPayout: number;
   deliveryMargin: number;
   tip: number;
@@ -293,6 +297,29 @@ export class PricingService {
       throw new AppError('Este negocio no tiene una ubicación válida configurada', 409);
     }
 
+    return this.priceRoute(origin, destination, business.city, cfg);
+  }
+
+  /**
+   * El precio de llevar algo de un punto a otro, sin comercio de por medio.
+   *
+   * Es el mismo cálculo que `priceDelivery` con el origen desacoplado: un
+   * mandado se cobra exactamente igual que un domicilio porque el trabajo
+   * del domiciliario es exactamente el mismo — recorrer una distancia. Que
+   * en un extremo haya un restaurante afiliado o la casa de la abuela no
+   * cambia el esfuerzo ni el combustible.
+   *
+   * Tener una sola fórmula importa: dos tarifas separadas se desincronizan
+   * a la primera subida de gasolina, y entonces el domiciliario cobra menos
+   * por el mismo viaje según cómo lo pidieran.
+   */
+  async priceRoute(
+    origin: LatLng,
+    destination: LatLng,
+    city: string,
+    cfg: IPlatformPricingConfig
+  ): Promise<DeliveryQuote> {
+
     const distanceMeters = haversineMeters(origin, destination);
 
     if (distanceMeters > cfg.maxRadiusMeters) {
@@ -303,7 +330,7 @@ export class PricingService {
       );
     }
 
-    const zone = await this.findZone(destination, business.city);
+    const zone = await this.findZone(destination, city);
 
     const baseFee = Math.round(zone?.baseFee ?? cfg.driverBaseFee);
     const perKm = Math.round(zone?.perKm ?? cfg.driverPerKm);
@@ -432,7 +459,7 @@ export class PricingService {
       );
     }
 
-    const merchantFundedDiscount = coupon?.merchantFunded ?? 0;
+    const couponMerchantFunded = coupon?.merchantFunded ?? 0;
     const platformFundedDiscount = coupon?.platformFunded ?? 0;
 
     const productDiscount = coupon?.productDiscount ?? 0;
@@ -440,8 +467,33 @@ export class PricingService {
     const serviceFeeDiscount = coupon?.serviceFeeDiscount ?? 0;
 
     const payableSubtotal = productSubtotal - productDiscount;
-    const payableDelivery = delivery.customerFee - deliveryDiscount;
+    const deliveryAfterCoupon = delivery.customerFee - deliveryDiscount;
     const payableServiceFee = customerServiceFee - serviceFeeDiscount;
+
+    // ── Envío gratis por compra mínima ──
+    //
+    // No es un mecanismo nuevo: es exactamente un descuento de entrega
+    // financiado por el comercio, igual que un cupón suyo. Modelarlo así y
+    // no como un caso aparte importa, porque toda la contabilidad —la
+    // comisión, la liquidación, el efectivo a rendir— ya sabe tratar un
+    // descuento del comercio, y una vía paralela sería una vía por la que
+    // se escapa dinero sin que nadie lo cuadre.
+    //
+    // Se aplica sobre lo que quede del envío tras el cupón, nunca sobre el
+    // importe original: si el cliente ya trae un cupón de envío gratis, el
+    // negocio no tiene por qué pagar dos veces lo mismo.
+    const qualifiesForFreeDelivery =
+      business.freeDeliveryThreshold > 0 && productSubtotal >= business.freeDeliveryThreshold;
+
+    const freeDeliveryDiscount = qualifiesForFreeDelivery
+      ? Math.max(0, deliveryAfterCoupon)
+      : 0;
+
+    const payableDelivery = deliveryAfterCoupon - freeDeliveryDiscount;
+
+    // Lo que el comercio termina financiando: su cupón más el envío que
+    // regaló. Sale entero de su liquidación.
+    const merchantFundedDiscount = couponMerchantFunded + freeDeliveryDiscount;
 
     // ── Commission ──
     // A platform-funded discount never shrinks the commission base: the
@@ -449,8 +501,13 @@ export class PricingService {
     // still earns on the full sale. Only a merchant-funded discount reduces
     // it, and only when finance has configured it that way.
     const appliedCommissionBps = this.resolveCommissionBps(business, cfg);
+    // Solo el descuento sobre PRODUCTO puede reducir la base: ahí el
+    // comercio vendió más barato. El envío que regala lo paga aparte, con
+    // los productos vendidos a precio completo, así que descontarlo aquí le
+    // rebajaría también la comisión y ZIPP acabaría pagando parte de una
+    // promoción que no decidió.
     const commissionBase = cfg.commissionAfterMerchantDiscount
-      ? productSubtotal - merchantFundedDiscount
+      ? productSubtotal - couponMerchantFunded
       : productSubtotal;
     const merchantCommission = applyBps(Math.max(0, commissionBase), appliedCommissionBps);
 
@@ -521,6 +578,13 @@ export class PricingService {
       merchantCommission,
       customerServiceFee,
       deliveryCustomerFee: delivery.customerFee,
+      /**
+       * Lo que el cliente paga de domicilio de verdad, ya descontado el
+       * cupón y el envío gratis del comercio. `deliveryCustomerFee` sigue
+       * siendo el bruto: hacen falta los dos para poder enseñar el ahorro.
+       */
+      deliveryPayable: payableDelivery,
+      freeDeliveryApplied: freeDeliveryDiscount > 0,
       driverDeliveryPayout: delivery.driverPayout,
       deliveryMargin: delivery.margin,
       tip,
@@ -552,7 +616,7 @@ export class PricingService {
       total: customerTotal,
       platformCommission: merchantCommission,
       precioOriginal: productSubtotal + delivery.customerFee + customerServiceFee + taxPayable + tip,
-      descuentoEnvio: deliveryDiscount,
+      descuentoEnvio: deliveryDiscount + freeDeliveryDiscount,
       totalUsuario: customerTotal,
       subsidioPlataforma: platformFundedDiscount,
       subsidioComercio: merchantFundedDiscount,

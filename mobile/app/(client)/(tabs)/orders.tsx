@@ -7,7 +7,9 @@ import {
   Text, Card, Button, StatusPill, EmptyState, ErrorState,
   BusinessCardSkeleton, PulseDot,
 } from '../../../components/ui';
-import { useMyOrders } from '../../../hooks/useApi';
+import { useMyOrders, usePendingRatings } from '../../../hooks/useApi';
+import { RatingSheet } from '../../../components/domain/RatingSheet';
+import type { PendingRating } from '../../../services/endpoints';
 import { useOrderRealtime, orderProgress } from '../../../hooks/useRealtime';
 import { reorder, type UsualOrder } from '../../../hooks/useUsual';
 import { useTheme } from '../../../hooks/useTheme';
@@ -28,6 +30,18 @@ export default function OrdersScreen() {
 
   const { data, isLoading, isError, refetch, isRefetching } = useMyOrders(1);
   useOrderRealtime();
+
+  // Qué pedidos siguen sin calificar. Se pregunta al servidor en vez de
+  // deducirlo del historial: la reseña vive en otra colección y el cliente
+  // no puede saber cuáles ya respondió.
+  const { data: pendingRatings } = usePendingRatings();
+  const [rating, setRating] = useState<PendingRating | null>(null);
+
+  const pendingById = useMemo(() => {
+    const map = new Map<string, PendingRating>();
+    for (const order of pendingRatings ?? []) map.set(order._id, order);
+    return map;
+  }, [pendingRatings]);
 
   const { active, past } = useMemo(() => {
     const orders: any[] = data?.orders ?? [];
@@ -113,7 +127,15 @@ export default function OrdersScreen() {
               onPress={() =>
                 router.push({ pathname: '/(client)/order-tracking', params: { id: item._id } })
               }
-              onRepeat={item.status === 'delivered' ? () => repeat(item) : undefined}
+              // Un mandado no se puede repetir: no tiene carta detras que
+              // reconstruir, y lo que se encargo la vez pasada puede no
+              // tener nada que ver con lo que hace falta hoy.
+              onRepeat={
+                item.status === 'delivered' && item.kind !== 'errand'
+                  ? () => repeat(item)
+                  : undefined
+              }
+              onRate={pendingById.get(item._id) ? () => { tap('select'); setRating(pendingById.get(item._id)!); } : undefined}
             />
           )}
           ListEmptyComponent={
@@ -137,6 +159,11 @@ export default function OrdersScreen() {
           }
         />
       )}
+      <RatingSheet
+        order={rating}
+        visible={!!rating}
+        onClose={() => setRating(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -164,8 +191,8 @@ function Segment({
 }
 
 const OrderCard = memo(function OrderCard({
-  order, onPress, onRepeat,
-}: { order: any; onPress: () => void; onRepeat?: () => void }) {
+  order, onPress, onRepeat, onRate,
+}: { order: any; onPress: () => void; onRepeat?: () => void; onRate?: () => void }) {
   const { c } = useTheme();
   const running = (ACTIVE_ORDER_STATUSES as readonly string[]).includes(order.status);
   const progress = orderProgress(order.status);
@@ -187,7 +214,9 @@ const OrderCard = memo(function OrderCard({
 
           <View style={styles.cardBody}>
             <Text v="titleM" numberOfLines={1}>
-              {order.businessId?.name ?? 'Negocio'}
+              {order.kind === 'errand'
+                ? order.errand?.pickupAddress || 'Mandado'
+                : order.businessId?.name ?? 'Negocio'}
             </Text>
             <Text v="dataS" tone="textMuted">
               {order.orderNumber ?? orderCode(order._id)} · {orderDate(order.createdAt)}
@@ -206,6 +235,11 @@ const OrderCard = memo(function OrderCard({
               size="sm"
               onPress={onPress}
             />
+          ) : onRate ? (
+            // La calificación va por delante de repetir: se pregunta una
+            // vez, poco después de la entrega, y luego desaparece. Repetir
+            // sigue disponible siempre desde "Lo de siempre" en el inicio.
+            <Button title="Calificar" icon="calificacion" size="sm" onPress={onRate} />
           ) : onRepeat ? (
             <Button title="Pedir otra vez" icon="repetir" variant="ghost" size="sm" onPress={onRepeat} />
           ) : null}

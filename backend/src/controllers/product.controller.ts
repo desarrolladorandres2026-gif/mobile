@@ -14,6 +14,30 @@ async function assertOwnsBusiness(req: Request, businessId: string) {
 }
 
 export class ProductController {
+  /** Cuántos pulgares lleva cada plato del negocio. */
+  async sentiment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { reviewService } = await import('../services/review.service');
+      sendResponse(
+        res,
+        200,
+        'Opinión por producto',
+        await reviewService.productSentiment(param(req, 'businessId'))
+      );
+    } catch (error) { next(error); }
+  }
+
+  /** Los más pedidos de un negocio, según los pedidos entregados. */
+  async topSellers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const products = await productService.topSellers(
+        param(req, 'businessId'),
+        Number(query(req, 'limit')) || 5
+      );
+      sendResponse(res, 200, 'Los más pedidos', products);
+    } catch (error) { next(error); }
+  }
+
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       await assertOwnsBusiness(req, req.body.businessId);
@@ -108,6 +132,57 @@ export class ProductController {
         sendResponse(res, 201, 'Imagen actualizada', updated);
       } catch (error) { next(error); }
     });
+  }
+
+  /**
+   * Añade una foto a la galería del producto.
+   *
+   * Mismo camino que la principal —multer, dueño del negocio, producto
+   * suyo— pero contra `addToGallery`, que no toca `imageAsset`.
+   */
+  async addGalleryImage(req: Request, res: Response, next: NextFunction) {
+    uploadProductImage(req, res, async (err: unknown) => {
+      try {
+        if (err) {
+          throw new AppError(
+            err instanceof Error ? err.message : 'No se pudo procesar la imagen',
+            400,
+            'PRODUCT_IMAGE_INVALID_FILE'
+          );
+        }
+        if (!req.file) {
+          throw new AppError('Adjunta una imagen', 400, 'PRODUCT_IMAGE_INVALID_FILE');
+        }
+
+        const businessId = String(req.body?.businessId ?? '');
+        await assertOwnsBusiness(req, businessId);
+
+        const product = await productService.getOwned(param(req, 'id'), businessId);
+        const updated = await productImageService.addToGallery({
+          product,
+          buffer: req.file.buffer,
+          mimetype: req.file.mimetype,
+          removeBackground: req.body?.removeBackground === 'true',
+        });
+
+        sendResponse(res, 201, 'Foto añadida', updated);
+      } catch (error) { next(error); }
+    });
+  }
+
+  async removeGalleryImage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = String(req.body?.businessId ?? '');
+      await assertOwnsBusiness(req, businessId);
+
+      const product = await productService.getOwned(param(req, 'id'), businessId);
+      const updated = await productImageService.removeFromGallery(
+        product,
+        String(req.body?.publicId ?? '')
+      );
+
+      sendResponse(res, 200, 'Foto eliminada', updated);
+    } catch (error) { next(error); }
   }
 
   /** Activa o desactiva la mejora sin volver a subir el archivo. */

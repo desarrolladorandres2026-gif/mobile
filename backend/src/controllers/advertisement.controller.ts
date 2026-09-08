@@ -12,7 +12,15 @@ export class AdvertisementController {
   /** Only what the app needs to render and act on the flyer — nothing else. */
   async getActive(req: Request, res: Response, next: NextFunction) {
     try {
-      const ad = await advertisementService.getActiveForApp();
+      // El segmento sale de la sesión cuando la hay, y de la consulta
+      // cuando no: un visitante sin registrarse también ve publicidad, y
+      // su ciudad es lo único que se sabe de él.
+      const user = (req as any).user;
+      const ad = await advertisementService.getActiveForApp({
+        city: user?.city ?? query(req, 'city') ?? undefined,
+        role: user?.role,
+        deviceId: query(req, 'deviceId') ?? user?._id?.toString(),
+      });
       sendResponse(res, 200, ad ? 'Publicidad activa' : 'Sin publicidad activa', ad);
     } catch (error) { next(error); }
   }

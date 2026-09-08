@@ -14,6 +14,7 @@ import {
   PaymentStatus,
   PaymentMethod,
   LedgerEventType,
+  OrderKind,
 } from '../types';
 import { ledgerService } from './ledger.service';
 import { payoutService } from './payout.service';
@@ -288,6 +289,15 @@ export class RefundService {
         fromDeliveryMargin: allocation.fromDeliveryMargin,
         fromTax: allocation.fromTax,
         fromPlatform: allocation.fromPlatform,
+        // En un mandado, el grueso de lo que el cliente pagó vive en el
+        // pasivo del adelanto. Solo se deshace entero: un reembolso parcial
+        // no puede tocarlo porque el domiciliario ya compró con ese dinero
+        // y a él se le devuelve igual —`allocateRefund` empuja esos casos a
+        // reembolso total, que es donde se pueden resolver de verdad.
+        fromErrandAdvance:
+          order.kind === OrderKind.ERRAND && customerAmount >= finance.customerTotal
+            ? finance.productSubtotal
+            : 0,
       },
     });
 

@@ -11,6 +11,7 @@ import { ThemeToggle } from './ThemeToggle';
 import ConfirmDialog from './ConfirmDialog';
 import {
   DashboardIllustration, PackageIllustration, RestaurantIllustration, WalletIllustration,
+  RatingIllustration, PrepTimeIllustration, CashIllustration,
 } from './illustrations';
 import { apiMessage } from '../lib/apiError';
 
@@ -18,7 +19,13 @@ const nav = [
   { path: '/', Illustration: DashboardIllustration, label: 'Dashboard' },
   { path: '/orders', Illustration: PackageIllustration, label: 'Pedidos' },
   { path: '/settlements', Illustration: WalletIllustration, label: 'Liquidaciones' },
+  { path: '/analytics', Illustration: DashboardIllustration, label: 'Analíticas' },
   { path: '/menu', Illustration: RestaurantIllustration, label: 'Menú & Catálogo' },
+  { path: '/promotions', Illustration: CashIllustration, label: 'Promociones' },
+  { path: '/advertising', Illustration: CashIllustration, label: 'Publicidad' },
+  { path: '/reviews', Illustration: RatingIllustration, label: 'Reseñas' },
+  { path: '/staff', Illustration: RestaurantIllustration, label: 'Equipo' },
+  { path: '/settings', Illustration: PrepTimeIllustration, label: 'Ajustes' },
 ];
 
 export default function Layout() {

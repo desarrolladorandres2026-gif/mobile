@@ -21,6 +21,12 @@ import promotionBannerRoutes from './promotionBanner.routes';
 import homeCategoryRoutes from './homeCategory.routes';
 import rbacRoutes from './rbac.routes';
 import trackingRoutes from './tracking.routes';
+import searchRoutes from './search.routes';
+import favoriteRoutes from './favorite.routes';
+import loyaltyRoutes from './loyalty.routes';
+import referralRoutes from './referral.routes';
+import sosRoutes from './sos.routes';
+import errandRoutes from './errand.routes';
 
 const router = Router();
 
@@ -46,5 +52,11 @@ router.use('/promotion-banners', promotionBannerRoutes);
 router.use('/home-categories', homeCategoryRoutes);
 router.use('/rbac', rbacRoutes);
 router.use('/tracking', trackingRoutes);
+router.use('/search', searchRoutes);
+router.use('/favorites', favoriteRoutes);
+router.use('/loyalty', loyaltyRoutes);
+router.use('/referrals', referralRoutes);
+router.use('/sos', sosRoutes);
+router.use('/errands', errandRoutes);
 
 export default router;

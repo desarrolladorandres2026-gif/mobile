@@ -1,8 +1,9 @@
 import {
   Search, CheckCircle2, RotateCw, X, Shield, UserCog, User, Store, Bike, Zap,
-  Plus, Briefcase, KeyRound, Ban, Copy, type LucideIcon,
+  Plus, Briefcase, KeyRound, Ban, Copy, History, type LucideIcon,
 } from 'lucide-react';
 import ConfirmDialog from '../components/ConfirmDialog';
+import UserProfile360 from '../components/UserProfile360';
 import { PermissionGate } from '../components/PermissionGate';
 import { Permission } from '../lib/permissions';
 import { useAuthStore } from '../stores/authStore';
@@ -83,6 +84,10 @@ export default function Users() {
   const [tempPassword, setTempPassword] = useState<string | null>(null);
 
   // Crear cuenta administrativa
+  // Historial completo de una persona. Se abre desde su fila porque es
+  // donde nace la pregunta que contesta: quien la necesita ya esta
+  // mirando a ese usuario.
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [creatingStaff, setCreatingStaff] = useState(false);
   const [staffForm, setStaffForm] = useState({ name: '', phone: '', email: '', password: '', positionId: '' });
 
@@ -379,6 +384,15 @@ export default function Users() {
                     </td>
                     <td className="table-body-cell">
                       <div className="flex items-center gap-1.5 flex-wrap">
+                        <PermissionGate permission={Permission.USERS_VIEW}>
+                          <button
+                            onClick={() => setProfileUserId(u._id)}
+                            title="Historial completo"
+                            className="p-1.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] transition-all cursor-pointer"
+                          >
+                            <History className="w-3.5 h-3.5" />
+                          </button>
+                        </PermissionGate>
                         {u.role === 'admin' && (
                           <PermissionGate permission={Permission.USERS_UPDATE}>
                             <button
@@ -709,6 +723,10 @@ export default function Users() {
           </div>
         </div>
       )}
+
+      {profileUserId ? (
+        <UserProfile360 userId={profileUserId} onClose={() => setProfileUserId(null)} />
+      ) : null}
 
       {/* Toast Notification */}
       {toast && (

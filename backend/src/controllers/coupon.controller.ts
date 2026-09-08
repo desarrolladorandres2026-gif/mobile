@@ -35,6 +35,39 @@ function assertMayApproveCampaign(req: Request): void {
 }
 
 export class CouponController {
+  // ── Promociones del propio comercio ──
+
+  async listMine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const coupons = await couponService.listForBusiness(
+        req.user!._id.toString(),
+        param(req, 'businessId')
+      );
+      sendResponse(res, 200, 'Tus promociones', coupons);
+    } catch (error) { next(error); }
+  }
+
+  async createMine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const coupon = await couponService.createForBusiness(
+        req.user!._id.toString(),
+        param(req, 'businessId'),
+        req.body
+      );
+      sendResponse(res, 201, 'Promoción creada', coupon);
+    } catch (error) { next(error); }
+  }
+
+  async deactivateMine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const coupon = await couponService.deactivateForBusiness(
+        req.user!._id.toString(),
+        param(req, 'id')
+      );
+      sendResponse(res, 200, 'Promoción desactivada', coupon);
+    } catch (error) { next(error); }
+  }
+
   /** Public: promotions carousel for the app home screen. */
   async getPublic(req: Request, res: Response, next: NextFunction) {
     try {

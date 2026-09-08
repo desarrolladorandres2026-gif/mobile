@@ -1,6 +1,9 @@
 import { Stack } from 'expo-router';
 import { Colors } from '../../constants';
 import { DriverTrackingProvider } from '../../hooks/useDriverTracking';
+import { OfferSheet } from '../../components/domain/OfferSheet';
+import { VerificationSheet } from '../../components/domain/VerificationSheet';
+import { SosButton } from '../../components/domain/SosButton';
 
 export default function DriverLayout() {
   return (
@@ -23,6 +26,19 @@ export default function DriverLayout() {
         <Stack.Screen name="legal-document" />
         <Stack.Screen name="requests" />
       </Stack>
+
+      {/*
+        Fuera del navegador, igual que el GPS: una oferta llega cuando
+        llega, y el domiciliario puede estar en cualquier pestaña. Perder
+        el turno por no estar mirando la pantalla correcta sería perder
+        dinero por un detalle de navegación.
+      */}
+      <OfferSheet />
+      <VerificationSheet />
+
+      {/* Fuera del navegador, como el GPS: una emergencia no espera a que
+          el domiciliario esté en la pantalla correcta. */}
+      <SosButton />
     </DriverTrackingProvider>
   );
 }

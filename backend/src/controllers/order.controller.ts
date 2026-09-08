@@ -25,7 +25,11 @@ export class OrderController {
       const order = await orderService.create({ ...req.body, clientId: req.user!._id.toString() });
 
       const io = req.app.get('io');
-      if (io) {
+
+      // Un pedido programado no se anuncia al crearse: lo hace el barrido
+      // cuando llega su hora. Avisar ahora pondría en la cocina un pedido
+      // para pasado mañana.
+      if (io && !order.scheduledFor) {
         const business = await Business.findById(order.businessId).select('ownerId');
         if (business) {
           // El pedido va entero y poblado, con la misma forma que devuelve
@@ -41,7 +45,7 @@ export class OrderController {
           // encadenados le entregaban el pedido por duplicado; Socket.IO
           // solo deduplica dentro de una misma emisión.
           io.to(`user:${business.ownerId.toString()}`)
-            .to(`business:${order.businessId.toString()}`)
+            .to(`business:${order.businessId!.toString()}`)
             .emit('order:incoming', payload);
         }
         // Notify drivers and admin
@@ -140,7 +144,8 @@ export class OrderController {
         req.user!._id.toString(),
         req.user!.role,
         req.body.cancellationReason,
-        { ip: clientIp(req), userAgent: userAgent(req) }
+        { ip: clientIp(req), userAgent: userAgent(req) },
+        req.body.cancellationCode
       );
 
       const io = req.app.get('io');
@@ -156,11 +161,32 @@ export class OrderController {
         if (order.driverId) {
           io.to(`user:${order.driverId.toString()}`).emit('order:status:changed', payload);
         }
-        io.to(`business:${order.businessId.toString()}`).emit('order:status:changed', payload);
+        // Un mandado no tiene comercio al que avisar: no hay nadie
+        // preparando nada al otro lado.
+        if (order.businessId) {
+          io.to(`business:${order.businessId.toString()}`).emit('order:status:changed', payload);
+        }
         io.to('admin').emit('order:status:changed', payload);
       }
 
       sendResponse(res, 200, 'Estado actualizado', order);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * El domiciliario rechaza una oferta.
+   *
+   * Decir que no explícitamente vale más que dejar que el reloj expire:
+   * libera el pedido en el acto en vez de retener a la ronda entera los
+   * cuarenta y cinco segundos. En un pueblo con pocos repartidores esa
+   * diferencia es la comida caliente.
+   */
+  async declineOffer(req: Request, res: Response, next: NextFunction) {
+    try {
+      const driver = await driverService.getByUserId(req.user!._id.toString());
+      const { declineOffer } = await import('../services/dispatch.service');
+      await declineOffer(param(req, 'id'), driver._id.toString());
+      sendResponse(res, 200, 'Oferta rechazada');
     } catch (error) { next(error); }
   }
 
@@ -193,7 +219,9 @@ export class OrderController {
         // El comercio es quien va a tener a esa persona en el mostrador
         // pidiendo el código de recogida; era el único de los tres que no
         // se enteraba de la asignación en vivo.
-        io.to(`business:${order.businessId.toString()}`).emit('order:driver:assigned', payload);
+        if (order.businessId) {
+          io.to(`business:${order.businessId.toString()}`).emit('order:driver:assigned', payload);
+        }
         io.to('admin').emit('order:driver:assigned', payload);
       }
 

@@ -217,7 +217,7 @@ export class AuthService {
     const ip = req ? getClientIP(req) : 'unknown';
 
     // Check brute force protection
-    const bruteCheck = checkBruteForce(ip, input.phone);
+    const bruteCheck = await checkBruteForce(ip, input.phone);
     if (!bruteCheck.allowed) {
       if (req) {
         await logAudit(req, {
@@ -235,7 +235,7 @@ export class AuthService {
       .select('+password +twoFactorEnabled +twoFactorSecret +failedLoginAttempts +lockedUntil +lastLoginIp');
 
     if (!user) {
-      recordFailedAttempt(ip, input.phone);
+      await recordFailedAttempt(ip, input.phone);
       throw new AppError('Credenciales inválidas', 401);
     }
 
@@ -280,7 +280,7 @@ export class AuthService {
       }
 
       await user.save();
-      recordFailedAttempt(ip, input.phone);
+      await recordFailedAttempt(ip, input.phone);
 
       if (req) {
         await logAudit(req, {
@@ -331,7 +331,7 @@ export class AuthService {
     user.lastLoginIp = ip;
     user.isVerified = true;
 
-    clearAttempts(ip, input.phone);
+    await clearAttempts(ip, input.phone);
 
     const tokens = this.generateTokens(user);
     user.refreshToken = tokens.refreshToken;

@@ -40,6 +40,15 @@ export const uploadHomeCategoryImage = singleImageUpload('image');
 export const uploadAvatarImage = singleImageUpload('avatar');
 
 /**
+ * Selfie de verificación de identidad en turno.
+ *
+ * Mismo campo y mismos límites que el avatar, pero con nombre propio: la
+ * foto va a otra carpeta y a otro flujo, y confundirlos sería subir a un
+ * perfil público una imagen que se pidió para comprobar quién conduce.
+ */
+export const uploadVerificationSelfie = singleImageUpload('selfie');
+
+/**
  * Evidencia fotográfica de recogida o entrega.
  *
  * Su tope sale de la configuración y no de la constante de arriba: una

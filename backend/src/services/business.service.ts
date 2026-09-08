@@ -1,8 +1,39 @@
-import { Business, IBusiness } from '../models';
+import {
+  Business,
+  IBusiness,
+  BusinessDocument,
+  BusinessDocumentType,
+  REQUIRED_BUSINESS_DOCUMENTS,
+  FOOD_CATEGORIES,
+} from '../models';
 import { AppError } from '../middlewares';
 import mongoose from 'mongoose';
 
+/**
+ * Un negocio en cola de revisión.
+ *
+ * El tipo se escribe a mano porque el inferido —un documento poblado, más
+ * sus documentos, más la lista de faltantes— es tan grande que TypeScript
+ * se niega a serializarlo.
+ */
+export interface PendingApproval {
+  _id: unknown;
+  name: string;
+  category: string;
+  address: string;
+  city: string;
+  createdAt: Date;
+  ownerId?: { _id: unknown; name?: string; phone?: string; email?: string } | unknown;
+  missingDocuments: BusinessDocumentType[];
+  documents: unknown[];
+  [key: string]: unknown;
+}
+
+type DaySchedule = { open?: string; close?: string; isOpen?: boolean };
+
 interface CreateBusinessInput {
+  freeDeliveryThreshold?: number;
+  schedule?: Record<string, DaySchedule>;
   ownerId: string;
   name: string;
   description?: string;
@@ -47,6 +78,126 @@ export class BusinessService {
       },
     });
     return business;
+  }
+
+  // ── Documentación del comercio ──
+
+  /**
+   * Papeles que le faltan a un negocio para poder operar.
+   *
+   * Se devuelve la lista en vez de un booleano porque quien pregunta casi
+   * siempre necesita decirle a alguien qué le falta, y un "no" a secas
+   * obliga a adivinarlo.
+   *
+   * El concepto sanitario entra solo si el negocio manipula alimentos:
+   * exigírselo a una papelería sería inventar un requisito.
+   */
+  async missingDocuments(businessId: string): Promise<BusinessDocumentType[]> {
+    const business = await Business.findById(businessId).select('category');
+    if (!business) throw new AppError('Negocio no encontrado', 404);
+
+    const now = new Date();
+    await BusinessDocument.updateMany(
+      { businessId, expiresAt: { $lt: now }, status: { $ne: 'expired' } },
+      { $set: { status: 'expired' } }
+    );
+
+    const required = [...REQUIRED_BUSINESS_DOCUMENTS];
+    if (FOOD_CATEGORIES.includes(business.category)) required.push('health_permit');
+
+    const documents = await BusinessDocument.find({ businessId });
+
+    return required.filter(
+      (type) =>
+        !documents.some(
+          (d) =>
+            d.type === type &&
+            d.status === 'approved' &&
+            (!d.expiresAt || d.expiresAt >= now)
+        )
+    );
+  }
+
+  /**
+   * Aprueba un negocio, pero solo si sus papeles están en regla.
+   *
+   * Antes el panel creaba negocios con `isApproved: true` fijo en el código
+   * del formulario, así que ningún comercio pasaba por revisión: se
+   * aprobaban en el mismo gesto de darlos de alta. Aprobar es fijar los
+   * términos comerciales de alguien a quien se le va a pagar dinero, y eso
+   * merece una comprobación.
+   */
+  async approve(id: string, approvedBy: string): Promise<IBusiness> {
+    const missing = await this.missingDocuments(id);
+    if (missing.length) {
+      throw new AppError(
+        `No se puede aprobar: faltan o vencieron documentos (${missing.join(', ')})`,
+        422,
+        'BUSINESS_DOCUMENTS_MISSING'
+      );
+    }
+
+    const business = await Business.findByIdAndUpdate(
+      id,
+      { isApproved: true, approvedAt: new Date(), approvedBy },
+      { new: true }
+    );
+
+    if (!business) throw new AppError('Negocio no encontrado', 404);
+    return business;
+  }
+
+  async submitDocument(
+    businessId: string,
+    input: { type: BusinessDocumentType; reference: string; expiresAt?: Date }
+  ) {
+    return BusinessDocument.findOneAndUpdate(
+      { businessId, type: input.type },
+      {
+        ...input,
+        businessId,
+        status: 'pending',
+        reviewedBy: null,
+        reviewedAt: null,
+        rejectionReason: null,
+      },
+      { upsert: true, new: true, runValidators: true }
+    );
+  }
+
+  async listDocuments(businessId: string) {
+    return BusinessDocument.find({ businessId }).sort({ type: 1 });
+  }
+
+  async reviewDocument(
+    documentId: string,
+    adminId: string,
+    status: 'approved' | 'rejected',
+    rejectionReason?: string
+  ) {
+    const document = await BusinessDocument.findByIdAndUpdate(
+      documentId,
+      { status, reviewedBy: adminId, reviewedAt: new Date(), rejectionReason },
+      { new: true, runValidators: true }
+    );
+    if (!document) throw new AppError('Documento no encontrado', 404);
+    return document;
+  }
+
+  /** Los negocios que esperan revisión, con lo que les falta ya calculado. */
+  async pendingApprovals(): Promise<PendingApproval[]> {
+    const businesses = await Business.find({ isApproved: false })
+      .sort({ createdAt: 1 })
+      .populate('ownerId', 'name phone email')
+      .lean();
+
+    return Promise.all(
+      businesses.map(async (business) => ({
+        ...business,
+        missingDocuments: await this.missingDocuments(business._id.toString()),
+        documents: await BusinessDocument.find({ businessId: business._id }).lean(),
+      }))
+    ) as unknown as PendingApproval[];
   }
 
   /** Admin-only: sets commission, approval and merchandising. */
@@ -98,13 +249,10 @@ export class BusinessService {
 
     // Geospatial queries with $near don't support countDocuments — use $geoWithin + aggregation
     if (lat && lng) {
-      const geoMatch: Record<string, unknown> = {
-        location: {
-          $geoWithin: {
-            $centerSphere: [[lng, lat], maxDistance / 6378100],
-          },
-        },
-      };
+      // Los filtros van dentro de `$geoNear`, no en un `$match` aparte:
+      // esa etapa tiene que ser la primera del pipeline, así que lo que se
+      // le pase por `query` es lo único que puede recortar antes de medir.
+      const geoMatch: Record<string, unknown> = {};
 
       // Unapproved businesses are invisible to customers. Approval is what
       // fixes the commercial terms, so selling through one before an admin
@@ -119,7 +267,19 @@ export class BusinessService {
       if (city) geoMatch.city = city;
 
       const pipeline: mongoose.PipelineStage[] = [
-        { $match: geoMatch },
+        {
+          // `$geoNear` en vez de `$geoWithin` por una sola razón: devuelve
+          // la distancia además de filtrar. Con `$geoWithin` había que
+          // recalcularla en el cliente a partir de dos coordenadas, y el
+          // cliente no siempre tiene la suya.
+          $geoNear: {
+            near: { type: 'Point' as const, coordinates: [lng, lat] },
+            distanceField: 'distanceMeters',
+            maxDistance,
+            query: geoMatch,
+            spherical: true,
+          },
+        },
         {
           $facet: {
             businesses: [

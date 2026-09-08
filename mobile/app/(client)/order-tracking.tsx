@@ -88,7 +88,10 @@ export default function OrderTrackingScreen() {
     tap('light');
     try {
       await Share.share({
-        message: `Mi pedido en Zipp (${reference}) de ${order.businessId?.name ?? 'un negocio'}: ${ORDER_STATUS_DETAIL[order.status] ?? ''}`,
+        message:
+          order.kind === 'errand'
+            ? `Mi mandado en Zipp (${reference}): ${ORDER_STATUS_DETAIL[order.status] ?? ''}`
+            : `Mi pedido en Zipp (${reference}) de ${order.businessId?.name ?? 'un negocio'}: ${ORDER_STATUS_DETAIL[order.status] ?? ''}`,
       });
     } catch {
       // Cancelar la hoja de compartir no es un error.
@@ -152,7 +155,11 @@ export default function OrderTrackingScreen() {
               <View style={styles.route}>
                 <View style={styles.routeEnd}>
                   <Text v="caption" tone="textMuted">DESDE</Text>
-                  <Text v="strongS" numberOfLines={1}>{order.businessId?.name ?? 'El local'}</Text>
+                  <Text v="strongS" numberOfLines={1}>
+                    {order.kind === 'errand'
+                      ? order.errand?.pickupAddress || 'El sitio'
+                      : order.businessId?.name ?? 'El local'}
+                  </Text>
                 </View>
                 <View style={[styles.routeEnd, styles.routeRight]}>
                   <Text v="caption" tone="textMuted">HASTA</Text>

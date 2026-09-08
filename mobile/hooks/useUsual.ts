@@ -117,6 +117,14 @@ export function useZippStats() {
 
     const totalSpent = delivered.reduce((sum, o) => sum + (o.total ?? 0), 0);
     // Un punto por cada mil pesos entregados.
+    /**
+     * OBSOLETO: los puntos viven ahora en el servidor.
+     *
+     * Este cálculo salía del historial local, así que cambiaba de teléfono
+     * a teléfono y desaparecía al reinstalar. Se conserva solo porque
+     * pantallas viejas podrían leerlo mientras se migran; el saldo bueno
+     * es `useLoyalty().balance`. No lo uses en nada nuevo.
+     */
     const points = Math.floor(totalSpent / 1000);
 
     // Semanas seguidas con al menos un pedido, contando hacia atrás.

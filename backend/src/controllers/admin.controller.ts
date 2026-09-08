@@ -1,15 +1,177 @@
 import { Request, Response, NextFunction } from 'express';
 import { adminService } from '../services/admin.service';
 import { dailySummaryService } from '../services/dailySummary.service';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, toCsv, csvFilename, type CsvColumn } from '../utils';
 import { OrderEvidenceType } from '../types';
 import { orderEvidenceService } from '../services/orderEvidence.service';
 import { orderSecurityService } from '../services/orderSecurity.service';
 import { resolveOrderAccess } from '../services/orderAccess.service';
-import { OrderEvent } from '../security';
+import { OrderEvent, AuditAction, logAudit } from '../security';
 import { AppError } from '../middlewares';
 
 export class AdminController {
+  /**
+   * Descarga de informes en CSV.
+   *
+   * El permiso `reports:export` llevaba tiempo declarado en el RBAC sin que
+   * ningún endpoint lo usara: se podía conceder, aparecía en los roles, y
+   * no habilitaba nada. Esto es lo que habilita.
+   *
+   * Se envía como descarga y no como JSON porque el destinatario no es otro
+   * programa: es la persona de contabilidad que necesita abrirlo en Excel.
+   */
+  private sendCsv<T>(res: Response, prefix: string, rows: T[], columns: Array<CsvColumn<T>>) {
+    const body = toCsv(rows, columns);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${csvFilename(prefix)}"`);
+    res.send(body);
+  }
+
+  /**
+   * Todo lo que se sabe de una persona, en una sola pantalla.
+   *
+   * Atender un reclamo significaba abrir cinco pantallas y reconstruir la
+   * historia a mano mientras el cliente esperaba al teléfono.
+   */
+  async userProfile360(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userProfile360Service } = await import('../services/userProfile360.service');
+      const profile = await userProfile360Service.profile360(param(req, 'id'));
+      sendResponse(res, 200, 'Historial del usuario', profile);
+    } catch (error) { next(error); }
+  }
+
+  // ── Envíos dirigidos ──
+
+  /** Cuánta gente alcanza un segmento, sin mandar nada todavía. */
+  async previewCampaign(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { campaignService } = await import('../services/campaign.service');
+      const reach = await campaignService.preview(req.body.segment ?? {});
+      sendResponse(res, 200, 'Alcance del segmento', { reach });
+    } catch (error) { next(error); }
+  }
+
+  async sendCampaign(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { campaignService } = await import('../services/campaign.service');
+      const result = await campaignService.send(req.body.segment ?? {}, req.body.message);
+
+      void logAudit(req, {
+        action: AuditAction.SUSPICIOUS_ACTIVITY,
+        entity: 'campaign',
+        entityId: 'push',
+        description: `Envío dirigido a ${result.targeted} personas: "${req.body.message.title}"`,
+        metadata: { segment: req.body.segment, ...result },
+      });
+
+      sendResponse(res, 200, 'Notificaciones enviadas', result);
+    } catch (error) { next(error); }
+  }
+
+  // ── Interruptores de funcionalidad ──
+  async listFeatureFlags(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { featureFlagService } = await import('../services/featureFlag.service');
+      sendResponse(res, 200, 'Interruptores', await featureFlagService.list());
+    } catch (error) { next(error); }
+  }
+
+  async saveFeatureFlag(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { featureFlagService } = await import('../services/featureFlag.service');
+      const flag = await featureFlagService.upsert(
+        param(req, 'key'),
+        req.body,
+        req.user!._id.toString()
+      );
+      sendResponse(res, 200, 'Interruptor actualizado', flag);
+    } catch (error) { next(error); }
+  }
+
+  async deleteFeatureFlag(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { featureFlagService } = await import('../services/featureFlag.service');
+      await featureFlagService.remove(param(req, 'key'));
+      sendResponse(res, 200, 'Interruptor eliminado');
+    } catch (error) { next(error); }
+  }
+
+  async exportOrders(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { Order } = await import('../models');
+      const filter: Record<string, unknown> = {};
+
+      const from = query(req, 'from');
+      const to = query(req, 'to');
+      if (from || to) {
+        filter.createdAt = {
+          ...(from ? { $gte: new Date(from) } : {}),
+          ...(to ? { $lte: new Date(to) } : {}),
+        };
+      }
+      const status = query(req, 'status');
+      if (status) filter.status = status;
+
+      // Tope duro: un informe es un archivo que alguien abre, no un volcado
+      // de la base. Sin límite, un rango amplio tumbaría el proceso
+      // construyendo una cadena de cientos de megas en memoria.
+      const orders = await Order.find(filter)
+        .sort({ createdAt: -1 })
+        .limit(10_000)
+        .populate('businessId', 'name')
+        .populate('clientId', 'name phone')
+        .lean();
+
+      this.sendCsv(res, 'pedidos', orders, [
+        { header: 'Número', value: (o: any) => o.orderNumber },
+        { header: 'Fecha', value: (o: any) => o.createdAt },
+        { header: 'Estado', value: (o: any) => o.status },
+        { header: 'Negocio', value: (o: any) => o.businessId?.name },
+        { header: 'Cliente', value: (o: any) => o.clientId?.name },
+        { header: 'Teléfono', value: (o: any) => o.clientId?.phone },
+        { header: 'Método de pago', value: (o: any) => o.paymentMethod },
+        { header: 'Estado del pago', value: (o: any) => o.paymentStatus },
+        { header: 'Subtotal', value: (o: any) => o.finance?.subtotal ?? o.subtotal },
+        { header: 'Domicilio', value: (o: any) => o.finance?.deliveryFee ?? o.deliveryFee },
+        { header: 'Descuento', value: (o: any) => o.discount },
+        { header: 'Propina', value: (o: any) => o.tip },
+        { header: 'Total', value: (o: any) => o.finance?.customerTotal ?? o.total },
+        { header: 'Comisión plataforma', value: (o: any) => o.finance?.merchantCommission ?? o.platformCommission },
+        { header: 'Pago al negocio', value: (o: any) => o.finance?.businessPayout ?? o.businessPayout },
+        { header: 'Pago al domiciliario', value: (o: any) => o.finance?.driverPayout ?? o.driverPayout },
+        { header: 'Dirección', value: (o: any) => o.deliveryAddress },
+        { header: 'Entregado', value: (o: any) => o.deliveredAt },
+      ]);
+    } catch (error) { next(error); }
+  }
+
+  async exportUsers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { User } = await import('../models');
+      const filter: Record<string, unknown> = {};
+      const role = query(req, 'role');
+      if (role) filter.role = role;
+
+      const users = await User.find(filter)
+        .select('name phone email role isActive isVerified isBlocked createdAt')
+        .sort({ createdAt: -1 })
+        .limit(10_000)
+        .lean();
+
+      this.sendCsv(res, 'usuarios', users, [
+        { header: 'Nombre', value: (u: any) => u.name },
+        { header: 'Teléfono', value: (u: any) => u.phone },
+        { header: 'Correo', value: (u: any) => u.email },
+        { header: 'Rol', value: (u: any) => u.role },
+        { header: 'Activo', value: (u: any) => (u.isActive ? 'Sí' : 'No') },
+        { header: 'Verificado', value: (u: any) => (u.isVerified ? 'Sí' : 'No') },
+        { header: 'Bloqueado', value: (u: any) => (u.isBlocked ? 'Sí' : 'No') },
+        { header: 'Alta', value: (u: any) => u.createdAt },
+      ]);
+    } catch (error) { next(error); }
+  }
+
   async getDashboard(req: Request, res: Response, next: NextFunction) {
     try {
       const stats = await adminService.getDashboardStats();

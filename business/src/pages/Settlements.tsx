@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  RefreshCw, Landmark, AlertCircle, ChevronRight, ArrowLeft, Store,
+  RefreshCw, Landmark, AlertCircle, ChevronRight, ArrowLeft, Store, Download,
 } from 'lucide-react';
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
@@ -42,6 +42,8 @@ interface SettlementBatch {
   payoutCount: number;
   netAmount: number;
   reversedAmount: number;
+  /** Publicidad que compraste y se descontó de este pago. */
+  adSpendAmount?: number;
   reference: string;
   createdAt: string;
 }
@@ -78,6 +80,26 @@ type Focus =
 
 export default function Settlements() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
+
+  const downloadCsv = async () => {
+    if (!businessId) return;
+    try {
+      const response = await api.get(`/businesses/${businessId}/statement/export`, {
+        responseType: 'blob',
+      });
+
+      const url = URL.createObjectURL(response.data as Blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `ventas-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      // Sin esto el blob se queda en memoria hasta recargar la página.
+      URL.revokeObjectURL(url);
+    } catch {
+      setError('No se pudo descargar el archivo de ventas.');
+    }
+  };
+
   const businessId = selectedBusiness?._id;
 
   const [statement, setStatement] = useState<Statement | null>(null);
@@ -156,13 +178,30 @@ export default function Settlements() {
             Lo que ZIPP te debe, de dónde viene y qué ya se consignó
           </p>
         </div>
-        <button
-          onClick={() => { loadStatement(); loadLines(); }}
-          className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer flex items-center gap-2"
-        >
-          <RefreshCw className="w-3.5 h-3.5 text-[var(--color-primary)]" />
-          Actualizar
-        </button>
+        <div className="flex items-center gap-2">
+          {/*
+            Se descarga por el cliente axios y se convierte en blob, en vez
+            de abrir la URL con el token como parámetro. Un token en la
+            barra de direcciones acaba en el historial del navegador, en los
+            registros del servidor y en la cabecera `Referer` de la
+            siguiente petición: tres sitios donde no debería estar.
+          */}
+          <button
+            onClick={downloadCsv}
+            className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer flex items-center gap-2"
+          >
+            <Download className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+            Exportar CSV
+          </button>
+
+          <button
+            onClick={() => { loadStatement(); loadLines(); }}
+            className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer flex items-center gap-2"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+            Actualizar
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -311,6 +350,13 @@ export default function Settlements() {
                           </span>
                         ) : null}
                       </p>
+                      {/* Sin esta línea, el neto baja y no hay forma de
+                          saber por qué desde esta pantalla. */}
+                      {(batch.adSpendAmount ?? 0) > 0 ? (
+                        <p className="text-[11px] text-[var(--color-warning)] mt-0.5">
+                          Incluye {money(batch.adSpendAmount ?? 0)} descontados por publicidad
+                        </p>
+                      ) : null}
                       <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
                         {batch.payoutCount} pedido(s) ·{' '}
                         {new Date(batch.periodStart).toLocaleDateString('es-CO', {

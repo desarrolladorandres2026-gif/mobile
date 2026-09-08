@@ -11,6 +11,8 @@ import { UserRole } from '../types';
 const router = Router();
 
 // Public
+router.get('/business/:businessId/sentiment', (req, res, next) => productController.sentiment(req, res, next));
+router.get('/business/:businessId/top', (req, res, next) => productController.topSellers(req, res, next));
 router.get('/business/:businessId', (req, res, next) => productController.getByBusiness(req, res, next));
 
 // Antes que `/:id`: si no, Express leería "image-capabilities" como el
@@ -36,5 +38,10 @@ router.delete('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN)
 router.post('/:id/image', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), (req, res, next) => productController.uploadImage(req, res, next));
 router.patch('/:id/image', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), (req, res, next) => productController.updateImageOptions(req, res, next));
 router.delete('/:id/image', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(productOwnerBodySchema), (req, res, next) => productController.deleteImage(req, res, next));
+
+// Galería: fotos adicionales para la ficha. No tocan la principal, que
+// es la que leen las listas y el carrito.
+router.post('/:id/gallery', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), (req, res, next) => productController.addGalleryImage(req, res, next));
+router.delete('/:id/gallery', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(productOwnerBodySchema), (req, res, next) => productController.removeGalleryImage(req, res, next));
 
 export default router;

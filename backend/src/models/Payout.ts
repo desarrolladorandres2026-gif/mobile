@@ -84,6 +84,15 @@ export interface ISettlement extends Document {
   payoutCount: number;
   grossAmount: number;
   reversedAmount: number;
+  /**
+   * Publicidad que el comercio compró y se le descuenta de este pago.
+   *
+   * Va como línea propia y no restado dentro de `reversedAmount` porque
+   * son cosas distintas: una reversión es dinero que nunca llegó a ganar,
+   * y esto es algo que compró. Mezclarlas dejaría un extracto donde no se
+   * puede explicar por qué el neto bajó.
+   */
+  adSpendAmount: number;
   netAmount: number;
   currency: string;
   reference: string;
@@ -101,6 +110,7 @@ const settlementSchema = new Schema<ISettlement>(
     payoutCount: { type: Number, required: true, min: 0 },
     grossAmount: { type: Number, required: true, min: 0 },
     reversedAmount: { type: Number, default: 0, min: 0 },
+    adSpendAmount: { type: Number, default: 0, min: 0 },
     netAmount: { type: Number, required: true, min: 0 },
     currency: { type: String, default: 'COP' },
     /** External transfer reference, so a payment can be traced back. */

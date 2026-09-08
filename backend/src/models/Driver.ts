@@ -5,6 +5,20 @@ export interface IDriver extends Document {
   userId: Types.ObjectId;
   vehicleType: VehicleType;
   licensePlate?: string;
+
+  /**
+   * A quién avisar si algo va mal.
+   *
+   * Es el requisito previo del botón de pánico: una alerta que no tiene a
+   * quién avisar es una alerta que solo ve un administrador, y de noche
+   * puede no haber ninguno mirando. Aquí está el número de alguien a quien
+   * le importa esta persona.
+   */
+  emergencyContact?: {
+    name: string;
+    phone: string;
+    relationship?: string;
+  };
   status: DriverStatus;
   currentLocation: GeoPoint;
   /**
@@ -48,6 +62,17 @@ const driverSchema = new Schema<IDriver>(
       type: String,
       enum: Object.values(VehicleType),
       default: VehicleType.MOTORCYCLE,
+    },
+    emergencyContact: {
+      type: new Schema(
+        {
+          name: { type: String, required: true, trim: true, maxlength: 80 },
+          phone: { type: String, required: true, trim: true, maxlength: 20 },
+          relationship: { type: String, trim: true, maxlength: 40 },
+        },
+        { _id: false }
+      ),
+      default: undefined,
     },
     licensePlate: {
       type: String,

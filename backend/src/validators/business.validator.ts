@@ -51,6 +51,30 @@ export const updateBusinessSchema = z.object({
       minOrder: merchantEditableFields.minOrder,
       /** Merchants may pause themselves; they may not switch themselves live. */
       isActive: z.boolean().optional(),
+
+      /**
+       * Compra mínima a partir de la cual el negocio regala el domicilio.
+       *
+       * Es editable por el comercio y no por un administrador porque el
+       * dinero sale de su liquidación: quien paga la promoción decide
+       * cuándo se aplica. Cero la desactiva.
+       */
+      freeDeliveryThreshold: z.number().int().min(0).max(1_000_000).optional(),
+
+      /**
+       * Horario semanal. El servidor decide si está abierto, así que un
+       * horario mal puesto cierra la tienda de verdad.
+       */
+      schedule: z
+        .record(
+          z.string(),
+          z.object({
+            open: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+            close: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+            isOpen: z.boolean().optional(),
+          })
+        )
+        .optional(),
     })
     .strict(),
   query: z.object({}).optional(),

@@ -16,7 +16,7 @@ import {
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
 import { CategoryTile } from '../../../components/domain/CategoryTile';
 import { useAuthStore } from '../../../stores/authStore';
-import { useBusinesses, usePublicCoupons, useAddresses } from '../../../hooks/useApi';
+import { useBusinesses, usePublicCoupons, useAddresses, useDeliveryCoords } from '../../../hooks/useApi';
 import { useUsual, reorder, type UsualOrder } from '../../../hooks/useUsual';
 import { useHomeCategories } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
@@ -34,8 +34,11 @@ export default function HomeScreen() {
   const bottomSpace = useTabContentPadding(CLIENT_DOCK_CLEARANCE);
   const user = useAuthStore((s) => s.user);
 
+  // La distancia se mide desde la dirección de entrega, no desde el GPS.
+  const coords = useDeliveryCoords();
+
   const { data: businesses = [], isLoading, isError, refetch, isRefetching } =
-    useBusinesses() as { data: Business[]; isLoading: boolean; isError: boolean; refetch: () => void; isRefetching: boolean };
+    useBusinesses(coords) as { data: Business[]; isLoading: boolean; isError: boolean; refetch: () => void; isRefetching: boolean };
   const { data: coupons = [] } = usePublicCoupons();
   const { data: addresses = [] } = useAddresses();
   const { usual } = useUsual();
@@ -156,6 +159,29 @@ export default function HomeScreen() {
               />
             ))}
           </View>
+        </View>
+
+        {/* ── Mandados ── */}
+        {/* Fuera de la rejilla de categorías a propósito: una categoría
+            lleva a una lista de negocios y esto no lleva a ninguna. Es lo
+            que se pide cuando lo que necesitas no está en ninguna carta. */}
+        <View style={styles.section}>
+          <Card
+            tone="outline"
+            style={styles.errand}
+            onPress={() => router.push('/(client)/errand')}
+            accessibilityLabel="Pedir un mandado"
+            accessibilityHint="Encargar algo que no está en ninguna carta"
+          >
+            <Icon name="paquete" size="lg" color={c.primary} />
+            <View style={styles.errandCopy}>
+              <Text v="titleS">¿No está en ninguna carta?</Text>
+              <Text v="bodyM" tone="textSecondary">
+                Pide un mandado y te lo recogemos donde sea.
+              </Text>
+            </View>
+            <Icon name="siguiente" size="md" color={c.textMuted} />
+          </Card>
         </View>
 
         {/* ── Cupones ── */}
@@ -381,6 +407,9 @@ const styles = StyleSheet.create({
   usualPrice: { marginLeft: 'auto' },
 
   categories: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm },
+
+  errand: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  errandCopy: { flex: 1, gap: 2 },
 
   coupon: {
     width: 232,

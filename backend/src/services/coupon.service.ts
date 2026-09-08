@@ -94,6 +94,12 @@ export class CouponService {
       if (used >= coupon.perUserLimit) throw new AppError('Ya usaste este cupón', 400);
     }
 
+    // Un cupón nominal solo lo usa su dueño. Va antes que el resto de
+    // comprobaciones porque es la más barata y la que más gente frena.
+    if (coupon.restrictedToUserId && coupon.restrictedToUserId.toString() !== ctx.userId) {
+      throw new AppError('Este cupón no es tuyo', 403);
+    }
+
     if (coupon.firstOrderOnly) {
       const previousOrders = await Order.countDocuments({
         clientId: ctx.userId,
@@ -329,6 +335,82 @@ export class CouponService {
   }
 
   /** Coupons shown in the app's promotions carousel. */
+  // ── Promociones que crea el propio comercio ──
+
+  /**
+   * Crea una promoción a nombre de un negocio.
+   *
+   * Tres campos NO se leen de la petición aunque vengan: quién financia,
+   * de qué negocio es, y si tiene permiso para saltarse el margen mínimo.
+   * Son justo los tres con los que un comercio podría hacer que ZIPP pague
+   * su promoción, y confiar en el cuerpo de la petición para eso sería
+   * dejar la caja abierta.
+   */
+  async createForBusiness(
+    ownerId: string,
+    businessId: string,
+    input: Record<string, unknown>
+  ): Promise<ICoupon> {
+    const { Business } = await import('../models');
+    const business = await Business.findById(businessId).select('ownerId city');
+
+    if (!business) throw new AppError('Negocio no encontrado', 404);
+    if (business.ownerId.toString() !== ownerId) {
+      throw new AppError('No puedes crear promociones de otro negocio', 403);
+    }
+
+    const existing = await Coupon.findOne({ code: String(input.code).toUpperCase() });
+    if (existing) throw new AppError('Ya existe un cupón con ese código', 409);
+
+    return Coupon.create({
+      ...input,
+      code: String(input.code).toUpperCase(),
+
+      // Forzados, no leídos.
+      fundedBy: CouponFundedBy.BUSINESS,
+      businessId: business._id,
+      campaignApproved: false,
+      city: business.city,
+    });
+  }
+
+  /** Las promociones de un negocio, para su propio panel. */
+  async listForBusiness(ownerId: string, businessId: string): Promise<ICoupon[]> {
+    const { Business } = await import('../models');
+    const business = await Business.findById(businessId).select('ownerId');
+
+    if (!business) throw new AppError('Negocio no encontrado', 404);
+    if (business.ownerId.toString() !== ownerId) {
+      throw new AppError('No autorizado', 403);
+    }
+
+    return Coupon.find({ businessId, fundedBy: CouponFundedBy.BUSINESS }).sort({ createdAt: -1 });
+  }
+
+  /**
+   * Apaga una promoción del comercio.
+   *
+   * Se desactiva en vez de borrarse: un cupón ya usado tiene canjes
+   * apuntando a él, y borrarlo dejaría esas liquidaciones señalando a un
+   * documento que no existe.
+   */
+  async deactivateForBusiness(ownerId: string, couponId: string): Promise<ICoupon> {
+    const coupon = await Coupon.findById(couponId);
+    if (!coupon || coupon.fundedBy !== CouponFundedBy.BUSINESS || !coupon.businessId) {
+      throw new AppError('Promoción no encontrada', 404);
+    }
+
+    const { Business } = await import('../models');
+    const business = await Business.findById(coupon.businessId).select('ownerId');
+    if (!business || business.ownerId.toString() !== ownerId) {
+      throw new AppError('No autorizado', 403);
+    }
+
+    coupon.isActive = false;
+    await coupon.save();
+    return coupon;
+  }
+
   async getPublic(city?: string, businessId?: string): Promise<ICoupon[]> {
     const now = new Date();
     const filter: Record<string, unknown> = {

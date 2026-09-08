@@ -27,6 +27,15 @@ export interface IBusiness extends Document {
   commissionRateBps: number;
   isActive: boolean;
   /** Requires admin approval; a merchant cannot switch itself live. */
+  /**
+   * Compra mínima a partir de la cual el negocio regala el domicilio.
+   *
+   * Cero significa desactivado. Lo paga el comercio de su liquidación,
+   * igual que un cupón suyo: el domiciliario cobra lo mismo y la plataforma
+   * conserva su margen. Subirlo es una decisión comercial del negocio, no
+   * un gasto de ZIPP.
+   */
+  freeDeliveryThreshold: number;
   isApproved: boolean;
   approvedAt?: Date | null;
   approvedBy?: Types.ObjectId | null;
@@ -150,6 +159,7 @@ const businessSchema = new Schema<IBusiness>(
       type: Boolean,
       default: true,
     },
+    freeDeliveryThreshold: { type: Number, default: 0, min: 0 },
     isApproved: {
       type: Boolean,
       default: false,
@@ -218,6 +228,12 @@ businessSchema.index({ city: 1, isActive: 1 });
 businessSchema.index({ isApproved: 1, isActive: 1 });
 // `slug` already declares `unique: true` on the path, which creates the index.
 businessSchema.index({ isFeatured: 1 });
+
+/** Mismo criterio que en productos: nombre por encima de todo, en español. */
+businessSchema.index(
+  { name: 'text', category: 'text' },
+  { weights: { name: 10, category: 2 }, default_language: 'spanish', name: 'business_search' }
+);
 
 // Virtual: products
 businessSchema.virtual('products', {

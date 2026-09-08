@@ -3,16 +3,17 @@ import {
   View, ScrollView, Pressable, StyleSheet, Share, Linking, Platform, TextInput,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { Lightbox } from '../../../components/domain/Lightbox';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown, FadeOutDown, Layout } from 'react-native-reanimated';
 import {
-  Text, Icon, IconButton, Button, Badge, MetaRow, Notice, Sheet,
+  Text, Icon, IconButton, Button, Badge, CatalogBadges, MetaRow, Notice, Sheet,
   QtyStepper, EmptyState, ErrorState, Skeleton, LoadingScreen,
 } from '../../../components/ui';
-import { useBusiness, useBusinessCategories, useBusinessProducts } from '../../../hooks/useApi';
+import { useBusiness, useBusinessCategories, useBusinessProducts, useTopSellers, useProductSentiment } from '../../../hooks/useApi';
 import { useCartStore } from '../../../stores/cartStore';
-import { useFavoritesStore } from '../../../stores/favoritesStore';
+import { useFavorites } from '../../../hooks/useFavorites';
 import { useTheme } from '../../../hooks/useTheme';
 import { useBottomInset } from '../../../hooks/useBottomSpace';
 import { categoryIllustration } from '../../../components/illustrations';
@@ -21,8 +22,9 @@ import { BorderRadius, Shadow, Spacing } from '../../../theme/tokens';
 import { businessAccent, openState } from '../../../lib/business';
 import { money, minutes } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
+import { freeDeliveryGap, likeRatio } from '../../../lib/catalog';
 import {
-  productImageUri, productImagePlaceholder, hasProductImage,
+  productImageUri, productImagePlaceholder, hasProductImage, productGallery,
   type ProductImages,
 } from '../../../lib/productImage';
 
@@ -38,9 +40,14 @@ interface Product {
   image?: string;
   /** Las cuatro variantes que calcula el servidor. */
   images?: ProductImages | null;
+  /** Fotos adicionales para el visor. La principal no está aquí. */
+  galleryImages?: ProductImages[] | null;
   isAvailable: boolean;
   extras?: Extra[];
   categoryId?: string;
+  /** Alimentan los distintivos de catálogo. Ver `lib/catalog.ts`. */
+  isFeatured?: boolean;
+  createdAt?: string;
 }
 
 /** Espacio que reserva el scroll cuando la barra de "mi coronita" está a la vista. */
@@ -55,13 +62,19 @@ export default function BusinessScreen() {
 
   const { data: business, isLoading, isError, refetch } = useBusiness(id);
   const { data: sections = [] } = useBusinessCategories(id);
+
+  // Lo que la gente pide de verdad, no lo que el negocio marcó como
+  // destacado. Solo se muestra sin filtro de sección activo: dentro de
+  // "Bebidas", una lista de los más pedidos del local entero desorienta.
+  const { data: topSellers = [] } = useTopSellers(id);
+  const { data: sentiment = {} } = useProductSentiment(id);
   const { data: products = [], isLoading: loadingProducts } =
     useBusinessProducts(id) as { data: Product[]; isLoading: boolean };
 
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [selected, setSelected] = useState<Product | null>(null);
 
-  const { toggleFavorite, isFavorite } = useFavoritesStore();
+  const { toggle: toggleFavorite, isFavorite } = useFavorites();
   const bottomInset = useBottomInset();
 
   const cartBusinessId = useCartStore((s) => s.businessId);
@@ -155,14 +168,10 @@ export default function BusinessScreen() {
               filled={favorite}
               onPress={() => {
                 tap(favorite ? 'light' : 'success');
-                toggleFavorite({
-                  _id: business._id,
-                  name: business.name,
-                  category: business.category,
-                  rating: business.rating,
-                  deliveryTime: business.deliveryTime,
-                  description: business.description,
-                });
+                // Solo el id: el servidor ya sabe el resto y guardar una
+                // copia del negocio dejaba nombres y precios congelados en
+                // el momento de marcarlo.
+                toggleFavorite(business._id);
               }}
             />
           </View>
@@ -283,16 +292,39 @@ export default function BusinessScreen() {
               compact
             />
           ) : (
-            visibleProducts.map((product) => (
+            <>
+            {!activeSection && topSellers.length > 1 ? (
+              <View style={styles.topBlock}>
+                <View style={styles.topTitle}>
+                  <Icon name="racha" size="sm" color={c.primary} />
+                  <Text v="strongS">Los más pedidos</Text>
+                </View>
+                {topSellers.slice(0, 3).map((product: Product) => (
+                  <ProductRow
+                    key={`top-${product._id}`}
+                    product={product}
+                    accent={accent}
+                    category={business.category}
+                    disabled={!status.open}
+                    likePercent={likeRatio(sentiment[product._id])}
+                    onPress={() => { tap('light'); setSelected(product); }}
+                  />
+                ))}
+              </View>
+            ) : null}
+
+            {visibleProducts.map((product) => (
               <ProductRow
                 key={product._id}
                 product={product}
                 accent={accent}
                 category={business.category}
                 disabled={!status.open}
+                likePercent={likeRatio(sentiment[product._id])}
                 onPress={() => { tap('light'); setSelected(product); }}
               />
-            ))
+            ))}
+            </>
           )}
         </View>
       </ScrollView>
@@ -318,6 +350,7 @@ export default function BusinessScreen() {
       */}
       {showCartBar ? (
         <StoreCartBar
+          freeDeliveryThreshold={business.freeDeliveryThreshold}
           count={cartItemCount}
           subtotal={cartSubtotal}
           bottomInset={bottomInset}
@@ -357,8 +390,16 @@ function SectionTab({
 }
 
 function ProductRow({
-  product, accent, category, disabled, onPress,
-}: { product: Product; accent: string; category: string; disabled: boolean; onPress: () => void }) {
+  product, accent, category, disabled, onPress, likePercent,
+}: {
+  product: Product;
+  accent: string;
+  category: string;
+  disabled: boolean;
+  onPress: () => void;
+  /** Pulgares arriba en porcentaje. Null si aún no hay votos suficientes. */
+  likePercent?: number | null;
+}) {
   const { c } = useTheme();
   const unavailable = !product.isAvailable || disabled;
   const hasDiscount = product.discountPrice != null;
@@ -405,6 +446,20 @@ function ProductRow({
 
       <View style={styles.productBody}>
         <Text v="titleS" numberOfLines={1}>{product.name}</Text>
+
+        {/* El velo de "AGOTADO" ya cubre la foto, así que aquí solo entran
+            los distintivos que hablan de por qué merece la pena mirarlo. */}
+        {product.isAvailable ? <CatalogBadges product={product} /> : null}
+
+        {/* Solo se enseña cuando la mayoría lo aprueba. Un "40% le gustó"
+            junto al plato no informa: hunde la venta sin darle al negocio
+            ninguna oportunidad de arreglarlo. */}
+        {likePercent != null && likePercent >= 70 ? (
+          <View style={styles.likeRow}>
+            <Icon name="check" size={12} color={c.lime} strong />
+            <Text v="caption" tone="textMuted">A {likePercent}% le gustó</Text>
+          </View>
+        ) : null}
         {product.description ? (
           <Text v="bodyS" tone="textMuted" numberOfLines={2}>{product.description}</Text>
         ) : null}
@@ -432,9 +487,21 @@ function ProductRow({
 
 /** Barra de "mi coronita": lo que ya lleva de esta tienda, siempre a la mano. */
 function StoreCartBar({
-  count, subtotal, bottomInset, onPress,
-}: { count: number; subtotal: number; bottomInset: number; onPress: () => void }) {
+  count, subtotal, bottomInset, onPress, freeDeliveryThreshold,
+}: {
+  count: number;
+  subtotal: number;
+  bottomInset: number;
+  onPress: () => void;
+  freeDeliveryThreshold?: number;
+}) {
   const { c } = useTheme();
+
+  // Cuánto falta para que el negocio le regale el domicilio. Es el único
+  // mensaje de esta barra que le pide algo al cliente, así que sustituye al
+  // texto de relleno en vez de sumarse: dos líneas compitiendo no las lee
+  // nadie.
+  const gap = freeDeliveryGap(subtotal, freeDeliveryThreshold);
 
   return (
     <Animated.View
@@ -457,7 +524,13 @@ function StoreCartBar({
 
         <View style={styles.flex}>
           <Text v="buttonMd" color={c.textOnPrimary}>Ir a mi coronita</Text>
-          <Text v="caption" color="rgba(255,255,255,0.75)">Puedes seguir agregando más</Text>
+          <Text v="caption" color="rgba(255,255,255,0.75)">
+            {gap
+              ? `Te faltan ${money(gap)} para el envío gratis`
+              : freeDeliveryThreshold && subtotal >= freeDeliveryThreshold
+                ? '¡Tienes envío gratis!'
+                : 'Puedes seguir agregando más'}
+          </Text>
         </View>
 
         <Text v="dataL" color={c.textOnPrimary}>{money(subtotal)}</Text>
@@ -489,6 +562,10 @@ function ProductSheet({
   const [extras, setExtras] = useState<Extra[]>([]);
   const [notes, setNotes] = useState('');
   const [justAdded, setJustAdded] = useState<string | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
+
+  /** La principal primero: es la que se tocó para abrir el visor. */
+  const gallery = useMemo(() => productGallery(product), [product]);
 
   const unitPrice = product.discountPrice ?? product.price;
   const extrasTotal = extras.reduce((sum, e) => sum + e.price, 0);
@@ -570,18 +647,42 @@ function ProductSheet({
         style={[styles.sheetHero, { backgroundColor: hasProductImage(product) ? accent : c.surfaceLight }]}
       >
         {hasProductImage(product) ? (
-          <Image
-            source={{ uri: productImageUri(product, 'detail')! }}
-            placeholder={productImagePlaceholder(product)}
+          /*
+            La foto se puede abrir. Una imagen de 300 pt dentro de una hoja
+            no permite decidir si la hamburguesa trae el pan que uno espera,
+            y ese es justo el momento en que se abandona el pedido.
+          */
+          <Pressable
+            onPress={() => { tap('light'); setViewerOpen(true); }}
             style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            transition={200}
-            accessible={false}
-          />
+            accessibilityRole="imagebutton"
+            accessibilityLabel={`Ver fotos de ${product.name}`}
+          >
+            <Image
+              source={{ uri: productImageUri(product, 'detail')! }}
+              placeholder={productImagePlaceholder(product)}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              transition={200}
+              accessible={false}
+            />
+            {gallery.length > 1 ? (
+              <View style={styles.galleryHint}>
+                <Icon name="foto" size="sm" color="#FFFFFF" />
+                <Text v="caption" style={styles.galleryHintText}>{gallery.length}</Text>
+              </View>
+            ) : null}
+          </Pressable>
         ) : (
           <Illustration size={64} />
         )}
       </Animated.View>
+
+      <Lightbox
+        images={gallery}
+        visible={viewerOpen}
+        onClose={() => setViewerOpen(false)}
+      />
 
       <View style={styles.sheetHead}>
         <Text v="dataL" tone="primaryText">{money(unitPrice)}</Text>
@@ -709,6 +810,10 @@ function ProductSheet({
 }
 
 const styles = StyleSheet.create({
+  topBlock: { gap: Spacing.sm, marginBottom: Spacing.lg },
+  likeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  topTitle: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+
   screen: { flex: 1 },
   flex: { flex: 1 },
   errorAction: { paddingHorizontal: Spacing.xxl, paddingBottom: Spacing.huge },
@@ -772,6 +877,19 @@ const styles = StyleSheet.create({
     ...Shadow.sm,
   },
 
+  galleryHint: {
+    position: 'absolute',
+    right: Spacing.md,
+    bottom: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+  },
+  galleryHintText: { color: '#FFFFFF' },
   sheetHero: {
     height: 168,
     borderRadius: BorderRadius.xl,

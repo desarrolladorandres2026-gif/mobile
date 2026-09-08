@@ -89,6 +89,7 @@ router.post('/:id/call/:callId/end', authenticate, validate(orderCallSchema), (r
 router.get('/:id', authenticate, (req, res, next) => orderController.getById(req, res, next));
 router.patch('/:id/status', authenticate, validate(updateOrderStatusSchema), (req, res, next) => orderController.updateStatus(req, res, next));
 router.patch('/:id/assign-driver', authenticate, authorize(UserRole.ADMIN, UserRole.DRIVER), (req, res, next) => orderController.assignDriver(req, res, next));
+router.post('/:id/decline', authenticate, authorize(UserRole.DRIVER), (req, res, next) => orderController.declineOffer(req, res, next));
 
 // Cambiar de método antes de que el comercio acepte. Solo el cliente:
 // nadie más tiene por qué decidir cómo paga.

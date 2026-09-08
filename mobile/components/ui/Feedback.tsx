@@ -9,6 +9,11 @@ import { Text } from './Text';
 import { Icon } from './Icon';
 import { Button } from './Button';
 import { TrazoLoader } from '../brand/Trazo';
+import {
+  contentIllustration,
+  illustrationForIcon,
+  type ContentIllustrationName,
+} from '../illustrations';
 import type { IconName } from '../../theme/icons';
 import { BorderRadius, Motion, Spacing } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
@@ -19,6 +24,12 @@ import { useTheme } from '../../hooks/useTheme';
 
 export interface EmptyStateProps {
   icon: IconName;
+  /**
+   * Fuerza una ilustración concreta. Casi nunca hace falta: el `icon` ya
+   * resuelve la suya cuando el concepto la tiene. Úsala solo cuando el icono
+   * correcto y la ilustración correcta no sean el mismo concepto.
+   */
+  illustration?: ContentIllustrationName;
   title: string;
   /** Qué hacer ahora. Una pantalla vacía es una invitación, no un aviso. */
   message: string;
@@ -28,18 +39,33 @@ export interface EmptyStateProps {
 }
 
 export function EmptyState({
-  icon, title, message, actionLabel, onAction, compact,
+  icon, illustration, title, message, actionLabel, onAction, compact,
 }: EmptyStateProps) {
   const { c } = useTheme();
+
+  // Una pantalla vacía es la peor primera impresión posible: es el único
+  // momento en que la app no tiene contenido con el que defenderse. Por eso
+  // se prefiere la ilustración propia al glifo genérico siempre que exista.
+  const Illustration = illustration
+    ? contentIllustration(illustration)
+    : illustrationForIcon(icon);
 
   return (
     <Animated.View
       entering={FadeIn.duration(Motion.base)}
       style={[styles.state, compact && styles.stateCompact]}
     >
-      <View style={[styles.stateIcon, { backgroundColor: c.surface, borderColor: c.border }]}>
-        <Icon name={icon} size={28} color={c.textMuted} />
-      </View>
+      {Illustration ? (
+        // Sin cuadro: la ilustración ya trae su propio halo y encerrarla
+        // dibujaría dos fondos concéntricos.
+        <View style={styles.stateArt}>
+          <Illustration size={88} />
+        </View>
+      ) : (
+        <View style={[styles.stateIcon, { backgroundColor: c.surface, borderColor: c.border }]}>
+          <Icon name={icon} size={28} color={c.textMuted} />
+        </View>
+      )}
       <Text v="titleL" center>{title}</Text>
       <Text v="bodyM" tone="textSecondary" center style={styles.stateMessage}>{message}</Text>
       {actionLabel && onAction ? (
@@ -257,6 +283,7 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   stateCompact: { paddingVertical: Spacing.xxl },
+  stateArt: { marginBottom: Spacing.sm },
   stateIcon: {
     width: 76, height: 76, borderRadius: BorderRadius.xl,
     alignItems: 'center', justifyContent: 'center',

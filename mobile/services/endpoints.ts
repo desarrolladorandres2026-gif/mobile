@@ -28,6 +28,20 @@ export const productsApi = {
     api.get(`/products/${id}`).then((r) => r.data.data),
 };
 
+export const productSentimentApi = {
+  /** Pulgares por plato de un negocio: `{ productId: { likes, total } }`. */
+  forBusiness: (businessId: string): Promise<Record<string, { likes: number; total: number }>> =>
+    api.get(`/products/business/${businessId}/sentiment`).then((r) => r.data.data),
+};
+
+export const topSellersApi = {
+  /** Los más pedidos de un negocio, según pedidos entregados de verdad. */
+  forBusiness: (businessId: string, limit = 5) =>
+    api
+      .get(`/products/business/${businessId}/top`, { params: { limit } })
+      .then((r) => r.data.data),
+};
+
 export const ordersApi = {
   create: (data: any) =>
     api.post('/orders', data).then((r) => r.data.data),
@@ -71,6 +85,15 @@ export const ordersApi = {
 
   assignDriver: (orderId: string, driverId: string) =>
     api.patch(`/orders/${orderId}/assign-driver`, { driverId }).then((r) => r.data.data),
+
+  /**
+   * Rechazar una oferta de reparto.
+   *
+   * Decir que no explícitamente libera el pedido en el acto, en vez de
+   * dejar a la ronda entera esperando a que venza el reloj.
+   */
+  declineOffer: (orderId: string) =>
+    api.post(`/orders/${orderId}/decline`).then((r) => r.data.data),
 };
 
 
@@ -245,6 +268,156 @@ export const orderFlowApi = {
 };
 
 
+/** Un producto tal como lo devuelve la búsqueda: con su negocio dentro. */
+export interface ProductSearchHit {
+  _id: string;
+  name: string;
+  description?: string;
+  price: number;
+  discountPrice?: number;
+  image?: string;
+  imageAsset?: Record<string, unknown>;
+  businessId: string;
+  businessName: string;
+  businessRating?: number;
+  businessDeliveryTime?: number;
+}
+
+export interface SearchResults {
+  businesses: any[];
+  products: ProductSearchHit[];
+  strategy: 'text' | 'prefix';
+}
+
+export const searchApi = {
+  /**
+   * Busca negocios y productos a la vez.
+   *
+   * Pública: buscar es lo primero que hace alguien que aún no se registró,
+   * y el servidor no exige sesión para responder.
+   */
+  query: (q: string, limit = 20): Promise<SearchResults> =>
+    api.get('/search', { params: { q, limit } }).then((r) => r.data.data),
+
+  /** Términos reales del catálogo, en vez de una lista escrita a mano. */
+  popular: (): Promise<string[]> =>
+    api.get('/search/popular').then((r) => r.data.data),
+};
+
+export interface PendingRating {
+  _id: string;
+  orderNumber: string;
+  businessId: { _id: string; name: string } | string;
+  driverId?: string | null;
+  deliveredAt: string;
+  /** Los platos del pedido, para poder opinar de cada uno. */
+  items?: Array<{ productId: string; productName: string; quantity: number }>;
+}
+
+export const reviewsApi = {
+  /** Pedidos entregados que este cliente aún no ha calificado. */
+  pending: (): Promise<PendingRating[]> =>
+    api.get('/reviews/pending').then((r) => r.data.data),
+
+  create: (input: {
+    orderId: string;
+    businessId: string;
+    driverId?: string;
+    businessRating: number;
+    driverRating?: number;
+    comment?: string;
+    productFeedback?: Array<{ productId: string; liked: boolean }>;
+  }) => api.post('/reviews', input).then((r) => r.data.data),
+
+  byBusiness: (businessId: string) =>
+    api.get(`/reviews/business/${businessId}`).then((r) => r.data.data),
+};
+
+export type FavoriteKind = 'business' | 'product';
+
+export const favoritesApi = {
+  /** La lista con su contenido, para la pantalla de favoritos. */
+  list: (): Promise<{ businesses: any[]; products: any[] }> =>
+    api.get('/favorites').then((r) => r.data.data),
+
+  /** Solo los ids: lo que necesita una lista para pintar el corazón lleno. */
+  ids: (): Promise<{ businesses: string[]; products: string[] }> =>
+    api.get('/favorites/ids').then((r) => r.data.data),
+
+  add: (kind: FavoriteKind, targetId: string) =>
+    api.post('/favorites', { kind, targetId }).then((r) => r.data.data),
+
+  remove: (kind: FavoriteKind, targetId: string) =>
+    api.delete(`/favorites/${kind}/${targetId}`).then((r) => r.data.data),
+
+  /** Sube de una vez lo que la app guardaba en el teléfono. */
+  importLocal: (items: Array<{ kind: FavoriteKind; targetId: string }>) =>
+    api.post('/favorites/import', { items }).then((r) => r.data.data),
+};
+
+export interface LoyaltyMovement {
+  _id: string;
+  kind: 'earned' | 'redeemed' | 'expired' | 'reversed' | 'adjusted';
+  points: number;
+  description: string;
+  createdAt: string;
+  expiresAt?: string | null;
+}
+
+export const loyaltyApi = {
+  /**
+   * Saldo y movimientos.
+   *
+   * Los puntos ya no se derivan del historial local: viven en el servidor,
+   * así que sobreviven a cambiar de teléfono y son los mismos que ZIPP
+   * tiene anotados como deuda.
+   */
+  mine: (): Promise<{ balance: number; history: LoyaltyMovement[] }> =>
+    api.get('/loyalty').then((r) => r.data.data),
+
+  /** Cambia puntos por un cupón nominal. Devuelve el cupón entero. */
+  redeem: (points: number) =>
+    api.post('/loyalty/redeem', { points }).then((r) => r.data.data),
+};
+
+export const errandsApi = {
+  /**
+   * Crea un mandado: un pedido sin comercio detrás.
+   *
+   * El tope es obligatorio y no es un detalle burocrático — es lo que el
+   * domiciliario va a adelantar de su bolsillo, así que el cliente tiene
+   * que ponerle un número antes de que nadie salga a la calle.
+   */
+  create: (data: {
+    description: string;
+    pickupAddress: string;
+    pickupLatitude: number;
+    pickupLongitude: number;
+    deliveryAddress: string;
+    deliveryLatitude: number;
+    deliveryLongitude: number;
+    estimatedCost: number;
+    maxCost: number;
+    notes?: string;
+  }) => api.post('/errands', data).then((r) => r.data.data),
+
+  /** El domiciliario declara lo que costó, con foto del recibo. */
+  declareCost: (orderId: string, actualCost: number, receiptUrl: string) =>
+    api.post(`/errands/${orderId}/cost`, { actualCost, receiptUrl }).then((r) => r.data.data),
+};
+
+export const sosApi = {
+  /**
+   * Botón de pánico.
+   *
+   * Sin reintentos silenciosos ni cola offline: si no hay red, hay que
+   * decírselo a la persona para que llame al 123 en vez de creer que ya
+   * avisó a alguien.
+   */
+  trigger: (lat: number, lng: number, note?: string) =>
+    api.post('/sos', { lat, lng, note }).then((r) => r.data.data),
+};
+
 export const driverApi = {
   getProfile: () =>
     api.get('/drivers/profile').then((r) => r.data.data),
@@ -260,6 +433,32 @@ export const driverApi = {
 
   getDebts: () =>
     api.get('/drivers/debts').then((r) => r.data.data),
+
+  /** A quién avisar si algo va mal. Requisito previo del botón de pánico. */
+  setEmergencyContact: (contact: { name: string; phone: string; relationship?: string }) =>
+    api.put('/drivers/emergency-contact', contact).then((r) => r.data.data),
+
+  /** Verificaciones de identidad: las pedidas, las enviadas y las revisadas. */
+  getVerifications: () =>
+    api.get('/drivers/verifications').then((r) => r.data.data),
+
+  /**
+   * Responde a una verificación con la selfie recién tomada.
+   *
+   * Va como multipart, igual que la evidencia de entrega: el teléfono no
+   * tiene dónde alojar la foto, así que la manda entera y el servidor
+   * decide dónde guardarla.
+   */
+  submitVerification: (uri: string, type = 'random_selfie') => {
+    const form = new FormData();
+    form.append('selfie', { uri, name: 'selfie.jpg', type: 'image/jpeg' } as unknown as Blob);
+    form.append('type', type);
+    return api
+      .post('/drivers/verifications', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data.data);
+  },
 
   /**
    * Declares that the courier remitted collected cash.

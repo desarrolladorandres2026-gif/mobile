@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document, Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { UserRole } from '../types';
 import { hashPassword, verifyPassword } from '../security';
@@ -79,6 +79,19 @@ export interface IUser extends Document {
    * un administrador con `users:block` puede revertirlo.
    */
   isBlocked: boolean;
+
+  /**
+   * Código propio para invitar. Se genera al registrarse.
+   *
+   * Antes la app compartía el código fijo `BIENVENIDO` para todo el mundo,
+   * así que no había forma de saber quién trajo a quién: la función se
+   * llamaba "referidos" y no refería a nadie.
+   */
+  referralCode?: string;
+  /** Quién trajo a este usuario. Se fija una vez y no cambia. */
+  referredBy?: Types.ObjectId | null;
+  /** Cuándo se pagó la recompensa por esta invitación, si se pagó. */
+  referralRewardedAt?: Date | null;
   deactivatedAt?: Date;
   createdBy?: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId;
@@ -250,6 +263,9 @@ const userSchema = new Schema<IUser>(
     positionId: { type: Schema.Types.ObjectId, ref: 'Position' },
     roleIds: { type: [Schema.Types.ObjectId], ref: 'Role', default: [] },
     isBlocked: { type: Boolean, default: false },
+    referralCode: { type: String, unique: true, sparse: true, uppercase: true, trim: true },
+    referredBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    referralRewardedAt: { type: Date, default: null },
     deactivatedAt: { type: Date },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
     updatedBy: { type: Schema.Types.ObjectId, ref: 'User' },

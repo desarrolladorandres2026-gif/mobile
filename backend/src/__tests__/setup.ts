@@ -37,9 +37,12 @@ afterEach(async () => {
     Object.values(collections).map((collection) => collection.deleteMany({}))
   );
 
-  // Brute-force counters live in module memory, not the database: without
-  // this, failed-login tests lock out the shared 127.0.0.1 for later cases.
-  resetBruteForce();
+  // Los contadores de fuerza bruta ya viven en Mongo, así que el borrado de
+  // colecciones de arriba los alcanza. Se deja la llamada explícita porque
+  // dice en voz alta de qué depende esta suite: sin limpiarlos, los inicios
+  // de sesión fallidos de un caso bloquean el 127.0.0.1 compartido del
+  // siguiente.
+  await resetBruteForce();
 
   // Same problem, different cache: the pricing config is memoised per
   // process, so a wiped database would otherwise leave every later test

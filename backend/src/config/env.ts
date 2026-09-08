@@ -286,6 +286,16 @@ export const config = {
   // un fix al GPS (eso es batería); el servidor decide cada cuánto lo
   // escribe y lo retransmite (eso es base de datos y datos móviles).
   // Son dos problemas distintos y por eso son dos números distintos.
+  // ── Reparto automático ──
+  //
+  // Apagado por defecto, y no por prudencia genérica: mientras la app del
+  // domiciliario no sepa mostrar una oferta, encender esto le quita el
+  // pedido de la lista sin darle ninguna forma de aceptarlo. La cascada
+  // solo es una mejora cuando existe el otro extremo del cable.
+  dispatch: {
+    enabled: process.env.DISPATCH_ENABLED === 'true',
+  },
+
   tracking: {
     /** Mínimo entre dos escrituras en `Driver.currentLocation`, en ms. */
     minPersistIntervalMs: parseInt(process.env.TRACKING_MIN_PERSIST_MS || '5000', 10),
