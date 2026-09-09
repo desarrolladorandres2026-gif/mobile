@@ -7,7 +7,7 @@ import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  Text, Icon, Button, Card, Notice, OtpInput, Input, Badge, StatusPill,
+  Text, Icon, IconButton, Button, Card, Notice, OtpInput, Input, Badge, StatusPill,
   Screen, Header, LoadingScreen, ErrorState, SuccessCheck,
 } from '../../../components/ui';
 import { OrderChatSheet } from '../../../components/domain/OrderChatSheet';
@@ -243,6 +243,16 @@ export default function DriverActiveOrderScreen() {
         title={`Pedido #${order.orderNumber ?? orderCode(orderId)}`}
         subtitle={!connected ? 'Sin conexión' : undefined}
         fallback="/(driver)/(tabs)/orders"
+        right={
+          <IconButton
+            icon="reloj"
+            label="Ver la cronología completa del pedido"
+            onPress={() => {
+              tap('light');
+              router.push({ pathname: '/(client)/order-timeline', params: { id: orderId } });
+            }}
+          />
+        }
       />
 
       <KeyboardAvoidingView

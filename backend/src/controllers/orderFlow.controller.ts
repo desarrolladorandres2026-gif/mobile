@@ -153,6 +153,7 @@ export class OrderFlowController {
           notificationService
             .notifyDriverArrivedAtStore(
               participants.businessOwnerId,
+              order._id.toString(),
               order.orderNumber,
               req.user!.name
             )
@@ -161,7 +162,7 @@ export class OrderFlowController {
       } else {
         io?.to(`user:${participants.clientUserId}`).emit('order:driver:arrived', payload);
         notificationService
-          .notifyDriverArrivedAtCustomer(participants.clientUserId, order.orderNumber)
+          .notifyDriverArrivedAtCustomer(participants.clientUserId, order._id.toString(), order.orderNumber)
           .catch(console.error);
       }
 
@@ -471,6 +472,7 @@ export class OrderFlowController {
       const notices: Promise<unknown>[] = [
         notificationService.notifyDeliveryCodeReady(
           participants.clientUserId,
+          order._id.toString(),
           order.orderNumber
         ),
       ];
@@ -478,6 +480,7 @@ export class OrderFlowController {
         notices.push(
           notificationService.notifyPickupVerified(
             participants.businessOwnerId,
+            order._id.toString(),
             order.orderNumber
           )
         );
@@ -528,7 +531,7 @@ export class OrderFlowController {
 
       if (recipientId) {
         notificationService
-          .notifyChatMessage(recipientId, access.order.orderNumber, req.user!.name)
+          .notifyChatMessage(recipientId, access.order._id.toString(), access.order.orderNumber, req.user!.name)
           .catch(console.error);
       }
 
@@ -612,7 +615,7 @@ export class OrderFlowController {
       // después "intenté avisarte de que no había nadie en la dirección".
       if (call.status === OrderCallStatus.MISSED) {
         notificationService
-          .notifyMissedCall(call.receiver.userId, access.order.orderNumber, call.caller.name)
+          .notifyMissedCall(call.receiver.userId, access.order._id.toString(), access.order.orderNumber, call.caller.name)
           .catch(console.error);
       }
 

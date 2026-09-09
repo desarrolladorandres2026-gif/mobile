@@ -1,5 +1,6 @@
 import { View, ScrollView, StyleSheet } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
+import { useAuthStore } from '../../stores/authStore';
 import {
   Text, Icon, Card, Screen, Header, LoadingScreen, ErrorState,
 } from '../../components/ui';
@@ -21,12 +22,18 @@ export default function OrderTimelineScreen() {
   const { c } = useTheme();
   const { data: entries = [], isLoading, isError, refetch } = useOrderTimeline(id, true);
 
+  // Vive en (client) porque nació ahí, pero un domiciliario tambien enlaza
+  // aqui desde su propia pantalla de pedido -- el "volver" tiene que
+  // llevarlo a su lista y no a la del cliente.
+  const isDriver = useAuthStore((s) => s.user?.role === 'driver');
+  const fallback = isDriver ? '/(driver)/(tabs)/orders' : '/(client)/orders';
+
   if (isLoading) return <LoadingScreen message="Buscando la cronología…" />;
 
   if (isError) {
     return (
       <Screen>
-        <Header title="Cronología" fallback="/(client)/orders" />
+        <Header title="Cronología" fallback={fallback} />
         <ErrorState
           title="No pudimos cargar la cronología"
           message="Intenta de nuevo en un momento."
@@ -38,7 +45,7 @@ export default function OrderTimelineScreen() {
 
   return (
     <Screen>
-      <Header title="Cronología del pedido" fallback="/(client)/orders" />
+      <Header title="Cronología del pedido" fallback={fallback} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {entries.length === 0 ? (

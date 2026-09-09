@@ -49,6 +49,16 @@ export const uploadAvatarImage = singleImageUpload('avatar');
 export const uploadVerificationSelfie = singleImageUpload('selfie');
 
 /**
+ * Foto de un documento del domiciliario: cédula, licencia, SOAT.
+ *
+ * Va en su propio nombre y no reutiliza el de la selfie porque acaba en
+ * otra carpeta y con otra retención: una selfie de verificación se pide y
+ * se descarta, un documento de identidad respalda una habilitación para
+ * trabajar y tiene que poder consultarse después.
+ */
+export const uploadDriverDocumentImage = singleImageUpload('image');
+
+/**
  * Evidencia fotográfica de recogida o entrega.
  *
  * Su tope sale de la configuración y no de la constante de arriba: una

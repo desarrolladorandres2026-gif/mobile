@@ -6,7 +6,8 @@ import { Text, Button, Sheet, Icon } from '../ui';
 import { useTheme } from '../../hooks/useTheme';
 import { useDriverProfile, useAssignDriver } from '../../hooks/useApi';
 import { socketService, type OrderOffer } from '../../services/socket';
-import { ordersApi } from '../../services/endpoints';
+import { ordersApi, type DeclineReason } from '../../services/endpoints';
+import { subscribeToOffers } from '../../lib/offerInbox';
 import { tap } from '../../lib/haptics';
 import { Spacing, BorderRadius } from '../../theme/tokens';
 
@@ -32,6 +33,8 @@ export function OfferSheet() {
   const [offer, setOffer] = useState<OrderOffer | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [working, setWorking] = useState(false);
+  /** El pedido que se acaba de soltar, mientras se pregunta por qué. */
+  const [asking, setAsking] = useState<string | null>(null);
 
   const progress = useSharedValue(1);
 
@@ -64,7 +67,22 @@ export function OfferSheet() {
     };
 
     socketService.onOrderOffer(handleOffer);
-    return () => socketService.offOrderOffer(handleOffer);
+
+    /**
+     * El otro camino de entrada: la notificación.
+     *
+     * El socket solo entrega si la app estaba viva y conectada. Con el
+     * teléfono bloqueado en el bolsillo —que es donde está mientras se
+     * conduce, y por tanto cuando más ofertas llegan— la push es lo único
+     * que llega, y trae la oferta entera para poder levantar esta hoja sin
+     * preguntarle nada al servidor. Ver `lib/offerInbox.ts`.
+     */
+    const unsubscribe = subscribeToOffers(handleOffer);
+
+    return () => {
+      socketService.offOrderOffer(handleOffer);
+      unsubscribe();
+    };
   }, [progress]);
 
   // Cuenta atrás visible. La barra se anima aparte, en el hilo de UI, para
@@ -116,24 +134,88 @@ export function OfferSheet() {
     );
   }, [offer, driverProfile, assignDriver, dismiss, router]);
 
-  const handleDecline = useCallback(async () => {
+  /**
+   * Suelta el pedido ya, y luego pregunta por qué.
+   *
+   * Este orden es todo. El pedido se libera en el acto —hay un cliente
+   * esperando y una cocina con la comida hecha— y la pregunta ocurre
+   * después, sobre un pedido que ya está circulando. Preguntar primero
+   * costaría segundos de la ventana de otro domiciliario, y el motivo no
+   * vale ni de lejos eso.
+   */
+  const handleDecline = useCallback(() => {
     if (!offer) return;
     tap('light');
     const orderId = offer.orderId;
-    // Se cierra antes de que responda el servidor: rechazar no puede
-    // fallar de una forma que le importe a quien va conduciendo, y dejar la
-    // hoja abierta esperando una confirmación sería peor que no tenerla.
+
     dismiss();
-    try {
-      await ordersApi.declineOffer(orderId);
-    } catch {
+    setAsking(orderId);
+
+    void ordersApi.declineOffer(orderId).catch(() => {
       // Sin rechazo explícito la oferta vence sola en unos segundos.
-    }
+    });
   }, [offer, dismiss]);
+
+  /**
+   * El motivo, si lo da.
+   *
+   * Va al mismo endpoint que el rechazo, con el motivo en el cuerpo. Al
+   * llegar, el pedido ya no tiene a este domiciliario entre sus
+   * candidatos, así que el servidor no vuelve a rechazar nada: solo anota
+   * el motivo sobre el rechazo que ya existe (`annotateDecline`). Es puro
+   * añadido de información, y si falla no pasa nada que le importe a quien
+   * va conduciendo.
+   */
+  const sendReason = useCallback((reason: DeclineReason | null) => {
+    const orderId = asking;
+    setAsking(null);
+    if (!orderId || !reason) return;
+    tap('light');
+    void ordersApi.declineOffer(orderId, reason).catch(() => {});
+  }, [asking]);
 
   const barStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,
   }));
+
+  /**
+   * El paso del motivo.
+   *
+   * Vive aquí y no en un modal aparte porque solo aparece justo después de
+   * rechazar, y es lo único que hay en pantalla en ese instante. Sin
+   * botón de "cancelar": cerrar la hoja ya es no contestar, y añadir una
+   * tercera forma de decir lo mismo solo hace la decisión más lenta.
+   */
+  if (asking) {
+    return (
+      <Sheet
+        visible
+        onClose={() => sendReason(null)}
+        title="¿Por qué no?"
+        height={0.42}
+        scroll={false}
+      >
+        <View style={styles.reasons}>
+          <Text v="bodyS" tone="textSecondary" center>
+            Ya soltamos el pedido. Esto es solo para mejorar el reparto — puedes
+            saltártelo.
+          </Text>
+
+          {REASONS.map(([value, label]) => (
+            <Button
+              key={value}
+              title={label}
+              variant="secondary"
+              full
+              onPress={() => sendReason(value)}
+            />
+          ))}
+
+          <Button title="Prefiero no decirlo" variant="ghost" full onPress={() => sendReason(null)} />
+        </View>
+      </Sheet>
+    );
+  }
 
   if (!offer) return null;
 
@@ -205,6 +287,21 @@ export function OfferSheet() {
   );
 }
 
+/**
+ * Los tres motivos que de verdad separan problemas distintos.
+ *
+ * "Muy lejos" señala al reparto; "no me compensa" señala a la tarifa; "ya
+ * voy con otro" no señala a nada que haya que arreglar. Más opciones que
+ * estas harían la lista imposible de leer con el casco puesto, y ninguna
+ * de las que faltan cambiaría una decisión de operaciones.
+ */
+const REASONS: Array<[DeclineReason, string]> = [
+  ['too_far', 'Está muy lejos'],
+  ['busy', 'Ya voy con otro pedido'],
+  ['low_pay', 'No me compensa lo que paga'],
+  ['other', 'Otro motivo'],
+];
+
 const styles = StyleSheet.create({
   body: { gap: Spacing.lg, paddingTop: Spacing.sm },
   track: { height: 6, borderRadius: BorderRadius.sm, overflow: 'hidden' },
@@ -220,5 +317,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   actions: { flexDirection: 'row', gap: Spacing.md },
+  reasons: { gap: Spacing.sm, paddingTop: Spacing.md },
   action: { flex: 1 },
 });

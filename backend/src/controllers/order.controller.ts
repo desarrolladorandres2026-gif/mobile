@@ -5,6 +5,23 @@ import { OrderStatus, UserRole } from '../types';
 import { Business } from '../models';
 import { AppError } from '../middlewares';
 
+/**
+ * El motivo del rechazo, si es uno de los nuestros.
+ *
+ * Un valor desconocido se descarta en silencio en vez de devolver 400: lo
+ * que importa de esta petición es liberar el pedido, y tumbarla por una
+ * etiqueta mal escrita dejaría a un cliente esperando por una cuestión de
+ * estadística.
+ */
+const DECLINE_REASONS = ['too_far', 'busy', 'low_pay', 'other'] as const;
+type DeclineReasonInput = (typeof DECLINE_REASONS)[number];
+
+function parseDeclineReason(raw: unknown): DeclineReasonInput | undefined {
+  return DECLINE_REASONS.includes(raw as DeclineReasonInput)
+    ? (raw as DeclineReasonInput)
+    : undefined;
+}
+
 export class OrderController {
   /**
    * Prices a cart without creating an order, so checkout can show a
@@ -208,8 +225,16 @@ export class OrderController {
   async declineOffer(req: Request, res: Response, next: NextFunction) {
     try {
       const driver = await driverService.getByUserId(req.user!._id.toString());
-      const { declineOffer } = await import('../services/dispatch.service');
-      await declineOffer(param(req, 'id'), driver._id.toString());
+      const { declineOffer, annotateDecline } = await import('../services/dispatch.service');
+      const reason = parseDeclineReason(req.body?.reason);
+
+      // Con motivo y sin rechazo previo no puede distinguirse de un rechazo
+      // normal, así que se hacen las dos cosas: soltar el pedido y anotar.
+      // El caso habitual es el otro — la app suelta primero y explica
+      // después—, y entonces `declineOffer` no encuentra ya al domiciliario
+      // entre los candidatos y sale sin hacer nada. Anotar sí funciona.
+      await declineOffer(param(req, 'id'), driver._id.toString(), reason);
+      if (reason) await annotateDecline(param(req, 'id'), driver._id.toString(), reason);
       sendResponse(res, 200, 'Oferta rechazada');
     } catch (error) { next(error); }
   }

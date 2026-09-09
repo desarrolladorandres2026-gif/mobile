@@ -123,9 +123,14 @@ export const ordersApi = {
    *
    * Decir que no explícitamente libera el pedido en el acto, en vez de
    * dejar a la ronda entera esperando a que venza el reloj.
+   *
+   * El motivo es opcional. Cuando lo dan, es lo único que distingue "está
+   * lejos" de "no me compensa lo que paga" — dos problemas que se
+   * arreglan de maneras distintas y que sin esto se ven exactamente igual
+   * desde operaciones.
    */
-  declineOffer: (orderId: string) =>
-    api.post(`/orders/${orderId}/decline`).then((r) => r.data.data),
+  declineOffer: (orderId: string, reason?: DeclineReason) =>
+    api.post(`/orders/${orderId}/decline`, reason ? { reason } : undefined).then((r) => r.data.data),
 };
 
 
@@ -530,7 +535,57 @@ export type DriverDocumentType =
   | 'technical_review'
   | 'vehicle_registration';
 
+/** Por qué se rechaza una oferta. Los mismos que acepta el servidor. */
+export type DeclineReason = 'too_far' | 'busy' | 'low_pay' | 'other';
+
+export interface DriverMetrics {
+  days: number;
+  offers: {
+    accepted: number;
+    declined: number;
+    expired: number;
+    /** Se la quedó otro. No cuenta en la tasa. */
+    takenByOther: number;
+    total: number;
+  };
+  /** `null` mientras no haya ofertas: un 0 % sería una calumnia. */
+  acceptanceRate: number | null;
+  avgResponseSeconds: number | null;
+  deliveries: { completed: number; cancelled: number };
+  rating: number;
+  totalDeliveries: number;
+  /** Lo dice el servidor, no la pantalla. Ver `getPerformance`. */
+  affectsDispatch: boolean;
+}
+
+export interface DriverEarningsDay {
+  /** `YYYY-MM-DD` en la zona del servidor, no en UTC. */
+  date: string;
+  orders: number;
+  guaranteedFees: number;
+  tips: number;
+  total: number;
+}
+
+export interface DriverEarningsRange {
+  from: string;
+  to: string;
+  series: DriverEarningsDay[];
+  totals: {
+    orders: number;
+    guaranteedFees: number;
+    tips: number;
+    total: number;
+    /** Días con al menos una entrega. Un domingo libre no es un mal día. */
+    workedDays: number;
+    perDay: number;
+    perOrder: number;
+  };
+}
+
 export interface DriverDocumentRecord {
+  /** La foto que subió el domiciliario. Ausente en registros antiguos. */
+  imageUrl?: string;
   _id: string;
   type: DriverDocumentType;
   reference: string;
@@ -551,6 +606,21 @@ export const driverApi = {
   getEarnings: (date?: string) =>
     api.get('/drivers/earnings', { params: { date } }).then((r) => r.data.data),
 
+  /**
+   * Varios días a la vez.
+   *
+   * "Cuánto llevo hoy" es la pregunta de las seis de la tarde. La otra
+   * —"¿me compensa este trabajo?"— solo se contesta mirando la semana, y
+   * hasta ahora la app no tenía forma de preguntarla: el endpoint diario
+   * aceptaba una fecha y nadie se la pasaba nunca.
+   */
+  getEarningsRange: (from?: string, to?: string): Promise<DriverEarningsRange> =>
+    api.get('/drivers/earnings/range', { params: { from, to } }).then((r) => r.data.data),
+
+  /** Aceptación, tiempo de respuesta y entregas. No afecta al reparto. */
+  getMetrics: (days = 30): Promise<DriverMetrics> =>
+    api.get('/drivers/metrics', { params: { days } }).then((r) => r.data.data),
+
   getDebts: () =>
     api.get('/drivers/debts').then((r) => r.data.data),
 
@@ -562,19 +632,45 @@ export const driverApi = {
    * Documentos del domiciliario: cédula, licencia, SOAT, tecnomecánica,
    * tarjeta de propiedad.
    *
-   * No es una subida de foto — `reference` es el número del documento. La
-   * pantalla de onboarding de flota en el admin (`admin/.../Verifications`,
-   * cola en `GET /drivers/documents/queue`) siempre tuvo de dónde tirar;
-   * la app del domiciliario no tenía por dónde enviarlos.
+   * Van con foto. Durante un tiempo esto solo mandaba `reference` —el
+   * número—, que es un dato y no una prueba: nadie podía comprobar que la
+   * cédula fuera de quien la teclea ni que la póliza existiera, y la cola
+   * de revisión del admin era un trámite de aprobar números.
    */
   getDocuments: (): Promise<DriverDocumentRecord[]> =>
     api.get('/drivers/documents').then((r) => r.data.data),
 
+  /**
+   * Manda el documento con su foto, en multipart.
+   *
+   * `imageUri` es opcional solo para corregir un dígito mal escrito en un
+   * documento que ya tiene foto; el servidor rechaza un envío nuevo sin
+   * ella. Sin esa excepción, arreglar una errata obligaría a volver a
+   * fotografiar la cédula.
+   */
   submitDocument: (input: {
     type: DriverDocumentType;
     reference: string;
     expiresAt?: string;
-  }) => api.post('/drivers/documents', input).then((r) => r.data.data),
+    imageUri?: string;
+  }) => {
+    const form = new FormData();
+    form.append('type', input.type);
+    form.append('reference', input.reference);
+    if (input.expiresAt) form.append('expiresAt', input.expiresAt);
+    if (input.imageUri) {
+      form.append('image', {
+        uri: input.imageUri,
+        name: `${input.type}.jpg`,
+        type: 'image/jpeg',
+      } as unknown as Blob);
+    }
+    return api
+      .post('/drivers/documents', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data.data);
+  },
 
   /** Verificaciones de identidad: las pedidas, las enviadas y las revisadas. */
   getVerifications: () =>

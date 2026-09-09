@@ -465,6 +465,17 @@ export const useDriverProfile = () =>
 export const useDriverEarnings = (date?: string) =>
   useQuery({ queryKey: ['driver', 'earnings', date], queryFn: () => driverApi.getEarnings(date) });
 
+/** Cómo le está yendo. Es un espejo, no una nota: no cambia el reparto. */
+export const useDriverMetrics = (days = 30) =>
+  useQuery({ queryKey: ['driver', 'metrics', days], queryFn: () => driverApi.getMetrics(days) });
+
+/** Las ganancias de un periodo. Sin fechas, la última semana. */
+export const useDriverEarningsRange = (from?: string, to?: string) =>
+  useQuery({
+    queryKey: ['driver', 'earnings', 'range', from, to],
+    queryFn: () => driverApi.getEarningsRange(from, to),
+  });
+
 export const useDriverDebts = () =>
   useQuery({ queryKey: ['driver', 'debts'], queryFn: driverApi.getDebts });
 

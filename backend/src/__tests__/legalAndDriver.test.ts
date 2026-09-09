@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import app from '../app';
 import { DriverDocument, LegalAcceptance, LegalDocument, Pqrs } from '../models';
 import { UserRole } from '../types';
 import { authHeader, makeDriver, makeUser } from './factories';
+import { driverService } from '../services/driver.service';
 
 describe('Centro legal, derechos de datos y PQRS', () => {
   it('registra la versión exacta de un documento aceptado', async () => {
@@ -34,12 +35,107 @@ describe('Centro legal, derechos de datos y PQRS', () => {
   });
 });
 
+/**
+ * Documentos del domiciliario.
+ *
+ * Lo que se prueba aquí es sobre todo una regla: no se da de alta a nadie
+ * con un número escrito a mano. Durante un tiempo esto aceptaba
+ * `{ reference: 'LIC-123' }` y devolvía 201, y la cola de revisión del
+ * admin era un trámite de aprobar cifras que nadie podía contrastar.
+ */
 describe('Documentos de domiciliario', () => {
-  it('recibe documentos y exige revisión administrativa fuera del modo de pruebas', async () => {
-    const driverUser = await makeUser({ role: UserRole.DRIVER }); const driver = await makeDriver(driverUser._id); const admin = await makeUser({ role: UserRole.ADMIN });
-    const submitted = await request(app).post('/api/v1/drivers/documents').set(authHeader(driverUser)).send({ type: 'license', reference: 'LIC-123', expiresAt: '2027-01-01' }).expect(201);
+  /** Un JPEG mínimo. Basta: la subida real está mockeada. */
+  const photo = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+
+  beforeEach(() => {
+    // Cloudinary no se toca en pruebas. Se intercepta el único punto donde
+    // el servicio sale a la red, no la librería entera: así, si mañana el
+    // método cambia de nombre, la prueba se rompe en vez de pasar por un
+    // mock que ya no intercepta nada.
+    vi.spyOn(driverService as any, 'storeDocumentImage').mockResolvedValue(
+      'https://cdn.zipp.test/driver-documents/licencia.jpg'
+    );
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  const submit = (user: any, fields: Record<string, string>, withPhoto = true) => {
+    const req = request(app).post('/api/v1/drivers/documents').set(authHeader(user));
+    for (const [k, v] of Object.entries(fields)) req.field(k, v);
+    if (withPhoto) req.attach('image', photo, 'licencia.jpg');
+    return req;
+  };
+
+  it('recibe documentos con foto y exige revisión administrativa', async () => {
+    const driverUser = await makeUser({ role: UserRole.DRIVER });
+    const driver = await makeDriver(driverUser._id);
+    const admin = await makeUser({ role: UserRole.ADMIN });
+
+    const submitted = await submit(driverUser, {
+      type: 'license',
+      reference: 'LIC-123',
+      expiresAt: '2027-01-01',
+    }).expect(201);
+
     expect(submitted.body.data.status).toBe('pending');
-    await request(app).patch(`/api/v1/drivers/documents/${submitted.body.data._id}/review`).set(authHeader(admin)).send({ status: 'approved' }).expect(200);
+    expect(submitted.body.data.imageUrl).toContain('driver-documents');
+
+    await request(app)
+      .patch(`/api/v1/drivers/documents/${submitted.body.data._id}/review`)
+      .set(authHeader(admin))
+      .send({ status: 'approved' })
+      .expect(200);
+
     expect((await DriverDocument.findOne({ driverId: driver._id, type: 'license' }))?.status).toBe('approved');
+  });
+
+  it('rechaza un documento nuevo sin foto', async () => {
+    // La regla entera. Un número suelto es un dato, no una prueba.
+    const driverUser = await makeUser({ role: UserRole.DRIVER });
+    await makeDriver(driverUser._id);
+
+    await submit(driverUser, { type: 'soat', reference: 'SOAT-9' }, false).expect(400);
+  });
+
+  it('deja corregir el número sin volver a fotografiar el documento', async () => {
+    // Una errata en un dígito no debería costar levantarse a buscar la
+    // cédula otra vez: la foto que ya está en el servidor sigue valiendo.
+    const driverUser = await makeUser({ role: UserRole.DRIVER });
+    const driver = await makeDriver(driverUser._id);
+
+    await submit(driverUser, { type: 'identity', reference: '1075-MAL' }).expect(201);
+    const fixed = await submit(driverUser, { type: 'identity', reference: '1075-BIEN' }, false).expect(201);
+
+    expect(fixed.body.data.reference).toBe('1075-BIEN');
+    expect(fixed.body.data.imageUrl).toContain('driver-documents');
+    expect(await DriverDocument.countDocuments({ driverId: driver._id, type: 'identity' })).toBe(1);
+  });
+
+  it('un reenvío vuelve a dejar el documento sin revisar', async () => {
+    // Aunque la foto sea la misma: un documento cambiado después de
+    // aprobarse es un documento que nadie ha mirado en su forma actual.
+    const driverUser = await makeUser({ role: UserRole.DRIVER });
+    const driver = await makeDriver(driverUser._id);
+    const admin = await makeUser({ role: UserRole.ADMIN });
+
+    const first = await submit(driverUser, { type: 'license', reference: 'LIC-1' }).expect(201);
+    await request(app)
+      .patch(`/api/v1/drivers/documents/${first.body.data._id}/review`)
+      .set(authHeader(admin))
+      .send({ status: 'approved' })
+      .expect(200);
+
+    await submit(driverUser, { type: 'license', reference: 'LIC-2' }).expect(201);
+
+    const saved = await DriverDocument.findOne({ driverId: driver._id, type: 'license' });
+    expect(saved?.status).toBe('pending');
+    expect(saved?.reviewedAt).toBeFalsy();
+  });
+
+  it('rechaza un número demasiado corto para ser un documento', async () => {
+    const driverUser = await makeUser({ role: UserRole.DRIVER });
+    await makeDriver(driverUser._id);
+
+    await submit(driverUser, { type: 'soat', reference: 'X' }).expect(400);
   });
 });

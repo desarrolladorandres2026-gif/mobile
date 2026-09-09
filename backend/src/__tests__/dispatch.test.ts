@@ -277,3 +277,127 @@ describe('Reparto automático: la cascada', () => {
     expect(saved!.dispatch?.round ?? 0).toBe(0);
   });
 });
+
+/**
+ * La oferta por notificación.
+ *
+ * El socket solo llega a una app viva y en primer plano; un domiciliario
+ * conduciendo tiene el teléfono bloqueado en el bolsillo, que es justo
+ * cuando está disponible. Sin push, la cascada reserva el pedido durante
+ * minuto y medio para gente que no se entera — y ese era el motivo real de
+ * que `DISPATCH_ENABLED` siguiera apagado en producción.
+ */
+describe('reparto: aviso al teléfono', () => {
+  let ctx: Awaited<ReturnType<typeof scenario>>;
+
+  /**
+   * Solo las push de oferta.
+   *
+   * Marcar un pedido como listo ya manda su propio aviso de cambio de
+   * estado, así que el espía ve dos clases de mensaje. Sin este filtro las
+   * pruebas afirmaban sobre la push equivocada — y pasaban o fallaban por
+   * el motivo equivocado, que es peor que no tenerlas.
+   */
+  const offerPushes = (spy: { mock: { calls: any[][] } }) =>
+    spy.mock.calls.filter(([, message]) => message?.data?.kind === 'order:offer');
+
+  beforeEach(async () => {
+    setDispatchEnabled(true);
+    ctx = await scenario(3);
+  });
+
+  afterEach(() => {
+    setDispatchEnabled(false);
+    for (const { driver } of ctx.drivers) forgetDriver(driver._id.toString());
+    vi.restoreAllMocks();
+  });
+
+  it('manda una push al domiciliario al que se le ofrece', async () => {
+    const { pushService } = await import('../services/push.service');
+    const spy = vi.spyOn(pushService, 'sendToUser').mockResolvedValue(undefined);
+
+    const { order } = await readyOrder(ctx);
+    await startDispatch(order._id.toString());
+
+    // La primera ronda es exclusiva del más cercano: una sola push.
+    expect(offerPushes(spy)).toHaveLength(1);
+
+    const [userId, message] = offerPushes(spy)[0];
+    expect(userId).toBe(ctx.drivers[0].user._id.toString());
+    expect(message.data).toMatchObject({
+      kind: 'order:offer',
+      orderId: order._id.toString(),
+    });
+  });
+
+  it('la push lleva la oferta entera, no solo el id', async () => {
+    // Con la app cerrada el socket no entregó nada: esta push es lo único
+    // que la app tiene para levantar la hoja con su reloj y sus botones.
+    // Un id suelto solo serviría para abrir un pedido que aún no es suyo.
+    const { pushService } = await import('../services/push.service');
+    const spy = vi.spyOn(pushService, 'sendToUser').mockResolvedValue(undefined);
+
+    const { order } = await readyOrder(ctx);
+    await startDispatch(order._id.toString());
+
+    const { data } = offerPushes(spy)[0][1];
+    expect(data).toMatchObject({
+      orderNumber: order.orderNumber,
+      round: 1,
+    });
+    expect(typeof (data as any).etaSeconds).toBe('number');
+    expect(Date.parse((data as any).expiresAt as string)).toBeGreaterThan(Date.now());
+  });
+
+  it('la push caduca con la ronda', async () => {
+    // Una oferta entregada cinco minutos tarde manda al domiciliario a una
+    // pantalla sin nada que aceptar. Vencido el plazo, FCM la descarta.
+    const { pushService } = await import('../services/push.service');
+    const spy = vi.spyOn(pushService, 'sendToUser').mockResolvedValue(undefined);
+
+    const { order } = await readyOrder(ctx);
+    await startDispatch(order._id.toString());
+
+    const message = offerPushes(spy)[0][1];
+    expect(message.ttlSeconds).toBe(dispatchService.ROUNDS[0].windowMs / 1000);
+  });
+
+  it('va por su propio canal de Android', async () => {
+    // Quien silencia los avisos de promociones no puede silenciar con
+    // ellos lo único que le da de comer.
+    const { pushService } = await import('../services/push.service');
+    const spy = vi.spyOn(pushService, 'sendToUser').mockResolvedValue(undefined);
+
+    const { order } = await readyOrder(ctx);
+    await startDispatch(order._id.toString());
+
+    expect(offerPushes(spy)[0][1].channelId).toBe('offers');
+  });
+
+  it('avisa a todos los candidatos de una ronda ancha', async () => {
+    const { pushService } = await import('../services/push.service');
+    const spy = vi.spyOn(pushService, 'sendToUser').mockResolvedValue(undefined);
+
+    const { order } = await readyOrder(ctx);
+    await startDispatch(order._id.toString());
+    spy.mockClear();
+
+    // Segunda ronda: los tres mejores.
+    await offerNextRound(order._id.toString());
+
+    expect(offerPushes(spy).length).toBeGreaterThan(1);
+  });
+
+  it('un fallo de la push no tumba el reparto', async () => {
+    // `sendToUser` no lanza nunca, pero el reparto no puede depender de esa
+    // promesa: si algún día lanza, el pedido tiene que ofrecerse igual.
+    const { pushService } = await import('../services/push.service');
+    vi.spyOn(pushService, 'sendToUser').mockRejectedValue(new Error('Expo caído'));
+
+    const { order } = await readyOrder(ctx);
+    await expect(startDispatch(order._id.toString())).resolves.not.toThrow();
+
+    const saved = await Order.findById(order._id);
+    expect(saved!.dispatch?.offeredDriverIds).toHaveLength(1);
+  });
+});

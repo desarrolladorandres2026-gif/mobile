@@ -78,28 +78,35 @@ export class NotificationService {
   }
 
   // ── Helpers de notificaciones comunes ──
+  //
+  // Todas llevan `orderId` en el `data` del push, además de `orderNumber`.
+  // Antes solo viajaba el número legible (`ZIPP-1234`), y la app decide a
+  // qué pedido abrir por el id de Mongo: tocar cualquier push de pedido no
+  // hacía nada, para cliente y para domiciliario por igual. El id nunca fue
+  // opcional para esto — sin él, la condición que abre la pantalla del
+  // pedido en `usePushNotifications.ts` no se cumple jamás.
 
-  async notifyOrderCreated(userId: string, orderNumber: string, businessName: string) {
+  async notifyOrderCreated(userId: string, orderId: string, orderNumber: string, businessName: string) {
     return this.create({
       userId,
       type: NotificationType.ORDER,
       title: 'Pedido recibido',
       body: `Tu pedido #${orderNumber} en ${businessName} fue recibido y está pendiente de aceptación.`,
-      data: { orderNumber },
+      data: { orderId, orderNumber },
     });
   }
 
-  async notifyBusinessNewOrder(ownerId: string, orderNumber: string) {
+  async notifyBusinessNewOrder(ownerId: string, orderId: string, orderNumber: string) {
     return this.create({
       userId: ownerId,
       type: NotificationType.ORDER,
       title: 'Nuevo pedido',
       body: `Tienes un nuevo pedido #${orderNumber} esperando aceptación.`,
-      data: { orderNumber },
+      data: { orderId, orderNumber },
     });
   }
 
-  async notifyOrderStatusChanged(userId: string, orderNumber: string, status: string) {
+  async notifyOrderStatusChanged(userId: string, orderId: string, orderNumber: string, status: string) {
     const statusMessages: Record<string, string> = {
       accepted: 'ha sido aceptado y será preparado pronto',
       preparing: 'está siendo preparado',
@@ -114,27 +121,27 @@ export class NotificationService {
       type: NotificationType.ORDER,
       title: `Pedido #${orderNumber}`,
       body: `Tu pedido ${statusMessages[status] || 'cambió de estado'}.`,
-      data: { orderNumber, status },
+      data: { orderId, orderNumber, status },
     });
   }
 
-  async notifyDriverAssigned(userId: string, driverName: string, orderNumber: string) {
+  async notifyDriverAssigned(userId: string, orderId: string, driverName: string, orderNumber: string) {
     return this.create({
       userId,
       type: NotificationType.ORDER,
       title: 'Domiciliario asignado',
       body: `${driverName} recogerá tu pedido #${orderNumber}.`,
-      data: { orderNumber, driverName },
+      data: { orderId, orderNumber, driverName },
     });
   }
 
-  async notifyDriverNewOrder(driverId: string, orderNumber: string) {
+  async notifyDriverNewOrder(driverId: string, orderId: string, orderNumber: string) {
     return this.create({
       userId: driverId,
       type: NotificationType.ORDER,
       title: 'Pedido asignado',
       body: `Se te asignó el pedido #${orderNumber}. Dirígete al negocio a recogerlo.`,
-      data: { orderNumber },
+      data: { orderId, orderNumber },
     });
   }
 
@@ -157,6 +164,7 @@ export class NotificationService {
    */
   async notifyBusinessOrderCancelled(
     ownerId: string,
+    orderId: string,
     orderNumber: string,
     reason?: string
   ) {
@@ -167,24 +175,25 @@ export class NotificationService {
       body: reason
         ? `El pedido #${orderNumber} se canceló: ${reason}`
         : `El pedido #${orderNumber} se canceló. No sigas preparándolo.`,
-      data: { orderNumber, reason, event: 'order_cancelled' },
+      data: { orderId, orderNumber, reason, event: 'order_cancelled' },
     });
   }
 
   /** Al comercio: la venta se cerró y ya cuenta para la liquidación. */
-  async notifyBusinessOrderDelivered(ownerId: string, orderNumber: string) {
+  async notifyBusinessOrderDelivered(ownerId: string, orderId: string, orderNumber: string) {
     return this.create({
       userId: ownerId,
       type: NotificationType.ORDER,
       title: 'Pedido entregado',
       body: `El pedido #${orderNumber} llegó al cliente y ya cuenta para tu próxima liquidación.`,
-      data: { orderNumber, event: 'order_delivered' },
+      data: { orderId, orderNumber, event: 'order_delivered' },
     });
   }
 
   /** Al comercio: ya se sabe quién va a venir a recoger. */
   async notifyBusinessDriverAssigned(
     ownerId: string,
+    orderId: string,
     orderNumber: string,
     driverName: string
   ) {
@@ -193,34 +202,34 @@ export class NotificationService {
       type: NotificationType.ORDER,
       title: 'Domiciliario asignado',
       body: `${driverName} va en camino a recoger el pedido #${orderNumber}.`,
-      data: { orderNumber, driverName, event: 'driver_assigned' },
+      data: { orderId, orderNumber, driverName, event: 'driver_assigned' },
     });
   }
 
   /** Al comercio: el domiciliario está en la puerta. */
-  async notifyDriverArrivedAtStore(ownerId: string, orderNumber: string, driverName: string) {
+  async notifyDriverArrivedAtStore(ownerId: string, orderId: string, orderNumber: string, driverName: string) {
     return this.create({
       userId: ownerId,
       type: NotificationType.ORDER,
       title: 'El domiciliario llegó',
       body: `${driverName} está en el local para recoger el pedido #${orderNumber}.`,
-      data: { orderNumber, event: 'driver_arrived_store' },
+      data: { orderId, orderNumber, event: 'driver_arrived_store' },
     });
   }
 
   /** Al comercio: la recogida quedó autorizada con el código. */
-  async notifyPickupVerified(ownerId: string, orderNumber: string) {
+  async notifyPickupVerified(ownerId: string, orderId: string, orderNumber: string) {
     return this.create({
       userId: ownerId,
       type: NotificationType.ORDER,
       title: 'Pedido entregado al domiciliario',
       body: `El pedido #${orderNumber} salió del local con el código validado.`,
-      data: { orderNumber, event: 'pickup_verified' },
+      data: { orderId, orderNumber, event: 'pickup_verified' },
     });
   }
 
   /** Al cliente: su pedido salió y ya tiene código de entrega. */
-  async notifyDeliveryCodeReady(userId: string, orderNumber: string) {
+  async notifyDeliveryCodeReady(userId: string, orderId: string, orderNumber: string) {
     return this.create({
       userId,
       type: NotificationType.ORDER,
@@ -228,40 +237,40 @@ export class NotificationService {
       body:
         `Tu código de entrega del pedido #${orderNumber} está en la app. ` +
         'Compártelo solo cuando tengas el pedido en la mano.',
-      data: { orderNumber, event: 'delivery_code_ready' },
+      data: { orderId, orderNumber, event: 'delivery_code_ready' },
     });
   }
 
   /** Al cliente: el domiciliario está en la puerta. */
-  async notifyDriverArrivedAtCustomer(userId: string, orderNumber: string) {
+  async notifyDriverArrivedAtCustomer(userId: string, orderId: string, orderNumber: string) {
     return this.create({
       userId,
       type: NotificationType.ORDER,
       title: 'Tu domiciliario llegó',
       body: `Ya está en tu dirección con el pedido #${orderNumber}. Ten tu código a mano.`,
-      data: { orderNumber, event: 'driver_arrived_customer' },
+      data: { orderId, orderNumber, event: 'driver_arrived_customer' },
     });
   }
 
   /** Mensaje nuevo en el chat del pedido. Sin previsualizar el contenido. */
-  async notifyChatMessage(userId: string, orderNumber: string, senderName: string) {
+  async notifyChatMessage(userId: string, orderId: string, orderNumber: string, senderName: string) {
     return this.create({
       userId,
       type: NotificationType.ORDER,
       title: `Mensaje sobre tu pedido #${orderNumber}`,
       body: `${senderName} te escribió.`,
-      data: { orderNumber, event: 'chat_message' },
+      data: { orderId, orderNumber, event: 'chat_message' },
     });
   }
 
   /** Llamada perdida del pedido. */
-  async notifyMissedCall(userId: string, orderNumber: string, callerName: string) {
+  async notifyMissedCall(userId: string, orderId: string, orderNumber: string, callerName: string) {
     return this.create({
       userId,
       type: NotificationType.ORDER,
       title: 'Llamada perdida',
       body: `${callerName} te llamó por el pedido #${orderNumber}.`,
-      data: { orderNumber, event: 'missed_call' },
+      data: { orderId, orderNumber, event: 'missed_call' },
     });
   }
 

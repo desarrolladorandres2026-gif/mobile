@@ -10,6 +10,7 @@ import { BorderRadius, Spacing, FontSize } from '../../theme/tokens';
 import { orderCode } from '../../lib/format';
 import { tap } from '../../lib/haptics';
 import { SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY, supportWhatsAppUrl } from '../../constants/config';
+import { useAuthStore } from '../../stores/authStore';
 
 interface Faq {
   question: string;
@@ -22,8 +23,14 @@ interface Faq {
  * Cada respuesta describe lo que la app hace hoy, no lo que nos gustaría que
  * hiciera: una sección de ayuda que promete algo que el código no cumple
  * genera más tickets de los que evita.
+ *
+ * Esta pantalla la comparten cliente y domiciliario —el enlace desde el
+ * perfil del domiciliario ya apuntaba aquí antes de esta sesión—, y las
+ * diez preguntas estaban escritas enteras desde el lado de quien paga: "la
+ * propina le llega completa al domiciliario" hablando DE él, nunca A él.
+ * Un domiciliario que entrara aquí veía las respuestas de otra persona.
  */
-const FAQS: Faq[] = [
+const CLIENT_FAQS: Faq[] = [
   {
     question: '¿Cómo puedo pagar?',
     answer:
@@ -76,11 +83,62 @@ const FAQS: Faq[] = [
   },
 ];
 
+const DRIVER_FAQS: Faq[] = [
+  {
+    question: '¿Cómo se calcula lo que gano por un domicilio?',
+    answer:
+      'La tarifa de reparto la fija Zipp antes de ofrecerte el pedido, y no baja aunque el cliente tenga un descuento: los cupones y promociones los paga el comercio o la plataforma, nunca de tu tarifa. La propina, si la hay, te llega completa, sin ningún descuento.',
+  },
+  {
+    question: 'Cobré en efectivo. ¿Cuándo queda saldado?',
+    answer:
+      'No se salda solo con reportar la consignación: nosotros verificamos que el dinero entró antes de cerrar tu deuda. Repórtala apenas puedas, con la referencia de la transferencia, desde Ganancias.',
+  },
+  {
+    question: '¿Por qué le pido un código al cliente o al negocio?',
+    answer:
+      'Es la prueba de que el traspaso fue con quien debía ser. Tú lo pides y lo escribes en la app; nosotros lo validamos del lado del servidor. No lo conoces de antemano ni lo puedes adivinar, así que si alguien te lo da mal, revisa con esa persona antes de forzarlo.',
+  },
+  {
+    question: 'Acepté un pedido y ya no puedo hacerlo. ¿Qué hago?',
+    answer:
+      'Escríbenos apenas te des cuenta: entre más rápido avisemos, más rápido conseguimos a alguien más. Tú no tienes botón de cancelar dentro de la app —evita que un pedido quede en el aire sin que nadie se entere— así que este es el camino.',
+  },
+  {
+    question: 'Un pedido pide cédula al entregar. ¿Qué hago si el cliente no la tiene?',
+    answer:
+      'No se entrega. La app te avisa en la pantalla del pedido cuando lleva productos con restricción de edad, y la verificación se hace en la puerta, que es donde de verdad se puede comprobar.',
+  },
+  {
+    question: '¿Para qué es el botón de emergencia?',
+    answer:
+      'Mantenlo presionado si te sientes en riesgo. Avisa al equipo de Zipp de inmediato y, si guardaste un contacto de emergencia en tu perfil, también le avisamos a esa persona.',
+  },
+  {
+    question: 'Subí mis documentos. ¿Cuánto tardan en revisarlos?',
+    answer:
+      'Los revisamos antes de dejarte tomar pedidos, normalmente el mismo día. Si alguno se rechaza, el motivo queda en la pantalla de Mis documentos y puedes volver a enviarlo.',
+  },
+  {
+    question: 'No me llegan las ofertas de pedidos.',
+    answer:
+      'Revisa que Zipp tenga permiso para enviarte notificaciones: con la app en segundo plano, es la única forma de enterarte de una oferta nueva. Desde tu perfil, en "Notificaciones del sistema", llegas directo a esa pantalla.',
+  },
+];
+
 export default function HelpScreen() {
   const router = useRouter();
   const { c, isDark } = useTheme();
   const [open, setOpen] = useState<number | null>(null);
   const activeOrder = useActiveOrder();
+
+  // Pantalla compartida: el enlace desde el perfil del domiciliario ya
+  // apuntaba aquí. `activeOrder` sale de `/orders/my`, que solo devuelve
+  // pedidos donde el usuario es el cliente -- para una cuenta de
+  // domiciliario da siempre vacío, así que la tarjeta de "pedido en curso"
+  // ya se oculta sola y no hace falta tocarla.
+  const isDriver = useAuthStore((s) => s.user?.role === 'driver');
+  const faqs = isDriver ? DRIVER_FAQS : CLIENT_FAQS;
 
   const reference = activeOrder
     ? (activeOrder.orderNumber ?? orderCode(activeOrder._id))
@@ -100,7 +158,10 @@ export default function HelpScreen() {
 
   return (
     <Screen style={{ backgroundColor: isDark ? '#0C101C' : '#F1F3F7' }}>
-      <Header title="Centro de ayuda" fallback="/(client)/(tabs)/profile" />
+      <Header
+        title="Centro de ayuda"
+        fallback={isDriver ? '/(driver)/(tabs)/profile' : '/(client)/(tabs)/profile'}
+      />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* ── Pedido en curso ── */}
@@ -203,7 +264,7 @@ export default function HelpScreen() {
               },
             ]}
           >
-            {FAQS.map((faq, index) => {
+            {faqs.map((faq, index) => {
               const expanded = open === index;
               return (
                 <View key={faq.question} style={styles.faqWrapper}>
@@ -247,7 +308,7 @@ export default function HelpScreen() {
                     </Animated.View>
                   ) : null}
 
-                  {index < FAQS.length - 1 ? (
+                  {index < faqs.length - 1 ? (
                     <View
                       style={[
                         styles.indentedDivider,

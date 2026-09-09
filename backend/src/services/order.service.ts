@@ -422,11 +422,13 @@ export class OrderService {
     await Promise.allSettled([
       notificationService.notifyOrderCreated(
         order.clientId.toString(),
+        order._id.toString(),
         order.orderNumber,
         business.name
       ),
       notificationService.notifyBusinessNewOrder(
         business.ownerId.toString(),
+        order._id.toString(),
         order.orderNumber
       ),
     ]);
@@ -1139,14 +1141,14 @@ export class OrderService {
 
   private async triggerStatusChangeNotifications(order: IOrder, status: OrderStatus) {
     const notifyTargets: Promise<any>[] = [
-      notificationService.notifyOrderStatusChanged(order.clientId.toString(), order.orderNumber, status),
+      notificationService.notifyOrderStatusChanged(order.clientId.toString(), order._id.toString(), order.orderNumber, status),
     ];
 
     if (order.driverId) {
       const driverUser = await Driver.findById(order.driverId).select('userId');
       if (driverUser) {
         notifyTargets.push(
-          notificationService.notifyOrderStatusChanged(driverUser.userId.toString(), order.orderNumber, status)
+          notificationService.notifyOrderStatusChanged(driverUser.userId.toString(), order._id.toString(), order.orderNumber, status)
         );
       }
     }
@@ -1164,10 +1166,11 @@ export class OrderService {
           status === OrderStatus.CANCELLED
             ? notificationService.notifyBusinessOrderCancelled(
                 ownerId,
+                order._id.toString(),
                 order.orderNumber,
                 order.cancellationReason
               )
-            : notificationService.notifyBusinessOrderDelivered(ownerId, order.orderNumber)
+            : notificationService.notifyBusinessOrderDelivered(ownerId, order._id.toString(), order.orderNumber)
         );
       }
     }
@@ -1388,8 +1391,12 @@ export class OrderService {
 
     // El pedido ya tiene dueño: se acabó la búsqueda. Va antes que el
     // devengo porque lo urgente es que el barrido deje de ofrecerlo.
+    //
+    // Se pasa quién se lo quedó para que el libro de ofertas registre una
+    // aceptación y no un vencimiento — y para que a los demás candidatos
+    // les conste que lo perdieron, no que lo ignoraron.
     const { stopDispatch } = await import('./dispatch.service');
-    await stopDispatch(claimed._id.toString());
+    await stopDispatch(claimed._id.toString(), driver._id.toString());
 
     await payoutService.accrueForOrder(claimed);
 
@@ -1402,11 +1409,12 @@ export class OrderService {
     const business = await Business.findById(order.businessId).select('ownerId');
 
     Promise.allSettled([
-      notificationService.notifyDriverAssigned(order.clientId.toString(), driverName, order.orderNumber),
-      notificationService.notifyDriverNewOrder(driverUser?._id?.toString() || driverId, order.orderNumber),
+      notificationService.notifyDriverAssigned(order.clientId.toString(), order._id.toString(), driverName, order.orderNumber),
+      notificationService.notifyDriverNewOrder(driverUser?._id?.toString() || driverId, order._id.toString(), order.orderNumber),
       business
         ? notificationService.notifyBusinessDriverAssigned(
             business.ownerId.toString(),
+            order._id.toString(),
             order.orderNumber,
             driverName
           )

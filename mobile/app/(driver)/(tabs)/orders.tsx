@@ -68,19 +68,12 @@ export default function DriverOrdersScreen() {
     assignDriverMutation.mutate(
       { orderId, driverId: driverProfile._id },
       {
-        onSuccess: (updatedOrder: any) => {
+        onSuccess: () => {
           tap('success');
           Alert.alert('¡Pedido aceptado!', 'Dirígete al negocio para recoger los productos.');
           refetchAvailable();
           refetchMy();
           setTab('my_deliveries');
-
-          socketService.emitOrderStatusUpdate({
-            orderId,
-            status: 'ready',
-            clientId: updatedOrder.clientId,
-            driverId: driverProfile.userId?._id || driverProfile.userId,
-          });
         },
         onError: (error: any) => {
           tap('error');
@@ -90,8 +83,17 @@ export default function DriverOrdersScreen() {
     );
   }, [driverProfile, assignDriverMutation, refetchAvailable, refetchMy]);
 
+  /**
+   * El estado lo cambia el servidor, y el servidor es quien lo anuncia.
+   *
+   * Aquí había además un `emitOrderStatusUpdate` por socket desde el
+   * teléfono. Nunca hizo nada —ningún `socket.on('order:status:update')`
+   * existe en el servidor— pero parecía que sí, y esa apariencia es el
+   * problema: invitaba a cablearle un listener algún día y, con él, a que
+   * un teléfono pudiera anunciar "entregado" sin haber entregado. Quien
+   * avisa al cliente es `order.service.ts`, después de validar.
+   */
   const handleUpdateStatus = useCallback((orderId: string, nextStatus: string) => {
-    const order = list.find((o: any) => o._id === orderId);
     tap('medium');
     updateStatusMutation.mutate(
       { id: orderId, status: nextStatus },
@@ -99,13 +101,6 @@ export default function DriverOrdersScreen() {
         onSuccess: () => {
           tap('success');
           refetchMy();
-
-          socketService.emitOrderStatusUpdate({
-            orderId,
-            status: nextStatus,
-            clientId: order?.clientId?._id || order?.clientId,
-            driverId: driverProfile?.userId?._id || driverProfile?.userId,
-          });
         },
         onError: (error: any) => {
           tap('error');
@@ -113,7 +108,7 @@ export default function DriverOrdersScreen() {
         },
       }
     );
-  }, [list, updateStatusMutation, refetchMy, driverProfile]);
+  }, [updateStatusMutation, refetchMy]);
 
   const openMap = useCallback((address: string, lat?: number, lng?: number) => {
     tap('light');

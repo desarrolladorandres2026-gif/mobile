@@ -13,8 +13,17 @@ router.get('/profile', authenticate, authorize(UserRole.DRIVER), (req, res, next
 router.patch('/status', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.updateStatus(req, res, next));
 router.patch('/location', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.updateLocation(req, res, next));
 router.get('/earnings', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.getEarnings(req, res, next));
+/** Varios días a la vez. Sin `from`/`to`, la última semana. */
+router.get('/earnings/range', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.getEarningsRange(req, res, next));
 router.get('/debts', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.getDebts(req, res, next));
-const documentSchema = z.object({ body: z.object({ type: z.enum(['identity','license','soat','technical_review','vehicle_registration']), reference: z.string().trim().min(3).max(500), expiresAt: z.coerce.date().optional() }) });
+
+/**
+ * Aceptación, tiempo de respuesta, entregas y calificación.
+ *
+ * Es un espejo, no una nota: nada de esto entra en el orden de la cascada,
+ * y la propia respuesta lo dice en `affectsDispatch: false`.
+ */
+router.get('/metrics', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.getPerformance(req, res, next));
 const emergencyContactSchema = z.object({
   body: z.object({
     name: z.string().trim().min(2).max(80),
@@ -27,7 +36,11 @@ const emergencyContactSchema = z.object({
 router.put('/emergency-contact', authenticate, authorize(UserRole.DRIVER), validate(emergencyContactSchema), (req, res, next) => driverController.setEmergencyContact(req, res, next));
 
 router.get('/documents', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.getDocuments(req, res, next));
-router.post('/documents', authenticate, authorize(UserRole.DRIVER), validate(documentSchema), (req, res, next) => driverController.submitDocument(req, res, next));
+// Sin `validate`: la foto del documento llega como multipart y el esquema
+// Zod correría antes de que multer hubiera poblado el cuerpo, rechazando
+// todo envío por vacío. La validación vive en el controlador, después de
+// leer el archivo — igual que en `/verifications` de aquí abajo.
+router.post('/documents', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.submitDocument(req, res, next));
 
 /**
  * A driver may declare a remittance; they may not settle it.
@@ -53,6 +66,8 @@ router.post('/verifications', authenticate, authorize(UserRole.DRIVER), (req, re
 
 // Admin
 router.get('/', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.getAll(req, res, next));
+/** Por qué se rechazan los pedidos, en agregado. Pregunta de operaciones. */
+router.get('/decline-reasons', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.declineReasons(req, res, next));
 router.patch('/:id/approve', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.approve(req, res, next));
 router.patch('/:id/base-fund', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.updateBaseFund(req, res, next));
 router.get('/verifications/queue', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.verificationQueue(req, res, next));

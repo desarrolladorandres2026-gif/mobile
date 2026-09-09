@@ -52,6 +52,7 @@ export { Refund, IRefund, ProcessedWebhook, IProcessedWebhook } from './Refund';
 export { LegalDocument, ILegalDocument, LegalAcceptance, ILegalAcceptance, DataRequest, IDataRequest } from './Legal';
 export { Pqrs, IPqrs } from './Pqrs';
 export { DriverDocument, IDriverDocument } from './DriverDocument';
+export { DriverOffer, IDriverOffer, OfferOutcome, DeclineReason } from './DriverOffer';
 export {
   Advertisement, IAdvertisement, AdActionType, AD_DURATION,
   AdPricingModel, AdApprovalStatus,

@@ -22,6 +22,31 @@ interface PushMessage {
   title: string;
   body: string;
   data?: Record<string, unknown>;
+  /**
+   * Canal de Android. Cada canal lleva su propio sonido, su vibración y su
+   * importancia, y el usuario los gobierna por separado desde los ajustes
+   * del sistema: quien silencia los avisos de promociones no debería
+   * silenciar con ellos la oferta de un pedido. Ver `ensureAndroidChannel`
+   * en `mobile/lib/push.ts`, que es donde se declaran.
+   */
+  channelId?: string;
+  /**
+   * Cuánto vale este mensaje, en segundos.
+   *
+   * Expo —y FCM debajo— guardan una push que no se pudo entregar y la
+   * sueltan cuando el teléfono vuelve. Para un aviso de estado eso está
+   * bien. Para la oferta de un pedido es un fallo: la ventana dura
+   * cuarenta y cinco segundos, y una oferta que suena cinco minutos tarde
+   * manda al domiciliario a una pantalla vacía. Vencido el plazo, el
+   * mensaje se descarta en vez de entregarse.
+   */
+  ttlSeconds?: number;
+  /**
+   * Prioridad en iOS. `time-sensitive` atraviesa el modo Concentración,
+   * que es donde acaban los avisos de quien conduce con el teléfono en el
+   * soporte.
+   */
+  interruptionLevel?: 'passive' | 'active' | 'time-sensitive' | 'critical';
 }
 
 interface ExpoTicket {
@@ -56,7 +81,11 @@ export class PushService {
       body: message.body,
       data: message.data ?? {},
       priority: 'high',
-      channelId: 'default',
+      channelId: message.channelId ?? 'default',
+      ...(message.ttlSeconds !== undefined ? { ttl: message.ttlSeconds } : {}),
+      ...(message.interruptionLevel
+        ? { interruptionLevel: message.interruptionLevel }
+        : {}),
     }));
 
     try {

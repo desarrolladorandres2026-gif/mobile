@@ -1,8 +1,9 @@
 import { Types } from 'mongoose';
-import { Order, IOrder } from '../models';
+import { Order, IOrder, DriverOffer, DeclineReason } from '../models';
 import { OrderStatus } from '../types';
 import { suggestDriverForOrder, NearestDriver } from './tracking.service';
 import { emitToUser, getIO } from '../sockets/emitter';
+import { pushService } from './push.service';
 import { logSystemAudit, AuditAction, AuditSeverity } from '../security';
 import { config } from '../config';
 
@@ -229,9 +230,133 @@ export async function offerNextRound(orderId: string): Promise<boolean> {
       etaSeconds: candidate.etaSeconds,
     };
     emitToUser(candidate.userId, 'order:offer', payload);
+    notifyOffer(candidate.userId, payload, config.windowMs);
   }
 
+  // El libro de ofertas, aparte del pedido. `stopDispatch` borra
+  // `order.dispatch` al asignar, así que sin esto la plataforma no podría
+  // contestar a quién le ofreció nada ni qué hizo con ello.
+  await recordOffers(order._id.toString(), chosen, round, expiresAt);
+
   return true;
+}
+
+/**
+ * Deja constancia de a quién se le ofreció el pedido.
+ *
+ * No bloquea el reparto si falla: la oferta ya salió por socket y por push,
+ * y una fila de estadística que no se escribe es un problema mucho menor
+ * que un pedido que no se reparte. Se registra con `updateOne` + upsert por
+ * si el mismo domiciliario recibe la misma ronda dos veces —dos instancias
+ * del servidor compitiendo—, en cuyo caso la segunda no debe pisar la
+ * respuesta que ya dio a la primera.
+ */
+async function recordOffers(
+  orderId: string,
+  candidates: NearestDriver[],
+  round: number,
+  expiresAt: Date
+): Promise<void> {
+  try {
+    await DriverOffer.bulkWrite(
+      candidates.map((c) => ({
+        updateOne: {
+          filter: { driverId: new Types.ObjectId(c.driverId), orderId: new Types.ObjectId(orderId), round },
+          update: {
+            $setOnInsert: {
+              driverId: new Types.ObjectId(c.driverId),
+              orderId: new Types.ObjectId(orderId),
+              round,
+              etaSeconds: c.etaSeconds,
+              offeredAt: new Date(),
+              expiresAt,
+              outcome: 'pending' as const,
+            },
+          },
+          upsert: true,
+        },
+      })),
+      { ordered: false }
+    );
+  } catch (err) {
+    console.error('[Dispatch] No se pudo registrar la oferta:', err);
+  }
+}
+
+/**
+ * Cierra el registro de una oferta con lo que pasó de verdad.
+ *
+ * Solo toca las que siguen `pending`: una oferta ya resuelta no se
+ * reescribe, o un barrido tardío convertiría en "vencida" una que el
+ * domiciliario sí rechazó a tiempo.
+ */
+async function closeOffer(
+  orderId: string,
+  driverId: string | null,
+  outcome: 'accepted' | 'declined' | 'expired' | 'taken_by_other',
+  declineReason?: DeclineReason
+): Promise<void> {
+  try {
+    const filter: Record<string, unknown> = {
+      orderId: new Types.ObjectId(orderId),
+      outcome: 'pending',
+    };
+    if (driverId) filter.driverId = new Types.ObjectId(driverId);
+    else filter.driverId = { $exists: true };
+
+    await DriverOffer.updateMany(filter, {
+      $set: { outcome, respondedAt: new Date(), ...(declineReason ? { declineReason } : {}) },
+    });
+  } catch (err) {
+    console.error('[Dispatch] No se pudo cerrar el registro de la oferta:', err);
+  }
+}
+
+/**
+ * La oferta, por el canal que sí despierta al teléfono.
+ *
+ * El socket solo llega a una app viva y en primer plano. Un domiciliario
+ * conduciendo tiene el teléfono en el bolsillo o en el soporte con la
+ * pantalla apagada, que es justo cuando está disponible para trabajar:
+ * ofrecerle un pedido únicamente por socket es ofrecérselo a quien ya
+ * estaba mirando la app, y esos son los menos. Sin esto, la cascada
+ * reserva el pedido durante minuto y medio para gente que no se entera.
+ *
+ * No pasa por `notificationService`: eso persiste una fila en el centro de
+ * avisos, y una oferta caduca en segundos. Dejaría un rastro de
+ * "Pedido para ti" que ya no lleva a ninguna parte.
+ *
+ * No se espera (`void`): el reparto no puede quedarse colgado de una
+ * llamada a Expo, y `sendToUser` no lanza nunca.
+ */
+function notifyOffer(userId: string, payload: OfferPayload, windowMs: number): void {
+  const minutes = Math.round(payload.etaSeconds / 60);
+  const distance = minutes < 1 ? 'a menos de un minuto' : `a unos ${minutes} min`;
+
+  void pushService.sendToUser(userId, {
+    title: 'Pedido para ti',
+    body: payload.businessName
+      ? `${payload.businessName}, ${distance} de ti. Toca para responder.`
+      : `Recogida ${distance} de ti. Toca para responder.`,
+    // Lleva la oferta entera, no solo el id. Con la app cerrada, el socket
+    // no entregó nada: esta push es lo único que la app tiene para
+    // reconstruir la hoja de oferta con su reloj y sus botones. Un id
+    // suelto solo serviría para abrir un pedido que todavía no es suyo.
+    data: {
+      kind: 'order:offer',
+      orderId: payload.orderId,
+      orderNumber: payload.orderNumber,
+      businessName: payload.businessName ?? null,
+      round: payload.round,
+      etaSeconds: payload.etaSeconds,
+      expiresAt: payload.expiresAt.toISOString(),
+    },
+    channelId: 'offers',
+    // La push muere con la ronda. Una oferta entregada tarde manda al
+    // domiciliario a una pantalla sin nada que aceptar.
+    ttlSeconds: Math.ceil(windowMs / 1000),
+    interruptionLevel: 'time-sensitive',
+  });
 }
 
 /** Vuelve a empezar la cascada tras una pausa, sin memoria de rechazos. */
@@ -301,7 +426,11 @@ async function restartCycle(order: IOrder): Promise<boolean> {
  * segundos, y en un pueblo con pocos repartidores esa diferencia es la
  * comida caliente.
  */
-export async function declineOffer(orderId: string, driverId: string): Promise<void> {
+export async function declineOffer(
+  orderId: string,
+  driverId: string,
+  reason?: DeclineReason
+): Promise<void> {
   const order = await Order.findById(orderId).select('dispatch status driverId');
   if (!order || !needsDriver(order)) return;
 
@@ -316,8 +445,52 @@ export async function declineOffer(orderId: string, driverId: string): Promise<v
     }
   );
 
+  // El motivo es opcional y de un toque: quien va conduciendo puede no
+  // contestarlo, y forzarlo convertiría un "no puedo" de medio segundo en
+  // un formulario. Pero cuando lo da, es la única forma de saber si los
+  // rechazos vienen de la distancia o de que la tarifa no compensa — y esas
+  // dos cosas se arreglan de maneras muy distintas.
+  await closeOffer(orderId, driverId, 'declined', reason);
+
   // Si era el último de la ronda, no tiene sentido esperar al reloj.
   if (offered.length === 1) await offerNextRound(orderId);
+}
+
+/**
+ * Anota por qué dijo que no, después de haberlo dicho.
+ *
+ * Va aparte de `declineOffer` y no como un segundo parámetro suyo porque
+ * ocurre más tarde: el pedido se suelta en el acto —hay una cocina con la
+ * comida hecha— y la pregunta se le hace al domiciliario sobre un pedido
+ * que ya está circulando. Para entonces `declineOffer` no serviría: sale
+ * por su propia puerta al no encontrar al domiciliario entre los
+ * candidatos, porque acaba de quitarlo él mismo.
+ *
+ * Solo escribe sobre una fila que ya está en `declined`, así que no puede
+ * convertir en rechazo algo que no lo fue.
+ */
+export async function annotateDecline(
+  orderId: string,
+  driverId: string,
+  reason: DeclineReason
+): Promise<void> {
+  try {
+    // `findOneAndUpdate` y no `updateOne` porque este necesita `sort`:
+    // si la cascada dio otra vuelta, el rechazo que se está explicando es
+    // el último, no el de hace tres minutos.
+    await DriverOffer.findOneAndUpdate(
+      {
+        orderId: new Types.ObjectId(orderId),
+        driverId: new Types.ObjectId(driverId),
+        outcome: 'declined',
+        declineReason: { $exists: false },
+      },
+      { $set: { declineReason: reason } },
+      { sort: { offeredAt: -1 } }
+    );
+  } catch (err) {
+    console.error('[Dispatch] No se pudo anotar el motivo del rechazo:', err);
+  }
 }
 
 /**
@@ -349,8 +522,21 @@ export function canClaim(order: IOrder, driverId: string): boolean {
   return (dispatch.offeredDriverIds ?? []).map(String).includes(driverId);
 }
 
-/** Cierra el reparto. Se llama al asignar domiciliario y al cancelar. */
-export async function stopDispatch(orderId: string): Promise<void> {
+/**
+ * Cierra el reparto. Se llama al asignar domiciliario y al cancelar.
+ *
+ * `assignedTo` es quien se lo quedó, si alguien lo hizo. Los demás que
+ * tenían la oferta viva no la rechazaron: se la ganó otro, y eso queda
+ * registrado como `taken_by_other` para que no cuente contra ellos. En las
+ * rondas anchas el mismo pedido se ofrece a tres y solo uno puede
+ * quedárselo; penalizar a los otros dos sería penalizar el ir conduciendo.
+ */
+export async function stopDispatch(orderId: string, assignedTo?: string): Promise<void> {
+  if (assignedTo) await closeOffer(orderId, assignedTo, 'accepted');
+  // El resto de las que sigan abiertas. `closeOffer` solo toca `pending`,
+  // así que la que se acaba de marcar como aceptada no se pisa.
+  await closeOffer(orderId, null, 'taken_by_other');
+
   await Order.updateOne({ _id: orderId }, { $unset: { dispatch: '' } });
 }
 
@@ -375,6 +561,10 @@ export async function sweepExpiredOffers(): Promise<number> {
   let advanced = 0;
   for (const order of due) {
     try {
+      // Primero se cierra la ronda que venció, luego se abre la siguiente.
+      // Al revés, `recordOffers` crearía la fila de la ronda nueva y el
+      // cierre la marcaría vencida sin haberse llegado a enseñar.
+      await closeOffer(order._id.toString(), null, 'expired');
       await offerNextRound(order._id.toString());
       advanced++;
     } catch (err) {
@@ -488,6 +678,7 @@ export const dispatchService = {
   startDispatch,
   offerNextRound,
   declineOffer,
+  annotateDecline,
   canClaim,
   stopDispatch,
   sweepExpiredOffers,

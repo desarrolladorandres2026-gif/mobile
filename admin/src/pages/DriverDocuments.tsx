@@ -19,6 +19,9 @@ interface DriverDocumentType {
   driverId?: DriverRef;
   type: 'identity' | 'license' | 'soat' | 'technical_review' | 'vehicle_registration';
   reference: string;
+  /** La foto que subió el domiciliario. Ausente en los registros que se
+   *  crearon cuando esto solo pedía el número. */
+  imageUrl?: string;
   expiresAt?: string;
   status: 'pending' | 'approved' | 'rejected' | 'expired';
   createdAt: string;
@@ -99,9 +102,38 @@ export default function DriverDocuments() {
     return (
       <div key={doc._id} className="zipp-card p-5 flex flex-col md:flex-row md:items-center justify-between gap-5">
         <div className="flex items-start gap-4 min-w-0">
-          <div className="w-12 h-12 rounded-xl bg-[var(--color-sidebar-hover)] flex items-center justify-center flex-shrink-0">
-            <FileText className="w-5 h-5 text-white" />
-          </div>
+          {/*
+            La foto, donde antes había un icono decorativo.
+            Aprobar un documento que no se puede ver es firmar a ciegas: el
+            único trabajo de esta pantalla es mirar, y hasta ahora lo único
+            que mostraba del documento era su número.
+          */}
+          {doc.imageUrl ? (
+            <a
+              href={doc.imageUrl}
+              target="_blank"
+              rel="noreferrer"
+              title="Abrir la foto en tamaño completo"
+              className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 border border-[var(--color-border)] hover:border-[var(--color-primary)] transition-colors"
+            >
+              <img
+                src={doc.imageUrl}
+                alt={`${DOCUMENT_LABELS[doc.type]} de ${driver?.userId?.name ?? 'domiciliario'}`}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            </a>
+          ) : (
+            <div
+              title="Este documento se envió antes de que se pidieran fotos"
+              className="w-20 h-20 rounded-xl bg-[var(--color-sidebar-hover)] flex flex-col items-center justify-center gap-1 flex-shrink-0"
+            >
+              <FileText className="w-5 h-5 text-white" />
+              <span className="text-[9px] font-bold uppercase tracking-wider text-[var(--color-warning)]">
+                Sin foto
+              </span>
+            </div>
+          )}
 
           <div className="min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-center gap-2.5">

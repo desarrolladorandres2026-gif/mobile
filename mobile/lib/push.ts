@@ -87,6 +87,36 @@ export async function ensureAndroidChannel(): Promise<void> {
     lightColor: '#C6A15B',
     sound: 'default',
   });
+
+  /**
+   * Las ofertas de pedido, en su propio canal.
+   *
+   * No es una separación cosmética. Android deja al usuario silenciar cada
+   * canal por su cuenta, y un domiciliario que se harta de los avisos de
+   * promociones los silencia — llevándose por delante, en el canal común,
+   * lo único que le da de comer. Aquí van solos, con la importancia más
+   * alta que existe (`MAX` saca el aviso a la pantalla en vez de dejarlo
+   * en la bandeja) y sin poder agruparse con nada.
+   *
+   * `bypassDnd` está a propósito: quien está trabajando suele tener el
+   * teléfono en No molestar para no oír WhatsApp mientras conduce, y
+   * perder un pedido por eso sería perder dinero por un ajuste del
+   * sistema. El canal se declara aquí, pero Android solo lo concede si el
+   * usuario da el permiso de acceso a No molestar; si no lo da, el canal
+   * sigue funcionando como MAX normal.
+   */
+  await N.setNotificationChannelAsync('offers', {
+    name: 'Pedidos disponibles',
+    description:
+      'Cuando hay un pedido para ti. Tiene unos segundos de vida: si ' +
+      'silencias este canal, no te enterarás de las ofertas.',
+    importance: N.AndroidImportance.MAX,
+    vibrationPattern: [0, 400, 200, 400],
+    lightColor: '#C6A15B',
+    sound: 'default',
+    bypassDnd: true,
+    enableVibrate: true,
+  });
 }
 
 /**
@@ -189,8 +219,13 @@ export const pushPlatform = (): string => Platform.OS;
 
 /** Handlers para las push que llegan con la app abierta o al tocarlas. */
 export type PushListeners = {
-  /** Una push entró con la app en primer plano. */
-  onReceived?: () => void;
+  /**
+   * Una push entró con la app en primer plano. Recibe el `content.data`
+   * del mensaje igual que `onOpen`: hay avisos que hay que atender sin
+   * esperar a que el usuario los toque —la oferta de un pedido dura
+   * segundos— y sin el contenido no habría forma de distinguirlos.
+   */
+  onReceived?: (data: unknown) => void;
   /** El usuario tocó una push; `data` es el `content.data` del mensaje. */
   onOpen: (data: unknown) => void;
 };
@@ -204,7 +239,9 @@ export function addPushListeners({ onReceived, onOpen }: PushListeners): () => v
   const N = getNotifications();
   if (!N) return () => {};
 
-  const received = N.addNotificationReceivedListener(() => onReceived?.());
+  const received = N.addNotificationReceivedListener((notification) =>
+    onReceived?.(notification.request.content.data)
+  );
   const responded = N.addNotificationResponseReceivedListener((response) => {
     onOpen(response.notification.request.content.data);
   });

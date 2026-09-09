@@ -1,17 +1,17 @@
-import { useState } from 'react';
-import { View, ScrollView, StyleSheet, Pressable, Alert } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, ScrollView, StyleSheet, Pressable, Alert, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
 import {
-  Text, Icon, Card, Badge, Notice, SectionHeader,
+  Text, Icon, Card, Badge, Notice, SectionHeader, DetailRow,
 } from '../../../components/ui';
 import { EmergencyContactSheet } from '../../../components/domain/EmergencyContactSheet';
 import { ContentIcon, type ContentIllustrationName } from '../../../components/illustrations';
 import { Avatar } from '../../../components/domain/Avatar';
 import { useAuthStore } from '../../../stores/authStore';
-import { useDriverProfile } from '../../../hooks/useApi';
+import { useDriverProfile, useDriverMetrics } from '../../../hooks/useApi';
 import { useTabContentPadding } from '../../../hooks/useBottomSpace';
 import { useTheme } from '../../../hooks/useTheme';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
@@ -20,14 +20,26 @@ import { apiMessage } from '../../../lib/errors';
 import { tap } from '../../../lib/haptics';
 import { authApi } from '../../../services/endpoints';
 import { unregisterPush } from '../../../hooks/usePushNotifications';
+import { pushPermissionGranted } from '../../../lib/push';
 import { socketService } from '../../../services/socket';
 
 export default function DriverProfileScreen() {
+  const [pushGranted, setPushGranted] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void pushPermissionGranted().then((granted) => {
+      if (alive) setPushGranted(granted);
+    });
+    return () => { alive = false; };
+  }, []);
+
   const router = useRouter();
   const { c, isDark, toggleTheme } = useTheme();
   const bottomSpace = useTabContentPadding();
   const { user, logout, setUser } = useAuthStore();
   const { data: profile } = useDriverProfile();
+  const { data: metrics } = useDriverMetrics();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [emergencyOpen, setEmergencyOpen] = useState(false);
   const [avatarError, setAvatarError] = useState('');
@@ -145,6 +157,60 @@ export default function DriverProfileScreen() {
 
         {avatarError ? <Notice tone="error">{avatarError}</Notice> : null}
 
+        {/* ── Cómo te está yendo ── */}
+        {metrics ? (
+          <View style={styles.section}>
+            <SectionHeader title="Tus últimos 30 días" />
+            <Card style={styles.metricsCard}>
+              <View style={styles.metricsTop}>
+                <View style={styles.flex}>
+                  <Text v="caption" tone="textMuted">PEDIDOS QUE ACEPTASTE</Text>
+                  <Text v="displayM">
+                    {metrics.acceptanceRate === null ? '—' : `${metrics.acceptanceRate}%`}
+                  </Text>
+                </View>
+                {metrics.avgResponseSeconds !== null ? (
+                  <View>
+                    <Text v="caption" tone="textMuted">RESPONDES EN</Text>
+                    <Text v="titleL">{metrics.avgResponseSeconds}s</Text>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={[styles.divider, { backgroundColor: c.border }]} />
+
+              <DetailRow label="Aceptados" value={String(metrics.offers.accepted)} />
+              <DetailRow label="Rechazados" value={String(metrics.offers.declined)} />
+              <DetailRow label="Se te pasaron" value={String(metrics.offers.expired)} />
+              {metrics.offers.takenByOther > 0 ? (
+                <DetailRow
+                  label="Se los llevó otro (no cuentan)"
+                  value={String(metrics.offers.takenByOther)}
+                />
+              ) : null}
+
+              {/*
+                La promesa, al lado del número y no en unos términos que
+                nadie lee. Es el motivo de que este bloque se pueda enseñar
+                sin hacer daño: en las plataformas donde la aceptación pesa
+                en el reparto —y el peso es secreto— la gente acaba
+                aceptando pedidos que no le convienen por miedo a caer. Aquí
+                no hay nada que temer, y decirlo es la mitad del trabajo.
+
+                Sale de `affectsDispatch` del servidor y no de una constante
+                local: si algún día deja de ser verdad, este texto
+                desaparece solo en vez de quedarse mintiendo.
+              */}
+              {metrics.affectsDispatch === false ? (
+                <Notice tone="info" icon="info">
+                  Estos números no cambian los pedidos que te llegan. El reparto
+                  va por cercanía: rechazar uno no te baja en ninguna lista.
+                </Notice>
+              ) : null}
+            </Card>
+          </View>
+        ) : null}
+
         {/* ── Preferencias y Tema ── */}
         <View style={styles.section}>
           <SectionHeader title="Preferencias de la aplicación" />
@@ -163,6 +229,34 @@ export default function DriverProfileScreen() {
                 </Text>
               </View>
               <Badge label={isDark ? 'Oscuro' : 'Claro'} tone="neutral" />
+            </Pressable>
+
+            {/* Un domiciliario depende de esto mas que nadie: si la app
+                esta en segundo plano, la push es como se entera de que le
+                ofrecieron un pedido. Antes esta pantalla no tenia ni
+                mencion a las notificaciones. */}
+            <Pressable
+              onPress={() => { tap('light'); Linking.openSettings().catch(() => {}); }}
+              accessibilityRole="button"
+              accessibilityLabel={
+                pushGranted === false
+                  ? 'Notificaciones desactivadas. Toca para ir a los ajustes'
+                  : 'Notificaciones del sistema'
+              }
+              style={styles.menuRow}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceLight }]}>
+                <ContentIcon name="notificaciones" size={26} />
+              </View>
+              <View style={styles.flex}>
+                <Text v="strongS">Notificaciones del sistema</Text>
+                <Text v="caption" tone="textMuted">
+                  {pushGranted === false
+                    ? 'Desactivadas: no sabrás cuándo te ofrecen un pedido'
+                    : 'Avisos de nuevos pedidos y del estado de tus entregas'}
+                </Text>
+              </View>
+              {pushGranted === false ? <Badge label="Desactivadas" tone="warning" /> : null}
             </Pressable>
           </Card>
         </View>
@@ -432,6 +526,8 @@ const styles = StyleSheet.create({
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
 
   section: { gap: Spacing.sm },
+  metricsCard: { gap: Spacing.sm, padding: Spacing.lg },
+  metricsTop: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.md },
   menuCard: { padding: 0, overflow: 'hidden' },
   menuRow: {
     flexDirection: 'row',

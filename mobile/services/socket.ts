@@ -198,10 +198,6 @@ class SocketService {
     this.socket?.emit('order:new', orderData);
   }
 
-  emitOrderStatusUpdate(data: any) {
-    this.socket?.emit('order:status:update', data);
-  }
-
   // ── Sala del pedido: chat en vivo y llegadas ──
   //
   // Entrar a la sala no es opcional ni automático: el servidor comprueba

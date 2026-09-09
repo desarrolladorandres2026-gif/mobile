@@ -1,9 +1,23 @@
-import { Driver, IDriver, DriverDebt, DriverDocument } from '../models';
+import { Driver, IDriver, DriverDebt, DriverDocument, DriverOffer } from '../models';
 import { AppError } from '../middlewares';
 import { DriverStatus, DebtStatus } from '../types';
 import { cashReconciliationService } from './cashReconciliation.service';
 import { payoutService } from './payout.service';
 import { PayoutBeneficiary } from '../types';
+
+/**
+ * La fecha en la zona del servidor, como `YYYY-MM-DD`.
+ *
+ * `toISOString()` daría UTC y en Colombia (-5) mandaría al día siguiente
+ * todo lo entregado después de las siete de la tarde — justo el tramo con
+ * más pedidos.
+ */
+function localDay(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
 interface CreateDriverInput {
   userId: string;
@@ -127,9 +141,81 @@ export class DriverService {
     }
   }
 
-  async submitDocument(userId: string, input: { type: string; reference: string; expiresAt?: Date }) {
-    const driver = await Driver.findOne({ userId }); if (!driver) throw new AppError('Domiciliario no encontrado', 404);
-    return DriverDocument.findOneAndUpdate({ driverId: driver._id, type: input.type }, { ...input, driverId: driver._id, status: 'pending', reviewedBy: null, reviewedAt: null }, { upsert: true, new: true, runValidators: true });
+  /**
+   * Guarda la foto del documento y la deja lista para revisión.
+   *
+   * Aparte de la selfie de verificación a propósito: aquella se pide en
+   * mitad de un turno y se descarta al resolverse, esta respalda una
+   * habilitación para trabajar y tiene que poder consultarse mientras el
+   * documento siga vigente.
+   */
+  private async storeDocumentImage(buffer: Buffer): Promise<string> {
+    const { cloudinary } = await import('../config');
+
+    return new Promise<string>((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'zipp/driver-documents',
+          resource_type: 'image',
+          // Se limita, no se recorta: un número de póliza recortado no se
+          // puede leer, y leerlo es todo el propósito de la foto.
+          transformation: [
+            { width: 1600, height: 1600, crop: 'limit' },
+            { quality: 'auto', fetch_format: 'auto' },
+          ],
+        },
+        (error: unknown, result: { secure_url: string } | undefined) => {
+          if (error || !result) {
+            reject(new AppError('No se pudo subir la foto del documento', 502));
+            return;
+          }
+          resolve(result.secure_url);
+        }
+      );
+      stream.end(buffer);
+    });
+  }
+
+  /**
+   * Un documento enviado a revisión, con su foto.
+   *
+   * La foto es obligatoria salvo que ya hubiera una: así, corregir un
+   * dígito mal escrito no obliga a volver a fotografiar la cédula, pero
+   * un documento nuevo nunca entra sin prueba. Cualquier reenvío vuelve a
+   * `pending` y borra la revisión anterior — un documento cambiado es un
+   * documento sin revisar, aunque la foto sea la misma.
+   */
+  async submitDocument(
+    userId: string,
+    input: { type: string; reference: string; expiresAt?: Date; image?: Buffer }
+  ) {
+    const driver = await Driver.findOne({ userId });
+    if (!driver) throw new AppError('Domiciliario no encontrado', 404);
+
+    const existing = await DriverDocument.findOne({ driverId: driver._id, type: input.type });
+
+    if (!input.image && !existing?.imageUrl) {
+      throw new AppError('Necesitamos una foto del documento para poder revisarlo', 400);
+    }
+
+    const imageUrl = input.image
+      ? await this.storeDocumentImage(input.image)
+      : existing!.imageUrl;
+
+    return DriverDocument.findOneAndUpdate(
+      { driverId: driver._id, type: input.type },
+      {
+        driverId: driver._id,
+        type: input.type,
+        reference: input.reference,
+        expiresAt: input.expiresAt,
+        imageUrl,
+        status: 'pending',
+        reviewedBy: null,
+        reviewedAt: null,
+      },
+      { upsert: true, new: true, runValidators: true }
+    );
   }
 
   async listDocuments(driverId: string) { return DriverDocument.find({ driverId }).sort({ type: 1 }); }
@@ -242,6 +328,219 @@ export class DriverService {
       /** @deprecated Kept so existing clients keep rendering. */
       commissions: orders,
     };
+  }
+
+  /**
+   * La historia, no solo el día de hoy.
+   *
+   * `getDailyEarnings` contesta "cuánto llevo hoy", que es la pregunta de
+   * las seis de la tarde. La otra —"¿me compensa este trabajo?"— solo se
+   * puede contestar mirando varios días juntos, y hasta ahora la app no
+   * tenía forma de hacerla: el endpoint aceptaba una fecha y nadie se la
+   * pasaba nunca.
+   *
+   * Devuelve un día por elemento, incluidos los días en blanco. Un hueco
+   * en la serie es información —ese martes no salió a trabajar— y dejar
+   * que la gráfica una el lunes con el miércoles contaría otra historia.
+   */
+  async getEarningsRange(userId: string, from: Date, to: Date) {
+    const driver = await Driver.findOne({ userId });
+    if (!driver) throw new AppError('Domiciliario no encontrado', 404);
+
+    const start = new Date(from);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(to);
+    end.setHours(23, 59, 59, 999);
+
+    if (start > end) throw new AppError('El rango de fechas está al revés', 400);
+
+    // Un tope duro: sin él, un cliente puede pedir cinco años y traerse
+    // toda la colección a memoria para pintar una gráfica de un mes.
+    const MAX_DAYS = 92;
+    const days = Math.round((end.getTime() - start.getTime()) / 86_400_000);
+    if (days > MAX_DAYS) {
+      throw new AppError(`El rango no puede pasar de ${MAX_DAYS} días`, 400);
+    }
+
+    const { Order } = await import('../models');
+    const orders = await Order.find({
+      driverId: driver._id,
+      deliveredAt: { $gte: start, $lte: end },
+    })
+      .select('orderNumber finance deliveredAt paymentMethod')
+      .sort({ deliveredAt: 1 });
+
+    // Se agrupa en JS y no con `$group` por zona horaria: Mongo agruparía
+    // en UTC y en Colombia (-5) las entregas de después de las 7 de la
+    // tarde caerían en el día siguiente. Un domiciliario que cierra a las
+    // diez vería su mejor tramo contado en la jornada equivocada.
+    const buckets = new Map<string, { orders: number; guaranteedFees: number; tips: number }>();
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      buckets.set(localDay(d), { orders: 0, guaranteedFees: 0, tips: 0 });
+    }
+
+    for (const order of orders) {
+      const key = localDay(order.deliveredAt!);
+      const bucket = buckets.get(key);
+      if (!bucket) continue;
+      bucket.orders += 1;
+      bucket.guaranteedFees += order.finance?.driverDeliveryPayout ?? 0;
+      bucket.tips += order.finance?.tip ?? 0;
+    }
+
+    const series = [...buckets.entries()].map(([date, b]) => ({
+      date,
+      ...b,
+      total: b.guaranteedFees + b.tips,
+    }));
+
+    const totals = series.reduce(
+      (acc, day) => ({
+        orders: acc.orders + day.orders,
+        guaranteedFees: acc.guaranteedFees + day.guaranteedFees,
+        tips: acc.tips + day.tips,
+        total: acc.total + day.total,
+      }),
+      { orders: 0, guaranteedFees: 0, tips: 0, total: 0 }
+    );
+
+    /** Los días en los que de verdad trabajó. Promediar sobre los otros
+     *  mentiría a la baja: un domingo libre no es un domingo malo. */
+    const workedDays = series.filter((d) => d.orders > 0).length;
+
+    return {
+      from: localDay(start),
+      to: localDay(end),
+      series,
+      totals: {
+        ...totals,
+        workedDays,
+        perDay: workedDays ? Math.round(totals.total / workedDays) : 0,
+        perOrder: totals.orders ? Math.round(totals.total / totals.orders) : 0,
+      },
+    };
+  }
+
+  /**
+   * Cómo le está yendo, en números.
+   *
+   * ── Qué NO hace esto ──
+   * Nada de lo que hay aquí entra en el orden de la cascada. El reparto
+   * sigue decidiéndose solo por cercanía y ETA real, y eso es deliberado:
+   * cuando la tasa de aceptación pesa en el ranking —el modelo de Rappi,
+   * donde además el peso es secreto— la gente acepta pedidos que no le
+   * convienen por miedo a caer, y el número deja de medir nada porque todo
+   * el mundo lo infla. Aquí sirve para que el domiciliario se vea a sí
+   * mismo y para que nosotros veamos dónde falla el reparto.
+   *
+   * Las ofertas que se llevó otro quedan fuera del denominador. En las
+   * rondas anchas el mismo pedido se ofrece a varios y solo uno puede
+   * quedárselo: contar como fallo el no haber sido el más rápido sería
+   * penalizar a quien estaba conduciendo por estar conduciendo.
+   */
+  async getPerformance(userId: string, days = 30) {
+    const driver = await Driver.findOne({ userId });
+    if (!driver) throw new AppError('Domiciliario no encontrado', 404);
+
+    const since = new Date(Date.now() - days * 86_400_000);
+
+    const rows = await DriverOffer.aggregate([
+      { $match: { driverId: driver._id, offeredAt: { $gte: since } } },
+      {
+        $group: {
+          _id: '$outcome',
+          count: { $sum: 1 },
+          // Solo tiene sentido donde hubo respuesta; en las vencidas es null
+          // y `$avg` los ignora, que es justo lo que hace falta.
+          avgResponseMs: {
+            $avg: {
+              $cond: [
+                { $ifNull: ['$respondedAt', false] },
+                { $subtract: ['$respondedAt', '$offeredAt'] },
+                null,
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    const by = (outcome: string) => rows.find((r) => r._id === outcome)?.count ?? 0;
+
+    const accepted = by('accepted');
+    const declined = by('declined');
+    const expired = by('expired');
+    const takenByOther = by('taken_by_other');
+
+    /** Las que de verdad estaban en su mano. */
+    const decidable = accepted + declined + expired;
+
+    /**
+     * Cuánto tarda en decidir, sobre aceptadas y rechazadas juntas.
+     *
+     * Ponderado por número de ofertas y no un promedio de promedios: con
+     * 20 aceptaciones rápidas y 2 rechazos lentos, promediar las dos medias
+     * daría casi el mismo peso a los dos rechazos que a las veinte
+     * aceptaciones, y el número saldría mucho peor de lo que fue.
+     */
+    const responded = rows.filter(
+      (r) => (r._id === 'accepted' || r._id === 'declined') && r.avgResponseMs != null
+    );
+    const respondedCount = responded.reduce((n, r) => n + r.count, 0);
+    const avgResponseSeconds = respondedCount
+      ? Math.round(
+          responded.reduce((sum, r) => sum + r.avgResponseMs * r.count, 0) /
+            respondedCount /
+            1000
+        )
+      : null;
+
+    // Las cancelaciones que le constan al domiciliario: pedidos que aceptó
+    // y acabaron cancelados con él encima. No distingue de quién fue la
+    // culpa, así que se enseña como dato y nunca como reproche.
+    const { Order } = await import('../models');
+    const [delivered, cancelledWithDriver] = await Promise.all([
+      Order.countDocuments({ driverId: driver._id, status: 'delivered', deliveredAt: { $gte: since } }),
+      Order.countDocuments({ driverId: driver._id, status: 'cancelled', updatedAt: { $gte: since } }),
+    ]);
+
+    return {
+      days,
+      since,
+      offers: { accepted, declined, expired, takenByOther, total: decidable + takenByOther },
+      /** `null` cuando todavía no hay ofertas: 0 % sería una calumnia. */
+      acceptanceRate: decidable ? Math.round((accepted / decidable) * 100) : null,
+      avgResponseSeconds,
+      deliveries: { completed: delivered, cancelled: cancelledWithDriver },
+      rating: driver.rating,
+      totalDeliveries: driver.totalDeliveries,
+      /**
+       * Que el número no cambia nada, dicho por el servidor.
+       *
+       * Va en la respuesta y no solo en la pantalla para que quede escrito
+       * en un sitio que no se puede cambiar sin desplegar. Si algún día
+       * deja de ser verdad, esta línea tiene que cambiar con ello.
+       */
+      affectsDispatch: false,
+    };
+  }
+
+  /**
+   * Por qué le dicen que no a los pedidos.
+   *
+   * Es la pregunta de operaciones, no la del domiciliario: si la mitad de
+   * los rechazos son `low_pay`, el problema es la tarifa y no la gente.
+   */
+  async declineReasons(days = 30) {
+    const since = new Date(Date.now() - days * 86_400_000);
+
+    const rows = await DriverOffer.aggregate([
+      { $match: { outcome: 'declined', offeredAt: { $gte: since } } },
+      { $group: { _id: '$declineReason', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    return rows.map((r) => ({ reason: r._id ?? 'sin_motivo', count: r.count }));
   }
 
   /**
