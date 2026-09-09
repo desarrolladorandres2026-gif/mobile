@@ -13,8 +13,20 @@ import {
   assertMoney,
   LatLng,
 } from '../utils';
+import { estimateRoute } from './mapbox.service';
 import { couponService, AppliedCoupon } from './coupon.service';
 import { pricingConfigService } from './pricingConfig.service';
+
+/** Cocina, cuando el comercio no declaró tiempo. */
+const DEFAULT_PREP_MINUTES = 25;
+/** Viaje, cuando el negocio no tiene ubicación válida. */
+const DEFAULT_TRAVEL_MINUTES = 15;
+/** Aparcar, subir y entregar. No sale en ninguna ruta y siempre pasa. */
+const HANDOFF_MINUTES = 5;
+/** Ancho del rango como fracción del tiempo estimado. */
+const SPREAD_RATIO = 0.35;
+/** Ancho mínimo del rango: nadie entrega puntual al minuto. */
+const SPREAD_FLOOR_MINUTES = 10;
 
 export interface QuoteItemInput {
   productId: string;
@@ -93,6 +105,10 @@ export interface Quote {
   appliedCommissionBps: number;
 
   // ── Presentation helpers ──
+  /** Extremo optimista de la promesa de entrega, en minutos desde ahora. */
+  etaMinutesMin: number;
+  /** Extremo que se promete al cliente. Es el que hay que cumplir. */
+  etaMinutesMax: number;
   deliveryDistanceKm: number;
   zoneId: Types.ObjectId | null;
   zoneName: string | null;
@@ -287,6 +303,47 @@ export class PricingService {
    * Zone overrides describe the *cost of serving that zone*, so they raise
    * the driver's guarantee; the platform margin then applies on top.
    */
+  /**
+   * La ventana de entrega que se le promete al cliente antes de pagar.
+   *
+   * Hasta ahora el checkout no decía ningún tiempo: se pagaba sin saber
+   * cuándo llegaba la comida, que es la información que más pesa en la
+   * decisión de comprar.
+   *
+   * Se compone de tres piezas, y ninguna es adivinada:
+   *  - **Cocina**: `business.deliveryTime`, los minutos que declara el
+   *    comercio. Es un dato blando —lo escribe él y nadie lo contrasta—
+   *    pero es el único que existe hoy.
+   *  - **Viaje**: `estimateRoute`, que es matemática pura sobre la
+   *    distancia con factor de rodeo. **No llama a Mapbox a propósito**:
+   *    el quote se recalcula con cada cambio del carrito, y meter una
+   *    petición de red ahí sería pagar y esperar por cada tecla.
+   *  - **Puerta**: un margen fijo para aparcar, subir y entregar, que no
+   *    aparece en ninguna ruta y siempre existe.
+   *
+   * Se devuelve como rango y no como número exacto porque un número exacto
+   * es una promesa que se incumple el 90% de las veces. El extremo alto es
+   * el que se enseña y el que hay que cumplir.
+   */
+  deliveryWindow(business: IBusiness, destination: LatLng): { min: number; max: number } {
+    const origin = fromGeoPoint(business.location);
+
+    const prepMinutes = Math.max(0, business.deliveryTime || DEFAULT_PREP_MINUTES);
+    const travelMinutes = origin
+      ? Math.round(estimateRoute(origin, destination).durationSeconds / 60)
+      : DEFAULT_TRAVEL_MINUTES;
+
+    const min = prepMinutes + travelMinutes + HANDOFF_MINUTES;
+
+    // La incertidumbre crece con el tamaño del viaje: en un pedido de 15
+    // minutos un rango de 10 es absurdo, y en uno de una hora un rango de
+    // 10 es optimismo. Con suelo, porque ningún pedido es puntual al
+    // minuto.
+    const spread = Math.max(SPREAD_FLOOR_MINUTES, Math.round(min * SPREAD_RATIO));
+
+    return { min, max: min + spread };
+  }
+
   async priceDelivery(
     business: IBusiness,
     destination: LatLng,
@@ -423,6 +480,7 @@ export class PricingService {
     );
 
     const delivery = await this.priceDelivery(business, destination, cfg);
+    const eta = this.deliveryWindow(business, destination);
 
     const zoneMinOrder = delivery.zoneId
       ? (await Zone.findById(delivery.zoneId))?.minOrder ?? 0
@@ -601,6 +659,8 @@ export class PricingService {
       pricingConfigVersion: cfg.version,
       appliedCommissionBps,
 
+      etaMinutesMin: eta.min,
+      etaMinutesMax: eta.max,
       deliveryDistanceKm: delivery.distanceKm,
       zoneId: delivery.zoneId,
       zoneName: delivery.zoneName,

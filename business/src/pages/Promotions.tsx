@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Plus, Tag, Power, Percent, Truck, X } from 'lucide-react';
+import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { AlertCircle, Plus, Tag, Power, X } from 'lucide-react';
 import api from '../services/api';
+import { CouponIllustration, DeliveryIllustration } from '../components/illustrations';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 
@@ -40,6 +41,21 @@ const TYPE_LABELS: Record<Coupon['type'], string> = {
   fixed: 'Monto fijo',
   free_delivery: 'Envío gratis',
 };
+
+/**
+ * Mini-ilustración por tipo de promoción, en lugar del icono lucide genérico.
+ * Un descuento (porcentaje o monto) es un cupón; el envío gratis es otra cosa.
+ *
+ * TODO(diseño): elegir la ilustración de `free_delivery`. `DeliveryIllustration`
+ * (moto de reparto) es lo más literal, pero `PackageIllustration` —que ya se usa
+ * en el Dashboard— podría leer mejor como "pedido sin costo de envío" y mantener
+ * el set del panel más cerrado. Son 1–2 líneas; decide cuál cuenta mejor la
+ * promoción de un vistazo en la lista.
+ */
+function couponArt(type: Coupon['type']): ComponentType<{ size?: number }> {
+  if (type === 'free_delivery') return DeliveryIllustration;
+  return CouponIllustration;
+}
 
 const emptyForm = {
   code: '',
@@ -279,6 +295,7 @@ export default function Promotions() {
             const spent = coupon.budgetSpent ?? 0;
             const budget = coupon.budgetLimit ?? 0;
             const exhausted = budget > 0 && spent >= budget;
+            const CouponArt = couponArt(coupon.type);
 
             return (
               <div
@@ -288,12 +305,8 @@ export default function Promotions() {
                 }`}
               >
                 <div className="flex items-start gap-4 min-w-0">
-                  <div className="w-12 h-12 rounded-xl bg-[var(--color-sidebar-hover)] flex items-center justify-center flex-shrink-0">
-                    {coupon.type === 'free_delivery' ? (
-                      <Truck className="w-5 h-5 text-white" />
-                    ) : (
-                      <Percent className="w-5 h-5 text-white" />
-                    )}
+                  <div className="w-12 h-12 rounded-xl bg-[var(--color-sidebar-hover)] flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    <CouponArt size={34} />
                   </div>
 
                   <div className="min-w-0 space-y-1.5">

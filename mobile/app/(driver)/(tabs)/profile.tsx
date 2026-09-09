@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import {
   Text, Icon, Card, Badge, Notice, SectionHeader,
 } from '../../../components/ui';
+import { EmergencyContactSheet } from '../../../components/domain/EmergencyContactSheet';
 import { ContentIcon, type ContentIllustrationName } from '../../../components/illustrations';
 import { Avatar } from '../../../components/domain/Avatar';
 import { useAuthStore } from '../../../stores/authStore';
@@ -28,6 +29,7 @@ export default function DriverProfileScreen() {
   const { user, logout, setUser } = useAuthStore();
   const { data: profile } = useDriverProfile();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [emergencyOpen, setEmergencyOpen] = useState(false);
   const [avatarError, setAvatarError] = useState('');
 
   const pickAvatar = async () => {
@@ -182,6 +184,56 @@ export default function DriverProfileScreen() {
               </View>
               <Icon name="siguiente" size="sm" color={c.textMuted} />
             </Pressable>
+
+            {/* El boton de panico ya pedia esto ("Agregalo en tu perfil") y
+                no habia donde ponerlo. Va en Soporte y no en Preferencias
+                porque no es un ajuste: es a quien llamamos si algo va mal. */}
+            <Pressable
+              onPress={() => { tap('light'); setEmergencyOpen(true); }}
+              accessibilityRole="button"
+              accessibilityLabel={
+                profile?.emergencyContact?.phone
+                  ? `Contacto de emergencia: ${profile.emergencyContact.name}. Toca para cambiarlo`
+                  : 'Agregar contacto de emergencia'
+              }
+              style={styles.menuRow}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceLight }]}>
+                <ContentIcon name="seguridad" size={26} />
+              </View>
+              <View style={styles.flex}>
+                <Text v="strongS">Contacto de emergencia</Text>
+                <Text v="caption" tone="textMuted">
+                  {profile?.emergencyContact?.phone
+                    ? profile.emergencyContact.name
+                    : 'Nadie a quien avisar si usas el botón de emergencia'}
+                </Text>
+              </View>
+              {!profile?.emergencyContact?.phone ? (
+                <Badge label="Falta" tone="warning" />
+              ) : (
+                <Icon name="siguiente" size="sm" color={c.textMuted} />
+              )}
+            </Pressable>
+
+            {/* El admin ya tenia la cola de revision de documentos
+                (GET /drivers/documents/queue) y ningun documento le llegaba
+                nunca: la app no tenia por donde enviarlos. */}
+            <Pressable
+              onPress={() => { tap('light'); router.push('/(driver)/documents'); }}
+              accessibilityRole="button"
+              accessibilityLabel="Mis documentos: cédula, licencia, SOAT, tecnomecánica y tarjeta de propiedad"
+              style={styles.menuRow}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceLight }]}>
+                <ContentIcon name="documento" size={26} />
+              </View>
+              <View style={styles.flex}>
+                <Text v="strongS">Mis documentos</Text>
+                <Text v="caption" tone="textMuted">Cédula, licencia, SOAT y más</Text>
+              </View>
+              <Icon name="siguiente" size="sm" color={c.textMuted} />
+            </Pressable>
           </Card>
         </View>
 
@@ -288,6 +340,12 @@ export default function DriverProfileScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      <EmergencyContactSheet
+        visible={emergencyOpen}
+        onClose={() => setEmergencyOpen(false)}
+        current={profile?.emergencyContact}
+      />
     </SafeAreaView>
   );
 }

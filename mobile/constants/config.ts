@@ -83,7 +83,29 @@ export const ACTIVE_ORDER_STATUSES = [
 ] as const;
 
 /**
- * Número de soporte de Zipp (WhatsApp / llamada).
- * Se incluye el código de país 57 donde sea necesario.
+ * Contacto de Zipp: el mismo número para clientes, domiciliarios y comercios.
+ *
+ * Se exporta en tres formas porque cada destino pide una distinta. Antes cada
+ * pantalla armaba la suya a mano — el prefijo `57` estaba copiado en cuatro
+ * sitios, así que "el número" vivía repartido y cambiarlo obligaba a
+ * acordarse de todos.
  */
-export const SUPPORT_PHONE = '3001234567';
+
+/** Nacional, sin indicativo. Lo que se marca dentro de Colombia (`tel:`). */
+export const SUPPORT_PHONE = '3112421673';
+
+/** E.164, con indicativo de país. Lo que piden WhatsApp y los enlaces `wa.me`. */
+export const SUPPORT_PHONE_E164 = '+573112421673';
+
+/** Agrupado para leerlo de un vistazo. Solo para mostrar, nunca para marcar. */
+export const SUPPORT_PHONE_DISPLAY = '311 242 1673';
+
+/**
+ * Enlace de WhatsApp a soporte, con el mensaje ya escrito.
+ *
+ * Usa el esquema `whatsapp://`, que abre la app instalada sin pasar por el
+ * navegador. Quien lo llame necesita un plan B: si WhatsApp no está
+ * instalado `Linking.openURL` rechaza y no pasa nada visible.
+ */
+export const supportWhatsAppUrl = (text: string) =>
+  `whatsapp://send?phone=${SUPPORT_PHONE_E164.slice(1)}&text=${encodeURIComponent(text)}`;

@@ -2,12 +2,14 @@ import { View, StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
 import { TabBar } from '../../../components/nav/TabBar';
 import { OfflineBanner } from '../../../components/ui';
+import { useNetworkStatus } from '../../../hooks/useNetwork';
 import { useOrderRealtime } from '../../../hooks/useRealtime';
 import { useTheme } from '../../../hooks/useTheme';
 
 export default function DriverTabsLayout() {
   const { c } = useTheme();
   const { connected } = useOrderRealtime();
+  const { online } = useNetworkStatus();
 
   return (
     <View style={[styles.root, { backgroundColor: c.background }]}>
@@ -21,7 +23,14 @@ export default function DriverTabsLayout() {
         <Tabs.Screen name="profile" options={{ title: 'Perfil' }} />
       </Tabs>
 
-      <OfflineBanner visible={!connected} />
+      {/* La red manda sobre el socket.
+          Antes esto era `!connected` del socket, que es otra cosa: decia
+          "sin conexion" mientras negociaba con wifi perfecto, y se callaba
+          cuando de verdad no habia red. Ahora el aviso sale cuando falta la
+          red, o cuando hay red pero el canal en vivo lleva caido lo
+          suficiente como para que el pedido ya no se actualice solo --
+          que para el usuario es el mismo problema. */}
+      <OfflineBanner visible={!online || !connected} />
     </View>
   );
 }

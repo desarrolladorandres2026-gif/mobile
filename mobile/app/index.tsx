@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { Image as ExpoImage } from 'expo-image';
 import { ZippSplashLoader } from '../components/brand/ZippSplashLoader';
 import { AdSplash } from '../components/domain/AdSplash';
 import { useAuthStore } from '../stores/authStore';
 import { usePrefsStore } from '../stores/prefsStore';
-import { adsApi, type ActiveAd } from '../services/endpoints';
+import { adsApi, addressApi, homeCategoriesApi, type ActiveAd } from '../services/endpoints';
 import { withTimeout } from '../lib/withTimeout';
 
 /** Tiempo de bienvenida para apreciar la marca y el efecto de reflejo metálico. */
@@ -34,8 +35,47 @@ async function prepareAd(): Promise<ActiveAd | null> {
   }
 }
 
+/**
+ * Calienta la caché mientras se ve la marca.
+ *
+ * Los 2,2 segundos de bienvenida eran tiempo regalado: no se precargaba
+ * absolutamente nada, así que el Inicio empezaba sus siete peticiones
+ * **después**, con el usuario ya mirando esqueletos. Aquí se solapan con una
+ * espera que iba a ocurrir de todos modos.
+ *
+ * `prefetchQuery` y no `fetchQuery`: prefetch no lanza si algo falla, que es
+ * justo lo que se quiere en el arranque. Un fallo aquí no debe impedir
+ * entrar a la app — el Inicio volverá a pedirlo y enseñará su propio error.
+ *
+ * Las claves tienen que coincidir **exactamente** con las de los hooks o el
+ * trabajo se descarta en silencio y se hace dos veces.
+ *
+ * Por eso **no** se precarga el catálogo: Inicio lo pide como
+ * `['businesses', { lng, lat }]`, con unas coordenadas que aquí todavía no
+ * se conocen. Pedirlo sin ellas crearía una segunda clave y descargaría el
+ * catálogo entero dos veces — exactamente el problema que `useBusinesses`
+ * acaba de resolver esperando a las direcciones.
+ *
+ * Se precargan las direcciones, que son las que traen esas coordenadas y por
+ * tanto lo que desbloquea todo lo demás, y las categorías del Inicio, que no
+ * dependen de nada.
+ */
+function warmCache(queryClient: ReturnType<typeof useQueryClient>): void {
+  void queryClient.prefetchQuery({
+    queryKey: ['addresses'],
+    queryFn: addressApi.getAll,
+  });
+  void queryClient.prefetchQuery({
+    // La clave es `homeCategories`, no `home-categories`: con la clave mal
+    // el prefetch se descarta en silencio y el trabajo se hace dos veces.
+    queryKey: ['homeCategories'],
+    queryFn: homeCategoriesApi.getAll,
+  });
+}
+
 export default function SplashScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { isAuthenticated, user } = useAuthStore();
   const onboardingSeen = usePrefsStore((s) => s.onboardingSeen);
   const [ad, setAd] = useState<ActiveAd | null>(null);
@@ -75,6 +115,10 @@ export default function SplashScreen() {
     const maybeReady = () => {
       if (brandHoldDone && adCheckDone && !cancelled) setReady(true);
     };
+
+    // Solo tiene sentido para un cliente con sesión: un domiciliario no va a
+    // ver el catálogo, y sin sesión estas peticiones darían 401.
+    if (isAuthenticated && user && user.role === 'client') warmCache(queryClient);
 
     const holdTimer = setTimeout(() => {
       brandHoldDone = true;

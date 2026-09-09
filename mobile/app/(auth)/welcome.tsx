@@ -61,19 +61,21 @@ export default function WelcomeScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const isLast = index === SLIDES.length - 1;
 
-  // TODO(tú): salida de la intro en modo replay.
-  //
-  // El bug que estamos arreglando: al ver la intro otra vez, el usuario
-  // terminaba en /(auth)/login o /(auth)/register y sentía que le habían
-  // cerrado la sesión (aunque authStore nunca se toca).
-  //
-  // En replay NO llames a completeOnboarding() (ya está en true) ni navegues
-  // a rutas de (auth). Decisión tomada: volver al Inicio del cliente.
-  // Son 2-3 líneas: feedback háptico con tap(...) + navegar a
-  // '/(client)/(tabs)/home'. Usa router.replace (no push): la intro no debe
-  // quedar en el historial detrás de la app.
+  /**
+   * Salida de la intro cuando se abre desde Ajustes, con sesión ya iniciada.
+   *
+   * No se llama a `completeOnboarding()` —ya está en true— ni se navega a
+   * ninguna ruta de `(auth)`: terminar en login o registro le hacía sentir
+   * al usuario que le habían cerrado la sesión, aunque `authStore` no se
+   * toque en ningún momento.
+   *
+   * `replace` y no `push` para que la intro no quede en el historial detrás
+   * de la app: volver atrás desde Inicio debe salir, no reabrir la
+   * introducción.
+   */
   const exitReplay = () => {
-    // tu código aquí
+    tap('light');
+    router.replace('/(client)/(tabs)/home');
   };
 
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {

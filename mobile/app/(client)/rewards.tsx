@@ -6,7 +6,7 @@ import {
 import { ContentIcon } from '../../components/illustrations';
 import { couponBenefit } from '../../components/domain/CouponCard';
 import { useZippStats } from '../../hooks/useUsual';
-import { usePublicCoupons, useLoyalty, useRedeemPoints } from '../../hooks/useApi';
+import { usePublicCoupons, useLoyalty, useRedeemPoints, useReferrals } from '../../hooks/useApi';
 import { useAuthStore } from '../../stores/authStore';
 import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing, FontSize } from '../../theme/tokens';
@@ -26,13 +26,24 @@ export default function RewardsScreen() {
   const points = loyalty?.balance ?? 0;
   const { data: coupons = [] } = usePublicCoupons();
 
+  const referrals = useReferrals();
+
+  /**
+   * Comparte el código **propio**, no uno fijo.
+   *
+   * Antes se mandaba `BIENVENIDO`, escrito a mano en esta pantalla: nadie
+   * sabía quién había traído a quién, y quien invitaba no cobraba nunca. El
+   * backend lleva desde el Bloque 7 con código por usuario y recompensa
+   * pagada cuando el invitado **compra** — todo eso estaba y no llegaba aquí.
+   */
   const invite = async () => {
+    if (!referrals.data?.code) return;
     tap('light');
     try {
       await Share.share({
         message:
-          `Pide a domicilio con Zipp. Usa el código BIENVENIDO en tu primer pedido ` +
-          `y te descuentan el 20%. Yo ya llevo ${stats.orderCount} ${stats.orderCount === 1 ? 'pedido' : 'pedidos'}.`,
+          `Pide a domicilio con Zipp. Entra con mi código ${referrals.data.code} ` +
+          `y los dos ganamos.`,
       });
     } catch {
       // Cancelar la hoja de compartir no es un error.
@@ -251,11 +262,39 @@ export default function RewardsScreen() {
                 : 'Comparte Zipp con amigos'}
             </Text>
             <Text v="bodyM" tone="textSecondary" center>
-              Quien aún no ha pedido tiene 20% de descuento en su primer pedido con el
-              código BIENVENIDO.
+              {referrals.data
+                ? `Cuando quien invitas hace su primer pedido, te damos ${referrals.data.pointsPerReferral.toLocaleString('es-CO')} puntos.`
+                : 'Invita a alguien y gana puntos cuando haga su primer pedido.'}
             </Text>
+
+            {referrals.data ? (
+              <>
+                {/* El código a la vista y en mono: mucha gente lo dicta por
+                    teléfono en vez de compartir el enlace. */}
+                <View
+                  style={[
+                    styles.codeBox,
+                    { backgroundColor: c.primarySoft, borderColor: c.primary },
+                  ]}
+                >
+                  <Text v="code" color={c.primaryText}>{referrals.data.code}</Text>
+                </View>
+
+                {referrals.data.invited > 0 ? (
+                  <Text v="caption" tone="textMuted" center>
+                    {referrals.data.invited}{' '}
+                    {referrals.data.invited === 1 ? 'persona ha entrado' : 'personas han entrado'}{' '}
+                    con tu código
+                    {referrals.data.rewarded > 0
+                      ? ` · ${referrals.data.rewarded} ya ${referrals.data.rewarded === 1 ? 'pidió' : 'pidieron'}`
+                      : ''}
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
+
             <Button
-              title="Compartir por WhatsApp"
+              title="Compartir mi código"
               icon="compartir"
               full
               onPress={invite}
@@ -269,6 +308,14 @@ export default function RewardsScreen() {
 }
 
 const styles = StyleSheet.create({
+  codeBox: {
+    alignSelf: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+  },
   redeemBtn: { marginTop: Spacing.md, alignSelf: 'stretch' },
   flex: { flex: 1 },
   content: {

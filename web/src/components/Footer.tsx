@@ -2,6 +2,13 @@ import { ZippWordmark } from './ZippMark';
 
 const BUSINESS_URL = import.meta.env.VITE_BUSINESS_URL || 'http://localhost:3002';
 
+/**
+ * Contacto de Zipp. El mismo número que atiende dentro de la app móvil y del
+ * panel de comercios; aquí se muestra agrupado y se marca sin espacios.
+ */
+const SUPPORT_PHONE = '3112421673';
+const SUPPORT_PHONE_DISPLAY = '311 242 1673';
+
 export default function Footer() {
   return (
     <footer className="relative border-t border-white/10 bg-[#06080C] pt-20 pb-14 text-white">
@@ -62,7 +69,9 @@ export default function Footer() {
           <div className="flex items-center gap-6 text-zinc-500">
             <span className="hover:text-zinc-300 cursor-pointer">TÉRMINOS</span>
             <span className="hover:text-zinc-300 cursor-pointer">PRIVACIDAD</span>
-            <span className="hover:text-zinc-300 cursor-pointer">SOPORTE 24/7</span>
+            <a href={`tel:${SUPPORT_PHONE}`} className="hover:text-zinc-300">
+              SOPORTE 24/7 · {SUPPORT_PHONE_DISPLAY}
+            </a>
           </div>
         </div>
       </div>

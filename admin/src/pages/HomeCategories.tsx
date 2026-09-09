@@ -6,6 +6,7 @@ import {
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
+import { categoryIllustration } from '../components/illustrations';
 
 type CategoryStatus = 'active' | 'inactive';
 
@@ -245,7 +246,9 @@ export default function HomeCategories() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => (
+              {filtered.map((c) => {
+                const CategoryArt = categoryIllustration(c.key);
+                return (
                 <tr
                   key={c._id}
                   draggable={canDrag}
@@ -267,7 +270,7 @@ export default function HomeCategories() {
                       {c.imageUrl ? (
                         <img src={c.imageUrl} alt={c.name} className="w-full h-full object-cover" />
                       ) : (
-                        <LayoutGrid className="w-4 h-4 text-[var(--color-text-muted)]" />
+                        <CategoryArt size={28} />
                       )}
                     </div>
                   </td>
@@ -316,7 +319,8 @@ export default function HomeCategories() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
 

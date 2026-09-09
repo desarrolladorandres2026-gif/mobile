@@ -147,6 +147,7 @@ export class OffersService {
           isAvailable: 1,
           businessId: '$business._id',
           businessName: '$business.name',
+          businessCategory: '$business.category',
           businessRating: '$business.rating',
           businessDeliveryTime: '$business.deliveryTime',
           businessLocation: '$business.location',

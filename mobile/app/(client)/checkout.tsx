@@ -815,6 +815,37 @@ export default function CheckoutScreen() {
             />
           </View>
 
+          {/* ── Cuándo llega ──
+              Hasta ahora el checkout no decía ningún tiempo: se pagaba sin
+              saber cuándo llegaba la comida. Va antes del desglose a
+              propósito — es lo que más pesa en la decisión, así que se ve
+              antes que el total y no después. */}
+          <Card style={styles.eta}>
+            <View style={[styles.etaIcon, { backgroundColor: c.primarySoft }]}>
+              <Icon name="minutos" size="md" color={c.primaryText} />
+            </View>
+            <View style={styles.flex}>
+              <Text v="label" tone="textMuted">
+                {scheduledFor ? 'Programado para' : 'Llega en'}
+              </Text>
+              {quote ? (
+                <Text v="titleS">
+                  {scheduledFor
+                    ? scheduledFor.toLocaleString('es-CO', {
+                        weekday: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : `${quote.etaMinutesMin}–${quote.etaMinutesMax} min`}
+                </Text>
+              ) : quoting ? (
+                <Skeleton width={96} height={18} />
+              ) : (
+                <Text v="titleS" tone="textMuted">—</Text>
+              )}
+            </View>
+          </Card>
+
           {/* ── Desglose del servidor ── */}
           <Card style={styles.breakdown}>
             <Text v="label" tone="textMuted">El detalle</Text>
@@ -976,6 +1007,11 @@ function PaymentOption({
 }
 
 const styles = StyleSheet.create({
+  eta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  etaIcon: {
+    width: 40, height: 40, borderRadius: BorderRadius.full,
+    alignItems: 'center', justifyContent: 'center',
+  },
   optionsCard: { gap: Spacing.md },
   optionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   optionBody: { gap: Spacing.sm },

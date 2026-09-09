@@ -3,7 +3,7 @@ import { palette } from '../../theme/tokens';
 import type { IllustrationProps } from './types';
 
 /** Droguerías: mini frasco con cruz médica y etiqueta, blob dorado a juego con el set. */
-export function PharmacyIllustration({ size = 48 }: IllustrationProps) {
+export function PharmacyIllustration({ size = 48, bleed = false }: IllustrationProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64" fill="none">
       <Defs>
@@ -17,7 +17,9 @@ export function PharmacyIllustration({ size = 48 }: IllustrationProps) {
         </LinearGradient>
       </Defs>
 
-      <Circle cx="32" cy="32" r="28" fill="url(#phBlob)" />
+      {bleed
+        ? <Rect x="0" y="0" width="64" height="64" fill="url(#phBlob)" />
+        : <Circle cx="32" cy="32" r="28" fill="url(#phBlob)" />}
       <Ellipse cx="32" cy="46" rx="12" ry="3.4" fill={palette.mango700} opacity={0.14} />
 
       {/* tapa */}

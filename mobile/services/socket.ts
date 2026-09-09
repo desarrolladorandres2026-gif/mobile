@@ -1,3 +1,4 @@
+import { AppState, type NativeEventSubscription } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../constants';
 import { useAuthStore } from '../stores/authStore';
@@ -23,6 +24,7 @@ export interface VerificationRequest {
 
 class SocketService {
   private socket: Socket | null = null;
+  private appStateSub: NativeEventSubscription | null = null;
 
   connect() {
     if (!useAuthStore.getState().accessToken) return;
@@ -47,8 +49,25 @@ class SocketService {
       auth: (cb) => cb({ token: useAuthStore.getState().accessToken }),
       transports: ['websocket'],
       reconnection: true,
-      reconnectionAttempts: 10,
+      /**
+       * Sin tope de reintentos.
+       *
+       * Antes eran 10, que con el retroceso exponencial se agotan en menos
+       * de un minuto. Un túnel, un ascensor o un par de minutos en segundo
+       * plano bastaban para que el socket **se rindiera para siempre**: la
+       * pantalla de seguimiento se quedaba congelada mostrando "Sin señal"
+       * con wifi perfecto, y solo se arreglaba cerrando la app.
+       *
+       * En una app de domicilios la conexión no es un lujo que se intenta
+       * un rato: es cómo el cliente sabe dónde está su pedido. Se reintenta
+       * mientras haga falta, con el retroceso acotado abajo para no castigar
+       * la batería.
+       */
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 2000,
+      /** Techo del retroceso: sin él crecería hasta minutos entre intentos. */
+      reconnectionDelayMax: 15000,
+      randomizationFactor: 0.5,
     });
 
     this.socket.on('connect', () => {
@@ -65,9 +84,31 @@ class SocketService {
       // error: solo ensuciaba la consola con algo que no requiere acción.
       if (__DEV__) console.log('Socket reintentando:', error.message);
     });
+
+    this.watchAppState();
+  }
+
+  /**
+   * Reconecta al volver a primer plano.
+   *
+   * El sistema operativo congela los temporizadores de una app en segundo
+   * plano, así que el reintento programado por socket.io puede no llegar a
+   * dispararse nunca. Volver a la app es justo el momento en que el usuario
+   * quiere ver su pedido al día, así que se fuerza el intento en vez de
+   * esperar a que el retroceso decida.
+   */
+  private watchAppState() {
+    if (this.appStateSub) return;
+
+    this.appStateSub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      if (this.socket && !this.socket.connected) this.socket.connect();
+    });
   }
 
   disconnect() {
+    this.appStateSub?.remove();
+    this.appStateSub = null;
     this.socket?.removeAllListeners();
     this.socket?.disconnect();
     this.socket = null;
@@ -105,6 +146,30 @@ class SocketService {
 
   offOrderAvailable(callback: (data: any) => void) {
     this.socket?.off('order:available', callback);
+  }
+
+  /**
+   * El reparto lleva varias vueltas sin que nadie acepte.
+   *
+   * El servidor emitía esto solo a la sala `admin`: quien había pagado se
+   * quedaba mirando una pantalla que no cambiaba, sin saber si su pedido
+   * seguía vivo. Ahora también le llega a él.
+   */
+  onDispatchStalled(callback: (data: any) => void) {
+    this.socket?.on('order:dispatch:stalled', callback);
+  }
+
+  offDispatchStalled(callback: (data: any) => void) {
+    this.socket?.off('order:dispatch:stalled', callback);
+  }
+
+  /** Soporte respondió un PQRS. Backend: `support.service.ts:96`. */
+  onSupportReplied(callback: (data: any) => void) {
+    this.socket?.on('support:replied', callback);
+  }
+
+  offSupportReplied(callback: (data: any) => void) {
+    this.socket?.off('support:replied', callback);
   }
 
   // ── Oferta de reparto ──

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, memo } from 'react';
 import {
   View, ScrollView, Pressable, StyleSheet, Share, Linking, Platform, TextInput,
 } from 'react-native';
@@ -78,6 +78,13 @@ export default function BusinessScreen() {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [productQuery, setProductQuery] = useState('');
   const [selected, setSelected] = useState<Product | null>(null);
+
+  // Estable, para que el `memo` de `ProductRow` sirva: con una funcion nueva
+  // en cada render, las cuarenta filas se volvian a renderizar igual.
+  const selectProduct = useCallback((product: Product) => {
+    tap('light');
+    setSelected(product);
+  }, []);
 
   const { toggle: toggleFavorite, isFavorite } = useFavorites();
   const bottomInset = useBottomInset();
@@ -358,7 +365,7 @@ export default function BusinessScreen() {
                     category={business.category}
                     disabled={!status.open}
                     likePercent={likeRatio(sentiment[product._id])}
-                    onPress={() => { tap('light'); setSelected(product); }}
+                    onPress={selectProduct}
                   />
                 ))}
               </View>
@@ -372,7 +379,7 @@ export default function BusinessScreen() {
                 category={business.category}
                 disabled={!status.open}
                 likePercent={likeRatio(sentiment[product._id])}
-                onPress={() => { tap('light'); setSelected(product); }}
+                onPress={selectProduct}
               />
             ))}
             </>
@@ -440,14 +447,26 @@ function SectionTab({
   );
 }
 
-function ProductRow({
+/**
+ * Una fila de la carta.
+ *
+ * Va memoizada, y `onPress` recibe el producto en vez de venir ya cerrada
+ * sobre él. Las dos cosas hacen falta juntas: con la función inline que
+ * había antes, la prop cambiaba en cada render del padre y el `memo` no
+ * habría servido de nada.
+ *
+ * Importa más de lo que parece porque la carta se pinta entera —cuarenta
+ * platos son cuarenta filas montadas de golpe— y cada tecla del buscador de
+ * la carta re-renderizaba las cuarenta.
+ */
+const ProductRow = memo(function ProductRow({
   product, accent, category, disabled, onPress, likePercent,
 }: {
   product: Product;
   accent: string;
   category: string;
   disabled: boolean;
-  onPress: () => void;
+  onPress: (product: Product) => void;
   /** Pulgares arriba en porcentaje. Null si aún no hay votos suficientes. */
   likePercent?: number | null;
 }) {
@@ -458,7 +477,7 @@ function ProductRow({
 
   return (
     <Pressable
-      onPress={unavailable ? undefined : onPress}
+      onPress={unavailable ? undefined : () => onPress(product)}
       disabled={unavailable}
       accessibilityRole="button"
       accessibilityLabel={`${product.name}. ${money(product.discountPrice ?? product.price)}${!product.isAvailable ? '. Agotado' : ''}`}
@@ -534,7 +553,7 @@ function ProductRow({
       ) : null}
     </Pressable>
   );
-}
+});
 
 /** Barra de "mi coronita": lo que ya lleva de esta tienda, siempre a la mano. */
 function StoreCartBar({
@@ -614,6 +633,15 @@ function ProductSheet({
   const [notes, setNotes] = useState('');
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
+
+  /**
+   * `favoritesApi` ya soportaba `kind: 'product'` desde siempre —el mismo
+   * verbo que el corazón del negocio, mismo endpoint— y ninguna pantalla
+   * lo usaba: solo se podían guardar negocios enteros, nunca un plato
+   * concreto.
+   */
+  const { toggle: toggleProductFavorite, isFavorite: isProductFavorite } = useFavorites();
+  const productFavorite = isProductFavorite(product._id, 'product');
 
   /** La principal primero: es la que se tocó para abrir el visor. */
   const gallery = useMemo(() => productGallery(product), [product]);
@@ -736,7 +764,19 @@ function ProductSheet({
       />
 
       <View style={styles.sheetHead}>
-        <Text v="dataL" tone="primaryText">{money(unitPrice)}</Text>
+        <View style={styles.sheetHeadRow}>
+          <Text v="dataL" tone="primaryText">{money(unitPrice)}</Text>
+          <IconButton
+            icon="favorito"
+            label={productFavorite ? 'Quitar este plato de favoritos' : 'Guardar este plato en favoritos'}
+            tone={productFavorite ? 'danger' : 'neutral'}
+            filled={productFavorite}
+            onPress={() => {
+              tap(productFavorite ? 'light' : 'success');
+              toggleProductFavorite(product._id, 'product');
+            }}
+          />
+        </View>
         {product.description ? (
           <Text v="bodyM" tone="textSecondary">{product.description}</Text>
         ) : null}
@@ -950,6 +990,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   sheetHead: { gap: Spacing.sm },
+  sheetHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sheetSection: { gap: Spacing.sm },
   extras: { borderRadius: BorderRadius.lg, borderWidth: 1, overflow: 'hidden' },
   extra: {

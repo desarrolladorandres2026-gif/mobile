@@ -3,7 +3,7 @@ import { palette } from '../../theme/tokens';
 import type { IllustrationProps } from './types';
 
 /** Paquete / pedido: mini caja de cartón con cinta azul y etiqueta, mismo blob y luz del set. */
-export function PackageIllustration({ size = 48 }: IllustrationProps) {
+export function PackageIllustration({ size = 48, bleed = false }: IllustrationProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64" fill="none">
       <Defs>
@@ -17,7 +17,9 @@ export function PackageIllustration({ size = 48 }: IllustrationProps) {
         </LinearGradient>
       </Defs>
 
-      <Circle cx="32" cy="32" r="28" fill="url(#pkgBlob)" />
+      {bleed
+        ? <Rect x="0" y="0" width="64" height="64" fill="url(#pkgBlob)" />
+        : <Circle cx="32" cy="32" r="28" fill="url(#pkgBlob)" />}
       <Ellipse cx="32" cy="48" rx="13" ry="3" fill={palette.mango700} opacity={0.14} />
 
       {/* tapa */}

@@ -26,6 +26,9 @@ export type { InputProps, OtpInputProps } from './Input';
 export { Badge, PulseDot, StatusPill, Chip, MetaRow, CountBadge, CatalogBadge, CatalogBadges } from './Badge';
 export type { BadgeProps, BadgeTone, ChipProps, MetaItem } from './Badge';
 
+export { CategoryChip } from './CategoryChip';
+export type { CategoryChipProps } from './CategoryChip';
+
 export {
   EmptyState, ErrorState, Notice,
   Skeleton, BusinessCardSkeleton, LoadingScreen,

@@ -1,9 +1,9 @@
-import Svg, { Circle, Ellipse, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Ellipse, Rect, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { palette } from '../../theme/tokens';
 import type { IllustrationProps } from './types';
 
 /** Cafeterías: mini taza humeante con platillo, mismo blob y luz del resto del set. */
-export function CafeIllustration({ size = 48 }: IllustrationProps) {
+export function CafeIllustration({ size = 48, bleed = false }: IllustrationProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64" fill="none">
       <Defs>
@@ -21,7 +21,9 @@ export function CafeIllustration({ size = 48 }: IllustrationProps) {
         </LinearGradient>
       </Defs>
 
-      <Circle cx="32" cy="32" r="28" fill="url(#cafeBlob)" />
+      {bleed
+        ? <Rect x="0" y="0" width="64" height="64" fill="url(#cafeBlob)" />
+        : <Circle cx="32" cy="32" r="28" fill="url(#cafeBlob)" />}
       <Ellipse cx="30" cy="47" rx="14" ry="3.2" fill={palette.mango700} opacity={0.14} />
 
       {/* vapor */}

@@ -289,6 +289,8 @@ const DriverOrderCard = memo(function DriverOrderCard({
           {/* Origen */}
           <Pressable
             onPress={() => onOpenMap(originAddress, originLat, originLng)}
+            accessibilityRole="button"
+            accessibilityLabel={`${errand ? 'Comprar en' : 'Recoger en'} ${originAddress}. Abre la navegación`}
             style={styles.routeRow}
           >
             <View style={[styles.pointDot, { backgroundColor: c.primary }]} />
@@ -304,6 +306,8 @@ const DriverOrderCard = memo(function DriverOrderCard({
           {/* Destino */}
           <Pressable
             onPress={() => onOpenMap(order.deliveryAddress, order.deliveryLatitude, order.deliveryLongitude)}
+            accessibilityRole="button"
+            accessibilityLabel={`Entregar a ${client?.name || 'cliente'} en ${order.deliveryAddress}. Abre la navegación`}
             style={styles.routeRow}
           >
             <View style={[styles.pointDot, { backgroundColor: c.lime }]} />

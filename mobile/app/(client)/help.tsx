@@ -9,14 +9,72 @@ import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing, FontSize } from '../../theme/tokens';
 import { orderCode } from '../../lib/format';
 import { tap } from '../../lib/haptics';
-import { SUPPORT_PHONE } from '../../constants/config';
+import { SUPPORT_PHONE, SUPPORT_PHONE_DISPLAY, supportWhatsAppUrl } from '../../constants/config';
 
 interface Faq {
   question: string;
   answer: string;
 }
 
-const FAQS: Faq[] = [];
+/**
+ * Las preguntas que de verdad llegan a soporte, contestadas aquí.
+ *
+ * Cada respuesta describe lo que la app hace hoy, no lo que nos gustaría que
+ * hiciera: una sección de ayuda que promete algo que el código no cumple
+ * genera más tickets de los que evita.
+ */
+const FAQS: Faq[] = [
+  {
+    question: '¿Cómo puedo pagar?',
+    answer:
+      'En línea con tarjeta, o en efectivo al recibir. El efectivo tiene un tope por pedido, y si tu carrito lo pasa te lo decimos en el checkout antes de confirmar, no después.',
+  },
+  {
+    question: '¿Puedo cancelar un pedido?',
+    answer:
+      'Sí. Mientras el local no haya empezado a prepararlo, lo cancelas tú desde la pantalla del pedido y no te cuesta nada. Si ya está en la cocina, el botón te lleva a hablar con nosotros: a esas alturas alguien ya puso comida y trabajo, y preferimos mirarlo caso por caso antes que dejar que lo pague quien no debe.',
+  },
+  {
+    question: 'Ya pagué en línea y se canceló. ¿Y mi plata?',
+    answer:
+      'La devolución sale automáticamente, sin que tengas que pedirla. Llega a la misma tarjeta con la que pagaste y se demora unos días hábiles, según tu banco.',
+  },
+  {
+    question: '¿Para qué es el código que me piden en la puerta?',
+    answer:
+      'Es la forma de saber que el pedido llegó a quien tenía que llegar. Se lo dices al domiciliario cuando te entrega, y solo entonces el pedido queda cerrado. No lo compartas antes de tenerlo en la mano.',
+  },
+  {
+    question: '¿La propina le llega completa al domiciliario?',
+    answer:
+      'Completa, sin descuento de ninguna clase. Es opcional y la decides tú en el checkout.',
+  },
+  {
+    question: '¿Cómo se calcula el envío?',
+    answer:
+      'Por la distancia real hasta tu dirección, no por zonas ni por un valor fijo. Ves el desglose antes de confirmar y nunca cobramos algo distinto a lo que te mostramos.',
+  },
+  {
+    question: '¿Qué son los puntos y cuánto valen?',
+    answer:
+      'Ganas puntos con cada pedido entregado, y un punto vale un peso. Sin equivalencias raras: los canjeas por un cupón desde la pantalla de recompensas.',
+  },
+  {
+    question: 'Necesito algo que no está en ninguna carta. ¿Qué hago?',
+    answer:
+      'Pide un mandado. En el Inicio, al final de las categorías, está "No está en carta": escribes qué necesitas y de dónde, y un domiciliario lo compra por ti y te lo lleva.',
+  },
+  {
+    question: '¿Puedo pedir para otra persona, o para más tarde?',
+    answer:
+      'Las dos cosas. En el checkout puedes poner los datos de quien recibe —el domiciliario los ve antes de llamar— y también programar el pedido para más tarde.',
+  },
+  {
+    question: 'No me llegan las notificaciones del pedido.',
+    answer:
+      'Revisa que Zipp tenga permiso para enviarte notificaciones en los ajustes de tu teléfono. Desde tu perfil, en "Notificaciones del sistema", llegas directo a esa pantalla.',
+  },
+];
 
 export default function HelpScreen() {
   const router = useRouter();
@@ -33,7 +91,7 @@ export default function HelpScreen() {
     const text = reference
       ? `Hola, necesito ayuda con mi pedido ${reference} en Zipp.`
       : 'Hola, necesito ayuda con Zipp.';
-    const url = `whatsapp://send?phone=57${SUPPORT_PHONE}&text=${encodeURIComponent(text)}`;
+    const url = supportWhatsAppUrl(text);
 
     Linking.openURL(url).catch(() => {
       Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {});
@@ -111,7 +169,7 @@ export default function HelpScreen() {
                 Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {});
               }}
               accessibilityRole="button"
-              accessibilityLabel={`Llamar a ${SUPPORT_PHONE}`}
+              accessibilityLabel={`Llamar a ${SUPPORT_PHONE_DISPLAY}`}
               style={({ pressed }) => [
                 styles.contactCard,
                 {
@@ -125,7 +183,7 @@ export default function HelpScreen() {
                 <Icon name="llamar" size={28} color="#6268A0" />
               </View>
               <Text v="strongM">Llamada</Text>
-              <Text v="caption" tone="textMuted" center>{SUPPORT_PHONE}</Text>
+              <Text v="caption" tone="textMuted" center>{SUPPORT_PHONE_DISPLAY}</Text>
             </Pressable>
           </View>
         </View>

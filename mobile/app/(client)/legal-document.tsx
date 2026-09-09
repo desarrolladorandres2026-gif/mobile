@@ -9,7 +9,7 @@ import { useTheme } from '../../hooks/useTheme';
 import type { IconName } from '../../theme/icons';
 import { Spacing } from '../../theme/tokens';
 import { tap } from '../../lib/haptics';
-import { SUPPORT_PHONE } from '../../constants/config';
+import { SUPPORT_PHONE, supportWhatsAppUrl } from '../../constants/config';
 
 /**
  * Lector de un solo documento legal.
@@ -56,7 +56,7 @@ export default function LegalDocumentScreen() {
   const askForDocument = () => {
     tap('light');
     const text = `Hola, quiero consultar el documento "${title}" de Zipp.`;
-    const url = `whatsapp://send?phone=57${SUPPORT_PHONE}&text=${encodeURIComponent(text)}`;
+    const url = supportWhatsAppUrl(text);
 
     Linking.openURL(url).catch(() => {
       Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {});

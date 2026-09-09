@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  View, Pressable, StyleSheet, Alert, ActivityIndicator, Keyboard, useWindowDimensions,
+  View, Pressable, StyleSheet, Alert, ActivityIndicator, Keyboard, useWindowDimensions, Linking,
 } from 'react-native';
 import {
   Text, Icon, IconButton, Button, Input, SearchField, Badge, Sheet, Notice,
@@ -16,7 +16,7 @@ import {
   useAddresses, useCreateAddress, useUpdateAddress, useDeleteAddress,
   useSetDefaultAddress, useAddressSearch, useCoverageCheck,
 } from '../../hooks/useApi';
-import { captureCurrentPosition, locationFailureMessage } from '../../hooks/useLocation';
+import { captureCurrentPosition, locationFailureMessage, type LocationFailure } from '../../hooks/useLocation';
 import { ZippMap } from './ZippMap';
 import type { MapPoint } from '../../lib/mapbox';
 import { useTheme } from '../../hooks/useTheme';
@@ -461,6 +461,10 @@ export function AddressFormSheet({
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState('');
+  // Solo importa para poder ofrecer "Abrir ajustes" cuando el motivo es un
+  // permiso denegado -- el mensaje ya lo dice, pero antes no habia ningun
+  // boton que llevara ahi, solo enterrado en el menu de Perfil.
+  const [errorReason, setErrorReason] = useState<LocationFailure | null>(null);
 
   /**
    * Barrio y municipio.
@@ -675,9 +679,11 @@ export function AddressFormSheet({
       // El mapa sigue ahí y el modo manual está a un toque, así que esto
       // informa sin cerrar el camino: el mensaje dice qué arreglar.
       setError(locationFailureMessage(result.reason));
+      setErrorReason(result.reason);
       tap('error');
       return;
     }
+    setErrorReason(null);
 
     const next = { latitude: result.position.latitude, longitude: result.position.longitude };
     setCoords(next);
@@ -1056,7 +1062,19 @@ export function AddressFormSheet({
         onChangeText={(t) => { setLabel(t); setError(''); }}
       />
 
-      {error ? <Notice tone="error">{error}</Notice> : null}
+      {error ? (
+        <View style={styles.locationErrorBlock}>
+          <Notice tone="error">{error}</Notice>
+          {errorReason === 'permission' ? (
+            <Button
+              title="Abrir ajustes"
+              variant="secondary"
+              size="sm"
+              onPress={() => { tap('light'); Linking.openSettings().catch(() => {}); }}
+            />
+          ) : null}
+        </View>
+      ) : null}
     </Sheet>
 
     {/*
@@ -1164,6 +1182,7 @@ export function AddressSheet({
 }
 
 const styles = StyleSheet.create({
+  locationErrorBlock: { gap: 8 },
   list: {},
 
   // Fila de dirección, sin caja: separadores en vez de bordes

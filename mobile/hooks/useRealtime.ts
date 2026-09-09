@@ -64,8 +64,21 @@ export function useOrderRealtime() {
     socket.on('connect_error', onDisconnect);
     socket.on('order:status:changed', refresh);
 
+    /**
+     * Antes esto se perdía: el usuario abría un PQRS, soporte respondía, y
+     * no se enteraba salvo que reabriera la pantalla de solicitudes por su
+     * cuenta. Va aquí y no en `requests.tsx` porque el aviso importa
+     * mientras el usuario está en cualquier parte de la app, no solo
+     * mirando esa pantalla.
+     */
+    const refreshPqrs = () => {
+      queryClient.invalidateQueries({ queryKey: ['pqrs'] });
+    };
+    socketService.onSupportReplied(refreshPqrs);
+
     return () => {
       clearGrace();
+      socketService.offSupportReplied(refreshPqrs);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onDisconnect);
@@ -117,12 +130,23 @@ export function useActiveOrder() {
 export function useOrderFlowRealtime(orderId: string | undefined) {
   const queryClient = useQueryClient();
   const [incomingCall, setIncomingCall] = useState<any>(null);
+  /**
+   * El reparto lleva varias vueltas sin encontrar a nadie.
+   *
+   * No se limpia solo: una vez ha pasado, la espera ya es anormal y seguir
+   * diciéndolo es más honesto que hacer desaparecer el aviso. Se va cuando
+   * el pedido cambia de estado y la pantalla se desmonta.
+   */
+  const [dispatchStalled, setDispatchStalled] = useState(false);
 
   useEffect(() => {
     if (!orderId) return;
 
     socketService.connect();
     socketService.joinOrderRoom(orderId);
+
+    // Al cambiar de pedido, el atasco del anterior no dice nada del nuevo.
+    setDispatchStalled(false);
 
     const refreshFlow = () => {
       queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] });
@@ -133,6 +157,9 @@ export function useOrderFlowRealtime(orderId: string | undefined) {
     };
     const onIncoming = (data: any) => {
       if (data?.orderId === orderId) setIncomingCall(data.call);
+    };
+    const onStalled = (data: any) => {
+      if (data?.orderId === orderId) setDispatchStalled(true);
     };
     const onCallSettled = (data: any) => {
       if (data?.call?.orderId === orderId) {
@@ -147,6 +174,7 @@ export function useOrderFlowRealtime(orderId: string | undefined) {
     socketService.onCallIncoming(onIncoming);
     socketService.onCallAnswered(onCallSettled);
     socketService.onCallEnded(onCallSettled);
+    socketService.onDispatchStalled(onStalled);
 
     return () => {
       socketService.leaveOrderRoom(orderId);
@@ -156,10 +184,15 @@ export function useOrderFlowRealtime(orderId: string | undefined) {
       socketService.offCallIncoming(onIncoming);
       socketService.offCallAnswered(onCallSettled);
       socketService.offCallEnded(onCallSettled);
+      socketService.offDispatchStalled(onStalled);
     };
   }, [orderId]);
 
-  return { incomingCall, clearIncomingCall: () => setIncomingCall(null) };
+  return {
+    incomingCall,
+    clearIncomingCall: () => setIncomingCall(null),
+    dispatchStalled,
+  };
 }
 
 /** Avance del pedido de 0 a 1, para el trazo y la barra de progreso. */

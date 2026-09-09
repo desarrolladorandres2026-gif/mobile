@@ -63,7 +63,10 @@ export const CategoryTile = memo(function CategoryTile({
           accessible={false}
         />
       ) : (
-        <Illustration size={layout === 'icon' ? 32 : 40} />
+        // `size="100%"` + `bleed`: el SVG llena el cuadro de borde a borde
+        // (fondo a sangre, sin blob circular) y el `overflow: hidden` del
+        // cuadro redondea las esquinas.
+        <Illustration size="100%" bleed />
       )}
     </View>
   );

@@ -67,6 +67,26 @@ export function SosButton() {
     return () => { socketService.getSocket()?.off('sos:acknowledged', handle); };
   }, []);
 
+  /**
+   * El cierre de la alerta tampoco se escuchaba.
+   *
+   * El backend emite `sos:resolved` (`sos.service.ts:147`) desde siempre;
+   * solo `sos:acknowledged` tenía oyente. Sin esto, la hoja se quedaba
+   * mostrando "Ya te están atendiendo" para siempre, aunque el equipo ya
+   * hubiera cerrado el caso — el domiciliario nunca sabía que podía dejar
+   * de esperar.
+   */
+  useEffect(() => {
+    const handle = () => {
+      tap('success');
+      setSent(false);
+      setAcknowledged(false);
+      setSheetOpen(false);
+    };
+    socketService.getSocket()?.on('sos:resolved', handle);
+    return () => { socketService.getSocket()?.off('sos:resolved', handle); };
+  }, []);
+
   const fireAlert = useCallback(async () => {
     try {
       setSending(true);

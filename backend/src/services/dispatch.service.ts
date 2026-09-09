@@ -255,11 +255,26 @@ async function restartCycle(order: IOrder): Promise<boolean> {
   );
 
   if (cycle === CYCLES_BEFORE_ALERT) {
-    getIO()?.to('admin').emit('order:dispatch:stalled', {
+    const stalled = {
       orderId: order._id.toString(),
       orderNumber: order.orderNumber,
       cycles: cycle,
-    });
+    };
+
+    getIO()?.to('admin').emit('order:dispatch:stalled', stalled);
+
+    /**
+     * El cliente también se entera.
+     *
+     * Antes esto solo llegaba a la sala `admin`: quien había pagado se
+     * quedaba mirando una pantalla que no cambiaba, sin saber si su pedido
+     * seguía vivo. El peor momento del servicio ocurría en silencio, y el
+     * silencio es lo que convierte una demora en una llamada a soporte.
+     *
+     * Decirlo no arregla la falta de domiciliarios, pero cambia lo que le
+     * pasa a la persona: puede esperar sabiendo, o cancelar.
+     */
+    emitToUser(order.clientId.toString(), 'order:dispatch:stalled', stalled);
 
     await logSystemAudit({
       userId: 'system',

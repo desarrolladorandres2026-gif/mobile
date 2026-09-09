@@ -42,6 +42,22 @@ export const topSellersApi = {
       .then((r) => r.data.data),
 };
 
+/**
+ * Motivos de cancelación que le corresponden al cliente.
+ *
+ * El catálogo del servidor tiene 14 y va agrupado por quién cancela. Aquí
+ * solo están los del grupo del cliente más `other`: dejarle marcar
+ * "el negocio no tenía el producto" sería pedirle que juzgue algo que no
+ * puede ver, y ensuciaría justo la métrica que el catálogo existe para
+ * proteger.
+ */
+export type CancellationCode =
+  | 'client_changed_mind'
+  | 'client_ordered_by_mistake'
+  | 'client_too_slow'
+  | 'client_wrong_address'
+  | 'other';
+
 export const ordersApi = {
   create: (data: any) =>
     api.post('/orders', data).then((r) => r.data.data),
@@ -68,8 +84,24 @@ export const ordersApi = {
 
   getReceipt: (id: string) => api.get(`/orders/${id}/receipt`).then((r) => r.data.data),
 
-  updateStatus: (id: string, status: string, cancellationReason?: string) =>
-    api.patch(`/orders/${id}/status`, { status, cancellationReason }).then((r) => r.data.data),
+  /**
+   * Cambia el estado del pedido.
+   *
+   * `cancellationCode` es del catálogo cerrado del servidor y es lo único
+   * que se puede contar y agrupar después: distinguir "no había repartidor"
+   * de "el negocio no daba abasto" es la pregunta que decide si el problema
+   * es de flota o de comercios. Antes solo se enviaba el texto libre, así
+   * que esa pregunta no se podía responder con datos de cliente.
+   */
+  updateStatus: (
+    id: string,
+    status: string,
+    cancellationReason?: string,
+    cancellationCode?: CancellationCode,
+  ) =>
+    api
+      .patch(`/orders/${id}/status`, { status, cancellationReason, cancellationCode })
+      .then((r) => r.data.data),
 
   getAvailableOrders: (page = 1, limit = 20) =>
     api.get('/orders/driver/available', { params: { page, limit } }).then((r) => r.data.data),
@@ -175,7 +207,29 @@ export interface CashConfirmationResult {
   changed: boolean;
 }
 
+export interface OrderTimelineEntry {
+  action: string;
+  label: string;
+  at: string;
+  actor: { id: string | null; name: string | null; role: string } | null;
+  /** Se dedujo de una marca de tiempo del pedido, sin bitácora propia. */
+  derived: boolean;
+  incident: boolean;
+}
+
 export const orderFlowApi = {
+  /**
+   * La cronología real, con quién hizo qué y cuándo.
+   *
+   * `GET /orders/:id/timeline` servía 20 hitos etiquetados con actor desde
+   * hacía tiempo y ninguna pantalla lo pedía: la app deducía su propia
+   * barra de cinco pasos a partir de `order.status`, sin poder decir nunca
+   * "aceptado a las 7:42".
+   */
+  getTimeline: (orderId: string): Promise<OrderTimelineEntry[]> =>
+    api.get(`/orders/${orderId}/timeline`).then((r) => r.data.data),
+
+
   /** Todo lo que la pantalla del pedido necesita, en una llamada. */
   getState: (orderId: string): Promise<OrderFlowState> =>
     api.get(`/orders/${orderId}/flow`).then((r) => r.data.data),
@@ -281,6 +335,9 @@ export interface ProductSearchHit {
   imageAsset?: Record<string, unknown>;
   businessId: string;
   businessName: string;
+  /** Clave de categoría del negocio (`restaurant`, `pharmacy`…). La usa la
+   *  mini-ilustración de respaldo cuando el producto no tiene foto. */
+  businessCategory?: string;
   businessRating?: number;
   businessDeliveryTime?: number;
 }
@@ -324,9 +381,17 @@ export const searchApi = {
   query: (params: SearchParams): Promise<SearchResults> =>
     api.get('/search', { params }).then((r) => r.data.data),
 
-  /** Sugerencias mientras se escribe: etiquetas, no fichas completas. */
-  suggest: (q: string): Promise<SearchSuggestion[]> =>
-    api.get('/search/suggest', { params: { q } }).then((r) => r.data.data),
+  /**
+   * Sugerencias mientras se escribe: etiquetas, no fichas completas.
+   *
+   * Acepta `signal` porque es la única consulta de la app con debounce lo
+   * bastante corto (150 ms) para dejar varias peticiones en vuelo a la vez:
+   * escribir "hamburguesa" mandaba ~7 sin abortar, y pintaba la que ganara
+   * la carrera de vuelta, no la última. React Query ya trae el `signal`
+   * hecho — antes simplemente no se reenviaba a axios.
+   */
+  suggest: (q: string, signal?: AbortSignal): Promise<SearchSuggestion[]> =>
+    api.get('/search/suggest', { params: { q }, signal }).then((r) => r.data.data),
 
   /** Términos reales del catálogo, en vez de una lista escrita a mano. */
   popular: (): Promise<string[]> =>
@@ -458,6 +523,21 @@ export const sosApi = {
     api.post('/sos', { lat, lng, note }).then((r) => r.data.data),
 };
 
+export type DriverDocumentType =
+  | 'identity'
+  | 'license'
+  | 'soat'
+  | 'technical_review'
+  | 'vehicle_registration';
+
+export interface DriverDocumentRecord {
+  _id: string;
+  type: DriverDocumentType;
+  reference: string;
+  expiresAt?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+}
+
 export const driverApi = {
   getProfile: () =>
     api.get('/drivers/profile').then((r) => r.data.data),
@@ -477,6 +557,24 @@ export const driverApi = {
   /** A quién avisar si algo va mal. Requisito previo del botón de pánico. */
   setEmergencyContact: (contact: { name: string; phone: string; relationship?: string }) =>
     api.put('/drivers/emergency-contact', contact).then((r) => r.data.data),
+
+  /**
+   * Documentos del domiciliario: cédula, licencia, SOAT, tecnomecánica,
+   * tarjeta de propiedad.
+   *
+   * No es una subida de foto — `reference` es el número del documento. La
+   * pantalla de onboarding de flota en el admin (`admin/.../Verifications`,
+   * cola en `GET /drivers/documents/queue`) siempre tuvo de dónde tirar;
+   * la app del domiciliario no tenía por dónde enviarlos.
+   */
+  getDocuments: (): Promise<DriverDocumentRecord[]> =>
+    api.get('/drivers/documents').then((r) => r.data.data),
+
+  submitDocument: (input: {
+    type: DriverDocumentType;
+    reference: string;
+    expiresAt?: string;
+  }) => api.post('/drivers/documents', input).then((r) => r.data.data),
 
   /** Verificaciones de identidad: las pedidas, las enviadas y las revisadas. */
   getVerifications: () =>
@@ -654,6 +752,32 @@ export interface OffersResult {
   products: ProductSearchHit[];
   businesses: OfferBusiness[];
 }
+
+export interface ReferralStats {
+  /** El código propio de este usuario, el que se comparte. */
+  code: string;
+  /** Cuánta gente ha entrado con él. */
+  invited: number;
+  /** De esa gente, cuántos ya compraron — que es cuando se paga el premio. */
+  rewarded: number;
+  pointsPerReferral: number;
+}
+
+/**
+ * Invitaciones.
+ *
+ * El backend lleva desde el Bloque 7 con código propio por usuario,
+ * detección de abuso y recompensa pagada cuando el invitado **compra**. La
+ * app seguía compartiendo por WhatsApp un cupón fijo escrito a mano,
+ * `BIENVENIDO`, sin atribución ni premio para quien invitaba.
+ */
+export const referralsApi = {
+  getStats: (): Promise<ReferralStats> =>
+    api.get('/referrals').then((r) => r.data.data),
+
+  apply: (code: string) =>
+    api.post('/referrals/apply', { code }).then((r) => r.data),
+};
 
 export const offersApi = {
   /** Todo lo que está en oferta cerca de un punto: cupones, platos y negocios. */

@@ -29,7 +29,8 @@ import { Spacing, FontSize, BorderRadius } from '../../../theme/tokens';
 import { prepareAvatarForUpload } from '../../../lib/avatarImage';
 import { apiMessage, validateName, validatePhone } from '../../../lib/errors';
 import { tap } from '../../../lib/haptics';
-import { SUPPORT_PHONE } from '../../../constants/config';
+import { pushPermissionGranted } from '../../../lib/push';
+import { SUPPORT_PHONE, supportWhatsAppUrl } from '../../../constants/config';
 
 
 interface MenuLink {
@@ -49,6 +50,21 @@ interface MenuLink {
 }
 
 export default function ProfileScreen() {
+  /**
+   * `null` mientras se comprueba, o donde la pregunta no aplica (web,
+   * emulador). Solo `false` significa "denegado", que es lo unico que hay
+   * que decirle al usuario.
+   */
+  const [pushGranted, setPushGranted] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void pushPermissionGranted().then((granted) => {
+      if (alive) setPushGranted(granted);
+    });
+    return () => { alive = false; };
+  }, []);
+
   const router = useRouter();
   const { c, isDark } = useTheme();
   const bottomSpace = useTabContentPadding(CLIENT_DOCK_CLEARANCE);
@@ -81,7 +97,7 @@ export default function ProfileScreen() {
    * a ninguna parte. Si WhatsApp no está instalado, cae a la llamada.
    */
   const writeToZipp = (text: string) => {
-    const url = `whatsapp://send?phone=57${SUPPORT_PHONE}&text=${encodeURIComponent(text)}`;
+    const url = supportWhatsAppUrl(text);
     Linking.openURL(url).catch(() => {
       Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {});
     });
@@ -186,7 +202,13 @@ export default function ProfileScreen() {
     {
       illustration: 'notificaciones',
       label: 'Notificaciones del sistema',
-      detail: 'Avisos en vivo del estado de tus pedidos',
+      // Antes ponia siempre lo mismo, tuviera o no permiso. Denegar los
+      // avisos dejaba al usuario sin saber por que su pedido "no le avisaba
+      // nada" -- y este era justo el sitio donde mirarlo.
+      detail:
+        pushGranted === false
+          ? 'Desactivadas: no te avisaremos del estado de tus pedidos'
+          : 'Avisos en vivo del estado de tus pedidos',
       action: () => Linking.openSettings().catch(() => {}),
     },
     {

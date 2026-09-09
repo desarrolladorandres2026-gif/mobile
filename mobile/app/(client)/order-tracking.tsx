@@ -12,6 +12,7 @@ import { SecurityCodeBox, SecurityCodePending } from '../../components/domain/Se
 import { OrderChatSheet } from '../../components/domain/OrderChatSheet';
 import { OrderCallSheet } from '../../components/domain/OrderCallSheet';
 import { ZippMap } from '../../components/domain/ZippMap';
+import { CancelOrderSheet, isCancellable } from '../../components/domain/CancelOrderSheet';
 import { useOrder, useOrderFlow } from '../../hooks/useApi';
 import { useOrderRealtime, useOrderFlowRealtime, orderProgress } from '../../hooks/useRealtime';
 import { useOrderTracking, formatEta } from '../../hooks/useOrderTracking';
@@ -46,12 +47,13 @@ export default function OrderTrackingScreen() {
   const { data: order, isLoading, isError, refetch } = useOrder(id);
   const { connected } = useOrderRealtime();
   const { data: flow } = useOrderFlow(order?._id);
-  const { incomingCall, clearIncomingCall } = useOrderFlowRealtime(order?._id);
+  const { incomingCall, clearIncomingCall, dispatchStalled } = useOrderFlowRealtime(order?._id);
   const { markers, route, trail, trackable, etaSeconds, etaIsPrecise } = useOrderTracking(order);
 
   const [chatOpen, setChatOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
   const [callStartedByMe, setCallStartedByMe] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
 
   // Una llamada entrante abre la hoja sola, aunque el cliente esté leyendo
   // el detalle del pedido en ese momento — no depende de que haya tocado
@@ -68,7 +70,7 @@ export default function OrderTrackingScreen() {
   if (isError || !order) {
     return (
       <Screen>
-        <Header title="Seguimiento" fallback="/(client)/(tabs)/orders" />
+        <Header title="Seguimiento" fallback="/(client)/orders" />
         <ErrorState
           title="No encontramos este pedido"
           message="Puede que se haya archivado. Revísalo en tu historial."
@@ -103,9 +105,21 @@ export default function OrderTrackingScreen() {
       <Header
         title="Tu pedido"
         subtitle={reference}
-        fallback="/(client)/(tabs)/orders"
-        onBack={() => router.replace('/(client)/(tabs)/orders')}
-        right={<IconButton icon="compartir" label="Compartir el estado del pedido" onPress={share} />}
+        fallback="/(client)/orders"
+        onBack={() => router.replace('/(client)/orders')}
+        right={
+          <View style={styles.headerActions}>
+            <IconButton
+              icon="reloj"
+              label="Ver la cronología completa del pedido"
+              onPress={() => {
+                tap('light');
+                router.push({ pathname: '/(client)/order-timeline', params: { id: order._id } });
+              }}
+            />
+            <IconButton icon="compartir" label="Compartir el estado del pedido" onPress={share} />
+          </View>
+        }
       />
 
       <ScrollView
@@ -130,6 +144,43 @@ export default function OrderTrackingScreen() {
           </Card>
         ) : (
           <>
+            {/* Se eligio la hora en el checkout, se pago... y despues el
+                pedido se veia igual que uno inmediato. `scheduledFor` no se
+                leia en ningun sitio fuera del checkout. */}
+            {order.scheduledFor && !delivered ? (
+              <Notice tone="info">
+                Programado para{' '}
+                {new Date(order.scheduledFor).toLocaleString('es-CO', {
+                  weekday: 'long',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+                . Sale del local con el tiempo justo para llegar a esa hora.
+              </Notice>
+            ) : null}
+
+            {/* El domiciliario ya lo sabia; el cliente se enteraba en la
+                puerta. Avisarlo antes evita el peor final posible: pedido
+                pagado que no se puede entregar. */}
+            {order.requiresAgeVerification && !delivered ? (
+              <Notice tone="warning">
+                Este pedido lleva productos con restricción de edad. Ten la
+                cédula a mano: sin ella no te lo podemos entregar.
+              </Notice>
+            ) : null}
+
+            {/* Antes esto solo lo sabian los administradores: el cliente
+                miraba una pantalla que no cambiaba, sin saber si su pedido
+                seguia vivo. Decirlo no consigue un domiciliario, pero cambia
+                lo que le pasa a la persona -- puede esperar sabiendo, o
+                cancelar, que ahora si puede. */}
+            {dispatchStalled && !delivered ? (
+              <Notice tone="warning">
+                Estamos tardando en encontrar quién te lo lleve. Seguimos
+                buscando; si prefieres no esperar, puedes cancelar sin costo.
+              </Notice>
+            ) : null}
+
             {/* ── El trazo: dónde va el pedido ── */}
             <Animated.View entering={FadeIn.duration(360)} style={styles.hero}>
               <View style={styles.heroTop}>
@@ -367,6 +418,22 @@ export default function OrderTrackingScreen() {
           <DetailRow label="Total" value={money(order.total)} strong />
         </Card>
 
+        {/* El endpoint del comprobante existia desde siempre sin ninguna
+            pantalla que lo pidiera. Solo tiene sentido con el pedido ya
+            entregado: antes de eso el desglose de arriba ya cumple. */}
+        {delivered ? (
+          <Button
+            title="Ver comprobante"
+            icon="documento"
+            variant="secondary"
+            full
+            onPress={() => {
+              tap('light');
+              router.push({ pathname: '/(client)/receipt', params: { id: order._id } });
+            }}
+          />
+        ) : null}
+
         <Button
           title="Algo anda mal con mi pedido"
           icon="soporte"
@@ -374,7 +441,28 @@ export default function OrderTrackingScreen() {
           full
           onPress={() => router.push('/(client)/help')}
         />
+
+        {/* Cancelar va debajo de soporte y en tono apagado a proposito: es la
+            salida real que faltaba, pero no la primera que queremos ofrecer.
+            Antes de este boton, toda duda terminaba abriendo un PQRS. */}
+        {isCancellable(order.status) ? (
+          <Button
+            title="Cancelar el pedido"
+            variant="ghost"
+            full
+            onPress={() => { tap('light'); setCancelOpen(true); }}
+          />
+        ) : null}
       </ScrollView>
+
+      <CancelOrderSheet
+        visible={cancelOpen}
+        onClose={() => setCancelOpen(false)}
+        orderId={order._id}
+        status={order.status}
+        paidOnline={order.paymentMethod === 'online'}
+        onCancelled={() => router.replace('/(client)/orders')}
+      />
 
       <OrderChatSheet visible={chatOpen} onClose={() => setChatOpen(false)} orderId={order._id} />
       <OrderCallSheet
@@ -390,6 +478,7 @@ export default function OrderTrackingScreen() {
 }
 
 const styles = StyleSheet.create({
+  headerActions: { flexDirection: 'row', gap: Spacing.xs },
   flex: { flex: 1 },
   content: { padding: Spacing.xl, gap: Spacing.lg, paddingBottom: Spacing.huge },
 

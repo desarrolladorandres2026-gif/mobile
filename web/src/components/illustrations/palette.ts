@@ -1,10 +1,16 @@
 /**
- * Paleta "Andén" para las mini-ilustraciones de la landing.
+ * Paleta de las mini-ilustraciones de la landing.
  *
- * Mismos valores que `mobile/theme/tokens.ts` y
- * `variables de color/colores.css` — no son colores nuevos, es la
- * paleta de marca ya existente, copiada aquí porque el proyecto no
- * tiene un paquete compartido entre admin/business/web/mobile.
+ * La landing es dorado sobre obsidiana, tipografía mono, sin más color que el
+ * ámbar de marca. La paleta "Andén" multicolor (azul eléctrico, lima) chocaría
+ * ahí, así que este set colapsa los ramales `zipp*` y `lima*` sobre el dorado
+ * de marca y deja solo el `cereza` (rojo) como acento puntual. Mismo criterio
+ * que `admin/src/components/illustrations/palette.ts`. Estructura (`ink*`,
+ * `paper*`) sin cambios.
+ *
+ * TODO(diseño): afinar estos valores. Ahora mismo es una traducción directa a
+ * dorado; quizá una o dos ilustraciones ganen con un toque de `cereza` o un
+ * ámbar más cálido en los degradados. Son ~10 líneas de hex.
  */
 export const palette = {
   ink900: '#080B14',
@@ -24,27 +30,27 @@ export const palette = {
   paper400: '#8E8EA8',
   paper500: '#5C5C73',
 
-  zipp700: '#2A1BC9',
-  zipp600: '#3A29E8',
-  zipp500: '#4B3BFF',
-  zipp400: '#7D72FF',
-  zipp300: '#A79FFF',
-  zipp100: '#E4E1FF',
+  zipp700: '#8A5D08',
+  zipp600: '#B88214',
+  zipp500: '#D69E26',
+  zipp400: '#E5B242',
+  zipp300: '#F3CE72',
+  zipp100: '#FDF7E7',
 
-  lima800: '#3F5106',
-  lima700: '#5A7208',
-  lima600: '#9DBB25',
-  lima500: '#D9F55B',
-  lima400: '#E6FA8C',
-  lima100: '#F4FDD2',
+  lima800: '#8A5D08',
+  lima700: '#B88214',
+  lima600: '#D69E26',
+  lima500: '#E5B242',
+  lima400: '#F3CE72',
+  lima100: '#FDF7E7',
 
   cereza700: '#B01829',
   cereza500: '#FF4D5E',
   cereza400: '#FF7A87',
   cereza100: '#FFE3E6',
 
-  mango700: '#8A5A00',
-  mango500: '#FFB020',
-  mango400: '#FFC85C',
-  mango100: '#FFF0D1',
+  mango700: '#B45309',
+  mango500: '#F59E0B',
+  mango400: '#FBBF24',
+  mango100: '#FEF3C7',
 } as const;

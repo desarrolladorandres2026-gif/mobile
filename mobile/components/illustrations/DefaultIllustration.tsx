@@ -1,4 +1,4 @@
-import Svg, { Circle, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Rect, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { palette } from '../../theme/tokens';
 import type { IllustrationProps } from './types';
 
@@ -8,7 +8,7 @@ import type { IllustrationProps } from './types';
  * Cae aquí cualquier `key` que el backend mande y que todavía no tenga
  * ilustración propia — nunca un cuadro vacío ni un icono roto.
  */
-export function DefaultIllustration({ size = 48 }: IllustrationProps) {
+export function DefaultIllustration({ size = 48, bleed = false }: IllustrationProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64" fill="none">
       <Defs>
@@ -22,7 +22,9 @@ export function DefaultIllustration({ size = 48 }: IllustrationProps) {
         </LinearGradient>
       </Defs>
 
-      <Circle cx="32" cy="32" r="28" fill="url(#defBlob)" />
+      {bleed
+        ? <Rect x="0" y="0" width="64" height="64" fill="url(#defBlob)" />
+        : <Circle cx="32" cy="32" r="28" fill="url(#defBlob)" />}
 
       {/* toldo */}
       <Path

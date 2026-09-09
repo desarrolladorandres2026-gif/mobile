@@ -30,7 +30,7 @@ import { BorderRadius, Motion, Shadow, Spacing } from '../../theme/tokens';
  * el carrusel se coma media pantalla.
  */
 function geometry(width: number) {
-  const cardWidth = Math.min(width * 0.7, 300);
+  const cardWidth = Math.min(width * 0.92, 380);
   return {
     cardWidth,
     cardHeight: Math.round(cardWidth * 0.58),

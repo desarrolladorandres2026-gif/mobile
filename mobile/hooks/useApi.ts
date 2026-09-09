@@ -1,10 +1,30 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
-import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi } from '../services/endpoints';
-import type { PromoBanner, HomeCategory, SearchSort } from '../services/endpoints';
+import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi, referralsApi } from '../services/endpoints';
+import type { PromoBanner, HomeCategory, SearchSort, CancellationCode } from '../services/endpoints';
 
 // ── Businesses ──
-export const useBusinesses = (params?: Record<string, any>) =>
-  useQuery({ queryKey: ['businesses', params], queryFn: () => businessesApi.getAll(params) });
+/**
+ * El catálogo de negocios.
+ *
+ * `ready` existe para no descargarlo dos veces en cada arranque en frío.
+ *
+ * El problema: las coordenadas salen de `useDeliveryCoords`, que devuelve
+ * `undefined` hasta que responde `GET /addresses`. Como las coordenadas
+ * entran en la clave de caché, la consulta se disparaba **una vez sin ellas
+ * y otra con ellas** — dos claves distintas, dos descargas completas del
+ * catálogo del pueblo, en cada apertura de la app.
+ *
+ * Esperar a que las direcciones se resuelvan cuesta unos milisegundos y
+ * ahorra una descarga entera. Quien no tenga direcciones guardadas sigue
+ * viendo el catálogo: `ready` se vuelve `true` igualmente cuando la consulta
+ * termina, con o sin resultados.
+ */
+export const useBusinesses = (params?: Record<string, any>, ready = true) =>
+  useQuery({
+    queryKey: ['businesses', params],
+    queryFn: () => businessesApi.getAll(params),
+    enabled: ready,
+  });
 
 /**
  * Coordenadas desde las que medir la distancia a los negocios.
@@ -13,14 +33,23 @@ export const useBusinesses = (params?: Record<string, any>) =>
  * preciso y es más correcto: el domicilio se cobra desde donde se va a
  * entregar, así que enseñar "300 m" porque el cliente está pasando por el
  * centro sería prometerle un envío que no le van a cobrar.
+ *
+ * Devuelve además `ready`: si las direcciones todavía no han llegado, las
+ * coordenadas que faltan **no** significan "este usuario no tiene dirección",
+ * significan "todavía no lo sabemos". Confundir las dos cosas es lo que
+ * duplicaba la descarga del catálogo.
  */
 export const useDeliveryCoords = () => {
-  const { data: addresses = [] } = useAddresses();
+  const { data: addresses = [], isPending } = useAddresses();
   const preferred = addresses.find((a: any) => a.isDefault) ?? addresses[0];
   const coords = preferred?.location?.coordinates;
 
-  if (!Array.isArray(coords) || coords.length !== 2) return undefined;
-  return { lng: coords[0], lat: coords[1] };
+  const value =
+    Array.isArray(coords) && coords.length === 2
+      ? { lng: coords[0] as number, lat: coords[1] as number }
+      : undefined;
+
+  return { coords: value, ready: !isPending };
 };
 
 export const useBusiness = (id: string) =>
@@ -71,7 +100,7 @@ export const useSearch = (
 export const useSearchSuggestions = (term: string) =>
   useQuery({
     queryKey: ['search', 'suggest', term],
-    queryFn: () => searchApi.suggest(term),
+    queryFn: ({ signal }) => searchApi.suggest(term, signal),
     enabled: term.trim().length >= 2,
     staleTime: 5 * 60_000,
     placeholderData: keepPreviousData,
@@ -206,6 +235,31 @@ export const useUpdateOrderStatus = () => {
   });
 };
 
+/**
+ * Cancelar el pedido, desde el cliente.
+ *
+ * Va aparte de `useUpdateOrderStatus` a propósito: cancelar es el único
+ * cambio de estado que el servidor le permite al cliente
+ * (`ROLE_ALLOWED_STATUSES[CLIENT]`), y exige el código del catálogo. Con la
+ * firma genérica era demasiado fácil llamar sin código y mandar el motivo
+ * vacío, que es exactamente lo que venía pasando.
+ *
+ * Se invalida también `['order', id]`: la pantalla de seguimiento lee esa
+ * clave, y sin invalidarla el pedido seguía pintándose en curso después de
+ * cancelarlo, hasta el siguiente refetch.
+ */
+export const useCancelOrder = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, code, note }: { id: string; code: CancellationCode; note?: string }) =>
+      ordersApi.updateStatus(id, 'cancelled', note, code),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['order', id] });
+    },
+  });
+};
+
 // ── Traspaso físico del pedido ──────────────────────────────────────
 
 /**
@@ -224,6 +278,14 @@ export const useOrderFlow = (orderId: string | undefined) =>
     queryFn: () => orderFlowApi.getState(orderId!),
     enabled: !!orderId,
     refetchInterval: 20_000,
+  });
+
+/** La cronología completa, solo cuando la pantalla que la enseña está abierta. */
+export const useOrderTimeline = (orderId: string | undefined, enabled: boolean) =>
+  useQuery({
+    queryKey: ['orderTimeline', orderId],
+    queryFn: () => orderFlowApi.getTimeline(orderId!),
+    enabled: enabled && !!orderId,
   });
 
 export const useOrderArrive = () => {
@@ -383,6 +445,20 @@ export const useEndCall = (orderId: string) => {
 };
 
 // ── Driver ──
+/** Los documentos que ya subió, para pintar su estado. */
+export const useDriverDocuments = () =>
+  useQuery({ queryKey: ['driver', 'documents'], queryFn: driverApi.getDocuments });
+
+export const useSubmitDriverDocument = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: driverApi.submitDocument,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['driver', 'documents'] });
+    },
+  });
+};
+
 export const useDriverProfile = () =>
   useQuery({ queryKey: ['driver', 'profile'], queryFn: driverApi.getProfile });
 
@@ -456,6 +532,13 @@ export const useAssignDriver = () => {
 export interface OrderQuote {
   subtotal: number;
   deliveryFee: number;
+  /**
+   * La ventana de entrega, en minutos desde ahora. El extremo alto es el
+   * que se le promete al cliente y el que el pedido guarda como
+   * `estimatedDelivery`: prometer el optimista sería incumplir a propósito.
+   */
+  etaMinutesMin: number;
+  etaMinutesMax: number;
   deliveryDistanceKm: number;
   zoneName: string | null;
   discount: number;
@@ -575,6 +658,32 @@ export const useCoverageCheck = (lat?: number, lng?: number, businessId?: string
   });
 
 // ── Addresses ──
+/** Mi código de invitación y cuánta gente he traído. */
+export const useReferrals = () =>
+  useQuery({
+    queryKey: ['referrals'],
+    queryFn: referralsApi.getStats,
+    // Cambia solo cuando alguien acepta la invitación: no hace falta
+    // preguntarlo cada vez que se abre la pantalla.
+    staleTime: 5 * 60_000,
+  });
+
+/**
+ * El comprobante de un pedido.
+ *
+ * `ordersApi.getReceipt` estaba definido desde siempre sin un solo
+ * llamador: ningún pedido entregado tenía forma de mostrar su comprobante.
+ */
+export const useReceipt = (orderId: string | undefined) =>
+  useQuery({
+    queryKey: ['receipt', orderId],
+    queryFn: () => ordersApi.getReceipt(orderId!),
+    enabled: !!orderId,
+    // Un comprobante ya emitido no cambia: no hay razón para volver a
+    // pedirlo cada vez que se abre la pantalla.
+    staleTime: 60 * 60_000,
+  });
+
 export const useAddresses = () =>
   useQuery({ queryKey: ['addresses'], queryFn: addressApi.getAll });
 

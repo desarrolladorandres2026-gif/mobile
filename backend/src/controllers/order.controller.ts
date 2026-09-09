@@ -82,16 +82,40 @@ export class OrderController {
   async receipt(req: Request, res: Response, next: NextFunction) {
     try {
       const order = await orderService.getById(param(req, 'id'));
-      if (req.user!.role !== UserRole.ADMIN && order.clientId._id?.toString?.() !== req.user!._id.toString()) throw new AppError('No autorizado para ver este comprobante', 403);
-      sendResponse(res, 200, 'Comprobante de pedido', {
+      const isOwner = order.clientId._id?.toString?.() === req.user!._id.toString();
+      if (req.user!.role !== UserRole.ADMIN && !isOwner) {
+        throw new AppError('No autorizado para ver este comprobante', 403);
+      }
+
+      const base = {
         orderNumber: order.orderNumber, createdAt: order.createdAt, status: order.status, paymentStatus: order.paymentStatus,
         business: order.businessId, items: order.items, currency: order.finance.currency,
         valorProductos: order.finance.productSubtotal, valorDomicilio: order.finance.deliveryCustomerFee,
         descuentos: order.finance.merchantFundedDiscount + order.finance.platformFundedDiscount,
-        comisionZipp: order.finance.merchantCommission, subsidioZipp: order.finance.platformFundedDiscount,
-        subsidioComercio: order.finance.merchantFundedDiscount, impuestos: order.finance.taxPayable,
+        propina: order.finance.tip, impuestos: order.finance.taxPayable,
         totalPagado: order.finance.customerTotal,
-      });
+      };
+
+      /**
+       * `comisionZipp` y los subsidios solo se enseñan al admin.
+       *
+       * Este comprobante es lo que ve el **cliente**, y esos campos son el
+       * margen interno de la plataforma sobre ese pedido concreto — cuánto
+       * se queda ZIPP y cuánto puso el comercio para financiar un
+       * descuento. Antes viajaban siempre: cualquier cliente que abriera
+       * su propio comprobante podía ver la comisión que ZIPP le cobra a
+       * cada negocio, dato que ni el propio comercio expone en su carta.
+       */
+      const data = req.user!.role === UserRole.ADMIN
+        ? {
+            ...base,
+            comisionZipp: order.finance.merchantCommission,
+            subsidioZipp: order.finance.platformFundedDiscount,
+            subsidioComercio: order.finance.merchantFundedDiscount,
+          }
+        : base;
+
+      sendResponse(res, 200, 'Comprobante de pedido', data);
     } catch (error) { next(error); }
   }
 

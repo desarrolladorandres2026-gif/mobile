@@ -137,7 +137,7 @@ export default function PaymentResultScreen() {
             title="Ver mis pedidos"
             variant="secondary"
             full
-            onPress={() => router.replace('/(client)/(tabs)/orders')}
+            onPress={() => router.replace('/(client)/orders')}
           />
         </View>
       </Screen>
@@ -174,7 +174,7 @@ export default function PaymentResultScreen() {
             title="Ver mis pedidos"
             variant="secondary"
             style={styles.stateAction}
-            onPress={() => router.replace('/(client)/(tabs)/orders')}
+            onPress={() => router.replace('/(client)/orders')}
           />
         </View>
       </Screen>

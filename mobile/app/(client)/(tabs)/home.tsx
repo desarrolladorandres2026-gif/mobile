@@ -1,4 +1,4 @@
-import { useCallback, memo } from 'react';
+import { useCallback, useMemo, memo } from 'react';
 import {
   View, ScrollView, FlatList, Pressable, RefreshControl,
   StyleSheet, useWindowDimensions,
@@ -15,7 +15,7 @@ import {
 } from '../../../components/domain/BusinessCard';
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
 import { CouponCard } from '../../../components/domain/CouponCard';
-import { CategoryTile } from '../../../components/domain/CategoryTile';
+import { CategoryMarquee, type MarqueeCategory } from '../../../components/domain/CategoryMarquee';
 import { useAuthStore } from '../../../stores/authStore';
 import { useBusinesses, usePublicCoupons, useAddresses, useDeliveryCoords } from '../../../hooks/useApi';
 import { useUsual, reorder, type UsualOrder } from '../../../hooks/useUsual';
@@ -36,25 +36,78 @@ export default function HomeScreen() {
   const user = useAuthStore((s) => s.user);
 
   // La distancia se mide desde la dirección de entrega, no desde el GPS.
-  const coords = useDeliveryCoords();
+  const { coords, ready: coordsReady } = useDeliveryCoords();
 
   const { data: businesses = [], isLoading, isError, refetch, isRefetching } =
-    useBusinesses(coords) as { data: Business[]; isLoading: boolean; isError: boolean; refetch: () => void; isRefetching: boolean };
+    useBusinesses(coords, coordsReady) as { data: Business[]; isLoading: boolean; isError: boolean; refetch: () => void; isRefetching: boolean };
   const { data: coupons = [] } = usePublicCoupons();
   const { data: addresses = [] } = useAddresses();
   const { usual } = useUsual();
   const { categories } = useHomeCategories();
 
-  const defaultAddress = addresses.find((a: any) => a.isDefault) ?? addresses[0];
+  const defaultAddress = useMemo(
+    () => addresses.find((a: any) => a.isDefault) ?? addresses[0],
+    [addresses]
+  );
 
-  const featured = businesses.filter((b) => b.isFeatured);
-  const openNow = businesses.filter((b) => openState(b.schedule).open);
-  const closed = businesses.filter((b) => !openState(b.schedule).open);
+  /**
+   * Las tres listas se derivan de una sola pasada y con memo.
+   *
+   * Antes eran tres `.filter()` sueltos en el cuerpo del render, y
+   * `openState()` construye un `new Date()` y parsea el horario **en cada
+   * llamada**. Con 60 negocios eso son ~120 fechas por render solo aquí, más
+   * una tercera dentro de cada `BusinessRow`. Cualquier cambio de estado en
+   * la pantalla —abrir el teclado, un refetch, una animación— lo repetía
+   * entero.
+   *
+   * La pantalla hermana, `search.tsx`, ya hacía exactamente este trabajo
+   * dentro de un `useMemo`: la inconsistencia estaba entre dos pantallas del
+   * mismo flujo.
+   */
+  const { featured, openNow, closed } = useMemo(() => {
+    const featuredList: Business[] = [];
+    const openList: Business[] = [];
+    const closedList: Business[] = [];
+
+    for (const business of businesses) {
+      if (business.isFeatured) featuredList.push(business);
+      if (openState(business.schedule).open) openList.push(business);
+      else closedList.push(business);
+    }
+
+    return { featured: featuredList, openNow: openList, closed: closedList };
+  }, [businesses]);
 
   const goToBusiness = useCallback(
     (id: string) => router.push(`/(client)/business/${id}`),
     [router]
   );
+
+  // Memoizado porque va como prop a un componente `memo`: recalcularlo en
+  // cada render pasaba un numero nuevo y anulaba la memoizacion igual que
+  // lo hacia la funcion inline.
+  const featuredWidth = useMemo(() => Math.min(width * 0.58, 240), [width]);
+
+  // Cuadros del letrero de Categorías: las categorías del admin y, al final,
+  // la salida de "no está en carta" — que no lleva a una lista de negocios
+  // sino al flujo de mandados.
+  const marqueeCategories = useMemo<MarqueeCategory[]>(() => [
+    ...categories.map((cat) => ({
+      key: cat.key,
+      label: cat.label,
+      imageUrl: cat.imageUrl,
+      onPress: () =>
+        router.push({
+          pathname: '/(client)/(tabs)/search',
+          params: { category: cat.key },
+        }),
+    })),
+    {
+      key: 'errand',
+      label: 'No está en carta',
+      onPress: () => router.push('/(client)/errand'),
+    },
+  ], [categories, router]);
 
   const repeatOrder = (item: UsualOrder) => {
     tap('medium');
@@ -144,45 +197,7 @@ export default function HomeScreen() {
         {/* ── Categorías ── */}
         <View style={styles.section}>
           <SectionHeader title="Categorías" />
-          <View style={styles.categories}>
-            {categories.map((cat) => (
-              <CategoryTile
-                key={cat.key}
-                categoryKey={cat.key}
-                label={cat.label}
-                imageUrl={cat.imageUrl}
-                onPress={() =>
-                  router.push({
-                    pathname: '/(client)/(tabs)/search',
-                    params: { category: cat.key },
-                  })
-                }
-              />
-            ))}
-          </View>
-        </View>
-
-        {/* ── Mandados ── */}
-        {/* Fuera de la rejilla de categorías a propósito: una categoría
-            lleva a una lista de negocios y esto no lleva a ninguna. Es lo
-            que se pide cuando lo que necesitas no está en ninguna carta. */}
-        <View style={styles.section}>
-          <Card
-            tone="outline"
-            style={styles.errand}
-            onPress={() => router.push('/(client)/errand')}
-            accessibilityLabel="Pedir un mandado"
-            accessibilityHint="Encargar algo que no está en ninguna carta"
-          >
-            <Icon name="paquete" size="lg" color={c.primary} />
-            <View style={styles.errandCopy}>
-              <Text v="titleS">¿No está en ninguna carta?</Text>
-              <Text v="bodyM" tone="textSecondary">
-                Pide un mandado y te lo recogemos donde sea.
-              </Text>
-            </View>
-            <Icon name="siguiente" size="md" color={c.textMuted} />
-          </Card>
+          <CategoryMarquee categories={marqueeCategories} />
         </View>
 
         {/* ── Cupones ── */}
@@ -225,8 +240,8 @@ export default function HomeScreen() {
               renderItem={({ item }) => (
                 <BusinessFeatured
                   business={item}
-                  width={Math.min(width * 0.58, 240)}
-                  onPress={() => goToBusiness(item._id)}
+                  width={featuredWidth}
+                  onPress={goToBusiness}
                 />
               )}
             />
@@ -263,7 +278,7 @@ export default function HomeScreen() {
                 <BusinessRow
                   key={business._id}
                   business={business}
-                  onPress={() => goToBusiness(business._id)}
+                  onPress={goToBusiness}
                 />
               ))}
             </View>
@@ -279,7 +294,7 @@ export default function HomeScreen() {
                 <BusinessRow
                   key={business._id}
                   business={business}
-                  onPress={() => goToBusiness(business._id)}
+                  onPress={goToBusiness}
                 />
               ))}
             </View>
@@ -379,9 +394,4 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
   },
   usualPrice: { marginLeft: 'auto' },
-
-  categories: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm },
-
-  errand: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  errandCopy: { flex: 1, gap: 2 },
 });

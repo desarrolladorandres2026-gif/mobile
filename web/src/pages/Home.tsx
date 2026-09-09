@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import DeliverySimulator from '../components/DeliverySimulator';
+import { PeopleIllustration, StoreIllustration, DeliveryIllustration } from '../components/illustrations';
 
 const BUSINESS_URL = import.meta.env.VITE_BUSINESS_URL || 'http://localhost:3002';
 
@@ -191,8 +192,13 @@ export default function Home() {
           <div className="lg:col-span-7 font-mono">
             {activeTab === 'clientes' && (
               <div className="space-y-6">
-                <div className="text-xs uppercase tracking-[0.2em] text-[#E5B242]">
-                  PROTOCOLO DE USUARIO FINAL
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg overflow-hidden border border-white/10 bg-white/[0.03] flex items-center justify-center shrink-0">
+                    <PeopleIllustration size={26} />
+                  </div>
+                  <div className="text-xs uppercase tracking-[0.2em] text-[#E5B242]">
+                    PROTOCOLO DE USUARIO FINAL
+                  </div>
                 </div>
                 <h3 className="text-3xl sm:text-4xl font-black text-white uppercase tracking-tight">
                   Tus platos favoritos con desglose honesto antes de pagar
@@ -225,8 +231,13 @@ export default function Home() {
 
             {activeTab === 'comercios' && (
               <div className="space-y-6">
-                <div className="text-xs uppercase tracking-[0.2em] text-[#E5B242]">
-                  PROTOCOLO DE ESTABLECIMIENTOS
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg overflow-hidden border border-white/10 bg-white/[0.03] flex items-center justify-center shrink-0">
+                    <StoreIllustration size={26} />
+                  </div>
+                  <div className="text-xs uppercase tracking-[0.2em] text-[#E5B242]">
+                    PROTOCOLO DE ESTABLECIMIENTOS
+                  </div>
                 </div>
                 <h3 className="text-3xl sm:text-4xl font-black text-white uppercase tracking-tight">
                   Vende a domicilio sin entregar tus utilidades operativas
@@ -261,8 +272,13 @@ export default function Home() {
 
             {activeTab === 'domiciliarios' && (
               <div className="space-y-6">
-                <div className="text-xs uppercase tracking-[0.2em] text-[#E5B242]">
-                  PROTOCOLO DE REPARTIDORES
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg overflow-hidden border border-white/10 bg-white/[0.03] flex items-center justify-center shrink-0">
+                    <DeliveryIllustration size={26} />
+                  </div>
+                  <div className="text-xs uppercase tracking-[0.2em] text-[#E5B242]">
+                    PROTOCOLO DE REPARTIDORES
+                  </div>
                 </div>
                 <h3 className="text-3xl sm:text-4xl font-black text-white uppercase tracking-tight">
                   Tus kilómetros valen. Tu propina es completamente tuya.

@@ -4,6 +4,7 @@ import { Tabs } from 'expo-router';
 import { TabBar } from '../../../components/nav/TabBar';
 import { Dock } from '../../../components/nav/Dock';
 import { OfflineBanner } from '../../../components/ui';
+import { useNetworkStatus } from '../../../hooks/useNetwork';
 import { DockHeightContext } from '../../../hooks/useDockHeight';
 import { useOrderRealtime } from '../../../hooks/useRealtime';
 import { useTheme } from '../../../hooks/useTheme';
@@ -21,6 +22,7 @@ import { useTheme } from '../../../hooks/useTheme';
 export default function ClientTabsLayout() {
   const { c } = useTheme();
   const { connected } = useOrderRealtime();
+  const { online } = useNetworkStatus();
   const [dockHeight, setDockHeight] = useState(0);
 
   return (
@@ -37,7 +39,14 @@ export default function ClientTabsLayout() {
         </Tabs>
 
         <Dock onHeightChange={setDockHeight} />
-        <OfflineBanner visible={!connected} />
+        {/* La red manda sobre el socket.
+            Antes esto era `!connected` del socket, que es otra cosa: decia
+            "sin conexion" mientras negociaba con wifi perfecto, y se callaba
+            cuando de verdad no habia red. Ahora el aviso sale cuando falta la
+            red, o cuando hay red pero el canal en vivo lleva caido lo
+            suficiente como para que el pedido ya no se actualice solo --
+            que para el usuario es el mismo problema. */}
+        <OfflineBanner visible={!online || !connected} />
       </View>
     </DockHeightContext.Provider>
   );

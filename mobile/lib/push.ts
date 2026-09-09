@@ -89,12 +89,32 @@ export async function ensureAndroidChannel(): Promise<void> {
   });
 }
 
+/**
+ * Un projectId que todavía es el marcador de posición de la plantilla.
+ *
+ * Importa distinguirlo de "no hay ninguno": el placeholder **es truthy**, así
+ * que pasaba el `if (!projectId)` de abajo y llegaba hasta
+ * `getExpoPushTokenAsync`, que lanzaba; el `catch` devolvía `null` y nadie se
+ * enteraba. Resultado: ningún dispositivo se registró jamás y ninguna push
+ * salió nunca, en desarrollo y en producción por igual.
+ *
+ * Un guard que comprueba existencia pero no validez es peor que no tener
+ * guard: da sensación de estar cubierto.
+ */
+function isPlaceholder(value: string): boolean {
+  return /^(REEMPLAZAR|YOUR_|TU_|<)/i.test(value.trim());
+}
+
 function resolveProjectId(): string | undefined {
-  return (
+  const raw =
     Constants.expoConfig?.extra?.eas?.projectId ??
     // easConfig no está en los tipos de todas las versiones de expo-constants
-    (Constants as any).easConfig?.projectId
-  );
+    (Constants as any).easConfig?.projectId;
+
+  if (typeof raw !== 'string') return undefined;
+  const value = raw.trim();
+  if (!value || isPlaceholder(value)) return undefined;
+  return value;
 }
 
 /**
@@ -102,6 +122,28 @@ function resolveProjectId(): string | undefined {
  * no se concedió, el dispositivo no puede recibir push o el entorno (Expo
  * Go, emulador) no lo soporta.
  */
+/**
+ * Si el usuario dejó entrar los avisos.
+ *
+ * Hace falta para poder **decírselo**. Antes, denegar el permiso devolvía
+ * `null` y la app salía en silencio: en ninguna pantalla se avisaba de que
+ * no iban a llegar avisos del pedido. En una app de domicilios, donde el
+ * push es el canal por el que se sabe que la comida está en la puerta, ese
+ * silencio es el fallo más caro que se puede tener.
+ *
+ * Devuelve `null` donde la pregunta no aplica (web, emulador, Expo Go).
+ */
+export async function pushPermissionGranted(): Promise<boolean | null> {
+  const N = getNotifications();
+  if (!N || !Device.isDevice) return null;
+  try {
+    const { status } = await N.getPermissionsAsync();
+    return status === 'granted';
+  } catch {
+    return null;
+  }
+}
+
 export async function registerForPush(): Promise<string | null> {
   const N = getNotifications();
   if (!N) return null;
@@ -121,12 +163,16 @@ export async function registerForPush(): Promise<string | null> {
 
   const projectId = resolveProjectId();
   if (!projectId) {
-    if (__DEV__) {
-      console.warn(
-        '[Push] Falta el projectId de EAS. Corre `eas init` y añade ' +
-          'extra.eas.projectId en app.json para obtener el token.'
-      );
-    }
+    // Ruidoso a propósito, y también fuera de __DEV__. Este fallo deja la app
+    // entera sin avisos de pedido; si solo se ve en desarrollo, una build de
+    // release sale al mundo muda y nadie lo nota hasta que un cliente se queja
+    // de que "no le llega nada".
+    console.error(
+      '[Push] No hay projectId de EAS válido (falta o sigue siendo el ' +
+        'marcador de la plantilla). Ningún dispositivo podrá recibir ' +
+        'notificaciones. Corre `eas init` y pon el valor real en ' +
+        'extra.eas.projectId de app.json.'
+    );
     return null;
   }
 

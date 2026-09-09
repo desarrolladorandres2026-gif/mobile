@@ -1,6 +1,7 @@
 import { Pqrs, IPqrs } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { emitToUser } from '../sockets/emitter';
+import { pushService } from './push.service';
 
 /**
  * Centro de soporte.
@@ -96,6 +97,19 @@ export class SupportService {
     emitToUser(ticket.userId.toString(), 'support:replied', {
       pqrsId: ticket._id.toString(),
       subject: ticket.subject,
+    });
+
+    /**
+     * El socket solo llega si la app está abierta. La push es la que lo
+     * saca de un caso cerrado en la cabeza del cliente: sin esta, la
+     * bandeja de notificaciones in-app que se retiró (2026-09-07, ver
+     * memoria del proyecto) era el único canal que avisaba de esto, y al
+     * quitarla el aviso desapareció con ella.
+     */
+    void pushService.sendToUser(ticket.userId.toString(), {
+      title: 'Respondimos tu solicitud',
+      body: ticket.subject,
+      data: { pqrsId: ticket._id.toString() },
     });
 
     return ticket;

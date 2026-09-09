@@ -68,6 +68,9 @@ export default function RequestsScreen() {
               setKind('pqrs');
               setType('petition');
             }}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: kind === 'pqrs' }}
+            accessibilityLabel="PQRS: peticiones, quejas y reclamos"
             style={[
               styles.segmentTab,
               kind === 'pqrs' && {
@@ -91,6 +94,9 @@ export default function RequestsScreen() {
               setKind('data');
               setType('access');
             }}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: kind === 'data' }}
+            accessibilityLabel="Protección de datos: habeas data"
             style={[
               styles.segmentTab,
               kind === 'data' && {
@@ -139,6 +145,9 @@ export default function RequestsScreen() {
                 <Pressable
                   key={value}
                   onPress={() => { tap('select'); setType(value); }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={label}
                   style={[
                     styles.chip,
                     {

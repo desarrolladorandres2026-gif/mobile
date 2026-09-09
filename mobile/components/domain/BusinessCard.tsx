@@ -78,6 +78,21 @@ export const BusinessTile = memo(function BusinessTile({
         contentFit="cover"
         transition={200}
         accessible={false}
+        /**
+         * `memory-disk` y no el disco a secas.
+         *
+         * Sin caché en memoria, expo-image vuelve a **decodificar** el logo
+         * cada vez que la fila entra en pantalla. En un listado de sesenta
+         * negocios eso es decodificar sesenta imágenes en cada pasada de
+         * scroll, y es el coste que más se nota en Android de gama baja.
+         */
+        cachePolicy="memory-disk"
+        /**
+         * Sin esto, al reciclar una celda de `FlatList` la imagen **anterior**
+         * se queda visible mientras carga la nueva: el usuario ve el logo de
+         * otro negocio sobre el nombre correcto durante un instante.
+         */
+        recyclingKey={business._id}
       />
     );
   }
@@ -123,9 +138,20 @@ function rowOffer(business: Business): Business['offer'] {
 // Fila de lista
 // ──────────────────────────────────────────────────────────────
 
+/**
+ * `onPress` recibe el id en vez de ser una función ya cerrada sobre él.
+ *
+ * Parece un detalle y era lo que anulaba el `memo` de este componente: las
+ * pantallas escribían `onPress={() => goToBusiness(b._id)}`, que crea una
+ * función nueva en cada render del padre, así que la prop siempre cambiaba y
+ * las 60 filas se volvían a renderizar aunque los datos fueran idénticos.
+ *
+ * Con el id como argumento, el padre puede pasar un `useCallback` estable y
+ * el `memo` empieza a servir para algo.
+ */
 export const BusinessRow = memo(function BusinessRow({
   business, onPress, showStatus = true,
-}: { business: Business; onPress: () => void; showStatus?: boolean }) {
+}: { business: Business; onPress: (id: string) => void; showStatus?: boolean }) {
   const { c } = useTheme();
   const status = openState(business.schedule);
   const closed = showStatus && !status.open;
@@ -133,7 +159,7 @@ export const BusinessRow = memo(function BusinessRow({
 
   return (
     <Card
-      onPress={onPress}
+      onPress={() => onPress(business._id)}
       padded={false}
       accessibilityLabel={`${business.name}. Calificación ${business.rating.toFixed(1)}. ${minutes(business.deliveryTime)}.${offer ? ` ${offer.label}.` : ''}${closed ? ` ${status.label}.` : ''}`}
       accessibilityHint="Abre el menú del negocio"
@@ -190,7 +216,7 @@ export const BusinessRow = memo(function BusinessRow({
 /** Tarjeta ancha para los carruseles. El color del negocio ocupa la portada. */
 export const BusinessFeatured = memo(function BusinessFeatured({
   business, onPress, width = 220,
-}: { business: Business; onPress: () => void; width?: number }) {
+}: { business: Business; onPress: (id: string) => void; width?: number }) {
   const { c } = useTheme();
   const accent = businessAccent(business._id);
   const status = openState(business.schedule);
@@ -198,7 +224,7 @@ export const BusinessFeatured = memo(function BusinessFeatured({
 
   return (
     <Card
-      onPress={onPress}
+      onPress={() => onPress(business._id)}
       padded={false}
       tone="flat"
       style={{ width }}
@@ -213,6 +239,8 @@ export const BusinessFeatured = memo(function BusinessFeatured({
             contentFit="cover"
             transition={200}
             accessible={false}
+            cachePolicy="memory-disk"
+            recyclingKey={business._id}
           />
         ) : (
           <View style={styles.coverBadgeCircle}>

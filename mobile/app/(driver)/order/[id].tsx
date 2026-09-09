@@ -376,6 +376,8 @@ export default function DriverActiveOrderScreen() {
                     order.errand?.pickupLocation?.coordinates?.[0]
                   )
                 }
+                accessibilityRole="button"
+                accessibilityLabel={`Comprar en ${order.errand?.pickupAddress}. Abre la navegación`}
               >
                 <View style={styles.addrRow}>
                   <Icon name="ubicacion" size="sm" color={c.textMuted} />
@@ -452,7 +454,11 @@ export default function DriverActiveOrderScreen() {
             <Card style={styles.section}>
               <SectionTitle icon="negocio" label="RECOGER EN" />
               <Text v="titleM">{business?.name ?? 'El negocio'}</Text>
-              <Pressable onPress={() => openMap(business?.address, business?.location?.coordinates?.[1], business?.location?.coordinates?.[0])}>
+              <Pressable
+                onPress={() => openMap(business?.address, business?.location?.coordinates?.[1], business?.location?.coordinates?.[0])}
+                accessibilityRole="button"
+                accessibilityLabel={`Recoger en ${business?.name ?? 'el negocio'}, ${business?.address}. Abre la navegación`}
+              >
                 <View style={styles.addrRow}>
                   <Icon name="ubicacion" size="sm" color={c.textMuted} />
                   <Text v="bodyS" tone="textSecondary" style={styles.flex}>{business?.address}</Text>
@@ -510,7 +516,11 @@ export default function DriverActiveOrderScreen() {
             <Card style={styles.section}>
               <SectionTitle icon="ubicacion" label="ENTREGAR A" />
               <Text v="titleM">{client?.name ?? 'El cliente'}</Text>
-              <Pressable onPress={() => openMap(order.deliveryAddress, order.deliveryLocation?.coordinates?.[1], order.deliveryLocation?.coordinates?.[0])}>
+              <Pressable
+                onPress={() => openMap(order.deliveryAddress, order.deliveryLocation?.coordinates?.[1], order.deliveryLocation?.coordinates?.[0])}
+                accessibilityRole="button"
+                accessibilityLabel={`Entregar a ${client?.name ?? 'el cliente'} en ${order.deliveryAddress}. Abre la navegación`}
+              >
                 <View style={styles.addrRow}>
                   <Icon name="ubicacion" size="sm" color={c.textMuted} />
                   <Text v="bodyS" tone="textSecondary" style={styles.flex}>{order.deliveryAddress}</Text>

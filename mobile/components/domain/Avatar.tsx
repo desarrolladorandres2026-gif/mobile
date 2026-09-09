@@ -27,6 +27,10 @@ export function Avatar({
         contentFit="cover"
         transition={150}
         accessibilityLabel="Foto de perfil"
+        // El avatar aparece en cada mensaje del chat y en cada fila de
+        // pedidos: sin caché en memoria se decodifica una y otra vez.
+        cachePolicy="memory-disk"
+        recyclingKey={uri}
       />
     );
   }

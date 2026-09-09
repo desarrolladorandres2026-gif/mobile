@@ -1,10 +1,20 @@
 import axios from 'axios';
 import { API_URL } from '../constants';
 import { useAuthStore } from '../stores/authStore';
+import { singleFlight } from '../lib/singleFlight';
 
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 15000,
+  /**
+   * 12 s, no 15.
+   *
+   * Multiplicado por los reintentos de React Query, 15 s significaban que el
+   * usuario miraba esqueletos **45 segundos** antes de que apareciera el
+   * mensaje de error. Ninguna petición sana de esta API tarda ni de lejos
+   * eso: pasado este punto lo honesto es decir que algo va mal, no seguir
+   * fingiendo que carga.
+   */
+  timeout: 12000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -17,22 +27,6 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-/**
- * El access token dura 15 minutos y cualquier pantalla puede disparar varias
- * peticiones a la vez (varias queries de React Query montándose juntas). Si
- * el token expiró, todas reciben 401 casi en el mismo instante.
- *
- * El backend rota el refresh token en cada uso y trata reusar uno viejo como
- * robo de sesión: revoca TODAS las sesiones del usuario. Sin este candado,
- * cada 401 dispararía su propio POST a /auth/refresh-token con el mismo
- * refresh token todavía vigente; la primera petición lo consume con éxito,
- * la segunda lo encuentra ya invalidado y el backend interpreta eso como
- * reuse — sesión cerrada de golpe sin que el usuario haya hecho nada.
- * Compartir una única promesa de refresco entre peticiones concurrentes
- * evita esa falsa alarma.
- */
-let refreshPromise: Promise<{ accessToken: string; refreshToken: string }> | null = null;
-
 async function refreshTokens() {
   const refreshToken = useAuthStore.getState().refreshToken;
   if (!refreshToken) throw new Error('No refresh token');
@@ -43,6 +37,13 @@ async function refreshTokens() {
   return tokens;
 }
 
+/**
+ * Un refresco a la vez. Ver el comentario de `singleFlight` para el porqué:
+ * aquí es donde importa, porque varias queries de React Query pueden
+ * montarse juntas y recibir 401 casi en el mismo instante.
+ */
+const refreshOnce = singleFlight(refreshTokens);
+
 // Response interceptor - handle token refresh
 api.interceptors.response.use(
   (response) => response,
@@ -51,12 +52,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        if (!refreshPromise) {
-          refreshPromise = refreshTokens().finally(() => {
-            refreshPromise = null;
-          });
-        }
-        const { accessToken } = await refreshPromise;
+        const { accessToken } = await refreshOnce();
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return api(originalRequest);
       } catch {

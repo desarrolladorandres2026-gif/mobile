@@ -1,9 +1,9 @@
-import Svg, { Circle, Ellipse, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Ellipse, Rect, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { palette } from '../../theme/tokens';
 import type { IllustrationProps } from './types';
 
 /** Comidas rápidas: mini hamburguesa con capas de color, mismo blob dorado que el resto del set. */
-export function FastFoodIllustration({ size = 48 }: IllustrationProps) {
+export function FastFoodIllustration({ size = 48, bleed = false }: IllustrationProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64" fill="none">
       <Defs>
@@ -17,7 +17,9 @@ export function FastFoodIllustration({ size = 48 }: IllustrationProps) {
         </LinearGradient>
       </Defs>
 
-      <Circle cx="32" cy="32" r="28" fill="url(#ffBlob)" />
+      {bleed
+        ? <Rect x="0" y="0" width="64" height="64" fill="url(#ffBlob)" />
+        : <Circle cx="32" cy="32" r="28" fill="url(#ffBlob)" />}
       <Ellipse cx="32" cy="44" rx="15" ry="4" fill={palette.mango700} opacity={0.14} />
 
       {/* pan superior */}

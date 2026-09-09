@@ -4,12 +4,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import Animated, {
   useSharedValue, useAnimatedStyle, withSpring, withTiming,
+  withRepeat, withDelay, interpolate, Easing,
 } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Text } from '../ui/Text';
 import { Icon } from '../ui/Icon';
 import type { IconName } from '../../theme/icons';
 import { BorderRadius, Motion, Size, Spacing, palette } from '../../theme/tokens';
-import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
 
 const TABS: Record<string, { icon: IconName; label: string }> = {
@@ -26,16 +27,59 @@ const TABS: Record<string, { icon: IconName; label: string }> = {
 };
 
 const INDICATOR_W = 22;
+const SHEEN_W = 180;
+
+// La barra es una superficie de color fijo (oro de marca), no sigue el tema:
+// el primer plano va en negro para que los iconos no se pierdan sobre el oro.
+const BAR_BG = palette.gold400;             // #E5B242
+const ON_GOLD = '#000000';                  // icono/label activo, indicador
+const ON_GOLD_MUTED = 'rgba(0, 0, 0, 0.7)'; // icono/label inactivo
+
+/**
+ * Reflejo que recorre la barra.
+ *
+ * Una banda blanca muy tenue, inclinada, que cruza de izquierda a derecha
+ * cada pocos segundos: le da al oro un acabado metálico sin robar atención.
+ */
+function Sheen({ trackWidth }: { trackWidth: number }) {
+  const p = useSharedValue(0);
+
+  useEffect(() => {
+    p.value = withRepeat(
+      withDelay(1800, withTiming(1, { duration: 2800, easing: Easing.inOut(Easing.ease) })),
+      -1,
+      false,
+    );
+  }, [trackWidth]);
+
+  const slide = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(p.value, [0, 1], [-SHEEN_W, trackWidth + SHEEN_W]) },
+      { skewX: '-18deg' },
+    ],
+  }));
+
+  return (
+    <Animated.View pointerEvents="none" style={[styles.sheen, slide]}>
+      <LinearGradient
+        colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.38)', 'rgba(255,255,255,0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={StyleSheet.absoluteFill}
+      />
+    </Animated.View>
+  );
+}
 
 /**
  * Barra de navegación.
  *
  * El indicador de pestaña activa es el trazo de la marca en pequeño: un
- * segmento lima que se desliza al cambiar de sección. Es el mismo gesto del
- * logo y del seguimiento, así que la navegación queda firmada.
+ * segmento en tinta que se desliza sobre la barra dorada al cambiar de
+ * sección. Es el mismo gesto del logo y del seguimiento, así que la
+ * navegación queda firmada.
  */
 export function TabBar({ state, navigation }: BottomTabBarProps) {
-  const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
@@ -57,13 +101,14 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       style={[
         styles.bar,
         {
-          backgroundColor: c.surface,
-          borderTopColor: c.border,
+          backgroundColor: BAR_BG,
+          borderTopColor: palette.gold600,
           height: Size.tabBar + insets.bottom,
           paddingBottom: insets.bottom,
         },
       ]}
     >
+      <Sheen trackWidth={width} />
       <Animated.View style={[styles.indicator, indicator]} />
 
       {state.routes.map((route, index) => {
@@ -105,7 +150,6 @@ function TabItem({
   width: number;
   onPress: () => void;
 }) {
-  const { c } = useTheme();
   const lift = useSharedValue(focused ? 1 : 0);
 
   useEffect(() => {
@@ -131,10 +175,10 @@ function TabItem({
         <Icon
           name={icon}
           size="lg"
-          color={focused ? c.primaryText : c.textMuted}
+          color={focused ? ON_GOLD : ON_GOLD_MUTED}
           strong={focused}
         />
-        <Text v="caption" tone={focused ? 'primaryText' : 'textMuted'}>
+        <Text v="caption" color={focused ? ON_GOLD : ON_GOLD_MUTED}>
           {label}
         </Text>
       </Animated.View>
@@ -146,6 +190,14 @@ const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     borderTopWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden', // recorta el reflejo a los bordes de la barra
+  },
+  sheen: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: SHEEN_W,
   },
   indicator: {
     position: 'absolute',
@@ -154,7 +206,7 @@ const styles = StyleSheet.create({
     width: INDICATOR_W,
     height: 3,
     borderRadius: BorderRadius.full,
-    backgroundColor: palette.lima500,
+    backgroundColor: ON_GOLD,
   },
   tab: { alignItems: 'center', justifyContent: 'center' },
   tabInner: { alignItems: 'center', gap: 3, paddingTop: Spacing.md },

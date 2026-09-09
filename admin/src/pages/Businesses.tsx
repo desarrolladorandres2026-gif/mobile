@@ -4,6 +4,7 @@ import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
 import type { AdminUser } from '../lib/apiTypes';
+import { categoryIllustration } from '../components/illustrations';
 
 interface Business {
   _id: string;
@@ -226,14 +227,16 @@ export default function Businesses() {
         </div>
       ) : (
         <div className="grid gap-4">
-          {filteredBusinesses.map((b) => (
+          {filteredBusinesses.map((b) => {
+            const CategoryArt = categoryIllustration(b.category);
+            return (
             <div
               key={b._id}
               className="zipp-card p-5 flex flex-col md:flex-row md:items-center justify-between gap-5"
             >
               <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-[var(--color-primary-bg)] border border-[var(--color-primary-bg)] flex items-center justify-center flex-shrink-0">
-                  <Store className="w-6 h-6 text-[var(--color-primary)]" />
+                <div className="w-12 h-12 rounded-xl bg-[var(--color-primary-bg)] border border-[var(--color-primary-bg)] flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  <CategoryArt size={34} />
                 </div>
 
                 <div className="min-w-0 space-y-1.5">
@@ -300,7 +303,8 @@ export default function Businesses() {
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
 
           {filteredBusinesses.length === 0 && (
             <div className="zipp-card p-12 text-center text-[var(--color-text-muted)] text-xs font-semibold">

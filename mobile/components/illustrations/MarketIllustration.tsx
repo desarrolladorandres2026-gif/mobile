@@ -1,9 +1,9 @@
-import Svg, { Circle, Ellipse, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Ellipse, Rect, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { palette } from '../../theme/tokens';
 import type { IllustrationProps } from './types';
 
 /** Mercados: mini canasta con víveres de colores, cierra el set de categorías. */
-export function MarketIllustration({ size = 48 }: IllustrationProps) {
+export function MarketIllustration({ size = 48, bleed = false }: IllustrationProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64" fill="none">
       <Defs>
@@ -17,7 +17,9 @@ export function MarketIllustration({ size = 48 }: IllustrationProps) {
         </LinearGradient>
       </Defs>
 
-      <Circle cx="32" cy="32" r="28" fill="url(#mktBlob)" />
+      {bleed
+        ? <Rect x="0" y="0" width="64" height="64" fill="url(#mktBlob)" />
+        : <Circle cx="32" cy="32" r="28" fill="url(#mktBlob)" />}
       <Ellipse cx="32" cy="47" rx="14" ry="3.4" fill={palette.mango700} opacity={0.14} />
 
       {/* víveres asomando */}

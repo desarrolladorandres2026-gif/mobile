@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../stores/authStore';
 import { notificationsApi } from '../services/endpoints';
 import { registerForPush, pushPlatform, addPushListeners } from '../lib/push';
+import { reportError } from '../lib/crashReporting';
 
 const TOKEN_KEY = '@zipp_push_token';
 
@@ -55,8 +56,12 @@ export function usePushNotifications() {
       try {
         await notificationsApi.registerDevice(token, pushPlatform());
         await AsyncStorage.setItem(TOKEN_KEY, token);
-      } catch {
+      } catch (err) {
         registered.current = false;
+        // Antes esto se tragaba entero: el dispositivo quedaba sin registrar,
+        // el usuario no recibia ni un aviso de su pedido, y nadie se enteraba
+        // nunca. Es justo el fallo que hace falta ver desde fuera.
+        reportError(err, { scope: 'push:registerDevice' });
       }
     })();
   }, [isAuthenticated]);
@@ -69,7 +74,20 @@ export function usePushNotifications() {
   useEffect(() => {
     const openFromData = (data: any) => {
       const orderId = data?.orderId ?? data?.order?._id;
-      if (orderId) router.push(`/(client)/order-tracking?orderId=${orderId}`);
+      // El parametro se llama `id`, que es el que lee `order-tracking` con
+      // `useLocalSearchParams`. Antes se mandaba `orderId` y la pantalla
+      // abria sin pedido: tocar cualquier aviso terminaba en "No encontramos
+      // este pedido", justo en el momento de mas intencion del usuario.
+      if (orderId) {
+        router.push({ pathname: '/(client)/order-tracking', params: { id: orderId } });
+        return;
+      }
+
+      // La push de "respondimos tu solicitud" (support.service.ts) manda
+      // pqrsId. No hay pantalla de detalle por ticket, asi que se abre el
+      // listado -- que ya se refresca solo por el socket, y ahora tambien
+      // por haber tocado la push.
+      if (data?.pqrsId) router.push('/(client)/requests');
     };
 
     return addPushListeners({ onOpen: openFromData });

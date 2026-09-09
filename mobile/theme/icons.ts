@@ -1,5 +1,5 @@
 import {
-  House, Search, ReceiptText, User, Users,
+  House, Compass, ReceiptText, User, Users,
   ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   X, Plus, Minus, Check, CircleCheck, CircleCheckBig,
   SlidersHorizontal, Share2, RotateCw, Pencil, Trash2, Repeat2,
@@ -31,7 +31,7 @@ import {
 export const IconRegistry = {
   // Navegación principal
   inicio: House,
-  explorar: Search,
+  explorar: Compass,
   pedidos: ReceiptText,
   perfil: User,
 

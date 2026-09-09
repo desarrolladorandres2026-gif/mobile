@@ -4,11 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  Text, Icon, SearchField, Chip, EmptyState, ErrorState,
+  Text, Icon, SearchField, CategoryChip, EmptyState, ErrorState,
   BusinessCardSkeleton, Badge, Card,
 } from '../../../components/ui';
 import { BusinessRow, type Business } from '../../../components/domain/BusinessCard';
 import { CategoryTile } from '../../../components/domain/CategoryTile';
+import { categoryIllustration, ContentIcon } from '../../../components/illustrations';
 import {
   SearchFiltersSheet, NO_FILTERS, countActiveFilters,
   type SearchFilters,
@@ -17,13 +18,12 @@ import {
   useBusinesses, useSearch, useSearchSuggestions, usePopularSearches, useDeliveryCoords,
 } from '../../../hooks/useApi';
 import { searchApi, type ProductSearchHit, type SearchSuggestion } from '../../../services/endpoints';
-import { productImageUri } from '../../../lib/productImage';
+import { productImageUri, productImagePlaceholder } from '../../../lib/productImage';
 import { Image } from 'expo-image';
 import { useHomeCategories, type DisplayCategory } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
 import { usePrefsStore } from '../../../stores/prefsStore';
-import { categoryIcon } from '../../../theme/icons';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { openState } from '../../../lib/business';
 import { tap } from '../../../lib/haptics';
@@ -45,6 +45,8 @@ const FALLBACK_SEARCHES = [
  * altura suficiente `onEndReached` no llega a dispararse nunca.
  */
 const MIN_VISIBLE = 6;
+/** Ver el comentario del efecto de relleno automático. */
+const MAX_AUTO_PAGES = 3;
 
 /** Espera a que el usuario deje de escribir antes de consultar al servidor. */
 function useDebounced<T>(value: T, delay = 320): T {
@@ -94,7 +96,7 @@ export default function SearchScreen() {
   const term = debouncedQuery.trim();
   const hasTerm = term.length >= 2;
 
-  const coords = useDeliveryCoords();
+  const { coords, ready: coordsReady } = useDeliveryCoords();
 
   // Dos fuentes según lo que esté haciendo el usuario. Con término escrito
   // manda la búsqueda de catálogo, que también encuentra platos; navegando
@@ -109,10 +111,15 @@ export default function SearchScreen() {
   const catalog = useSearch(term, { lat: coords?.lat, lng: coords?.lng, sort: filters.sort });
   const suggestions = useSearchSuggestions(suggestOpen ? suggestTerm : '');
 
-  const listing = useBusinesses({
-    category: category || undefined,
-    ...(coords ?? {}),
-  }) as { data: Business[]; isLoading: boolean; isError: boolean; refetch: () => void };
+  const listing = useBusinesses(
+    {
+      category: category || undefined,
+      ...(coords ?? {}),
+    },
+    // Igual que en Inicio: sin esperar a las direcciones, la lista se
+    // descargaba una vez sin coordenadas y otra con ellas.
+    coordsReady
+  ) as { data: Business[]; isLoading: boolean; isError: boolean; refetch: () => void };
 
   const pages = catalog.data?.pages ?? [];
   const found = useMemo(() => pages.flatMap((p) => p.businesses as Business[]), [pages]);
@@ -234,8 +241,29 @@ export default function SearchScreen() {
     fetchNextPage();
   }, [hasTerm, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  /**
+   * Tope de páginas que el relleno automático puede pedir por búsqueda.
+   *
+   * Sin él, un filtro estricto convierte esto en una lectura completa del
+   * catálogo: `minRating: 4.5` descarta casi todo, la página queda por
+   * debajo del mínimo, el efecto pide la siguiente, y así **hasta agotar
+   * `hasNextPage`**. Con tres páginas ya hay material de sobra para juzgar
+   * si el filtro es demasiado duro; a partir de ahí, seguir deslizando es
+   * decisión del usuario y no del efecto.
+   */
+  const autoPagesRef = useRef(0);
+
   useEffect(() => {
-    if (results.length < MIN_VISIBLE) loadMore();
+    // Cada búsqueda nueva empieza con el contador a cero: el tope es por
+    // término, no por sesión.
+    autoPagesRef.current = 0;
+  }, [term, filters.sort, filters.minRating, filters.maxDeliveryTime, filters.openOnly]);
+
+  useEffect(() => {
+    if (results.length >= MIN_VISIBLE) return;
+    if (autoPagesRef.current >= MAX_AUTO_PAGES) return;
+    autoPagesRef.current += 1;
+    loadMore();
   }, [results.length, loadMore]);
 
   // Basta con que la consulta haya respondido, aunque venga vacía: la fila
@@ -273,9 +301,9 @@ export default function SearchScreen() {
             windowSize={9}
             initialNumToRender={6}
             renderItem={({ item }) => (
-              <Chip
+              <CategoryChip
                 label={item.label}
-                icon={categoryIcon(item.key)}
+                categoryKey={item.key}
                 active={category === item.key}
                 onPress={() => {
                   tap('select');
@@ -342,10 +370,7 @@ export default function SearchScreen() {
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
           renderItem={({ item }) => (
-            <BusinessRow
-              business={item}
-              onPress={() => openBusiness(item._id)}
-            />
+            <BusinessRow business={item} onPress={openBusiness} />
           )}
           ListHeaderComponent={
             <View style={styles.header}>
@@ -404,6 +429,7 @@ export default function SearchScreen() {
                 onRemoveRecent={(value) => { tap('light'); removeRecentSearch(value); }}
                 onClearRecents={() => { tap('light'); clearRecentSearches(); }}
                 onPickCategory={(key) => { tap('select'); setCategory(key); }}
+                onErrand={() => { tap('select'); router.push('/(client)/errand'); }}
               />
             )
           }
@@ -529,6 +555,7 @@ function ProductHit({
   const { c } = useTheme();
   const uri = productImageUri(product as never, 'thumb');
   const price = product.discountPrice ?? product.price;
+  const Illustration = categoryIllustration(product.businessCategory ?? '');
 
   return (
     <Pressable
@@ -538,9 +565,19 @@ function ProductHit({
       accessibilityLabel={`${product.name} en ${product.businessName}`}
     >
       {uri ? (
-        <Image source={{ uri }} style={styles.hitImage} contentFit="cover" transition={150} />
+        <Image
+          source={{ uri }}
+          style={styles.hitImage}
+          contentFit="cover"
+          transition={150}
+          placeholder={productImagePlaceholder(product as never)}
+          cachePolicy="memory-disk"
+          recyclingKey={product._id}
+        />
       ) : (
-        <View style={[styles.hitImage, { backgroundColor: c.background }]} />
+        <View style={[styles.hitImage, styles.hitFallback, { backgroundColor: c.surfaceLight }]}>
+          <Illustration size={34} />
+        </View>
       )}
 
       <View style={styles.hitBody}>
@@ -564,6 +601,7 @@ function DiscoveryHub({
   onRemoveRecent,
   onClearRecents,
   onPickCategory,
+  onErrand,
 }: {
   popularTerms: string[];
   recentSearches: string[];
@@ -572,6 +610,7 @@ function DiscoveryHub({
   onRemoveRecent: (term: string) => void;
   onClearRecents: () => void;
   onPickCategory: (key: string) => void;
+  onErrand: () => void;
 }) {
   const { c } = useTheme();
 
@@ -585,7 +624,12 @@ function DiscoveryHub({
               <Icon name="reintentar" size="sm" color={c.textMuted} />
               <Text v="strongS">Búsquedas recientes</Text>
             </View>
-            <Pressable onPress={onClearRecents} hitSlop={8}>
+            <Pressable
+              onPress={onClearRecents}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Borrar todas las búsquedas recientes"
+            >
               <Text v="caption" tone="primaryText">Borrar todo</Text>
             </Pressable>
           </View>
@@ -594,12 +638,20 @@ function DiscoveryHub({
               <Pressable
                 key={term}
                 onPress={() => onSelectSearch(term)}
+                accessibilityRole="button"
+                accessibilityLabel={`Buscar "${term}" otra vez`}
                 style={[styles.recentTag, { backgroundColor: c.surface, borderColor: c.border }]}
               >
                 <Text v="bodyS">{term}</Text>
                 <Pressable
                   onPress={() => onRemoveRecent(term)}
-                  hitSlop={6}
+                  // El icono mide 12px; sin hitSlop real el area tocable
+                  // quedaba por debajo del minimo de 44pt del propio token
+                  // del proyecto, anidada ademas dentro de otro Pressable
+                  // -- el peor caso para acertar con el dedo.
+                  hitSlop={16}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Quitar "${term}" de recientes`}
                   style={styles.tagClose}
                 >
                   <Icon name="cerrar" size={12} color={c.textMuted} />
@@ -621,6 +673,8 @@ function DiscoveryHub({
             <Pressable
               key={term}
               onPress={() => onSelectSearch(term)}
+              accessibilityRole="button"
+              accessibilityLabel={`Buscar "${term}"`}
               style={[styles.popularTag, { backgroundColor: c.primarySoft, borderColor: 'transparent' }]}
             >
               <Text v="bodyS" color={c.primaryText}>{term}</Text>
@@ -653,6 +707,29 @@ function DiscoveryHub({
           ))}
         </View>
       </View>
+
+      {/* ── Mandados ── */}
+      {/* Cierra la lista a propósito: si ninguna categoría es lo que buscas,
+          esto es la salida. Una categoría lleva a una lista de negocios;
+          esto no lleva a ninguna, es para lo que no está en ninguna carta. */}
+      <Card
+        tone="outline"
+        style={styles.errand}
+        onPress={onErrand}
+        accessibilityLabel="Pedir un mandado"
+        accessibilityHint="Encargar algo que no está en ninguna carta"
+      >
+        <View style={[styles.errandIcon, { backgroundColor: c.surfaceLight }]}>
+          <ContentIcon name="paquete" size={30} />
+        </View>
+        <View style={styles.errandCopy}>
+          <Text v="titleS">¿No está en ninguna carta?</Text>
+          <Text v="bodyM" tone="textSecondary">
+            Pide un mandado y te lo recogemos donde sea.
+          </Text>
+        </View>
+        <Icon name="siguiente" size="md" color={c.textMuted} />
+      </Card>
     </Animated.View>
   );
 }
@@ -674,6 +751,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   hitImage: { width: 52, height: 52, borderRadius: BorderRadius.md },
+  hitFallback: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   hitBody: { flex: 1, gap: 2 },
 
   suggestionRow: {
@@ -747,4 +825,11 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
   },
+
+  errand: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  errandIcon: {
+    width: 44, height: 44, borderRadius: BorderRadius.sm,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  errandCopy: { flex: 1, gap: 2 },
 });

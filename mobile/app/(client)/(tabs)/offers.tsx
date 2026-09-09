@@ -1,188 +1,156 @@
-import { useState, memo } from 'react';
-import { View, FlatList, RefreshControl, StyleSheet, Pressable } from 'react-native';
+import { memo, useCallback } from 'react';
+import { View, ScrollView, FlatList, RefreshControl, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  Text, Card, EmptyState, ErrorState, BusinessCardSkeleton, CatalogBadges,
+  Text, Card, SectionHeader, EmptyState, ErrorState, BusinessCardSkeleton, CatalogBadges,
 } from '../../../components/ui';
 import { BusinessRow } from '../../../components/domain/BusinessCard';
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
 import { CouponCard } from '../../../components/domain/CouponCard';
+import { categoryIllustration } from '../../../components/illustrations';
 import { useOffers, useDeliveryCoords } from '../../../hooks/useApi';
 import type { OfferBusiness, ProductSearchHit } from '../../../services/endpoints';
-import { productImageUri } from '../../../lib/productImage';
+import { productImageUri, productImagePlaceholder } from '../../../lib/productImage';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
-import { tap } from '../../../lib/haptics';
-
-type Segment = 'coupons' | 'products' | 'businesses';
 
 /**
- * Todo lo que está en oferta, en un solo lugar.
+ * Todo lo que está en oferta, en un solo scroll.
  *
- * Antes de esto, un descuento solo se descubría entrando al negocio
- * correcto o si le tocaba salir en el carrusel del inicio. Los tres
- * segmentos no compiten entre sí: un cupón, un plato rebajado y un negocio
- * con envío gratis son tres formas distintas de la misma promesa —"esto te
- * cuesta menos"— y cada una necesita su propia tarjeta.
+ * Antes esto eran tres pestañas —Cupones, Productos, Negocios— y solo se
+ * veía una a la vez: para saber si había algo rebajado había que tocar las
+ * tres. Ahora es un feed seccionado, como el de las apps grandes: los
+ * cupones y los platos van en rieles horizontales, los negocios en una
+ * lista, y cada sección se dibuja solo si tiene algo que mostrar. Siguen
+ * siendo tres formas de la misma promesa —"esto te cuesta menos"— pero ya
+ * no compiten por un interruptor.
  */
 export default function OffersScreen() {
   const router = useRouter();
   const { c } = useTheme();
   const bottomSpace = useTabContentPadding(CLIENT_DOCK_CLEARANCE);
-  const [segment, setSegment] = useState<Segment>('coupons');
 
   // La distancia se mide desde la dirección de entrega, no desde el GPS,
   // igual que en el inicio: es donde el pedido va a llegar.
-  const coords = useDeliveryCoords();
+  const { coords } = useDeliveryCoords();
   const { data, isLoading, isError, refetch, isRefetching } = useOffers(coords);
 
   const coupons = data?.coupons ?? [];
   const products = data?.products ?? [];
   const businesses = data?.businesses ?? [];
+  const isEmpty = !coupons.length && !products.length && !businesses.length;
 
-  const openBusiness = (id: string) => router.push(`/(client)/business/${id}`);
+  // `useCallback` para que el `memo` de las tarjetas sirva de algo: sin
+  // esto la funcion se recreaba en cada render y todas las filas se
+  // volvian a renderizar.
+  const openBusiness = useCallback(
+    (id: string) => router.push(`/(client)/business/${id}`),
+    [router]
+  );
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
-      <View style={styles.top}>
-        <Text v="displayM">Descuentos</Text>
-
-        <View style={[styles.segments, { backgroundColor: c.surfaceLight, borderColor: c.border }]}>
-          <SegmentTab
-            label="Cupones"
-            count={coupons.length}
-            active={segment === 'coupons'}
-            onPress={() => setSegment('coupons')}
-          />
-          <SegmentTab
-            label="Productos"
-            count={products.length}
-            active={segment === 'products'}
-            onPress={() => setSegment('products')}
-          />
-          <SegmentTab
-            label="Negocios"
-            count={businesses.length}
-            active={segment === 'businesses'}
-            onPress={() => setSegment('businesses')}
-          />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: bottomSpace }}
+        refreshControl={
+          <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={c.primary} colors={[c.primary]} />
+        }
+      >
+        <View style={styles.top}>
+          <Text v="displayM">Descuentos</Text>
         </View>
-      </View>
 
-      {/* Se dibuja solo si el servidor mandó banners vigentes para esta
-          pestaña; si no, la lista sube sola y no queda ningún hueco. */}
-      <PromoCarousel placement="offers" />
+        {/* Se dibuja solo si el servidor mandó banners vigentes para esta
+            pantalla; si no, la primera sección sube y no queda hueco. */}
+        <PromoCarousel placement="offers" />
 
-      {isError ? (
-        <ErrorState onRetry={refetch} />
-      ) : isLoading ? (
-        <View style={styles.skeletons}>
-          <BusinessCardSkeleton />
-          <BusinessCardSkeleton />
-          <BusinessCardSkeleton />
-        </View>
-      ) : segment === 'coupons' ? (
-        <FlatList
-          data={coupons}
-          keyExtractor={(item: any) => item._id}
-          contentContainerStyle={[styles.list, { paddingBottom: bottomSpace }]}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={c.primary} colors={[c.primary]} />
-          }
-          renderItem={({ item }) => (
-            <Animated.View entering={FadeIn.duration(240)}>
-              <CouponCard coupon={item} width="100%" />
-            </Animated.View>
-          )}
-          ListEmptyComponent={
-            <EmptyState
-              icon="cupon"
-              title="Sin cupones activos"
-              message="Cuando haya promociones nuevas te avisaremos de inmediato."
-            />
-          }
-        />
-      ) : segment === 'products' ? (
-        <FlatList
-          data={products}
-          keyExtractor={(item: ProductSearchHit) => item._id}
-          contentContainerStyle={[styles.list, { paddingBottom: bottomSpace }]}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={c.primary} colors={[c.primary]} />
-          }
-          renderItem={({ item }) => (
-            <OfferProductCard product={item} onPress={() => openBusiness(item.businessId)} />
-          )}
-          ListEmptyComponent={
+        {isError ? (
+          <View style={styles.section}>
+            <ErrorState onRetry={refetch} />
+          </View>
+        ) : isLoading ? (
+          <View style={[styles.section, styles.list]}>
+            <BusinessCardSkeleton />
+            <BusinessCardSkeleton />
+            <BusinessCardSkeleton />
+          </View>
+        ) : isEmpty ? (
+          <View style={styles.section}>
             <EmptyState
               icon="descuento"
-              title="Sin platos rebajados por ahora"
-              message="Cuando algún negocio baje un precio, va a aparecer aquí."
+              title="Sin descuentos por ahora"
+              message="Cuando haya cupones, platos rebajados o negocios en oferta cerca de ti, van a aparecer aquí."
             />
-          }
-        />
-      ) : (
-        <FlatList
-          data={businesses}
-          keyExtractor={(item: OfferBusiness) => item._id}
-          contentContainerStyle={[styles.list, { paddingBottom: bottomSpace }]}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={c.primary} colors={[c.primary]} />
-          }
-          renderItem={({ item }) => (
-            <BusinessRow business={item} onPress={() => openBusiness(item._id)} />
-          )}
-          ListEmptyComponent={
-            <EmptyState
-              icon="negocio"
-              title="Sin negocios en oferta cerca"
-              message="Los negocios con envío gratis o descuentos activos van a salir aquí."
-            />
-          }
-        />
-      )}
+          </View>
+        ) : (
+          <>
+            {coupons.length > 0 ? (
+              <View style={styles.section}>
+                <SectionHeader title="Cupones" subtitle="Aplícalos al confirmar tu pedido" />
+                <FlatList
+                  horizontal
+                  data={coupons}
+                  keyExtractor={(item: any) => item._id}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.hList}
+                  removeClippedSubviews
+                  renderItem={({ item }) => <CouponCard coupon={item} />}
+                />
+              </View>
+            ) : null}
+
+            {products.length > 0 ? (
+              <View style={styles.section}>
+                <SectionHeader title="Platos rebajados" subtitle="Del mejor descuento al más pequeño" />
+                <FlatList
+                  horizontal
+                  data={products}
+                  keyExtractor={(item: ProductSearchHit) => item._id}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.hList}
+                  removeClippedSubviews
+                  renderItem={({ item }) => (
+                    <OfferProductCard product={item} onPress={() => openBusiness(item.businessId)} />
+                  )}
+                />
+              </View>
+            ) : null}
+
+            {businesses.length > 0 ? (
+              <View style={styles.section}>
+                <SectionHeader title="Negocios en oferta" subtitle="Envío gratis o descuentos activos" />
+                <View style={styles.list}>
+                  {businesses.map((item: OfferBusiness) => (
+                    <Animated.View key={item._id} entering={FadeIn.duration(240)}>
+                      <BusinessRow business={item} onPress={openBusiness} />
+                    </Animated.View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+          </>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-function SegmentTab({
-  label, count, active, onPress,
-}: { label: string; count: number; active: boolean; onPress: () => void }) {
-  const { c } = useTheme();
-
-  return (
-    <Pressable
-      onPress={() => { tap('select'); onPress(); }}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: active }}
-      accessibilityLabel={`${label}, ${count} ${count === 1 ? 'resultado' : 'resultados'}`}
-      style={[styles.segment, active && { backgroundColor: c.surface }]}
-    >
-      <Text v="strongS" tone={active ? 'text' : 'textMuted'}>{label}</Text>
-      {count > 0 ? (
-        <Text v="dataXS" tone={active ? 'primaryText' : 'textMuted'}>{count}</Text>
-      ) : null}
-    </Pressable>
-  );
-}
-
 /**
- * Un producto rebajado. A diferencia de la ficha de búsqueda, aquí el
- * precio tachado es el dato que importa: es lo que convierte "$15.400" en
- * una oferta y no en un precio cualquiera.
+ * Un plato rebajado, en formato de riel. El precio tachado es el dato que
+ * importa: es lo que convierte "$15.400" en una oferta y no en un precio
+ * cualquiera.
  */
 const OfferProductCard = memo(function OfferProductCard({
   product, onPress,
 }: { product: ProductSearchHit; onPress: () => void }) {
   const { c } = useTheme();
   const uri = productImageUri(product as never, 'catalog');
+  const Illustration = categoryIllustration(product.businessCategory ?? '');
 
   return (
     <Card
@@ -193,9 +161,22 @@ const OfferProductCard = memo(function OfferProductCard({
       style={styles.productCard}
     >
       {uri ? (
-        <Image source={{ uri }} style={styles.productImage} contentFit="cover" transition={150} />
+        <Image
+          source={{ uri }}
+          style={styles.productImage}
+          contentFit="cover"
+          transition={150}
+          // El backend ya mandaba esta miniatura borrosa en cada producto y
+          // nadie la usaba: es la diferencia entre un hueco gris y algo que
+          // ya se parece al plato mientras carga.
+          placeholder={productImagePlaceholder(product as never)}
+          cachePolicy="memory-disk"
+          recyclingKey={product._id}
+        />
       ) : (
-        <View style={[styles.productImage, { backgroundColor: c.surfaceLight }]} />
+        <View style={[styles.productImage, styles.productFallback, { backgroundColor: c.surfaceLight }]}>
+          <Illustration size={46} />
+        </View>
       )}
 
       <View style={styles.productBody}>
@@ -217,30 +198,16 @@ const OfferProductCard = memo(function OfferProductCard({
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.lg },
-  segments: {
-    flexDirection: 'row',
-    gap: Spacing.xs,
-    padding: 4,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-  },
-  segment: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs + 2,
-    height: 42,
-    borderRadius: BorderRadius.full,
-  },
+  top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md },
 
-  list: { padding: Spacing.xl, gap: Spacing.md },
-  skeletons: { padding: Spacing.xl, gap: Spacing.md },
+  section: { marginTop: Spacing.xxxl, paddingHorizontal: Spacing.xl },
+  hList: { gap: Spacing.md, paddingRight: Spacing.xl },
+  list: { gap: Spacing.md },
 
-  productCard: { flexDirection: 'row', padding: Spacing.md, gap: Spacing.md },
-  productImage: { width: 72, height: 72, borderRadius: BorderRadius.sm },
-  productBody: { flex: 1, gap: 2, justifyContent: 'center' },
+  productCard: { width: 168, padding: Spacing.md, gap: Spacing.sm },
+  productImage: { width: '100%', height: 112, borderRadius: BorderRadius.sm },
+  productFallback: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  productBody: { gap: 2 },
   priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: Spacing.sm },
   strike: { textDecorationLine: 'line-through' },
 });

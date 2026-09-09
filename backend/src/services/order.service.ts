@@ -304,6 +304,23 @@ export class OrderService {
         deliveryDetails: input.deliveryDetails,
         recipient: input.recipient,
         scheduledFor: scheduledFor,
+        /**
+         * La hora que se le prometió al cliente, congelada al crear.
+         *
+         * El campo existía en el modelo desde siempre y **nunca se
+         * escribía**, así que la pregunta "¿cuántos pedidos llegaron a
+         * tiempo?" no se podía responder: no había contra qué comparar
+         * `deliveredAt`. Es el KPI del que cuelga todo lo demás.
+         *
+         * Se guarda el extremo alto del rango porque es el que se enseña,
+         * y prometer el optimista sería incumplir a propósito. En un
+         * pedido programado la cuenta arranca en la hora pedida, no ahora:
+         * si no, un pedido para dentro de seis horas nacería tardísimo.
+         */
+        estimatedDelivery: new Date(
+          (scheduledFor ? scheduledFor.getTime() : Date.now()) +
+            quote.etaMinutesMax * 60_000
+        ),
         requiresAgeVerification: !!restricted,
         deliveryLocation: {
           type: 'Point',

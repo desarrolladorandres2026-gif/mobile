@@ -10,6 +10,7 @@ import {
   type BusinessOrder, type FlowState, type OrderFinance, type OrderItem, type OrderItemExtra,
   type PopulatedDriver, type PopulatedUser,
 } from '../lib/orderFlow';
+import { SUPPORT_PHONE_DISPLAY, supportWhatsAppUrl } from '../lib/contact';
 
 /**
  * Todo lo que el comercio sabe de un pedido, en un panel lateral.
@@ -444,7 +445,24 @@ function DriverBlock({ driver, user, flow }: { driver: PopulatedDriver; user: Po
       {flow?.pickup.lockedUntil ? (
         <p className="text-[11px] font-semibold text-[var(--color-danger)] px-2.5 py-2 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger)]/30">
           El domiciliario falló el código demasiadas veces y está bloqueado
-          temporalmente. No le entregues el pedido: avisa a soporte ZIPP.
+          temporalmente. No le entregues el pedido: avisa a soporte ZIPP al{' '}
+          {/*
+            Enlace de WhatsApp y no `tel:`: esto se ve desde el computador del
+            mostrador, donde un `tel:` no tiene quién lo abra y el clic no hace
+            nada. El número queda visible igual para quien prefiera marcarlo.
+          */}
+          <a
+            href={supportWhatsAppUrl(
+              `Hola, soy un comercio de Zipp. El domiciliario${
+                driver.licensePlate ? ` de placa ${driver.licensePlate}` : ''
+              } quedó bloqueado por fallar el código de recogida.`,
+            )}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2"
+          >
+            {SUPPORT_PHONE_DISPLAY}
+          </a>.
         </p>
       ) : flow?.pickup.attempts ? (
         <p className="text-[11px] text-[var(--color-warning)] font-medium">
