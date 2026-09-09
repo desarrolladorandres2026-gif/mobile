@@ -54,6 +54,7 @@ export class PromotionBannerController {
           { key: BannerActionType.BUSINESS, label: 'Ir a un negocio' },
           { key: BannerActionType.CATEGORY, label: 'Ir a una categoría' },
           { key: BannerActionType.SCREEN, label: 'Ir a una pantalla' },
+          { key: BannerActionType.SEARCH, label: 'Buscar un término' },
         ],
         placements: [
           { key: BannerPlacement.HOME, label: 'Solo pantalla inicial' },

@@ -1,6 +1,6 @@
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi } from '../services/endpoints';
-import type { PromoBanner, HomeCategory } from '../services/endpoints';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
+import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi } from '../services/endpoints';
+import type { PromoBanner, HomeCategory, SearchSort } from '../services/endpoints';
 
 // ── Businesses ──
 export const useBusinesses = (params?: Record<string, any>) =>
@@ -46,12 +46,35 @@ export const useNearbyBusinesses = (lat: number, lng: number) =>
  * Sustituye a filtrar la lista de negocios por nombre, que no encontraba un
  * plato si el local no se llamaba como él.
  */
-export const useSearch = (term: string) =>
-  useQuery({
-    queryKey: ['search', term],
-    queryFn: () => searchApi.query(term),
+export const useSearch = (
+  term: string,
+  params: { lat?: number; lng?: number; sort?: SearchSort } = {}
+) =>
+  useInfiniteQuery({
+    queryKey: ['search', term, params],
+    queryFn: ({ pageParam }) => searchApi.query({ q: term, page: pageParam, ...params }),
+    initialPageParam: 1,
+    // `hasMore` lo decide el servidor, que es el único que sabe cuántos
+    // candidatos había antes de recortar la página.
+    getNextPageParam: (last, pages) => (last.hasMore ? pages.length + 1 : undefined),
     enabled: term.trim().length >= 2,
     staleTime: 60_000,
+  });
+
+/**
+ * Sugerencias mientras se escribe.
+ *
+ * `keepPreviousData` evita el parpadeo: sin él la lista se vacía entre una
+ * tecla y la siguiente, y lo que el usuario ve es un desplegable que
+ * aparece y desaparece mientras escribe.
+ */
+export const useSearchSuggestions = (term: string) =>
+  useQuery({
+    queryKey: ['search', 'suggest', term],
+    queryFn: () => searchApi.suggest(term),
+    enabled: term.trim().length >= 2,
+    staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
   });
 
 /** Lo que más se busca de verdad, según el catálogo. */
@@ -517,26 +540,74 @@ export const usePublicCoupons = (params?: { city?: string; businessId?: string }
   });
 
 /**
+ * Todo lo que está en oferta cerca de la dirección de entrega.
+ *
+ * `enabled` no depende de las coordenadas: a diferencia de la búsqueda por
+ * cercanía, la pantalla de Descuentos también tiene sentido sin ubicación
+ * —los cupones públicos no la necesitan— así que la consulta sale igual,
+ * solo que sin filtrar por radio.
+ */
+export const useOffers = (coords?: { lat: number; lng: number } | null) =>
+  useQuery({
+    queryKey: ['offers', coords],
+    queryFn: () => offersApi.get(coords ?? undefined),
+    staleTime: 5 * 60_000,
+  });
+
+/**
  * ¿Hay cobertura en este punto?
  *
- * Sin usar todavía. El checkout confía en que la dirección guardada es
- * entregable y solo falla al cotizar; esto permitiría avisar antes.
+ * Se consulta mientras se guarda una dirección, para avisar ahí mismo en
+ * vez de dejar que el usuario descubra en el checkout —carrito lleno y
+ * método de pago elegido— que no repartimos en su calle.
+ *
+ * `retry: false` porque el aviso es informativo: si la consulta falla, se
+ * guarda igual y el checkout sigue siendo la red de seguridad. Insistir
+ * solo retrasaría el botón de guardar por un dato que no es bloqueante.
  */
 export const useCoverageCheck = (lat?: number, lng?: number, businessId?: string) =>
   useQuery({
     queryKey: ['coverage', lat, lng, businessId],
     queryFn: () => zonesApi.checkCoverage(lat!, lng!, businessId),
     enabled: typeof lat === 'number' && typeof lng === 'number',
+    retry: false,
+    staleTime: 5 * 60_000,
   });
 
 // ── Addresses ──
 export const useAddresses = () =>
   useQuery({ queryKey: ['addresses'], queryFn: addressApi.getAll });
 
+/** Lo justo de una dirección para reordenar la lista sin ir al servidor. */
+type CachedAddress = { _id: string; isDefault?: boolean; createdAt?: string };
+
+/**
+ * Ordena como lo hace el servidor: principal primero, luego la más nueva.
+ *
+ * Tiene que ser el mismo criterio que el de `getAll`, porque la lista
+ * ordenada aquí se sustituye por la del servidor en cuanto responde. Si
+ * los dos órdenes no coinciden, las tarjetas dan un salto visible al
+ * llegar la respuesta y el efecto es peor que no haber adelantado nada.
+ */
+function sortLikeServer<T extends CachedAddress>(addresses: T[]): T[] {
+  return [...addresses].sort((a, b) => {
+    if (!!a.isDefault !== !!b.isDefault) return a.isDefault ? -1 : 1;
+    return (b.createdAt ?? '').localeCompare(a.createdAt ?? '');
+  });
+}
+
 export const useCreateAddress = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: addressApi.create,
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['addresses'] }); },
+  });
+};
+
+export const useUpdateAddress = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: addressApi.update,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['addresses'] }); },
   });
 };
@@ -549,17 +620,79 @@ export const useDeleteAddress = () => {
   });
 };
 
+/**
+ * Sugerencias de dirección mientras se escribe.
+ *
+ * El mínimo de tres letras es el mismo que exige el servidor, puesto aquí
+ * para que las dos primeras pulsaciones no salgan siquiera del teléfono.
+ * `keepPreviousData` evita que la lista parpadee en vacío entre letra y
+ * letra, que es cuando el usuario está mirándola.
+ */
+export const useAddressSearch = (term: string, near?: { lat: number; lng: number }) =>
+  useQuery({
+    queryKey: ['addresses', 'search', term, near?.lat, near?.lng],
+    queryFn: () => addressApi.search(term, near),
+    enabled: term.trim().length >= 3,
+    placeholderData: keepPreviousData,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+
+/**
+ * Marca una dirección como principal, en el acto.
+ *
+ * Se actualiza la caché antes de que el servidor conteste. Esperar la
+ * respuesta significaba esperar dos viajes —el `PATCH` y el `GET` que lo
+ * seguía— con la fila todavía mostrando lo viejo, y en una conexión de
+ * pueblo eso es casi un segundo de pantalla que no reacciona al toque.
+ *
+ * Adelantarse es seguro precisamente aquí: la operación no puede fallar
+ * por una razón interesante —es tu propia dirección y solo cambia una
+ * bandera—, así que el caso a cubrir es que se caiga la red, y para eso
+ * está la reversión en `onError`. No haría lo mismo con nada que mueva
+ * dinero: ahí adelantar un resultado es prometer algo que no se sabe.
+ */
 export const useSetDefaultAddress = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: addressApi.setDefault,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['addresses'] }); },
+
+    onMutate: async (id: string) => {
+      // Un refetch en vuelo llegaría después con los datos viejos y
+      // desharía justo lo que se acaba de pintar.
+      await queryClient.cancelQueries({ queryKey: ['addresses'] });
+
+      const previous = queryClient.getQueryData<CachedAddress[]>(['addresses']);
+
+      if (previous) {
+        queryClient.setQueryData<CachedAddress[]>(
+          ['addresses'],
+          sortLikeServer(previous.map((a) => ({ ...a, isDefault: a._id === id })))
+        );
+      }
+
+      return { previous };
+    },
+
+    onError: (_error, _id, context) => {
+      // Devuelve la lista exactamente como estaba: si el servidor no aceptó
+      // el cambio, dejar la corona puesta sería mentir sobre a dónde va el
+      // próximo pedido.
+      if (context?.previous) {
+        queryClient.setQueryData(['addresses'], context.previous);
+      }
+    },
+
+    // En los dos casos se vuelve a preguntar: tras un fallo para no
+    // quedarse con una suposición, y tras un acierto porque el servidor es
+    // quien decide el orden final.
+    onSettled: () => { queryClient.invalidateQueries({ queryKey: ['addresses'] }); },
   });
 };
 
 // ── Banners promocionales ──
 /**
- * Los banners de la pantalla inicial.
+ * Los banners activos de una superficie (inicio, descuentos, ...).
  *
  * `staleTime` de 5 minutos porque un banner es contenido editorial, no
  * estado del pedido: refetchear en cada foco solo gastaría datos del
@@ -569,10 +702,10 @@ export const useSetDefaultAddress = () => {
  * El arreglo vacío por defecto hace que "sin banners", "sin conexión" y
  * "API caída" terminen en el mismo lugar: el componente no se dibuja.
  */
-export const useHomeBanners = () =>
+export const useHomeBanners = (placement: 'home' | 'offers' = 'home') =>
   useQuery<PromoBanner[]>({
-    queryKey: ['banners', 'home'],
-    queryFn: bannersApi.getHome,
+    queryKey: ['banners', placement],
+    queryFn: () => bannersApi.getActive(placement),
     retry: false,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,

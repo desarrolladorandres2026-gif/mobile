@@ -1,5 +1,5 @@
 import { config } from '../config';
-import { haversineKm, haversineMeters, LatLng } from '../utils/geo';
+import { haversineKm, haversineMeters, isValidCoordinate, LatLng } from '../utils/geo';
 
 /**
  * Cliente de las APIs de navegación de Mapbox.
@@ -410,6 +410,130 @@ export async function reverseGeocode(point: LatLng): Promise<GeocodedPlace | nul
   return place;
 }
 
+// ── Búsqueda de direcciones (autocompletado) ──────────────────────────
+
+/** Un resultado de búsqueda: como el geocodificado inverso, pero con su punto. */
+export interface PlaceSuggestion extends GeocodedPlace {
+  lat: number;
+  lng: number;
+}
+
+interface SearchCacheEntry {
+  value: PlaceSuggestion[];
+  expiresAt: number;
+}
+
+const searchCache = new Map<string, SearchCacheEntry>();
+const MAX_SEARCH_ENTRIES = 500;
+
+/**
+ * País al que se restringe la búsqueda.
+ *
+ * Sin esto, "calle 5" devuelve resultados de media Latinoamérica y el
+ * primero rara vez es el del usuario. Zipp solo reparte en Colombia, así
+ * que un resultado de fuera no es un acierto peor: es ruido que empuja
+ * hacia abajo al que sí sirve.
+ */
+const SEARCH_COUNTRY = 'co';
+
+/**
+ * Clave de caché de búsqueda.
+ *
+ * Lleva la proximidad redondeada a 2 decimales (~1 km) porque el mismo
+ * texto buscado desde dos barrios distintos debe poder dar resultados
+ * distintos, pero no hace falta una entrada nueva por cada metro que el
+ * usuario se mueva mientras teclea.
+ */
+function searchKey(query: string, proximity?: LatLng): string {
+  const near = proximity ? `${proximity.lat.toFixed(2)},${proximity.lng.toFixed(2)}` : 'none';
+  return `${query.trim().toLowerCase()}|${near}`;
+}
+
+/**
+ * Direcciones que coinciden con un texto.
+ *
+ * Es la otra mitad de `reverseGeocode`: aquella traduce un punto a
+ * palabras, esta traduce palabras a puntos. Existe porque arrastrar el
+ * mapa sirve para confirmar una dirección, pero no para encontrarla —
+ * quien pide a casa de un amigo sabe la calle, no sabe dónde cae en el
+ * mapa, y hacerle buscarla a pulso es pedirle que haga de geocodificador.
+ *
+ * Devuelve `[]` en vez de lanzar cuando no hay token o Mapbox falla, por
+ * el mismo motivo que el inverso devuelve `null`: la búsqueda es un atajo
+ * para llenar el formulario, nunca un requisito para guardar. Si se cae,
+ * el usuario todavía tiene el mapa y el GPS.
+ */
+export async function searchPlaces(
+  query: string,
+  proximity?: LatLng
+): Promise<PlaceSuggestion[]> {
+  if (!config.mapbox.enabled) return [];
+
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const key = searchKey(trimmed, proximity);
+  const hit = searchCache.get(key);
+  if (hit && hit.expiresAt >= Date.now()) return hit.value;
+  if (hit) searchCache.delete(key);
+
+  let suggestions: PlaceSuggestion[] = [];
+
+  try {
+    const near = proximity ? `&proximity=${proximity.lng},${proximity.lat}` : '';
+    const url =
+      `https://api.mapbox.com/search/geocode/v6/forward` +
+      `?q=${encodeURIComponent(trimmed)}` +
+      `&country=${SEARCH_COUNTRY}&language=es&limit=6&autocomplete=true` +
+      `&types=address,street,neighborhood,place` +
+      near +
+      `&access_token=${encodeURIComponent(config.mapbox.accessToken)}`;
+
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(config.mapbox.timeoutMs),
+    });
+    if (!response.ok) throw new Error(`Mapbox Geocoding respondió ${response.status}`);
+
+    const data = (await response.json()) as {
+      features?: Array<{
+        geometry?: { coordinates?: [number, number] };
+        properties?: {
+          feature_type?: string;
+          name?: string;
+          full_address?: string;
+          place_formatted?: string;
+          context?: Record<string, { name?: string; street_name?: string; address_number?: string }>;
+        };
+      }>;
+    };
+
+    suggestions = (data.features ?? []).flatMap((feature) => {
+      const place = toPlace(feature.properties);
+      const coords = feature.geometry?.coordinates;
+      if (!place || !coords) return [];
+      const [lng, lat] = coords;
+      if (!isValidCoordinate(lat, lng)) return [];
+      return [{ ...place, lat, lng }];
+    });
+  } catch (error) {
+    if (config.isDev) {
+      console.warn('[Mapbox] Búsqueda de direcciones no disponible:', (error as Error).message);
+    }
+    suggestions = [];
+  }
+
+  if (searchCache.size >= MAX_SEARCH_ENTRIES) {
+    const oldest = searchCache.keys().next().value;
+    if (oldest) searchCache.delete(oldest);
+  }
+  searchCache.set(key, {
+    value: suggestions,
+    expiresAt: Date.now() + config.mapbox.geocodeCacheTtlMs,
+  });
+
+  return suggestions;
+}
+
 /**
  * Traduce una feature de Mapbox a lo que el formulario necesita.
  *
@@ -452,4 +576,5 @@ function toPlace(
 export function clearRouteCache(): void {
   routeCache.clear();
   geocodeCache.clear();
+  searchCache.clear();
 }

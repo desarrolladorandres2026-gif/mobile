@@ -11,6 +11,7 @@ export { securityController } from './security.controller';
 export { reviewController } from './review.controller';
 export { notificationController } from './notification.controller';
 export { couponController } from './coupon.controller';
+export { offersController } from './offers.controller';
 export { zoneController } from './zone.controller';
 export { paymentController } from './payment.controller';
 export { financeController } from './finance.controller';

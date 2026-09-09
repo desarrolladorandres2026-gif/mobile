@@ -354,7 +354,7 @@ export default function FleetMap() {
         </div>
         <button
           onClick={() => refetch()}
-          className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)] shadow-xs transition hover:border-[var(--color-border-strong)] dark:border-[#232E46] dark:bg-[#141B2A] dark:text-white dark:hover:border-[#2E3D5C]"
+          className="flex items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)] shadow-xs transition hover:border-[var(--color-border-strong)] dark:border-[#232E46] dark:bg-[#141B2A] dark:text-white dark:hover:border-[#2E3D5C]"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} />
           Actualizar

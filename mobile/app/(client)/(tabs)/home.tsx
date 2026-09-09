@@ -14,6 +14,7 @@ import {
   BusinessRow, BusinessFeatured, type Business,
 } from '../../../components/domain/BusinessCard';
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
+import { CouponCard } from '../../../components/domain/CouponCard';
 import { CategoryTile } from '../../../components/domain/CategoryTile';
 import { useAuthStore } from '../../../stores/authStore';
 import { useBusinesses, usePublicCoupons, useAddresses, useDeliveryCoords } from '../../../hooks/useApi';
@@ -21,7 +22,7 @@ import { useUsual, reorder, type UsualOrder } from '../../../hooks/useUsual';
 import { useHomeCategories } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
-import { categoryIllustration, ContentIcon } from '../../../components/illustrations';
+import { categoryIllustration } from '../../../components/illustrations';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { greeting, firstName, money } from '../../../lib/format';
 import { openState } from '../../../lib/business';
@@ -327,33 +328,6 @@ const UsualCard = memo(function UsualCard({ item, onPress }: { item: UsualOrder;
   );
 });
 
-/** Cupón vigente. El código se muestra grande porque hay que escribirlo. */
-const CouponCard = memo(function CouponCard({ coupon }: { coupon: any }) {
-  const { c } = useTheme();
-
-  const benefit =
-    coupon.type === 'free_delivery'
-      ? 'Envío gratis'
-      : coupon.type === 'percentage'
-        ? coupon.maxDiscount > 0
-          ? `${coupon.value}% hasta ${money(coupon.maxDiscount)}`
-          : `${coupon.value}% de descuento`
-        : `${money(coupon.value)} de descuento`;
-
-  return (
-    <View style={[styles.coupon, { backgroundColor: c.limeSoft, borderColor: c.limeSoftBorder }]}>
-      <View style={styles.couponTop}>
-        <ContentIcon name="cupon" size={28} />
-        <Text v="strongM" numberOfLines={1} style={styles.flex}>{benefit}</Text>
-      </View>
-      <Text v="bodyS" tone="textSecondary" numberOfLines={2}>{coupon.title}</Text>
-      <View style={[styles.couponCode, { borderColor: c.limeSoftBorder }]}>
-        <Text v="code" tone="limeText">{coupon.code}</Text>
-      </View>
-    </View>
-  );
-});
-
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   flex: { flex: 1 },
@@ -410,23 +384,4 @@ const styles = StyleSheet.create({
 
   errand: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   errandCopy: { flex: 1, gap: 2 },
-
-  coupon: {
-    width: 232,
-    gap: Spacing.sm,
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-  },
-  couponTop: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  couponCode: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    marginTop: Spacing.xs,
-  },
 });

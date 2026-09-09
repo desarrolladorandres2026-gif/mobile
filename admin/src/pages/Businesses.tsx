@@ -170,7 +170,7 @@ export default function Businesses() {
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center gap-2"
+          className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
         >
           <Plus className="w-4 h-4" />
           <span>Nuevo Establecimiento</span>

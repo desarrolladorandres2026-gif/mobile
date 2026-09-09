@@ -41,6 +41,7 @@ export {
 } from './authorization.service';
 export { pricingService, QuoteImbalanceError, Quote } from './pricing.service';
 export { couponService } from './coupon.service';
+export { offersService } from './offers.service';
 export { zoneService } from './zone.service';
 export {
   paymentService,
@@ -81,4 +82,10 @@ export {
   deliveryPhase,
   distanceToRouteMeters,
 } from './tracking.service';
-export { getRoute, getDurationsToPoint, estimateRoute, reverseGeocode } from './mapbox.service';
+export {
+  getRoute,
+  getDurationsToPoint,
+  estimateRoute,
+  reverseGeocode,
+  searchPlaces,
+} from './mapbox.service';

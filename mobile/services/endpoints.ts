@@ -275,6 +275,8 @@ export interface ProductSearchHit {
   description?: string;
   price: number;
   discountPrice?: number;
+  /** Solo lo manda `/offers`: el porcentaje ya calculado y redondeado. */
+  discountPercent?: number;
   image?: string;
   imageAsset?: Record<string, unknown>;
   businessId: string;
@@ -283,10 +285,33 @@ export interface ProductSearchHit {
   businessDeliveryTime?: number;
 }
 
+export type SearchSort = 'relevance' | 'distance' | 'rating' | 'deliveryTime';
+
+export interface SearchParams {
+  q: string;
+  page?: number;
+  limit?: number;
+  lat?: number;
+  lng?: number;
+  sort?: SearchSort;
+}
+
 export interface SearchResults {
   businesses: any[];
   products: ProductSearchHit[];
-  strategy: 'text' | 'prefix';
+  strategy: 'text' | 'prefix' | 'corrected';
+  /** El término que se buscó en realidad, si hubo que corregir un error. */
+  suggestedTerm?: string;
+  hasMore: boolean;
+}
+
+export interface SearchSuggestion {
+  type: 'term' | 'business' | 'product';
+  /** El negocio al que llevar. En un plato, el suyo. */
+  id?: string;
+  label: string;
+  sublabel?: string;
+  image?: string | null;
 }
 
 export const searchApi = {
@@ -296,12 +321,27 @@ export const searchApi = {
    * Pública: buscar es lo primero que hace alguien que aún no se registró,
    * y el servidor no exige sesión para responder.
    */
-  query: (q: string, limit = 20): Promise<SearchResults> =>
-    api.get('/search', { params: { q, limit } }).then((r) => r.data.data),
+  query: (params: SearchParams): Promise<SearchResults> =>
+    api.get('/search', { params }).then((r) => r.data.data),
+
+  /** Sugerencias mientras se escribe: etiquetas, no fichas completas. */
+  suggest: (q: string): Promise<SearchSuggestion[]> =>
+    api.get('/search/suggest', { params: { q } }).then((r) => r.data.data),
 
   /** Términos reales del catálogo, en vez de una lista escrita a mano. */
   popular: (): Promise<string[]> =>
     api.get('/search/popular').then((r) => r.data.data),
+
+  /**
+   * Registra una búsqueda que el usuario confirmó.
+   *
+   * Se dispara y se olvida, y se traga cualquier fallo a propósito: es una
+   * estadística. Que no se pueda registrar no puede estropearle la búsqueda
+   * a nadie ni pintar un error en pantalla.
+   */
+  log: (input: { term: string; resultCount: number; suggestedTerm?: string }): void => {
+    api.post('/search/log', input).catch(() => undefined);
+  },
 };
 
 export interface PendingRating {
@@ -593,6 +633,34 @@ export const couponsApi = {
     Promise.reject(new Error('Usa ordersApi.quote para validar promociones')),
 };
 
+/** Por qué un negocio aparece en la pestaña de Descuentos. */
+export interface OfferBusiness {
+  _id: string;
+  name: string;
+  category: string;
+  rating: number;
+  deliveryTime: number;
+  logo?: string | null;
+  coverImage?: string | null;
+  minOrder?: number;
+  schedule?: Record<string, { open?: string; close?: string; isOpen?: boolean }>;
+  distanceMeters?: number;
+  freeDeliveryThreshold?: number;
+  offer: { kind: 'discount' | 'free_delivery'; label: string };
+}
+
+export interface OffersResult {
+  coupons: any[];
+  products: ProductSearchHit[];
+  businesses: OfferBusiness[];
+}
+
+export const offersApi = {
+  /** Todo lo que está en oferta cerca de un punto: cupones, platos y negocios. */
+  get: (params?: { lat?: number; lng?: number; maxDistance?: number; city?: string }): Promise<OffersResult> =>
+    api.get('/offers', { params }).then((r) => r.data.data),
+};
+
 export const notificationsApi = {
   registerDevice: (token: string, platform: string) =>
     api.post('/notifications/devices', { token, platform }).then((r) => r.data.data),
@@ -610,8 +678,11 @@ export const addressApi = {
   getAll: () =>
     api.get('/addresses').then((r) => r.data.data),
 
-  create: (data: { label: string; address: string; details?: string; longitude?: number; latitude?: number; isDefault?: boolean }) =>
+  create: (data: AddressInput) =>
     api.post('/addresses', data).then((r) => r.data.data),
+
+  update: ({ id, ...data }: { id: string } & Partial<AddressInput>) =>
+    api.patch(`/addresses/${id}`, data).then((r) => r.data.data),
 
   delete: (id: string) =>
     api.delete(`/addresses/${id}`).then((r) => r.data.data),
@@ -628,7 +699,32 @@ export const addressApi = {
    */
   reverseGeocode: (point: { lat: number; lng: number }): Promise<GeocodedPlace | null> =>
     api.get('/addresses/reverse-geocode', { params: point }).then((r) => r.data.data ?? null),
+
+  /**
+   * Direcciones que coinciden con un texto.
+   *
+   * `near` sesga los resultados hacia el usuario para que "calle 5"
+   * devuelva primero la de su barrio. Devuelve `[]` cuando no hay nada:
+   * buscar es un atajo para llenar el formulario, no un requisito.
+   */
+  search: (q: string, near?: { lat: number; lng: number }): Promise<PlaceSuggestion[]> =>
+    api
+      .get('/addresses/search', { params: { q, lat: near?.lat, lng: near?.lng } })
+      .then((r) => r.data.data ?? []),
 };
+
+export interface AddressInput {
+  label: string;
+  address: string;
+  /** Piso, apartamento, torre. Lo único que el mapa no puede saber. */
+  apartment?: string;
+  neighborhood?: string;
+  city?: string;
+  details?: string;
+  longitude?: number;
+  latitude?: number;
+  isDefault?: boolean;
+}
 
 export interface GeocodedPlace {
   address: string;
@@ -637,6 +733,12 @@ export interface GeocodedPlace {
   full: string;
   /** 'address' trae número de casa; 'street' solo la vía; 'area' ni eso. */
   precision: 'address' | 'street' | 'area';
+}
+
+/** Un resultado del buscador: como el geocodificado, pero con su punto. */
+export interface PlaceSuggestion extends GeocodedPlace {
+  lat: number;
+  lng: number;
 }
 
 export const legalApi = {
@@ -682,7 +784,7 @@ export const adsApi = {
 // ── Banners promocionales de inicio ──
 
 /** Tipos de acción que un banner puede llevar. Los define el backend. */
-export type BannerActionType = 'none' | 'url' | 'business' | 'category' | 'screen';
+export type BannerActionType = 'none' | 'url' | 'business' | 'category' | 'screen' | 'search';
 
 /**
  * Un banner tal como llega a la app.
@@ -704,10 +806,10 @@ export interface PromoBanner {
 }
 
 export const bannersApi = {
-  /** Los banners vigentes de la pantalla inicial, ya en el orden de aparición. */
-  getHome: (): Promise<PromoBanner[]> =>
+  /** Los banners vigentes de una superficie, ya en el orden de aparición. */
+  getActive: (placement: 'home' | 'offers' = 'home'): Promise<PromoBanner[]> =>
     api
-      .get('/promotion-banners/active', { params: { placement: 'home' } })
+      .get('/promotion-banners/active', { params: { placement } })
       .then((r) => r.data.data ?? []),
 };
 

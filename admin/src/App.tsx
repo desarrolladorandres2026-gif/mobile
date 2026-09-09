@@ -37,6 +37,7 @@ import Coupons from './pages/Coupons';
 import Zones from './pages/Zones';
 import HomeBanners from './pages/HomeBanners';
 import HomeCategories from './pages/HomeCategories';
+import SearchInsights from './pages/SearchInsights';
 
 const queryClient = new QueryClient();
 
@@ -84,6 +85,7 @@ function App() {
             <Route path="zones" element={<Zones />} />
             <Route path="home-banners" element={<HomeBanners />} />
             <Route path="home-categories" element={<HomeCategories />} />
+            <Route path="search-insights" element={<SearchInsights />} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

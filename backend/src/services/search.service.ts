@@ -1,5 +1,13 @@
-import { PipelineStage } from 'mongoose';
-import { Product, Business } from '../models';
+import { PipelineStage, Types } from 'mongoose';
+import { Product, Business, SearchLog } from '../models';
+import { normalize } from '../utils/text';
+import { LatLng } from '../utils/geo';
+import {
+  VISIBLE_BUSINESS,
+  withDistance,
+  withinRadius,
+} from '../utils/catalogQuery';
+import { searchDictionaryService } from './searchDictionary.service';
 
 /**
  * Búsqueda del catálogo: negocios y productos a la vez.
@@ -11,12 +19,50 @@ import { Product, Business } from '../models';
  * Eso hace que ZIPP no se sienta un marketplace, sino un listado de sitios.
  */
 
+export type SortKey = 'relevance' | 'distance' | 'rating' | 'deliveryTime';
+
+export interface SearchOptions {
+  limit?: number;
+  page?: number;
+  lat?: number;
+  lng?: number;
+  maxDistance?: number;
+  sort?: SortKey;
+}
+
 export interface SearchResults {
   businesses: unknown[];
   products: unknown[];
   /** Qué estrategia respondió. Útil para depurar por qué salió lo que salió. */
-  strategy: 'text' | 'prefix';
+  strategy: 'text' | 'prefix' | 'corrected';
+  /**
+   * El término que se buscó en realidad, cuando hubo que corregirlo.
+   *
+   * Viaja para que la pantalla pueda decirlo. Corregir en silencio deja sin
+   * salida a quien sabía perfectamente lo que estaba escribiendo.
+   */
+  suggestedTerm?: string;
+  hasMore: boolean;
 }
+
+export interface Suggestion {
+  type: 'term' | 'business' | 'product';
+  id?: string;
+  label: string;
+  sublabel?: string;
+  image?: string | null;
+}
+
+/**
+ * Cuántos negocios se traen antes de ordenar y recortar la página.
+ *
+ * La distancia se calcula fuera de la base —`$text` y `$geoNear` no pueden
+ * convivir en el mismo pipeline, los dos exigen ser la primera etapa— así
+ * que ordenar por cercanía obliga a tener delante todos los candidatos. Con
+ * el catálogo de un pueblo, trescientos los cubre de sobra, y el tope evita
+ * que una búsqueda de una sola letra se traiga la base entera.
+ */
+const CANDIDATE_CAP = 300;
 
 /**
  * Escapa lo que el usuario escribió antes de meterlo en una expresión
@@ -28,21 +74,26 @@ function escapeRegex(term: string): string {
   return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/**
- * Solo el catálogo que un cliente puede comprar.
- *
- * Un negocio inactivo o sin aprobar no aparece en la búsqueda aunque sus
- * productos encajen: enseñarlo lleva a una carta que no se puede pedir, y
- * el usuario culpa a la aplicación, no al estado del comercio.
- */
-const VISIBLE_BUSINESS = { isActive: true, isApproved: true };
+function readCoords(options: SearchOptions): LatLng | null {
+  const { lat, lng } = options;
+  if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
 
-async function searchBusinesses(term: string, limit: number, usePrefix: boolean) {
+async function searchBusinesses(
+  term: string,
+  usePrefix: boolean,
+  coords: LatLng | null,
+  maxDistance: number
+) {
+  const geo = withinRadius(coords, maxDistance);
+
   const match = usePrefix
-    ? { ...VISIBLE_BUSINESS, name: { $regex: `^${escapeRegex(term)}`, $options: 'i' } }
-    : { ...VISIBLE_BUSINESS, $text: { $search: term } };
+    ? { ...VISIBLE_BUSINESS, ...geo, searchName: { $regex: `^${escapeRegex(normalize(term))}` } }
+    : { ...VISIBLE_BUSINESS, ...geo, $text: { $search: term } };
 
-  const query = Business.find(match).limit(limit);
+  const query = Business.find(match).limit(CANDIDATE_CAP);
 
   // El orden por relevancia solo existe si hubo búsqueda de texto; con
   // prefijos se cae al criterio de siempre.
@@ -51,10 +102,28 @@ async function searchBusinesses(term: string, limit: number, usePrefix: boolean)
     : query.select({ score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).lean();
 }
 
-async function searchProducts(term: string, limit: number, usePrefix: boolean) {
+async function searchProducts(
+  term: string,
+  limit: number,
+  usePrefix: boolean,
+  coords: LatLng | null,
+  maxDistance: number
+) {
   const match: Record<string, unknown> = usePrefix
-    ? { isAvailable: true, name: { $regex: `^${escapeRegex(term)}`, $options: 'i' } }
+    ? { isAvailable: true, searchName: { $regex: `^${escapeRegex(normalize(term))}` } }
     : { isAvailable: true, $text: { $search: term } };
+
+  const businessMatch: Record<string, unknown> = {
+    'business.isActive': true,
+    'business.isApproved': true,
+  };
+
+  // Aquí el radio va después del cruce, porque la ubicación es del negocio
+  // y no del producto. Así no usa índice, pero a estas alturas del pipeline
+  // ya quedan como mucho unas decenas de filas.
+  if (coords) {
+    businessMatch['business.location'] = withinRadius(coords, maxDistance).location;
+  }
 
   const pipeline: PipelineStage[] = [
     { $match: match },
@@ -75,7 +144,7 @@ async function searchProducts(term: string, limit: number, usePrefix: boolean) {
       },
     },
     { $unwind: '$business' },
-    { $match: { 'business.isActive': true, 'business.isApproved': true } },
+    { $match: businessMatch },
     { $limit: limit },
     {
       $project: {
@@ -90,6 +159,7 @@ async function searchProducts(term: string, limit: number, usePrefix: boolean) {
         businessName: '$business.name',
         businessRating: '$business.rating',
         businessDeliveryTime: '$business.deliveryTime',
+        businessLocation: '$business.location',
       },
     },
   ];
@@ -98,53 +168,227 @@ async function searchProducts(term: string, limit: number, usePrefix: boolean) {
 }
 
 /**
- * Busca en negocios y productos, con dos estrategias.
+ * Cómo se ordenan los negocios encontrados.
+ *
+ * `relevance` devuelve `null` a propósito: en ese caso manda el orden que ya
+ * trajo Mongo —puntuación de texto, o destacados y calificación en la rama
+ * de prefijo— y volver a ordenar aquí solo lo estropearía.
+ */
+function comparator(sort: SortKey): ((a: any, b: any) => number) | null {
+  switch (sort) {
+    case 'distance':
+      return (a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity);
+    case 'rating':
+      return (a, b) => (b.rating ?? 0) - (a.rating ?? 0);
+    case 'deliveryTime':
+      return (a, b) => (a.deliveryTime ?? Infinity) - (b.deliveryTime ?? Infinity);
+    default:
+      return null;
+  }
+}
+
+/**
+ * Busca en negocios y productos, con tres estrategias en cascada.
  *
  * El índice de texto entiende el español —singulares, plurales, palabras
  * vacías— pero solo casa palabras completas: alguien que ha escrito
  * "hambur" no encuentra nada. Y la caja de búsqueda consulta mientras se
  * escribe, así que ese es el caso normal, no el raro.
  *
- * Por eso se intenta primero por texto y, si no hay nada, se repite por
- * prefijo. El orden importa: al revés, "pizza" encontraría solo lo que
- * empieza por pizza y se perdería la "pizzería del centro" o el plato que
- * la menciona en su descripción.
+ * Por eso se intenta primero por texto, luego por prefijo y, solo si las dos
+ * vienen vacías, se corrige el término y se repite. El orden importa en los
+ * dos saltos: corregir antes de haber probado el término literal haría que
+ * un plato con nombre raro nunca se encontrara por su nombre real, y empezar
+ * por prefijo perdería la "pizzería del centro" al buscar "pizza".
  */
 export async function search(
   term: string,
-  options: { limit?: number } = {}
+  options: SearchOptions = {}
 ): Promise<SearchResults> {
   const clean = term.trim();
   const limit = Math.min(options.limit ?? 20, 50);
+  const page = Math.max(options.page ?? 1, 1);
+  const sort = options.sort ?? 'relevance';
+  const coords = readCoords(options);
+  const maxDistance = options.maxDistance ?? 10_000;
 
-  if (clean.length < 2) return { businesses: [], products: [], strategy: 'text' };
-
-  const [businesses, products] = await Promise.all([
-    searchBusinesses(clean, limit, false),
-    searchProducts(clean, limit, false),
-  ]);
-
-  if (businesses.length || products.length) {
-    return { businesses, products, strategy: 'text' };
+  if (clean.length < 2) {
+    return { businesses: [], products: [], strategy: 'text', hasMore: false };
   }
 
-  const [prefixBusinesses, prefixProducts] = await Promise.all([
-    searchBusinesses(clean, limit, true),
-    searchProducts(clean, limit, true),
+  const run = async (searchTerm: string, usePrefix: boolean) => {
+    const [businesses, products] = await Promise.all([
+      searchBusinesses(searchTerm, usePrefix, coords, maxDistance),
+      // Los productos solo viajan en la primera página: son la sección de
+      // cabecera de los resultados, no la lista que se sigue deslizando.
+      page === 1
+        ? searchProducts(searchTerm, limit, usePrefix, coords, maxDistance)
+        : Promise.resolve([] as any[]),
+    ]);
+    return { businesses: businesses as any[], products: products as any[] };
+  };
+
+  let strategy: SearchResults['strategy'] = 'text';
+  let suggestedTerm: string | undefined;
+  let found = await run(clean, false);
+
+  if (!found.businesses.length && !found.products.length) {
+    strategy = 'prefix';
+    found = await run(clean, true);
+  }
+
+  if (!found.businesses.length && !found.products.length) {
+    const corrected = await searchDictionaryService.correct(clean);
+    if (corrected) {
+      const rescued = await run(corrected, false);
+      if (rescued.businesses.length || rescued.products.length) {
+        strategy = 'corrected';
+        suggestedTerm = corrected;
+        found = rescued;
+      }
+    }
+  }
+
+  const ranked = withDistance(found.businesses, coords, 'location');
+  const order = comparator(sort);
+  if (order) ranked.sort(order);
+
+  const start = (page - 1) * limit;
+
+  return {
+    businesses: ranked.slice(start, start + limit),
+    products: withDistance(found.products, coords, 'businessLocation'),
+    strategy,
+    ...(suggestedTerm ? { suggestedTerm } : {}),
+    hasMore: ranked.length > start + limit,
+  };
+}
+
+/**
+ * Sugerencias mientras se escribe.
+ *
+ * Devuelve etiquetas, no fichas: es una lista que se repinta en cada tecla,
+ * y mandar la carta entera de cada negocio para pintar una fila de texto
+ * gastaría los datos del móvil sin que se llegue a ver nada de eso.
+ */
+export async function suggest(term: string, limit = 8): Promise<Suggestion[]> {
+  const clean = normalize(term.trim());
+  if (clean.length < 2) return [];
+
+  const pattern = { $regex: `^${escapeRegex(clean)}` };
+
+  const [businesses, products, terms] = await Promise.all([
+    Business.find({ ...VISIBLE_BUSINESS, searchName: pattern })
+      .select('name category logo')
+      .limit(3)
+      .lean(),
+    Product.aggregate([
+      { $match: { isAvailable: true, searchName: pattern } },
+      { $limit: 9 },
+      {
+        $lookup: {
+          from: 'businesses',
+          localField: 'businessId',
+          foreignField: '_id',
+          as: 'business',
+        },
+      },
+      { $unwind: '$business' },
+      { $match: { 'business.isActive': true, 'business.isApproved': true } },
+      { $limit: 3 },
+      { $project: { name: 1, image: 1, businessId: '$business._id', businessName: '$business.name' } },
+    ]),
+    searchDictionaryService.completions(clean, 4),
   ]);
 
-  return { businesses: prefixBusinesses, products: prefixProducts, strategy: 'prefix' };
+  const suggestions: Suggestion[] = [
+    ...businesses.map((b: any) => ({
+      type: 'business' as const,
+      id: String(b._id),
+      label: b.name,
+      sublabel: b.category,
+      image: b.logo ?? null,
+    })),
+    ...products.map((p: any) => ({
+      type: 'product' as const,
+      // El destino de un plato es su negocio: el carrito necesita saber a
+      // qué local pertenece, y una ficha suelta no lo dice.
+      id: String(p.businessId),
+      label: p.name,
+      sublabel: p.businessName,
+      image: p.image ?? null,
+    })),
+    ...terms.map((word) => ({ type: 'term' as const, label: word })),
+  ];
+
+  // Un negocio y un plato pueden llamarse igual, y ver la misma palabra dos
+  // veces seguidas parece un fallo aunque lleven iconos distintos.
+  const seen = new Set<string>();
+  return suggestions
+    .filter((item) => {
+      const key = `${item.type}:${normalize(item.label)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit);
+}
+
+/**
+ * Registra una búsqueda que el usuario confirmó.
+ *
+ * Nunca lanza: si el registro falla, la búsqueda ya se respondió y no tiene
+ * ningún sentido que el usuario vea un error por culpa de una estadística.
+ */
+export async function logSearch(input: {
+  term: string;
+  userId?: string | null;
+  resultCount: number;
+  suggestedTerm?: string | null;
+}): Promise<void> {
+  const raw = input.term.trim().slice(0, 100);
+  if (raw.length < 2) return;
+
+  try {
+    await SearchLog.create({
+      termRaw: raw,
+      term: normalize(raw),
+      userId: input.userId ? new Types.ObjectId(input.userId) : null,
+      resultCount: Math.max(0, Math.round(input.resultCount)),
+      suggestedTerm: input.suggestedTerm ?? null,
+    });
+  } catch (error) {
+    console.error('No se pudo registrar la búsqueda:', error);
+  }
+}
+
+/** Ventana de la que se leen tendencias e informes. */
+const INSIGHT_DAYS = 30;
+
+function since(days: number): Date {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
 
 /**
  * Lo que más busca la gente, de verdad.
  *
- * Sustituye a la lista fija que había en la pantalla de búsqueda de la app.
- * Mientras no haya suficientes búsquedas registradas devuelve las
- * categorías reales del catálogo, que ya es mejor que una lista escrita a
- * mano: al menos existe lo que ofrece.
+ * Sale del registro de búsquedas confirmadas. Mientras no haya volumen
+ * suficiente se cae a las categorías reales del catálogo, que es lo que
+ * había antes y sigue siendo mejor que una lista escrita a mano: al menos
+ * existe lo que anuncia.
  */
 export async function popularTerms(limit = 8): Promise<string[]> {
+  const logged = await SearchLog.aggregate<{ _id: string; count: number }>([
+    { $match: { createdAt: { $gte: since(INSIGHT_DAYS) }, resultCount: { $gt: 0 } } },
+    { $group: { _id: '$term', count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+    { $limit: limit },
+  ]);
+
+  if (logged.length >= limit) {
+    return logged.map((row) => row._id).filter(Boolean);
+  }
+
   const rows = await Business.aggregate([
     { $match: VISIBLE_BUSINESS },
     { $group: { _id: '$category', count: { $sum: 1 } } },
@@ -155,4 +399,44 @@ export async function popularTerms(limit = 8): Promise<string[]> {
   return rows.map((r) => r._id).filter(Boolean);
 }
 
-export const searchService = { search, popularTerms };
+export interface SearchInsights {
+  top: { term: string; count: number }[];
+  /** Lo que se buscó y no había. La lista de qué falta en el catálogo. */
+  empty: { term: string; count: number; lastAt: Date }[];
+  days: number;
+}
+
+/**
+ * Qué busca la gente y, sobre todo, qué busca y no encuentra.
+ *
+ * La segunda tabla es la que vale: cada término sin resultados es alguien
+ * que quiso comprar algo que ZIPP no tiene, y esa es exactamente la lista
+ * priorizada de qué comercios hay que salir a captar. Nadie más la tiene,
+ * porque el cliente que no encuentra nada se va sin decírselo a nadie.
+ */
+export async function insights(limit = 25): Promise<SearchInsights> {
+  const from = since(INSIGHT_DAYS);
+
+  const [top, empty] = await Promise.all([
+    SearchLog.aggregate([
+      { $match: { createdAt: { $gte: from }, resultCount: { $gt: 0 } } },
+      { $group: { _id: '$termRaw', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: limit },
+    ]),
+    SearchLog.aggregate([
+      { $match: { createdAt: { $gte: from }, resultCount: 0 } },
+      { $group: { _id: '$termRaw', count: { $sum: 1 }, lastAt: { $max: '$createdAt' } } },
+      { $sort: { count: -1 } },
+      { $limit: limit },
+    ]),
+  ]);
+
+  return {
+    top: top.map((row) => ({ term: row._id, count: row.count })),
+    empty: empty.map((row) => ({ term: row._id, count: row.count, lastAt: row.lastAt })),
+    days: INSIGHT_DAYS,
+  };
+}
+
+export const searchService = { search, suggest, logSearch, popularTerms, insights };

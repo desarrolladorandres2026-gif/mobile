@@ -9,7 +9,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
 
 type BannerStatus = 'active' | 'scheduled' | 'expired' | 'inactive';
-type ActionType = 'none' | 'url' | 'business' | 'category' | 'screen';
+type ActionType = 'none' | 'url' | 'business' | 'category' | 'screen' | 'search';
 type Placement = 'home' | 'all';
 
 interface Banner {
@@ -73,6 +73,7 @@ const ACTION_ICONS: Record<ActionType, typeof Ban> = {
   business: Store,
   category: LayoutGrid,
   screen: MonitorSmartphone,
+  search: Search,
 };
 
 const STATUS_STYLES: Record<BannerStatus, { label: string; bg: string; text: string }> = {
@@ -312,7 +313,7 @@ export default function HomeBanners() {
         </div>
         <button
           onClick={openCreate}
-          className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center gap-2"
+          className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
         >
           <Plus className="w-4 h-4" />
           <span>Crear banner</span>
@@ -624,6 +625,26 @@ export default function HomeBanners() {
                 </div>
               )}
 
+              {form.actionType === 'search' && (
+                <div>
+                  <label className={labelClass}>Término a buscar</label>
+                  <input
+                    type="text"
+                    required
+                    minLength={2}
+                    maxLength={60}
+                    value={form.actionValue}
+                    onChange={(e) => setForm({ ...form, actionValue: e.target.value })}
+                    placeholder="Pizza"
+                    className={inputClass}
+                  />
+                  <p className="mt-1 text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
+                    Abre la búsqueda con esto ya escrito. Si nadie vende nada que
+                    coincida, el banner lleva a una pantalla vacía.
+                  </p>
+                </div>
+              )}
+
               {form.actionType === 'screen' && (
                 <div>
                   <label className={labelClass}>Pantalla de Destino</label>
@@ -729,6 +750,8 @@ function describeAction(
       return CATEGORY_LABELS[banner.actionValue] ?? banner.actionValue;
     case 'screen':
       return options?.screens.find((s) => s.key === banner.actionValue)?.label ?? banner.actionValue;
+    case 'search':
+      return `Buscar «${banner.actionValue}»`;
     default:
       return 'Sin acción al tocarlo';
   }

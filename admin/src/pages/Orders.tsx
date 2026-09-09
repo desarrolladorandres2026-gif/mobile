@@ -129,7 +129,7 @@ export default function Orders() {
         </div>
         <button
           onClick={fetchOrders}
-          className="px-4 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-xs"
+          className="px-4 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs"
         >
           <RotateCw className="w-4 h-4 text-[var(--color-primary)]" />
           <span>Actualizar lista</span>

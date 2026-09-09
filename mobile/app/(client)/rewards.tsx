@@ -4,6 +4,7 @@ import {
   Text, Button, Badge, Notice, Screen, Header, EmptyState,
 } from '../../components/ui';
 import { ContentIcon } from '../../components/illustrations';
+import { couponBenefit } from '../../components/domain/CouponCard';
 import { useZippStats } from '../../hooks/useUsual';
 import { usePublicCoupons, useLoyalty, useRedeemPoints } from '../../hooks/useApi';
 import { useAuthStore } from '../../stores/authStore';
@@ -200,7 +201,7 @@ export default function RewardsScreen() {
                   </View>
                   <View style={styles.flex}>
                     <Text v="strongL" numberOfLines={1}>{coupon.title}</Text>
-                    <Text v="bodyS" tone="textSecondary">{describe(coupon)}</Text>
+                    <Text v="bodyS" tone="textSecondary">{couponBenefit(coupon)}</Text>
                   </View>
                 </View>
 
@@ -265,16 +266,6 @@ export default function RewardsScreen() {
       </ScrollView>
     </Screen>
   );
-}
-
-function describe(coupon: any): string {
-  if (coupon.type === 'free_delivery') return 'Envío gratis';
-  if (coupon.type === 'percentage') {
-    return coupon.maxDiscount > 0
-      ? `${coupon.value}% de descuento, hasta ${money(coupon.maxDiscount)}`
-      : `${coupon.value}% de descuento`;
-  }
-  return `${money(coupon.value)} de descuento`;
 }
 
 const styles = StyleSheet.create({

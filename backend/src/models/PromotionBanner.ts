@@ -11,6 +11,16 @@ export enum BannerActionType {
   BUSINESS = 'business',
   /** Abre la búsqueda filtrada por una categoría de negocio. */
   CATEGORY = 'category',
+  /**
+   * Abre la búsqueda con un término ya escrito.
+   *
+   * Distinto de `SCREEN` con la clave `search`, que solo abre la pantalla
+   * vacía. Es un tipo aparte y no un valor con sufijo dentro de la lista
+   * blanca de pantallas porque esa lista es cerrada a propósito: mezclar
+   * texto libre ahí la convertiría en un campo que ya no se puede validar
+   * contra nada.
+   */
+  SEARCH = 'search',
   /** Abre una pantalla interna de la lista blanca de abajo. */
   SCREEN = 'screen',
 }
@@ -19,6 +29,8 @@ export enum BannerActionType {
 export enum BannerPlacement {
   /** Únicamente en la pantalla inicial. */
   HOME = 'home',
+  /** Únicamente en la pestaña de Descuentos. */
+  OFFERS = 'offers',
   /** Cualquier superficie que pida banners. */
   ALL = 'all',
 }
@@ -37,6 +49,7 @@ export const BANNER_SCREENS = [
   { key: 'rewards', label: 'Recompensas' },
   { key: 'favorites', label: 'Favoritos' },
   { key: 'orders', label: 'Mis pedidos' },
+  { key: 'offers', label: 'Descuentos' },
   { key: 'help', label: 'Ayuda y soporte' },
 ] as const;
 
@@ -115,6 +128,10 @@ const promotionBannerSchema = new Schema<IPromotionBanner>(
               return (Object.values(BusinessCategory) as string[]).includes(v);
             case BannerActionType.SCREEN:
               return BANNER_SCREEN_KEYS.includes(v);
+            // Texto libre, pero acotado: un término de búsqueda es lo que
+            // cabe en la caja, no un párrafo.
+            case BannerActionType.SEARCH:
+              return v.trim().length >= 2 && v.trim().length <= 60;
             default:
               return true;
           }

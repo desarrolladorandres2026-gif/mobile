@@ -180,6 +180,7 @@ export function OtpInput({ value, onChange, length = 6, error, autoFocus }: OtpI
 
 export function SearchField({
   value, onChange, placeholder, onFilters, autoFocus, filtersActive,
+  onSubmit, onFocus, onBlur, filterCount,
 }: {
   value: string;
   onChange: (t: string) => void;
@@ -187,6 +188,18 @@ export function SearchField({
   onFilters?: () => void;
   autoFocus?: boolean;
   filtersActive?: boolean;
+  /**
+   * El usuario dio a buscar en el teclado.
+   *
+   * Es lo que distingue una búsqueda de verdad de lo que se está
+   * escribiendo a medias, y de ahí sale lo que se guarda en recientes y lo
+   * que se registra en el servidor.
+   */
+  onSubmit?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  /** Cuántos filtros hay puestos, para decirlo sobre el botón. */
+  filterCount?: number;
 }) {
   const { c } = useTheme();
   const [focused, setFocused] = useState(false);
@@ -210,10 +223,11 @@ export function SearchField({
         placeholder={placeholder}
         placeholderTextColor={c.textMuted}
         returnKeyType="search"
+        onSubmitEditing={onSubmit}
         autoFocus={autoFocus}
         autoCorrect={false}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
+        onFocus={() => { setFocused(true); onFocus?.(); }}
+        onBlur={() => { setFocused(false); onBlur?.(); }}
         accessibilityLabel="Buscar"
       />
       {value.length > 0 ? (
@@ -225,12 +239,17 @@ export function SearchField({
         >
           <Icon name="cerrar" size="md" color={c.textMuted} />
         </Pressable>
-      ) : onFilters ? (
+      ) : null}
+
+      {/* Los filtros conviven con el término escrito. Antes el botón se
+          escondía en cuanto había texto, que es justo cuando más falta
+          hace: "pizza" y "solo abiertos" es una sola intención. */}
+      {onFilters ? (
         <Pressable
           onPress={() => { tap('light'); onFilters(); }}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel="Filtros"
+          accessibilityLabel={filterCount ? `Filtros, ${filterCount} activos` : 'Filtros'}
           style={[
             styles.filterBtn,
             {
@@ -239,7 +258,11 @@ export function SearchField({
             },
           ]}
         >
-          <Icon name="filtros" size="sm" color={filtersActive ? c.textOnPrimary : c.textMuted} />
+          {filterCount ? (
+            <Text v="caption" color={c.textOnPrimary}>{filterCount}</Text>
+          ) : (
+            <Icon name="filtros" size="sm" color={filtersActive ? c.textOnPrimary : c.textMuted} />
+          )}
         </Pressable>
       ) : null}
     </View>

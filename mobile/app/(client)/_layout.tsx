@@ -43,6 +43,7 @@ export default function ClientLayout() {
       <Stack.Screen name="order-tracking" />
 
       {/* Cuenta */}
+      <Stack.Screen name="orders" />
       <Stack.Screen name="addresses" />
       <Stack.Screen name="favorites" />
       <Stack.Screen name="rewards" />

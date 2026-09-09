@@ -1,31 +1,38 @@
 import { useState, useMemo, memo } from 'react';
 import { View, FlatList, RefreshControl, StyleSheet, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
   Text, Card, Button, StatusPill, EmptyState, ErrorState,
-  BusinessCardSkeleton, PulseDot,
-} from '../../../components/ui';
-import { useMyOrders, usePendingRatings } from '../../../hooks/useApi';
-import { RatingSheet } from '../../../components/domain/RatingSheet';
-import type { PendingRating } from '../../../services/endpoints';
-import { useOrderRealtime, orderProgress } from '../../../hooks/useRealtime';
-import { reorder, type UsualOrder } from '../../../hooks/useUsual';
-import { useTheme } from '../../../hooks/useTheme';
-import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
-import { ACTIVE_ORDER_STATUSES } from '../../../constants/config';
-import { categoryIllustration } from '../../../components/illustrations';
-import { BorderRadius, Spacing } from '../../../theme/tokens';
-import { money, orderDate, orderCode } from '../../../lib/format';
-import { tap } from '../../../lib/haptics';
+  BusinessCardSkeleton, PulseDot, Screen, Header,
+} from '../../components/ui';
+import { useMyOrders, usePendingRatings } from '../../hooks/useApi';
+import { RatingSheet } from '../../components/domain/RatingSheet';
+import type { PendingRating } from '../../services/endpoints';
+import { useOrderRealtime, orderProgress } from '../../hooks/useRealtime';
+import { reorder, type UsualOrder } from '../../hooks/useUsual';
+import { useTheme } from '../../hooks/useTheme';
+import { useBottomInset } from '../../hooks/useBottomSpace';
+import { ACTIVE_ORDER_STATUSES } from '../../constants/config';
+import { categoryIllustration } from '../../components/illustrations';
+import { BorderRadius, Spacing } from '../../theme/tokens';
+import { money, orderDate, orderCode } from '../../lib/format';
+import { tap } from '../../lib/haptics';
 
 type Tab = 'active' | 'past';
 
+/**
+ * Historial de pedidos.
+ *
+ * Antes vivía en la barra del cliente; se movió a la pila porque el pedido
+ * en curso ya está siempre al alcance en el dock, y esta pantalla se
+ * consulta con mucha menos frecuencia que Descuentos o Explorar. La puerta
+ * de entrada ahora es Perfil.
+ */
 export default function OrdersScreen() {
   const router = useRouter();
   const { c } = useTheme();
-  const bottomSpace = useTabContentPadding(CLIENT_DOCK_CLEARANCE);
+  const bottomSpace = useBottomInset();
   const [tab, setTab] = useState<Tab>('active');
 
   const { data, isLoading, isError, refetch, isRefetching } = useMyOrders(1);
@@ -74,10 +81,10 @@ export default function OrdersScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
-      <View style={styles.top}>
-        <Text v="displayM">Pedidos</Text>
+    <Screen>
+      <Header title="Mis pedidos" fallback="/(client)/(tabs)/profile" />
 
+      <View style={styles.top}>
         <View style={[styles.segments, { backgroundColor: c.surfaceLight, borderColor: c.border }]}>
           <Segment
             label="En curso"
@@ -164,7 +171,7 @@ export default function OrdersScreen() {
         visible={!!rating}
         onClose={() => setRating(null)}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -257,7 +264,6 @@ const OrderCard = memo(function OrderCard({
 });
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
   top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.lg },
   segments: {
     flexDirection: 'row',

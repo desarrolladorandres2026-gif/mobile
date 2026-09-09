@@ -110,7 +110,7 @@ export default function Drivers() {
           <p className="page-subtitle">Monitoreo de repartidores, fondos de efectivo y aprobaciones</p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-center gap-3">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-xs font-bold text-[var(--color-text-main)] shadow-xs">
             <span className="w-2 h-2 rounded-full bg-[var(--color-primary)] animate-pulse" />
             <span>{onlineCount} en línea</span>

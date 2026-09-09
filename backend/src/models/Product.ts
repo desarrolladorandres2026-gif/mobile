@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { ProductExtra } from '../types';
 import { productImageUrls } from '../utils/productImageUrls';
+import { normalize } from '../utils/text';
 
 /**
  * Lo que hace falta para volver a generar la imagen de un producto.
@@ -38,6 +39,12 @@ export interface IProduct extends Document {
   categoryId: Types.ObjectId;
   name: string;
   description: string;
+  /**
+   * `name` sin tildes ni mayúsculas, para buscar por prefijo.
+   *
+   * Derivado, nunca escrito a mano: lo mantienen los hooks del esquema.
+   */
+  searchName: string;
   /**
    * URL de la variante de catálogo.
    *
@@ -139,6 +146,13 @@ const productSchema = new Schema<IProduct>(
       default: '',
       maxlength: [300, 'La descripción no puede exceder 300 caracteres'],
     },
+    // `select: false` porque es maquinaria de búsqueda: la app no lo pinta
+    // en ningún sitio y mandarlo en cada carta sería peso por nada.
+    searchName: {
+      type: String,
+      default: '',
+      select: false,
+    },
     image: {
       type: String,
       default: null,
@@ -218,9 +232,47 @@ productSchema.virtual('galleryImages').get(function (this: IProduct) {
 productSchema.set('toJSON', { virtuals: true });
 productSchema.set('toObject', { virtuals: true });
 
+/**
+ * `searchName` se deriva de `name` por los dos caminos que lo cambian.
+ *
+ * El hook de `save` cubre el alta y cualquier edición que cargue el
+ * documento; el de `findOneAndUpdate` cubre al panel del comercio, que
+ * actualiza en una sola operación y nunca llega a instanciarlo. Hace falta
+ * escribir los dos: sin el segundo, un producto renombrado conserva el
+ * `searchName` viejo y deja de encontrarse por su nombre nuevo. Y es un
+ * fallo mudo —el producto sigue en la carta y todo se ve bien— así que
+ * nadie lo reporta, simplemente deja de venderse.
+ */
+productSchema.pre('save', function (next) {
+  if (this.isModified('name')) this.searchName = normalize(this.name);
+  next();
+});
+
+productSchema.pre('findOneAndUpdate', function (next) {
+  const update = this.getUpdate() as Record<string, any> | null;
+  if (!update) return next();
+
+  const name = update.name ?? update.$set?.name;
+  if (typeof name === 'string') this.set('searchName', normalize(name));
+  next();
+});
+
 productSchema.index({ businessId: 1, categoryId: 1 });
 productSchema.index({ businessId: 1, isAvailable: 1 });
 productSchema.index({ isFeatured: 1 });
+// La búsqueda por prefijo ancla el patrón (`^termino`), que es la única
+// forma de `$regex` que sabe apoyarse en un índice en vez de recorrer la
+// colección entera por cada tecla.
+productSchema.index({ searchName: 1 });
+
+// Lo que necesita la pantalla de Descuentos: productos rebajados y
+// disponibles. Parcial y no completo porque `discountPrice` es `null` en
+// la inmensa mayoría de la carta —solo entra al índice quien de verdad
+// está en oferta.
+productSchema.index(
+  { isAvailable: 1, discountPrice: 1 },
+  { partialFilterExpression: { discountPrice: { $gt: 0 } } }
+);
 
 /**
  * Búsqueda por texto del catálogo.

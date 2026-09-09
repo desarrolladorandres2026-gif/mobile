@@ -94,3 +94,4 @@ export { LoyaltyMovement, ILoyaltyMovement, LoyaltyMovementKind } from './Loyalt
 export { LoyaltyBalance, ILoyaltyBalance } from './LoyaltyBalance';
 
 export { SosAlert, ISosAlert, SosStatus } from './SosAlert';
+export { SearchLog, ISearchLog } from './SearchLog';

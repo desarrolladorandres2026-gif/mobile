@@ -12,6 +12,7 @@
     "bootstrap:admin": "tsx src/scripts/bootstrapAdmin.ts",
     "seed:demo-drivers": "tsx src/scripts/demoDrivers.ts",
     "seed:test-business": "tsx src/scripts/seedTestBusiness.ts",
+    "backfill:search-names": "tsx src/scripts/backfillSearchNames.ts",
     "seed:test-business-images": "tsx src/scripts/seedTestBusinessImages.ts",
     "exercise:business-flow": "tsx src/scripts/exerciseBusinessFlow.ts",
     "tracking:status": "tsx src/scripts/trackingStatus.ts",

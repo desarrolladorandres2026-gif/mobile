@@ -22,6 +22,24 @@ interface Business {
   isActive?: boolean;
 }
 
+/**
+ * Decide qué establecimiento queda activo cuando llega una lista nueva.
+ *
+ * El caso que importa es la lista vacía. Tal y como está hoy, un `[]` borra
+ * la selección guardada: el comercio se queda sin local activo y todas las
+ * páginas del panel pasan a su estado vacío. Eso es correcto si de verdad
+ * perdió el acceso, y es un destrozo si el `[]` viene de un fallo del
+ * servidor o de una sesión a medio refrescar.
+ *
+ * Es una política de negocio, no de código, y por eso vive aquí sola en vez
+ * de estar enterrada dentro de `setBusinesses`.
+ */
+function pickSelected(businesses: Business[], current: Business | null): Business | null {
+  // Conservar la selección solo si sigue perteneciendo al usuario.
+  const stillOwned = current ? businesses.find((b) => b._id === current._id) : undefined;
+  return stillOwned || businesses[0] || null;
+}
+
 interface AuthState {
   user: User | null;
   token: string | null;
@@ -50,10 +68,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setBusinesses: (businesses) => {
     localStorage.setItem('business_list', JSON.stringify(businesses));
 
-    // Conservar la selección solo si sigue perteneciendo al usuario
-    const current = get().selectedBusiness;
-    const stillOwned = current ? businesses.find((b) => b._id === current._id) : undefined;
-    const nextSelected = stillOwned || businesses[0] || null;
+    const nextSelected = pickSelected(businesses, get().selectedBusiness);
 
     if (nextSelected) {
       localStorage.setItem('business_selected', JSON.stringify(nextSelected));

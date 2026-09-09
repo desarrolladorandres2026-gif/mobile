@@ -148,7 +148,7 @@ export default function Positions() {
           <h1 className="page-title">Cargos</h1>
           <p className="page-subtitle">El puesto de cada persona en la organización. Cada cargo trae consigo los roles que le asignes.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex justify-center gap-2">
           <button
             onClick={fetchAll}
             className="px-4 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-xs"

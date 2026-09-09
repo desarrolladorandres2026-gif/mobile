@@ -336,7 +336,7 @@ export default function Menu() {
             Platos, disponibilidad, precios y fotos de tu establecimiento
           </p>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center justify-center gap-2.5">
           <button
             onClick={() => setShowCategoryModal(true)}
             className="px-3.5 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer"

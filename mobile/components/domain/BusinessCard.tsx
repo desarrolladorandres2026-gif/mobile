@@ -33,6 +33,16 @@ export interface Business {
    * salían.
    */
   distanceMeters?: number;
+  /** Ya viaja en cualquier listado de negocios, lo pida o no `/offers`. */
+  freeDeliveryThreshold?: number;
+  /**
+   * Por qué este negocio está en oferta.
+   *
+   * Solo la rellena `/offers`: el motivo se decide en el servidor y no en
+   * cada pantalla, para que "envío gratis" signifique lo mismo aquí que en
+   * la ficha del negocio.
+   */
+  offer?: { kind: 'discount' | 'free_delivery'; label: string };
 }
 
 /** La distancia como la diría una persona, no como la calcula un mapa. */
@@ -93,6 +103,22 @@ export const BusinessTile = memo(function BusinessTile({
   );
 });
 
+/**
+ * El motivo de oferta de un negocio, con o sin `/offers`.
+ *
+ * Si el servidor ya lo resolvió (viene de la pestaña de Descuentos), se usa
+ * ese. Si no —el listado normal de Inicio o Explorar— se deriva de
+ * `freeDeliveryThreshold`, que viaja en cualquier negocio: así el badge
+ * aparece en toda la app sin depender de qué pantalla lo pidió.
+ */
+function rowOffer(business: Business): Business['offer'] {
+  if (business.offer) return business.offer;
+  if (business.freeDeliveryThreshold && business.freeDeliveryThreshold > 0) {
+    return { kind: 'free_delivery', label: 'Envío gratis' };
+  }
+  return undefined;
+}
+
 // ──────────────────────────────────────────────────────────────
 // Fila de lista
 // ──────────────────────────────────────────────────────────────
@@ -103,12 +129,13 @@ export const BusinessRow = memo(function BusinessRow({
   const { c } = useTheme();
   const status = openState(business.schedule);
   const closed = showStatus && !status.open;
+  const offer = rowOffer(business);
 
   return (
     <Card
       onPress={onPress}
       padded={false}
-      accessibilityLabel={`${business.name}. Calificación ${business.rating.toFixed(1)}. ${minutes(business.deliveryTime)}.${closed ? ` ${status.label}.` : ''}`}
+      accessibilityLabel={`${business.name}. Calificación ${business.rating.toFixed(1)}. ${minutes(business.deliveryTime)}.${offer ? ` ${offer.label}.` : ''}${closed ? ` ${status.label}.` : ''}`}
       accessibilityHint="Abre el menú del negocio"
       style={styles.row}
     >
@@ -137,11 +164,16 @@ export const BusinessRow = memo(function BusinessRow({
           ]}
         />
 
-        {closed ? (
-          <Badge label={status.label} tone="neutral" icon="reloj" />
-        ) : status.label.startsWith('Cierra') ? (
-          <Badge label={status.label} tone="warning" icon="reloj" />
-        ) : null}
+        <View style={styles.badges}>
+          {offer ? (
+            <Badge label={offer.label} tone="lime" icon="descuento" />
+          ) : null}
+          {closed ? (
+            <Badge label={status.label} tone="neutral" icon="reloj" />
+          ) : status.label.startsWith('Cierra') ? (
+            <Badge label={status.label} tone="warning" icon="reloj" />
+          ) : null}
+        </View>
       </View>
 
       <View style={[styles.chevron, { backgroundColor: c.surfaceLight, borderColor: c.border }]}>
@@ -225,6 +257,7 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
   },
   rowBody: { flex: 1, gap: Spacing.xs + 1 },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
   dimmed: { opacity: 0.45 },
   chevron: {
     width: 30, height: 30, borderRadius: 15,

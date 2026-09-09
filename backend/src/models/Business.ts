@@ -1,10 +1,17 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { BusinessCategory, GeoPoint, WeekSchedule } from '../types';
+import { normalize } from '../utils/text';
 
 export interface IBusiness extends Document {
   ownerId: Types.ObjectId;
   name: string;
   slug: string;
+  /**
+   * `name` sin tildes ni mayúsculas, para buscar por prefijo.
+   *
+   * Derivado, nunca escrito a mano: lo mantienen los hooks del esquema.
+   */
+  searchName: string;
   description: string;
   logo?: string;
   coverImage?: string;
@@ -83,6 +90,13 @@ const businessSchema = new Schema<IBusiness>(
       unique: true,
       lowercase: true,
       trim: true,
+    },
+    // `select: false` porque es maquinaria de búsqueda: no se pinta en
+    // ninguna pantalla y no tiene por qué viajar en cada listado.
+    searchName: {
+      type: String,
+      default: '',
+      select: false,
     },
     description: {
       type: String,
@@ -211,13 +225,31 @@ businessSchema.pre('save', function (next) {
 // Auto-generate slug from name
 businessSchema.pre('save', function (next) {
   if (this.isModified('name')) {
-    this.slug = this.name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
+    const clean = normalize(this.name);
+    this.searchName = clean;
+    this.slug = clean.replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   }
+  next();
+});
+
+/**
+ * El mismo `searchName`, por el camino que no carga el documento.
+ *
+ * El panel actualiza con `findOneAndUpdate`, que no dispara el hook de
+ * arriba. Sin esto, un negocio renombrado se queda con el nombre viejo en
+ * el \u00edndice de b\u00fasqueda y deja de aparecer por el nuevo \u2014 y como la ficha
+ * se ve perfecta, nadie relaciona una cosa con la otra.
+ *
+ * El `slug` se deja quieto a prop\u00f3sito: es \u00fanico y va en enlaces ya
+ * repartidos, as\u00ed que regenerarlo en cada edici\u00f3n podr\u00eda chocar contra otro
+ * negocio o romper una direcci\u00f3n que alguien ten\u00eda guardada.
+ */
+businessSchema.pre('findOneAndUpdate', function (next) {
+  const update = this.getUpdate() as Record<string, any> | null;
+  if (!update) return next();
+
+  const name = update.name ?? update.$set?.name;
+  if (typeof name === 'string') this.set('searchName', normalize(name));
   next();
 });
 
@@ -228,6 +260,9 @@ businessSchema.index({ city: 1, isActive: 1 });
 businessSchema.index({ isApproved: 1, isActive: 1 });
 // `slug` already declares `unique: true` on the path, which creates the index.
 businessSchema.index({ isFeatured: 1 });
+// Anclado (`^termino`) es la única forma de `$regex` que aprovecha un
+// índice; sin él cada pulsación recorrería la colección entera.
+businessSchema.index({ searchName: 1 });
 
 /** Mismo criterio que en productos: nombre por encima de todo, en español. */
 businessSchema.index(

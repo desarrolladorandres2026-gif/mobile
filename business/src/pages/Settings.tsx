@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, Clock, Truck, Save } from 'lucide-react';
+import { AlertCircle, Check, Clock, Store, Truck, Save } from 'lucide-react';
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
@@ -46,7 +46,13 @@ export default function Settings() {
   const [saved, setSaved] = useState(false);
 
   const load = useCallback(async () => {
-    if (!businessId) return;
+    // Sin negocio no hay nada que pedir, pero la carga tiene que apagarse
+    // igual: si se sale por aquí dejando `loading` en true, la pantalla se
+    // queda en "Cargando ajustes..." para siempre y sin explicación.
+    if (!businessId) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError('');
@@ -91,6 +97,20 @@ export default function Settings() {
   };
 
   const openDays = DAYS.filter((d) => schedule[d.key]?.isOpen).length;
+
+  if (!selectedBusiness) {
+    return (
+      <div className="py-20 text-center space-y-2">
+        <Store className="w-8 h-8 text-[var(--color-primary)] mx-auto" />
+        <p className="font-bold text-[var(--color-text-main)] text-base">
+          Sin establecimiento seleccionado
+        </p>
+        <p className="text-xs text-[var(--color-text-secondary)]">
+          Elige un negocio en el menú lateral para ver sus ajustes.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

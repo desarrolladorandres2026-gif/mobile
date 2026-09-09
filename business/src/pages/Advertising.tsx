@@ -171,7 +171,7 @@ export default function Advertising() {
         </div>
         <button
           onClick={() => setCreating(true)}
-          className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white"
+          className="flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white"
         >
           <Plus className="h-4 w-4" /> Nueva campaña
         </button>

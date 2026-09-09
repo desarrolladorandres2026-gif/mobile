@@ -1,7 +1,9 @@
 export { generateAccessToken, generateRefreshToken, verifyAccessToken, verifyRefreshToken, generateOTP, getOTPExpiry } from './token';
 export { sendResponse, sendError } from './response';
 export { param, query, formatCOP, clientIp, userAgent, readLocation } from './helpers';
+export { normalize, tokenize, editDistance } from './text';
 export { haversineKm, haversineMeters, isValidCoordinate, fromGeoPoint, roundToStep, LatLng } from './geo';
+export { EARTH_RADIUS_M, VISIBLE_BUSINESS, withinRadius, withDistance } from './catalogQuery';
 export {
   BPS_DENOMINATOR,
   MoneyError,

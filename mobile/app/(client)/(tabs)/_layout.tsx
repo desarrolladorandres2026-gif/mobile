@@ -32,7 +32,7 @@ export default function ClientTabsLayout() {
         >
           <Tabs.Screen name="home" options={{ title: 'Inicio' }} />
           <Tabs.Screen name="search" options={{ title: 'Explorar' }} />
-          <Tabs.Screen name="orders" options={{ title: 'Pedidos' }} />
+          <Tabs.Screen name="offers" options={{ title: 'Descuentos' }} />
           <Tabs.Screen name="profile" options={{ title: 'Perfil' }} />
         </Tabs>
 

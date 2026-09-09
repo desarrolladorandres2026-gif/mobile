@@ -202,7 +202,7 @@ export default function Dashboard() {
 
         <button
           onClick={load}
-          className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer flex items-center gap-2"
+          className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer flex items-center justify-center gap-2"
         >
           <RefreshCw className="w-3.5 h-3.5 text-[var(--color-primary)]" />
           Refrescar

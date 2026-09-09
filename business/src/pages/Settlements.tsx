@@ -178,7 +178,7 @@ export default function Settlements() {
             Lo que ZIPP te debe, de dónde viene y qué ya se consignó
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-center gap-2">
           {/*
             Se descarga por el cliente axios y se convierte en blob, en vez
             de abrir la URL con el token como parámetro. Un token en la

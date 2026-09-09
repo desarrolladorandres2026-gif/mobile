@@ -9,7 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown, FadeOutDown, Layout } from 'react-native-reanimated';
 import {
   Text, Icon, IconButton, Button, Badge, CatalogBadges, MetaRow, Notice, Sheet,
-  QtyStepper, EmptyState, ErrorState, Skeleton, LoadingScreen,
+  QtyStepper, EmptyState, ErrorState, Skeleton, LoadingScreen, SearchField,
 } from '../../../components/ui';
 import { useBusiness, useBusinessCategories, useBusinessProducts, useTopSellers, useProductSentiment } from '../../../hooks/useApi';
 import { useCartStore } from '../../../stores/cartStore';
@@ -23,6 +23,7 @@ import { businessAccent, openState } from '../../../lib/business';
 import { money, minutes } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
 import { freeDeliveryGap, likeRatio } from '../../../lib/catalog';
+import { normalize, matches } from '../../../lib/text';
 import {
   productImageUri, productImagePlaceholder, hasProductImage, productGallery,
   type ProductImages,
@@ -55,6 +56,9 @@ const STORE_CART_CLEARANCE = 92;
 /** Cuántos platos sugeridos como acompañamiento se muestran como máximo. */
 const MAX_SUGGESTIONS = 6;
 
+/** Cartas a partir de las cuales se ofrece buscar dentro del negocio. */
+const MENU_SEARCH_MIN = 8;
+
 export default function BusinessScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -72,6 +76,7 @@ export default function BusinessScreen() {
     useBusinessProducts(id) as { data: Product[]; isLoading: boolean };
 
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [productQuery, setProductQuery] = useState('');
   const [selected, setSelected] = useState<Product | null>(null);
 
   const { toggle: toggleFavorite, isFavorite } = useFavorites();
@@ -84,10 +89,35 @@ export default function BusinessScreen() {
   const status = openState(business?.schedule);
   const accent = businessAccent(id);
 
+  /**
+   * La carta filtrada por sección y por lo que el usuario esté buscando.
+   *
+   * El filtro es local y no cuesta una petición: los productos ya están
+   * todos cargados para pintar el menú.
+   *
+   * Con término escrito se ignoran las secciones. Quien busca "gaseosa" no
+   * quiere saber en qué apartado la metió el dueño, y respetar la pestaña
+   * activa haría que buscar desde "Hamburguesas" no encontrara la bebida
+   * que está ahí mismo en la carta.
+   */
   const visibleProducts = useMemo(() => {
+    const needle = normalize(productQuery.trim());
+
+    if (needle.length >= 2) {
+      return products.filter(
+        (p) => matches(p.name, needle) || matches(p.description, needle)
+      );
+    }
+
     if (!activeSection) return products;
     return products.filter((p) => p.categoryId === activeSection);
-  }, [products, activeSection]);
+  }, [products, activeSection, productQuery]);
+
+  const searchingMenu = normalize(productQuery.trim()).length >= 2;
+
+  // Por debajo de esto, recorrer la carta con el dedo es más rápido que
+  // escribir, y una caja de búsqueda sobre seis platos solo estorba.
+  const showMenuTools = sections.length > 0 || products.length >= MENU_SEARCH_MIN;
 
   if (isLoading) return <LoadingScreen message="Abriendo el menú…" />;
 
@@ -180,7 +210,7 @@ export default function BusinessScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={sections.length > 0 ? [1] : undefined}
+        stickyHeaderIndices={showMenuTools ? [1] : undefined}
         contentContainerStyle={{
           paddingBottom: bottomInset + Spacing.huge + (showCartBar ? STORE_CART_CLEARANCE : 0),
         }}
@@ -244,28 +274,43 @@ export default function BusinessScreen() {
           </View>
         </View>
 
-        {/* ── Secciones del menú (fijas al desplazar) ── */}
-        {sections.length > 0 ? (
+        {/* ── Buscar en la carta y secciones (fijos al desplazar) ── */}
+        {showMenuTools ? (
           <View style={[styles.tabs, { backgroundColor: c.background, borderBottomColor: c.border }]}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.tabsRow}
-            >
-              <SectionTab
-                label="Todo"
-                active={activeSection === null}
-                onPress={() => setActiveSection(null)}
-              />
-              {sections.map((section: any) => (
-                <SectionTab
-                  key={section._id}
-                  label={section.name}
-                  active={activeSection === section._id}
-                  onPress={() => setActiveSection(section._id)}
+            {/* Queda fijo al desplazar a propósito: en una carta larga, el
+                momento en que hace falta buscar es justo cuando ya se lleva
+                medio menú recorrido y la cabecera quedó arriba del todo. */}
+            {products.length >= MENU_SEARCH_MIN ? (
+              <View style={styles.menuSearch}>
+                <SearchField
+                  value={productQuery}
+                  onChange={setProductQuery}
+                  placeholder={`Buscar en ${business.name}`}
                 />
-              ))}
-            </ScrollView>
+              </View>
+            ) : null}
+
+            {sections.length > 0 && !searchingMenu ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.tabsRow}
+              >
+                <SectionTab
+                  label="Todo"
+                  active={activeSection === null}
+                  onPress={() => setActiveSection(null)}
+                />
+                {sections.map((section: any) => (
+                  <SectionTab
+                    key={section._id}
+                    label={section.name}
+                    active={activeSection === section._id}
+                    onPress={() => setActiveSection(section._id)}
+                  />
+                ))}
+              </ScrollView>
+            ) : null}
           </View>
         ) : null}
 
@@ -287,8 +332,14 @@ export default function BusinessScreen() {
           ) : visibleProducts.length === 0 ? (
             <EmptyState
               icon="catRestaurante"
-              title="Sin productos aquí"
-              message="Esta sección todavía no tiene nada. Prueba con otra."
+              title={searchingMenu ? 'Nada con ese nombre' : 'Sin productos aquí'}
+              message={
+                searchingMenu
+                  ? 'Este negocio no tiene nada que se llame así. Prueba con otra palabra.'
+                  : 'Esta sección todavía no tiene nada. Prueba con otra.'
+              }
+              actionLabel={searchingMenu ? 'Ver toda la carta' : undefined}
+              onAction={searchingMenu ? () => setProductQuery('') : undefined}
               compact
             />
           ) : (
@@ -842,6 +893,7 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: Spacing.sm },
 
   tabs: { borderBottomWidth: StyleSheet.hairlineWidth },
+  menuSearch: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md },
   tabsRow: { paddingHorizontal: Spacing.xl, gap: Spacing.xl },
   tab: { alignItems: 'center', gap: Spacing.sm, paddingTop: Spacing.md },
   tabMark: { height: 3, width: 22, borderRadius: 2 },

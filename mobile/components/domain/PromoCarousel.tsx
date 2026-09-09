@@ -57,11 +57,11 @@ const WRAP = { out: 150, in: 250 } as const;
  * conexión, API caída, todas las imágenes rotas— devuelve `null` y la
  * sección de Categorías sube sola, sin hueco.
  */
-export function PromoCarousel() {
+export function PromoCarousel({ placement = 'home' }: { placement?: 'home' | 'offers' }) {
   const { c } = useTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { data: banners, isLoading } = useHomeBanners();
+  const { data: banners, isLoading } = useHomeBanners(placement);
 
   const { cardWidth, cardHeight, offsetX } = useMemo(() => geometry(width), [width]);
 

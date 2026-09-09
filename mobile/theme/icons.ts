@@ -5,7 +5,7 @@ import {
   SlidersHorizontal, Share2, RotateCw, Pencil, Trash2, Repeat2,
   ShoppingBag, ShoppingCart, Store, TicketPercent, BadgePercent,
   CreditCard, Banknote, HandCoins, Wallet,
-  Bike, MapPin, Navigation, LocateFixed, Clock, Timer, Route, Package,
+  Bike, MapPin, Navigation, LocateFixed, Clock, Timer, Route, Package, Building2,
   Camera, Image as ImageIcon,
   UtensilsCrossed, Sandwich, Pill, Coffee,
   Heart, Star, Phone, PhoneCall, PhoneOff, MessageCircle, Send, Headset,
@@ -76,6 +76,8 @@ export const IconRegistry = {
   reloj: Clock,
   minutos: Timer,
   ruta: Route,
+  /** Piso, apartamento, torre: la parte del domicilio que no está en el mapa. */
+  edificio: Building2,
   paquete: Package,
   camara: Camera,
   foto: ImageIcon,

@@ -45,12 +45,14 @@ export class PromotionBannerService {
   async listForApp(placement: BannerPlacement = BannerPlacement.HOME): Promise<PublicBanner[]> {
     const now = new Date();
 
-    // `home` recibe los suyos y los de alcance general; una superficie
-    // distinta nunca recibe los marcados "solo pantalla inicial".
+    // Cada superficie recibe los suyos propios y los de alcance general;
+    // `all` es la única que no tiene "los suyos" aparte, así que no se
+    // duplica en la lista. Antes esto solo distinguía `home` del resto, y
+    // un banner marcado para una tercera superficie no lo veía nadie.
     const placements =
-      placement === BannerPlacement.HOME
-        ? [BannerPlacement.HOME, BannerPlacement.ALL]
-        : [BannerPlacement.ALL];
+      placement === BannerPlacement.ALL
+        ? [BannerPlacement.ALL]
+        : [placement, BannerPlacement.ALL];
 
     const banners = await PromotionBanner.find({
       isActive: true,

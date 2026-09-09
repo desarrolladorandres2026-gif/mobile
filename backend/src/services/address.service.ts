@@ -12,6 +12,9 @@ export class AddressService {
     data: {
       label: string;
       address: string;
+      apartment?: string;
+      neighborhood?: string;
+      city?: string;
       details?: string;
       longitude?: number;
       latitude?: number;
@@ -46,6 +49,9 @@ export class AddressService {
       userId,
       label: data.label,
       address: data.address,
+      apartment: data.apartment || '',
+      neighborhood: data.neighborhood || '',
+      city: data.city || '',
       details: data.details || '',
       location: {
         type: 'Point',
@@ -53,6 +59,68 @@ export class AddressService {
       },
       isDefault,
     });
+
+    return address;
+  }
+
+  /**
+   * Cambia una dirección ya guardada.
+   *
+   * Editar en vez de recrear importa por el `_id`: el checkout recuerda la
+   * última dirección usada por identificador, así que borrar y volver a
+   * crear la haría desaparecer de esa memoria y, si era la principal,
+   * pasaría el título a otra. Corregir el número de una casa no debería
+   * tener ninguno de esos dos efectos.
+   *
+   * Solo toca lo que llega; un campo ausente se queda como estaba. El
+   * `isDefault` no se acepta aquí a propósito: ya tiene su propio
+   * endpoint, y dos caminos hacia el mismo invariante son dos sitios donde
+   * puede acabar habiendo más de una dirección principal.
+   */
+  async update(
+    userId: string,
+    id: string,
+    data: {
+      label?: string;
+      address?: string;
+      apartment?: string;
+      neighborhood?: string;
+      city?: string;
+      details?: string;
+      longitude?: number;
+      latitude?: number;
+    }
+  ): Promise<IAddress> {
+    const address = await Address.findOne({ _id: id, userId });
+    if (!address) {
+      throw new AppError('Dirección no encontrada', 404);
+    }
+
+    // Mover el punto es opcional; moverlo a medias no. Si viene una
+    // coordenada tiene que venir su pareja, porque una latitud nueva sobre
+    // la longitud vieja apunta a un sitio donde nadie vive.
+    if (data.latitude !== undefined || data.longitude !== undefined) {
+      const latitude = Number(data.latitude);
+      const longitude = Number(data.longitude);
+
+      if (!isValidCoordinate(latitude, longitude)) {
+        throw new AppError(
+          'La dirección necesita una ubicación válida. Selecciónala en el mapa o usa tu ubicación actual.',
+          400
+        );
+      }
+
+      address.location = { type: 'Point', coordinates: [longitude, latitude] };
+    }
+
+    if (data.label !== undefined) address.label = data.label;
+    if (data.address !== undefined) address.address = data.address;
+    if (data.apartment !== undefined) address.apartment = data.apartment;
+    if (data.neighborhood !== undefined) address.neighborhood = data.neighborhood;
+    if (data.city !== undefined) address.city = data.city;
+    if (data.details !== undefined) address.details = data.details;
+
+    await address.save();
 
     return address;
   }

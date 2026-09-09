@@ -49,6 +49,7 @@ const navGroups: Array<{
       { path: '/home-banners', Illustration: BannerIllustration, label: 'Banners de Inicio' },
       { path: '/home-categories', Illustration: CategoriesIllustration, label: 'Categorías de Inicio' },
       { path: '/campaigns', Illustration: MegaphoneIllustration, label: 'Publicidad' },
+      { path: '/search-insights', Illustration: CategoriesIllustration, label: 'Búsquedas' },
     ],
   },
   {

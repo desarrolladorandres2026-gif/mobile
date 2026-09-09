@@ -10,6 +10,7 @@ import type { IllustrationProps } from './types';
 export type { IllustrationProps };
 export { DefaultIllustration };
 export * from './contentIllustrations';
+export * from './addressIllustrations';
 export { ContentIcon } from './ContentIcon';
 
 /**

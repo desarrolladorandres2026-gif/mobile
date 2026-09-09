@@ -16,7 +16,11 @@ const TABS: Record<string, { icon: IconName; label: string }> = {
   home: { icon: 'inicio', label: 'Inicio' },
   search: { icon: 'explorar', label: 'Explorar' },
   dashboard: { icon: 'rayo', label: 'Turno' },
+  // Pedidos ya no vive en la barra del cliente —se movió a la pila, con
+  // puerta desde Perfil— pero la entrada sigue sirviendo a la barra del
+  // domiciliario, que usa la misma tabla.
   orders: { icon: 'pedidos', label: 'Pedidos' },
+  offers: { icon: 'descuento', label: 'Descuentos' },
   earnings: { icon: 'billetera', label: 'Ganancias' },
   profile: { icon: 'perfil', label: 'Perfil' },
 };

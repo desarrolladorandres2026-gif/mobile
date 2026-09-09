@@ -1,9 +1,9 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
-  LogOut, Store, Menu, X,
+  AlertCircle, LogOut, Store, Menu, X,
   Volume2, VolumeX, ChevronDown, ChevronRight
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
@@ -40,6 +40,8 @@ export default function Layout() {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [pausing, setPausing] = useState(false);
   const [pauseError, setPauseError] = useState('');
+  const [businessesError, setBusinessesError] = useState('');
+  const [loadingBusinesses, setLoadingBusinesses] = useState(false);
   const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
   const toggleSound = usePreferencesStore((s) => s.toggleSound);
 
@@ -70,14 +72,33 @@ export default function Layout() {
     }
   };
 
-  // Refresca la lista de negocios del usuario autenticado al montar el layout.
-  // PrivateRoute ya garantiza que hay sesión activa antes de llegar aquí.
-  useEffect(() => {
-    api
-      .get('/businesses/my/businesses')
-      .then(({ data }) => setBusinesses(data.data))
-      .catch((err) => console.error('No se pudieron cargar los establecimientos:', err));
+  /**
+   * Refresca la lista de negocios del usuario autenticado al montar el layout.
+   * PrivateRoute ya garantiza que hay sesión activa antes de llegar aquí.
+   *
+   * El fallo se enseña en pantalla, no en la consola. Antes esto era un
+   * `console.error` y nada más, así que una API caída se veía exactamente
+   * igual que no tener ningún local: selector vacío, páginas vacías y cero
+   * explicación. El comercio no tiene por qué abrir las herramientas de
+   * desarrollo para enterarse de que la petición se cayó.
+   */
+  const loadBusinesses = useCallback(async () => {
+    setLoadingBusinesses(true);
+    setBusinessesError('');
+    try {
+      const { data } = await api.get('/businesses/my/businesses');
+      // Si la respuesta no trae una lista, no se pasa adelante: el store la
+      // serializa a localStorage y un `undefined` ahí deja escrito el texto
+      // "undefined", que revienta el `JSON.parse` de la siguiente carga.
+      setBusinesses(Array.isArray(data.data) ? data.data : []);
+    } catch (err) {
+      setBusinessesError(apiMessage(err, 'No pudimos cargar tus establecimientos.'));
+    } finally {
+      setLoadingBusinesses(false);
+    }
   }, [setBusinesses]);
+
+  useEffect(() => { loadBusinesses(); }, [loadBusinesses]);
 
   const handleBusinessChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const found = businesses.find((b) => b._id === e.target.value);
@@ -290,7 +311,27 @@ export default function Layout() {
 
         {/* Page Outlet */}
         <div className="p-6 lg:p-8 flex-1">
-          <div className="page-container">
+          <div className="page-container space-y-6">
+            {businessesError && (
+              <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="flex-1 space-y-1">
+                  <p className="font-bold">{businessesError}</p>
+                  <p className="font-semibold opacity-80">
+                    Sin esa lista el panel no sabe cuáles son tus locales y las
+                    páginas se ven vacías. No has perdido el negocio: es la
+                    conexión con ZIPP la que no responde.
+                  </p>
+                </div>
+                <button
+                  onClick={loadBusinesses}
+                  disabled={loadingBusinesses}
+                  className="shrink-0 px-3 py-1.5 rounded-lg border border-[var(--color-danger)]/40 font-bold uppercase tracking-wider text-[10px] cursor-pointer hover:bg-[var(--color-danger)]/10 transition-all disabled:cursor-wait disabled:opacity-60"
+                >
+                  {loadingBusinesses ? 'Reintentando…' : 'Reintentar'}
+                </button>
+              </div>
+            )}
             <Outlet />
           </div>
         </div>

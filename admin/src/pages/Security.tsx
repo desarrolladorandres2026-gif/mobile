@@ -255,7 +255,7 @@ export default function Security() {
           <h1 className="page-title">Consola de Seguridad y Auditoría</h1>
           <p className="page-subtitle">Detección de fraude, sesiones activas y control de acceso</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-center gap-3">
           <button
             onClick={() => setBlockModalOpen(true)}
             className="px-3.5 py-2 bg-[var(--color-danger-bg)] hover:bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger-bg)] text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-xs"

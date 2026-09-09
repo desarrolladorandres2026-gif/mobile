@@ -89,6 +89,12 @@ export default function ProfileScreen() {
 
   const accountLinks: MenuLink[] = [
     {
+      illustration: 'paquete',
+      label: 'Mis pedidos',
+      detail: `${stats.orderCount} ${stats.orderCount === 1 ? 'pedido' : 'pedidos'}`,
+      route: '/(client)/orders',
+    },
+    {
       illustration: 'ubicacion',
       label: 'Mis direcciones',
       detail: `${addresses.length} guardada${addresses.length === 1 ? '' : 's'}`,

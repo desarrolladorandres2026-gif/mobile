@@ -19,7 +19,11 @@ const SCREEN_ROUTES: Record<string, string> = {
   search: '/(client)/(tabs)/search',
   rewards: '/(client)/rewards',
   favorites: '/(client)/favorites',
-  orders: '/(client)/(tabs)/orders',
+  // Pedidos se movió a la pila cuando Descuentos ocupó su lugar en la
+  // barra. Si esto siguiera apuntando a la pestaña vieja, un banner ya
+  // publicado navegaría a una ruta que dejó de existir.
+  orders: '/(client)/orders',
+  offers: '/(client)/(tabs)/offers',
   help: '/(client)/help',
 };
 
@@ -30,6 +34,7 @@ export function hasAction(banner: Pick<PromoBanner, 'actionType' | 'actionValue'
   if (!banner.actionValue) return false;
   if (type === 'screen') return banner.actionValue in SCREEN_ROUTES;
   if (type === 'url') return /^https?:\/\//i.test(banner.actionValue);
+  if (type === 'search') return banner.actionValue.trim().length >= 2;
   return true;
 }
 
@@ -62,6 +67,16 @@ export function runBannerAction(
       router.push({
         pathname: '/(client)/(tabs)/search',
         params: { category: banner.actionValue },
+      });
+      return;
+
+    // Abre la búsqueda con el término ya escrito, en vez de la pantalla
+    // vacía: un banner de "Antójate de una pizza" que deja al usuario
+    // delante de una caja en blanco le hace escribir lo que acaba de leer.
+    case 'search':
+      router.push({
+        pathname: '/(client)/(tabs)/search',
+        params: { q: banner.actionValue },
       });
       return;
 
