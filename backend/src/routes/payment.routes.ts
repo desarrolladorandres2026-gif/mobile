@@ -14,6 +14,7 @@ import {
   initiatePaymentSchema,
   paymentStatusSchema,
   orderPaymentsSchema,
+  chargebackSchema,
 } from '../validators/payment.validator';
 import { UserRole } from '../types';
 
@@ -74,12 +75,14 @@ router.post(
   authenticate,
   authorize(UserRole.ADMIN),
   requireFinanceAdmin,
+  validate(chargebackSchema),
   (req, res, next) => paymentController.chargeback(req, res, next)
 );
 router.get(
   '/orders/:orderId/refunds',
   authenticate,
   authorize(UserRole.ADMIN),
+  validate(orderPaymentsSchema),
   (req, res, next) => paymentController.listRefunds(req, res, next)
 );
 

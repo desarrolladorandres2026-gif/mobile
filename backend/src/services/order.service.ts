@@ -1529,15 +1529,41 @@ export class OrderService {
       `Cambio de método de pago: ${previousMethod} → ${next}`
     );
 
-    order.paymentMethod = next;
-    order.paymentStatus =
+    const nextPaymentStatus =
       next === PaymentMethod.CASH_ON_DELIVERY
         ? PaymentStatus.PENDING_CASH
         : PaymentStatus.PENDING;
-    await order.save();
+
+    // ── Cambio atómico del método ──
+    //
+    // El pedido se leyó al principio de esta función y desde entonces han
+    // pasado varias comprobaciones y la invalidación de los intentos
+    // abiertos. En ese hueco cabe el webhook que aprueba el pago en línea
+    // que se está abandonando, y `order.save()` lo reescribía todo desde la
+    // copia vieja: el pedido quedaba en "pendiente de efectivo" con el
+    // dinero ya cobrado en Wompi, y el cliente lo pagaba otra vez en la
+    // puerta. Las condiciones que hicieron válido el cambio viajan dentro
+    // de la escritura, así que si algo se movió, no se aplica.
+    const applied = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        status: OrderStatus.PENDING,
+        paymentMethod: previousMethod,
+        paymentStatus: { $nin: [PaymentStatus.PAID, PaymentStatus.REFUNDED] },
+      },
+      { $set: { paymentMethod: next, paymentStatus: nextPaymentStatus } },
+      { new: true }
+    );
+
+    if (!applied) {
+      throw new AppError(
+        'El pedido cambió mientras procesábamos tu solicitud. Vuelve a consultarlo antes de reintentar.',
+        409
+      );
+    }
 
     if (next === PaymentMethod.CASH_ON_DELIVERY) {
-      await paymentService.openCashPayment(order);
+      await paymentService.openCashPayment(applied);
     }
 
     logSystemAudit({
@@ -1557,7 +1583,7 @@ export class OrderService {
       },
     }).catch(console.error);
 
-    return order;
+    return applied;
   }
 
 }

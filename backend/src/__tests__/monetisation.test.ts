@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { pricingService } from '../services/pricing.service';
 import { orderService } from '../services/order.service';
 import { ledgerService } from '../services/ledger.service';
@@ -895,6 +895,18 @@ describe('7 · Webhooks', () => {
         timestamp,
       });
 
+      // Un evento firmado ya no basta: la referencia no entra en la firma de
+      // Wompi, así que el servicio vuelve a leer la transacción por su id
+      // —que sí va firmado— y aplica lo que responda Wompi. Aquí se simula
+      // esa respuesta; sin ella el evento se descarta por no confirmado.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ data: { ...tx, currency: 'COP' } }),
+        })
+      );
+
       const result = await paymentService.handleWebhook(payload, '');
       expect(result.accepted).toBe(true);
 
@@ -904,10 +916,104 @@ describe('7 · Webhooks', () => {
       const payment = await Payment.findOne({ orderId: order._id });
       expect(payment!.reference).toBe(first.intent.id);
       expect(payment!.transactionId).toBe('wompi-real-id-123');
-      expect(payment!.method).toBe('NEQUI');
+      // El carril concreto vive en su propio campo. `method` sigue diciendo
+      // que el cobro es en línea, que es la distinción de la que dependen la
+      // invalidación de intentos y la guarda contra cobrar un efectivo por
+      // pasarela; sobrescribirla con "NEQUI" la borraba.
+      expect(payment!.paymentMethodType).toBe('NEQUI');
+      expect(payment!.method).toBe(PaymentMethod.ONLINE);
       expect(payment!.gatewayStatus).toBe('APPROVED');
     } finally {
       Object.assign(config.payments.wompi, originalWompiConfig);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('descarta un evento firmado cuya referencia Wompi no reconoce', async () => {
+    /**
+     * El ataque que cierra la confirmación contra la pasarela.
+     *
+     * Wompi firma tres campos —id, estado y monto— y deja la `reference`
+     * fuera. Quien consiga un evento legítimo puede reapuntarlo al pedido
+     * de otra persona por el mismo importe sin romper el checksum. Al
+     * releer la transacción por su id firmado, Wompi devuelve la referencia
+     * real y el evento se cae.
+     */
+    const originalWompiConfig = { ...config.payments.wompi };
+    Object.assign(config.payments.wompi, {
+      publicKey: 'pub_test_x',
+      privateKey: 'prv_test_x',
+      integritySecret: 'integrity_secret',
+      eventsSecret: 'events_secret',
+    });
+    setPaymentProvider(new WompiPaymentProvider());
+
+    try {
+      const { client, business, product } = await baseScenario();
+
+      const order = await orderService.create({
+        clientId: client._id.toString(),
+        businessId: business._id.toString(),
+        items: [{ productId: product._id.toString(), quantity: 1 }],
+        paymentMethod: PaymentMethod.ONLINE,
+        deliveryAddress: 'Cra 10 #5-23',
+        deliveryLatitude: DESTINATION.lat,
+        deliveryLongitude: DESTINATION.lng,
+      });
+
+      const { intent } = await paymentService.initiate({
+        orderId: order._id.toString(),
+        userId: client._id.toString(),
+        amount: order.finance.customerTotal,
+        description: 'Prueba',
+        customer: { name: 'Cliente', phone: '3101234567' },
+      });
+
+      const tx = {
+        id: 'wompi-real-id-999',
+        // El atacante escribe aquí la referencia de la víctima.
+        reference: intent.id,
+        status: 'APPROVED',
+        amount_in_cents: order.finance.customerTotal * 100,
+        status_message: null,
+      };
+      const timestamp = Date.now();
+      const checksum = crypto
+        .createHash('sha256')
+        .update(`${tx.id}${tx.status}${tx.amount_in_cents}${timestamp}events_secret`)
+        .digest('hex');
+
+      const payload = JSON.stringify({
+        event: 'transaction.updated',
+        data: { transaction: tx },
+        environment: 'test',
+        signature: { properties: ['transaction.id', 'transaction.status', 'transaction.amount_in_cents'], checksum },
+        timestamp,
+      });
+
+      // La firma es válida, pero Wompi dice que esa transacción pertenece a
+      // otra referencia — la del propio atacante.
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            data: { ...tx, reference: 'ZIPP-PEDIDO-DEL-ATACANTE', currency: 'COP' },
+          }),
+        })
+      );
+
+      const result = await paymentService.handleWebhook(payload, '');
+      expect(result.accepted).toBe(false);
+
+      const untouched = await Order.findById(order._id);
+      expect(untouched!.paymentStatus).toBe(PaymentStatus.PENDING);
+
+      const payment = await Payment.findOne({ orderId: order._id });
+      expect(payment!.status).toBe(PaymentStatus.PENDING);
+    } finally {
+      Object.assign(config.payments.wompi, originalWompiConfig);
+      vi.unstubAllGlobals();
     }
   });
 

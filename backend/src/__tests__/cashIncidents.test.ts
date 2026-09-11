@@ -426,6 +426,37 @@ describe('7-9 · Gestión administrativa', () => {
     expect(cerrada!.writtenOffAmount).toBe(0);
   });
 
+  it('8c · una resolución no puede reabrir un cobro ya reembolsado', async () => {
+    /**
+     * `REFUNDED` es terminal en la tabla de transiciones: un reembolso
+     * revertido se registra como un cobro nuevo, nunca reabriendo el
+     * anterior. La resolución del expediente no comprobaba la tabla —solo
+     * la mencionaba en un comentario— así que confirmar la deuda de un
+     * pedido ya reembolsado lo dejaba marcado como pagado, con el dinero
+     * devuelto al cliente y el pedido diciendo que se cobró.
+     */
+    const ctx = await scenario();
+    const { order, incident } = await reportMissingCash(ctx);
+
+    await Payment.updateOne(
+      { orderId: order._id },
+      { $set: { status: PaymentStatus.REFUNDED } }
+    );
+
+    const res = await resolve(incident._id.toString(), ctx.finance, {
+      resolution: 'debt_confirmed',
+      adminNote: 'Intento de confirmar deuda sobre un pedido reembolsado',
+    });
+
+    expect(res.status).toBe(409);
+
+    const payment = await Payment.findOne({ orderId: order._id });
+    expect(payment!.status).toBe(PaymentStatus.REFUNDED);
+
+    const pedido = await Order.findById(order._id);
+    expect(pedido!.paymentStatus).not.toBe(PaymentStatus.PAID);
+  });
+
   it('8b · "confirmar deuda" mantiene el saldo y da el pedido por pagado', async () => {
     const ctx = await scenario();
     const { order, incident } = await reportMissingCash(ctx);

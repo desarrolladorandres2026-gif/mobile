@@ -109,3 +109,33 @@ export const paymentStatusSchema = z.object({
 export const orderPaymentsSchema = z.object({
   params: z.object({ orderId: objectId }),
 });
+
+/**
+ * POST /payments/orders/:orderId/chargeback
+ *
+ * Esta ruta no tenía ninguna validación, y mueve dinero: reversa asientos,
+ * deshace liquidaciones y devuelve el cupón. Sin esquema, `amount` podía
+ * llegar como decimal, negativo o directamente como un objeto —que acababa
+ * en un 500 al llegar a `assertMoney`— y `reference` como cualquier cosa.
+ *
+ * `reference` es obligatoria y ese es el arreglo importante: es la clave de
+ * idempotencia del contracargo (`chargeback:<reference>`). El controlador
+ * la rellenaba con `Date.now()` cuando faltaba, así que cada reintento
+ * generaba una clave distinta y registraba **otro** contracargo por el mismo
+ * dinero. Un contracargo real siempre trae su referencia de la pasarela;
+ * exigirla es lo que hace que reintentar sea gratis.
+ */
+export const chargebackSchema = z.object({
+  params: z.object({ orderId: objectId }),
+  body: z
+    .object({
+      amount: z.number().int().positive().max(100_000_000).optional(),
+      reference: z
+        .string()
+        .trim()
+        .min(4, 'Indica la referencia del contracargo de la pasarela')
+        .max(120)
+        .regex(/^[A-Za-z0-9_:.-]+$/, 'Referencia de contracargo inválida'),
+    })
+    .strict(),
+});

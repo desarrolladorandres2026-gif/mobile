@@ -35,6 +35,50 @@ const STATUS_MAP: Record<string, PaymentIntentStatus> = {
   ERROR: 'error',
 };
 
+/**
+ * The properties Wompi signs on a `transaction.updated` event, in the exact
+ * order they are concatenated (https://docs.wompi.co/docs/colombia/eventos/).
+ *
+ * Fixed here on purpose, never read from the payload. The event carries its
+ * own `signature.properties` list, and honouring it would let anyone holding
+ * a single genuine event forge any other: list one property of their own
+ * (`transaction.x`), put the original concatenation in it, and the original
+ * checksum verifies again for an event whose id, status, amount and
+ * reference are all invented. The list the checksum is computed over has to
+ * be the server's, and the payload's must match it exactly.
+ */
+const SIGNED_TRANSACTION_PROPERTIES = [
+  'transaction.id',
+  'transaction.status',
+  'transaction.amount_in_cents',
+] as const;
+
+/**
+ * Wompi's payment rails (CARD, NEQUI, PSE, BANCOLOMBIA_TRANSFER…). The value
+ * is not part of the signed properties, so it is free text as far as the
+ * checksum is concerned; anything outside this shape is dropped rather than
+ * persisted on the payment row.
+ */
+const PAYMENT_METHOD_TYPE_PATTERN = /^[A-Z][A-Z0-9_]{1,39}$/;
+
+function sanitizePaymentMethodType(value: unknown): string | undefined {
+  return typeof value === 'string' && PAYMENT_METHOD_TYPE_PATTERN.test(value) ? value : undefined;
+}
+
+/**
+ * Wompi stamps events with a Unix `timestamp` in seconds. It is part of the
+ * checksum, so it cannot be moved without the secret — which is exactly what
+ * makes it usable as a replay bound: an event older than the window is
+ * refused even with a valid signature.
+ */
+function eventTimestampSeconds(raw: unknown): number | null {
+  if (typeof raw !== 'number' && typeof raw !== 'string') return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  // Tolerate milliseconds too: some tooling stamps Date.now() directly.
+  return value > 1e11 ? Math.floor(value / 1000) : Math.floor(value);
+}
+
 function getByPath(obj: unknown, path: string): unknown {
   return path.split('.').reduce<unknown>((acc, key) => {
     if (acc && typeof acc === 'object') return (acc as Record<string, unknown>)[key];
@@ -129,8 +173,8 @@ export class WompiPaymentProvider implements PaymentProvider {
       // getPayment()/refund() callers key off `payment.orderId` on the
       // local Payment row instead.
       orderId: '',
-      declineReason: tx.status_message ?? undefined,
-      paymentMethodType: tx.payment_method_type,
+      declineReason: typeof tx.status_message === 'string' ? tx.status_message.slice(0, 300) : undefined,
+      paymentMethodType: sanitizePaymentMethodType(tx.payment_method_type),
       rawStatus: tx.status,
       raw: tx,
     };
@@ -261,14 +305,40 @@ export class WompiPaymentProvider implements PaymentProvider {
 
     const sig = payload?.signature;
     if (!sig || !Array.isArray(sig.properties) || typeof sig.checksum !== 'string') return false;
-    if (typeof payload.timestamp !== 'number' && typeof payload.timestamp !== 'string') return false;
     if (!this.eventsSecret) return false;
 
-    const values = sig.properties.map((path: string) => {
+    // The payload's property list must be exactly the canonical one. It is
+    // never used to compute anything — see SIGNED_TRANSACTION_PROPERTIES —
+    // but a payload that claims a different list is by definition not a
+    // Wompi transaction event, and the honest answer is "not verified".
+    if (
+      sig.properties.length !== SIGNED_TRANSACTION_PROPERTIES.length ||
+      sig.properties.some((p: unknown, i: number) => p !== SIGNED_TRANSACTION_PROPERTIES[i])
+    ) {
+      return false;
+    }
+
+    const timestamp = eventTimestampSeconds(payload.timestamp);
+    if (timestamp === null) return false;
+
+    // ── Replay window ──
+    // Duplicate delivery is harmless further down (dedup + state machine);
+    // this bounds how long a captured event stays *verifiable* at all, so a
+    // leaked event from last month cannot even reach that logic.
+    const maxAge = config.payments.wompi.webhookMaxAgeSeconds;
+    if (maxAge > 0) {
+      const now = Math.floor(Date.now() / 1000);
+      const skew = 5 * 60; // clocks drift; Wompi's is not ours
+      if (timestamp > now + skew || now - timestamp > maxAge) return false;
+    }
+
+    const values = SIGNED_TRANSACTION_PROPERTIES.map((path) => {
       const value = getByPath(payload.data, path);
       return value === undefined || value === null ? '' : String(value);
     });
 
+    // The checksum is computed over the timestamp *as sent*, so the raw
+    // value goes into the base — normalising it would break the signature.
     const base = values.join('') + String(payload.timestamp) + this.eventsSecret;
     const expected = crypto.createHash('sha256').update(base).digest('hex');
 
@@ -280,6 +350,62 @@ export class WompiPaymentProvider implements PaymentProvider {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Confirms an event against Wompi's own record of the transaction.
+   *
+   * This is what makes the webhook trustworthy rather than merely
+   * well-formed. The checksum covers three fields — id, status and amount —
+   * so everything else in the payload, `reference` above all, is unsigned
+   * and therefore attacker-shaped in any scenario where a genuine event
+   * body leaks. The transaction id *is* signed, so it is the one thing safe
+   * to look up by, and whatever Wompi answers for it is the truth.
+   *
+   * A mismatch is a forgery and returns null. An unreachable API throws, so
+   * the caller answers 5xx and Wompi redelivers — losing a real payment
+   * because our own network blinked is not an acceptable trade.
+   */
+  async confirmEvent(event: WebhookEvent): Promise<WebhookEvent | null> {
+    const transactionId = event.gatewayTransactionId;
+    if (!transactionId) return null;
+
+    // Throws on a network or 5xx failure — see the contract above. A 404 is
+    // Wompi answering "no such transaction", which is a definitive no.
+    let intent: PaymentIntent;
+    try {
+      intent = await this.getPayment(transactionId);
+    } catch (error) {
+      const message = (error as Error).message ?? '';
+      if (/ 404 /.test(message)) return null;
+      throw error;
+    }
+
+    const tx = intent.raw as WompiTransaction | undefined;
+    if (!tx || typeof tx.reference !== 'string') return null;
+
+    // The delivered payload said one thing; Wompi says another. There is no
+    // benign way for that to happen.
+    if (tx.reference !== event.paymentId) {
+      console.error('[PAYMENTS] La referencia del evento no coincide con la de Wompi', {
+        transactionId,
+        claimed: event.paymentId,
+        actual: tx.reference,
+      });
+      return null;
+    }
+
+    return {
+      paymentId: tx.reference,
+      status: intent.status,
+      amount: intent.amount,
+      currency: intent.currency,
+      gatewayTransactionId: tx.id,
+      message: intent.declineReason,
+      paymentMethodType: intent.paymentMethodType,
+      rawStatus: intent.rawStatus,
+      raw: tx,
+    };
   }
 
   parseWebhook(payload: unknown): WebhookEvent | null {
@@ -304,9 +430,32 @@ export class WompiPaymentProvider implements PaymentProvider {
 
     const tx = body?.data?.transaction as WompiTransaction | undefined;
     if (!tx || typeof tx.id !== 'string' || typeof tx.reference !== 'string') return null;
+    if (!tx.id.trim() || !tx.reference.trim() || tx.id.length > 120 || tx.reference.length > 120) {
+      return null;
+    }
 
     const status = STATUS_MAP[tx.status];
     if (!status) return null;
+
+    // A transaction event without a well-formed amount is not something to
+    // "apply anyway": the amount is the one signed field that ties the money
+    // Wompi moved to the money the order expects, and PaymentService only
+    // checks it when it is present. Missing means unverifiable, not free.
+    if (
+      typeof tx.amount_in_cents !== 'number' ||
+      !Number.isInteger(tx.amount_in_cents) ||
+      tx.amount_in_cents < 0
+    ) {
+      return null;
+    }
+
+    // La moneda se transporta si viene, pero no se exige: no entra en la
+    // firma y la versión que manda es la que devuelve `confirmEvent` al
+    // releer la transacción en Wompi. Rechazar el evento por un campo que
+    // ni está firmado ni es la fuente de verdad solo serviría para perder
+    // cobros reales el día que Wompi cambie el detalle de su carga útil.
+    const currency =
+      typeof tx.currency === 'string' && /^[A-Z]{3}$/.test(tx.currency) ? tx.currency : undefined;
 
     return {
       // The merchant reference is the only thing known about this payment
@@ -314,10 +463,11 @@ export class WompiPaymentProvider implements PaymentProvider {
       // what resolves the local row, not Wompi's own id.
       paymentId: tx.reference,
       status,
-      amount: typeof tx.amount_in_cents === 'number' ? Math.round(tx.amount_in_cents / 100) : undefined,
+      amount: Math.round(tx.amount_in_cents / 100),
+      currency,
       gatewayTransactionId: tx.id,
-      message: tx.status_message ?? undefined,
-      paymentMethodType: tx.payment_method_type,
+      message: typeof tx.status_message === 'string' ? tx.status_message.slice(0, 300) : undefined,
+      paymentMethodType: sanitizePaymentMethodType(tx.payment_method_type),
       rawStatus: tx.status,
       raw: payload,
     };

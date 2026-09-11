@@ -74,6 +74,8 @@ export interface WebhookEvent {
   paymentId: string;
   status: PaymentIntentStatus;
   amount?: number;
+  /** ISO-4217 code the gateway settled in. Checked against the local row when present. */
+  currency?: string;
   /** The provider's own transaction id, when different from `paymentId`. */
   gatewayTransactionId?: string;
   /** Human-readable status detail (decline reason, gateway message). */
@@ -104,4 +106,25 @@ export interface PaymentProvider {
 
   /** Translates a provider payload into a normalized event. */
   parseWebhook(payload: unknown): WebhookEvent | null;
+
+  /**
+   * Re-reads the event's transaction from the gateway and returns the
+   * gateway's own version of it.
+   *
+   * Optional, and implemented by any provider whose signature does not
+   * cover every field that matters. Wompi is one: its checksum covers only
+   * `transaction.id`, `transaction.status` and `transaction.amount_in_cents`
+   * — the `reference` that resolves the local payment row travels unsigned,
+   * so a single genuine event body could otherwise be retargeted at another
+   * order of the same amount.
+   *
+   * Contract:
+   *  - Return the authoritative event; PaymentService applies **this** and
+   *    discards the delivered payload's version of the same fields.
+   *  - Return `null` when the gateway contradicts the event. That is a
+   *    forgery, and it must not be retried.
+   *  - Throw when the gateway could not be reached. That is not an answer,
+   *    and the caller turns it into a retry rather than a rejection.
+   */
+  confirmEvent?(event: WebhookEvent): Promise<WebhookEvent | null>;
 }

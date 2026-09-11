@@ -186,26 +186,59 @@ export class RefundService {
     });
     const captured = Boolean(payment);
 
-    const refund = await Refund.create({
-      orderId: order._id,
-      paymentId: payment?._id ?? null,
-      kind,
-      status: RefundStatus.PENDING,
-      amount,
-      currency: finance.currency,
-      reason: params.reason,
-      allocation: {
-        fromMerchantPayout: allocation.fromMerchantPayout,
-        fromDriverPayout: allocation.fromDriverPayout,
-        fromCommission: allocation.fromCommission,
-        fromServiceFee: allocation.fromServiceFee,
-        fromDeliveryMargin: Math.max(0, allocation.fromDeliveryMargin),
-        fromTax: allocation.fromTax,
-        fromPlatform: allocation.fromPlatform,
-      },
-      idempotencyKey: params.idempotencyKey,
-      requestedBy: params.requestedBy ?? null,
-    });
+    /**
+     * La fila PENDING es el cerrojo.
+     *
+     * Cuánto queda por devolver se calcula sumando los reembolsos ya
+     * completados, y entre esa lectura y esta escritura caben otra
+     * petición idéntica —un doble clic en el panel sin clave de
+     * idempotencia, un reintento de red—. Las dos leían el mismo saldo y
+     * las dos pasaban; en un pedido en efectivo, sin pasarela que se niegue
+     * a anular dos veces, las dos revertían libros y liquidaciones.
+     *
+     * El índice único parcial `one_refund_in_flight_per_order` deja pasar
+     * solo a una. La otra recibe un 409 explicativo en vez de un error de
+     * clave duplicada disfrazado de fallo del servidor.
+     */
+    let refund: IRefund;
+    try {
+      refund = await Refund.create({
+        orderId: order._id,
+        paymentId: payment?._id ?? null,
+        kind,
+        status: RefundStatus.PENDING,
+        amount,
+        currency: finance.currency,
+        reason: params.reason,
+        allocation: {
+          fromMerchantPayout: allocation.fromMerchantPayout,
+          fromDriverPayout: allocation.fromDriverPayout,
+          fromCommission: allocation.fromCommission,
+          fromServiceFee: allocation.fromServiceFee,
+          fromDeliveryMargin: Math.max(0, allocation.fromDeliveryMargin),
+          fromTax: allocation.fromTax,
+          fromPlatform: allocation.fromPlatform,
+        },
+        idempotencyKey: params.idempotencyKey,
+        requestedBy: params.requestedBy ?? null,
+      });
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        // Puede ser la misma clave de idempotencia (el reintento honesto) o
+        // el cerrojo por pedido. Se distingue para no contar como carrera
+        // lo que solo es un reintento.
+        if (params.idempotencyKey) {
+          const twin = await Refund.findOne({ idempotencyKey: params.idempotencyKey });
+          if (twin) return twin;
+        }
+        throw new AppError(
+          'Ya hay un reembolso en curso para este pedido. Espera a que termine antes de emitir otro.',
+          409,
+          'REFUND_IN_FLIGHT'
+        );
+      }
+      throw error;
+    }
 
     // Ask the gateway for the money back before touching the books.
     if (captured && payment?.transactionId && kind !== RefundKind.CHARGEBACK) {
@@ -317,8 +350,19 @@ export class RefundService {
       }
     }
 
-    order.paymentStatus = isFull ? PaymentStatus.REFUNDED : order.paymentStatus;
-    await order.save();
+    if (isFull) {
+      // Escritura acotada al campo, no `order.save()`. El documento llega
+      // aquí leído por el llamador —a veces muchos `await` antes: la
+      // llamada a la pasarela, el asiento contable, la reversión de
+      // liquidaciones— y guardarlo entero reescribía el pedido con esa
+      // copia vieja, borrando cualquier cambio hecho entretanto: un
+      // domiciliario recién asignado, un cambio de estado, una captura.
+      await Order.updateOne(
+        { _id: order._id },
+        { $set: { paymentStatus: PaymentStatus.REFUNDED } }
+      );
+      order.paymentStatus = PaymentStatus.REFUNDED;
+    }
   }
 
   async refundedTotal(orderId: string | Types.ObjectId): Promise<number> {

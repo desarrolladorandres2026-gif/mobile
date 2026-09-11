@@ -315,10 +315,38 @@ export class CashIncidentService {
     incident: ICashPaymentIncident,
     target: PaymentStatus.PAID | PaymentStatus.FAILED
   ): Promise<void> {
-    const { Payment } = await import('../models');
+    const { Payment, canTransitionPayment } = await import('../models');
     const payment = await Payment.findById(incident.paymentId);
     if (!payment) return;
     if (payment.status === target) return;
+
+    // ── La tabla de transiciones se comprueba de verdad, no solo se cita ──
+    //
+    // Sin esto, resolver un expediente llevaba el cobro a PAID desde
+    // cualquier estado — incluido REFUNDED, que es terminal a propósito, o
+    // un pago en línea que nada tiene que hacer aquí.
+    //
+    // El camino que se valida es el que realmente se recorre. Confirmar la
+    // deuda no salta a PAID: pasa por CASH_RECEIVED, que es el hecho que
+    // finanzas está declarando ("el domiciliario sí cobró"), y PAID es su
+    // consecuencia. Los dos quedan en la historia y los dos tienen que ser
+    // legales, igual que en `confirmCashCollection`.
+    const path =
+      target === PaymentStatus.PAID
+        ? [PaymentStatus.CASH_RECEIVED, PaymentStatus.PAID]
+        : [PaymentStatus.FAILED];
+
+    let from = payment.status;
+    for (const step of path) {
+      if (!canTransitionPayment(from, step)) {
+        throw new AppError(
+          `No se puede llevar el cobro de "${payment.status}" a "${target}"`,
+          409,
+          'PAYMENT_TRANSITION_INVALID'
+        );
+      }
+      from = step;
+    }
 
     const now = new Date();
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { orderService } from '../services/order.service';
 import {
   paymentService,
@@ -8,8 +8,17 @@ import {
 } from '../services/payments';
 import { config } from '../config';
 import { isAllowedRedirectUrl } from '../validators/payment.validator';
-import { Order, Payment, Payout, ProcessedWebhook } from '../models';
-import { PaymentMethod, PaymentStatus, OrderStatus, UserRole, PayoutStatus } from '../types';
+import { ledgerService } from '../services/ledger.service';
+import { Order, Payment, Payout, ProcessedWebhook, LedgerEntry } from '../models';
+import {
+  PaymentMethod,
+  PaymentStatus,
+  OrderStatus,
+  UserRole,
+  PayoutStatus,
+  LedgerAccount,
+  LedgerEventType,
+} from '../types';
 import {
   makeUser,
   makeBusiness,
@@ -128,16 +137,39 @@ describe('Endurecimiento de pagos', () => {
   });
 
   describe('V3 · reintento tras cambiar el total del pedido', () => {
-    it('resincroniza el monto y emite una referencia nueva', async () => {
+    // El sandbox aprueba en cuanto se crea el intento, y aquí lo que se
+    // examina es justo el estado intermedio: un Web Checkout emitido que el
+    // cliente todavía no ha pagado. Se apaga la aprobación automática para
+    // poder observarlo, y se restaura al salir.
+    const autoApprove = config.payments.sandbox.autoApprove;
+
+    beforeEach(() => {
+      config.payments.sandbox.autoApprove = false;
+    });
+
+    afterEach(() => {
+      config.payments.sandbox.autoApprove = autoApprove;
+    });
+
+    /**
+     * El intento viejo se retira, NO se reescribe.
+     *
+     * Reescribirlo era el fallo: el enlace de Wompi anterior sigue siendo
+     * pagable hasta que expira, y su webhook resuelve la fila por
+     * referencia. Al pisar esa referencia con la nueva, un cliente que
+     * pagara el enlace viejo generaba un evento que no casaba con ninguna
+     * fila — dinero cobrado por Wompi y ni rastro de él en la plataforma.
+     *
+     * Retirado en su sitio, el evento tardío encuentra su fila, y
+     * `applyGatewayStatus` ve un monto que ya no es el del pedido y lo
+     * marca para revisión en vez de dar el pedido por cobrado de menos.
+     */
+    it('retira el intento anterior y abre uno nuevo con el monto correcto', async () => {
       const { client, order } = await scenario();
 
-      // El sandbox aprueba al crear, así que para simular un intento
-      // pendiente se fuerza el pago a PENDING como lo estaría un Web
-      // Checkout que el cliente aún no ha completado.
       const { paymentId } = await initiateFor(order, client);
       const original = await Payment.findById(paymentId);
-      original!.status = PaymentStatus.PENDING;
-      await original!.save();
+      expect(original!.status).toBe(PaymentStatus.PENDING);
       const originalReference = original!.reference;
       const originalAmount = original!.amount;
 
@@ -148,6 +180,46 @@ describe('Endurecimiento de pagos', () => {
         { $set: { 'finance.customerTotal': nuevoTotal, paymentStatus: PaymentStatus.PENDING } }
       );
 
+      const { paymentId: nuevoId } = await paymentService.initiate({
+        orderId: order._id.toString(),
+        userId: client._id.toString(),
+        amount: nuevoTotal,
+        description: 'Prueba',
+        customer: { name: 'Cliente', phone: '3101234567' },
+      });
+
+      // El intento viejo sigue existiendo, cerrado y localizable por su
+      // referencia de siempre.
+      const retirado = await Payment.findById(paymentId);
+      expect(retirado!.status).toBe(PaymentStatus.FAILED);
+      expect(retirado!.reference).toBe(originalReference);
+      expect(retirado!.amount).toBe(originalAmount);
+      expect(retirado!.metadata?.supersededBy).toBeTruthy();
+
+      // Y el nuevo cobra lo que el pedido vale ahora, con su propia
+      // referencia — la que firmará el enlace nuevo.
+      expect(nuevoId).not.toBe(paymentId);
+      const nuevo = await Payment.findById(nuevoId);
+      expect(nuevo!.status).toBe(PaymentStatus.PENDING);
+      expect(nuevo!.amount).toBe(nuevoTotal);
+      expect(nuevo!.reference).not.toBe(originalReference);
+      expect(nuevo!.metadata?.supersedesReference).toBe(originalReference);
+    });
+
+    it('un pago tardío del enlace viejo no da el pedido por cobrado', async () => {
+      const { client, order } = await scenario();
+
+      const { paymentId } = await initiateFor(order, client);
+      const original = await Payment.findById(paymentId);
+      const referenciaVieja = original!.reference!;
+      const montoViejo = original!.amount;
+
+      // Se re-tarifa el pedido y se emite un intento nuevo.
+      const nuevoTotal = montoViejo + 5000;
+      await Order.updateOne(
+        { _id: order._id },
+        { $set: { 'finance.customerTotal': nuevoTotal, paymentStatus: PaymentStatus.PENDING } }
+      );
       await paymentService.initiate({
         orderId: order._id.toString(),
         userId: client._id.toString(),
@@ -156,32 +228,44 @@ describe('Endurecimiento de pagos', () => {
         customer: { name: 'Cliente', phone: '3101234567' },
       });
 
-      const updated = await Payment.findById(paymentId);
+      // El cliente paga el enlace VIEJO, que sigue vivo hasta que expire.
+      const payload = JSON.stringify({
+        eventId: 'evt-enlace-viejo',
+        paymentId: referenciaVieja,
+        status: 'approved',
+        amount: montoViejo,
+      });
+      const res = await paymentService.handleWebhook(payload, provider.sign(payload));
+      expect(res.accepted).toBe(true);
 
-      // Antes, el monto quedaba con el valor viejo mientras el enlace se
-      // firmaba con el nuevo: el webhook fallaba su propio chequeo de monto.
-      expect(updated!.amount).toBe(nuevoTotal);
-      // Y la referencia vieja, atada por firma al monto viejo, se retira.
-      expect(updated!.reference).not.toBe(originalReference);
-      expect(updated!.metadata?.supersededReference).toBe(originalReference);
-      expect(updated!.metadata?.supersededAmount).toBe(originalAmount);
+      // El cobro se reconoce —el dinero entró de verdad— pero el pedido NO
+      // queda pagado: llegó menos de lo que cuesta.
+      const pagado = await Payment.findById(paymentId);
+      expect(pagado!.status).toBe(PaymentStatus.PAID);
+      expect(pagado!.metadata?.requiresReview).toBe(true);
+
+      const pedido = await Order.findById(order._id);
+      expect(pedido!.paymentStatus).not.toBe(PaymentStatus.PAID);
+
+      // Y nada se libera para liquidar: pagarle al comercio por un pedido
+      // cobrado de menos es exactamente la fuga que esto cierra.
+      const payouts = await Payout.find({ orderId: order._id });
+      expect(payouts.every((p) => p.status === PayoutStatus.ACCRUED)).toBe(true);
     });
 
-    it('conserva la referencia cuando el monto no cambió', async () => {
+    it('conserva la referencia y la fila cuando el monto no cambió', async () => {
       const { client, order } = await scenario();
 
       const { paymentId } = await initiateFor(order, client);
       const original = await Payment.findById(paymentId);
-      original!.status = PaymentStatus.PENDING;
-      await original!.save();
 
-      await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: PaymentStatus.PENDING } });
+      const retry = await initiateFor(order, client);
 
-      await initiateFor(order, client);
-
+      // Mismo intento, misma referencia: un reintento no es un cobro nuevo.
+      expect(retry.paymentId).toBe(paymentId);
       const updated = await Payment.findById(paymentId);
       expect(updated!.reference).toBe(original!.reference);
-      expect(updated!.metadata?.supersededReference).toBeUndefined();
+      expect(await Payment.countDocuments({ orderId: order._id })).toBe(1);
     });
   });
 
@@ -442,6 +526,183 @@ describe('Endurecimiento de pagos', () => {
       } finally {
         (config as any).devExpoRedirectHosts = original;
       }
+    });
+  });
+
+  // ── Endurecimiento nuevo ────────────────────────────────────────────
+
+  describe('Un pedido tiene como mucho un intento de cobro abierto', () => {
+    const autoApprove = config.payments.sandbox.autoApprove;
+    beforeEach(() => { config.payments.sandbox.autoApprove = false; });
+    afterEach(() => { config.payments.sandbox.autoApprove = autoApprove; });
+
+    it('dos checkouts simultáneos producen un solo intento, no dos enlaces cobrables', async () => {
+      const { client, order } = await scenario();
+
+      // El caso real: doble toque en "Pagar", o el reintento automático de
+      // una petición que pareció fallar. Antes los dos pasaban la
+      // comprobación de "¿ya hay uno pendiente?" antes de que ninguno la
+      // hubiera escrito, y salían dos referencias distintas: dos enlaces de
+      // Wompi vivos para el mismo pedido, cada uno cobrable por su cuenta.
+      const [a, b] = await Promise.all([
+        initiateFor(order, client),
+        initiateFor(order, client),
+      ]);
+
+      expect(await Payment.countDocuments({ orderId: order._id })).toBe(1);
+      expect(a.paymentId).toBe(b.paymentId);
+      expect(a.intent.id).toBe(b.intent.id);
+    });
+
+    it('cinco a la vez siguen dejando un solo intento', async () => {
+      const { client, order } = await scenario();
+
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () => initiateFor(order, client))
+      );
+
+      expect(await Payment.countDocuments({ orderId: order._id })).toBe(1);
+      expect(new Set(results.map((r) => r.paymentId)).size).toBe(1);
+    });
+  });
+
+  describe('El estado del cobro no puede aplicarse dos veces', () => {
+    it('dos entregas del mismo hecho solo mueven el pago una vez', async () => {
+      const { client, order } = await scenario();
+      const { intent } = await initiateFor(order, client);
+
+      // Dos eventos distintos —claves distintas, así que la deduplicación
+      // por `eventKey` no los frena— que dicen lo mismo. Es lo que ocurre
+      // cuando el webhook de Wompi y el `sync()` que dispara la app (cada 3
+      // segundos mientras el pago está pendiente) coinciden en el tiempo.
+      const payloads = ['evt-a', 'evt-b'].map((id) =>
+        JSON.stringify({
+          eventId: id,
+          paymentId: intent.id,
+          status: 'approved',
+          amount: order.finance.customerTotal,
+        })
+      );
+
+      const results = await Promise.all(
+        payloads.map((p) => paymentService.handleWebhook(p, provider.sign(p)))
+      );
+
+      expect(results.every((r) => r.accepted)).toBe(true);
+
+      // Un solo asiento de captura en el libro mayor.
+      const capturas = await LedgerEntry.countDocuments({
+        orderId: order._id,
+        event: LedgerEventType.PAYMENT_CAPTURED,
+        account: LedgerAccount.CUSTOMER_PAYMENT,
+      });
+      expect(capturas).toBe(1);
+
+      // Y una sola transición a PAID en la historia del pago.
+      const payment = await Payment.findOne({ orderId: order._id });
+      const aPagado = payment!.statusHistory.filter((h) => h.status === PaymentStatus.PAID);
+      expect(aPagado.length).toBe(1);
+
+      expect(await ledgerService.isBalanced({ orderId: order._id })).toBe(true);
+    });
+  });
+
+  describe('Un pedido cancelado no se liquida aunque llegue el cobro', () => {
+    const autoApprove = config.payments.sandbox.autoApprove;
+    beforeEach(() => { config.payments.sandbox.autoApprove = false; });
+    afterEach(() => { config.payments.sandbox.autoApprove = autoApprove; });
+
+    it('reconoce el dinero pero no libera las liquidaciones', async () => {
+      const { client, owner, order } = await scenario();
+      const { intent } = await initiateFor(order, client);
+
+      // El cliente abandona el checkout y el comercio cancela. Las cuentas
+      // se deshacen y el intento queda invalidado.
+      await orderService.updateStatus(
+        order._id.toString(),
+        OrderStatus.CANCELLED,
+        owner._id.toString(),
+        UserRole.BUSINESS,
+        'El cliente no completó el pago'
+      );
+
+      // Pero el enlace seguía vivo y lo paga igualmente.
+      const payload = JSON.stringify({
+        eventId: 'evt-tarde',
+        paymentId: intent.id,
+        status: 'approved',
+        amount: order.finance.customerTotal,
+      });
+      const res = await paymentService.handleWebhook(payload, provider.sign(payload));
+      expect(res.accepted).toBe(true);
+
+      // El cobro consta —el dinero entró de verdad— y queda marcado para
+      // que una persona decida el reembolso.
+      const payment = await Payment.findOne({ orderId: order._id });
+      expect(payment!.status).toBe(PaymentStatus.PAID);
+      expect(payment!.metadata?.requiresReview).toBe(true);
+
+      // Lo que NO pasa: pagarle al comercio un pedido cancelado.
+      const payouts = await Payout.find({ orderId: order._id });
+      expect(payouts.some((p) => p.status === PayoutStatus.PAYABLE)).toBe(false);
+    });
+  });
+
+  describe('La moneda es parte del importe', () => {
+    // Con la aprobación automática del sandbox el pago nacería ya en PAID, y
+    // la comprobación de idempotencia saldría antes de llegar a la divisa.
+    // Lo que se examina aquí es un cobro pendiente que recibe su evento.
+    const autoApprove = config.payments.sandbox.autoApprove;
+    beforeEach(() => { config.payments.sandbox.autoApprove = false; });
+    afterEach(() => { config.payments.sandbox.autoApprove = autoApprove; });
+
+    it('rechaza un evento que declara otra divisa', async () => {
+      const { client, order } = await scenario();
+      const { intent } = await initiateFor(order, client);
+
+      await expect(
+        paymentService.applyGatewayStatus(intent.id, 'approved', order.finance.customerTotal, {
+          currency: 'USD',
+          source: 'webhook',
+        })
+      ).rejects.toThrow(/moneda/i);
+
+      const untouched = await Order.findById(order._id);
+      expect(untouched!.paymentStatus).not.toBe(PaymentStatus.PAID);
+    });
+  });
+
+  describe('Una pasarela no puede cerrar un cobro en efectivo', () => {
+    it('ignora un evento de pasarela apuntado a un pago contra entrega', async () => {
+      await makePricingConfig({ cashOnDeliveryEnabled: true, cashOnDeliveryMaxAmount: 1_000_000 });
+      const client = await makeUser();
+      const owner = await makeUser({ role: UserRole.BUSINESS });
+      const business = await makeBusiness(owner._id, { commissionRateBps: 1000 });
+      const product = await makeProduct(business._id, { price: 30000 });
+
+      const order = await orderService.create({
+        clientId: client._id.toString(),
+        businessId: business._id.toString(),
+        items: [{ productId: product._id.toString(), quantity: 1 }],
+        paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
+        deliveryAddress: 'Cra 10 #5-23',
+        deliveryLatitude: DESTINATION.lat,
+        deliveryLongitude: DESTINATION.lng,
+      });
+
+      const cash = await Payment.findOne({ orderId: order._id });
+      expect(cash!.status).toBe(PaymentStatus.PENDING_CASH);
+
+      const { changed } = await paymentService.applyGatewayStatus(
+        cash!.reference!,
+        'approved',
+        cash!.amount,
+        { source: 'webhook' }
+      );
+
+      expect(changed).toBe(false);
+      const after = await Payment.findById(cash!._id);
+      expect(after!.status).toBe(PaymentStatus.PENDING_CASH);
     });
   });
 });

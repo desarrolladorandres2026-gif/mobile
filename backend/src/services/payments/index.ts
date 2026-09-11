@@ -122,17 +122,28 @@ function cashPaymentReference(orderId: string): string {
 interface InitiateInput {
   orderId: string;
   userId: string;
+  /**
+   * Solo como contraste. El cobro sale siempre del total que el servidor
+   * calculó para el pedido; si esto no coincide, se rechaza en vez de
+   * hacerle caso.
+   */
   amount: number;
   description: string;
   customer: { name: string; phone?: string; email?: string };
   redirectUrl?: string;
-  /** Client-supplied key so a retried checkout reuses the same intent. */
-  idempotencyKey?: string;
+  // No hay `idempotencyKey`: lo había declarado y nadie lo leía nunca, así
+  // que prometía una garantía inexistente. La idempotencia de verdad no
+  // depende de que el cliente mande una clave — depende del pedido: un
+  // pedido tiene como mucho un intento en línea abierto, y eso lo sostiene
+  // el índice único parcial de `Payment`, no la buena voluntad de quien
+  // llama.
 }
 
 interface GatewayStatusMeta {
   /** The gateway's own transaction id, when it differs from the lookup key. */
   gatewayTransactionId?: string;
+  /** Currency the gateway settled in. Refused when it is not the row's. */
+  currency?: string;
   message?: string;
   paymentMethodType?: string;
   /** The gateway's own, un-mapped status string (Wompi's PENDING/APPROVED/
@@ -156,6 +167,13 @@ export class PaymentService {
    * exact same code path and the same idempotency guarantees.
    */
   async initiate(input: InitiateInput): Promise<{ intent: PaymentIntent; paymentId: string }> {
+    return this.initiateAttempt(input, 0);
+  }
+
+  private async initiateAttempt(
+    input: InitiateInput,
+    attempt: number
+  ): Promise<{ intent: PaymentIntent; paymentId: string }> {
     const provider = getPaymentProvider();
 
     const order = await Order.findById(input.orderId);
@@ -181,35 +199,130 @@ export class PaymentService {
       throw new AppError('El monto no coincide con el total del pedido', 409);
     }
 
-    // A retried checkout must not create a second charge.
+    // A retried checkout must not create a second charge. The open attempt,
+    // if any: a cash row is never one (it has its own path), and a PAID row
+    // is not "open" either — but it has to be looked at, see below.
     const existing = await Payment.findOne({
       orderId: input.orderId,
+      type: PaymentType.ORDER_PAYMENT,
+      method: { $ne: PaymentMethod.CASH_ON_DELIVERY },
       status: { $in: [PaymentStatus.PENDING, PaymentStatus.PAID] },
-    });
+    }).sort({ createdAt: -1 });
+
+    // The order-level guard above already refused a paid order. A PAID row
+    // under an order that still says otherwise is the one case
+    // applyGatewayStatus deliberately leaves open — a capture whose amount
+    // did not match, or a second capture for the same order — and it needs
+    // a person, not another checkout link.
+    if (existing?.status === PaymentStatus.PAID) {
+      throw new AppError(
+        'Este pedido ya tiene un cobro aprobado pendiente de revisión. Contacta a soporte.',
+        409,
+        'PAYMENT_UNDER_REVIEW'
+      );
+    }
 
     // Reusing a pending attempt is only safe while it is for the same money.
     // If the order's total moved since, the old reference is bound — through
-    // Wompi's integrity signature — to an amount we would no longer accept:
-    // its webhook would fail the amount check and the payment would be lost.
-    // A changed total therefore gets a brand-new reference, and the row's
-    // amount is re-synced so the local record always matches what was signed.
+    // Wompi's integrity signature — to an amount we would no longer accept.
     const amountUnchanged = !existing || existing.amount === amount;
 
-    if (existing?.transactionId && amountUnchanged) {
-      try {
-        const intent = await provider.getPayment(existing.transactionId);
-        return { intent, paymentId: existing._id.toString() };
-      } catch {
-        // The gateway has no record yet — e.g. a Wompi Web Checkout the
-        // customer never opened or completed. Fall through and rebuild the
-        // same intent instead of failing the retry.
+    if (existing && amountUnchanged) {
+      if (existing.transactionId) {
+        try {
+          const intent = await provider.getPayment(existing.transactionId);
+          return { intent, paymentId: existing._id.toString() };
+        } catch {
+          // The gateway has no record yet — e.g. a Wompi Web Checkout the
+          // customer never opened or completed. Fall through and rebuild the
+          // same intent instead of failing the retry.
+        }
       }
+
+      const reference = existing.reference || generatePaymentReference(input.orderId);
+      const intent = await this.createIntent(provider, input, amount, reference);
+
+      existing.reference = reference;
+      existing.transactionId = intent.id;
+      await existing.save();
+
+      await this.applyIfTerminal(intent);
+      return { intent, paymentId: existing._id.toString() };
     }
 
-    const reference =
-      (amountUnchanged && existing?.reference) || generatePaymentReference(input.orderId);
+    // ── A new attempt: first order, or the total changed ──
+    //
+    // A re-priced attempt gets a brand-new row, and the old one is retired
+    // in place rather than overwritten. The old checkout link is still
+    // payable until it expires, and its webhook resolves the row by
+    // reference: overwriting that reference made a late payment on the old
+    // link land on no row at all — money captured by Wompi, nothing to show
+    // for it locally. Retired, the old row is found, and applyGatewayStatus
+    // sees an amount that no longer matches the order and flags it for a
+    // person instead of settling the order with the wrong money.
+    if (existing) {
+      await this.retireAttempt(
+        existing,
+        `Total del pedido actualizado: ${existing.amount} → ${amount}`,
+        { supersededAmount: existing.amount, supersededAt: new Date().toISOString() }
+      );
+    }
 
-    const intent = await provider.createPayment({
+    const reference = generatePaymentReference(input.orderId);
+    const intent = await this.createIntent(provider, input, amount, reference);
+
+    const payment = new Payment({
+      orderId: input.orderId,
+      userId: input.userId,
+      type: PaymentType.ORDER_PAYMENT,
+      method: PaymentMethod.ONLINE,
+      status: PaymentStatus.PENDING,
+      amount,
+      currency: config.payments.currency,
+      reference,
+      transactionId: intent.id,
+      metadata: existing
+        ? { supersedesReference: existing.reference, supersededAmount: existing.amount }
+        : {},
+    });
+    payment.statusHistory.push({
+      status: PaymentStatus.PENDING,
+      gatewayStatus: intent.status,
+      source: 'create',
+      at: new Date(),
+    });
+
+    try {
+      await payment.save();
+    } catch (error: any) {
+      // Another initiate for the same order won the race and holds the one
+      // open attempt this order may have (see the partial unique index on
+      // Payment). Start over: the second pass finds that attempt and reuses
+      // it, which is exactly what the loser should have received.
+      if (error?.code === 11000 && attempt < 1) {
+        return this.initiateAttempt(input, attempt + 1);
+      }
+      throw error;
+    }
+
+    if (existing) {
+      await Payment.updateOne(
+        { _id: existing._id },
+        { $set: { 'metadata.supersededBy': reference } }
+      );
+    }
+
+    await this.applyIfTerminal(intent);
+    return { intent, paymentId: payment._id.toString() };
+  }
+
+  private createIntent(
+    provider: PaymentProvider,
+    input: InitiateInput,
+    amount: number,
+    reference: string
+  ): Promise<PaymentIntent> {
+    return provider.createPayment({
       orderId: input.orderId,
       userId: input.userId,
       amount,
@@ -219,55 +332,45 @@ export class PaymentService {
       redirectUrl: input.redirectUrl,
       reference,
     });
+  }
 
-    const payment: IPayment = existing
-      ? Object.assign(existing, {
-          reference,
-          transactionId: intent.id,
-          // Kept in lockstep with what the gateway was actually asked to
-          // charge. Leaving the old figure here is what made a re-priced
-          // retry fail its own webhook's amount check.
-          amount,
-          metadata: {
-            ...(existing.metadata ?? {}),
-            ...(amountUnchanged
-              ? {}
-              : {
-                  supersededReference: existing.reference,
-                  supersededAmount: existing.amount,
-                  supersededAt: new Date().toISOString(),
-                }),
-          },
-        })
-      : new Payment({
-          orderId: input.orderId,
-          userId: input.userId,
-          type: PaymentType.ORDER_PAYMENT,
-          method: PaymentMethod.ONLINE,
-          status: PaymentStatus.PENDING,
-          amount,
-          currency: config.payments.currency,
-          reference,
-          transactionId: intent.id,
-        });
-
-    if (!existing) {
-      payment.statusHistory.push({
-        status: PaymentStatus.PENDING,
-        gatewayStatus: intent.status,
+  /**
+   * Synchronous providers can already be terminal. Route it through the
+   * same authority the webhook uses rather than special-casing it.
+   */
+  private async applyIfTerminal(intent: PaymentIntent): Promise<void> {
+    if (intent.status === 'approved' || intent.status === 'declined') {
+      await this.applyGatewayStatus(intent.id, intent.status, intent.amount, {
+        currency: intent.currency,
         source: 'create',
-        at: new Date(),
       });
     }
-    await payment.save();
+  }
 
-    // Synchronous providers can already be terminal. Route it through the
-    // same authority the webhook uses rather than special-casing it.
-    if (intent.status === 'approved' || intent.status === 'declined') {
-      await this.applyGatewayStatus(intent.id, intent.status, intent.amount, { source: 'create' });
-    }
-
-    return { intent, paymentId: payment._id.toString() };
+  /**
+   * Closes a pending attempt without deleting it. The row stays resolvable
+   * by reference, which is what lets a late gateway event about it be
+   * recognised — and judged — instead of vanishing.
+   */
+  private async retireAttempt(
+    payment: IPayment,
+    reason: string,
+    metadata: Record<string, unknown> = {}
+  ): Promise<void> {
+    const now = new Date();
+    await Payment.updateOne(
+      { _id: payment._id, status: PaymentStatus.PENDING },
+      {
+        $set: {
+          status: PaymentStatus.FAILED,
+          statusMessage: reason,
+          metadata: { ...(payment.metadata ?? {}), voidedReason: reason, voidedAt: now.toISOString(), ...metadata },
+        },
+        $push: {
+          statusHistory: { status: PaymentStatus.FAILED, source: 'admin', message: reason, at: now },
+        },
+      }
+    );
   }
 
   /**
@@ -334,60 +437,216 @@ export class PaymentService {
       throw new AppError('El monto notificado no coincide con el pago registrado', 409);
     }
 
+    // La moneda es parte del importe, no un adorno. Sin esta comprobación,
+    // un evento que declarara 50.000 de otra divisa liquidaría un pedido de
+    // 50.000 COP: mismo número, otro dinero. Wompi solo opera en COP, así
+    // que esto no puede saltar por un caso legítimo — y por eso mismo, si
+    // salta, no se aplica nada.
+    if (meta?.currency && meta.currency !== payment.currency) {
+      console.error('[PAYMENTS] Moneda del webhook distinta a la registrada', {
+        key,
+        expected: payment.currency,
+        received: meta.currency,
+      });
+      throw new AppError('La moneda notificada no coincide con el pago registrado', 409);
+    }
+
     const gatewayStatus = meta?.rawStatus ?? status;
+    const now = new Date();
 
-    payment.statusHistory.push({
-      status: nextStatus,
-      gatewayStatus,
-      message: meta?.message,
-      source: meta?.source ?? 'webhook',
-      at: new Date(),
-    });
-    payment.status = nextStatus;
-    payment.gatewayStatus = gatewayStatus;
-    if (meta?.message) payment.statusMessage = meta.message;
-    if (meta?.paymentMethodType) payment.method = meta.paymentMethodType;
-    // Upgrades the placeholder (our reference) to the gateway's real id,
-    // once it exists — harmless no-op for providers that had it from the start.
-    if (meta?.gatewayTransactionId) payment.transactionId = meta.gatewayTransactionId;
-    payment.processedAt = nextStatus === PaymentStatus.PAID ? new Date() : payment.processedAt;
-    await payment.save();
+    // ── Reclamo atómico de la transición ──
+    //
+    // El estado de partida viaja DENTRO de la condición de la escritura, el
+    // mismo patrón que ya protege el reclamo de un pedido y la reserva del
+    // fondo del domiciliario. Leer, validar y guardar son tres pasos, y
+    // entre ellos caben perfectamente el webhook de Wompi y el `sync()` que
+    // dispara la propia app —que consulta el estado cada 3 segundos mientras
+    // el pago está pendiente—. Los dos leían PENDING, los dos pasaban la
+    // tabla de transiciones y los dos ejecutaban los efectos del cobro:
+    // asiento contable, liberación de liquidaciones y arranque del reparto,
+    // por duplicado. Solo una de las dos escrituras encuentra ahora el
+    // estado previo, y la otra sale como "sin cambios", que es exactamente
+    // lo que es.
+    const claimed = await Payment.findOneAndUpdate(
+      { _id: payment._id, status: payment.status },
+      {
+        $set: {
+          status: nextStatus,
+          gatewayStatus,
+          ...(meta?.message ? { statusMessage: meta.message } : {}),
+          // El carril que usó el cliente (CARD, NEQUI, PSE…) es un dato de
+          // la pasarela y vive en su propio campo. Escribirlo sobre
+          // `method` borraba el único sitio donde consta si el cobro es en
+          // línea o en efectivo — justo la distinción de la que dependen
+          // `voidOpenPayments`, la búsqueda de intentos abiertos y la
+          // guarda de más arriba contra cobrar un efectivo por pasarela.
+          ...(meta?.paymentMethodType ? { paymentMethodType: meta.paymentMethodType } : {}),
+          // Upgrades the placeholder (our reference) to the gateway's real
+          // id, once it exists — a no-op for providers that had it already.
+          ...(meta?.gatewayTransactionId ? { transactionId: meta.gatewayTransactionId } : {}),
+          ...(nextStatus === PaymentStatus.PAID ? { processedAt: now } : {}),
+        },
+        $push: {
+          statusHistory: {
+            status: nextStatus,
+            gatewayStatus,
+            message: meta?.message,
+            source: meta?.source ?? 'webhook',
+            at: now,
+          },
+        },
+      },
+      { new: true }
+    );
 
-    const order = await Order.findById(payment.orderId);
-    if (!order) return { order: null, changed: true };
+    if (!claimed) {
+      // Otra entrega del mismo hecho ganó la carrera y ya aplicó todo.
+      const order = await Order.findById(payment.orderId);
+      return { order, changed: false };
+    }
 
+    const order = await Order.findById(claimed.orderId);
+    if (!order) {
+      console.error('[PAYMENTS] Pago sin pedido asociado', {
+        key,
+        paymentId: claimed._id.toString(),
+      });
+      return { order: null, changed: true };
+    }
+
+    if (nextStatus === PaymentStatus.PAID) {
+      return this.onCaptured(order, claimed, key);
+    }
+
+    // El pedido refleja el estado del cobro, con la escritura acotada al
+    // campo. `order.save()` reescribía el documento entero desde una copia
+    // leída hace varios `await`, así que pisaba cualquier cambio hecho
+    // entretanto —una cancelación, la asignación de un domiciliario—.
+    //
+    // Un pedido ya reembolsado no vuelve atrás: es terminal, y un evento
+    // tardío de la pasarela no puede reabrirlo.
+    await Order.updateOne(
+      { _id: order._id, paymentStatus: { $ne: PaymentStatus.REFUNDED } },
+      { $set: { paymentStatus: nextStatus } }
+    );
     order.paymentStatus = nextStatus;
-    await order.save();
+
+    return { order, changed: true };
+  }
+
+  /**
+   * Las consecuencias de que el dinero haya entrado de verdad.
+   *
+   * Separado del reclamo del estado porque son dos preguntas distintas, y
+   * confundirlas era la vía por la que se escapaba dinero:
+   *
+   *  · **¿Entró el dinero?** Lo dice Wompi y no se discute. El pago queda
+   *    PAID pase lo que pase — negarlo sería tener un cobro real que la
+   *    plataforma no reconoce, que es peor que cualquier descuadre.
+   *  · **¿Se da el pedido por cobrado?** Eso exige además que el dinero
+   *    cubra lo que el pedido vale AHORA y que el pedido siga vivo.
+   *
+   * Los dos casos en que la segunda respuesta es "no" son reales:
+   *
+   *  1. **Se pagó un enlace viejo.** El total cambió entre que se generó el
+   *     checkout y que el cliente pagó, así que llegó menos dinero del que
+   *     cuesta el pedido. Marcarlo pagado dejaba al comercio cocinando y a
+   *     ZIPP liquidando por un dinero que no está.
+   *  2. **El pedido ya se canceló.** `onCancelled` ya deshizo los libros y
+   *     `voidOpenPayments` dejó el intento en FAILED; FAILED → PAID sigue
+   *     siendo legal a propósito, porque el dinero entró. Lo que no puede
+   *     pasar —y era lo que pasaba— es que además se liberen las
+   *     liquidaciones: ZIPP le pagaba al comercio un pedido cancelado. Lo
+   *     que corresponde es un reembolso, y eso lo decide una persona.
+   */
+  private async onCaptured(
+    order: IOrder,
+    payment: IPayment,
+    key: string
+  ): Promise<{ order: IOrder; changed: boolean }> {
+    const orderTotal = order.finance?.customerTotal ?? order.total;
+    const shortPaid = payment.amount !== orderTotal;
+    const orderClosed =
+      order.status === OrderStatus.CANCELLED || order.paymentStatus === PaymentStatus.REFUNDED;
+
+    if (shortPaid || orderClosed) {
+      const reason = orderClosed
+        ? 'Se cobró un pedido que ya estaba cancelado o reembolsado'
+        : `Se cobró ${payment.amount} por un pedido que cuesta ${orderTotal}`;
+
+      console.error('[PAYMENTS] Cobro que no puede darse por bueno', {
+        key,
+        paymentId: payment._id.toString(),
+        orderId: order._id.toString(),
+        paidAmount: payment.amount,
+        orderTotal,
+        orderStatus: order.status,
+      });
+
+      await Payment.updateOne(
+        { _id: payment._id },
+        { $set: { 'metadata.requiresReview': true, 'metadata.reviewReason': reason } }
+      );
+
+      logSystemAudit({
+        userId: 'system',
+        role: 'system',
+        action: AuditAction.SUSPICIOUS_ACTIVITY,
+        entity: 'payment',
+        entityId: payment._id.toString(),
+        severity: AuditSeverity.HIGH,
+        description: `Cobro retenido para revisión: ${reason}`,
+        metadata: {
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          orderStatus: order.status,
+          paidAmount: payment.amount,
+          orderTotal,
+          reference: payment.reference,
+          transactionId: payment.transactionId,
+        },
+      }).catch(console.error);
+
+      // El pago queda PAID —el dinero entró— pero el pedido no avanza y
+      // nada se libera. Queda dinero cobrado con un pedido sin cerrar, que
+      // es visible y reparable; lo contrario es invisible y no lo es.
+      return { order, changed: true };
+    }
+
+    // El dinero cubre el pedido y el pedido sigue vivo: se cierra el cobro.
+    await Order.updateOne(
+      { _id: order._id, paymentStatus: { $ne: PaymentStatus.REFUNDED } },
+      { $set: { paymentStatus: PaymentStatus.PAID } }
+    );
+    order.paymentStatus = PaymentStatus.PAID;
 
     // Imported lazily: the ledger and payout services import models that
     // import this module, and a static cycle would leave one side undefined.
-    if (nextStatus === PaymentStatus.PAID) {
-      const { ledgerService } = await import('../ledger.service');
-      const { payoutService } = await import('../payout.service');
+    const { ledgerService } = await import('../ledger.service');
+    const { payoutService } = await import('../payout.service');
 
-      await ledgerService.recordPaymentCaptured({
-        orderId: order._id,
-        amount: payment.amount,
-        pricingConfigVersion: order.finance?.pricingConfigVersion ?? 0,
-        transactionId: payment.transactionId ?? key,
-        currency: order.finance?.currency,
-      });
+    await ledgerService.recordPaymentCaptured({
+      orderId: order._id,
+      amount: payment.amount,
+      pricingConfigVersion: order.finance?.pricingConfigVersion ?? 0,
+      transactionId: payment.transactionId ?? key,
+      currency: order.finance?.currency,
+    });
 
-      // The money is ours, so what we owe becomes payable.
-      await payoutService.release(order._id);
+    // The money is ours, so what we owe becomes payable.
+    await payoutService.release(order._id);
 
-      // ── El mandado empieza a buscar domiciliario aquí ──
-      //
-      // Un pedido normal arranca la búsqueda cuando el comercio lo marca
-      // listo. Un mandado no tiene comercio que lo marque, así que el
-      // disparador es el cobro — y tiene que serlo: mandar a alguien a
-      // adelantar $50.000 de su bolsillo por un pedido que todavía no está
-      // pagado sería ponerle su dinero a jugar por nosotros.
-      if (order.kind === OrderKind.ERRAND && !order.driverId) {
-        import('../dispatch.service')
-          .then(({ startDispatch }) => startDispatch(order._id.toString()))
-          .catch((err) => console.error('[Errand] No se pudo iniciar el reparto:', err));
-      }
+    // ── El mandado empieza a buscar domiciliario aquí ──
+    //
+    // Un pedido normal arranca la búsqueda cuando el comercio lo marca
+    // listo. Un mandado no tiene comercio que lo marque, así que el
+    // disparador es el cobro — y tiene que serlo: mandar a alguien a
+    // adelantar $50.000 de su bolsillo por un pedido que todavía no está
+    // pagado sería ponerle su dinero a jugar por nosotros.
+    if (order.kind === OrderKind.ERRAND && !order.driverId) {
+      import('../dispatch.service')
+        .then(({ startDispatch }) => startDispatch(order._id.toString()))
+        .catch((err) => console.error('[Errand] No se pudo iniciar el reparto:', err));
     }
 
     return { order, changed: true };
@@ -404,7 +663,12 @@ export class PaymentService {
   async handleWebhook(
     rawBody: string,
     signature: string
-  ): Promise<{ accepted: boolean; duplicated: boolean; reason?: string }> {
+  ): Promise<{
+    accepted: boolean;
+    duplicated: boolean;
+    ignored?: boolean;
+    reason?: string;
+  }> {
     const provider = getPaymentProvider();
 
     if (!provider.verifyWebhookSignature(rawBody, signature)) {
@@ -418,14 +682,55 @@ export class PaymentService {
       return { accepted: false, duplicated: false, reason: 'cuerpo ilegible' };
     }
 
-    const event = provider.parseWebhook(payload);
-    if (!event) {
-      return { accepted: false, duplicated: false, reason: 'evento no reconocido' };
+    const parsed = provider.parseWebhook(payload);
+    if (!parsed) {
+      // Firma válida, evento que no nos toca: Wompi publica varios tipos en
+      // el mismo endpoint (`nequi_token.updated`, y lo que añada después).
+      // Se acusa recibo en vez de rechazarlo — un no-2xx haría que la
+      // pasarela reintentara para siempre un evento que jamás vamos a
+      // aplicar, y ese ruido acaba enterrando los reintentos que sí importan.
+      return {
+        accepted: true,
+        duplicated: false,
+        ignored: true,
+        reason: 'evento no aplicable',
+      };
+    }
+
+    // ── Confirmación contra la pasarela ──
+    //
+    // Una firma válida prueba que los campos *firmados* no se tocaron, no
+    // que el resto del cuerpo sea cierto. Wompi firma tres —id, estado y
+    // monto— y deja fuera la referencia, que es justo lo que decide a qué
+    // pago se aplica el evento. Cuando el proveedor sabe confirmar, se le
+    // pregunta a él y se aplica SU versión, no la que llegó por la red.
+    //
+    // Un fallo de red se propaga a propósito: se responde 5xx, Wompi
+    // reintenta y el pago acaba aplicándose. Descartarlo como "no
+    // confirmado" perdería cobros reales por un hipo de conectividad.
+    let event = parsed;
+    if (provider.confirmEvent) {
+      const confirmed = await provider.confirmEvent(parsed);
+      if (!confirmed) {
+        console.error('[PAYMENTS] Evento rechazado: la pasarela no lo confirma', {
+          reference: parsed.paymentId,
+          transactionId: parsed.gatewayTransactionId,
+        });
+        return { accepted: false, duplicated: false, reason: 'evento no confirmado por la pasarela' };
+      }
+      event = confirmed;
     }
 
     const body = payload as Record<string, unknown>;
-    const eventKey =
-      typeof body.eventId === 'string' && body.eventId
+    // La clave anti-duplicado sale del contenido FIRMADO del evento, no de
+    // un `eventId` del cuerpo: ese campo no entra en la firma de Wompi, así
+    // que bastaba con cambiarlo para que un mismo evento se procesara de
+    // nuevo como si fuera otro. Con el proveedor confirmando, además, la
+    // clave describe el hecho —esta transacción llegó a este estado— y no
+    // la entrega concreta, que es lo que debe deduplicarse.
+    const eventKey = event.gatewayTransactionId
+      ? `${event.gatewayTransactionId}:${event.rawStatus ?? event.status}`
+      : typeof body.eventId === 'string' && body.eventId
         ? body.eventId
         : crypto.createHash('sha256').update(rawBody).digest('hex');
 
@@ -454,6 +759,7 @@ export class PaymentService {
     try {
       result = await this.applyGatewayStatus(event.paymentId, event.status, event.amount, {
         gatewayTransactionId: event.gatewayTransactionId,
+        currency: event.currency,
         message: event.message,
         paymentMethodType: event.paymentMethodType,
         rawStatus: event.rawStatus,
@@ -499,6 +805,7 @@ export class PaymentService {
     const intent = await provider.getPayment(transactionId);
     await this.applyGatewayStatus(transactionId, intent.status, intent.amount, {
       gatewayTransactionId: intent.id,
+      currency: intent.currency,
       message: intent.declineReason,
       paymentMethodType: intent.paymentMethodType,
       rawStatus: intent.rawStatus,
@@ -672,6 +979,11 @@ export class PaymentService {
 
     const now = new Date();
     const previousStatus = payment.status;
+    const note = input.note?.slice(0, 200);
+
+    // Se prepara la escritura completa antes de aplicarla, para que el
+    // reclamo atómico de más abajo sea una sola operación.
+    let update: Record<string, unknown>;
 
     if (input.received) {
       // Dos asientos en la historia, un solo estado final. La declaración
@@ -685,21 +997,31 @@ export class PaymentService {
         );
       }
 
-      payment.statusHistory.push({
-        status: PaymentStatus.CASH_RECEIVED,
-        source: 'cash',
-        message: input.note?.slice(0, 200) || 'El domiciliario recibió el efectivo',
-        at: now,
-      });
-      payment.statusHistory.push({
-        status: PaymentStatus.PAID,
-        source: 'cash',
-        message: 'Cobro en efectivo completado',
-        at: now,
-      });
-      payment.status = PaymentStatus.PAID;
-      payment.processedAt = now;
-      payment.statusMessage = 'Cobrado en efectivo por el domiciliario';
+      update = {
+        $set: {
+          status: PaymentStatus.PAID,
+          processedAt: now,
+          statusMessage: 'Cobrado en efectivo por el domiciliario',
+        },
+        $push: {
+          statusHistory: {
+            $each: [
+              {
+                status: PaymentStatus.CASH_RECEIVED,
+                source: 'cash',
+                message: note || 'El domiciliario recibió el efectivo',
+                at: now,
+              },
+              {
+                status: PaymentStatus.PAID,
+                source: 'cash',
+                message: 'Cobro en efectivo completado',
+                at: now,
+              },
+            ],
+          },
+        },
+      };
     } else {
       if (!canTransitionPayment(previousStatus, PaymentStatus.CASH_NOT_RECEIVED)) {
         throw new AppError(
@@ -708,20 +1030,51 @@ export class PaymentService {
         );
       }
 
-      payment.statusHistory.push({
-        status: PaymentStatus.CASH_NOT_RECEIVED,
-        source: 'cash',
-        message: input.note?.slice(0, 200) || 'El domiciliario no recibió el efectivo',
-        at: now,
-      });
-      payment.status = PaymentStatus.CASH_NOT_RECEIVED;
-      payment.statusMessage = 'Efectivo no recibido: pendiente de revisión';
+      update = {
+        $set: {
+          status: PaymentStatus.CASH_NOT_RECEIVED,
+          statusMessage: 'Efectivo no recibido: pendiente de revisión',
+        },
+        $push: {
+          statusHistory: {
+            status: PaymentStatus.CASH_NOT_RECEIVED,
+            source: 'cash',
+            message: note || 'El domiciliario no recibió el efectivo',
+            at: now,
+          },
+        },
+      };
     }
 
-    await payment.save();
+    // ── Reclamo atómico ──
+    //
+    // El estado de partida viaja dentro de la escritura. La comprobación de
+    // idempotencia de arriba y este guardado estaban separados por varios
+    // `await`, y un doble toque en "confirmé el efectivo" —una red móvil
+    // mala basta— pasaba el filtro dos veces: dos declaraciones en la
+    // historia del cobro y, en un faltante, dos expedientes abiertos por el
+    // mismo dinero. Solo una de las dos peticiones encuentra el estado
+    // previo; la otra sale como repetición, que es lo que es.
+    const claimed = await Payment.findOneAndUpdate(
+      { _id: payment._id, status: previousStatus },
+      update,
+      { new: true }
+    );
 
-    order.paymentStatus = payment.status;
-    await order.save();
+    if (!claimed) {
+      const current = await Payment.findById(payment._id);
+      return { payment: current ?? payment, order, changed: false };
+    }
+
+    // Escritura acotada al campo: `order.save()` reescribía el pedido
+    // entero desde una copia leída antes de todas estas comprobaciones, y
+    // se llevaba por delante cualquier cambio hecho entretanto.
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { paymentStatus: claimed.status } }
+    );
+    order.paymentStatus = claimed.status;
+    Object.assign(payment, claimed.toObject());
 
     // Un faltante no es solo un estado del cobro: es un caso que alguien
     // tiene que resolver. Sin expediente, lo único que quedaba era una
@@ -804,24 +1157,42 @@ export class PaymentService {
     });
 
     const now = new Date();
+    let voided = 0;
+
     for (const payment of open) {
-      payment.statusHistory.push({
-        status: PaymentStatus.FAILED,
-        source: 'admin',
-        message: reason,
-        at: now,
-      });
-      payment.status = PaymentStatus.FAILED;
-      payment.statusMessage = reason;
-      payment.metadata = {
-        ...(payment.metadata ?? {}),
-        voidedReason: reason,
-        voidedAt: now.toISOString(),
-      };
-      await payment.save();
+      // Condicional sobre el estado leído, y no `save()`: entre la lectura
+      // de arriba y esta escritura cabe el webhook que aprueba justo ese
+      // intento. Con `save()` se reescribía el documento entero desde la
+      // copia vieja, así que la invalidación pisaba una aprobación real y
+      // el cobro desaparecía —el dinero en Wompi, el pago en FAILED—. Con
+      // la condición dentro, el que llega tarde simplemente no aplica.
+      const result = await Payment.updateOne(
+        { _id: payment._id, status: payment.status },
+        {
+          $set: {
+            status: PaymentStatus.FAILED,
+            statusMessage: reason,
+            metadata: {
+              ...(payment.metadata ?? {}),
+              voidedReason: reason,
+              voidedAt: now.toISOString(),
+            },
+          },
+          $push: {
+            statusHistory: {
+              status: PaymentStatus.FAILED,
+              source: 'admin',
+              message: reason,
+              at: now,
+            },
+          },
+        }
+      );
+
+      if (result.modifiedCount) voided += 1;
     }
 
-    return { voided: open.length };
+    return { voided };
   }
 }
 

@@ -157,7 +157,13 @@ describe('WompiPaymentProvider', () => {
   });
 
   describe('webhooks', () => {
-    function signedPayload(tx: Record<string, unknown>, timestamp = 1530291411) {
+    /** Ahora, en segundos, que es como Wompi sella sus eventos. */
+    const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+    function signedPayload(
+      tx: Record<string, unknown>,
+      timestamp: number | string = nowSeconds()
+    ) {
       const properties = ['transaction.id', 'transaction.status', 'transaction.amount_in_cents'];
       const values = properties.map((p) => String((tx as any)[p.split('.')[1]]));
       const checksum = crypto
@@ -250,6 +256,218 @@ describe('WompiPaymentProvider', () => {
       // Llaves pub_test_ ⇒ solo se aceptan eventos 'test'. Defensa en
       // profundidad contra secretos de sandbox y producción cruzados.
       expect(provider.parseWebhook(payload)).toBeNull();
+    });
+
+    describe('ventana anti-replay', () => {
+      it('rechaza un evento viejo aunque su firma sea válida', () => {
+        // El sello va DENTRO de la firma, así que no puede moverse sin el
+        // secreto — y por eso sirve de límite. Un evento capturado hace
+        // semanas deja de ser verificable en vez de depender solo de que la
+        // deduplicación siga viva.
+        const old = nowSeconds() - 8 * 24 * 60 * 60;
+        const payload = JSON.stringify(signedPayload(tx, old));
+
+        expect(provider.verifyWebhookSignature(payload, '')).toBe(false);
+      });
+
+      it('rechaza un evento sellado en el futuro, más allá de la tolerancia de reloj', () => {
+        const future = nowSeconds() + 60 * 60;
+        const payload = JSON.stringify(signedPayload(tx, future));
+
+        expect(provider.verifyWebhookSignature(payload, '')).toBe(false);
+      });
+
+      it('tolera un desfase pequeño de reloj en ambos sentidos', () => {
+        for (const skew of [-120, 120]) {
+          const payload = JSON.stringify(signedPayload(tx, nowSeconds() + skew));
+          expect(provider.verifyWebhookSignature(payload, '')).toBe(true);
+        }
+      });
+
+      it('rechaza un sello ausente o sin sentido', () => {
+        for (const stamp of [undefined, null, 0, -1, 'ayer']) {
+          const payload = signedPayload(tx) as Record<string, unknown>;
+          payload.timestamp = stamp;
+          expect(provider.verifyWebhookSignature(JSON.stringify(payload), '')).toBe(false);
+        }
+      });
+    });
+
+    describe('la lista de propiedades firmadas es del servidor, no del evento', () => {
+      /**
+       * El agujero que cierra: la firma se calculaba concatenando los
+       * campos que el propio evento decía haber firmado. Quien tuviera un
+       * solo evento legítimo podía declarar una propiedad inventada, meter
+       * en ella la concatenación original, y el mismo checksum volvía a
+       * verificar para una transacción con id, estado y monto distintos.
+       */
+      it('rechaza un evento que declara otras propiedades firmadas', () => {
+        const genuine = signedPayload(tx);
+        const concatenated = `${tx.id}${tx.status}${tx.amount_in_cents}`;
+
+        const forged = {
+          event: 'transaction.updated',
+          data: {
+            transaction: {
+              ...tx,
+              id: 'transaccion-inventada',
+              status: 'APPROVED',
+              amount_in_cents: 1,
+              // El valor que reproduce la concatenación original.
+              smuggled: concatenated,
+            },
+          },
+          environment: 'test',
+          signature: {
+            properties: ['transaction.smuggled'],
+            checksum: genuine.signature.checksum,
+          },
+          timestamp: genuine.timestamp,
+        };
+
+        expect(provider.verifyWebhookSignature(JSON.stringify(forged), '')).toBe(false);
+      });
+
+      it('rechaza una lista con las propiedades correctas en otro orden', () => {
+        const payload = signedPayload(tx) as any;
+        payload.signature.properties = [
+          'transaction.status',
+          'transaction.id',
+          'transaction.amount_in_cents',
+        ];
+        expect(provider.verifyWebhookSignature(JSON.stringify(payload), '')).toBe(false);
+      });
+
+      it('rechaza una lista con propiedades de más', () => {
+        const payload = signedPayload(tx) as any;
+        payload.signature.properties = [...payload.signature.properties, 'transaction.reference'];
+        expect(provider.verifyWebhookSignature(JSON.stringify(payload), '')).toBe(false);
+      });
+    });
+
+    describe('saneado de campos no firmados', () => {
+      it('descarta un carril de pago con forma sospechosa', () => {
+        // `payment_method_type` no entra en la firma y se escribía tal cual
+        // en el registro del pago. Solo se acepta la forma que Wompi usa
+        // de verdad (CARD, NEQUI, PSE, BANCOLOMBIA_TRANSFER).
+        for (const bogus of ['cash_on_delivery', '$ne', 'a'.repeat(80), '<script>']) {
+          const event = provider.parseWebhook(
+            signedPayload({ ...tx, payment_method_type: bogus })
+          );
+          expect(event?.paymentMethodType).toBeUndefined();
+        }
+
+        expect(
+          provider.parseWebhook(signedPayload({ ...tx, payment_method_type: 'PSE' }))
+            ?.paymentMethodType
+        ).toBe('PSE');
+      });
+
+      it('acota el mensaje de estado en vez de guardarlo entero', () => {
+        const event = provider.parseWebhook(
+          signedPayload({ ...tx, status: 'DECLINED', status_message: 'x'.repeat(5000) })
+        );
+        expect(event!.message!.length).toBe(300);
+      });
+
+      it('descarta una transacción sin referencia o sin monto utilizable', () => {
+        expect(provider.parseWebhook(signedPayload({ ...tx, reference: '   ' }))).toBeNull();
+        expect(
+          provider.parseWebhook(signedPayload({ ...tx, amount_in_cents: 'mucho' }))
+        ).toBeNull();
+        expect(
+          provider.parseWebhook(signedPayload({ ...tx, amount_in_cents: -100 }))
+        ).toBeNull();
+      });
+    });
+
+    describe('confirmEvent · la verdad la tiene Wompi, no el cuerpo recibido', () => {
+      const event = {
+        paymentId: 'ZIPP-order-1-REF',
+        status: 'approved' as const,
+        amount: 25000,
+        gatewayTransactionId: '1234-1610641025-49201',
+      };
+
+      const wompiSays = (overrides: Record<string, unknown> = {}) =>
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            data: {
+              id: '1234-1610641025-49201',
+              reference: 'ZIPP-order-1-REF',
+              status: 'APPROVED',
+              amount_in_cents: 2500000,
+              currency: 'COP',
+              ...overrides,
+            },
+          }),
+        });
+
+      it('devuelve la versión de Wompi cuando todo concuerda', async () => {
+        vi.stubGlobal('fetch', wompiSays());
+
+        const confirmed = await provider.confirmEvent(event);
+
+        expect(confirmed).toEqual(
+          expect.objectContaining({
+            paymentId: 'ZIPP-order-1-REF',
+            status: 'approved',
+            amount: 25000,
+            currency: 'COP',
+            gatewayTransactionId: '1234-1610641025-49201',
+          })
+        );
+      });
+
+      it('rechaza un evento cuya referencia no es la que Wompi tiene', async () => {
+        // El ataque completo: la referencia NO está firmada, así que quien
+        // consiga un evento legítimo puede apuntarlo al pedido de otro por
+        // el mismo importe. Wompi, preguntado por el id —que sí va
+        // firmado—, devuelve la referencia real y el fraude se cae.
+        vi.stubGlobal('fetch', wompiSays({ reference: 'ZIPP-VICTIMA-OTRA' }));
+
+        expect(await provider.confirmEvent(event)).toBeNull();
+      });
+
+      it('manda el estado real de Wompi aunque el evento diga otro', async () => {
+        vi.stubGlobal('fetch', wompiSays({ status: 'DECLINED' }));
+
+        const confirmed = await provider.confirmEvent(event);
+        expect(confirmed!.status).toBe('declined');
+      });
+
+      it('manda el monto real de Wompi aunque el evento diga otro', async () => {
+        vi.stubGlobal('fetch', wompiSays({ amount_in_cents: 100 }));
+
+        const confirmed = await provider.confirmEvent(event);
+        expect(confirmed!.amount).toBe(1);
+      });
+
+      it('rechaza una transacción que Wompi no conoce', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+
+        expect(await provider.confirmEvent(event)).toBeNull();
+      });
+
+      it('rechaza un evento sin id de transacción: no hay nada que confirmar', async () => {
+        expect(await provider.confirmEvent({ ...event, gatewayTransactionId: undefined })).toBeNull();
+      });
+
+      it('propaga un fallo de red en vez de darlo por no confirmado', async () => {
+        // La diferencia importa: "no confirmado" descarta el evento para
+        // siempre, y un hipo de red descartaría un cobro real. Al lanzar,
+        // el webhook responde 5xx y Wompi reintenta.
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNRESET')));
+
+        await expect(provider.confirmEvent(event)).rejects.toThrow(/ECONNRESET/);
+      });
+
+      it('propaga un 500 de Wompi como reintentable, no como rechazo', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 502 }));
+
+        await expect(provider.confirmEvent(event)).rejects.toThrow(/502/);
+      });
     });
   });
 });

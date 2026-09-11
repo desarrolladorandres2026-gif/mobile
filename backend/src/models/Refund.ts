@@ -74,6 +74,26 @@ const refundSchema = new Schema<IRefund>(
 refundSchema.index({ orderId: 1, createdAt: -1 });
 refundSchema.index({ status: 1 });
 
+/**
+ * Un solo reembolso en curso por pedido.
+ *
+ * `issue()` calcula cuánto queda por devolver sumando los reembolsos ya
+ * completados. Dos peticiones simultáneas —un doble clic en el panel sin
+ * clave de idempotencia, un reintento de red— leían las dos el mismo saldo,
+ * las dos pasaban, y en un pedido en efectivo (sin pasarela que se niegue a
+ * anular dos veces) las dos revertían libros y liquidaciones. La fila
+ * PENDING es el cerrojo: se toma antes de calcular nada, y el índice hace
+ * que solo una pueda existir.
+ */
+refundSchema.index(
+  { orderId: 1 },
+  {
+    unique: true,
+    name: 'one_refund_in_flight_per_order',
+    partialFilterExpression: { status: RefundStatus.PENDING },
+  }
+);
+
 export const Refund = mongoose.model<IRefund>('Refund', refundSchema);
 
 // ── Webhook de-duplication ───────────────────────────────────────────

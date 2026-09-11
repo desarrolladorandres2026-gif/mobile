@@ -208,6 +208,75 @@ if (jwtSecret && jwtRefreshSecret && jwtSecret === jwtRefreshSecret) {
   else startupErrors.push(message);
 }
 
+/**
+ * Lo que impide que un despliegue de producción "cobre" sin cobrar.
+ *
+ * El proveedor `sandbox` aprueba cada pago al instante y sin tocar dinero:
+ * es perfecto para desarrollo y letal en producción, donde cada pedido en
+ * línea saldría marcado como pagado, el comercio cocinaría y ZIPP liquidaría
+ * un dinero que nunca entró. Lo mismo, en versión más sutil, con unas llaves
+ * `pub_test_` de Wompi en producción: los cobros van al sandbox de Wompi y
+ * se aprueban con tarjetas de prueba.
+ *
+ * Ninguno de los dos es un error de programación: son un `.env` copiado a
+ * medias. Por eso se comprueba al arrancar y no se confía en que alguien lo
+ * note en el panel. Un entorno de pruebas desplegado con NODE_ENV=production
+ * puede optar explícitamente con ALLOW_SANDBOX_PAYMENTS=true.
+ *
+ * Es una función pura sobre un mapa de variables para poder probarla sin
+ * arrancar el proceso con otro NODE_ENV.
+ */
+export function paymentConfigErrors(env: Record<string, string | undefined>): string[] {
+  const errors: string[] = [];
+  const provider = (env.PAYMENT_PROVIDER || 'sandbox').trim();
+  const sandboxAllowed = env.ALLOW_SANDBOX_PAYMENTS === 'true';
+
+  if (provider === 'sandbox' && !sandboxAllowed) {
+    errors.push(
+      'PAYMENT_PROVIDER=sandbox aprueba pagos sin cobrar dinero real. En producción configura ' +
+        'PAYMENT_PROVIDER=wompi con sus 4 credenciales, o declara explícitamente ' +
+        'ALLOW_SANDBOX_PAYMENTS=true si este es un entorno de pruebas.'
+    );
+  }
+
+  if (provider === 'wompi') {
+    const required = [
+      'WOMPI_PUBLIC_KEY',
+      'WOMPI_PRIVATE_KEY',
+      'WOMPI_INTEGRITY_SECRET',
+      'WOMPI_EVENTS_SECRET',
+    ] as const;
+    for (const name of required) {
+      if (!env[name] || !env[name]!.trim()) {
+        errors.push(`${name} es obligatoria cuando PAYMENT_PROVIDER=wompi.`);
+      }
+    }
+
+    const publicKey = (env.WOMPI_PUBLIC_KEY || '').trim();
+    const privateKey = (env.WOMPI_PRIVATE_KEY || '').trim();
+    const testKeys = publicKey.startsWith('pub_test_') || privateKey.startsWith('prv_test_');
+    const prodKeys = publicKey.startsWith('pub_prod_') && privateKey.startsWith('prv_prod_');
+
+    if (publicKey && privateKey && testKeys && !sandboxAllowed) {
+      errors.push(
+        'WOMPI_PUBLIC_KEY/WOMPI_PRIVATE_KEY son llaves de PRUEBA (pub_test_/prv_test_): los cobros ' +
+          'irían al sandbox de Wompi. Usa las llaves pub_prod_/prv_prod_, o declara ' +
+          'ALLOW_SANDBOX_PAYMENTS=true si este es un entorno de pruebas.'
+      );
+    } else if (publicKey && privateKey && !testKeys && !prodKeys) {
+      errors.push(
+        'WOMPI_PUBLIC_KEY/WOMPI_PRIVATE_KEY no tienen el formato de Wompi (pub_prod_/prv_prod_ o pub_test_/prv_test_).'
+      );
+    }
+  }
+
+  return errors;
+}
+
+if (!isDev && !isTest) {
+  startupErrors.push(...paymentConfigErrors(process.env));
+}
+
 // Fail fast: refuse to boot a production server with an insecure configuration.
 if (startupErrors.length > 0) {
   console.error('\n❌ Configuración inválida. El servidor no puede iniciar:\n');
@@ -351,6 +420,12 @@ export const config = {
       // recovered from a log or a screenshot is still a live charge months
       // later, for an order that may since have been cancelled or re-priced.
       checkoutExpiryMinutes: parseInt(process.env.WOMPI_CHECKOUT_EXPIRY_MINUTES || '30', 10),
+      // Oldest event `timestamp` still accepted by the webhook, in seconds.
+      // Generous — Wompi retries failed deliveries for a while and its clock
+      // is not ours — but finite: a captured event stops being verifiable
+      // at all once it ages out, instead of relying only on deduplication.
+      // 0 disables the bound.
+      webhookMaxAgeSeconds: parseInt(process.env.WOMPI_WEBHOOK_MAX_AGE_SECONDS || '259200', 10),
     },
   },
 

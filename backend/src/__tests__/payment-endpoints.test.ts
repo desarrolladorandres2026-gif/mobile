@@ -66,7 +66,9 @@ describe('POST /api/v1/payments/orders/:orderId/pay', () => {
       .set(authHeader(otro))
       .send({});
 
-    expect(res.status).toBe(403);
+    // 404 y no 403: el pedido de otra persona es indistinguible de uno que
+    // no existe, así que la respuesta no sirve para enumerar pedidos.
+    expect(res.status).toBe(404);
     expect(await Payment.countDocuments({ orderId: order._id })).toBe(0);
   });
 
@@ -208,7 +210,31 @@ describe('GET /api/v1/payments/status/:transactionId', () => {
       .get(`/api/v1/payments/status/${pay.body.data.transactionId}`)
       .set(authHeader(otro));
 
-    expect(res.status).toBe(403);
+    // 404 y no 403: un pago ajeno y uno inexistente responden lo mismo.
+    // Un 403 confirmaba que esa referencia existe, y eso convierte el
+    // endpoint en un oráculo para sondear referencias sin tener ninguna.
+    expect(res.status).toBe(404);
+  });
+
+  it('responde igual para una referencia ajena que para una inexistente', async () => {
+    const { client, order } = await scenario();
+    const otro = await makeUser();
+
+    const pay = await request(app)
+      .post(`/api/v1/payments/orders/${order._id}/pay`)
+      .set(authHeader(client))
+      .send({});
+
+    const ajena = await request(app)
+      .get(`/api/v1/payments/status/${pay.body.data.transactionId}`)
+      .set(authHeader(otro));
+
+    const inexistente = await request(app)
+      .get('/api/v1/payments/status/ZIPP-NO-EXISTE-000000')
+      .set(authHeader(otro));
+
+    expect(ajena.status).toBe(inexistente.status);
+    expect(ajena.body.message).toBe(inexistente.body.message);
   });
 
   it('rechaza una referencia con formato inválido antes de tocar la base de datos', async () => {

@@ -126,11 +126,14 @@ export const reportCashSchema = z.object({
 export const refundSchema = z.object({
   body: z
     .object({
-      amount: z.number().int().positive().optional(),
+      // Acotado por arriba además de por abajo: un importe absurdo no debe
+      // llegar hasta el reparto por cuentas para que allí lo frene un
+      // `assertMoney` que responde 500 en vez de un 400 explicativo.
+      amount: z.number().int().positive().max(100_000_000).optional(),
       reason: z.string().min(3).max(300),
-      idempotencyKey: z.string().max(120).optional(),
+      idempotencyKey: z.string().trim().max(120).optional(),
     })
     .strict(),
   query: z.object({}).optional(),
-  params: z.object({ orderId: z.string() }),
+  params: z.object({ orderId: objectId }),
 });

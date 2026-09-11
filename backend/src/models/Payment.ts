@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
-import { PaymentType, PaymentStatus } from '../types';
+import { PaymentType, PaymentStatus, PaymentMethod } from '../types';
 
 /**
  * One entry per status transition, so a support ticket ("Wompi says
@@ -26,7 +26,19 @@ export interface IPayment extends Document {
   orderId: Types.ObjectId;
   userId: Types.ObjectId;
   type: PaymentType;
+  /**
+   * Cómo se cobra: `online` o `cash_on_delivery`. Es un `PaymentMethod` de
+   * la plataforma y **no** cambia nunca por lo que diga una pasarela.
+   *
+   * Antes se sobrescribía con el carril que reportaba Wompi (`NEQUI`,
+   * `CARD`…), y con ello se borraba el único campo que distingue un cobro
+   * en línea de uno en efectivo — la distinción de la que dependen la
+   * invalidación de intentos abiertos, la búsqueda del intento vigente y la
+   * guarda que impide que un evento de pasarela cierre un cobro en efectivo.
+   */
   method: string;
+  /** El carril concreto que usó el cliente: CARD, NEQUI, PSE, BANCOLOMBIA_TRANSFER… */
+  paymentMethodType?: string;
   status: PaymentStatus;
   /** Raw gateway status mirrored from the latest transition (see statusHistory). */
   gatewayStatus?: string;
@@ -106,7 +118,10 @@ const paymentSchema = new Schema<IPayment>(
     orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     type: { type: String, enum: Object.values(PaymentType), required: true },
-    method: { type: String, required: true },
+    // Acotado al enum: es lo que impide que una pasarela —o un campo
+    // reenviado sin mirar— convierta este campo en cualquier cosa.
+    method: { type: String, enum: Object.values(PaymentMethod), required: true },
+    paymentMethodType: { type: String, default: null },
     status: { type: String, enum: Object.values(PaymentStatus), default: PaymentStatus.PENDING },
     gatewayStatus: { type: String, default: null },
     statusMessage: { type: String, default: null },
@@ -129,5 +144,30 @@ paymentSchema.index({ userId: 1, type: 1 });
 paymentSchema.index({ status: 1 });
 paymentSchema.index({ reference: 1 }, { unique: true, sparse: true });
 paymentSchema.index({ transactionId: 1 }, { unique: true, sparse: true });
+
+/**
+ * Un solo intento en línea abierto por pedido.
+ *
+ * Dos `initiate` simultáneos para el mismo pedido —doble toque, dos
+ * pestañas, un reintento de red— pasaban los dos la comprobación de "¿ya
+ * hay un intento pendiente?" antes de que ninguno la hubiera escrito, y
+ * salían con dos referencias distintas: dos enlaces de Wompi válidos para
+ * el mismo pedido, cada uno cobrable por su cuenta. La condición vive en
+ * el índice y no en el código porque es el único sitio donde dos procesos
+ * no pueden pasar a la vez. `PaymentService.initiate` atrapa el 11000 y
+ * reutiliza el intento que ganó.
+ */
+paymentSchema.index(
+  { orderId: 1 },
+  {
+    unique: true,
+    name: 'one_open_online_payment_per_order',
+    partialFilterExpression: {
+      status: PaymentStatus.PENDING,
+      method: PaymentMethod.ONLINE,
+      type: PaymentType.ORDER_PAYMENT,
+    },
+  }
+);
 
 export const Payment = mongoose.model<IPayment>('Payment', paymentSchema);

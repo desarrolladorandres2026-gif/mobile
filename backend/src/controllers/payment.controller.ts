@@ -3,7 +3,7 @@ import { paymentService, isOnlinePaymentAvailable, refundService } from '../serv
 import { Order, Payment } from '../models';
 import { AppError } from '../middlewares';
 import { sendResponse, param } from '../utils';
-import { RefundKind, PaymentStatus } from '../types';
+import { RefundKind, PaymentStatus, UserRole } from '../types';
 
 export class PaymentController {
   /** Lets checkout know whether to offer online payment at all. */
@@ -24,12 +24,16 @@ export class PaymentController {
   /** Starts a gateway payment for an order the caller owns. */
   async initiate(req: Request, res: Response, next: NextFunction) {
     try {
-      const orderId = param(req, 'orderId') || req.body.orderId;
+      // Solo del parámetro de ruta, que es lo que el esquema valida.
+      // `|| req.body.orderId` dejaba entrar un identificador sin validar
+      // por un camino que `initiatePaymentSchema` no cubre.
+      const orderId = param(req, 'orderId');
       const order = await Order.findById(orderId);
-      if (!order) throw new AppError('Pedido no encontrado', 404);
 
-      if (order.clientId.toString() !== req.user!._id.toString()) {
-        throw new AppError('No autorizado para pagar este pedido', 403);
+      // Un pedido ajeno responde lo mismo que uno inexistente: un 403
+      // confirmaba la existencia del pedido de otra persona.
+      if (!order || order.clientId.toString() !== req.user!._id.toString()) {
+        throw new AppError('Pedido no encontrado', 404);
       }
 
       const result = await paymentService.initiate({
@@ -100,6 +104,9 @@ export class PaymentController {
       return res.status(200).json({
         success: true,
         duplicated: result.duplicated,
+        // Firma válida pero nada que aplicar (otro tipo de evento de la
+        // pasarela). Se responde 200 para que deje de reintentarlo.
+        ...(result.ignored ? { ignored: true } : {}),
       });
     } catch (error) { next(error); }
   }
@@ -114,8 +121,19 @@ export class PaymentController {
     try {
       const key = param(req, 'transactionId');
       const payment = await Payment.findOne({ $or: [{ transactionId: key }, { reference: key }] });
-      if (!payment) throw new AppError('Pago no encontrado', 404);
-      if (req.user!.role !== 'admin' && payment.userId.toString() !== req.user!._id.toString()) throw new AppError('No autorizado para consultar este pago', 403);
+
+      // Un pago ajeno y uno inexistente responden lo mismo, igual que en
+      // `resolveOrderAccess`. Distinguirlos convertía este endpoint en un
+      // oráculo: un 403 confirmaba que esa referencia existe, y con eso se
+      // puede sondear el espacio de referencias sin tener ninguna.
+      const notFound = new AppError('Pago no encontrado', 404);
+      if (!payment) throw notFound;
+      if (
+        req.user!.role !== UserRole.ADMIN &&
+        payment.userId.toString() !== req.user!._id.toString()
+      ) {
+        throw notFound;
+      }
 
       // The reference is only upgraded to a real gateway id once a webhook
       // (or a previous sync) has reported one. Before that, the gateway has
@@ -142,7 +160,23 @@ export class PaymentController {
       }
 
       const intent = await paymentService.sync(payment.transactionId!);
-      sendResponse(res, 200, 'Estado del pago', intent);
+
+      // Se responde una forma propia y estable, no el `PaymentIntent` entero.
+      // Ese objeto arrastra `raw`, que es la transacción tal cual la
+      // devuelve la pasarela —datos del cliente, detalle del medio de pago,
+      // identificadores internos del comercio— y no hay ninguna razón para
+      // que salga de aquí. Además es la misma forma que devuelve la rama de
+      // arriba: antes el mismo endpoint contestaba dos estructuras distintas
+      // según si la pasarela ya conocía el pago.
+      sendResponse(res, 200, 'Estado del pago', {
+        id: payment.reference ?? intent.id,
+        status: intent.status,
+        amount: intent.amount,
+        currency: intent.currency,
+        orderId: payment.orderId.toString(),
+        declineReason: intent.declineReason,
+        paymentMethodType: intent.paymentMethodType,
+      });
     } catch (error) { next(error); }
   }
 
@@ -150,7 +184,14 @@ export class PaymentController {
     try {
       const order = await Order.findById(param(req, 'orderId'));
       if (!order) throw new AppError('Pedido no encontrado', 404);
-      if (req.user!.role !== 'admin' && order.clientId.toString() !== req.user!._id.toString()) throw new AppError('No autorizado para consultar estos pagos', 403);
+      if (
+        req.user!.role !== UserRole.ADMIN &&
+        order.clientId.toString() !== req.user!._id.toString()
+      ) {
+        // Mismo criterio que en `status`: no se confirma la existencia de
+        // un pedido ajeno.
+        throw new AppError('Pedido no encontrado', 404);
+      }
       const payments = await paymentService.getForOrder(order._id.toString());
       sendResponse(res, 200, 'Pagos del pedido', payments);
     } catch (error) { next(error); }
@@ -172,12 +213,20 @@ export class PaymentController {
     } catch (error) { next(error); }
   }
 
+  /**
+   * Registra un contracargo que la pasarela ya ejecutó.
+   *
+   * `reference` viene del esquema y es obligatoria: es la clave de
+   * idempotencia. Rellenarla con la hora actual cuando faltaba —que es lo
+   * que se hacía— convertía cada reintento en un contracargo nuevo por el
+   * mismo dinero.
+   */
   async chargeback(req: Request, res: Response, next: NextFunction) {
     try {
       const refund = await refundService.recordChargeback({
         orderId: param(req, 'orderId'),
         amount: req.body.amount,
-        reference: req.body.reference || String(Date.now()),
+        reference: req.body.reference,
       });
       sendResponse(res, 201, 'Contracargo registrado', refund);
     } catch (error) { next(error); }
