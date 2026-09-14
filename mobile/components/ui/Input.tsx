@@ -6,8 +6,8 @@ import {
 import { Text } from './Text';
 import { Icon } from './Icon';
 import type { IconName } from '../../theme/icons';
-import { BorderRadius, Size, Spacing } from '../../theme/tokens';
-import { Type } from '../../theme/typography';
+import { BorderRadius, Size, Spacing, type ColorScheme } from '../../theme/tokens';
+import { Type, FontFamily } from '../../theme/typography';
 import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
 
@@ -24,6 +24,14 @@ export interface InputProps extends Omit<TextInputProps, 'style'> {
   containerStyle?: ViewStyle;
   /** Cifras en mono: teléfonos, códigos, montos. */
   numeric?: boolean;
+  /** Tono del label y el prefijo. Por defecto gris (textSecondary). */
+  labelTone?: keyof ColorScheme;
+  /** Tono del placeholder. Por defecto gris (textMuted). */
+  placeholderTone?: keyof ColorScheme;
+  /** Tono del icono en reposo. Por defecto gris (textMuted); focus y error mantienen su color. */
+  iconTone?: keyof ColorScheme;
+  /** `success` pinta el hint en verde con un check, para confirmaciones en vivo (p. ej. "coinciden"). */
+  hintTone?: 'muted' | 'success';
 }
 
 /**
@@ -35,6 +43,8 @@ export interface InputProps extends Omit<TextInputProps, 'style'> {
  */
 export function Input({
   label, icon, error, hint, password, prefix, containerStyle, numeric,
+  labelTone = 'textSecondary', placeholderTone = 'textMuted', iconTone = 'textMuted',
+  hintTone = 'muted',
   ...rest
 }: InputProps) {
   const { c } = useTheme();
@@ -46,7 +56,7 @@ export function Input({
 
   return (
     <View style={[styles.group, containerStyle]}>
-      {label ? <Text v="strongS" tone="textSecondary">{label}</Text> : null}
+      {label ? <Text v="strongS" tone={labelTone}>{label}</Text> : null}
 
       <Pressable
         onPress={() => ref.current?.focus()}
@@ -62,10 +72,14 @@ export function Input({
         ]}
       >
         {icon ? (
-          <Icon name={icon} size="md" color={error ? c.error : focused ? c.primaryText : c.textMuted} />
+          <Icon name={icon} size="md" color={error ? c.error : focused ? c.primaryText : (c[iconTone] as string)} />
         ) : null}
 
-        {prefix ? <Text v="dataM" tone="textMuted">{prefix}</Text> : null}
+        {prefix ? (
+          <Text v="dataM" tone={labelTone} style={{ fontFamily: FontFamily.data }}>
+            {prefix}
+          </Text>
+        ) : null}
 
         <TextInput
           ref={ref}
@@ -74,7 +88,7 @@ export function Input({
             numeric ? Type.dataM : Type.bodyM,
             { color: c.text },
           ]}
-          placeholderTextColor={c.textMuted}
+          placeholderTextColor={c[placeholderTone] as string}
           secureTextEntry={password && !revealed}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
@@ -98,6 +112,11 @@ export function Input({
         <View style={styles.messageRow}>
           <Icon name="atencion" size="sm" color={c.error} />
           <Text v="caption" tone="errorText" style={styles.message}>{error}</Text>
+        </View>
+      ) : hint && hintTone === 'success' ? (
+        <View style={styles.messageRow}>
+          <Icon name="check" size="sm" color={c.successText} />
+          <Text v="caption" tone="successText" style={styles.message}>{hint}</Text>
         </View>
       ) : hint ? (
         <Text v="caption" tone="textMuted">{hint}</Text>

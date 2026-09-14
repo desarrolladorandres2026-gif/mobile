@@ -1,8 +1,9 @@
-import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
+import { useCallback, useEffect } from 'react';
 import Constants from 'expo-constants';
-
-WebBrowser.maybeCompleteAuthSession();
+import {
+  GoogleSignin,
+  isSuccessResponse,
+} from '@react-native-google-signin/google-signin';
 
 const googleAuth = (Constants.expoConfig?.extra?.googleAuth ?? {}) as {
   webClientId?: string;
@@ -10,21 +11,55 @@ const googleAuth = (Constants.expoConfig?.extra?.googleAuth ?? {}) as {
   androidClientId?: string;
 };
 
+/** `app.json` todavía trae los `YOUR_GOOGLE_..._CLIENT_ID` de plantilla. */
+const isPlaceholder = (id?: string) => !id || id.startsWith('YOUR_');
+
+const isGoogleConfigured =
+  !isPlaceholder(googleAuth.webClientId) &&
+  !isPlaceholder(googleAuth.iosClientId) &&
+  !isPlaceholder(googleAuth.androidClientId);
+
+let didConfigure = false;
+
 /**
- * Flujo de Google resuelto en el navegador del sistema vía `expo-auth-session`.
- * No requiere el módulo nativo de Google (que exige un development build de
- * EAS): corre igual en Expo Go, en un dev build o en producción, y entrega
- * directamente el id_token que el backend valida en POST /auth/google.
+ * `GoogleSignin.configure` solo hace falta llamarlo una vez por vida de la
+ * app, no en cada intento de login — de ahí la bandera de módulo en vez de
+ * volver a llamarlo dentro de `signIn`.
  */
-export function useGoogleAuth() {
-  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
+function ensureConfigured() {
+  if (didConfigure || !isGoogleConfigured) return;
+  GoogleSignin.configure({
     webClientId: googleAuth.webClientId,
     iosClientId: googleAuth.iosClientId,
-    androidClientId: googleAuth.androidClientId,
+    offlineAccess: false,
   });
+  didConfigure = true;
+}
 
-  const idToken =
-    response?.type === 'success' ? response.params.id_token : undefined;
+/**
+ * Google con el selector nativo de cuentas (Credential Manager en Android,
+ * el SDK de Google en iOS) — la cuenta se elige dentro de la propia app, sin
+ * abrir el navegador del sistema.
+ *
+ * Reemplaza al flujo anterior por `expo-auth-session` (deprecado en el SDK
+ * de Expo instalado): ese abría una pestaña de navegador para todo el
+ * intercambio OAuth. Esto exige el módulo nativo del paquete, así que solo
+ * corre en un development build — no en Expo Go.
+ */
+export function useGoogleAuth() {
+  useEffect(() => { ensureConfigured(); }, []);
 
-  return { request, response, promptAsync, idToken };
+  const signIn = useCallback(async (): Promise<string | null> => {
+    if (!isGoogleConfigured) return null;
+    ensureConfigured();
+
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    const response = await GoogleSignin.signIn();
+
+    // type !== 'success' es el usuario cerrando el selector: no es un error.
+    if (!isSuccessResponse(response)) return null;
+    return response.data.idToken;
+  }, []);
+
+  return { signIn, isConfigured: isGoogleConfigured };
 }

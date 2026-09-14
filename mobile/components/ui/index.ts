@@ -16,6 +16,7 @@ export { Button, IconButton } from './Button';
 export type { ButtonProps, ButtonVariant, ButtonSize } from './Button';
 
 export { GoogleButton } from './GoogleButton';
+export { FacebookButton } from './FacebookButton';
 
 export { Card, SectionHeader, Sheet, DetailRow } from './Surface';
 export type { CardProps, SheetProps } from './Surface';

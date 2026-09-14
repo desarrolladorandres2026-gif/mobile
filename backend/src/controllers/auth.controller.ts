@@ -23,6 +23,39 @@ export class AuthController {
     } catch (error) { next(error); }
   }
 
+  // ── Entrada única: el celular decide entre login y registro. ──
+  async phoneStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await authService.getPhoneStatus(req.body.phone);
+      sendResponse(res, 200, 'Estado del celular', result);
+    } catch (error) { next(error); }
+  }
+
+  // ── Registro en 3 pasos: celular verificado por OTP antes de pedir
+  // nombre y contraseña. ──
+  async registerSendOTP(req: Request, res: Response, next: NextFunction) {
+    try {
+      await authService.sendRegistrationOTP(req.body.phone, req);
+      sendResponse(res, 200, 'OTP enviado');
+    } catch (error) { next(error); }
+  }
+
+  async registerVerifyOTP(req: Request, res: Response, next: NextFunction) {
+    try {
+      await authService.verifyRegistrationOTP(req.body.phone, req.body.otpCode, req);
+      sendResponse(res, 200, 'Celular verificado');
+    } catch (error) { next(error); }
+  }
+
+  async registerComplete(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { user, tokens } = await authService.completeRegistration(
+        req.body.phone, req.body.name, req.body.password, req
+      );
+      sendResponse(res, 201, 'Registro exitoso', { user, ...tokens });
+    } catch (error) { next(error); }
+  }
+
   async login(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await authService.login(req.body, req);

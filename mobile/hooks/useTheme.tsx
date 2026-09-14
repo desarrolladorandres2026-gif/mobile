@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useColorScheme } from 'react-native';
 import { useThemeStore, type Theme as ThemeMode } from '../stores/themeStore';
 import { DarkColors, LightColors, type ColorScheme } from '../theme/tokens';
@@ -12,23 +12,41 @@ export interface Theme {
   setTheme: (theme: ThemeMode) => void;
 }
 
+const ThemeOverrideContext = createContext<boolean | null>(null);
+
+/**
+ * Permite forzar un tema específico (ej. dark en pantallas de autenticación
+ * que usan fondos cinematográficos oscuros con la identidad Obsidian & Gold).
+ */
+export function ForceTheme({ isDark, children }: { isDark: boolean; children: ReactNode }) {
+  return (
+    <ThemeOverrideContext.Provider value={isDark}>
+      {children}
+    </ThemeOverrideContext.Provider>
+  );
+}
+
 /**
  * Tema activo. Se llama `c` a propósito: aparece en cada línea de estilo de
  * la app y un nombre corto mantiene las hojas de estilo legibles.
  * Soporta modos: 'light' (claro), 'dark' (oscuro) y 'auto' (según el sistema operativo).
  */
 export function useTheme(): Theme {
+  const forcedDark = useContext(ThemeOverrideContext);
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const setTheme = useThemeStore((s) => s.setTheme);
   const systemScheme = useColorScheme();
 
   const isDark = useMemo(() => {
+    if (forcedDark !== null && forcedDark !== undefined) {
+      return forcedDark;
+    }
     if (theme === 'auto') {
       return systemScheme === 'dark';
     }
     return theme === 'dark';
-  }, [theme, systemScheme]);
+  }, [forcedDark, theme, systemScheme]);
 
   const colors = useMemo(() => (isDark ? DarkColors : LightColors), [isDark]);
 

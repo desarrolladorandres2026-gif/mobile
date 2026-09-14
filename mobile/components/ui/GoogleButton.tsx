@@ -59,8 +59,8 @@ export function GoogleButton({
           styles.base,
           {
             height: Size.buttonLg,
-            backgroundColor: c.surfaceLight,
-            borderColor: c.border,
+            backgroundColor: c.white,
+            borderColor: 'rgba(8, 11, 17, 0.14)',
             opacity: disabled ? 0.42 : 1,
           },
           !disabled && Shadow.none,
@@ -71,7 +71,7 @@ export function GoogleButton({
         ) : (
           <>
             <GoogleG size={20} />
-            <Text v="buttonLg" color={c.text}>Continuar con Google</Text>
+            <Text v="buttonLg" color={c.textOnPrimary}>Continuar con Google</Text>
           </>
         )}
       </Pressable>

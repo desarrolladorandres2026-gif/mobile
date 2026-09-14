@@ -2,12 +2,21 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authController } from '../controllers';
 import { authenticate, validate, authRateLimiter, otpRateLimiter, sensitiveRateLimiter } from '../middlewares';
-import { registerSchema, loginSchema, googleLoginSchema, verifyOtpSchema, sendEmailOtpSchema, verifyEmailOtpSchema, refreshTokenSchema, resetPasswordSchema, updateProfileSchema } from '../validators';
+import { registerSchema, phoneStatusSchema, registerSendOtpSchema, registerVerifyOtpSchema, registerCompleteSchema, loginSchema, googleLoginSchema, verifyOtpSchema, sendEmailOtpSchema, verifyEmailOtpSchema, refreshTokenSchema, resetPasswordSchema, updateProfileSchema } from '../validators';
 
 const router = Router();
 
 // ── Public auth routes (with rate limiting) ──
 router.post('/register', authRateLimiter, validate(registerSchema), (req, res, next) => authController.register(req, res, next));
+
+// ── Entrada única (celular → login o registro). ──
+router.post('/phone-status', authRateLimiter, validate(phoneStatusSchema), (req, res, next) => authController.phoneStatus(req, res, next));
+
+// ── Registro en 3 pasos (celular → nombre → contraseña), verificando el
+// celular por OTP antes de pedir el resto. ──
+router.post('/register/send-otp', otpRateLimiter, validate(registerSendOtpSchema), (req, res, next) => authController.registerSendOTP(req, res, next));
+router.post('/register/verify-otp', authRateLimiter, validate(registerVerifyOtpSchema), (req, res, next) => authController.registerVerifyOTP(req, res, next));
+router.post('/register/complete', authRateLimiter, validate(registerCompleteSchema), (req, res, next) => authController.registerComplete(req, res, next));
 router.post('/login', authRateLimiter, validate(loginSchema), (req, res, next) => authController.login(req, res, next));
 router.post('/google', authRateLimiter, validate(googleLoginSchema), (req, res, next) => authController.googleLogin(req, res, next));
 router.post('/refresh-token', validate(refreshTokenSchema), (req, res, next) => authController.refreshToken(req, res, next));

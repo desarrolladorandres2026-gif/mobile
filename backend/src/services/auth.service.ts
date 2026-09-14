@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import crypto from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
-import { User, IUser } from '../models';
+import { User, IUser, PendingRegistration } from '../models';
 import { Session } from '../security/sessions';
 import { AppError } from '../middlewares/errorHandler';
 import { UserRole } from '../types';
@@ -166,10 +166,23 @@ export class AuthService {
       }
     }
 
+    return this.createUserAndSession({ ...input, email }, req);
+  }
+
+  /**
+   * Crea el `User`, genera sus tokens y abre sesión. Lo comparten `register`
+   * (celular sin verificar previamente) y `completeRegistration` (celular ya
+   * confirmado por OTP en el flujo de 3 pasos) — la creación de la cuenta es
+   * idéntica en ambos casos, solo cambia cómo se llegó hasta aquí.
+   */
+  private async createUserAndSession(
+    input: RegisterInput,
+    req?: Request
+  ): Promise<{ user: IUser; tokens: AuthTokens }> {
     const user = await User.create({
       name: input.name,
       phone: input.phone,
-      email,
+      email: input.email,
       password: input.password,
       role: input.role as UserRole,
       isVerified: true,
@@ -179,17 +192,10 @@ export class AuthService {
     user.refreshToken = tokens.refreshToken;
     await user.save();
 
-    // Create session
     if (req) {
       const ip = getClientIP(req);
       const ua = req.headers['user-agent'] || 'unknown';
-      await sessionManager.createSession(
-        user._id.toString(),
-        tokens.refreshToken,
-        ip,
-        ua,
-        input.role === 'client' ? undefined : undefined
-      );
+      await sessionManager.createSession(user._id.toString(), tokens.refreshToken, ip, ua);
 
       // Anti-fraud check
       const deviceId = generateDeviceId(ua, ip);
@@ -206,6 +212,114 @@ export class AuthService {
     }
 
     return { user, tokens };
+  }
+
+  /**
+   * Entrada única: le dice al front si ese celular ya tiene cuenta, para que
+   * decida entre pedir la contraseña (login) o arrancar el registro. Es una
+   * lectura simple sin efectos secundarios, así que va detrás del límite
+   * general (`authRateLimiter`) y no del de OTP — ese lo gasta únicamente
+   * `sendRegistrationOTP`, que sí manda un WhatsApp real.
+   */
+  async getPhoneStatus(phone: string): Promise<{ exists: boolean }> {
+    const user = await User.findOne({ phone });
+    return { exists: !!user };
+  }
+
+  /**
+   * Paso 1 del registro en 3 pasos: manda el OTP a un celular que todavía no
+   * tiene cuenta. Como no existe un `User` para guardar el código —a
+   * diferencia de `sendOTP`, pensado para reenvíos a cuentas ya creadas—
+   * vive en `PendingRegistration`, que se autodestruye si nadie vuelve.
+   */
+  async sendRegistrationOTP(phone: string, req?: Request): Promise<void> {
+    const existing = await User.findOne({ phone });
+    if (existing) {
+      throw new AppError('Este número de celular ya está registrado', 409);
+    }
+
+    const otpCode = generateOTP();
+    const otpExpires = getOTPExpiry();
+
+    await PendingRegistration.findOneAndUpdate(
+      { phone },
+      { phone, otpCode, otpExpires, verified: false, verifiedUntil: undefined },
+      { upsert: true, setDefaultsOnInsert: true }
+    );
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.OTP_SENT,
+        entity: 'user',
+        entityId: phone,
+        description: `OTP de registro enviado a ${phone}`,
+      });
+    }
+
+    await whatsappService.sendOTP(phone, otpCode);
+  }
+
+  /**
+   * Paso 2: confirma el código y marca el celular como verificado por un
+   * rato — no emite tokens todavía porque no hay cuenta que abrir, solo el
+   * visto bueno para que el paso 3 pueda crearla.
+   */
+  async verifyRegistrationOTP(phone: string, otpCode: string, req?: Request): Promise<void> {
+    const pending = await PendingRegistration.findOne({ phone }).select('+otpCode +otpExpires');
+    if (!pending || !pending.otpCode || !pending.otpExpires) {
+      throw new AppError('No hay un código pendiente para este celular', 400);
+    }
+
+    if (new Date() > pending.otpExpires) {
+      throw new AppError('OTP expirado', 400);
+    }
+
+    if (pending.otpCode !== otpCode) {
+      if (req) {
+        await logAudit(req, {
+          action: AuditAction.OTP_FAILED,
+          entity: 'user',
+          entityId: phone,
+          severity: AuditSeverity.MEDIUM,
+          description: `OTP de registro inválido para ${phone}`,
+        });
+      }
+      throw new AppError('OTP inválido', 400);
+    }
+
+    pending.verified = true;
+    pending.verifiedUntil = new Date(Date.now() + 15 * 60 * 1000);
+    pending.otpCode = undefined;
+    pending.otpExpires = undefined;
+    await pending.save();
+  }
+
+  /**
+   * Paso 3: con el celular ya verificado, pide lo que falta y crea la
+   * cuenta de una vez, ya confirmada — no hace falta un cuarto paso de OTP
+   * después, porque ese "estilo Rappi" es justo el que reemplaza este flujo.
+   */
+  async completeRegistration(
+    phone: string, name: string, password: string, req?: Request
+  ): Promise<{ user: IUser; tokens: AuthTokens }> {
+    const pending = await PendingRegistration.findOne({ phone });
+    if (!pending || !pending.verified || !pending.verifiedUntil || new Date() > pending.verifiedUntil) {
+      throw new AppError('Verifica tu celular primero', 400);
+    }
+
+    const existing = await User.findOne({ phone });
+    if (existing) {
+      throw new AppError('Este número de celular ya está registrado', 409);
+    }
+
+    const result = await this.createUserAndSession(
+      { name, phone, password, role: 'client' },
+      req
+    );
+
+    await pending.deleteOne();
+
+    return result;
   }
 
   async login(input: LoginInput, req?: Request): Promise<{

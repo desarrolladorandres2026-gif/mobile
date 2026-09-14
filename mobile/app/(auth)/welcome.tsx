@@ -90,7 +90,7 @@ export default function WelcomeScreen() {
     if (isLast) {
       if (isReplay) return exitReplay();
       completeOnboarding();
-      router.replace('/(auth)/register');
+      router.replace('/(auth)/login');
       return;
     }
     scrollRef.current?.scrollTo({ x: (index + 1) * width, animated: true });
@@ -167,23 +167,14 @@ export default function WelcomeScreen() {
             haptic={isLast ? 'medium' : 'light'}
           />
         ) : (
-          <>
-            <Button
-              title={isLast ? 'Crear mi cuenta' : 'Siguiente'}
-              iconRight={isLast ? undefined : 'adelante'}
-              size="lg"
-              full
-              onPress={advance}
-              haptic={isLast ? 'medium' : 'light'}
-            />
-
-            <Button
-              title="Ya tengo cuenta"
-              variant="ghost"
-              full
-              onPress={() => { completeOnboarding(); router.replace('/(auth)/login'); }}
-            />
-          </>
+          <Button
+            title={isLast ? 'Empezar' : 'Siguiente'}
+            iconRight={isLast ? undefined : 'adelante'}
+            size="lg"
+            full
+            onPress={advance}
+            haptic={isLast ? 'medium' : 'light'}
+          />
         )}
       </View>
     </SafeAreaView>

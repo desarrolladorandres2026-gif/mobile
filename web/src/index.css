@@ -1,24 +1,46 @@
 @import "tailwindcss";
 
 /**
- * ZIPP — Sitio público, Zipp Design System "El Trazo"
+ * ZIPP — Sitio público
  *
- * Las variables de color viven en /variables de color/colores.css (fuente
- * única para admin, business, mobile y este sitio). No dupliques valores hex
- * aquí.
+ * Las variables base vienen de /variables de color/colores.css (fuente única
+ * para admin, business, mobile y este sitio) — no dupliques esos valores.
+ * Este bloque solo sobreescribe la paleta para *este* sitio con los hex de
+ * marca exactos que pidió el usuario para la identidad pública de ZIPP
+ * (Obsidian/Champagne Gold). No toca el archivo compartido: admin y business
+ * siguen leyendo sus propios valores sin cambios.
  */
 @import "../../variables de color/colores.css";
+
+@theme {
+  --color-bg: #0A0D14;
+  --color-bg-alt: #121722;
+  --color-surface: #121722;
+  --color-surface-hover: #1B2232;
+  --color-border: #1B2232;
+  --color-border-light: #161B28;
+  --color-border-strong: #262E42;
+
+  --color-text-main: #F2F4F7;
+  --color-text-secondary: #8D95A8;
+  --color-text-muted: #5B6478;
+
+  --color-primary: #DDA73A;
+  --color-primary-light: #ECC158;
+  --color-primary-dark: #B8851B;
+  --color-primary-bg: rgba(221, 167, 58, 0.08);
+}
 
 @layer base {
   html {
     scroll-behavior: smooth;
-    background-color: #080B11;
+    background-color: var(--color-bg);
   }
 
   body {
     font-family: var(--font-sans);
-    background-color: #080B11;
-    color: #F6F8FA;
+    background-color: var(--color-bg);
+    color: var(--color-text-main);
     min-height: 100dvh;
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
@@ -29,91 +51,22 @@
   }
 
   ::selection {
-    background-color: #E5B242;
-    color: #080B11;
+    background-color: var(--color-primary);
+    color: var(--color-bg);
   }
 }
 
-/* ── Animaciones ── */
-@keyframes fadeUp {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-in {
-  animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes drawStroke {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-.hero-stroke-path {
-  stroke-dasharray: 340;
-  stroke-dashoffset: 340;
-  animation: drawStroke 1.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
-}
-
-@keyframes float {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
-}
-
-.animate-float {
-  animation: float 5s ease-in-out infinite;
-}
-
-@keyframes pulseSlow {
-  0%, 100% {
-    opacity: 0.15;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.35;
-    transform: scale(1.08);
-  }
-}
-
-.animate-pulse-slow {
-  animation: pulseSlow 6s ease-in-out infinite;
-}
-
-/* Texto dorado de alta gama */
-.text-gold-gradient {
-  background: linear-gradient(135deg, #FFFFFF 20%, #F3CE72 60%, #D69E26 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.text-gold-pure {
-  background: linear-gradient(135deg, #F3CE72 0%, #E5B242 50%, #B88214 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-/* Scrollbar fina de lujo */
+/* Scrollbar fina */
 ::-webkit-scrollbar {
   width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #080B11;
+  background: var(--color-bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: #232E46;
+  background: var(--color-border-strong);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #D69E26;
+  background: var(--color-primary);
 }

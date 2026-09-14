@@ -68,21 +68,25 @@
           "color": "#141A2E"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.939093803417-68c0mgopu2f0q8fckpd6nepedv5j0uff"
+        }
+      ]
     ],
     "extra": {
       "eas": {
         "projectId": "REEMPLAZAR_CON_TU_PROJECT_ID_DE_EAS"
       },
       "googleAuth": {
-        "webClientId": "YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com",
-        "iosClientId": "YOUR_GOOGLE_IOS_CLIENT_ID.apps.googleusercontent.com",
-        "androidClientId": "YOUR_GOOGLE_ANDROID_CLIENT_ID.apps.googleusercontent.com"
+        "webClientId": "939093803417-q4tgt5qgmno60git9c7mbmldsqhk86c2.apps.googleusercontent.com",
+        "iosClientId": "939093803417-68c0mgopu2f0q8fckpd6nepedv5j0uff.apps.googleusercontent.com",
+        "androidClientId": "939093803417-dupphnrgpvbq7bfvabhr3ntbs9j47j2i.apps.googleusercontent.com"
       }
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_ERROR_RECOVERY",

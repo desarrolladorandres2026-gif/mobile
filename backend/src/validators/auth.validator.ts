@@ -12,6 +12,44 @@ export const registerSchema = z.object({
   params: z.object({}).optional(),
 });
 
+// ── Entrada única (celular → login o registro), al estilo Rappi. ──
+export const phoneStatusSchema = z.object({
+  body: z.object({
+    phone: z.string().regex(/^(\+57)?[0-9]{10}$/, 'Número de celular inválido'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+// ── Registro en 3 pasos (celular → nombre → contraseña), verificando el
+// celular por OTP antes de pedir el resto, al estilo Rappi. ──
+export const registerSendOtpSchema = z.object({
+  body: z.object({
+    phone: z.string().regex(/^(\+57)?[0-9]{10}$/, 'Número de celular inválido'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+export const registerVerifyOtpSchema = z.object({
+  body: z.object({
+    phone: z.string().regex(/^(\+57)?[0-9]{10}$/, 'Número de celular inválido'),
+    otpCode: z.string().length(6, 'OTP debe ser de 6 dígitos'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+export const registerCompleteSchema = z.object({
+  body: z.object({
+    phone: z.string().regex(/^(\+57)?[0-9]{10}$/, 'Número de celular inválido'),
+    name: z.string().min(2, 'Mínimo 2 caracteres').max(100),
+    password: z.string().min(6, 'Mínimo 6 caracteres'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 export const loginSchema = z.object({
   body: z.object({
     phone: z.string().regex(/^(\+57)?[0-9]{10}$/, 'Número de celular inválido'),

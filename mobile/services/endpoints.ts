@@ -772,8 +772,28 @@ export const authApi = {
   google: (idToken: string) =>
     api.post('/auth/google', { idToken }).then((r) => r.data.data),
 
-  register: (data: { name: string; phone: string; password: string; role?: string }) =>
-    api.post('/auth/register', data).then((r) => r.data.data),
+  /**
+   * Entrada única: el celular decide entre login y registro. Una llamada
+   * barata y de solo lectura, aparte de `registerSendOtp` a propósito — esa
+   * sí manda un WhatsApp real y vive detrás de un límite mucho más estricto.
+   */
+  checkPhone: (phone: string): Promise<{ exists: boolean }> =>
+    api.post('/auth/phone-status', { phone }).then((r) => r.data.data),
+
+  /**
+   * Registro en 3 pasos al estilo Rappi: el celular se confirma por OTP
+   * antes de pedir nombre y contraseña, así que va en tres llamadas en vez
+   * de una. `registerComplete` ya no manda a la pantalla de OTP porque el
+   * celular quedó verificado en el paso anterior.
+   */
+  registerSendOtp: (phone: string) =>
+    api.post('/auth/register/send-otp', { phone }).then((r) => r.data),
+
+  registerVerifyOtp: (phone: string, otpCode: string) =>
+    api.post('/auth/register/verify-otp', { phone, otpCode }).then((r) => r.data),
+
+  registerComplete: (data: { phone: string; name: string; password: string }) =>
+    api.post('/auth/register/complete', data).then((r) => r.data.data),
 
   refreshToken: (refreshToken: string) =>
     api.post('/auth/refresh-token', { refreshToken }).then((r) => r.data.data),
@@ -783,12 +803,6 @@ export const authApi = {
 
   verifyOtp: (phone: string, otpCode: string) =>
     api.post('/auth/verify-otp', { phone, otpCode }).then((r) => r.data.data),
-
-  sendEmailOtp: (email: string) =>
-    api.post('/auth/send-email-otp', { email }).then((r) => r.data),
-
-  verifyEmailOtp: (email: string, otpCode: string) =>
-    api.post('/auth/verify-email-otp', { email, otpCode }).then((r) => r.data.data),
 
   resetPassword: (data: { phone: string; otpCode: string; password: string }) =>
     api.post('/auth/reset-password', data).then((r) => r.data.data),

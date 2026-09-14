@@ -10,7 +10,7 @@ import { BorderRadius, Shadow, Size, Spacing } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
 
-export type ButtonVariant = 'primary' | 'lime' | 'secondary' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'lime' | 'secondary' | 'ghost' | 'danger' | 'success';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps {
@@ -95,6 +95,12 @@ export function Button({
       bg: c.errorSoft,
       fg: c.errorText,
       border: c.error,
+      shadow: Shadow.none,
+    },
+    success: {
+      bg: c.success,
+      fg: c.white,
+      border: 'transparent',
       shadow: Shadow.none,
     },
   }[variant];

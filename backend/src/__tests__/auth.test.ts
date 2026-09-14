@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import app from '../app';
-import { User } from '../models';
+import { User, PendingRegistration } from '../models';
 import { UserRole } from '../types';
 import { makeUser, authHeader } from './factories';
 
@@ -81,6 +81,93 @@ describe('POST /api/v1/auth/register', () => {
       .expect(400);
 
     expect(res.body.message).toMatch(/contraseña/i);
+  });
+});
+
+describe('POST /api/v1/auth/phone-status', () => {
+  it('dice si un celular ya tiene cuenta, sin gastar el límite de OTP', async () => {
+    const client = newClient();
+    await request(app).post('/api/v1/auth/register').send(client).expect(201);
+
+    const known = await request(app)
+      .post('/api/v1/auth/phone-status')
+      .send({ phone: client.phone })
+      .expect(200);
+    expect(known.body.data.exists).toBe(true);
+
+    const unknown = await request(app)
+      .post('/api/v1/auth/phone-status')
+      .send({ phone: newClient().phone })
+      .expect(200);
+    expect(unknown.body.data.exists).toBe(false);
+  });
+});
+
+describe('Registro en 3 pasos (celular → nombre → contraseña)', () => {
+  it('manda el OTP y no deja completar el registro sin verificarlo', async () => {
+    const client = newClient();
+
+    await request(app)
+      .post('/api/v1/auth/register/send-otp')
+      .send({ phone: client.phone })
+      .expect(200);
+
+    const unverified = await request(app)
+      .post('/api/v1/auth/register/complete')
+      .send({ phone: client.phone, name: client.name, password: client.password })
+      .expect(400);
+
+    expect(unverified.body.message).toMatch(/verifica tu celular/i);
+  });
+
+  it('rechaza un código incorrecto y acepta el correcto', async () => {
+    const client = newClient();
+    await request(app).post('/api/v1/auth/register/send-otp').send({ phone: client.phone }).expect(200);
+
+    await request(app)
+      .post('/api/v1/auth/register/verify-otp')
+      .send({ phone: client.phone, otpCode: '000000' })
+      .expect(400);
+
+    const pending = await PendingRegistration.findOne({ phone: client.phone }).select('+otpCode');
+    await request(app)
+      .post('/api/v1/auth/register/verify-otp')
+      .send({ phone: client.phone, otpCode: pending!.otpCode })
+      .expect(200);
+  });
+
+  it('completa la cuenta después de verificar y devuelve tokens de una', async () => {
+    const client = newClient();
+    await request(app).post('/api/v1/auth/register/send-otp').send({ phone: client.phone }).expect(200);
+
+    const pending = await PendingRegistration.findOne({ phone: client.phone }).select('+otpCode');
+    await request(app)
+      .post('/api/v1/auth/register/verify-otp')
+      .send({ phone: client.phone, otpCode: pending!.otpCode })
+      .expect(200);
+
+    const res = await request(app)
+      .post('/api/v1/auth/register/complete')
+      .send({ phone: client.phone, name: client.name, password: client.password })
+      .expect(201);
+
+    expect(res.body.data.accessToken).toBeTruthy();
+    expect(res.body.data.user.isVerified).toBe(true);
+
+    // El estado intermedio no debe sobrevivir a una cuenta ya creada.
+    expect(await PendingRegistration.findOne({ phone: client.phone })).toBeNull();
+  });
+
+  it('no manda OTP de registro a un celular que ya tiene cuenta', async () => {
+    const client = newClient();
+    await request(app).post('/api/v1/auth/register').send(client).expect(201);
+
+    const res = await request(app)
+      .post('/api/v1/auth/register/send-otp')
+      .send({ phone: client.phone })
+      .expect(409);
+
+    expect(res.body.message).toMatch(/ya está registrado/i);
   });
 });
 

@@ -10,9 +10,23 @@ const config = getDefaultConfig(__dirname);
 // eventos de "archivo guardado" y deja de recompilar solo: toca dar reload
 // a mano para ver los cambios. Excluir el build de salida lo devuelve.
 //
+// El prebuild de Android (necesario tras subir a SDK 55) generó
+// android/.gradle, android/build y android/app/build: miles de artefactos
+// de compilación que cambian en cada build nativo. Es el mismo ruido que
+// dist/ y web-build/ de arriba, solo que peor, y reproduce exactamente el
+// mismo síntoma: hay que dar reload a mano porque Metro deja de detectar
+// los archivos guardados.
+//
 // `blockList` acepta un RegExp o un array de RegExp; concatenamos los
 // nuestros al valor por defecto de Expo para no pisar sus exclusiones.
-const extraBlockList = [/\/dist\/.*/, /\/web-build\/.*/];
+const extraBlockList = [
+  /\/dist\/.*/,
+  /\/web-build\/.*/,
+  /\/android\/\.gradle\/.*/,
+  /\/android\/build\/.*/,
+  /\/android\/app\/build\/.*/,
+  /\/android\/app\/\.cxx\/.*/,
+];
 config.resolver.blockList = config.resolver.blockList
   ? [].concat(config.resolver.blockList, extraBlockList)
   : extraBlockList;

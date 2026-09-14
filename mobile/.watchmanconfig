@@ -1,0 +1,10 @@
+{
+  "ignore_dirs": [
+    "android/.gradle",
+    "android/build",
+    "android/app/build",
+    "android/app/.cxx",
+    "dist",
+    "web-build"
+  ]
+}
