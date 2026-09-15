@@ -11,6 +11,7 @@ import { Text } from '../ui/Text';
 import { Icon } from '../ui/Icon';
 import type { IconName } from '../../theme/icons';
 import { BorderRadius, Motion, Size, Spacing, palette } from '../../theme/tokens';
+import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
 
 const TABS: Record<string, { icon: IconName; label: string }> = {
@@ -29,17 +30,18 @@ const TABS: Record<string, { icon: IconName; label: string }> = {
 const INDICATOR_W = 22;
 const SHEEN_W = 180;
 
-// La barra es una superficie de color fijo (oro de marca), no sigue el tema:
-// el primer plano va en negro para que los iconos no se pierdan sobre el oro.
-const BAR_BG = palette.gold400;             // #E5B242
-const ON_GOLD = '#000000';                  // icono/label activo, indicador
-const ON_GOLD_MUTED = 'rgba(0, 0, 0, 0.7)'; // icono/label inactivo
+// El dorado de marca marca qué pestaña está activa (icono, label e
+// indicador) y no cambia con el tema. El fondo de la barra sí sigue el
+// tema: mismo color de superficie que el resto del aplicativo, claro u
+// oscuro.
+const ON_GOLD = palette.gold500;    // icono/label activo, indicador
 
 /**
  * Reflejo que recorre la barra.
  *
- * Una banda blanca muy tenue, inclinada, que cruza de izquierda a derecha
- * cada pocos segundos: le da al oro un acabado metálico sin robar atención.
+ * Una banda dorada muy tenue, inclinada, que cruza de izquierda a derecha
+ * cada pocos segundos: un guiño metálico sin robar atención, sobre
+ * cualquier fondo (claro u oscuro).
  */
 function Sheen({ trackWidth }: { trackWidth: number }) {
   const p = useSharedValue(0);
@@ -62,7 +64,7 @@ function Sheen({ trackWidth }: { trackWidth: number }) {
   return (
     <Animated.View pointerEvents="none" style={[styles.sheen, slide]}>
       <LinearGradient
-        colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.38)', 'rgba(255,255,255,0)']}
+        colors={['rgba(213,158,38,0)', 'rgba(213,158,38,0.28)', 'rgba(213,158,38,0)']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={StyleSheet.absoluteFill}
@@ -75,13 +77,14 @@ function Sheen({ trackWidth }: { trackWidth: number }) {
  * Barra de navegación.
  *
  * El indicador de pestaña activa es el trazo de la marca en pequeño: un
- * segmento en tinta que se desliza sobre la barra dorada al cambiar de
- * sección. Es el mismo gesto del logo y del seguimiento, así que la
- * navegación queda firmada.
+ * segmento dorado que se desliza sobre la barra al cambiar de sección. Es
+ * el mismo gesto del logo y del seguimiento, así que la navegación queda
+ * firmada.
  */
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const { c } = useTheme();
 
   const count = state.routes.length;
   const tabWidth = width / count;
@@ -101,8 +104,8 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       style={[
         styles.bar,
         {
-          backgroundColor: BAR_BG,
-          borderTopColor: palette.gold600,
+          backgroundColor: c.background,
+          borderTopColor: c.border,
           height: Size.tabBar + insets.bottom,
           paddingBottom: insets.bottom,
         },
@@ -123,6 +126,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
             icon={config.icon}
             label={config.label}
             focused={focused}
+            inactiveColor={c.text}
             width={tabWidth}
             onPress={() => {
               const event = navigation.emit({
@@ -142,11 +146,12 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
 }
 
 function TabItem({
-  icon, label, focused, width, onPress,
+  icon, label, focused, inactiveColor, width, onPress,
 }: {
   icon: IconName;
   label: string;
   focused: boolean;
+  inactiveColor: string;
   width: number;
   onPress: () => void;
 }) {
@@ -175,10 +180,10 @@ function TabItem({
         <Icon
           name={icon}
           size="lg"
-          color={focused ? ON_GOLD : ON_GOLD_MUTED}
+          color={focused ? ON_GOLD : inactiveColor}
           strong={focused}
         />
-        <Text v="caption" color={focused ? ON_GOLD : ON_GOLD_MUTED}>
+        <Text v="caption" color={focused ? ON_GOLD : inactiveColor}>
           {label}
         </Text>
       </Animated.View>

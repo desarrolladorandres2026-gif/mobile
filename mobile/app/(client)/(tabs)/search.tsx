@@ -208,6 +208,22 @@ export default function SearchScreen() {
   const activeCategory = categories.find((cat) => cat.key === category);
   const activeFilters = countActiveFilters(filters);
 
+  /**
+   * Nada que buscar porque nadie reparte ahí.
+   *
+   * Con la dirección de entrega fuera de cobertura las dos fuentes —la
+   * búsqueda de catálogo y el listado por categoría— devuelven cero, porque
+   * ambas van geocercadas por `$geoNear`. Decirle entonces "revisa cómo lo
+   * escribiste" manda al usuario a corregir un término que está bien.
+   *
+   * La señal no puede ser `data`: un término que no existe o una categoría
+   * sin locales también lo dejan vacío. Se mira el catálogo entero, sin
+   * categoría ni término — la misma consulta que hace Inicio, así que
+   * React Query la sirve de caché y no cuesta otra descarga.
+   */
+  const whole = useBusinesses(coords, coordsReady) as { data?: Business[] };
+  const outOfCoverage = !!coords && whole.data !== undefined && whole.data.length === 0;
+
   const selectTerm = useCallback((next: string) => {
     tap('select');
     setQuery(next);
@@ -409,6 +425,15 @@ export default function SearchScreen() {
           }
           ListEmptyComponent={
             products.length ? null : searching ? (
+              outOfCoverage ? (
+                <EmptyState
+                  icon="ubicacion"
+                  title="Todavía no llegamos a tu dirección"
+                  message="Ningún negocio reparte en esa zona, así que ninguna búsqueda va a encontrar nada. Prueba con otra dirección de entrega."
+                  actionLabel="Cambiar dirección"
+                  onAction={() => router.push('/(client)/addresses')}
+                />
+              ) : (
               <EmptyState
                 icon="explorar"
                 title="Nada con esa búsqueda"
@@ -420,6 +445,7 @@ export default function SearchScreen() {
                 actionLabel="Limpiar filtros"
                 onAction={() => { setQuery(''); setCategory(null); setFilters(NO_FILTERS); }}
               />
+              )
             ) : (
               <DiscoveryHub
                 popularTerms={popularTerms}

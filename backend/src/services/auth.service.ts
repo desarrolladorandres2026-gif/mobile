@@ -1,5 +1,6 @@
 import { Request } from 'express';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { OAuth2Client } from 'google-auth-library';
 import { User, IUser, PendingRegistration } from '../models';
 import { Session } from '../security/sessions';
@@ -64,6 +65,65 @@ function getClientIP(req: Request): string {
 // registrados (web, iOS, Android) — verifyIdToken acepta un arreglo de
 // audiencias válidas.
 const googleClient = new OAuth2Client();
+
+// ── Verificación del identityToken de "Sign in with Apple" ────────────
+//
+// Apple no publica un SDK de servidor (a diferencia de `google-auth-library`
+// para Google), así que esto reimplementa lo mínimo: bajar su JWKS, elegir
+// la llave por `kid` y verificar la firma RS256 con el `jsonwebtoken` que ya
+// es dependencia del proyecto. Node soporta importar un JWK directo con
+// `crypto.createPublicKey`, así que no hace falta sumar `jwks-rsa` ni
+// `apple-signin-auth` solo para esto.
+const APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys';
+const APPLE_ISSUER = 'https://appleid.apple.com';
+const APPLE_JWKS_CACHE_TTL_MS = 60 * 60 * 1000; // Apple rota estas llaves con muy poca frecuencia.
+
+let appleJwksCache: { keys: any[]; expiresAt: number } | null = null;
+
+async function getAppleJwks(): Promise<any[]> {
+  if (appleJwksCache && appleJwksCache.expiresAt > Date.now()) {
+    return appleJwksCache.keys;
+  }
+
+  const response = await fetch(APPLE_JWKS_URL);
+  if (!response.ok) throw new Error(`Apple JWKS respondió ${response.status}`);
+
+  const { keys } = (await response.json()) as { keys: any[] };
+  appleJwksCache = { keys, expiresAt: Date.now() + APPLE_JWKS_CACHE_TTL_MS };
+  return keys;
+}
+
+interface ApplePayload {
+  sub: string;
+  email?: string;
+  email_verified?: boolean | string;
+}
+
+/**
+ * Valida el `identityToken` que Apple firma y devuelve en el `form_post` de
+ * `/auth/apple/callback`. Nunca se llama al endpoint de token de Apple ni se
+ * firma un `client_secret`: todo lo que hace falta para confiar en el login
+ * ya viaja firmado dentro de este JWT.
+ */
+async function verifyAppleIdentityToken(identityToken: string, audience: string): Promise<ApplePayload> {
+  const decoded = jwt.decode(identityToken, { complete: true });
+  const kid = decoded && typeof decoded === 'object' ? (decoded.header as any)?.kid : undefined;
+  if (!kid) throw new Error('identityToken sin kid');
+
+  const keys = await getAppleJwks();
+  const jwk = keys.find((k) => k.kid === kid);
+  if (!jwk) throw new Error('Ninguna llave de Apple coincide con el kid del token');
+
+  const publicKey = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+
+  const payload = jwt.verify(identityToken, publicKey, {
+    algorithms: ['RS256'],
+    issuer: APPLE_ISSUER,
+    audience,
+  }) as ApplePayload;
+
+  return payload;
+}
 
 export class AuthService {
   async loginWithGoogle(idToken: string, req?: Request): Promise<{
@@ -137,6 +197,80 @@ export class AuthService {
         entityId: user._id.toString(),
         description: `Login con Google exitoso: ${user.email}`,
         metadata: { provider: 'google' },
+      });
+    }
+
+    return { user, tokens, needsPhone: !user.phone };
+  }
+
+  async loginWithApple(identityToken: string, fullName: string | undefined, req?: Request): Promise<{
+    user: IUser;
+    tokens: AuthTokens;
+    needsPhone: boolean;
+  }> {
+    if (!config.apple.servicesId) {
+      throw new AppError('Inicio de sesión con Apple no está configurado', 500);
+    }
+
+    let payload: ApplePayload;
+    try {
+      payload = await verifyAppleIdentityToken(identityToken, config.apple.servicesId);
+    } catch {
+      throw new AppError('Token de Apple inválido', 401);
+    }
+
+    if (!payload.sub) {
+      throw new AppError('No pudimos verificar tu cuenta de Apple', 401);
+    }
+
+    // "true"/"false" en vez de booleano es una inconsistencia conocida del
+    // token de Apple según la versión de iOS/macOS que lo generó.
+    const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
+    const email = payload.email && emailVerified ? payload.email.toLowerCase() : undefined;
+
+    let user = await User.findOne({ appleId: payload.sub }).select('+appleId');
+
+    if (!user) {
+      // Igual que con Google: si ya existe una cuenta con este correo, se
+      // vincula en vez de crear un duplicado.
+      user = email ? await User.findOne({ email }) : null;
+
+      if (user) {
+        user.appleId = payload.sub;
+        await user.save();
+      } else {
+        user = await User.create({
+          name: fullName || (email ? email.split('@')[0] : 'Usuario Apple'),
+          email,
+          appleId: payload.sub,
+          role: UserRole.CLIENT,
+          // Sin celular todavía: la app lo pide y lo verifica por OTP justo
+          // después de este login.
+          isVerified: false,
+        });
+      }
+    }
+
+    if (!user.isActive) {
+      throw new AppError('Tu cuenta está desactivada', 403);
+    }
+
+    const tokens = this.generateTokens(user);
+    user.refreshToken = tokens.refreshToken;
+    user.lastLoginAt = new Date();
+    await user.save();
+
+    if (req) {
+      const ip = getClientIP(req);
+      const ua = req.headers['user-agent'] || 'unknown';
+      await sessionManager.createSession(user._id.toString(), tokens.refreshToken, ip, ua);
+
+      await logAudit(req, {
+        action: AuditAction.LOGIN_SUCCESS,
+        entity: 'user',
+        entityId: user._id.toString(),
+        description: `Login con Apple exitoso: ${user.email || user._id}`,
+        metadata: { provider: 'apple' },
       });
     }
 

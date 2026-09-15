@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { View, Image, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, {
   FadeInDown, SlideInRight, SlideInLeft, SlideOutLeft, SlideOutRight,
 } from 'react-native-reanimated';
 import {
-  Text, Input, Button, GoogleButton, FacebookButton, Notice, OtpInput, Screen, Header,
+  Text, Input, Button, GoogleButton, FacebookButton, AppleButton, Notice, OtpInput, Screen, Header,
 } from '../../components/ui';
 import { useBottomInset } from '../../hooks/useBottomSpace';
 import { useAuthStore } from '../../stores/authStore';
@@ -16,11 +16,23 @@ import { apiMessage, validateName, validatePhone, validatePassword } from '../..
 import { scorePasswordStrength, PASSWORD_STRENGTH_LABEL } from '../../lib/passwordStrength';
 import { tap } from '../../lib/haptics';
 import { useGoogleAuth } from '../../lib/googleAuth';
+import { useAppleAuth } from '../../lib/appleAuth';
 
 type Step = 'chooser' | 'phone-input' | 'login-password' | 'otp' | 'name' | 'create-password';
 type Errors = Partial<Record<'phone' | 'password' | 'name' | 'newPassword' | 'confirmPassword', string>>;
 
 const RESEND_SECONDS = 60;
+
+/**
+ * Accesos directos de prueba — solo mientras no hay backend de producción.
+ * Usan las cuentas fijas que siembra `backend/src/seed.ts`. `__DEV__` los
+ * saca de cualquier build de release sin necesitar un flag aparte.
+ */
+const QUICK_LOGIN_ACCOUNTS = {
+  client: { phone: '3101234567', password: 'Zipp.2026' },
+  driver: { phone: '3111234567', password: 'Zipp.2026' },
+} as const;
+
 const REGISTER_STEPS: Step[] = ['otp', 'name', 'create-password'];
 const PREVIOUS_STEP: Partial<Record<Step, Step>> = {
   'phone-input': 'chooser',
@@ -61,8 +73,11 @@ export default function LoginScreen() {
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
+  const [quickLoginRole, setQuickLoginRole] = useState<'client' | 'driver' | null>(null);
 
   const { signIn: googleSignIn, isConfigured: googleConfigured } = useGoogleAuth();
+  const { signIn: appleSignIn, isConfigured: appleConfigured } = useAppleAuth();
 
   const clear = (field: keyof Errors) => setErrors((e) => ({ ...e, [field]: undefined }));
   const cleanPhone = phone.replace(/\D/g, '');
@@ -111,6 +126,52 @@ export default function LoginScreen() {
       tap('error');
     } finally {
       setGoogleLoading(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    setAppleLoading(true);
+    setFormError('');
+
+    try {
+      const result = await appleSignIn();
+      if (!result) { setAppleLoading(false); return; } // el usuario cerró el navegador
+
+      const data = await authApi.apple(result.idToken, result.fullName);
+      const { user, accessToken, refreshToken, needsPhone } = data;
+      await setAuth(user, accessToken, refreshToken);
+      tap('success');
+      routeAfterAuth(user, needsPhone);
+    } catch (error) {
+      setFormError(apiMessage(error, 'No pudimos iniciar sesión con Apple.'));
+      tap('error');
+    } finally {
+      setAppleLoading(false);
+    }
+  };
+
+  /**
+   * Entrada directa con las cuentas fijas del seed, sin pedir contraseña.
+   * Solo para pruebas: cliente y domiciliario son los únicos roles que la
+   * app móvil deja pasar (admin/business entran por sus paneles web), así
+   * que son los únicos dos botones que tiene sentido ofrecer acá.
+   */
+  const handleQuickLogin = async (role: 'client' | 'driver') => {
+    setQuickLoginRole(role);
+    setFormError('');
+
+    try {
+      const { phone: testPhone, password: testPassword } = QUICK_LOGIN_ACCOUNTS[role];
+      const data = await authApi.login(testPhone, testPassword);
+      const { user, accessToken, refreshToken } = data;
+      await setAuth(user, accessToken, refreshToken);
+      tap('success');
+      routeAfterAuth(user, false);
+    } catch (error) {
+      setFormError(apiMessage(error, 'No pudimos entrar con la cuenta de prueba.'));
+      tap('error');
+    } finally {
+      setQuickLoginRole(null);
     }
   };
 
@@ -275,17 +336,6 @@ export default function LoginScreen() {
 
   return (
     <Screen>
-      {step === 'chooser' ? (
-        <>
-          <Image
-            source={require('../../assets/auth-map-bg.jpg')}
-            style={styles.bgImage}
-            resizeMode="cover"
-          />
-          <View style={styles.bgScrim} pointerEvents="none" />
-        </>
-      ) : null}
-
       {step !== 'chooser' ? <Header bare onBack={goBack} /> : null}
 
       {progressIndex >= 0 ? (
@@ -308,10 +358,10 @@ export default function LoginScreen() {
           <Animated.View key={step} entering={enterAnim} exiting={exitAnim} style={styles.step}>
             {step === 'chooser' ? (
               <View style={styles.greeting}>
-                <Text v="displayXL" center color="#FFFFFF" style={styles.titleText}>
+                <Text v="displayXL" center style={styles.titleText}>
                   Bienvenido
                 </Text>
-                <Text v="bodyM" center color="rgba(255,255,255,0.85)">
+                <Text v="bodyM" center tone="textSecondary">
                   Entra a tu cuenta y disfruta de tus restaurantes y tiendas favoritas.
                 </Text>
                 {formError ? <Notice tone="error">{formError}</Notice> : null}
@@ -515,33 +565,75 @@ export default function LoginScreen() {
               <Button
                 title="Continuar con tu número"
                 icon="celular"
+                variant="successLight"
                 size="lg"
                 full
+                pill
                 onPress={() => goToStep('phone-input', 'forward')}
                 haptic="medium"
               />
 
               <GoogleButton
                 full
+                pill
                 loading={googleLoading}
                 disabled={!googleConfigured}
                 onPress={handleGoogleSignIn}
               />
 
-              <FacebookButton full />
+              <FacebookButton full pill />
+
+              <AppleButton
+                full
+                pill
+                loading={appleLoading}
+                disabled={!appleConfigured}
+                onPress={handleAppleSignIn}
+              />
+
+              {__DEV__ ? (
+                <View style={styles.quickLoginBlock}>
+                  <Text v="caption" tone="textMuted" center>
+                    Solo pruebas — entra directo con una cuenta del seed
+                  </Text>
+                  <View style={styles.quickLoginRow}>
+                    <Button
+                      title="Cliente"
+                      icon="perfil"
+                      variant="secondary"
+                      size="sm"
+                      loading={quickLoginRole === 'client'}
+                      disabled={quickLoginRole === 'driver'}
+                      onPress={() => handleQuickLogin('client')}
+                      style={styles.quickLoginButton}
+                    />
+                    <Button
+                      title="Domiciliario"
+                      icon="domiciliario"
+                      variant="secondary"
+                      size="sm"
+                      loading={quickLoginRole === 'driver'}
+                      disabled={quickLoginRole === 'client'}
+                      onPress={() => handleQuickLogin('driver')}
+                      style={styles.quickLoginButton}
+                    />
+                  </View>
+                </View>
+              ) : null}
             </View>
           ) : (
             <Button
               title={
                 step === 'phone-input' ? 'Continuar'
                   : step === 'login-password' ? 'Iniciar sesión'
-                  : step === 'otp' ? 'Verificar'
-                  : step === 'name' ? 'Continuar'
-                  : 'Crear cuenta'
+                    : step === 'otp' ? 'Verificar'
+                      : step === 'name' ? 'Continuar'
+                        : 'Crear cuenta'
               }
               iconRight={step === 'phone-input' || step === 'name' ? 'adelante' : undefined}
               size="lg"
               full
+              pill
               disabled={step === 'otp' && otpCode.length < 6}
               loading={loading}
               onPress={handleContinue}
@@ -598,17 +690,6 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.lg,
   },
   progressBar: { flex: 1, height: 4, borderRadius: BorderRadius.sm },
-  bgImage: {
-    ...StyleSheet.absoluteFillObject,
-    // El pin queda naturalmente donde caen los botones de abajo; esto lo
-    // sube al hueco libre entre el saludo y el pie de botones, y lo
-    // recentra en horizontal (el recorte de "cover" lo dejaba corrido).
-    transform: [{ translateY: -450 }, { translateX: -185 }],
-  },
-  bgScrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(8, 11, 17, 0.5)',
-  },
   content: {
     flexGrow: 1,
     paddingHorizontal: Spacing.xl,
@@ -642,4 +723,7 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.md,
   },
   choiceButtons: { gap: Spacing.md },
+  quickLoginBlock: { gap: Spacing.sm, marginTop: Spacing.sm },
+  quickLoginRow: { flexDirection: 'row', gap: Spacing.sm },
+  quickLoginButton: { flex: 1 },
 });

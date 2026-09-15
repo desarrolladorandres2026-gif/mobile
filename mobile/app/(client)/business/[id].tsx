@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo } from 'react';
+import { useState, useMemo, useCallback, useRef, memo } from 'react';
 import {
   View, ScrollView, Pressable, StyleSheet, Share, Linking, Platform, TextInput,
 } from 'react-native';
@@ -28,6 +28,11 @@ import {
   productImageUri, productImagePlaceholder, hasProductImage, productGallery,
   type ProductImages,
 } from '../../../lib/productImage';
+import {
+  hasModifierUI, needsChoices, sortedGroups, toggleChoice, selectionTotal,
+  firstUnmetGroup, groupHint, isRequired, isSingle, countIn,
+  type ModifierGroup, type ModifierChoice,
+} from '../../../lib/modifiers';
 
 interface Extra { name: string; price: number }
 
@@ -45,6 +50,8 @@ interface Product {
   galleryImages?: ProductImages[] | null;
   isAvailable: boolean;
   extras?: Extra[];
+  /** Grupos con reglas (obligatorio, mínimo, máximo). Ver `lib/modifiers.ts`. */
+  modifierGroups?: ModifierGroup[];
   categoryId?: string;
   /** Alimentan los distintivos de catálogo. Ver `lib/catalog.ts`. */
   isFeatured?: boolean;
@@ -396,6 +403,7 @@ export default function BusinessScreen() {
           businessId={business._id}
           businessName={business.name}
           onClose={() => setSelected(null)}
+          onOpenProduct={setSelected}
         />
       ) : null}
 
@@ -614,7 +622,7 @@ function StoreCartBar({
 // ──────────────────────────────────────────────────────────────
 
 function ProductSheet({
-  product, allProducts, accent, category, businessId, businessName, onClose,
+  product, allProducts, accent, category, businessId, businessName, onClose, onOpenProduct,
 }: {
   product: Product;
   allProducts: Product[];
@@ -623,6 +631,8 @@ function ProductSheet({
   businessId: string;
   businessName: string;
   onClose: () => void;
+  /** Abre la hoja de otro producto (una sugerencia que exige elegir algo). */
+  onOpenProduct: (product: Product) => void;
 }) {
   const { c } = useTheme();
   const addItem = useCartStore((s) => s.addItem);
@@ -630,7 +640,13 @@ function ProductSheet({
 
   const [quantity, setQuantity] = useState(1);
   const [extras, setExtras] = useState<Extra[]>([]);
+  const [choices, setChoices] = useState<ModifierChoice[]>([]);
+  /** El grupo que se resaltó por faltar, para que el cliente lo vea. */
+  const [attention, setAttention] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
+  const scrollRef = useRef<ScrollView | null>(null);
+  const groupOffsets = useRef<Record<string, number>>({});
+  const groups = useMemo(() => sortedGroups(product.modifierGroups), [product.modifierGroups]);
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
 
@@ -647,7 +663,7 @@ function ProductSheet({
   const gallery = useMemo(() => productGallery(product), [product]);
 
   const unitPrice = product.discountPrice ?? product.price;
-  const extrasTotal = extras.reduce((sum, e) => sum + e.price, 0);
+  const extrasTotal = extras.reduce((sum, e) => sum + e.price, 0) + selectionTotal(choices);
   const lineTotal = (unitPrice + extrasTotal) * quantity;
 
   // Primero lo de otras secciones del menú (la bebida, el postre, el
@@ -665,6 +681,14 @@ function ProductSheet({
   }, [allProducts, product]);
 
   const quickAdd = (suggested: Product) => {
+    // Una sugerencia que exige elegir algo (la carne, el tamaño) no se
+    // puede meter a ciegas: el servidor la rechazaría en el checkout. Se
+    // abre su hoja en lugar de esta.
+    if (needsChoices(suggested)) {
+      tap('light');
+      onOpenProduct(suggested);
+      return;
+    }
     tap('success');
     addItem(businessId, businessName, {
       productId: suggested._id,
@@ -690,15 +714,38 @@ function ProductSheet({
   };
 
   const add = () => {
+    // Nunca se deshabilita el botón: si falta un grupo, se lleva la vista
+    // hasta él y se resalta. Un botón gris no dice qué hay que hacer.
+    const unmet = firstUnmetGroup(groups, choices);
+    if (unmet) {
+      tap('warning');
+      setAttention(unmet._id);
+      const y = groupOffsets.current[unmet._id];
+      if (y !== undefined) scrollRef.current?.scrollTo({ y: Math.max(0, y - Spacing.lg), animated: true });
+      return;
+    }
     addItem(businessId, businessName, {
       productId: product._id,
       productName: product.name,
       quantity,
       unitPrice,
-      selectedExtras: extras.map((e) => ({ name: e.name, price: e.price, quantity: 1 })),
+      selectedExtras: [
+        ...choices.map((ch) => ({
+          name: ch.name, price: ch.price, quantity: 1,
+          groupId: ch.groupId, groupName: ch.groupName, optionId: ch.optionId,
+        })),
+        ...extras.map((e) => ({ name: e.name, price: e.price, quantity: 1 })),
+      ],
       notes: notes.trim(),
     });
     onClose();
+  };
+
+  const pickOption = (group: ModifierGroup, option: ModifierGroup['options'][number]) => {
+    if (option.isAvailable === false) return;
+    tap('select');
+    setChoices((current) => toggleChoice(current, group, option));
+    if (attention === group._id) setAttention(null);
   };
 
   return (
@@ -707,6 +754,7 @@ function ProductSheet({
       onClose={onClose}
       title={product.name}
       height={0.86}
+      scrollRef={scrollRef}
       footer={
         <View style={styles.sheetFooter}>
           <QtyStepper value={quantity} onChange={setQuantity} min={1} itemName={product.name} />
@@ -781,6 +829,80 @@ function ProductSheet({
           <Text v="bodyM" tone="textSecondary">{product.description}</Text>
         ) : null}
       </View>
+
+      {hasModifierUI(product) ? groups.map((group) => {
+        const chosen = countIn(choices, group._id);
+        const single = isSingle(group);
+        const full = !single && chosen >= group.maxSelect;
+        const flagged = attention === group._id;
+        return (
+          <View
+            key={group._id}
+            style={styles.sheetSection}
+            onLayout={(e) => { groupOffsets.current[group._id] = e.nativeEvent.layout.y; }}
+          >
+            <View style={styles.groupHead}>
+              <Text v="label" tone={flagged ? 'errorText' : 'textMuted'}>{group.name}</Text>
+              <View style={styles.groupMeta}>
+                {isRequired(group) ? (
+                  <Badge label="Obligatorio" tone={flagged ? 'error' : 'neutral'} />
+                ) : null}
+                <Text v="dataXS" tone={flagged ? 'errorText' : 'textMuted'}>
+                  {single ? groupHint(group) : `${groupHint(group)} · ${chosen}/${group.maxSelect}`}
+                </Text>
+              </View>
+            </View>
+            <View style={[styles.extras, { borderColor: flagged ? c.error : c.border }]}>
+              {group.options.map((option, i) => {
+                const checked = choices.some((ch) => ch.optionId === option._id);
+                const soldOut = option.isAvailable === false;
+                const blocked = !checked && !soldOut && full;
+                return (
+                  <Pressable
+                    key={option._id}
+                    onPress={() => pickOption(group, option)}
+                    disabled={soldOut}
+                    accessibilityRole={single ? 'radio' : 'checkbox'}
+                    accessibilityState={{ checked, disabled: soldOut }}
+                    accessibilityLabel={
+                      soldOut
+                        ? `${option.name}, agotado`
+                        : `${option.name}${option.price > 0 ? `, ${money(option.price)} adicional` : ''}`
+                    }
+                    style={[
+                      styles.extra,
+                      i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+                      (soldOut || blocked) && styles.optionOff,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        single ? styles.radio : styles.checkbox,
+                        {
+                          backgroundColor: checked ? c.primary : 'transparent',
+                          borderColor: checked ? c.primary : c.borderStrong,
+                        },
+                      ]}
+                    >
+                      {checked ? (
+                        single
+                          ? <View style={[styles.radioDot, { backgroundColor: c.textOnPrimary }]} />
+                          : <Icon name="check" size={14} color={c.textOnPrimary} strong />
+                      ) : null}
+                    </View>
+                    <Text v="bodyM" style={styles.flex}>{option.name}</Text>
+                    {soldOut ? (
+                      <Text v="dataS" tone="textMuted">Agotado</Text>
+                    ) : option.price > 0 ? (
+                      <Text v="dataS" tone="textMuted">+{money(option.price)}</Text>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        );
+      }) : null}
 
       {product.extras && product.extras.length > 0 ? (
         <View style={styles.sheetSection}>
@@ -1003,6 +1125,14 @@ const styles = StyleSheet.create({
     width: 24, height: 24, borderRadius: 7, borderWidth: 2,
     alignItems: 'center', justifyContent: 'center',
   },
+  radio: {
+    width: 24, height: 24, borderRadius: 12, borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  radioDot: { width: 10, height: 10, borderRadius: 5 },
+  optionOff: { opacity: 0.45 },
+  groupHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.sm },
+  groupMeta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   notesLabel: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   notes: {
     borderRadius: BorderRadius.lg,

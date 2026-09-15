@@ -46,7 +46,12 @@ export class OrderController {
       // Un pedido programado no se anuncia al crearse: lo hace el barrido
       // cuando llega su hora. Avisar ahora pondría en la cocina un pedido
       // para pasado mañana.
-      if (io && !order.scheduledFor) {
+      //
+      // Una réplica idempotente —el doble toque, el reintento de la red—
+      // tampoco: ese pedido ya se anunció la primera vez, y repetirlo hacía
+      // sonar la cocina dos veces y le ofrecía a los domiciliarios dos veces
+      // el mismo pedido.
+      if (io && !order.scheduledFor && !order.$locals?.replayed) {
         const business = await Business.findById(order.businessId).select('ownerId');
         if (business) {
           // El pedido va entero y poblado, con la misma forma que devuelve

@@ -37,6 +37,45 @@ const extras = z
   .max(30, 'Demasiados adicionales para un solo producto');
 
 /**
+ * Grupos de modificadores, con las reglas que el modelo no puede expresar
+ * solo: nombres únicos (el cliente elige por id, pero el ticket de cocina
+ * se lee por nombre y dos "Salsas" serían un enigma) y precios enteros
+ * —en pesos no hay centavos, y un 2500.5 acabaría redondeado en silencio.
+ *
+ * Los `_id` se aceptan al editar para que el panel conserve la identidad
+ * de lo que ya existía: es lo que mantiene válidos los carritos guardados
+ * en los teléfonos.
+ */
+const modifierOption = z.object({
+  _id: objectId.optional(),
+  name: z.string().trim().min(1, 'La opción necesita un nombre').max(60),
+  price: z.number({ invalid_type_error: 'El precio de la opción debe ser un número' }).int('El precio debe ser entero').min(0),
+  isAvailable: z.boolean().optional(),
+});
+
+const modifierGroup = z
+  .object({
+    _id: objectId.optional(),
+    name: z.string().trim().min(1, 'El grupo necesita un nombre').max(60),
+    minSelect: z.number().int().min(0),
+    maxSelect: z.number().int().min(1),
+    sortOrder: z.number().int().min(0).optional(),
+    options: z.array(modifierOption).min(1, 'El grupo necesita al menos una opción').max(30),
+  })
+  .refine((g) => g.minSelect <= g.maxSelect, { message: 'El mínimo no puede superar al máximo' })
+  .refine((g) => g.maxSelect <= g.options.length, { message: 'El máximo no puede superar el número de opciones' })
+  .refine((g) => new Set(g.options.map((o) => o.name.toLowerCase())).size === g.options.length, {
+    message: 'Hay opciones repetidas en el grupo',
+  });
+
+const modifierGroups = z
+  .array(modifierGroup)
+  .max(15, 'Demasiados grupos para un solo producto')
+  .refine((gs) => new Set(gs.map((g) => g.name.toLowerCase())).size === gs.length, {
+    message: 'Hay grupos repetidos',
+  });
+
+/**
  * La categoría del producto, con dos mensajes distintos a propósito.
  *
  * El panel manda una cadena vacía cuando el comercio todavía no tiene
@@ -58,6 +97,7 @@ export const createProductSchema = z.object({
     price,
     discountPrice: z.number().positive().nullable().optional(),
     extras: extras.optional(),
+    modifierGroups: modifierGroups.optional(),
     /**
      * Unidades disponibles. `null` desactiva el control: es el caso de una
      * cocina, que no cuenta bandejas. Cero significa agotado, que es lo
@@ -86,6 +126,7 @@ export const updateProductSchema = z.object({
     price: price.optional(),
     discountPrice: z.number().positive().nullable().optional(),
     extras: extras.optional(),
+    modifierGroups: modifierGroups.optional(),
     /**
      * Unidades disponibles. `null` desactiva el control: es el caso de una
      * cocina, que no cuenta bandejas. Cero significa agotado, que es lo

@@ -68,7 +68,12 @@ export const ordersApi = {
    */
   quote: (data: {
     businessId: string;
-    items: Array<{ productId: string; quantity: number; selectedExtras?: Array<{ name: string; quantity: number }>; notes?: string }>;
+    items: Array<{
+      productId: string;
+      quantity: number;
+      selectedExtras?: Array<{ name?: string; quantity: number; groupId?: string; optionId?: string }>;
+      notes?: string;
+    }>;
     paymentMethod: string;
     deliveryLatitude: number;
     deliveryLongitude: number;
@@ -771,6 +776,9 @@ export const authApi = {
 
   google: (idToken: string) =>
     api.post('/auth/google', { idToken }).then((r) => r.data.data),
+
+  apple: (idToken: string, fullName?: string) =>
+    api.post('/auth/apple', { idToken, fullName }).then((r) => r.data.data),
 
   /**
    * Entrada única: el celular decide entre login y registro. Una llamada

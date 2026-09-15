@@ -402,10 +402,50 @@ export interface ProductExtra {
   price: number;
 }
 
+/**
+ * Un adicional elegido, tal como queda copiado en el pedido.
+ *
+ * Los tres campos de arriba son los de siempre: `extras` planos que se
+ * eligen por nombre. Los de abajo solo viajan cuando la elección salió de
+ * un grupo de modificadores; un pedido antiguo no los tiene y se lee
+ * igual.
+ */
 export interface SelectedExtra {
   name: string;
   price: number;
   quantity: number;
+  groupId?: string;
+  groupName?: string;
+  optionId?: string;
+}
+
+/**
+ * Una opción dentro de un grupo de modificadores: "Angus", "Sin cebolla",
+ * "Leche de almendras". El precio es lo que suma sobre el producto; cero
+ * es legítimo (elegir el término de la carne no cuesta).
+ */
+export interface ModifierOption {
+  _id?: string;
+  name: string;
+  price: number;
+  isAvailable: boolean;
+}
+
+/**
+ * Un grupo de modificadores: "Tipo de carne", "Salsas", "Tamaño".
+ *
+ * Solo se guardan `minSelect` y `maxSelect`. "Obligatorio" es `min > 0` y
+ * "selección única" es `max === 1`: se derivan, no se escriben, para que
+ * no pueda existir un grupo "único con máximo 3" ni uno "opcional con
+ * mínimo 2".
+ */
+export interface ModifierGroup {
+  _id?: string;
+  name: string;
+  minSelect: number;
+  maxSelect: number;
+  sortOrder: number;
+  options: ModifierOption[];
 }
 
 export interface AddressInfo {

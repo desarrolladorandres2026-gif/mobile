@@ -14,6 +14,8 @@ import ProductGalleryField from '../components/ProductGalleryField';
 import ProductImageField, {
   type ImageCapabilities, type PendingProductImage,
 } from '../components/ProductImageField';
+import ModifierGroupsEditor from '../components/ModifierGroupsEditor';
+import { toDrafts, fromDrafts, type GroupDraft } from '../lib/modifierGroups';
 
 interface ExtraOption {
   name: string;
@@ -32,6 +34,7 @@ const EMPTY_FORM = {
   discountPrice: '',
   categoryId: '',
   extras: [] as ExtraOption[],
+  modifierGroups: [] as GroupDraft[],
 };
 
 export default function Menu() {
@@ -185,6 +188,7 @@ export default function Menu() {
         discountPrice: product.discountPrice ? String(product.discountPrice) : '',
         categoryId: product.categoryId,
         extras: product.extras || [],
+        modifierGroups: toDrafts(product.modifierGroups),
       });
     } else {
       setEditingProduct(null);
@@ -241,6 +245,12 @@ export default function Menu() {
       return;
     }
 
+    const converted = fromDrafts(productForm.modifierGroups);
+    if ('error' in converted) {
+      setError(converted.error);
+      return;
+    }
+
     const payload = {
       businessId,
       categoryId: productForm.categoryId,
@@ -249,6 +259,7 @@ export default function Menu() {
       price,
       discountPrice: discount,
       extras: productForm.extras,
+      modifierGroups: converted.groups,
     };
 
     setSaving(true);
@@ -795,6 +806,11 @@ export default function Menu() {
                   </div>
                 )}
               </div>
+
+              <ModifierGroupsEditor
+                groups={productForm.modifierGroups}
+                onChange={(modifierGroups) => setProductForm((previous) => ({ ...previous, modifierGroups }))}
+              />
 
               <button
                 type="submit"

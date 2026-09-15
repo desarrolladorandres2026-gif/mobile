@@ -55,7 +55,7 @@ interface CreateOrderInput {
     productId: string;
     quantity: number;
     /** Only the extra's name and count; prices come from the database. */
-    selectedExtras?: Array<{ name: string; quantity?: number }>;
+    selectedExtras?: Array<{ name?: string; quantity?: number; groupId?: string; optionId?: string }>;
     notes?: string;
   }>;
   paymentMethod: string;
@@ -71,6 +71,14 @@ interface CreateOrderInput {
   recipient?: { name: string; phone: string; note?: string };
   /** Cuándo debe llegar, si no es cuanto antes. */
   scheduledFor?: Date | string;
+}
+
+/** Unidades apartadas para un pedido que todavía se está creando. */
+interface StockReservation {
+  productId: unknown;
+  quantity: number;
+  /** La reserva dejó el producto en cero y lo apagó. */
+  switchedOff: boolean;
 }
 
 /** Maps a quote onto the immutable snapshot persisted with the order. */
@@ -166,8 +174,8 @@ export class OrderService {
    */
   private async reserveStock(
     items: Array<{ productId: unknown; quantity: number }>
-  ): Promise<Array<{ productId: unknown; quantity: number }>> {
-    const reserved: Array<{ productId: unknown; quantity: number }> = [];
+  ): Promise<StockReservation[]> {
+    const reserved: StockReservation[] = [];
 
     for (const item of items) {
       const claimed = await Product.findOneAndUpdate(
@@ -177,13 +185,13 @@ export class OrderService {
       );
 
       if (claimed) {
-        reserved.push({ productId: item.productId, quantity: item.quantity });
-
         // Al llegar a cero deja de ofrecerse solo. Sin esto seguiría en la
         // carta y el siguiente cliente pediría algo que ya no existe.
-        if (claimed.stock === 0) {
+        const switchedOff = claimed.stock === 0;
+        if (switchedOff) {
           await Product.updateOne({ _id: item.productId }, { isAvailable: false });
         }
+        reserved.push({ productId: item.productId, quantity: item.quantity, switchedOff });
         continue;
       }
 
@@ -192,7 +200,7 @@ export class OrderService {
       // parecería agotado.
       const product = await Product.findById(item.productId).select('name stock');
       if (product && product.stock !== null && product.stock !== undefined) {
-        await this.releaseStock(reserved);
+        await this.undoReservation(reserved);
         throw new AppError(
           `Se agotó "${product.name}" mientras armabas el pedido. Quítalo para continuar.`,
           409,
@@ -202,6 +210,58 @@ export class OrderService {
     }
 
     return reserved;
+  }
+
+  /**
+   * Deshace una reserva de un pedido que al final no se creó.
+   *
+   * Es más que `releaseStock`: si la reserva fue la que dejó el producto en
+   * cero, también lo había apagado, y devolver la unidad sin volver a
+   * encenderlo dejaría en la carta un "agotado" con existencias. Solo se
+   * reenciende lo que apagó esta misma reserva — un producto que el
+   * comercio apagó a mano con unidades en la nevera no es asunto de este
+   * pedido.
+   */
+  private async undoReservation(reserved: StockReservation[]): Promise<void> {
+    if (!reserved.length) return;
+    await this.releaseStock(reserved);
+
+    const switchedOff = reserved.filter((r) => r.switchedOff).map((r) => r.productId);
+    if (switchedOff.length) {
+      await Product.updateMany(
+        { _id: { $in: switchedOff }, stock: { $gt: 0 }, isAvailable: false },
+        { $set: { isAvailable: true } }
+      );
+    }
+  }
+
+  /**
+   * El pedido que ya existe para esta clave idempotente, si es de quien pide.
+   *
+   * La clave la genera el teléfono y la búsqueda antes no miraba de quién
+   * era el pedido: un segundo cliente que mandara la misma clave recibía el
+   * pedido del primero —dirección, teléfono y productos incluidos—. Ahora
+   * una clave ajena es un conflicto, y la respuesta no dice nada del pedido
+   * que la ocupa.
+   *
+   * `$locals.replayed` marca la respuesta como réplica sin cambiar la firma
+   * de `create`, para que el controlador no vuelva a anunciar en la cocina,
+   * a los domiciliarios y al panel un pedido que ya anunció.
+   */
+  private async findReplay(idempotencyKey: string, clientId: string): Promise<IOrder | null> {
+    const existing = await Order.findOne({ idempotencyKey });
+    if (!existing) return null;
+
+    if (existing.clientId.toString() !== clientId) {
+      throw new AppError(
+        'Esta solicitud ya no es válida. Vuelve a abrir el pago para intentarlo de nuevo.',
+        409,
+        'IDEMPOTENCY_KEY_CONFLICT'
+      );
+    }
+
+    existing.$locals.replayed = true;
+    return existing;
   }
 
   /** Devuelve al inventario lo que se apartó para un pedido que no salió. */
@@ -218,7 +278,7 @@ export class OrderService {
 
   async create(input: CreateOrderInput): Promise<IOrder> {
     if (input.idempotencyKey) {
-      const existing = await Order.findOne({ idempotencyKey: input.idempotencyKey });
+      const existing = await this.findReplay(input.idempotencyKey, input.clientId);
       if (existing) return existing;
     }
 
@@ -348,8 +408,16 @@ export class OrderService {
         idempotencyKey: input.idempotencyKey,
       });
     } catch (error: any) {
+      // Lo apartado vuelve antes de cualquier otra cosa. En la carrera de
+      // la misma clave —la red reintenta y las dos peticiones llegan a la
+      // vez— las dos pasaron la búsqueda previa y las dos reservaron; la que
+      // choca con el índice único devuelve el pedido del gemelo, y sin esta
+      // línea se llevaba sus unidades con ella. Con cuatro reintentos
+      // simultáneos se perdían tres.
+      await this.undoReservation(reservedStock);
+
       if (error.code === 11000 && input.idempotencyKey) {
-        const existing = await Order.findOne({ idempotencyKey: input.idempotencyKey });
+        const existing = await this.findReplay(input.idempotencyKey, input.clientId);
         if (existing) return existing;
       }
       throw error;
@@ -369,6 +437,7 @@ export class OrderService {
 
       if (!redeemed) {
         await Order.deleteOne({ _id: order._id });
+        await this.undoReservation(reservedStock);
         throw new AppError('El cupón se agotó mientras confirmabas el pedido', 409);
       }
     }
@@ -399,6 +468,7 @@ export class OrderService {
       const { Payment } = await import('../models');
       await Payment.deleteMany({ orderId: order._id });
       await Order.deleteOne({ _id: order._id });
+      await this.undoReservation(reservedStock);
       throw error;
     }
 

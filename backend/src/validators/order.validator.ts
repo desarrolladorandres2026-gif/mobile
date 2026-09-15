@@ -13,16 +13,39 @@ import { objectId } from './common';
  */
 const paymentMethod = z.nativeEnum(PaymentMethod);
 
-const orderItemSchema = z.object({
-  productId: z.string(),
-  quantity: z.number().int().min(1).max(99),
-  selectedExtras: z.array(z.object({
-    name: z.string().min(1),
+/**
+ * Un adicional elegido: o un `extra` plano por nombre, o una opción de un
+ * grupo de modificadores por `groupId` + `optionId`. Los dos ids van
+ * juntos o no van: una opción sin su grupo no se puede resolver, y
+ * aceptarla a medias sería adivinar.
+ */
+const selectedExtraSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    groupId: objectId.optional(),
+    optionId: objectId.optional(),
     // Accepted for backwards compatibility with older clients but ignored:
     // extra prices are always read from the product record on the server.
     price: z.number().optional(),
     quantity: z.number().int().min(1).max(99).default(1),
-  })).optional().default([]),
+  })
+  .refine((e) => Boolean(e.optionId) === Boolean(e.groupId), {
+    message: 'Una opción necesita su grupo',
+  })
+  .refine((e) => e.optionId || e.name, {
+    message: 'El adicional necesita un nombre o una opción',
+  });
+
+const orderItemSchema = z.object({
+  productId: z.string(),
+  quantity: z.number().int().min(1).max(99),
+  selectedExtras: z.array(selectedExtraSchema)
+    // Un tope que ningún plato real alcanza. Sin él, una sola línea con
+    // miles de adicionales obligaba al servidor a resolverlos uno por uno
+    // contra el producto en cada cotización.
+    .max(50, 'Demasiados adicionales en un solo producto')
+    .optional()
+    .default([]),
   notes: z.string().max(200).optional(),
 });
 

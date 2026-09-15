@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, Alert, Linking } from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import {
-  Text, Icon, Button, Input, Sheet, Notice,
+  Text, Icon, Button, Input, Sheet, Notice, ConfirmDialog,
 } from '../../../components/ui';
 import {
   ContentIcon,
@@ -56,6 +56,7 @@ export default function ProfileScreen() {
    * que decirle al usuario.
    */
   const [pushGranted, setPushGranted] = useState<boolean | null>(null);
+  const [logoutDialogVisible, setLogoutDialogVisible] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -221,22 +222,18 @@ export default function ProfileScreen() {
 
   const confirmLogout = () => {
     tap('warning');
-    Alert.alert('Cerrar sesión', '¿Seguro que quieres salir de tu cuenta Zipp?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Cerrar sesión',
-        style: 'destructive',
-        onPress: async () => {
-          // Baja del push antes de soltar la sesión: después, la petición
-          // fallaría y el backend seguiría notificando a este teléfono.
-          await unregisterPush();
-          socketService.disconnect();
-          clearCart();
-          logout();
-          router.replace('/(auth)/login');
-        },
-      },
-    ]);
+    setLogoutDialogVisible(true);
+  };
+
+  const doLogout = async () => {
+    setLogoutDialogVisible(false);
+    // Baja del push antes de soltar la sesión: después, la petición
+    // fallaría y el backend seguiría notificando a este teléfono.
+    await unregisterPush();
+    socketService.disconnect();
+    clearCart();
+    logout();
+    router.replace('/(auth)/login');
   };
 
   return (
@@ -416,6 +413,19 @@ export default function ProfileScreen() {
 
       {/* ── Edit Profile Sheet ── */}
       <EditProfileSheet visible={editing} onClose={() => setEditing(false)} />
+
+      {/* ── Confirmar cierre de sesión ── */}
+      <ConfirmDialog
+        visible={logoutDialogVisible}
+        onCancel={() => setLogoutDialogVisible(false)}
+        onConfirm={doLogout}
+        icon="salir"
+        title="Cerrar sesión"
+        message="¿Seguro que quieres salir de tu cuenta Zipp?"
+        confirmText="Cerrar sesión"
+        cancelText="Cancelar"
+        tone="danger"
+      />
     </SafeAreaView>
   );
 }

@@ -9,6 +9,7 @@ export interface IUser extends Document {
   email?: string;
   password?: string;
   googleId?: string;
+  appleId?: string;
   role: UserRole;
   /**
    * Grants the right to edit pricing, verify cash remittances and run
@@ -114,9 +115,9 @@ const userSchema = new Schema<IUser>(
     },
     phone: {
       type: String,
-      // Opcional solo para cuentas creadas con Google: quedan sin celular
-      // hasta que completan la pantalla de verificación obligatoria.
-      required: [function (this: IUser) { return !this.googleId; }, 'El número de celular es requerido'],
+      // Opcional solo para cuentas creadas con Google o Apple: quedan sin
+      // celular hasta que completan la pantalla de verificación obligatoria.
+      required: [function (this: IUser) { return !this.googleId && !this.appleId; }, 'El número de celular es requerido'],
       unique: true,
       sparse: true,
       trim: true,
@@ -132,11 +133,17 @@ const userSchema = new Schema<IUser>(
     },
     password: {
       type: String,
-      required: [function (this: IUser) { return !this.googleId; }, 'La contraseña es requerida'],
+      required: [function (this: IUser) { return !this.googleId && !this.appleId; }, 'La contraseña es requerida'],
       minlength: [6, 'La contraseña debe tener al menos 6 caracteres'],
       select: false,
     },
     googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      select: false,
+    },
+    appleId: {
       type: String,
       unique: true,
       sparse: true,
@@ -277,6 +284,7 @@ const userSchema = new Schema<IUser>(
       transform(_doc: any, ret: Record<string, any>) {
         delete ret.password;
         delete ret.googleId;
+        delete ret.appleId;
         delete ret.otpCode;
         delete ret.otpExpires;
         delete ret.emailOtpCode;

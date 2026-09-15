@@ -192,7 +192,19 @@ export interface IOrder extends Document {
 }
 
 const selectedExtraSchema = new Schema(
-  { name: { type: String, required: true }, price: { type: Number, required: true }, quantity: { type: Number, default: 1 } },
+  {
+    name: { type: String, required: true },
+    price: { type: Number, required: true },
+    quantity: { type: Number, default: 1 },
+    // Solo cuando la elección salió de un grupo de modificadores. Son
+    // cadenas y no `ObjectId` con `ref` a propósito: apuntan a
+    // subdocumentos del producto, que Mongoose no puede poblar, y la
+    // copia del pedido tiene que sobrevivir a que el comercio borre la
+    // opción mañana.
+    groupId: { type: String },
+    groupName: { type: String },
+    optionId: { type: String },
+  },
   { _id: false }
 );
 

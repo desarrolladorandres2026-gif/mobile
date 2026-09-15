@@ -9,6 +9,7 @@ import { useCartStore } from '../../stores/cartStore';
 import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { money } from '../../lib/format';
+import { describeExtras } from '../../lib/modifiers';
 import { tap } from '../../lib/haptics';
 
 /**
@@ -97,9 +98,7 @@ export default function CartScreen() {
 
                   {item.selectedExtras.length > 0 ? (
                     <Text v="bodyS" tone="primaryText" numberOfLines={2}>
-                      {item.selectedExtras
-                        .map((e) => (e.quantity > 1 ? `${e.name} x${e.quantity}` : e.name))
-                        .join(' · ')}
+                      {describeExtras(item.selectedExtras)}
                     </Text>
                   ) : null}
 

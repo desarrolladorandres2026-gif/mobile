@@ -1,7 +1,8 @@
 import { Types } from 'mongoose';
 import { Business, Product, Zone, IBusiness, IPlatformPricingConfig } from '../models';
+import { resolveModifierSelection } from '../utils/modifierSelection';
 import { AppError } from '../middlewares';
-import { PaymentMethod, CouponFundedBy } from '../types';
+import { PaymentMethod, CouponFundedBy, SelectedExtra } from '../types';
 import { config as envConfig } from '../config';
 import {
   haversineMeters,
@@ -31,7 +32,11 @@ const SPREAD_FLOOR_MINUTES = 10;
 export interface QuoteItemInput {
   productId: string;
   quantity: number;
-  selectedExtras?: Array<{ name: string; quantity?: number }>;
+  /**
+   * Adicionales elegidos. Con `optionId` es una opción de un grupo de
+   * modificadores; sin él, un `extra` plano elegido por nombre.
+   */
+  selectedExtras?: Array<{ name?: string; quantity?: number; groupId?: string; optionId?: string }>;
   notes?: string;
 }
 
@@ -52,7 +57,7 @@ export interface PricedItem {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
-  selectedExtras: Array<{ name: string; price: number; quantity: number }>;
+  selectedExtras: SelectedExtra[];
   notes: string;
 }
 
@@ -244,7 +249,18 @@ export class PricingService {
       const resolvedExtras: PricedItem['selectedExtras'] = [];
       let extrasTotal = 0;
 
-      for (const requested of item.selectedExtras || []) {
+      // Los grupos van por su propia regla (mínimos, máximos, agotados);
+      // lo que llega sin `optionId` es un `extra` plano de toda la vida.
+      const requestedExtras = item.selectedExtras || [];
+      const modifiers = resolveModifierSelection(
+        product,
+        requestedExtras.filter((e) => e.groupId || e.optionId)
+      );
+      resolvedExtras.push(...modifiers.lines);
+      extrasTotal += modifiers.total;
+
+      for (const requested of requestedExtras) {
+        if (requested.groupId || requested.optionId) continue;
         const known = product.extras.find((e) => e.name === requested.name);
         if (!known) {
           throw new AppError(

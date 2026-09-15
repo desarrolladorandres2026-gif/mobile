@@ -17,9 +17,10 @@ export type { ButtonProps, ButtonVariant, ButtonSize } from './Button';
 
 export { GoogleButton } from './GoogleButton';
 export { FacebookButton } from './FacebookButton';
+export { AppleButton } from './AppleButton';
 
-export { Card, SectionHeader, Sheet, DetailRow } from './Surface';
-export type { CardProps, SheetProps } from './Surface';
+export { Card, SectionHeader, Sheet, DetailRow, ConfirmDialog } from './Surface';
+export type { CardProps, SheetProps, ConfirmDialogProps } from './Surface';
 
 export { Input, OtpInput, SearchField } from './Input';
 export type { InputProps, OtpInputProps } from './Input';

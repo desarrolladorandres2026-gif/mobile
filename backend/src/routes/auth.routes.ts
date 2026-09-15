@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authController } from '../controllers';
 import { authenticate, validate, authRateLimiter, otpRateLimiter, sensitiveRateLimiter } from '../middlewares';
-import { registerSchema, phoneStatusSchema, registerSendOtpSchema, registerVerifyOtpSchema, registerCompleteSchema, loginSchema, googleLoginSchema, verifyOtpSchema, sendEmailOtpSchema, verifyEmailOtpSchema, refreshTokenSchema, resetPasswordSchema, updateProfileSchema } from '../validators';
+import { registerSchema, phoneStatusSchema, registerSendOtpSchema, registerVerifyOtpSchema, registerCompleteSchema, loginSchema, googleLoginSchema, appleLoginSchema, verifyOtpSchema, sendEmailOtpSchema, verifyEmailOtpSchema, refreshTokenSchema, resetPasswordSchema, updateProfileSchema } from '../validators';
 
 const router = Router();
 
@@ -19,6 +19,10 @@ router.post('/register/verify-otp', authRateLimiter, validate(registerVerifyOtpS
 router.post('/register/complete', authRateLimiter, validate(registerCompleteSchema), (req, res, next) => authController.registerComplete(req, res, next));
 router.post('/login', authRateLimiter, validate(loginSchema), (req, res, next) => authController.login(req, res, next));
 router.post('/google', authRateLimiter, validate(googleLoginSchema), (req, res, next) => authController.googleLogin(req, res, next));
+router.post('/apple', authRateLimiter, validate(appleLoginSchema), (req, res, next) => authController.appleLogin(req, res, next));
+// Redirect público al que apunta el Services ID de Apple — sin rate limit de
+// login: no verifica credenciales, solo rebota el form_post al deep link.
+router.post('/apple/callback', (req, res) => authController.appleCallback(req, res));
 router.post('/refresh-token', validate(refreshTokenSchema), (req, res, next) => authController.refreshToken(req, res, next));
 router.post('/send-otp', otpRateLimiter, (req, res, next) => authController.sendOTP(req, res, next));
 router.post('/verify-otp', authRateLimiter, validate(verifyOtpSchema), (req, res, next) => authController.verifyOTP(req, res, next));

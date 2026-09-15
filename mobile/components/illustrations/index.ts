@@ -12,6 +12,7 @@ export type { IllustrationProps };
 export { DefaultIllustration };
 export * from './contentIllustrations';
 export * from './addressIllustrations';
+export * from './navIllustrations';
 export { ContentIcon } from './ContentIcon';
 
 /**

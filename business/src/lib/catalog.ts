@@ -1,3 +1,4 @@
+import type { ApiModifierGroup } from './modifierGroups';
 import type { ProductImages } from '../components/SmartImage';
 
 /**
@@ -24,6 +25,8 @@ export interface Product {
   isAvailable: boolean;
   categoryId: string;
   extras?: ExtraOption[];
+  /** Grupos con reglas (mínimo, máximo). Ver `lib/modifierGroups.ts`. */
+  modifierGroups?: ApiModifierGroup[];
   /** Variantes ya calculadas por el servidor. Nulo si no tiene foto. */
   images?: ProductImages | null;
   /** Variantes de las fotos adicionales. La principal no está aquí. */

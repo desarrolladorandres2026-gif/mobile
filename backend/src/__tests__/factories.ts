@@ -155,7 +155,16 @@ export async function makeProduct(businessId: any, overrides: Partial<{
   price: number;
   discountPrice: number | null;
   extras: Array<{ name: string; price: number }>;
+  modifierGroups: Array<{
+    name: string;
+    minSelect: number;
+    maxSelect: number;
+    sortOrder?: number;
+    options: Array<{ name: string; price: number; isAvailable?: boolean }>;
+  }>;
   isAvailable: boolean;
+  stock: number | null;
+  requiresAgeVerification: boolean;
 }> = {}) {
   const category = await Category.create({
     businessId,
@@ -171,8 +180,20 @@ export async function makeProduct(businessId: any, overrides: Partial<{
     price: overrides.price ?? 10000,
     discountPrice: overrides.discountPrice ?? null,
     extras: overrides.extras ?? [],
+    modifierGroups: overrides.modifierGroups ?? [],
     isAvailable: overrides.isAvailable ?? true,
+    stock: overrides.stock ?? null,
+    requiresAgeVerification: overrides.requiresAgeVerification ?? false,
   });
+}
+
+/** El grupo y la opción por nombre, para armar una selección en una prueba. */
+export function pick(product: any, groupName: string, optionName: string) {
+  const group = product.modifierGroups.find((g: any) => g.name === groupName);
+  if (!group) throw new Error(`No hay grupo "${groupName}" en ${product.name}`);
+  const option = group.options.find((o: any) => o.name === optionName);
+  if (!option) throw new Error(`No hay opción "${optionName}" en ${groupName}`);
+  return { groupId: group._id.toString(), optionId: option._id.toString() };
 }
 
 export async function makeDriver(userId: any, overrides: Partial<{

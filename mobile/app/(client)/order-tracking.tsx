@@ -21,6 +21,7 @@ import { useBottomInset } from '../../hooks/useBottomSpace';
 import { ORDER_STATUS_DETAIL } from '../../constants/config';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { money, orderCode, etaClock, initials } from '../../lib/format';
+import { describeExtras } from '../../lib/modifiers';
 import { tap } from '../../lib/haptics';
 
 /** Los cinco momentos que le importan al cliente. */
@@ -397,7 +398,7 @@ export default function OrderTrackingScreen() {
                 <Text v="bodyM" numberOfLines={2}>{item.productName}</Text>
                 {item.selectedExtras?.length ? (
                   <Text v="caption" tone="textMuted" numberOfLines={2}>
-                    {item.selectedExtras.map((e: any) => e.name).join(' · ')}
+                    {describeExtras(item.selectedExtras)}
                   </Text>
                 ) : null}
               </View>

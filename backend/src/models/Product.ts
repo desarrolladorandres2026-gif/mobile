@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
-import { ProductExtra } from '../types';
+import { ProductExtra, ModifierGroup } from '../types';
 import { productImageUrls } from '../utils/productImageUrls';
 import { normalize } from '../utils/text';
 
@@ -72,6 +72,15 @@ export interface IProduct extends Document {
   discountPrice?: number | null;
   extras: ProductExtra[];
   /**
+   * Grupos de modificadores: "Tipo de carne", "Salsas", "Tamaño".
+   *
+   * Conviven con `extras` y no lo sustituyen: la carta que ya existe usa
+   * la lista plana y sigue funcionando sin tocarla. Un producto nuevo
+   * puede usar los dos —adiciones sueltas abajo y grupos con reglas
+   * arriba— y el precio del pedido suma ambos.
+   */
+  modifierGroups: ModifierGroup[];
+  /**
    * El producto solo se vende a mayores de edad.
    *
    * En Colombia aplica a licor y cigarrillos, y la responsabilidad de no
@@ -122,6 +131,49 @@ const productExtraSchema = new Schema(
   },
   { _id: false }
 );
+
+const modifierOptionSchema = new Schema(
+  {
+    name: { type: String, required: true, trim: true, maxlength: 60 },
+    price: { type: Number, required: true, min: 0 },
+    isAvailable: { type: Boolean, default: true },
+  },
+  // Con `_id`: es la identidad estable que guarda el carrito del teléfono
+  // y "Lo de siempre". Renombrar "Angus" a "Angus 150 g" no puede romper
+  // una bolsa a medio armar.
+  { _id: true }
+);
+
+const modifierGroupSchema = new Schema(
+  {
+    name: { type: String, required: true, trim: true, maxlength: 60 },
+    minSelect: { type: Number, required: true, min: 0 },
+    maxSelect: { type: Number, required: true, min: 1 },
+    sortOrder: { type: Number, default: 0 },
+    options: {
+      type: [modifierOptionSchema],
+      validate: {
+        validator: (value: unknown[]) => value.length >= 1 && value.length <= 30,
+        message: 'Cada grupo necesita entre 1 y 30 opciones',
+      },
+    },
+  },
+  { _id: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
+);
+
+/** `min > 0`: el cliente tiene que elegir algo antes de agregar. */
+modifierGroupSchema.virtual('isRequired').get(function (this: { minSelect: number }) {
+  return this.minSelect > 0;
+});
+
+/** `max === 1` se pinta como radio; lo demás, como casillas. */
+modifierGroupSchema.virtual('selectionType').get(function (this: { maxSelect: number }) {
+  return this.maxSelect === 1 ? 'single' : 'multiple';
+});
+
+modifierGroupSchema.path('maxSelect').validate(function (this: { minSelect: number; maxSelect: number; options: unknown[] }) {
+  return this.maxSelect >= this.minSelect && this.maxSelect <= (this.options?.length ?? 0);
+}, 'El máximo debe estar entre el mínimo y el número de opciones');
 
 const productSchema = new Schema<IProduct>(
   {
@@ -185,6 +237,14 @@ const productSchema = new Schema<IProduct>(
     extras: {
       type: [productExtraSchema],
       default: [],
+    },
+    modifierGroups: {
+      type: [modifierGroupSchema],
+      default: [],
+      validate: {
+        validator: (value: unknown[]) => value.length <= 15,
+        message: 'Máximo 15 grupos de modificadores por producto',
+      },
     },
     requiresAgeVerification: { type: Boolean, default: false },
     stock: { type: Number, default: null, min: 0 },

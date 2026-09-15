@@ -389,6 +389,21 @@ export const config = {
     androidClientId: process.env.GOOGLE_OAUTH_CLIENT_ID_ANDROID || '',
   },
 
+  /**
+   * "Sign in with Apple". El Services ID es el `client_id`/`aud` que debe
+   * traer el `identityToken` para considerarse válido — se crea en
+   * developer.apple.com (Certificates, Identifiers & Profiles → Identifiers
+   * → Services IDs), no es el mismo ID que el de la app (`com.zipp.app`).
+   *
+   * No hace falta guardar la llave privada de Apple aquí: el flujo solo
+   * verifica el `identityToken` que llega por `response_mode=form_post`
+   * (ver `AuthService.loginWithApple`), nunca intercambia el `code` por un
+   * token nuevo, así que no necesita firmar un `client_secret`.
+   */
+  apple: {
+    servicesId: process.env.APPLE_SERVICES_ID || '',
+  },
+
   // ── Payments ──────────────────────────────────────────────────────
   // The platform talks to payments through the PaymentProvider interface
   // (src/services/payments). "sandbox" is a fully functional in-process

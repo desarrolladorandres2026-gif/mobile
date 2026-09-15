@@ -78,6 +78,45 @@ export default function HomeScreen() {
     return { featured: featuredList, openNow: openList, closed: closedList };
   }, [businesses]);
 
+  /**
+   * Qué decirle a alguien que no ve ni un negocio.
+   *
+   * La lista vacía tiene dos causas muy distintas y hasta ahora las dos
+   * contaban la misma historia —"todo cerrado"—, que es falsa cuando lo que
+   * pasa es que ningún comercio reparte hasta esa dirección. El backend
+   * recorta por distancia en `$geoNear` (10 km) **antes** que por cualquier
+   * otra cosa, así que una dirección fuera de cobertura devuelve cero y la
+   * pantalla le echaba la culpa a los horarios. Distinguirlas es la
+   * diferencia entre "vuelve en un rato" y "cambia la dirección".
+   */
+  const emptyReason = useMemo(() => {
+    if (businesses.length > 0) {
+      return {
+        icon: 'reloj' as const,
+        title: 'Todo cerrado por ahora',
+        message: 'Los negocios abren temprano. Vuelve en un rato y te esperamos con todo listo.',
+        actionLabel: 'Ver todos los negocios',
+        onAction: () => router.push('/(client)/(tabs)/search'),
+      };
+    }
+    if (!defaultAddress) {
+      return {
+        icon: 'ubicacion' as const,
+        title: '¿Dónde te lo llevamos?',
+        message: 'Agrega tu dirección de entrega y te mostramos los negocios que llegan hasta allá.',
+        actionLabel: 'Agregar dirección',
+        onAction: () => router.push('/(client)/addresses'),
+      };
+    }
+    return {
+      icon: 'ubicacion' as const,
+      title: `Todavía no llegamos hasta ${defaultAddress.label}`,
+      message: 'Ningún negocio reparte en esa zona por ahora. Prueba con otra dirección de entrega.',
+      actionLabel: 'Cambiar dirección',
+      onAction: () => router.push('/(client)/addresses'),
+    };
+  }, [businesses.length, defaultAddress, router]);
+
   const goToBusiness = useCallback(
     (id: string) => router.push(`/(client)/business/${id}`),
     [router]
@@ -264,14 +303,7 @@ export default function HomeScreen() {
               <BusinessCardSkeleton />
             </View>
           ) : openNow.length === 0 ? (
-            <EmptyState
-              icon="reloj"
-              title="Todo cerrado por ahora"
-              message="Los negocios abren temprano. Vuelve en un rato y te esperamos con todo listo."
-              actionLabel="Ver todos los negocios"
-              onAction={() => router.push('/(client)/(tabs)/search')}
-              compact
-            />
+            <EmptyState {...emptyReason} compact />
           ) : (
             <View style={styles.list}>
               {openNow.map((business) => (

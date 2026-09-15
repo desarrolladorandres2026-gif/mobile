@@ -91,10 +91,13 @@ export function reorder(usual: UsualOrder) {
       productName: item.productName,
       quantity: item.quantity ?? 1,
       unitPrice: item.unitPrice ?? 0,
+      // Los ids de grupo y opción se conservan: son lo que el servidor
+      // necesita para volver a resolver la misma elección.
       selectedExtras: (item.selectedExtras ?? []).map((e: any) => ({
         name: e.name,
         price: e.price ?? 0,
         quantity: e.quantity ?? 1,
+        ...(e.optionId ? { groupId: e.groupId, groupName: e.groupName, optionId: e.optionId } : {}),
       })),
       notes: item.notes ?? '',
     });

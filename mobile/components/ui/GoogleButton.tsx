@@ -28,12 +28,15 @@ export function GoogleButton({
   loading,
   disabled,
   full,
+  pill,
   style,
 }: {
   onPress: () => void;
   loading?: boolean;
   disabled?: boolean;
   full?: boolean;
+  /** Esquinas redondeadas al máximo (forma de píldora) en vez del radio estándar. */
+  pill?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
   const { c } = useTheme();
@@ -59,6 +62,7 @@ export function GoogleButton({
           styles.base,
           {
             height: Size.buttonLg,
+            borderRadius: pill ? Size.buttonLg / 2 : BorderRadius.lg,
             backgroundColor: c.white,
             borderColor: 'rgba(8, 11, 17, 0.14)',
             opacity: disabled ? 0.42 : 1,

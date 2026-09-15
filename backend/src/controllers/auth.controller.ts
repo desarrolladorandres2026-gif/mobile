@@ -4,6 +4,7 @@ import { getEffectivePermissions, getEffectiveRoleSlugs } from '../services/auth
 import { sendResponse } from '../utils';
 import { AppError } from '../middlewares';
 import { uploadAvatarImage } from '../middlewares/upload';
+import { config } from '../config/env';
 
 export class AuthController {
   async updateMarketingPreferences(req: Request, res: Response, next: NextFunction) {
@@ -87,6 +88,48 @@ export class AuthController {
       const { user, tokens, needsPhone } = await authService.loginWithGoogle(req.body.idToken, req);
       sendResponse(res, 200, 'Login con Google exitoso', { user, ...tokens, needsPhone });
     } catch (error) { next(error); }
+  }
+
+  async appleLogin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { user, tokens, needsPhone } = await authService.loginWithApple(req.body.idToken, req.body.fullName, req);
+      sendResponse(res, 200, 'Login con Apple exitoso', { user, ...tokens, needsPhone });
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Apple no permite un esquema `zipp://` como `redirect_uri` — exige un
+   * dominio HTTPS registrado en el Services ID. Este endpoint es ese
+   * dominio: recibe el `form_post` de Apple (fuera de la app, sin sesión) y
+   * rebota de inmediato al deep link de la app con lo que trajo, para que
+   * `WebBrowser.openAuthSessionAsync` del lado del cliente cierre el
+   * navegador y continúe el login. No guarda nada ni valida el token acá:
+   * eso lo hace `POST /auth/apple`, ya dentro de la app.
+   */
+  async appleCallback(req: Request, res: Response) {
+    const idToken = typeof req.body?.id_token === 'string' ? req.body.id_token : '';
+
+    // El campo `user` solo viaja en el primer `form_post` de siempre, como
+    // JSON de texto: `{"name":{"firstName":"...","lastName":"..."}}`.
+    let fullName = '';
+    if (typeof req.body?.user === 'string') {
+      try {
+        const parsed = JSON.parse(req.body.user);
+        fullName = [parsed?.name?.firstName, parsed?.name?.lastName].filter(Boolean).join(' ').trim();
+      } catch {
+        // `user` con formato inesperado: se sigue sin nombre, no es fatal.
+      }
+    }
+
+    const state = typeof req.body?.state === 'string' ? req.body.state : '';
+
+    const redirect = new URL(`${config.deepLinkScheme}://apple-callback`);
+    if (idToken) redirect.searchParams.set('idToken', idToken);
+    if (fullName) redirect.searchParams.set('fullName', fullName);
+    if (state) redirect.searchParams.set('state', state);
+    if (!idToken) redirect.searchParams.set('error', '1');
+
+    res.redirect(302, redirect.toString());
   }
 
   async refreshToken(req: Request, res: Response, next: NextFunction) {

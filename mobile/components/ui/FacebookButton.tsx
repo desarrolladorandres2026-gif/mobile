@@ -23,14 +23,28 @@ function FacebookF({ size = 20 }: { size?: number }) {
  * Facebook y un `authApi.facebook` que las verifique, siguiendo el mismo
  * patrón que `GoogleButton`.
  */
-export function FacebookButton({ full, style }: { full?: boolean; style?: StyleProp<ViewStyle> }) {
+export function FacebookButton({
+  full,
+  pill,
+  style,
+}: {
+  full?: boolean;
+  /** Esquinas redondeadas al máximo (forma de píldora) en vez del radio estándar. */
+  pill?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
   return (
     <Pressable
       disabled
       accessibilityRole="button"
       accessibilityLabel="Continuar con Facebook, próximamente"
       accessibilityState={{ disabled: true }}
-      style={[full && styles.full, styles.base, style]}
+      style={[
+        full && styles.full,
+        styles.base,
+        pill && { borderRadius: Size.buttonLg / 2 },
+        style,
+      ]}
     >
       <FacebookF size={20} />
       <Text v="buttonLg" color="#FFFFFF">Continuar con Facebook</Text>
@@ -46,8 +60,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#1877F2',
-    opacity: 0.42,
+    backgroundColor: '#0569ebff',
+    opacity: 0.9,
   },
   full: { width: '100%' },
 });

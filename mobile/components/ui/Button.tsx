@@ -10,7 +10,7 @@ import { BorderRadius, Shadow, Size, Spacing } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
 
-export type ButtonVariant = 'primary' | 'lime' | 'secondary' | 'ghost' | 'danger' | 'success';
+export type ButtonVariant = 'primary' | 'lime' | 'secondary' | 'ghost' | 'danger' | 'success' | 'successLight';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps {
@@ -26,6 +26,8 @@ export interface ButtonProps {
   disabled?: boolean;
   /** Ocupa todo el ancho disponible. */
   full?: boolean;
+  /** Esquinas redondeadas al máximo (forma de píldora) en vez del radio estándar. */
+  pill?: boolean;
   haptic?: 'light' | 'medium' | 'success' | 'none';
   style?: StyleProp<ViewStyle>;
   accessibilityHint?: string;
@@ -56,6 +58,7 @@ export function Button({
   loading,
   disabled,
   full,
+  pill,
   haptic = 'light',
   style,
   accessibilityHint,
@@ -103,6 +106,12 @@ export function Button({
       border: 'transparent',
       shadow: Shadow.none,
     },
+    successLight: {
+      bg: c.successLight,
+      fg: c.white,
+      border: 'transparent',
+      shadow: Shadow.none,
+    },
   }[variant];
 
   const typeVariant = size === 'lg' ? 'buttonLg' : size === 'sm' ? 'buttonSm' : 'buttonMd';
@@ -130,6 +139,7 @@ export function Button({
           styles.base,
           {
             height: HEIGHTS[size],
+            borderRadius: pill ? HEIGHTS[size] / 2 : BorderRadius.lg,
             backgroundColor: skin.bg,
             borderColor: skin.border,
             borderWidth: variant === 'secondary' || variant === 'danger' ? 1.5 : 0,

@@ -1,0 +1,969 @@
+{
+  "auth.login.ok": {
+    "status": 200,
+    "shape": {
+      "data": {
+        "accessToken": "string",
+        "isNewDevice": "boolean",
+        "permissions": [
+          "string"
+        ],
+        "refreshToken": "string",
+        "roleSlugs": [],
+        "user": {
+          "_id": "string",
+          "avatar": "null",
+          "createdAt": "string",
+          "emailVerified": "boolean",
+          "id": "string",
+          "isActive": "boolean",
+          "isBlocked": "boolean",
+          "isFinanceAdmin": "boolean",
+          "isVerified": "boolean",
+          "lastLoginAt": "string",
+          "marketingChannels": [],
+          "marketingConsent": "boolean",
+          "marketingConsentAt": "null",
+          "name": "string",
+          "passwordChangedAt": "string",
+          "phone": "string",
+          "phoneVerified": "boolean",
+          "referralRewardedAt": "null",
+          "referredBy": "null",
+          "role": "string",
+          "roleIds": [],
+          "status": "string",
+          "twoFactorEnabled": "boolean",
+          "updatedAt": "string"
+        }
+      },
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "auth.login.wrongPassword": {
+    "status": 401,
+    "shape": {
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "business.list": {
+    "status": 200,
+    "shape": {
+      "data": [
+        {
+          "__v": "number",
+          "_id": "string",
+          "address": "string",
+          "approvedAt": "null",
+          "approvedBy": "null",
+          "category": "string",
+          "city": "string",
+          "commissionRate": "number",
+          "commissionRateBps": "number",
+          "coverImage": "null",
+          "createdAt": "string",
+          "deliveryTime": "number",
+          "description": "string",
+          "distanceMeters": "number",
+          "freeDeliveryThreshold": "number",
+          "isActive": "boolean",
+          "isApproved": "boolean",
+          "isFeatured": "boolean",
+          "location": {
+            "coordinates": [
+              "number"
+            ],
+            "type": "string"
+          },
+          "logo": "null",
+          "minOrder": "number",
+          "name": "string",
+          "ownerId": "string",
+          "phone": "string",
+          "rating": "number",
+          "schedule": {
+            "friday": {
+              "close": "string",
+              "isOpen": "boolean",
+              "open": "string"
+            },
+            "monday": {
+              "close": "string",
+              "isOpen": "boolean",
+              "open": "string"
+            },
+            "saturday": {
+              "close": "string",
+              "isOpen": "boolean",
+              "open": "string"
+            },
+            "sunday": {
+              "close": "string",
+              "isOpen": "boolean",
+              "open": "string"
+            },
+            "thursday": {
+              "close": "string",
+              "isOpen": "boolean",
+              "open": "string"
+            },
+            "tuesday": {
+              "close": "string",
+              "isOpen": "boolean",
+              "open": "string"
+            },
+            "wednesday": {
+              "close": "string",
+              "isOpen": "boolean",
+              "open": "string"
+            }
+          },
+          "searchName": "string",
+          "slug": "string",
+          "totalReviews": "number",
+          "updatedAt": "string"
+        }
+      ],
+      "message": "string",
+      "meta": {
+        "limit": "number",
+        "page": "number",
+        "total": "number",
+        "totalPages": "number"
+      },
+      "success": "boolean"
+    }
+  },
+  "business.byId": {
+    "status": 200,
+    "shape": {
+      "data": {
+        "__v": "number",
+        "_id": "string",
+        "address": "string",
+        "approvedAt": "null",
+        "approvedBy": "null",
+        "category": "string",
+        "city": "string",
+        "commissionRate": "number",
+        "commissionRateBps": "number",
+        "coverImage": "null",
+        "createdAt": "string",
+        "deliveryTime": "number",
+        "description": "string",
+        "freeDeliveryThreshold": "number",
+        "id": "string",
+        "isActive": "boolean",
+        "isApproved": "boolean",
+        "isFeatured": "boolean",
+        "location": {
+          "coordinates": [
+            "number"
+          ],
+          "type": "string"
+        },
+        "logo": "null",
+        "minOrder": "number",
+        "name": "string",
+        "ownerId": "string",
+        "phone": "string",
+        "products": [
+          {
+            "__v": "number",
+            "_id": "string",
+            "businessId": "string",
+            "categoryId": "string",
+            "createdAt": "string",
+            "description": "string",
+            "discountPrice": "null",
+            "extras": [
+              {
+                "name": "string",
+                "price": "number"
+              }
+            ],
+            "gallery": [],
+            "galleryImages": [],
+            "id": "string",
+            "image": "null",
+            "imageAsset": "null",
+            "images": "null",
+            "isAvailable": "boolean",
+            "isFeatured": "boolean",
+            "lowStockThreshold": "number",
+            "name": "string",
+            "price": "number",
+            "requiresAgeVerification": "boolean",
+            "stock": "null",
+            "updatedAt": "string"
+          }
+        ],
+        "rating": "number",
+        "schedule": {
+          "friday": {
+            "close": "string",
+            "isOpen": "boolean",
+            "open": "string"
+          },
+          "monday": {
+            "close": "string",
+            "isOpen": "boolean",
+            "open": "string"
+          },
+          "saturday": {
+            "close": "string",
+            "isOpen": "boolean",
+            "open": "string"
+          },
+          "sunday": {
+            "close": "string",
+            "isOpen": "boolean",
+            "open": "string"
+          },
+          "thursday": {
+            "close": "string",
+            "isOpen": "boolean",
+            "open": "string"
+          },
+          "tuesday": {
+            "close": "string",
+            "isOpen": "boolean",
+            "open": "string"
+          },
+          "wednesday": {
+            "close": "string",
+            "isOpen": "boolean",
+            "open": "string"
+          }
+        },
+        "slug": "string",
+        "totalReviews": "number",
+        "updatedAt": "string"
+      },
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "product.byBusiness": {
+    "status": 200,
+    "shape": {
+      "data": [
+        {
+          "__v": "number",
+          "_id": "string",
+          "businessId": "string",
+          "categoryId": "string",
+          "createdAt": "string",
+          "description": "string",
+          "discountPrice": "null",
+          "extras": [],
+          "gallery": [],
+          "galleryImages": [],
+          "id": "string",
+          "image": "null",
+          "imageAsset": "null",
+          "images": "null",
+          "isAvailable": "boolean",
+          "isFeatured": "boolean",
+          "lowStockThreshold": "number",
+          "name": "string",
+          "price": "number",
+          "requiresAgeVerification": "boolean",
+          "stock": "null",
+          "updatedAt": "string"
+        }
+      ],
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "product.byId.legacyExtras": {
+    "status": 200,
+    "shape": {
+      "data": {
+        "__v": "number",
+        "_id": "string",
+        "businessId": "string",
+        "categoryId": "string",
+        "createdAt": "string",
+        "description": "string",
+        "discountPrice": "null",
+        "extras": [
+          {
+            "name": "string",
+            "price": "number"
+          }
+        ],
+        "gallery": [],
+        "galleryImages": [],
+        "id": "string",
+        "image": "null",
+        "imageAsset": "null",
+        "images": "null",
+        "isAvailable": "boolean",
+        "isFeatured": "boolean",
+        "lowStockThreshold": "number",
+        "name": "string",
+        "price": "number",
+        "requiresAgeVerification": "boolean",
+        "stock": "null",
+        "updatedAt": "string"
+      },
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "product.byId.plain": {
+    "status": 200,
+    "shape": {
+      "data": {
+        "__v": "number",
+        "_id": "string",
+        "businessId": "string",
+        "categoryId": "string",
+        "createdAt": "string",
+        "description": "string",
+        "discountPrice": "null",
+        "extras": [],
+        "gallery": [],
+        "galleryImages": [],
+        "id": "string",
+        "image": "null",
+        "imageAsset": "null",
+        "images": "null",
+        "isAvailable": "boolean",
+        "isFeatured": "boolean",
+        "lowStockThreshold": "number",
+        "name": "string",
+        "price": "number",
+        "requiresAgeVerification": "boolean",
+        "stock": "null",
+        "updatedAt": "string"
+      },
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "order.quote.legacy": {
+    "status": 200,
+    "shape": {
+      "data": {
+        "appliedCommissionBps": "number",
+        "businessPayout": "number",
+        "cashToRemit": "number",
+        "coupon": "null",
+        "currency": "string",
+        "customerServiceFee": "number",
+        "customerTotal": "number",
+        "deliveryCustomerFee": "number",
+        "deliveryDistanceKm": "number",
+        "deliveryFee": "number",
+        "deliveryMargin": "number",
+        "deliveryPayable": "number",
+        "descuentoEnvio": "number",
+        "discount": "number",
+        "driverDeliveryPayout": "number",
+        "driverPayout": "number",
+        "etaMinutesMax": "number",
+        "etaMinutesMin": "number",
+        "freeDeliveryApplied": "boolean",
+        "items": [
+          {
+            "notes": "string",
+            "productId": "string",
+            "productName": "string",
+            "quantity": "number",
+            "selectedExtras": [
+              {
+                "name": "string",
+                "price": "number",
+                "quantity": "number"
+              }
+            ],
+            "totalPrice": "number",
+            "unitPrice": "number"
+          }
+        ],
+        "merchantCommission": "number",
+        "merchantFundedDiscount": "number",
+        "minOrder": "number",
+        "platformCommission": "number",
+        "platformFundedDiscount": "number",
+        "platformGrossRevenue": "number",
+        "platformNetRevenueBeforeOperatingCosts": "number",
+        "platformPromotionExpense": "number",
+        "precioOriginal": "number",
+        "pricingConfigVersion": "number",
+        "productSubtotal": "number",
+        "subsidioComercio": "number",
+        "subsidioPlataforma": "number",
+        "subtotal": "number",
+        "tax": "number",
+        "taxPayable": "number",
+        "tip": "number",
+        "total": "number",
+        "totalUsuario": "number",
+        "zoneId": "null",
+        "zoneName": "null"
+      },
+      "message": "string",
+      "success": "boolean"
+    },
+    "money": {
+      "subtotal": 72500,
+      "productSubtotal": 72500,
+      "deliveryFee": 4900,
+      "total": 77400,
+      "items": [
+        {
+          "quantity": 2,
+          "unitPrice": 20000,
+          "totalPrice": 59000,
+          "selectedExtras": [
+            {
+              "name": "Queso extra",
+              "price": 3000,
+              "quantity": 2
+            },
+            {
+              "name": "Tocineta",
+              "price": 3500,
+              "quantity": 1
+            }
+          ]
+        },
+        {
+          "quantity": 3,
+          "unitPrice": 4500,
+          "totalPrice": 13500,
+          "selectedExtras": []
+        }
+      ]
+    }
+  },
+  "order.quote.unknownExtra": {
+    "status": 400,
+    "shape": {
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "order.quote.foreignProduct": {
+    "status": 400,
+    "shape": {
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "order.quote.clientPriceIgnored": {
+    "status": 200,
+    "shape": {
+      "data": {
+        "appliedCommissionBps": "number",
+        "businessPayout": "number",
+        "cashToRemit": "number",
+        "coupon": "null",
+        "currency": "string",
+        "customerServiceFee": "number",
+        "customerTotal": "number",
+        "deliveryCustomerFee": "number",
+        "deliveryDistanceKm": "number",
+        "deliveryFee": "number",
+        "deliveryMargin": "number",
+        "deliveryPayable": "number",
+        "descuentoEnvio": "number",
+        "discount": "number",
+        "driverDeliveryPayout": "number",
+        "driverPayout": "number",
+        "etaMinutesMax": "number",
+        "etaMinutesMin": "number",
+        "freeDeliveryApplied": "boolean",
+        "items": [
+          {
+            "notes": "string",
+            "productId": "string",
+            "productName": "string",
+            "quantity": "number",
+            "selectedExtras": [
+              {
+                "name": "string",
+                "price": "number",
+                "quantity": "number"
+              }
+            ],
+            "totalPrice": "number",
+            "unitPrice": "number"
+          }
+        ],
+        "merchantCommission": "number",
+        "merchantFundedDiscount": "number",
+        "minOrder": "number",
+        "platformCommission": "number",
+        "platformFundedDiscount": "number",
+        "platformGrossRevenue": "number",
+        "platformNetRevenueBeforeOperatingCosts": "number",
+        "platformPromotionExpense": "number",
+        "precioOriginal": "number",
+        "pricingConfigVersion": "number",
+        "productSubtotal": "number",
+        "subsidioComercio": "number",
+        "subsidioPlataforma": "number",
+        "subtotal": "number",
+        "tax": "number",
+        "taxPayable": "number",
+        "tip": "number",
+        "total": "number",
+        "totalUsuario": "number",
+        "zoneId": "null",
+        "zoneName": "null"
+      },
+      "message": "string",
+      "success": "boolean"
+    },
+    "money": {
+      "subtotal": 23000,
+      "productSubtotal": 23000,
+      "deliveryFee": 4900,
+      "total": 27900,
+      "items": [
+        {
+          "quantity": 1,
+          "unitPrice": 20000,
+          "totalPrice": 23000,
+          "selectedExtras": [
+            {
+              "name": "Queso extra",
+              "price": 3000,
+              "quantity": 1
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "order.create.unauthenticated": {
+    "status": 401,
+    "shape": {
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "order.create.asBusiness": {
+    "status": 403,
+    "shape": {
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "order.create.emptyItems": {
+    "status": 400,
+    "shape": {
+      "errors": [
+        {
+          "field": "string",
+          "message": "string"
+        }
+      ],
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "order.create.legacy": {
+    "status": 201,
+    "shape": {
+      "data": {
+        "__v": "number",
+        "_id": "string",
+        "businessId": "string",
+        "businessPayout": "number",
+        "city": "string",
+        "clientId": "string",
+        "couponCode": "null",
+        "couponId": "null",
+        "createdAt": "string",
+        "deliveryAddress": "string",
+        "deliveryDetails": "string",
+        "deliveryDistanceKm": "number",
+        "deliveryFee": "number",
+        "deliveryLocation": {
+          "coordinates": [
+            "number"
+          ],
+          "type": "string"
+        },
+        "discount": "number",
+        "driverId": "null",
+        "driverPayout": "number",
+        "estimatedDelivery": "string",
+        "finance": {
+          "appliedCommissionBps": "number",
+          "businessPayout": "number",
+          "currency": "string",
+          "customerServiceFee": "number",
+          "customerTotal": "number",
+          "deliveryCustomerFee": "number",
+          "deliveryMargin": "number",
+          "driverDeliveryPayout": "number",
+          "driverPayout": "number",
+          "merchantCommission": "number",
+          "merchantFundedDiscount": "number",
+          "platformFundedDiscount": "number",
+          "platformGrossRevenue": "number",
+          "platformNetRevenueBeforeOperatingCosts": "number",
+          "platformPromotionExpense": "number",
+          "pricingConfigVersion": "number",
+          "productSubtotal": "number",
+          "taxPayable": "number",
+          "tip": "number"
+        },
+        "idempotencyKey": "string",
+        "items": [
+          {
+            "_id": "string",
+            "notes": "string",
+            "productId": "string",
+            "productName": "string",
+            "quantity": "number",
+            "selectedExtras": [
+              {
+                "name": "string",
+                "price": "number",
+                "quantity": "number"
+              }
+            ],
+            "totalPrice": "number",
+            "unitPrice": "number"
+          }
+        ],
+        "kind": "string",
+        "notes": "string",
+        "orderNumber": "string",
+        "paymentMethod": "string",
+        "paymentStatus": "string",
+        "platformCommission": "number",
+        "pricingConfigVersion": "number",
+        "requiresAgeVerification": "boolean",
+        "scheduledActivatedAt": "null",
+        "scheduledFor": "null",
+        "status": "string",
+        "subtotal": "number",
+        "tax": "number",
+        "tip": "number",
+        "total": "number",
+        "updatedAt": "string",
+        "zoneId": "null"
+      },
+      "message": "string",
+      "success": "boolean"
+    },
+    "money": {
+      "subtotal": 72500,
+      "deliveryFee": 4900,
+      "total": 77400,
+      "items": [
+        {
+          "quantity": 2,
+          "unitPrice": 20000,
+          "totalPrice": 59000,
+          "selectedExtras": [
+            {
+              "name": "Queso extra",
+              "price": 3000,
+              "quantity": 2
+            },
+            {
+              "name": "Tocineta",
+              "price": 3500,
+              "quantity": 1
+            }
+          ]
+        },
+        {
+          "quantity": 3,
+          "unitPrice": 4500,
+          "totalPrice": 13500,
+          "selectedExtras": []
+        }
+      ]
+    }
+  },
+  "order.my": {
+    "status": 200,
+    "shape": {
+      "data": [
+        {
+          "__v": "number",
+          "_id": "string",
+          "businessId": {
+            "_id": "string",
+            "id": "string",
+            "logo": "null",
+            "name": "string"
+          },
+          "businessPayout": "number",
+          "city": "string",
+          "clientId": "string",
+          "couponCode": "null",
+          "couponId": "null",
+          "createdAt": "string",
+          "deliveryAddress": "string",
+          "deliveryDetails": "string",
+          "deliveryDistanceKm": "number",
+          "deliveryFee": "number",
+          "deliveryLocation": {
+            "coordinates": [
+              "number"
+            ],
+            "type": "string"
+          },
+          "discount": "number",
+          "driverId": "null",
+          "driverPayout": "number",
+          "estimatedDelivery": "string",
+          "finance": {
+            "appliedCommissionBps": "number",
+            "businessPayout": "number",
+            "currency": "string",
+            "customerServiceFee": "number",
+            "customerTotal": "number",
+            "deliveryCustomerFee": "number",
+            "deliveryMargin": "number",
+            "driverDeliveryPayout": "number",
+            "driverPayout": "number",
+            "merchantCommission": "number",
+            "merchantFundedDiscount": "number",
+            "platformFundedDiscount": "number",
+            "platformGrossRevenue": "number",
+            "platformNetRevenueBeforeOperatingCosts": "number",
+            "platformPromotionExpense": "number",
+            "pricingConfigVersion": "number",
+            "productSubtotal": "number",
+            "taxPayable": "number",
+            "tip": "number"
+          },
+          "idempotencyKey": "string",
+          "items": [
+            {
+              "_id": "string",
+              "notes": "string",
+              "productId": "string",
+              "productName": "string",
+              "quantity": "number",
+              "selectedExtras": [
+                {
+                  "name": "string",
+                  "price": "number",
+                  "quantity": "number"
+                }
+              ],
+              "totalPrice": "number",
+              "unitPrice": "number"
+            }
+          ],
+          "kind": "string",
+          "notes": "string",
+          "orderNumber": "string",
+          "paymentMethod": "string",
+          "paymentStatus": "string",
+          "platformCommission": "number",
+          "pricingConfigVersion": "number",
+          "requiresAgeVerification": "boolean",
+          "scheduledActivatedAt": "null",
+          "scheduledFor": "null",
+          "status": "string",
+          "subtotal": "number",
+          "tax": "number",
+          "tip": "number",
+          "total": "number",
+          "updatedAt": "string",
+          "zoneId": "null"
+        }
+      ],
+      "message": "string",
+      "meta": {
+        "limit": "number",
+        "page": "number",
+        "total": "number",
+        "totalPages": "number"
+      },
+      "success": "boolean"
+    }
+  },
+  "order.byId.owner": {
+    "status": 200,
+    "shape": {
+      "data": {
+        "__v": "number",
+        "_id": "string",
+        "businessId": {
+          "_id": "string",
+          "address": "string",
+          "id": "string",
+          "location": {
+            "coordinates": [
+              "number"
+            ],
+            "type": "string"
+          },
+          "logo": "null",
+          "name": "string",
+          "phone": "string"
+        },
+        "businessPayout": "number",
+        "city": "string",
+        "clientId": {
+          "_id": "string",
+          "avatar": "null",
+          "id": "string",
+          "name": "string",
+          "phone": "string",
+          "status": "string"
+        },
+        "couponCode": "null",
+        "couponId": "null",
+        "createdAt": "string",
+        "deliveryAddress": "string",
+        "deliveryDetails": "string",
+        "deliveryDistanceKm": "number",
+        "deliveryFee": "number",
+        "deliveryLocation": {
+          "coordinates": [
+            "number"
+          ],
+          "type": "string"
+        },
+        "discount": "number",
+        "driverId": "null",
+        "driverPayout": "number",
+        "estimatedDelivery": "string",
+        "finance": {
+          "appliedCommissionBps": "number",
+          "businessPayout": "number",
+          "currency": "string",
+          "customerServiceFee": "number",
+          "customerTotal": "number",
+          "deliveryCustomerFee": "number",
+          "deliveryMargin": "number",
+          "driverDeliveryPayout": "number",
+          "driverPayout": "number",
+          "merchantCommission": "number",
+          "merchantFundedDiscount": "number",
+          "platformFundedDiscount": "number",
+          "platformGrossRevenue": "number",
+          "platformNetRevenueBeforeOperatingCosts": "number",
+          "platformPromotionExpense": "number",
+          "pricingConfigVersion": "number",
+          "productSubtotal": "number",
+          "taxPayable": "number",
+          "tip": "number"
+        },
+        "idempotencyKey": "string",
+        "items": [
+          {
+            "_id": "string",
+            "notes": "string",
+            "productId": "string",
+            "productName": "string",
+            "quantity": "number",
+            "selectedExtras": [
+              {
+                "name": "string",
+                "price": "number",
+                "quantity": "number"
+              }
+            ],
+            "totalPrice": "number",
+            "unitPrice": "number"
+          }
+        ],
+        "kind": "string",
+        "notes": "string",
+        "orderNumber": "string",
+        "paymentMethod": "string",
+        "paymentStatus": "string",
+        "platformCommission": "number",
+        "pricingConfigVersion": "number",
+        "requiresAgeVerification": "boolean",
+        "scheduledActivatedAt": "null",
+        "scheduledFor": "null",
+        "status": "string",
+        "subtotal": "number",
+        "tax": "number",
+        "tip": "number",
+        "total": "number",
+        "updatedAt": "string",
+        "zoneId": "null"
+      },
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "order.byId.otherClient": {
+    "status": 403,
+    "shape": {
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "order.status.clientAccepts": {
+    "status": 403,
+    "shape": {
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "order.status.businessAccepts": {
+    "status": 409,
+    "shape": {
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "product.update.owner": {
+    "status": 200,
+    "shape": {
+      "data": {
+        "__v": "number",
+        "_id": "string",
+        "businessId": "string",
+        "categoryId": "string",
+        "createdAt": "string",
+        "description": "string",
+        "discountPrice": "null",
+        "extras": [],
+        "gallery": [],
+        "galleryImages": [],
+        "id": "string",
+        "image": "null",
+        "imageAsset": "null",
+        "images": "null",
+        "isAvailable": "boolean",
+        "isFeatured": "boolean",
+        "lowStockThreshold": "number",
+        "name": "string",
+        "price": "number",
+        "requiresAgeVerification": "boolean",
+        "stock": "null",
+        "updatedAt": "string"
+      },
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "product.update.otherOwner": {
+    "status": 403,
+    "shape": {
+      "message": "string",
+      "success": "boolean"
+    }
+  },
+  "product.update.otherOwnerSpoofedBusiness": {
+    "status": 403,
+    "shape": {
+      "message": "string",
+      "success": "boolean"
+    }
+  }
+}

@@ -1,12 +1,16 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import {
   View, Pressable, Modal, StyleSheet, ScrollView,
   KeyboardAvoidingView, Platform, type ViewStyle, type StyleProp,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated, {
+  useSharedValue, useAnimatedStyle, withSpring, FadeIn, ZoomIn,
+} from 'react-native-reanimated';
 import { Text } from './Text';
-import { IconButton } from './Button';
+import { IconButton, Button } from './Button';
+import { Icon } from './Icon';
+import type { IconName } from '../../theme/icons';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
@@ -131,6 +135,8 @@ export interface SheetProps {
   /** Barra fija al pie, para la acción principal. */
   footer?: ReactNode;
   scroll?: boolean;
+  /** Para que quien arma la hoja pueda llevar la vista a un punto concreto. */
+  scrollRef?: RefObject<ScrollView | null>;
 }
 
 /**
@@ -141,7 +147,7 @@ export interface SheetProps {
  * eso hace perder el hilo y obliga a volver.
  */
 export function Sheet({
-  visible, onClose, title, children, height = 0.8, footer, scroll = true,
+  visible, onClose, title, children, height = 0.8, footer, scroll = true, scrollRef,
 }: SheetProps) {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
@@ -197,6 +203,7 @@ export function Sheet({
             style={styles.sheetBody}
             {...(scroll
               ? {
+                  ref: scrollRef,
                   contentContainerStyle: [
                     styles.sheetContent,
                     // Sin pie fijo, el último elemento no debe morir contra el
@@ -226,6 +233,77 @@ export function Sheet({
             </View>
           ) : null}
         </Frame>
+      </View>
+    </Modal>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// Diálogo de confirmación
+// ──────────────────────────────────────────────────────────────
+
+export interface ConfirmDialogProps {
+  visible: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+  icon?: IconName;
+  confirmText?: string;
+  cancelText?: string;
+  /** `danger` para acciones destructivas (salir, borrar); `neutral` para el resto. */
+  tone?: 'danger' | 'neutral';
+}
+
+/**
+ * Reemplaza `Alert.alert` para las confirmaciones que importan.
+ *
+ * El `Alert` nativo toma la piel del sistema operativo —gris de Android,
+ * blanco puro de iOS— y rompe el tema oscuro "Obsidiana & Oro" a medio flujo.
+ * Este diálogo vive dentro del mismo sistema de tokens que el resto de la app.
+ */
+export function ConfirmDialog({
+  visible, onCancel, onConfirm, title, message, icon = 'alerta',
+  confirmText = 'Confirmar', cancelText = 'Cancelar', tone = 'danger',
+}: ConfirmDialogProps) {
+  const { c } = useTheme();
+  const iconFg = tone === 'danger' ? c.error : c.primaryText;
+  const iconBg = tone === 'danger' ? c.errorSoft : c.primarySoft;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel} statusBarTranslucent>
+      <View style={[styles.dialogOverlay, { backgroundColor: c.overlay }]}>
+        <Animated.View entering={FadeIn.duration(160)} style={StyleSheet.absoluteFill}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={onCancel}
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar"
+          />
+        </Animated.View>
+
+        <Animated.View
+          entering={ZoomIn.springify().damping(18).stiffness(260)}
+          style={[styles.dialogCard, Shadow.lg, { backgroundColor: c.surface, borderColor: c.border }]}
+        >
+          <View style={[styles.dialogIconBadge, { backgroundColor: iconBg }]}>
+            <Icon name={icon} size="lg" color={iconFg} />
+          </View>
+
+          <Text v="titleL" center style={styles.dialogTitle}>{title}</Text>
+          <Text v="bodyM" tone="textMuted" center style={styles.dialogMessage}>{message}</Text>
+
+          <View style={styles.dialogActions}>
+            <Button title={cancelText} onPress={onCancel} variant="secondary" full haptic="light" />
+            <Button
+              title={confirmText}
+              onPress={onConfirm}
+              variant={tone === 'danger' ? 'danger' : 'primary'}
+              full
+              haptic={tone === 'danger' ? 'medium' : 'light'}
+            />
+          </View>
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -305,6 +383,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: Spacing.md,
+  },
+
+  dialogOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.xxl,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    padding: Spacing.xl,
+    alignItems: 'center',
+  },
+  dialogIconBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+  },
+  dialogTitle: { marginBottom: Spacing.sm },
+  dialogMessage: { marginBottom: Spacing.xl },
+  dialogActions: {
+    width: '100%',
     gap: Spacing.md,
   },
 });

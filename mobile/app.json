@@ -84,6 +84,9 @@
         "webClientId": "939093803417-q4tgt5qgmno60git9c7mbmldsqhk86c2.apps.googleusercontent.com",
         "iosClientId": "939093803417-68c0mgopu2f0q8fckpd6nepedv5j0uff.apps.googleusercontent.com",
         "androidClientId": "939093803417-dupphnrgpvbq7bfvabhr3ntbs9j47j2i.apps.googleusercontent.com"
+      },
+      "appleAuth": {
+        "servicesId": "YOUR_APPLE_SERVICES_ID"
       }
     },
     "runtimeVersion": "1.0.0",

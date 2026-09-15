@@ -6,6 +6,10 @@ export interface CartExtra {
   name: string;
   price: number;
   quantity: number;
+  /** Solo cuando la elección salió de un grupo de modificadores. */
+  groupId?: string;
+  groupName?: string;
+  optionId?: string;
 }
 
 export interface CartItem {
@@ -45,8 +49,11 @@ interface CartState {
  * they picked.
  */
 function buildLineId(item: CartItemInput): string {
+  // Una opción de grupo se identifica por su id, no por su nombre: el
+  // comercio puede renombrar "Angus" sin que dos bolsas se confundan, y
+  // dos grupos distintos pueden tener una opción que se llame igual.
   const extras = [...item.selectedExtras]
-    .map((e) => `${e.name}x${e.quantity}`)
+    .map((e) => `${e.optionId ?? e.name}x${e.quantity}`)
     .sort()
     .join('|');
   return `${item.productId}::${extras}::${(item.notes || '').trim()}`;

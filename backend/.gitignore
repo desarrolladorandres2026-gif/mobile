@@ -3,3 +3,7 @@ dist/
 public/pwa/
 .env
 *.log
+
+# TESTE: manifiesto e instantáneas locales de smoke
+src/scripts/teste/teste.manifest.json
+src/scripts/teste/smoke/

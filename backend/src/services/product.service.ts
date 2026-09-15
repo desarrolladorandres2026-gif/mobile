@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import { Product, IProduct, Category } from '../models';
+import type { ModifierGroup } from '../types';
 import { AppError } from '../middlewares';
 import { productImageService } from './productImage.service';
 
@@ -11,6 +12,7 @@ interface CreateProductInput {
   price: number;
   discountPrice?: number | null;
   extras?: Array<{ name: string; price: number }>;
+  modifierGroups?: ModifierGroup[];
   isAvailable?: boolean;
   isFeatured?: boolean;
   stock?: number | null;
@@ -94,7 +96,16 @@ export class ProductService {
       price: input.price,
       discountPrice: input.discountPrice ?? null,
       extras: input.extras ?? [],
-      isAvailable: input.isAvailable ?? true,
+      modifierGroups: input.modifierGroups ?? [],
+      // Faltaban. El validador los dejaba pasar y aquí se perdían: un
+      // comercio que daba de alta un licor con "solo mayores" marcado, o
+      // una panadería con "quedan 12", veían el producto creado sin nada
+      // de eso — y sin ningún error que lo dijera.
+      stock: input.stock ?? null,
+      lowStockThreshold: input.lowStockThreshold ?? 0,
+      requiresAgeVerification: input.requiresAgeVerification ?? false,
+      // Con inventario en cero se nace agotado, igual que al editar.
+      isAvailable: input.stock === 0 ? false : (input.isAvailable ?? true),
       isFeatured: input.isFeatured ?? false,
     });
   }
@@ -138,6 +149,7 @@ export class ProductService {
     // ese valor, que no es lo mismo en todas las versiones.
     if (data.discountPrice !== undefined) product.discountPrice = data.discountPrice ?? null;
     if (data.extras !== undefined) product.extras = data.extras;
+    if (data.modifierGroups !== undefined) product.modifierGroups = data.modifierGroups as any;
     if (data.isAvailable !== undefined) product.isAvailable = data.isAvailable;
     if (data.isFeatured !== undefined) product.isFeatured = data.isFeatured;
 

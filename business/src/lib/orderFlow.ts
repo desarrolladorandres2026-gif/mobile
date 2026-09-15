@@ -206,6 +206,34 @@ export interface OrderItemExtra {
   name: string;
   price: number;
   quantity?: number;
+  /** Solo cuando la elección salió de un grupo de modificadores. */
+  groupId?: string;
+  groupName?: string;
+  optionId?: string;
+}
+
+/**
+ * Los adicionales de una línea como los lee la cocina: "Tipo de carne:
+ * Angus · Salsas: BBQ, Chipotle · 2× Queso extra".
+ *
+ * Las opciones van agrupadas bajo la pregunta que respondió el cliente;
+ * los extras planos, con su cantidad, al final como siempre.
+ */
+export function describeExtras(extras: OrderItemExtra[] | null | undefined): string {
+  if (!extras?.length) return '';
+  const byGroup = new Map<string, string[]>();
+  const flat: string[] = [];
+  for (const e of extras) {
+    if (e.optionId && e.groupName) {
+      const list = byGroup.get(e.groupName) ?? [];
+      list.push(e.name);
+      byGroup.set(e.groupName, list);
+    } else {
+      flat.push(`${e.quantity ?? 1}× ${e.name}`);
+    }
+  }
+  const grouped = [...byGroup.entries()].map(([group, names]) => `${group}: ${names.join(', ')}`);
+  return [...grouped, ...flat].join(' · ');
 }
 
 export interface OrderItem {

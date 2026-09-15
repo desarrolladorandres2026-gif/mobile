@@ -23,7 +23,12 @@
     "test:load": "vitest run --config vitest.load.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "teste:seed": "tsx src/scripts/teste/run-seed.ts",
+    "teste:validate": "tsx src/scripts/teste/run-validate.ts",
+    "teste:teardown": "tsx src/scripts/teste/run-teardown.ts",
+    "teste:report": "tsx src/scripts/teste/run-report.ts",
+    "teste:api-smoke": "tsx src/scripts/teste/run-api-smoke.ts"
   },
   "dependencies": {
     "argon2": "^0.44.0",

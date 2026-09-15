@@ -111,6 +111,17 @@ export const googleLoginSchema = z.object({
   params: z.object({}).optional(),
 });
 
+export const appleLoginSchema = z.object({
+  body: z.object({
+    idToken: z.string().min(1, 'idToken requerido'),
+    // Apple solo manda el nombre la primera vez que el usuario autoriza la
+    // app — en los logins siguientes el identityToken no lo trae.
+    fullName: z.string().trim().min(1).max(100).optional(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 export const updateProfileSchema = z.object({
   body: z.object({
     name: z.string().min(2, 'Mínimo 2 caracteres').max(100).optional(),

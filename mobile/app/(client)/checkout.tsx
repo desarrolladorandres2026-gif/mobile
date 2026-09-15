@@ -22,6 +22,7 @@ import type { IconName } from '../../theme/icons';
 import { Type } from '../../theme/typography';
 import { BorderRadius, Spacing, Motion } from '../../theme/tokens';
 import { money, km } from '../../lib/format';
+import { describeExtras } from '../../lib/modifiers';
 import { apiMessage } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
 
@@ -193,10 +194,13 @@ export default function CheckoutScreen() {
       items.map((item) => ({
         productId: item.productId,
         quantity: item.quantity,
-        // Solo nombres y cantidades: los precios los pone el servidor.
+        // Solo identificadores y cantidades: los precios los pone el
+        // servidor. Una opción de grupo viaja por sus ids; un extra plano,
+        // por su nombre.
         selectedExtras: item.selectedExtras.map((e) => ({
           name: e.name,
           quantity: e.quantity || 1,
+          ...(e.optionId ? { groupId: e.groupId, optionId: e.optionId } : {}),
         })),
         notes: item.notes || '',
       })),
@@ -492,9 +496,7 @@ export default function CheckoutScreen() {
                       <Text v="strongS" numberOfLines={1}>{item.productName}</Text>
                       {item.selectedExtras.length > 0 ? (
                         <Text v="caption" tone="textMuted" numberOfLines={2}>
-                          {item.selectedExtras
-                            .map((e) => (e.quantity > 1 ? `${e.name} x${e.quantity}` : e.name))
-                            .join(' · ')}
+                          {describeExtras(item.selectedExtras)}
                         </Text>
                       ) : null}
                       {item.notes ? (

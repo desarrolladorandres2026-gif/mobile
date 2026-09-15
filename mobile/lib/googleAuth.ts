@@ -1,8 +1,8 @@
 import { useCallback, useEffect } from 'react';
-import Constants from 'expo-constants';
-import {
-  GoogleSignin,
-  isSuccessResponse,
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+import type {
+  GoogleSignin as GoogleSigninType,
+  isSuccessResponse as isSuccessResponseType,
 } from '@react-native-google-signin/google-signin';
 
 const googleAuth = (Constants.expoConfig?.extra?.googleAuth ?? {}) as {
@@ -14,10 +14,33 @@ const googleAuth = (Constants.expoConfig?.extra?.googleAuth ?? {}) as {
 /** `app.json` todavía trae los `YOUR_GOOGLE_..._CLIENT_ID` de plantilla. */
 const isPlaceholder = (id?: string) => !id || id.startsWith('YOUR_');
 
-const isGoogleConfigured =
+const hasRealClientIds =
   !isPlaceholder(googleAuth.webClientId) &&
   !isPlaceholder(googleAuth.iosClientId) &&
   !isPlaceholder(googleAuth.androidClientId);
+
+/**
+ * Expo Go es un binario genérico: no trae compilado el módulo nativo de
+ * `@react-native-google-signin/google-signin`. Solo `require`arlo (y por lo
+ * tanto ejecutar su `TurboModuleRegistry.getEnforcing` de nivel superior)
+ * cuando corremos en un development build de verdad — si no, la app entera
+ * se cae al abrir el login.
+ */
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+let GoogleSignin: typeof GoogleSigninType | undefined;
+let isSuccessResponse: typeof isSuccessResponseType | undefined;
+
+if (!isExpoGo && hasRealClientIds) {
+  try {
+    ({ GoogleSignin, isSuccessResponse } = require('@react-native-google-signin/google-signin'));
+  } catch {
+    // Módulo nativo no vinculado en este binario (p. ej. build vieja sin el
+    // plugin de config aplicado todavía): tratar como no configurado.
+  }
+}
+
+const isGoogleConfigured = !!GoogleSignin && !!isSuccessResponse;
 
 let didConfigure = false;
 
@@ -27,7 +50,7 @@ let didConfigure = false;
  * volver a llamarlo dentro de `signIn`.
  */
 function ensureConfigured() {
-  if (didConfigure || !isGoogleConfigured) return;
+  if (didConfigure || !isGoogleConfigured || !GoogleSignin) return;
   GoogleSignin.configure({
     webClientId: googleAuth.webClientId,
     iosClientId: googleAuth.iosClientId,
@@ -50,7 +73,7 @@ export function useGoogleAuth() {
   useEffect(() => { ensureConfigured(); }, []);
 
   const signIn = useCallback(async (): Promise<string | null> => {
-    if (!isGoogleConfigured) return null;
+    if (!isGoogleConfigured || !GoogleSignin || !isSuccessResponse) return null;
     ensureConfigured();
 
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });

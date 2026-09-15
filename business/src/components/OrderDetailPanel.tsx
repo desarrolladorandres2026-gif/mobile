@@ -7,7 +7,7 @@ import api from '../services/api';
 import OrderTimeline from './OrderTimeline';
 import {
   statusStyle, money, signedMoney, shortId, dateTime, clock,
-  type BusinessOrder, type FlowState, type OrderFinance, type OrderItem, type OrderItemExtra,
+  type BusinessOrder, type FlowState, type OrderFinance, type OrderItem, describeExtras,
   type PopulatedDriver, type PopulatedUser,
 } from '../lib/orderFlow';
 import { SUPPORT_PHONE_DISPLAY, supportWhatsAppUrl } from '../lib/contact';
@@ -200,9 +200,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
 
                   {item.selectedExtras?.length ? (
                     <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
-                      {item.selectedExtras
-                        .map((extra: OrderItemExtra) => `${extra.quantity ?? 1}× ${extra.name}`)
-                        .join(' · ')}
+                      {describeExtras(item.selectedExtras)}
                     </p>
                   ) : null}
 
