@@ -1,4 +1,5 @@
 import api from './api';
+import type { ProductImages } from '../lib/productImage';
 
 export const categoriesApi = {
   getByBusiness: (businessId: string) =>
@@ -24,6 +25,10 @@ export const productsApi = {
   getByBusiness: (businessId: string, categoryId?: string) =>
     api.get(`/products/business/${businessId}`, { params: { categoryId } }).then((r) => r.data.data),
 
+  /** Productos de negocios de una categoría del home (carrusel intercalado). */
+  getByCategory: (categoryKey: string, limit = 20) =>
+    api.get(`/products/by-category/${categoryKey}`, { params: { limit } }).then((r) => r.data.data),
+
   getById: (id: string) =>
     api.get(`/products/${id}`).then((r) => r.data.data),
 };
@@ -32,6 +37,50 @@ export const productSentimentApi = {
   /** Pulgares por plato de un negocio: `{ productId: { likes, total } }`. */
   forBusiness: (businessId: string): Promise<Record<string, { likes: number; total: number }>> =>
     api.get(`/products/business/${businessId}/sentiment`).then((r) => r.data.data),
+};
+
+/** Un producto dentro de una colección dinámica del inicio, con su negocio ya resuelto. */
+export interface HomeSectionProduct {
+  _id: string;
+  name: string;
+  description?: string;
+  image?: string;
+  images?: ProductImages | null;
+  price: number;
+  discountPrice?: number | null;
+  discountPercent: number;
+  effectivePrice: number;
+  isFeatured: boolean;
+  stock?: number | null;
+  createdAt: string;
+  prepTimeMinutes?: number | null;
+  businessId: string;
+  businessName: string;
+  businessLogo?: string | null;
+  businessCategory: string;
+  businessRating: number;
+  businessTotalReviews: number;
+  businessDeliveryTime: number;
+  /** Solo la trae "Cerca de ti". */
+  distanceMeters?: number;
+}
+
+export interface HomeSection {
+  key: string;
+  emoji: string;
+  title: string;
+  subtitle?: string;
+  products: HomeSectionProduct[];
+}
+
+export const homeSectionsApi = {
+  /**
+   * Las colecciones dinámicas del inicio: "Los más pedidos", "Descuentos
+   * locos", "Cerca de ti"… Una sola llamada trae las que tengan suficiente
+   * material — el servidor ya decide cuáles esconder.
+   */
+  get: (params?: { lat?: number; lng?: number; maxDistance?: number; city?: string }): Promise<HomeSection[]> =>
+    api.get('/home-sections', { params }).then((r) => r.data.data),
 };
 
 export const topSellersApi = {
@@ -429,6 +478,21 @@ export interface PendingRating {
   items?: Array<{ productId: string; productName: string; quantity: number }>;
 }
 
+export interface BusinessReview {
+  _id: string;
+  userId?: { name?: string; avatar?: string | null } | string | null;
+  businessRating?: number;
+  comment?: string;
+  businessReply?: string;
+  businessRepliedAt?: string;
+  createdAt: string;
+}
+
+export interface PaginatedReviews {
+  reviews: BusinessReview[];
+  meta: { page: number; limit: number; total: number; totalPages: number };
+}
+
 export const reviewsApi = {
   /** Pedidos entregados que este cliente aún no ha calificado. */
   pending: (): Promise<PendingRating[]> =>
@@ -444,8 +508,11 @@ export const reviewsApi = {
     productFeedback?: Array<{ productId: string; liked: boolean }>;
   }) => api.post('/reviews', input).then((r) => r.data.data),
 
-  byBusiness: (businessId: string) =>
-    api.get(`/reviews/business/${businessId}`).then((r) => r.data.data),
+  /** Reseñas públicas de un negocio, paginadas. */
+  byBusiness: (businessId: string, page = 1, limit = 20): Promise<PaginatedReviews> =>
+    api
+      .get(`/reviews/business/${businessId}`, { params: { page, limit } })
+      .then((r) => ({ reviews: r.data.data, meta: r.data.meta })),
 };
 
 export type FavoriteKind = 'business' | 'product';

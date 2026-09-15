@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
-import { Product, IProduct, Category } from '../models';
+import { Product, IProduct, Category, Business } from '../models';
 import type { ModifierGroup } from '../types';
+import { BusinessCategory } from '../types';
 import { AppError } from '../middlewares';
 import { productImageService } from './productImage.service';
 
@@ -11,6 +12,7 @@ interface CreateProductInput {
   description?: string;
   price: number;
   discountPrice?: number | null;
+  prepTimeMinutes?: number | null;
   extras?: Array<{ name: string; price: number }>;
   modifierGroups?: ModifierGroup[];
   isAvailable?: boolean;
@@ -95,6 +97,7 @@ export class ProductService {
       description: input.description ?? '',
       price: input.price,
       discountPrice: input.discountPrice ?? null,
+      prepTimeMinutes: input.prepTimeMinutes ?? null,
       extras: input.extras ?? [],
       modifierGroups: input.modifierGroups ?? [],
       // Faltaban. El validador los dejaba pasar y aquí se perdían: un
@@ -108,6 +111,35 @@ export class ProductService {
       isAvailable: input.stock === 0 ? false : (input.isAvailable ?? true),
       isFeatured: input.isFeatured ?? false,
     });
+  }
+
+  /**
+   * Productos disponibles de negocios de una categoría, para los carruseles
+   * del home.
+   *
+   * `categoryKey` es el `key` de `HomeCategory` (configurado en el admin),
+   * que por convención coincide con el enum `BusinessCategory` — no hay FK
+   * entre ambos. Una clave que no matchea ningún valor del enum no es un
+   * error: simplemente no hay negocios de esa categoría y el carrusel no
+   * tiene nada que mostrar.
+   */
+  async getByBusinessCategory(categoryKey: string, limit = 20) {
+    if (!Object.values(BusinessCategory).includes(categoryKey as BusinessCategory)) {
+      return [];
+    }
+
+    const businessIds = await Business.find({
+      category: categoryKey,
+      isActive: true,
+      isApproved: true,
+    }).distinct('_id');
+
+    if (!businessIds.length) return [];
+
+    return Product.find({ businessId: { $in: businessIds }, isAvailable: true })
+      .sort({ isFeatured: -1, createdAt: -1 })
+      .limit(limit)
+      .populate('businessId', 'name category');
   }
 
   async getByBusiness(businessId: string, categoryId?: string, includeUnavailable = false) {
@@ -148,6 +180,7 @@ export class ProductService {
     // Asignar `undefined` deja el borrado a merced de cómo trate Mongoose
     // ese valor, que no es lo mismo en todas las versiones.
     if (data.discountPrice !== undefined) product.discountPrice = data.discountPrice ?? null;
+    if (data.prepTimeMinutes !== undefined) product.prepTimeMinutes = data.prepTimeMinutes ?? null;
     if (data.extras !== undefined) product.extras = data.extras;
     if (data.modifierGroups !== undefined) product.modifierGroups = data.modifierGroups as any;
     if (data.isAvailable !== undefined) product.isAvailable = data.isAvailable;

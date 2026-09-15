@@ -89,23 +89,16 @@ export default function FavoritesScreen() {
             ) : null
           }
           renderItem={({ item }) => (
-            <View
-              style={[
-                styles.rowCard,
-                { backgroundColor: c.surface, borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)' },
-              ]}
-            >
-              <View style={styles.flex}>
-                <BusinessRow business={item} showStatus={false} onPress={openBusiness} />
-              </View>
-              <IconButton
-                icon="favorito"
-                label={`Quitar ${item.name} de favoritos`}
-                tone="danger"
-                filled
-                onPress={() => { tap('light'); toggleFavorite(item._id); }}
-              />
-            </View>
+            // El corazón ya vive sobre la foto de la propia fila (ver
+            // `BusinessRow`): envolverla otra vez en una tarjeta con borde
+            // era duplicar el marco que la fila ya trae.
+            <BusinessRow
+              business={item}
+              showStatus={false}
+              onPress={openBusiness}
+              favorite
+              onToggleFavorite={(id) => { tap('light'); toggleFavorite(id); }}
+            />
           )}
           ListEmptyComponent={
             isLoading ? null : (

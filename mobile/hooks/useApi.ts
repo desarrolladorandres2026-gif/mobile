@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
-import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi, referralsApi } from '../services/endpoints';
+import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi, referralsApi, homeSectionsApi } from '../services/endpoints';
 import type { PromoBanner, HomeCategory, SearchSort, CancellationCode } from '../services/endpoints';
 
 // ── Businesses ──
@@ -130,6 +130,23 @@ export const usePendingRatings = () =>
     staleTime: 60_000,
   });
 
+/**
+ * Reseñas públicas de un negocio, página por página.
+ *
+ * El backend ya las servía desde hacía tiempo (`GET /reviews/business/:id`)
+ * pero ninguna pantalla las pedía: el perfil del negocio solo mostraba el
+ * número agregado, nunca lo que la gente escribió.
+ */
+export const useBusinessReviews = (businessId: string, enabled = true) =>
+  useInfiniteQuery({
+    queryKey: ['reviews', 'business', businessId],
+    queryFn: ({ pageParam }) => reviewsApi.byBusiness(businessId, pageParam),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) =>
+      last.meta.page < last.meta.totalPages ? pages.length + 1 : undefined,
+    enabled: enabled && !!businessId,
+  });
+
 export const useCreateReview = () => {
   const qc = useQueryClient();
   return useMutation({
@@ -204,11 +221,32 @@ export const useBusinessCategories = (businessId: string) =>
   });
 
 // ── Products ──
-export const useBusinessProducts = (businessId: string, categoryId?: string) =>
+/**
+ * `enabled` deja pedir el hook siempre (las reglas de React lo exigen) pero
+ * frenar la petición de verdad. La tira de productos de la tarjeta de
+ * negocio en Inicio es la primera que lo necesita: solo debe pedir el
+ * catálogo cuando esa tarjeta va a mostrarlo.
+ */
+export const useBusinessProducts = (businessId: string, categoryId?: string, enabled = true) =>
   useQuery({
     queryKey: ['products', businessId, categoryId],
     queryFn: () => productsApi.getByBusiness(businessId, categoryId),
-    enabled: !!businessId,
+    enabled: !!businessId && enabled,
+  });
+
+/**
+ * Productos de negocios de una categoría del home, para el carrusel
+ * intercalado entre negocios. `retry: false` para que una categoría sin
+ * coincidencias (o el backend caído) simplemente no dibuje el carrusel, en
+ * vez de dejarlo girando en "cargando".
+ */
+export const useProductsByCategory = (categoryKey: string, enabled = true) =>
+  useQuery({
+    queryKey: ['products', 'byCategory', categoryKey],
+    queryFn: () => productsApi.getByCategory(categoryKey),
+    enabled: !!categoryKey && enabled,
+    retry: false,
+    staleTime: 5 * 60_000,
   });
 
 // ── Orders ──
@@ -645,6 +683,24 @@ export const useOffers = (coords?: { lat: number; lng: number } | null) =>
   useQuery({
     queryKey: ['offers', coords],
     queryFn: () => offersApi.get(coords ?? undefined),
+    staleTime: 5 * 60_000,
+  });
+
+/**
+ * Las colecciones dinámicas del inicio, mezclando productos de varios
+ * comercios: "Los más pedidos", "Descuentos locos", "Cerca de ti"…
+ *
+ * Una sola petición para todas — el mismo motivo por el que `useOffers` no
+ * se parte en una consulta por pestaña: el límite de 100 peticiones cada 15
+ * minutos por IP no da para veinte llamadas en cada apertura del inicio.
+ * `retry: false` para que un fallo no deje el bloque entero girando.
+ */
+export const useHomeSections = (coords?: { lat: number; lng: number } | null, ready = true) =>
+  useQuery({
+    queryKey: ['home-sections', coords],
+    queryFn: () => homeSectionsApi.get(coords ?? undefined),
+    enabled: ready,
+    retry: false,
     staleTime: 5 * 60_000,
   });
 

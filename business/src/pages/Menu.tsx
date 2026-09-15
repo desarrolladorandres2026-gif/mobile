@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle,
-  UtensilsCrossed, RefreshCw, Store, Info,
+  UtensilsCrossed, RefreshCw, Store, Info, Clock,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import api from '../services/api';
@@ -32,6 +32,7 @@ const EMPTY_FORM = {
   description: '',
   price: '',
   discountPrice: '',
+  prepTimeMinutes: '',
   categoryId: '',
   extras: [] as ExtraOption[],
   modifierGroups: [] as GroupDraft[],
@@ -186,6 +187,7 @@ export default function Menu() {
         description: product.description || '',
         price: String(product.price),
         discountPrice: product.discountPrice ? String(product.discountPrice) : '',
+        prepTimeMinutes: product.prepTimeMinutes ? String(product.prepTimeMinutes) : '',
         categoryId: product.categoryId,
         extras: product.extras || [],
         modifierGroups: toDrafts(product.modifierGroups),
@@ -245,6 +247,13 @@ export default function Menu() {
       return;
     }
 
+    // Vacío es "usa el tiempo general del negocio", no cero minutos.
+    const rawPrepTime = Number(productForm.prepTimeMinutes);
+    const prepTimeMinutes =
+      productForm.prepTimeMinutes.trim() && Number.isFinite(rawPrepTime) && rawPrepTime > 0
+        ? rawPrepTime
+        : null;
+
     const converted = fromDrafts(productForm.modifierGroups);
     if ('error' in converted) {
       setError(converted.error);
@@ -258,6 +267,7 @@ export default function Menu() {
       description: productForm.description.trim() || undefined,
       price,
       discountPrice: discount,
+      prepTimeMinutes,
       extras: productForm.extras,
       modifierGroups: converted.groups,
     };
@@ -473,6 +483,12 @@ export default function Menu() {
                               Sin foto
                             </span>
                           )}
+                          {product.prepTimeMinutes ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] border border-[var(--color-border)]">
+                              <Clock className="w-3 h-3" />
+                              {product.prepTimeMinutes} min
+                            </span>
+                          ) : null}
                           {/* Solo aparece si el negocio lleva la cuenta.
                               `null` es "no lo cuento" y no se muestra. */}
                           {typeof product.stock === 'number' && (
@@ -752,6 +768,26 @@ export default function Menu() {
                   />
                 </Field>
               </div>
+
+              <Field label="Tiempo de preparación (opcional)" htmlFor="product-prep-time">
+                <input
+                  id="product-prep-time"
+                  type="number"
+                  min={1}
+                  max={180}
+                  step={1}
+                  value={productForm.prepTimeMinutes}
+                  onChange={(event) =>
+                    setProductForm({ ...productForm, prepTimeMinutes: event.target.value })
+                  }
+                  placeholder="Ej.: 40"
+                  className={`${inputClass} tabular font-bold`}
+                />
+                <p className="text-[11px] text-[var(--color-text-secondary)] mt-1">
+                  Solo si este plato tarda distinto del resto. Vacío usa el tiempo general
+                  del negocio (en Ajustes).
+                </p>
+              </Field>
 
               <div className="border-t border-[var(--color-border-light)] pt-4 space-y-2">
                 <span className="block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">

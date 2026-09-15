@@ -1,15 +1,34 @@
-import { memo } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { memo, useMemo } from 'react';
+import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Text } from '../ui/Text';
+import { IconButton } from '../ui/Button';
 import { Icon } from '../ui/Icon';
 import { Card } from '../ui/Surface';
-import { Badge, MetaRow } from '../ui/Badge';
+import { Badge, CatalogBadge, MetaRow } from '../ui/Badge';
 import { categoryIllustration } from '../illustrations';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
+import { useBusinessProducts } from '../../hooks/useApi';
 import { businessAccent, openState } from '../../lib/business';
-import { minutes } from '../../lib/format';
+import { minutes, money } from '../../lib/format';
+import { tap } from '../../lib/haptics';
+import { discountPercent } from '../../lib/catalog';
+import {
+  productImageUri, productImagePlaceholder, hasProductImage, type WithProductImage,
+} from '../../lib/productImage';
+
+/** Lo mínimo que necesita la tira de productos de la tarjeta de negocio. */
+interface PreviewProduct extends WithProductImage {
+  _id: string;
+  name: string;
+  price: number;
+  discountPrice?: number;
+  isAvailable?: boolean;
+}
+
+/** Cuántos platos como máximo entran en la tira, bajo la tarjeta. */
+const MAX_MENU_PREVIEW = 10;
 
 export interface Business {
   _id: string;
@@ -119,19 +138,17 @@ export const BusinessTile = memo(function BusinessTile({
 });
 
 /**
- * El motivo de oferta de un negocio, con o sin `/offers`.
+ * El motivo de oferta de un negocio, solo cuando el servidor ya lo resolvió
+ * (viene de la pestaña de Descuentos, vía `/offers`).
  *
- * Si el servidor ya lo resolvió (viene de la pestaña de Descuentos), se usa
- * ese. Si no —el listado normal de Inicio o Explorar— se deriva de
- * `freeDeliveryThreshold`, que viaja en cualquier negocio: así el badge
- * aparece en toda la app sin depender de qué pantalla lo pidió.
+ * Antes se derivaba también de `freeDeliveryThreshold` para que el listado
+ * normal de Inicio o Explorar mostrara el mismo cintillo sin depender de
+ * `/offers`. Se quitó: el envío gratis es información del pedido —cuánto
+ * falta para alcanzarlo— y ahora vive en la tarjeta de cada producto
+ * (`ProductRow`, en la ficha del negocio), no en la tarjeta del negocio.
  */
 function rowOffer(business: Business): Business['offer'] {
-  if (business.offer) return business.offer;
-  if (business.freeDeliveryThreshold && business.freeDeliveryThreshold > 0) {
-    return { kind: 'free_delivery', label: 'Envío gratis' };
-  }
-  return undefined;
+  return business.offer;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -150,12 +167,46 @@ function rowOffer(business: Business): Business['offer'] {
  * el `memo` empieza a servir para algo.
  */
 export const BusinessRow = memo(function BusinessRow({
-  business, onPress, showStatus = true,
-}: { business: Business; onPress: (id: string) => void; showStatus?: boolean }) {
+  business, onPress, showStatus = true, favorite, onToggleFavorite, menuPreview, onPressProduct,
+}: {
+  business: Business;
+  onPress: (id: string) => void;
+  showStatus?: boolean;
+  /**
+   * Si se pasa, se dibuja el corazón de favorito sobre la foto.
+   *
+   * Sin `onToggleFavorite` la fila no lleva corazón: en Inicio o Buscar no
+   * hay nada que decidir aquí todavía, y meterlo solo para que quede bonito
+   * sería el mismo distintivo decorativo que se sacó de admin/business.
+   */
+  favorite?: boolean;
+  onToggleFavorite?: (id: string) => void;
+  /**
+   * Solo Inicio la pide. Pedir el catálogo de cada negocio de Buscar o
+   * Favoritos —listas que pueden traer decenas— multiplicaría las
+   * peticiones por nada: ahí la fila ya dice bastante sin la tira.
+   */
+  menuPreview?: boolean;
+  /** A dónde llevar un toque sobre un plato concreto de la tira. */
+  onPressProduct?: (businessId: string, productId: string) => void;
+}) {
   const { c } = useTheme();
+  const accent = businessAccent(business._id);
   const status = openState(business.schedule);
   const closed = showStatus && !status.open;
   const offer = rowOffer(business);
+  const Illustration = categoryIllustration(business.category);
+
+  // El hook se pide siempre —las reglas de los hooks no dejan pedirlo solo
+  // cuando `menuPreview` es cierto— pero `enabled` frena la petición real
+  // en las pantallas que no la necesitan.
+  const { data: catalog = [] } = useBusinessProducts(business._id, undefined, !!menuPreview) as {
+    data: PreviewProduct[];
+  };
+  const previewProducts = useMemo(
+    () => catalog.filter((p) => p.isAvailable !== false).slice(0, MAX_MENU_PREVIEW),
+    [catalog]
+  );
 
   return (
     <Card
@@ -163,10 +214,61 @@ export const BusinessRow = memo(function BusinessRow({
       padded={false}
       accessibilityLabel={`${business.name}. Calificación ${business.rating.toFixed(1)}. ${minutes(business.deliveryTime)}.${offer ? ` ${offer.label}.` : ''}${closed ? ` ${status.label}.` : ''}`}
       accessibilityHint="Abre el menú del negocio"
-      style={styles.row}
     >
-      <View style={closed ? styles.dimmed : undefined}>
-        <BusinessTile business={business} size={62} />
+      {/* ── Foto de portada: lo primero que se ve, como en la tarjeta destacada ── */}
+      <View style={[styles.rowCover, { backgroundColor: accent }]}>
+        {business.coverImage ? (
+          <Image
+            source={{ uri: business.coverImage }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            transition={200}
+            accessible={false}
+            cachePolicy="memory-disk"
+            recyclingKey={business._id}
+          />
+        ) : (
+          <View style={styles.coverBadgeCircle}>
+            <Illustration size={40} />
+          </View>
+        )}
+
+        {/* Un negocio cerrado no está tomando pedidos con descuento ahora
+            mismo: el cintillo se calla y deja hablar solo al velo. */}
+        {offer && !closed ? (
+          <View style={styles.rowRibbon}>
+            <Badge label={offer.label} tone="lime" icon="descuento" style={{ backgroundColor: c.surface }} />
+          </View>
+        ) : null}
+
+        {onToggleFavorite ? (
+          <View style={styles.rowHeart}>
+            <IconButton
+              icon="favorito"
+              label={favorite ? `Quitar ${business.name} de favoritos` : `Guardar ${business.name} en favoritos`}
+              tone={favorite ? 'danger' : 'neutral'}
+              filled={favorite}
+              size={34}
+              onPress={() => onToggleFavorite(business._id)}
+            />
+          </View>
+        ) : null}
+
+        {closed ? (
+          <View style={styles.closedVeil}>
+            <Text v="captionStrong" color="#FFFFFF">{status.label.toUpperCase()}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/*
+        La insignia del logo, a medio camino entre la foto y el cuerpo.
+        El margen negativo la sube sobre el borde de la portada; lo que
+        "roba" de alto se lo devuelve solo al cuerpo, sin necesidad de un
+        padding extra calculado a mano.
+      */}
+      <View style={[styles.rowLogoRing, { backgroundColor: c.surface }]}>
+        <BusinessTile business={business} size={44} radius={22} />
       </View>
 
       <View style={styles.rowBody}>
@@ -190,22 +292,111 @@ export const BusinessRow = memo(function BusinessRow({
           ]}
         />
 
-        <View style={styles.badges}>
-          {offer ? (
-            <Badge label={offer.label} tone="lime" icon="descuento" />
-          ) : null}
-          {closed ? (
-            <Badge label={status.label} tone="neutral" icon="reloj" />
-          ) : status.label.startsWith('Cierra') ? (
+        {/* El cierre ya lo dijo el velo de la foto; aquí solo queda el
+            aviso de que está por cerrar, que es información nueva. */}
+        {!closed && status.label.startsWith('Cierra') ? (
+          <View style={styles.badges}>
             <Badge label={status.label} tone="warning" icon="reloj" />
-          ) : null}
+          </View>
+        ) : null}
+      </View>
+
+      {/*
+        La tira de platos, al pie de la tarjeta.
+        Nada que enseñar —catálogo vacío, todavía sin cargar— y no se
+        reserva ni un pixel: la tarjeta se queda con su alto normal en vez
+        de dejar un hueco a la espera de algo que puede no llegar.
+      */}
+      {menuPreview && previewProducts.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={[styles.menuStrip, { borderTopColor: c.border }]}
+          contentContainerStyle={styles.menuStripRow}
+        >
+          {previewProducts.map((product) => (
+            <MenuPreviewItem
+              key={product._id}
+              product={product}
+              accent={accent}
+              onPress={() => {
+                tap('light');
+                if (onPressProduct) onPressProduct(business._id, product._id);
+                else onPress(business._id);
+              }}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+    </Card>
+  );
+});
+
+/**
+ * Un plato dentro de la tira.
+ *
+ * Antes era un sello de 68 px con el nombre en `caption`: a ese tamaño solo
+ * el precio se leía sin entrecerrar los ojos. Ciento diez px de foto y el
+ * mismo tratamiento que la carta completa —cintillo de descuento, precio
+ * tachado, botón de agregar flotando sobre la imagen— es lo que hace que
+ * esta tira se sienta como un anticipo real de la carta y no como una lista
+ * de miniaturas sueltas.
+ */
+const MenuPreviewItem = memo(function MenuPreviewItem({
+  product, accent, onPress,
+}: { product: PreviewProduct; accent: string; onPress: () => void }) {
+  const { c } = useTheme();
+  const pct = discountPercent(product);
+  const hasDiscount = product.discountPrice != null;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${product.name}, ${money(product.discountPrice ?? product.price)}`}
+      accessibilityHint="Abre este plato en el negocio"
+      style={styles.menuItem}
+    >
+      <View style={[styles.menuItemImage, { backgroundColor: c.surfaceLight }]}>
+        {hasProductImage(product) ? (
+          <Image
+            source={{ uri: productImageUri(product, 'thumb')! }}
+            placeholder={productImagePlaceholder(product)}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            transition={180}
+            cachePolicy="memory-disk"
+            recyclingKey={product._id}
+            accessible={false}
+          />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: accent }]} />
+        )}
+
+        {pct ? (
+          <View style={styles.menuItemRibbon}>
+            <CatalogBadge kind="descuento" label={`-${pct}%`} />
+          </View>
+        ) : null}
+
+        <View style={[styles.menuItemAdd, { backgroundColor: c.primary }]}>
+          <Icon name="mas" size="sm" color={c.textOnPrimary} />
         </View>
       </View>
 
-      <View style={[styles.chevron, { backgroundColor: c.surfaceLight, borderColor: c.border }]}>
-        <Icon name="siguiente" size="sm" color={c.textMuted} />
+      <Text v="bodyS" numberOfLines={2} style={styles.menuItemName}>{product.name}</Text>
+
+      <View style={styles.menuItemPriceRow}>
+        <Text v="dataS" tone="primaryText" style={{ fontWeight: '700' }}>
+          {money(product.discountPrice ?? product.price)}
+        </Text>
+        {hasDiscount ? (
+          <Text v="caption" tone="textMuted" style={styles.menuItemStrike}>
+            {money(product.price)}
+          </Text>
+        ) : null}
       </View>
-    </Card>
+    </Pressable>
   );
 });
 
@@ -278,19 +469,56 @@ export const BusinessFeatured = memo(function BusinessFeatured({
 });
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
+  rowCover: {
+    height: 140,
     alignItems: 'center',
-    gap: Spacing.md,
-    padding: Spacing.md,
+    justifyContent: 'center',
+    position: 'relative',
   },
-  rowBody: { flex: 1, gap: Spacing.xs + 1 },
+  rowRibbon: { position: 'absolute', top: Spacing.sm, left: Spacing.sm, ...Shadow.sm },
+  rowHeart: { position: 'absolute', top: Spacing.sm, right: Spacing.sm, ...Shadow.sm },
+  /**
+   * El anillo del logo, a caballo entre la foto y el cuerpo.
+   *
+   * `marginTop` negativo igual a la mitad de su propio alto: sube el
+   * círculo justo hasta quedar centrado sobre el borde inferior de la
+   * portada, y la otra mitad que "sobra" abajo se convierte sola en el
+   * espacio de aire que necesita el nombre del negocio.
+   */
+  rowLogoRing: {
+    width: 50, height: 50, borderRadius: 25,
+    marginTop: -25,
+    marginLeft: Spacing.md,
+    padding: 3,
+    alignItems: 'center', justifyContent: 'center',
+    ...Shadow.sm,
+  },
+  rowBody: { padding: Spacing.md, paddingTop: Spacing.sm, gap: Spacing.xs + 1 },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
-  dimmed: { opacity: 0.45 },
-  chevron: {
-    width: 30, height: 30, borderRadius: 15,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
+
+  menuStrip: { borderTopWidth: StyleSheet.hairlineWidth },
+  menuStripRow: { gap: Spacing.md, padding: Spacing.md },
+  menuItem: { width: 110, gap: 4 },
+  menuItemImage: {
+    width: 110, height: 110, borderRadius: BorderRadius.lg, overflow: 'hidden',
   },
+  menuItemRibbon: { position: 'absolute', top: 6, left: 6 },
+  /**
+   * El botón de agregar flota sobre la esquina de la foto, como en Rappi:
+   * invita a sumar el plato sin obligar a abrir la ficha completa primero.
+   * Aquí solo lleva al detalle igual que el resto de la tarjeta —el carrito
+   * de un plato con modificadores no se resuelve con un toque— pero la
+   * promesa visual de "un toque y ya" es la que hace que la tira invite.
+   */
+  menuItemAdd: {
+    position: 'absolute', bottom: 6, right: 6,
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+    ...Shadow.sm,
+  },
+  menuItemName: { marginTop: 2, minHeight: 34 },
+  menuItemPriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  menuItemStrike: { textDecorationLine: 'line-through' },
 
   cover: {
     height: 116,

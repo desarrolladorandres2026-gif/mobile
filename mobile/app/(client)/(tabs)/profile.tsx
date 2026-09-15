@@ -20,7 +20,7 @@ import { usePrefsStore } from '../../../stores/prefsStore';
 import { useAddresses } from '../../../hooks/useApi';
 import { useZippStats } from '../../../hooks/useUsual';
 import { useTheme } from '../../../hooks/useTheme';
-import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
+import { useTabContentPadding } from '../../../hooks/useBottomSpace';
 import { authApi } from '../../../services/endpoints';
 import { socketService } from '../../../services/socket';
 import { unregisterPush } from '../../../hooks/usePushNotifications';
@@ -68,7 +68,9 @@ export default function ProfileScreen() {
 
   const router = useRouter();
   const { c, isDark } = useTheme();
-  const bottomSpace = useTabContentPadding(CLIENT_DOCK_CLEARANCE);
+  // Sin reserva mínima "por si acaso": esta pantalla no invita a agregar al
+  // carrito, así que basta con el alto real del dock cuando está visible.
+  const bottomSpace = useTabContentPadding();
   const { user, logout } = useAuthStore();
 
   const { data: addresses = [] } = useAddresses();
@@ -401,14 +403,6 @@ export default function ProfileScreen() {
             <Icon name="siguiente" size="sm" color={c.error} />
           </View>
         </Pressable>
-
-        {/* ── Footer ── */}
-        <View style={styles.footer}>
-          <Text v="dataS" tone="textMuted">ZIPP</Text>
-          <Text v="caption" tone="textMuted" center>
-            Versión 1.0.0 • El Trazo OS
-          </Text>
-        </View>
       </ScrollView>
 
       {/* ── Edit Profile Sheet ── */}
@@ -991,12 +985,5 @@ const styles = StyleSheet.create({
   },
   logoutArrow: {
     opacity: 0.45,
-  },
-
-  // Footer
-  footer: {
-    alignItems: 'center',
-    gap: 4,
-    marginTop: Spacing.sm,
   },
 });

@@ -16,6 +16,12 @@ import { HelpIllustration } from './HelpIllustration';
 import { GiftIllustration } from './GiftIllustration';
 import { DocumentIllustration } from './DocumentIllustration';
 import { DefaultIllustration } from './DefaultIllustration';
+import { SweetIllustration } from './SweetIllustration';
+import { DrinkIllustration } from './DrinkIllustration';
+import { PriceTagIllustration } from './PriceTagIllustration';
+import { CrownIllustration } from './CrownIllustration';
+import { TrendingIllustration } from './TrendingIllustration';
+import { IceCubeIllustration } from './IceCubeIllustration';
 import type { IllustrationProps } from './types';
 import type { IconName } from '../../theme/icons';
 
@@ -36,6 +42,12 @@ export {
   HelpIllustration,
   GiftIllustration,
   DocumentIllustration,
+  SweetIllustration,
+  DrinkIllustration,
+  PriceTagIllustration,
+  CrownIllustration,
+  TrendingIllustration,
+  IceCubeIllustration,
 };
 
 /**
@@ -66,6 +78,15 @@ export const ContentIllustrationRegistry = {
   regalo: GiftIllustration,
   documento: DocumentIllustration,
   negocio: DefaultIllustration,
+  // Sumadas para las colecciones dinámicas del inicio: conceptos sin
+  // equivalente entre los anteriores (dulce, bebida, precio bajo, premium,
+  // tendencia, frío), mismo patrón visual que el resto del set.
+  dulce: SweetIllustration,
+  bebida: DrinkIllustration,
+  etiqueta: PriceTagIllustration,
+  corona: CrownIllustration,
+  tendencia: TrendingIllustration,
+  hielo: IceCubeIllustration,
 } as const;
 
 export type ContentIllustrationName = keyof typeof ContentIllustrationRegistry;

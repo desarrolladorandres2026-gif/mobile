@@ -171,15 +171,25 @@ export function Skeleton({
   );
 }
 
-/** Fantasma de una tarjeta de negocio en la lista. */
+/**
+ * Fantasma de una tarjeta de negocio en la lista.
+ *
+ * Copia la silueta real de `BusinessRow` —foto ancha arriba, insignia del
+ * logo superpuesta, nombre y meta debajo— y no la fila delgada de antes:
+ * si el fantasma es más bajo que la tarjeta que reemplaza, la lista da un
+ * salto hacia abajo justo cuando llegan los datos.
+ */
 export function BusinessCardSkeleton() {
   const { c } = useTheme();
   return (
     <View style={[styles.skelCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-      <Skeleton width={64} height={64} radius={BorderRadius.md} />
+      <Skeleton width="100%" height={140} radius={0} />
+      <View style={[styles.skelLogoRing, { backgroundColor: c.surface }]}>
+        <Skeleton width={44} height={44} radius={22} />
+      </View>
       <View style={styles.skelBody}>
         <Skeleton width="62%" height={17} />
-        <Skeleton width="86%" height={13} />
+        <Skeleton width="40%" height={13} />
       </View>
     </View>
   );
@@ -302,14 +312,18 @@ const styles = StyleSheet.create({
   noticeBody: { flex: 1 },
 
   skelCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    padding: Spacing.md,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
+    overflow: 'hidden',
   },
-  skelBody: { flex: 1, gap: Spacing.sm },
+  skelLogoRing: {
+    width: 50, height: 50, borderRadius: 25,
+    marginTop: -25,
+    marginLeft: Spacing.md,
+    padding: 3,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  skelBody: { gap: Spacing.sm, padding: Spacing.md, paddingTop: Spacing.sm },
 
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.lg },
 

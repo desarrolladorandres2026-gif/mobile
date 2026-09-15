@@ -27,6 +27,9 @@ const price = z
   })
   .positive('El precio debe ser positivo');
 
+/** `null` borra el tiempo propio y vuelve a heredar el del negocio. */
+const prepTimeMinutes = z.number().int().min(1).max(180).nullable();
+
 const extras = z
   .array(
     z.object({
@@ -96,6 +99,7 @@ export const createProductSchema = z.object({
     description: z.string().max(DESCRIPTION_MAX).optional(),
     price,
     discountPrice: z.number().positive().nullable().optional(),
+    prepTimeMinutes: prepTimeMinutes.optional(),
     extras: extras.optional(),
     modifierGroups: modifierGroups.optional(),
     /**
@@ -125,6 +129,7 @@ export const updateProductSchema = z.object({
     description: z.string().max(DESCRIPTION_MAX).optional(),
     price: price.optional(),
     discountPrice: z.number().positive().nullable().optional(),
+    prepTimeMinutes: prepTimeMinutes.optional(),
     extras: extras.optional(),
     modifierGroups: modifierGroups.optional(),
     /**

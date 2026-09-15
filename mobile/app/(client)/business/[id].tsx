@@ -1,14 +1,16 @@
-import { useState, useMemo, useCallback, useRef, memo } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import {
   View, ScrollView, Pressable, StyleSheet, Share, Linking, Platform, TextInput,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Lightbox } from '../../../components/domain/Lightbox';
+import { ReviewsSheet } from '../../../components/domain/ReviewsSheet';
+import { formatDistance } from '../../../components/domain/BusinessCard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown, FadeOutDown, Layout } from 'react-native-reanimated';
 import {
-  Text, Icon, IconButton, Button, Badge, CatalogBadges, MetaRow, Notice, Sheet,
+  Text, Icon, IconButton, Button, Badge, CatalogBadge, MetaRow, Notice, Sheet,
   QtyStepper, EmptyState, ErrorState, Skeleton, LoadingScreen, SearchField,
 } from '../../../components/ui';
 import { useBusiness, useBusinessCategories, useBusinessProducts, useTopSellers, useProductSentiment } from '../../../hooks/useApi';
@@ -22,7 +24,7 @@ import { BorderRadius, Shadow, Spacing } from '../../../theme/tokens';
 import { businessAccent, openState } from '../../../lib/business';
 import { money, minutes } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
-import { freeDeliveryGap, likeRatio } from '../../../lib/catalog';
+import { freeDeliveryGap, likeRatio, catalogBadges, discountPercent } from '../../../lib/catalog';
 import { normalize, matches } from '../../../lib/text';
 import {
   productImageUri, productImagePlaceholder, hasProductImage, productGallery,
@@ -56,6 +58,8 @@ interface Product {
   /** Alimentan los distintivos de catálogo. Ver `lib/catalog.ts`. */
   isFeatured?: boolean;
   createdAt?: string;
+  /** Minutos de cocina propios de este plato. Null hereda el del negocio. */
+  prepTimeMinutes?: number | null;
 }
 
 /** Espacio que reserva el scroll cuando la barra de "mi coronita" está a la vista. */
@@ -67,7 +71,7 @@ const MAX_SUGGESTIONS = 6;
 const MENU_SEARCH_MIN = 8;
 
 export default function BusinessScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, productId } = useLocalSearchParams<{ id: string; productId?: string }>();
   const router = useRouter();
   const { c } = useTheme();
 
@@ -85,6 +89,25 @@ export default function BusinessScreen() {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [productQuery, setProductQuery] = useState('');
   const [selected, setSelected] = useState<Product | null>(null);
+  const [reviewsOpen, setReviewsOpen] = useState(false);
+
+  /**
+   * Llegar con `?productId=` —desde la tira de platos de Inicio— abre esa
+   * ficha sola, en cuanto la carta termine de cargar.
+   *
+   * El ref y no `selected` en las dependencias: si dependiera de `selected`,
+   * cerrar la hoja lo pondría en `null` otra vez, el efecto se repetiría con
+   * el mismo `productId` en la URL, y la ficha se reabriría sola sin dejar
+   * cerrarla nunca.
+   */
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (!productId || autoOpened.current) return;
+    const found = products.find((p) => p._id === productId);
+    if (!found) return;
+    autoOpened.current = true;
+    setSelected(found);
+  }, [productId, products]);
 
   // Estable, para que el `memo` de `ProductRow` sirva: con una funcion nueva
   // en cada render, las cuarenta filas se volvian a renderizar igual.
@@ -102,6 +125,10 @@ export default function BusinessScreen() {
 
   const status = openState(business?.schedule);
   const accent = businessAccent(id);
+  // Es un dato del pedido —cuánto falta para alcanzarlo— y no del negocio
+  // como tal, así que se enseña sobre cada plato en vez de una sola vez
+  // arriba: es justo donde el cliente decide si le suma algo más al carrito.
+  const freeDelivery = !!business?.freeDeliveryThreshold && business.freeDeliveryThreshold > 0;
 
   /**
    * La carta filtrada por sección y por lo que el usuario esté buscando.
@@ -254,13 +281,40 @@ export default function BusinessScreen() {
               <Text v="bodyM" tone="textSecondary">{business.description}</Text>
             ) : null}
 
-            <MetaRow
-              items={[
-                { icon: 'calificacion', text: business.rating.toFixed(1), strong: true, tone: 'text' },
-                { text: `${business.totalReviews ?? 0} reseñas` },
-                { icon: 'minutos', text: minutes(business.deliveryTime) },
-              ]}
-            />
+            <Pressable
+              onPress={() => { tap('light'); setReviewsOpen(true); }}
+              accessibilityRole="button"
+              accessibilityLabel={`Calificación ${business.rating.toFixed(1)} de 5, ${business.totalReviews ?? 0} reseñas`}
+              accessibilityHint="Ver las reseñas de este negocio"
+              style={styles.ratingRow}
+            >
+              <MetaRow
+                items={[
+                  { icon: 'calificacion', text: business.rating.toFixed(1), strong: true, tone: 'text' },
+                  { text: `${business.totalReviews ?? 0} reseñas` },
+                  { icon: 'minutos', text: minutes(business.deliveryTime) },
+                  ...(formatDistance(business.distanceMeters)
+                    ? [{ icon: 'navegar' as const, text: formatDistance(business.distanceMeters)! }]
+                    : []),
+                ]}
+              />
+              <Icon name="siguiente" size="sm" color={c.textMuted} />
+            </Pressable>
+
+            {business.address ? (
+              <Pressable
+                onPress={openMap}
+                accessibilityRole="button"
+                accessibilityLabel={`Dirección: ${business.address}`}
+                accessibilityHint="Abre la dirección en el mapa"
+                style={styles.addressRow}
+              >
+                <Icon name="ubicacion" size="sm" color={c.textMuted} />
+                <Text v="bodyS" tone="textSecondary" style={styles.flex} numberOfLines={1}>
+                  {business.address}
+                </Text>
+              </Pressable>
+            ) : null}
 
             <View style={styles.badges}>
               <Badge
@@ -372,6 +426,7 @@ export default function BusinessScreen() {
                     category={business.category}
                     disabled={!status.open}
                     likePercent={likeRatio(sentiment[product._id])}
+                    freeDelivery={freeDelivery}
                     onPress={selectProduct}
                   />
                 ))}
@@ -386,6 +441,7 @@ export default function BusinessScreen() {
                 category={business.category}
                 disabled={!status.open}
                 likePercent={likeRatio(sentiment[product._id])}
+                freeDelivery={freeDelivery}
                 onPress={selectProduct}
               />
             ))}
@@ -406,6 +462,15 @@ export default function BusinessScreen() {
           onOpenProduct={setSelected}
         />
       ) : null}
+
+      <ReviewsSheet
+        visible={reviewsOpen}
+        onClose={() => setReviewsOpen(false)}
+        businessId={business._id}
+        businessName={business.name}
+        rating={business.rating}
+        totalReviews={business.totalReviews ?? 0}
+      />
 
       {/*
         Resumen fijo de la bolsa mientras se sigue viendo la misma tienda.
@@ -468,7 +533,7 @@ function SectionTab({
  * la carta re-renderizaba las cuarenta.
  */
 const ProductRow = memo(function ProductRow({
-  product, accent, category, disabled, onPress, likePercent,
+  product, accent, category, disabled, onPress, likePercent, freeDelivery,
 }: {
   product: Product;
   accent: string;
@@ -477,11 +542,26 @@ const ProductRow = memo(function ProductRow({
   onPress: (product: Product) => void;
   /** Pulgares arriba en porcentaje. Null si aún no hay votos suficientes. */
   likePercent?: number | null;
+  /** Si el negocio regala el domicilio a partir de cierto monto. */
+  freeDelivery?: boolean;
 }) {
   const { c } = useTheme();
   const unavailable = !product.isAvailable || disabled;
   const hasDiscount = product.discountPrice != null;
   const Illustration = categoryIllustration(category);
+
+  // El descuento se cuenta dos veces: como cintillo sobre la foto —lo
+  // primero que se ve al pasar el dedo, como en Rappi— y como precio
+  // tachado en el cuerpo. Repetirlo además como chip de texto (lo que hacía
+  // `CatalogBadges` completo) era la misma cifra tres veces en una fila de
+  // 84 pt de alto.
+  const pct = product.isAvailable ? discountPercent(product) : null;
+  // "Nuevo" no aporta a la decisión de compra en la carta —solo asegura
+  // que todo recién creado luzca igual de recién creado, sin distinguir
+  // nada real— así que aquí solo queda "Destacado" como distintivo de texto.
+  const otherBadges = product.isAvailable
+    ? catalogBadges(product).filter((b) => b.kind !== 'descuento' && b.kind !== 'nuevo')
+    : [];
 
   return (
     <Pressable
@@ -498,7 +578,7 @@ const ProductRow = memo(function ProductRow({
       ]}
     >
       {/*
-        84 pt en pantalla: se pide la variante de 200 px, no la de
+        108 pt en pantalla: se pide la variante de 200 px, no la de
         catálogo. En una lista de treinta productos la diferencia es de
         megabytes sobre datos móviles.
       */}
@@ -513,8 +593,13 @@ const ProductRow = memo(function ProductRow({
             accessible={false}
           />
         ) : (
-          <Illustration size={44} />
+          <Illustration size={52} />
         )}
+        {pct ? (
+          <View style={styles.discountRibbon}>
+            <CatalogBadge kind="descuento" label={`-${pct}%`} />
+          </View>
+        ) : null}
         {!product.isAvailable ? (
           <View style={styles.soldOut}>
             <Text v="captionStrong" color="#FFFFFF">AGOTADO</Text>
@@ -523,27 +608,51 @@ const ProductRow = memo(function ProductRow({
       </View>
 
       <View style={styles.productBody}>
-        <Text v="titleS" numberOfLines={1}>{product.name}</Text>
+        <Text v="titleM" numberOfLines={1}>{product.name}</Text>
 
         {/* El velo de "AGOTADO" ya cubre la foto, así que aquí solo entran
-            los distintivos que hablan de por qué merece la pena mirarlo. */}
-        {product.isAvailable ? <CatalogBadges product={product} /> : null}
-
-        {/* Solo se enseña cuando la mayoría lo aprueba. Un "40% le gustó"
-            junto al plato no informa: hunde la venta sin darle al negocio
-            ninguna oportunidad de arreglarlo. */}
-        {likePercent != null && likePercent >= 70 ? (
-          <View style={styles.likeRow}>
-            <Icon name="check" size={12} color={c.lime} strong />
-            <Text v="caption" tone="textMuted">A {likePercent}% le gustó</Text>
+            los distintivos que hablan de por qué merece la pena mirarlo,
+            sin repetir el descuento que ya va en la foto. */}
+        {otherBadges.length > 0 || (freeDelivery && product.isAvailable) ? (
+          <View style={styles.badgeRow}>
+            {/* Es información del pedido —cuánto falta para alcanzar el
+                envío gratis, no del negocio como tal— así que va sobre cada
+                plato, donde el cliente decide si suma algo más. */}
+            {freeDelivery && product.isAvailable ? (
+              <Badge label="Envío gratis" tone="lime" icon="domiciliario" />
+            ) : null}
+            {otherBadges.map((badge) => (
+              <CatalogBadge key={badge.kind} kind={badge.kind} label={badge.label} />
+            ))}
           </View>
         ) : null}
+
+        <View style={styles.metaLine}>
+          {/* Solo se enseña cuando la mayoría lo aprueba. Un "40% le gustó"
+              junto al plato no informa: hunde la venta sin darle al negocio
+              ninguna oportunidad de arreglarlo. */}
+          {likePercent != null && likePercent >= 70 ? (
+            <View style={styles.likeRow}>
+              <Icon name="check" size={12} color={c.lime} strong />
+              <Text v="caption" tone="textMuted">A {likePercent}% le gustó</Text>
+            </View>
+          ) : null}
+          {/* Solo aparece cuando el negocio declaró un tiempo propio para
+              este plato: la mayoría de la carta hereda el general y
+              repetirlo en cada fila sería ruido, no información. */}
+          {product.prepTimeMinutes ? (
+            <View style={styles.likeRow}>
+              <Icon name="minutos" size={12} color={c.textMuted} />
+              <Text v="caption" tone="textMuted">~{product.prepTimeMinutes} min</Text>
+            </View>
+          ) : null}
+        </View>
         {product.description ? (
           <Text v="bodyS" tone="textMuted" numberOfLines={2}>{product.description}</Text>
         ) : null}
 
         <View style={styles.priceRow}>
-          <Text v="dataM" tone={hasDiscount ? 'limeText' : 'text'}>
+          <Text v="dataM" tone="primaryText">
             {money(product.discountPrice ?? product.price)}
           </Text>
           {hasDiscount ? (
@@ -825,6 +934,12 @@ function ProductSheet({
             }}
           />
         </View>
+        {product.prepTimeMinutes ? (
+          <View style={styles.likeRow}>
+            <Icon name="minutos" size={12} color={c.textMuted} />
+            <Text v="caption" tone="textMuted">Tarda ~{product.prepTimeMinutes} min en cocina</Text>
+          </View>
+        ) : null}
         {product.description ? (
           <Text v="bodyM" tone="textSecondary">{product.description}</Text>
         ) : null}
@@ -953,6 +1068,7 @@ function ProductSheet({
             {suggestions.map((item) => {
               const added = justAdded === item._id;
               const itemPrice = item.discountPrice ?? item.price;
+              const itemPct = discountPercent(item);
               return (
                 <View
                   key={item._id}
@@ -975,12 +1091,17 @@ function ProductSheet({
                     ) : (
                       <Illustration size={26} />
                     )}
+                    {itemPct ? (
+                      <View style={styles.discountRibbon}>
+                        <CatalogBadge kind="descuento" label={`-${itemPct}%`} />
+                      </View>
+                    ) : null}
                   </View>
 
                   <Text v="bodyS" numberOfLines={1}>{item.name}</Text>
 
                   <View style={styles.suggestFooter}>
-                    <Text v="dataS" tone="textMuted">{money(itemPrice)}</Text>
+                    <Text v="dataS" tone="primaryText">{money(itemPrice)}</Text>
                     <Pressable
                       onPress={() => quickAdd(item)}
                       disabled={added}
@@ -1051,6 +1172,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: BorderRadius.xxl, borderTopRightRadius: BorderRadius.xxl,
   },
   info: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl, gap: Spacing.md },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  addressRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: -Spacing.xs },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   actions: { flexDirection: 'row', gap: Spacing.sm },
 
@@ -1067,26 +1190,29 @@ const styles = StyleSheet.create({
   product: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.md,
-    padding: Spacing.md,
+    gap: Spacing.lg,
+    padding: Spacing.md + 2,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
   },
   productOff: { opacity: 0.55 },
   productImage: {
-    width: 84, height: 84, borderRadius: BorderRadius.md,
+    width: 108, height: 108, borderRadius: BorderRadius.lg,
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
+  discountRibbon: { position: 'absolute', top: 4, left: 4 },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
   soldOut: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(8,11,20,0.6)',
     alignItems: 'center', justifyContent: 'center',
   },
-  productBody: { flex: 1, gap: 3 },
-  priceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 2 },
+  productBody: { flex: 1, gap: 4 },
+  metaLine: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  priceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 3 },
   strike: { textDecorationLine: 'line-through' },
   addBtn: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
     ...Shadow.sm,
   },

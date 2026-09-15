@@ -22,6 +22,8 @@ export interface Product {
   description?: string;
   price: number;
   discountPrice?: number;
+  /** Minutos de cocina propios. `null`/`undefined` hereda el del negocio. */
+  prepTimeMinutes?: number | null;
   isAvailable: boolean;
   categoryId: string;
   extras?: ExtraOption[];

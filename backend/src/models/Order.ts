@@ -371,6 +371,10 @@ orderSchema.index({ clientId: 1, createdAt: -1 });
 orderSchema.index({ businessId: 1, status: 1 });
 orderSchema.index({ driverId: 1, status: 1 });
 orderSchema.index({ status: 1, city: 1 });
+// Las colecciones dinámicas del inicio agregan "más pedidos" y "tendencia"
+// sobre todo el histórico entregado, sin acotar por negocio: sin este
+// índice sería un recorrido completo de la colección en cada petición.
+orderSchema.index({ status: 1, deliveredAt: -1 });
 // El barrido del reparto pregunta por ofertas vencidas cada pocos segundos.
 // Sin índice sería un recorrido completo de la colección varias veces por
 // minuto, y crecería con el histórico de pedidos en vez de con los activos.

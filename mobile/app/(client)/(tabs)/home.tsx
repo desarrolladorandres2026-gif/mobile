@@ -1,23 +1,16 @@
-import { useCallback, useMemo, memo } from 'react';
+import { useMemo, memo } from 'react';
 import {
-  View, ScrollView, FlatList, Pressable, RefreshControl,
-  StyleSheet, useWindowDimensions,
+  View, ScrollView, FlatList, Pressable, RefreshControl, StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import {
-  Text, Icon, Card, SectionHeader, Badge,
-  EmptyState, BusinessCardSkeleton, ErrorState,
-} from '../../../components/ui';
-import {
-  BusinessRow, BusinessFeatured, type Business,
-} from '../../../components/domain/BusinessCard';
+import { Text, Icon, Card, SectionHeader, Badge } from '../../../components/ui';
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
-import { CouponCard } from '../../../components/domain/CouponCard';
+import { ProductCollectionRow } from '../../../components/domain/ProductCollectionRow';
 import { CategoryMarquee, type MarqueeCategory } from '../../../components/domain/CategoryMarquee';
 import { useAuthStore } from '../../../stores/authStore';
-import { useBusinesses, usePublicCoupons, useAddresses, useDeliveryCoords } from '../../../hooks/useApi';
+import { useAddresses, useDeliveryCoords, useHomeSections } from '../../../hooks/useApi';
 import { useUsual, reorder, type UsualOrder } from '../../../hooks/useUsual';
 import { useHomeCategories } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
@@ -25,107 +18,31 @@ import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useB
 import { categoryIllustration } from '../../../components/illustrations';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { greeting, firstName, money } from '../../../lib/format';
-import { openState } from '../../../lib/business';
 import { tap } from '../../../lib/haptics';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { c } = useTheme();
-  const { width } = useWindowDimensions();
   const bottomSpace = useTabContentPadding(CLIENT_DOCK_CLEARANCE);
   const user = useAuthStore((s) => s.user);
 
   // La distancia se mide desde la dirección de entrega, no desde el GPS.
   const { coords, ready: coordsReady } = useDeliveryCoords();
 
-  const { data: businesses = [], isLoading, isError, refetch, isRefetching } =
-    useBusinesses(coords, coordsReady) as { data: Business[]; isLoading: boolean; isError: boolean; refetch: () => void; isRefetching: boolean };
-  const { data: coupons = [] } = usePublicCoupons();
   const { data: addresses = [] } = useAddresses();
   const { usual } = useUsual();
   const { categories } = useHomeCategories();
+  // Las colecciones dinámicas del inicio: "Los más pedidos", "Descuentos
+  // locos"... una sola petición para las veinte, ya filtradas y con las
+  // vacías escondidas por el propio servidor. Es lo único que hay debajo
+  // de Categorías: reemplaza a Cupones, Destacados y las listas de
+  // negocios que vivían ahí antes.
+  const { data: homeSections = [], refetch, isRefetching } = useHomeSections(coords, coordsReady);
 
   const defaultAddress = useMemo(
     () => addresses.find((a: any) => a.isDefault) ?? addresses[0],
     [addresses]
   );
-
-  /**
-   * Las tres listas se derivan de una sola pasada y con memo.
-   *
-   * Antes eran tres `.filter()` sueltos en el cuerpo del render, y
-   * `openState()` construye un `new Date()` y parsea el horario **en cada
-   * llamada**. Con 60 negocios eso son ~120 fechas por render solo aquí, más
-   * una tercera dentro de cada `BusinessRow`. Cualquier cambio de estado en
-   * la pantalla —abrir el teclado, un refetch, una animación— lo repetía
-   * entero.
-   *
-   * La pantalla hermana, `search.tsx`, ya hacía exactamente este trabajo
-   * dentro de un `useMemo`: la inconsistencia estaba entre dos pantallas del
-   * mismo flujo.
-   */
-  const { featured, openNow, closed } = useMemo(() => {
-    const featuredList: Business[] = [];
-    const openList: Business[] = [];
-    const closedList: Business[] = [];
-
-    for (const business of businesses) {
-      if (business.isFeatured) featuredList.push(business);
-      if (openState(business.schedule).open) openList.push(business);
-      else closedList.push(business);
-    }
-
-    return { featured: featuredList, openNow: openList, closed: closedList };
-  }, [businesses]);
-
-  /**
-   * Qué decirle a alguien que no ve ni un negocio.
-   *
-   * La lista vacía tiene dos causas muy distintas y hasta ahora las dos
-   * contaban la misma historia —"todo cerrado"—, que es falsa cuando lo que
-   * pasa es que ningún comercio reparte hasta esa dirección. El backend
-   * recorta por distancia en `$geoNear` (10 km) **antes** que por cualquier
-   * otra cosa, así que una dirección fuera de cobertura devuelve cero y la
-   * pantalla le echaba la culpa a los horarios. Distinguirlas es la
-   * diferencia entre "vuelve en un rato" y "cambia la dirección".
-   */
-  const emptyReason = useMemo(() => {
-    if (businesses.length > 0) {
-      return {
-        icon: 'reloj' as const,
-        title: 'Todo cerrado por ahora',
-        message: 'Los negocios abren temprano. Vuelve en un rato y te esperamos con todo listo.',
-        actionLabel: 'Ver todos los negocios',
-        onAction: () => router.push('/(client)/(tabs)/search'),
-      };
-    }
-    if (!defaultAddress) {
-      return {
-        icon: 'ubicacion' as const,
-        title: '¿Dónde te lo llevamos?',
-        message: 'Agrega tu dirección de entrega y te mostramos los negocios que llegan hasta allá.',
-        actionLabel: 'Agregar dirección',
-        onAction: () => router.push('/(client)/addresses'),
-      };
-    }
-    return {
-      icon: 'ubicacion' as const,
-      title: `Todavía no llegamos hasta ${defaultAddress.label}`,
-      message: 'Ningún negocio reparte en esa zona por ahora. Prueba con otra dirección de entrega.',
-      actionLabel: 'Cambiar dirección',
-      onAction: () => router.push('/(client)/addresses'),
-    };
-  }, [businesses.length, defaultAddress, router]);
-
-  const goToBusiness = useCallback(
-    (id: string) => router.push(`/(client)/business/${id}`),
-    [router]
-  );
-
-  // Memoizado porque va como prop a un componente `memo`: recalcularlo en
-  // cada render pasaba un numero nuevo y anulaba la memoizacion igual que
-  // lo hacia la funcion inline.
-  const featuredWidth = useMemo(() => Math.min(width * 0.58, 240), [width]);
 
   // Cuadros del letrero de Categorías: las categorías del admin y, al final,
   // la salida de "no está en carta" — que no lleva a una lista de negocios
@@ -239,99 +156,10 @@ export default function HomeScreen() {
           <CategoryMarquee categories={marqueeCategories} />
         </View>
 
-        {/* ── Cupones ── */}
-        {coupons.length > 0 ? (
-          <View style={styles.section}>
-            <SectionHeader title="Cupones activos" subtitle="Aplícalos al confirmar tu pedido" />
-            <FlatList
-              horizontal
-              data={coupons}
-              keyExtractor={(item: any) => item._id}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.hList}
-              removeClippedSubviews
-              maxToRenderPerBatch={10}
-              windowSize={9}
-              initialNumToRender={6}
-              renderItem={({ item }) => <CouponCard coupon={item} />}
-            />
-          </View>
-        ) : null}
-
-        {/* ── Destacados ── */}
-        {featured.length > 0 ? (
-          <View style={styles.section}>
-            <SectionHeader
-              title="Los que más piden"
-              action="Ver todos"
-              onAction={() => router.push('/(client)/(tabs)/search')}
-            />
-            <FlatList
-              horizontal
-              data={featured}
-              keyExtractor={(item) => item._id}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.hList}
-              removeClippedSubviews
-              maxToRenderPerBatch={10}
-              windowSize={9}
-              initialNumToRender={6}
-              renderItem={({ item }) => (
-                <BusinessFeatured
-                  business={item}
-                  width={featuredWidth}
-                  onPress={goToBusiness}
-                />
-              )}
-            />
-          </View>
-        ) : null}
-
-        {/* ── Abiertos ahora ── */}
-        <View style={styles.section}>
-          <SectionHeader
-            title="Abiertos ahora"
-            subtitle={openNow.length ? `${openNow.length} locales disponibles` : undefined}
-          />
-
-          {isError ? (
-            <ErrorState onRetry={refetch} />
-          ) : isLoading ? (
-            <View style={styles.skeletons}>
-              <BusinessCardSkeleton />
-              <BusinessCardSkeleton />
-              <BusinessCardSkeleton />
-            </View>
-          ) : openNow.length === 0 ? (
-            <EmptyState {...emptyReason} compact />
-          ) : (
-            <View style={styles.list}>
-              {openNow.map((business) => (
-                <BusinessRow
-                  key={business._id}
-                  business={business}
-                  onPress={goToBusiness}
-                />
-              ))}
-            </View>
-          )}
-        </View>
-
-        {/* ── Cerrados ── */}
-        {closed.length > 0 ? (
-          <View style={styles.section}>
-            <SectionHeader title="Abren más tarde" subtitle="Puedes ver sus menús y horarios" />
-            <View style={styles.list}>
-              {closed.map((business) => (
-                <BusinessRow
-                  key={business._id}
-                  business={business}
-                  onPress={goToBusiness}
-                />
-              ))}
-            </View>
-          </View>
-        ) : null}
+        {/* ── Colecciones dinámicas: mezclan productos de varios comercios ── */}
+        {homeSections.map((section) => (
+          <ProductCollectionRow key={section.key} section={section} />
+        ))}
       </ScrollView>
     </SafeAreaView>
   );
@@ -407,8 +235,6 @@ const styles = StyleSheet.create({
 
   section: { marginTop: Spacing.xxxl, paddingHorizontal: Spacing.xl },
   hList: { gap: Spacing.md, paddingRight: Spacing.xl },
-  list: { gap: Spacing.md },
-  skeletons: { gap: Spacing.md },
 
   usual: { width: 236, gap: Spacing.md, padding: Spacing.md },
   usualTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

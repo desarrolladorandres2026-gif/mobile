@@ -68,6 +68,7 @@ export {
   PublicBanner,
 } from './promotionBanner.service';
 export { homeCategoryService } from './homeCategory.service';
+export { homeSectionsService } from './homeSections.service';
 
 // ── Seguimiento en vivo y mapas ──────────────────────────────────────
 export {

@@ -217,6 +217,12 @@ export class PricingService {
   async priceItems(businessId: string, items: QuoteItemInput[]): Promise<{
     pricedItems: PricedItem[];
     subtotal: number;
+    /**
+     * El más lento de los platos pedidos, o `null` si ninguno declaró uno
+     * propio. La cocina no entrega por partes: un pedido con un asado de
+     * 40 minutos y una gaseosa no sale en el tiempo de la gaseosa.
+     */
+    maxPrepMinutes: number | null;
   }> {
     if (!items || items.length === 0) {
       throw new AppError('El pedido debe tener al menos un producto', 400);
@@ -227,6 +233,7 @@ export class PricingService {
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
 
     let subtotal = 0;
+    let maxPrepMinutes: number | null = null;
     const pricedItems: PricedItem[] = [];
 
     for (const item of items) {
@@ -244,6 +251,10 @@ export class PricingService {
       }
 
       const unitPrice = Math.round(product.discountPrice ?? product.price);
+
+      if (typeof product.prepTimeMinutes === 'number') {
+        maxPrepMinutes = Math.max(maxPrepMinutes ?? 0, product.prepTimeMinutes);
+      }
 
       // Resolve each requested extra against the product's own catalogue.
       const resolvedExtras: PricedItem['selectedExtras'] = [];
@@ -297,7 +308,7 @@ export class PricingService {
       });
     }
 
-    return { pricedItems, subtotal: assertMoney(subtotal, 'subtotal') };
+    return { pricedItems, subtotal: assertMoney(subtotal, 'subtotal'), maxPrepMinutes };
   }
 
   /**
@@ -341,10 +352,22 @@ export class PricingService {
    * es una promesa que se incumple el 90% de las veces. El extremo alto es
    * el que se enseña y el que hay que cumplir.
    */
-  deliveryWindow(business: IBusiness, destination: LatLng): { min: number; max: number } {
+  deliveryWindow(
+    business: IBusiness,
+    destination: LatLng,
+    /**
+     * El tiempo de cocina del plato más lento del carrito, si alguno lo
+     * declaró. Sin esto, la promesa de entrega ignoraba por completo qué se
+     * pidió: un asado de 45 minutos prometía lo mismo que una gaseosa.
+     */
+    prepMinutesOverride?: number | null
+  ): { min: number; max: number } {
     const origin = fromGeoPoint(business.location);
 
-    const prepMinutes = Math.max(0, business.deliveryTime || DEFAULT_PREP_MINUTES);
+    const prepMinutes = Math.max(
+      0,
+      prepMinutesOverride ?? (business.deliveryTime || DEFAULT_PREP_MINUTES)
+    );
     const travelMinutes = origin
       ? Math.round(estimateRoute(origin, destination).durationSeconds / 60)
       : DEFAULT_TRAVEL_MINUTES;
@@ -490,13 +513,13 @@ export class PricingService {
       lng: input.deliveryLongitude,
     };
 
-    const { pricedItems, subtotal: productSubtotal } = await this.priceItems(
+    const { pricedItems, subtotal: productSubtotal, maxPrepMinutes } = await this.priceItems(
       input.businessId,
       input.items
     );
 
     const delivery = await this.priceDelivery(business, destination, cfg);
-    const eta = this.deliveryWindow(business, destination);
+    const eta = this.deliveryWindow(business, destination, maxPrepMinutes);
 
     const zoneMinOrder = delivery.zoneId
       ? (await Zone.findById(delivery.zoneId))?.minOrder ?? 0

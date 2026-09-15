@@ -1,25 +1,22 @@
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Size, Spacing } from '../theme/tokens';
+import { Spacing } from '../theme/tokens';
 import { useDockHeight } from './useDockHeight';
 
 /**
  * Relleno inferior para un scroll que vive bajo la barra de pestañas.
  *
- * La barra mide `Size.tabBar + insets.bottom` (ver `components/nav/TabBar`),
- * así que el contenido tiene que dejar libre esa altura más un respiro. En vez
- * de un número fijo —que acierta en un teléfono y tapa la última fila en otro—
- * se calcula con el inset real del dispositivo.
+ * `@react-navigation/bottom-tabs` ya reserva la barra como hermano flex
+ * (`styles.screens = { flex: 1 }` en `BottomTabView`): el área de la pantalla
+ * termina donde empieza la barra, no se le monta encima. El scroll solo
+ * necesita un respiro visual, más el alto real del dock flotante —publicado
+ * por contexto— cuando lo hay; `extra` es el mínimo mientras el dock aún no
+ * se ha medido.
  *
- * Si hay un dock flotante (pestañas del cliente), su altura real —publicada por
- * contexto— se toma en cuenta; `extra` actúa como mínimo mientras el dock aún
- * no se ha medido.
- *
- * @param extra Reserva mínima adicional por encima de la barra de pestañas.
+ * @param extra Reserva mínima adicional mientras el dock no reporta su alto real.
  */
 export function useTabContentPadding(extra = 0) {
-  const { bottom } = useSafeAreaInsets();
   const dock = useDockHeight();
-  return Size.tabBar + bottom + Spacing.xl + Math.max(extra, dock);
+  return Spacing.xl + Math.max(extra, dock);
 }
 
 /**

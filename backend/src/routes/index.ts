@@ -31,6 +31,7 @@ import loyaltyRoutes from './loyalty.routes';
 import referralRoutes from './referral.routes';
 import sosRoutes from './sos.routes';
 import errandRoutes from './errand.routes';
+import homeSectionsRoutes from './homeSections.routes';
 
 const router = Router();
 
@@ -66,5 +67,6 @@ router.use('/loyalty', loyaltyRoutes);
 router.use('/referrals', referralRoutes);
 router.use('/sos', sosRoutes);
 router.use('/errands', errandRoutes);
+router.use('/home-sections', homeSectionsRoutes);
 
 export default router;

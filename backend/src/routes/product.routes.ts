@@ -11,6 +11,7 @@ import { UserRole } from '../types';
 const router = Router();
 
 // Public
+router.get('/by-category/:categoryKey', (req, res, next) => productController.getByBusinessCategory(req, res, next));
 router.get('/business/:businessId/sentiment', (req, res, next) => productController.sentiment(req, res, next));
 router.get('/business/:businessId/top', (req, res, next) => productController.topSellers(req, res, next));
 router.get('/business/:businessId', (req, res, next) => productController.getByBusiness(req, res, next));

@@ -59,6 +59,17 @@ export class ProductController {
   }
 
 
+  /** Productos de negocios de una categoría, para el carrusel del home. */
+  async getByBusinessCategory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const products = await productService.getByBusinessCategory(
+        param(req, 'categoryKey'),
+        Number(query(req, 'limit')) || 20
+      );
+      sendResponse(res, 200, 'Productos por categoría', products);
+    } catch (error) { next(error); }
+  }
+
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
       const product = await productService.getById(param(req, 'id'));

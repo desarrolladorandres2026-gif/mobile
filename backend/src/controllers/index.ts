@@ -19,3 +19,4 @@ export { advertisementController } from './advertisement.controller';
 export { promotionBannerController } from './promotionBanner.controller';
 export { homeCategoryController } from './homeCategory.controller';
 export { trackingController } from './tracking.controller';
+export { homeSectionsController } from './homeSections.controller';

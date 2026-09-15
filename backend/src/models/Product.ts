@@ -70,6 +70,17 @@ export interface IProduct extends Document {
   gallery: IProductImage[];
   price: number;
   discountPrice?: number | null;
+  /**
+   * Minutos que tarda este plato en la cocina, si es distinto del resto de
+   * la carta.
+   *
+   * `null` es "usa el tiempo general del negocio" (`Business.deliveryTime`):
+   * no todo comercio quiere declarar un tiempo por cada producto, y no
+   * declararlo no puede significar "instantáneo". Cuando el carrito mezcla
+   * productos, manda el más lento — un asado no sale antes porque también
+   * se pidió una gaseosa.
+   */
+  prepTimeMinutes?: number | null;
   extras: ProductExtra[];
   /**
    * Grupos de modificadores: "Tipo de carne", "Salsas", "Tamaño".
@@ -233,6 +244,12 @@ const productSchema = new Schema<IProduct>(
       type: Number,
       default: null,
       min: [0, 'El precio con descuento no puede ser negativo'],
+    },
+    prepTimeMinutes: {
+      type: Number,
+      default: null,
+      min: [1, 'El tiempo de preparación no puede ser menor a 1 minuto'],
+      max: [180, 'El tiempo de preparación no puede superar 180 minutos'],
     },
     extras: {
       type: [productExtraSchema],
