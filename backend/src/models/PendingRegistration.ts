@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import { phoneSetter } from '../utils/phone';
 
 /**
  * Registro en 3 pasos al estilo Rappi: el celular se confirma por OTP antes
@@ -9,8 +10,10 @@ import mongoose, { Schema, Document } from 'mongoose';
  */
 export interface IPendingRegistration extends Document {
   phone: string;
+  /** HMAC del código, nunca el código — ver `security/otp.ts`. */
   otpCode?: string;
   otpExpires?: Date;
+  otpAttempts?: number;
   /** Se pone en `true` al validar el OTP; completar el registro lo exige. */
   verified: boolean;
   /** Ventana para terminar el registro una vez verificado el celular. */
@@ -20,9 +23,10 @@ export interface IPendingRegistration extends Document {
 
 const pendingRegistrationSchema = new Schema<IPendingRegistration>(
   {
-    phone: { type: String, required: true, unique: true },
+    phone: { type: String, required: true, unique: true, set: phoneSetter },
     otpCode: { type: String, select: false },
     otpExpires: { type: Date, select: false },
+    otpAttempts: { type: Number, select: false },
     verified: { type: Boolean, default: false },
     verifiedUntil: { type: Date },
   },

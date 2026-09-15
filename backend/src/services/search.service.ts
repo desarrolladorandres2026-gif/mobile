@@ -1,6 +1,6 @@
 import { PipelineStage, Types } from 'mongoose';
 import { Product, Business, SearchLog } from '../models';
-import { normalize } from '../utils/text';
+import { normalize, escapeRegex } from '../utils/text';
 import { LatLng } from '../utils/geo';
 import {
   VISIBLE_BUSINESS,
@@ -63,16 +63,6 @@ export interface Suggestion {
  * que una búsqueda de una sola letra se traiga la base entera.
  */
 const CANDIDATE_CAP = 300;
-
-/**
- * Escapa lo que el usuario escribió antes de meterlo en una expresión
- * regular. Sin esto, un paréntesis o un asterisco en la caja de búsqueda
- * revienta la consulta, y un patrón mal intencionado puede colgar el
- * proceso buscando.
- */
-function escapeRegex(term: string): string {
-  return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 function readCoords(options: SearchOptions): LatLng | null {
   const { lat, lng } = options;

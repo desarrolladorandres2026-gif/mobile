@@ -45,7 +45,7 @@ describe('POST /api/v1/orders/quote', () => {
 
     const res = await request(app)
       .post('/api/v1/orders/quote')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(orderBody(business, product))
       .expect(200);
 
@@ -67,7 +67,7 @@ describe('POST /api/v1/orders/quote', () => {
 
     await request(app)
       .post('/api/v1/orders/quote')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(orderBody(business, product))
       .expect(200);
 
@@ -80,7 +80,7 @@ describe('POST /api/v1/orders/quote', () => {
 
     await request(app)
       .post('/api/v1/orders/quote')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(orderBody(business, product, { couponCode: 'PREVIEW' }))
       .expect(200);
 
@@ -92,7 +92,7 @@ describe('POST /api/v1/orders/quote', () => {
 
     const res = await request(app)
       .post('/api/v1/orders/quote')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(orderBody(business, product, { couponCode: 'NOEXISTE' }))
       .expect(404);
 
@@ -105,7 +105,7 @@ describe('POST /api/v1/orders/quote', () => {
 
     const res = await request(app)
       .post('/api/v1/orders/quote')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(orderBody(business, product, {
         deliveryLatitude: faraway.lat,
         deliveryLongitude: faraway.lng,
@@ -123,13 +123,13 @@ describe('POST /api/v1/orders', () => {
 
     const quoted = await request(app)
       .post('/api/v1/orders/quote')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(body)
       .expect(200);
 
     const created = await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(body)
       .expect(201);
 
@@ -148,13 +148,13 @@ describe('POST /api/v1/orders', () => {
 
     const quoted = await request(app)
       .post('/api/v1/orders/quote')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(body)
       .expect(200);
 
     const created = await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(body)
       .expect(201);
 
@@ -172,7 +172,7 @@ describe('POST /api/v1/orders', () => {
 
     const created = await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(orderBody(business, product, { couponCode: 'ENVIOGRATIS' }))
       .expect(201);
 
@@ -187,7 +187,7 @@ describe('POST /api/v1/orders', () => {
 
     await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(orderBody(business, product, { couponCode: 'CONSUMO' }))
       .expect(201);
 
@@ -200,7 +200,7 @@ describe('POST /api/v1/orders', () => {
 
     const created = await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(orderBody(business, product, { tip: 4000 }))
       .expect(201);
 
@@ -221,7 +221,7 @@ describe('POST /api/v1/orders', () => {
 
     const created = await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({
         ...orderBody(business, product),
         items: [{
@@ -240,8 +240,8 @@ describe('POST /api/v1/orders', () => {
     const { client, business, product } = await scenario();
     const body = orderBody(business, product, { idempotencyKey: 'clave-fija-123' });
 
-    const first = await request(app).post('/api/v1/orders').set(authHeader(client)).send(body).expect(201);
-    const second = await request(app).post('/api/v1/orders').set(authHeader(client)).send(body).expect(201);
+    const first = await request(app).post('/api/v1/orders').set(await authHeader(client)).send(body).expect(201);
+    const second = await request(app).post('/api/v1/orders').set(await authHeader(client)).send(body).expect(201);
 
     expect(second.body.data._id).toBe(first.body.data._id);
     expect(await Order.countDocuments()).toBe(1);
@@ -253,7 +253,7 @@ describe('POST /api/v1/orders', () => {
 
     await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(driver))
+      .set(await authHeader(driver))
       .send(orderBody(business, product))
       .expect(403);
   });
@@ -263,7 +263,7 @@ describe('POST /api/v1/orders', () => {
 
     await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ ...orderBody(business, product), items: [] })
       .expect(400);
   });
@@ -273,7 +273,7 @@ describe('POST /api/v1/orders', () => {
 
     const created = await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(orderBody(business, product))
       .expect(201);
 

@@ -100,7 +100,7 @@ export class BusinessController {
         entity: 'business',
         entityId: param(req, 'id'),
         description: `Empleado agregado con papel ${req.body.role}`,
-        metadata: { phone: req.body.phone, role: req.body.role },
+        metadata: { staffUserId: staff?.userId?.toString?.(), role: req.body.role },
       });
 
       sendResponse(res, 201, 'Empleado agregado', staff);
@@ -178,15 +178,43 @@ export class BusinessController {
     } catch (error) { next(error); }
   }
 
+  /**
+   * RUT, cámara de comercio, cédula del representante y certificación
+   * bancaria. Antes bastaba con tener rol `business` para leer o pisar los de
+   * cualquier negocio cambiando el `:id`. Ahora hace falta ser el dueño (o
+   * un empleado con `settings:manage`, que hoy solo tiene el dueño); un
+   * administrador entra por su rol, como en la revisión de documentos.
+   */
+  private async assertCanManageDocuments(req: Request, businessId: string): Promise<void> {
+    if (req.user!.role === UserRole.ADMIN) return;
+
+    const { businessStaffService } = await import('../services/businessStaff.service');
+    const { BusinessPermission } = await import('../models');
+    await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission.SETTINGS_MANAGE);
+  }
+
   async listDocuments(req: Request, res: Response, next: NextFunction) {
     try {
-      sendResponse(res, 200, 'Documentos', await businessService.listDocuments(param(req, 'id')));
+      const businessId = param(req, 'id');
+      await this.assertCanManageDocuments(req, businessId);
+      sendResponse(res, 200, 'Documentos', await businessService.listDocuments(businessId));
     } catch (error) { next(error); }
   }
 
   async submitDocument(req: Request, res: Response, next: NextFunction) {
     try {
-      const document = await businessService.submitDocument(param(req, 'id'), req.body);
+      const businessId = param(req, 'id');
+      await this.assertCanManageDocuments(req, businessId);
+      const document = await businessService.submitDocument(businessId, req.body);
+
+      void logAudit(req, {
+        action: AuditAction.BUSINESS_UPDATED,
+        entity: 'business',
+        entityId: businessId,
+        description: `Documento ${req.body.type} enviado para verificación`,
+        metadata: { documentType: req.body.type },
+      });
+
       sendResponse(res, 201, 'Documento recibido para verificación', document);
     } catch (error) { next(error); }
   }

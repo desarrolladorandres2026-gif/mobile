@@ -12,6 +12,7 @@ export {
   authRateLimiter,
   otpRateLimiter,
   sensitiveRateLimiter,
+  refreshRateLimiter,
   paymentInitiateRateLimiter,
   paymentStatusRateLimiter,
   paymentWebhookRateLimiter,

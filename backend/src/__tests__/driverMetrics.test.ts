@@ -282,12 +282,12 @@ describe('Libro de ofertas y métricas del domiciliario', () => {
   it('el endpoint solo lo ve un domiciliario', async () => {
     await request(app)
       .get('/api/v1/drivers/metrics')
-      .set(authHeader(await makeUser()))
+      .set(await authHeader(await makeUser()))
       .expect(403);
 
     await request(app)
       .get('/api/v1/drivers/metrics')
-      .set(authHeader(ctx.drivers[0].user))
+      .set(await authHeader(ctx.drivers[0].user))
       .expect(200);
   });
 });

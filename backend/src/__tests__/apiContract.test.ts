@@ -155,34 +155,34 @@ async function captureAll(): Promise<Record<string, Capture>> {
   keep('product.byId.legacyExtras', await request(app).get(`/api/v1/products/${legacy._id}`));
   keep('product.byId.plain', await request(app).get(`/api/v1/products/${plain._id}`));
 
-  keep('order.quote.legacy', await request(app).post('/api/v1/orders/quote').set(authHeader(client)).send(body(legacyItems)), moneyOfQuote);
-  keep('order.quote.unknownExtra', await request(app).post('/api/v1/orders/quote').set(authHeader(client))
+  keep('order.quote.legacy', await request(app).post('/api/v1/orders/quote').set(await authHeader(client)).send(body(legacyItems)), moneyOfQuote);
+  keep('order.quote.unknownExtra', await request(app).post('/api/v1/orders/quote').set(await authHeader(client))
     .send(body([{ productId: legacy._id.toString(), quantity: 1, selectedExtras: [{ name: 'Trufa' }] }])));
-  keep('order.quote.foreignProduct', await request(app).post('/api/v1/orders/quote').set(authHeader(client))
+  keep('order.quote.foreignProduct', await request(app).post('/api/v1/orders/quote').set(await authHeader(client))
     .send(body([{ productId: foreign._id.toString(), quantity: 1 }])));
-  keep('order.quote.clientPriceIgnored', await request(app).post('/api/v1/orders/quote').set(authHeader(client))
+  keep('order.quote.clientPriceIgnored', await request(app).post('/api/v1/orders/quote').set(await authHeader(client))
     .send(body([{ productId: legacy._id.toString(), quantity: 1, selectedExtras: [{ name: 'Queso extra', price: -999999 }] }])), moneyOfQuote);
 
   keep('order.create.unauthenticated', await request(app).post('/api/v1/orders').send(body(legacyItems)));
-  keep('order.create.asBusiness', await request(app).post('/api/v1/orders').set(authHeader(owner)).send(body(legacyItems)));
-  keep('order.create.emptyItems', await request(app).post('/api/v1/orders').set(authHeader(client)).send(body([])));
+  keep('order.create.asBusiness', await request(app).post('/api/v1/orders').set(await authHeader(owner)).send(body(legacyItems)));
+  keep('order.create.emptyItems', await request(app).post('/api/v1/orders').set(await authHeader(client)).send(body([])));
 
-  const created = await request(app).post('/api/v1/orders').set(authHeader(client))
+  const created = await request(app).post('/api/v1/orders').set(await authHeader(client))
     .send(body(legacyItems, { idempotencyKey: 'contrato-1' }));
   keep('order.create.legacy', created, moneyOfQuote);
   const orderId = created.body?.data?._id;
 
-  keep('order.my', await request(app).get('/api/v1/orders/my').set(authHeader(client)));
-  keep('order.byId.owner', await request(app).get(`/api/v1/orders/${orderId}`).set(authHeader(client)));
-  keep('order.byId.otherClient', await request(app).get(`/api/v1/orders/${orderId}`).set(authHeader(otherClient)));
-  keep('order.status.clientAccepts', await request(app).patch(`/api/v1/orders/${orderId}/status`).set(authHeader(client)).send({ status: 'accepted' }));
-  keep('order.status.businessAccepts', await request(app).patch(`/api/v1/orders/${orderId}/status`).set(authHeader(owner)).send({ status: 'accepted' }));
+  keep('order.my', await request(app).get('/api/v1/orders/my').set(await authHeader(client)));
+  keep('order.byId.owner', await request(app).get(`/api/v1/orders/${orderId}`).set(await authHeader(client)));
+  keep('order.byId.otherClient', await request(app).get(`/api/v1/orders/${orderId}`).set(await authHeader(otherClient)));
+  keep('order.status.clientAccepts', await request(app).patch(`/api/v1/orders/${orderId}/status`).set(await authHeader(client)).send({ status: 'accepted' }));
+  keep('order.status.businessAccepts', await request(app).patch(`/api/v1/orders/${orderId}/status`).set(await authHeader(owner)).send({ status: 'accepted' }));
 
-  keep('product.update.owner', await request(app).put(`/api/v1/products/${plain._id}`).set(authHeader(owner))
+  keep('product.update.owner', await request(app).put(`/api/v1/products/${plain._id}`).set(await authHeader(owner))
     .send({ businessId: business._id.toString(), price: 5000 }));
-  keep('product.update.otherOwner', await request(app).put(`/api/v1/products/${plain._id}`).set(authHeader(otherOwner))
+  keep('product.update.otherOwner', await request(app).put(`/api/v1/products/${plain._id}`).set(await authHeader(otherOwner))
     .send({ businessId: otherBusiness._id.toString(), price: 1 }));
-  keep('product.update.otherOwnerSpoofedBusiness', await request(app).put(`/api/v1/products/${plain._id}`).set(authHeader(otherOwner))
+  keep('product.update.otherOwnerSpoofedBusiness', await request(app).put(`/api/v1/products/${plain._id}`).set(await authHeader(otherOwner))
     .send({ businessId: business._id.toString(), price: 1 }));
 
   return out;

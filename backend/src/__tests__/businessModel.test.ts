@@ -93,13 +93,13 @@ function cuerpoPedido(negocio: any, producto: any, extra: Record<string, unknown
 async function cotizarYCrear(cliente: any, cuerpo: Record<string, unknown>) {
   const cotizacion = await request(app)
     .post('/api/v1/orders/quote')
-    .set(authHeader(cliente))
+    .set(await authHeader(cliente))
     .send(cuerpo)
     .expect(200);
 
   const creado = await request(app)
     .post('/api/v1/orders')
-    .set(authHeader(cliente))
+    .set(await authHeader(cliente))
     .send({ ...cuerpo, idempotencyKey: `test-${Date.now()}-${Math.random()}` })
     .expect(201);
 
@@ -124,31 +124,31 @@ async function cobrarEnLinea(pedidoId: string, cliente: any) {
   });
 }
 
-const cambiarEstado = (pedidoId: string, actor: any, status: string, extra = {}) =>
+const cambiarEstado = async (pedidoId: string, actor: any, status: string, extra = {}) =>
   request(app)
     .patch(`/api/v1/orders/${pedidoId}/status`)
-    .set(authHeader(actor))
+    .set(await authHeader(actor))
     .send({ status, ...extra });
 
 /** El negocio lleva el pedido hasta "listo para recoger". */
 async function prepararEnLocal(pedidoId: string, dueno: any) {
-  await cambiarEstado(pedidoId, dueno, OrderStatus.ACCEPTED).expect(200);
-  await cambiarEstado(pedidoId, dueno, OrderStatus.PREPARING).expect(200);
-  await cambiarEstado(pedidoId, dueno, OrderStatus.READY).expect(200);
+  expect((await cambiarEstado(pedidoId, dueno, OrderStatus.ACCEPTED)).status).toBe(200);
+  expect((await cambiarEstado(pedidoId, dueno, OrderStatus.PREPARING)).status).toBe(200);
+  expect((await cambiarEstado(pedidoId, dueno, OrderStatus.READY)).status).toBe(200);
 }
 
 /** El repartidor lo toma y lo entrega. */
 async function recogerYEntregar(pedidoId: string, usuarioDomiciliario: any, domiciliario: any) {
   await request(app)
     .patch(`/api/v1/orders/${pedidoId}/assign-driver`)
-    .set(authHeader(usuarioDomiciliario))
+    .set(await authHeader(usuarioDomiciliario))
     .send({ driverId: domiciliario._id.toString() })
     .expect(200);
 
   // Recoger y entregar pasan por evidencia + código; el resto del camino
   // sigue yendo por la API tal cual.
   await pickUpOrder(pedidoId, usuarioDomiciliario);
-  await cambiarEstado(pedidoId, usuarioDomiciliario, OrderStatus.ON_WAY).expect(200);
+  expect((await cambiarEstado(pedidoId, usuarioDomiciliario, OrderStatus.ON_WAY)).status).toBe(200);
   await deliverToCustomer(pedidoId, usuarioDomiciliario);
 }
 
@@ -249,7 +249,7 @@ describe('Modelo de negocio · 5 pedidos de punta a punta', () => {
 
     await request(app)
       .patch(`/api/v1/orders/${pedido._id}/assign-driver`)
-      .set(authHeader(usuarioDomiciliario))
+      .set(await authHeader(usuarioDomiciliario))
       .send({ driverId: domiciliario._id.toString() })
       .expect(200);
 
@@ -259,7 +259,7 @@ describe('Modelo de negocio · 5 pedidos de punta a punta', () => {
     expect(conPedidoTomado!.currentFund).toBe(50000 - 27000);
 
     await pickUpOrder(pedido._id, usuarioDomiciliario);
-    await cambiarEstado(pedido._id, usuarioDomiciliario, OrderStatus.ON_WAY).expect(200);
+    expect((await cambiarEstado(pedido._id, usuarioDomiciliario, OrderStatus.ON_WAY)).status).toBe(200);
     await deliverToCustomer(pedido._id, usuarioDomiciliario);
 
     const entregado = await Order.findById(pedido._id);
@@ -392,10 +392,10 @@ describe('Modelo de negocio · 5 pedidos de punta a punta', () => {
     expect(await CouponRedemption.countDocuments({ orderId: pedido._id })).toBe(1);
 
     await cobrarEnLinea(pedido._id, cliente);
-    await cambiarEstado(pedido._id, dueno, OrderStatus.ACCEPTED).expect(200);
-    await cambiarEstado(pedido._id, dueno, OrderStatus.CANCELLED, {
+    expect((await cambiarEstado(pedido._id, dueno, OrderStatus.ACCEPTED)).status).toBe(200);
+    expect((await cambiarEstado(pedido._id, dueno, OrderStatus.CANCELLED, {
       cancellationReason: 'Se acabó el producto',
-    }).expect(200);
+    })).status).toBe(200);
 
     const cancelado = await Order.findById(pedido._id);
     expect(cancelado!.status).toBe(OrderStatus.CANCELLED);
@@ -416,7 +416,7 @@ describe('Modelo de negocio · 5 pedidos de punta a punta', () => {
     expect(await ledgerService.isBalanced({ orderId: pedido._id })).toBe(true);
 
     // Cancelado es un estado terminal.
-    await cambiarEstado(pedido._id, dueno, OrderStatus.PREPARING).expect(400);
+    expect((await cambiarEstado(pedido._id, dueno, OrderStatus.PREPARING)).status).toBe(400);
   });
 
   // ────────────────────────────────────────────────────────────
@@ -425,20 +425,20 @@ describe('Modelo de negocio · 5 pedidos de punta a punta', () => {
     const { pedido } = await cotizarYCrear(cliente, cuerpoPedido(negocio, producto));
 
     // De "recibido" no se salta a "entregado".
-    await cambiarEstado(pedido._id, dueno, OrderStatus.DELIVERED).expect(400);
+    expect((await cambiarEstado(pedido._id, dueno, OrderStatus.DELIVERED)).status).toBe(400);
 
     // El negocio no marca "en camino": eso le toca a quien lo lleva.
     // (Se cobra antes: un pedido en línea impago no puede aceptarse.)
     await cobrarEnLinea(pedido._id, cliente);
-    await cambiarEstado(pedido._id, dueno, OrderStatus.ACCEPTED).expect(200);
-    await cambiarEstado(pedido._id, dueno, OrderStatus.ON_WAY).expect(400);
+    expect((await cambiarEstado(pedido._id, dueno, OrderStatus.ACCEPTED)).status).toBe(200);
+    expect((await cambiarEstado(pedido._id, dueno, OrderStatus.ON_WAY)).status).toBe(400);
 
     // El repartidor tampoco acepta pedidos por el local.
-    await cambiarEstado(pedido._id, usuarioDomiciliario, OrderStatus.PREPARING).expect(403);
+    expect((await cambiarEstado(pedido._id, usuarioDomiciliario, OrderStatus.PREPARING)).status).toBe(403);
 
     // Y un negocio ajeno no toca este pedido.
     const otroDueno = await makeUser({ role: UserRole.BUSINESS });
     await makeBusiness(otroDueno._id);
-    await cambiarEstado(pedido._id, otroDueno, OrderStatus.PREPARING).expect(403);
+    expect((await cambiarEstado(pedido._id, otroDueno, OrderStatus.PREPARING)).status).toBe(403);
   });
 });

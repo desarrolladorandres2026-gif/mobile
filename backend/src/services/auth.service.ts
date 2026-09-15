@@ -1,9 +1,10 @@
 import { Request } from 'express';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { Types } from 'mongoose';
 import { OAuth2Client } from 'google-auth-library';
 import { User, IUser, PendingRegistration } from '../models';
-import { Session } from '../security/sessions';
+import { UsedIdentityToken, AppleAuthCode } from '../models/OAuthReplay';
 import { AppError } from '../middlewares/errorHandler';
 import { UserRole } from '../types';
 import { config } from '../config/env';
@@ -14,34 +15,42 @@ import {
   generateAccessToken,
   generateRefreshToken,
   verifyRefreshToken,
-  generateOTP,
-  getOTPExpiry,
+  clientIp,
+  normalizePhone,
 } from '../utils';
+import { maskEmail, maskPhone } from '../utils/mask';
 import {
+  Session,
   sessionManager,
   generateDeviceId,
   checkBruteForce,
   recordFailedAttempt,
   clearAttempts,
   logAudit,
-  logSystemAudit,
   AuditAction,
   AuditSeverity,
   antiFraudService,
   generateTOTPSecret,
-  verifyTOTP,
+  matchTOTPStep,
+  sealTotpSecret,
   hashRecoveryCodes,
-  verifyRecoveryCode,
   validatePasswordComplexity,
+  OTP_SLOTS,
+  OtpCheck,
+  checkOtp,
+  generateOtpCode,
+  otpIssuedAt,
+  otpSetFields,
 } from '../security';
-
-interface RegisterInput {
-  name: string;
-  phone: string;
-  email?: string;
-  password: string;
-  role: string;
-}
+import { hashToken } from '../security/sessions';
+import {
+  FirstFactor,
+  hasTwoFactor,
+  openMfaChallenge,
+  resolveMfaChallenge,
+  verifySecondFactor,
+} from './mfa.service';
+import { anonymizeAccount, deletionBlocker } from './accountDeletion.service';
 
 interface LoginInput {
   phone: string;
@@ -50,16 +59,48 @@ interface LoginInput {
   totpToken?: string;
 }
 
-interface AuthTokens {
+export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
 
-function getClientIP(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
-  return req.ip || req.socket?.remoteAddress || 'unknown';
+/**
+ * Resultado de cualquier camino de autenticación.
+ *
+ * O bien una sesión completa, o bien un reto de segundo factor. No existe un
+ * tercer estado: ningún flujo puede devolver tokens a una cuenta con 2FA sin
+ * pasar por `completeLogin`.
+ */
+export type AuthOutcome =
+  | { requiresTOTP: true; challengeToken: string; user: IUser; method: FirstFactor }
+  | { requiresTOTP: false; user: IUser; tokens: AuthTokens; sessionId: string; isNewDevice: boolean; method: FirstFactor };
+
+const MAX_PASSWORD_LENGTH = 128;
+
+function otpError(result: OtpCheck, missingMessage = 'No hay un código pendiente. Pide uno nuevo.'): AppError {
+  switch (result) {
+    case 'locked':
+      return new AppError('Demasiados intentos con este código. Pide uno nuevo.', 429, 'OTP_LOCKED');
+    case 'expired':
+      return new AppError('OTP expirado', 400, 'OTP_EXPIRED');
+    case 'missing':
+      return new AppError(missingMessage, 400, 'OTP_MISSING');
+    default:
+      return new AppError('OTP inválido', 400, 'OTP_INVALID');
+  }
 }
+
+/** ¿Pasó el enfriamiento desde el último envío? */
+function resendAllowed(expires: Date | null | undefined): boolean {
+  const issued = otpIssuedAt(expires);
+  if (!issued) return true;
+  return Date.now() - issued.getTime() >= config.otp.resendCooldownSeconds * 1000;
+}
+
+const requestIp = (req?: Request) => (req ? clientIp(req) : 'unknown');
+const requestUa = (req?: Request) => (req?.headers['user-agent'] as string) || 'unknown';
+
+// ── Verificación de identidad de Google y Apple ───────────────────────
 
 // Un solo cliente valida tokens emitidos para cualquiera de los client IDs
 // registrados (web, iOS, Android) — verifyIdToken acepta un arreglo de
@@ -77,15 +118,16 @@ const googleClient = new OAuth2Client();
 const APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys';
 const APPLE_ISSUER = 'https://appleid.apple.com';
 const APPLE_JWKS_CACHE_TTL_MS = 60 * 60 * 1000; // Apple rota estas llaves con muy poca frecuencia.
+const APPLE_CODE_TTL_MS = 2 * 60 * 1000;
 
 let appleJwksCache: { keys: any[]; expiresAt: number } | null = null;
 
-async function getAppleJwks(): Promise<any[]> {
-  if (appleJwksCache && appleJwksCache.expiresAt > Date.now()) {
+async function getAppleJwks(forceRefresh = false): Promise<any[]> {
+  if (!forceRefresh && appleJwksCache && appleJwksCache.expiresAt > Date.now()) {
     return appleJwksCache.keys;
   }
 
-  const response = await fetch(APPLE_JWKS_URL);
+  const response = await fetch(APPLE_JWKS_URL, { signal: AbortSignal.timeout(5000) });
   if (!response.ok) throw new Error(`Apple JWKS respondió ${response.status}`);
 
   const { keys } = (await response.json()) as { keys: any[] };
@@ -93,44 +135,297 @@ async function getAppleJwks(): Promise<any[]> {
   return keys;
 }
 
-interface ApplePayload {
+export interface IdentityPayload {
   sub: string;
   email?: string;
   email_verified?: boolean | string;
+  name?: string;
+  picture?: string;
+  nonce?: string;
+  exp?: number;
 }
 
 /**
- * Valida el `identityToken` que Apple firma y devuelve en el `form_post` de
- * `/auth/apple/callback`. Nunca se llama al endpoint de token de Apple ni se
- * firma un `client_secret`: todo lo que hace falta para confiar en el login
- * ya viaja firmado dentro de este JWT.
+ * Verificadores de los proveedores, detrás de un objeto para que las pruebas
+ * puedan sustituirlos sin tocar la red. Validan firma, emisor, audiencia y
+ * caducidad; todo lo demás (nonce, un solo uso, vinculación) lo decide el
+ * servicio.
  */
-async function verifyAppleIdentityToken(identityToken: string, audience: string): Promise<ApplePayload> {
-  const decoded = jwt.decode(identityToken, { complete: true });
-  const kid = decoded && typeof decoded === 'object' ? (decoded.header as any)?.kid : undefined;
-  if (!kid) throw new Error('identityToken sin kid');
+export const identityVerifiers = {
+  async google(idToken: string, audiences: string[]): Promise<IdentityPayload> {
+    const ticket = await googleClient.verifyIdToken({ idToken, audience: audiences });
+    const payload = ticket.getPayload();
+    if (!payload) throw new Error('Token de Google sin contenido');
+    return payload as IdentityPayload;
+  },
 
-  const keys = await getAppleJwks();
-  const jwk = keys.find((k) => k.kid === kid);
-  if (!jwk) throw new Error('Ninguna llave de Apple coincide con el kid del token');
+  async apple(identityToken: string, audience: string): Promise<IdentityPayload> {
+    const decoded = jwt.decode(identityToken, { complete: true });
+    const kid = decoded && typeof decoded === 'object' ? (decoded.header as any)?.kid : undefined;
+    if (!kid) throw new Error('identityToken sin kid');
 
-  const publicKey = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+    let keys = await getAppleJwks();
+    let jwk = keys.find((k) => k.kid === kid);
+    if (!jwk) {
+      // Un `kid` desconocido puede ser una rotación reciente de Apple: se
+      // pide el JWKS de nuevo una vez antes de rechazar.
+      keys = await getAppleJwks(true);
+      jwk = keys.find((k) => k.kid === kid);
+    }
+    if (!jwk) throw new Error('Ninguna llave de Apple coincide con el kid del token');
 
-  const payload = jwt.verify(identityToken, publicKey, {
-    algorithms: ['RS256'],
-    issuer: APPLE_ISSUER,
-    audience,
-  }) as ApplePayload;
+    const publicKey = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+    return jwt.verify(identityToken, publicKey, {
+      algorithms: ['RS256'],
+      issuer: APPLE_ISSUER,
+      audience,
+    }) as IdentityPayload;
+  },
+};
 
-  return payload;
+const sha256 = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
+
+function sameString(a: string | undefined, b: string | undefined): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+/**
+ * Un `id_token` solo sirve una vez. Si alguien lo intercepta después de que
+ * la app lo usara, llega tarde; si lo usa antes, la app legítima recibe el
+ * rechazo y el intento queda auditado.
+ */
+async function consumeIdentityToken(provider: 'google' | 'apple', token: string, exp?: number): Promise<void> {
+  const expiresAt = new Date(((exp ?? Math.floor(Date.now() / 1000) + 3600) + 60) * 1000);
+  try {
+    await UsedIdentityToken.create({ provider, tokenHash: sha256(token), expiresAt });
+  } catch (error) {
+    if ((error as { code?: number }).code === 11000) {
+      throw new AppError('Este inicio de sesión ya se usó. Vuelve a intentarlo.', 401, 'IDENTITY_TOKEN_REPLAYED');
+    }
+    throw error;
+  }
 }
 
 export class AuthService {
-  async loginWithGoogle(idToken: string, req?: Request): Promise<{
-    user: IUser;
-    tokens: AuthTokens;
-    needsPhone: boolean;
-  }> {
+  // ── Emisión de sesiones: el único sitio que entrega tokens ──────────
+
+  private generateTokens(user: IUser, sessionId: Types.ObjectId | string): AuthTokens {
+    const payload = { id: user._id.toString(), role: user.role as UserRole, sid: sessionId.toString() };
+    return {
+      accessToken: generateAccessToken(payload),
+      refreshToken: generateRefreshToken(payload),
+    };
+  }
+
+  /** Una cuenta bloqueada, desactivada o anonimizada no abre sesión por ningún camino. */
+  private assertAccountUsable(user: IUser): void {
+    if (user.anonymizedAt) throw new AppError('Esta cuenta ya no existe.', 403, 'ACCOUNT_DELETED');
+    if (user.isBlocked) throw new AppError('Tu cuenta está bloqueada. Contacta a soporte.', 403, 'ACCOUNT_BLOCKED');
+    if (!user.isActive) throw new AppError('Tu cuenta está desactivada', 403, 'ACCOUNT_INACTIVE');
+  }
+
+  /** Crea la sesión y firma sus tokens con el mismo `sid`. */
+  private async startSession(user: IUser, req?: Request, deviceId?: string) {
+    const sessionId = new Types.ObjectId();
+    const tokens = this.generateTokens(user, sessionId);
+    const ip = requestIp(req);
+    const ua = requestUa(req);
+
+    const { isNewDevice } = await sessionManager.createSession({
+      userId: user._id.toString(),
+      sessionId,
+      refreshToken: tokens.refreshToken,
+      ip,
+      userAgent: ua,
+      deviceId,
+    });
+
+    const lastLoginAt = new Date();
+    await User.updateOne({ _id: user._id }, { $set: { lastLoginAt, lastLoginIp: ip } });
+    // También en el documento que ya tenemos en memoria: si no, la respuesta
+    // de este login concreto seguiría mostrando el `lastLoginAt` anterior.
+    user.lastLoginAt = lastLoginAt;
+
+    return { tokens, sessionId: sessionId.toString(), isNewDevice };
+  }
+
+  /**
+   * Cierra cualquier inicio de sesión que ya superó el primer factor.
+   *
+   * Si la cuenta tiene 2FA y no llegó un segundo factor, no hay tokens:
+   * hay un reto. `totpToken` solo lo trae el login por contraseña, que ya lo
+   * aceptaba en la misma petición; los demás caminos resuelven el reto en
+   * `completeMfaChallenge`.
+   */
+  private async completeLogin(
+    user: IUser,
+    req: Request | undefined,
+    options: { method: FirstFactor; totpToken?: string; deviceId?: string }
+  ): Promise<AuthOutcome> {
+    this.assertAccountUsable(user);
+
+    if (hasTwoFactor(user)) {
+      if (!options.totpToken) {
+        const challengeToken = await openMfaChallenge(user._id, options.method);
+        return { requiresTOTP: true, challengeToken, user, method: options.method };
+      }
+
+      const valid = await verifySecondFactor(user._id, options.totpToken);
+      if (!valid) {
+        if (req) {
+          await logAudit(req, {
+            action: AuditAction.TOTP_FAILED,
+            entity: 'user',
+            entityId: user._id.toString(),
+            severity: AuditSeverity.MEDIUM,
+            description: 'Verificación 2FA fallida',
+            metadata: { method: options.method },
+          });
+        }
+        throw new AppError('Código 2FA inválido', 401, 'MFA_CODE_INVALID');
+      }
+    }
+
+    const session = await this.startSession(user, req, options.deviceId);
+    return { requiresTOTP: false, user, method: options.method, ...session };
+  }
+
+  /** Segundo paso de cualquier login con 2FA. */
+  async completeMfaChallenge(challengeToken: string, code: string, req?: Request): Promise<AuthOutcome & { requiresTOTP: false }> {
+    const { user, method } = await resolveMfaChallenge(challengeToken, code);
+    this.assertAccountUsable(user);
+
+    const session = await this.startSession(user, req);
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.LOGIN_SUCCESS,
+        entity: 'user',
+        entityId: user._id.toString(),
+        description: 'Login con verificación en dos pasos',
+        metadata: { method, mfa: true, role: user.role },
+      });
+    }
+
+    return { requiresTOTP: false, user, method, ...session };
+  }
+
+  // ── Google y Apple ───────────────────────────────────────────────────
+
+  /**
+   * Encuentra o crea la cuenta de una identidad de Google/Apple ya verificada.
+   *
+   * Nunca vincula por un correo que ZIPP no haya verificado. Antes bastaba con
+   * que coincidiera: un atacante registraba una cuenta con el correo de la
+   * víctima y su propia contraseña, y cuando la víctima entraba con Google
+   * quedaba dentro de la cuenta del atacante (pre-secuestro).
+   *
+   * - Identidad ya vinculada → esa cuenta.
+   * - Correo verificado en ZIPP, sin otra identidad del mismo proveedor → se vincula.
+   * - Correo verificado pero ya vinculado a OTRA identidad → 409, no se pisa.
+   * - Correo NO verificado en ZIPP → no se vincula. El proveedor sí demostró
+   *   la titularidad del correo, así que se libera de la cuenta que solo lo
+   *   declaraba y la cuenta nueva lo recibe verificado. Queda auditado.
+   */
+  private async resolveOAuthUser(
+    provider: 'google' | 'apple',
+    identity: { sub: string; email?: string; name?: string; avatar?: string },
+    req?: Request
+  ): Promise<IUser> {
+    const idField = provider === 'google' ? 'googleId' : 'appleId';
+    const providerName = provider === 'google' ? 'Google' : 'Apple';
+
+    const linked = await User.findOne({ [idField]: identity.sub }).select(`+${idField}`);
+    if (linked) return linked;
+
+    const email = identity.email?.trim().toLowerCase();
+
+    if (email) {
+      const byEmail = await User.findOne({ email }).select(`+${idField}`);
+
+      if (byEmail && byEmail.emailVerified === true) {
+        const current = byEmail.get(idField) as string | undefined;
+        if (current && current !== identity.sub) {
+          throw new AppError(
+            `Este correo ya está vinculado a otra cuenta de ${providerName}.`,
+            409,
+            'OAUTH_IDENTITY_CONFLICT'
+          );
+        }
+
+        // Condicionado a que siga sin identidad: dos logins simultáneos con
+        // identidades distintas no pueden vincular los dos.
+        const result = await User.updateOne(
+          { _id: byEmail._id, emailVerified: true, $or: [{ [idField]: { $exists: false } }, { [idField]: null }] },
+          { $set: { [idField]: identity.sub } }
+        );
+        if (result.modifiedCount !== 1) {
+          throw new AppError(`Este correo ya está vinculado a otra cuenta de ${providerName}.`, 409, 'OAUTH_IDENTITY_CONFLICT');
+        }
+
+        if (req) {
+          await logAudit(req, {
+            action: AuditAction.PROFILE_UPDATED,
+            entity: 'user',
+            entityId: byEmail._id.toString(),
+            severity: AuditSeverity.HIGH,
+            description: `Identidad de ${providerName} vinculada por correo verificado`,
+            metadata: { provider, updatedFields: [idField] },
+          });
+        }
+        return (await User.findById(byEmail._id))!;
+      }
+
+      if (byEmail) {
+        await User.updateOne(
+          { _id: byEmail._id, email, emailVerified: { $ne: true } },
+          { $unset: { email: 1 } }
+        );
+        if (req) {
+          await logAudit(req, {
+            action: AuditAction.USER_CONTACT_OVERRIDDEN,
+            entity: 'user',
+            entityId: byEmail._id.toString(),
+            severity: AuditSeverity.HIGH,
+            description: `Correo no verificado liberado: ${providerName} demostró que pertenece a otra persona`,
+            metadata: { provider, updatedFields: ['email'] },
+          });
+        }
+      }
+    }
+
+    try {
+      return await User.create({
+        name: identity.name || (email ? email.split('@')[0] : `Usuario ${providerName}`),
+        email,
+        emailVerified: !!email,
+        avatar: identity.avatar,
+        [idField]: identity.sub,
+        role: UserRole.CLIENT,
+        // Sin celular todavía: la app lo pide y lo verifica por OTP justo
+        // después de este login.
+        isVerified: false,
+      });
+    } catch (error) {
+      if ((error as { code?: number }).code === 11000) {
+        throw new AppError('No pudimos completar el inicio de sesión. Intenta de nuevo.', 409, 'OAUTH_ACCOUNT_CONFLICT');
+      }
+      throw error;
+    }
+  }
+
+  private oauthNeedsPhone(user: IUser): boolean {
+    return !user.phone || !user.phoneVerified;
+  }
+
+  async loginWithGoogle(
+    idToken: string,
+    req?: Request,
+    options: { nonce?: string } = {}
+  ): Promise<AuthOutcome & { needsPhone: boolean }> {
     const audiences = [
       config.google.webClientId,
       config.google.iosClientId,
@@ -141,212 +436,121 @@ export class AuthService {
       throw new AppError('Inicio de sesión con Google no está configurado', 500);
     }
 
-    let payload;
+    let payload: IdentityPayload;
     try {
-      const ticket = await googleClient.verifyIdToken({ idToken, audience: audiences });
-      payload = ticket.getPayload();
+      payload = await identityVerifiers.google(idToken, audiences);
     } catch {
       throw new AppError('Token de Google inválido', 401);
     }
 
-    if (!payload || !payload.sub || !payload.email || !payload.email_verified) {
+    const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
+    if (!payload.sub || !payload.email || !emailVerified) {
       throw new AppError('No pudimos verificar tu cuenta de Google', 401);
     }
 
-    let user = await User.findOne({ googleId: payload.sub }).select('+googleId');
-
-    if (!user) {
-      // Vincula con una cuenta existente que use el mismo correo antes de
-      // crear una nueva, para no duplicar al usuario.
-      user = await User.findOne({ email: payload.email.toLowerCase() });
-
-      if (user) {
-        user.googleId = payload.sub;
-        await user.save();
-      } else {
-        user = await User.create({
-          name: payload.name || payload.email.split('@')[0],
-          email: payload.email.toLowerCase(),
-          avatar: payload.picture,
-          googleId: payload.sub,
-          role: UserRole.CLIENT,
-          // Sin celular todavía: la app lo pide y lo verifica por OTP justo
-          // después de este login.
-          isVerified: false,
-        });
+    // El SDK nativo instalado no permite fijar un nonce, así que no se exige;
+    // pero si el token trae uno, tiene que coincidir con el que manda la app.
+    if (payload.nonce || options.nonce) {
+      if (!sameString(payload.nonce, options.nonce)) {
+        throw new AppError('Token de Google inválido', 401, 'NONCE_MISMATCH');
       }
     }
 
-    if (!user.isActive) {
-      throw new AppError('Tu cuenta está desactivada', 403);
-    }
+    await consumeIdentityToken('google', idToken, payload.exp);
 
-    const tokens = this.generateTokens(user);
-    user.refreshToken = tokens.refreshToken;
-    user.lastLoginAt = new Date();
-    await user.save();
+    const user = await this.resolveOAuthUser(
+      'google',
+      { sub: payload.sub, email: payload.email, name: payload.name, avatar: payload.picture },
+      req
+    );
 
-    if (req) {
-      const ip = getClientIP(req);
-      const ua = req.headers['user-agent'] || 'unknown';
-      await sessionManager.createSession(user._id.toString(), tokens.refreshToken, ip, ua);
-
+    const outcome = await this.completeLogin(user, req, { method: 'google' });
+    if (req && !outcome.requiresTOTP) {
       await logAudit(req, {
         action: AuditAction.LOGIN_SUCCESS,
         entity: 'user',
         entityId: user._id.toString(),
-        description: `Login con Google exitoso: ${user.email}`,
+        description: `Login con Google exitoso: ${maskEmail(user.email)}`,
         metadata: { provider: 'google' },
       });
     }
 
-    return { user, tokens, needsPhone: !user.phone };
+    return { ...outcome, needsPhone: this.oauthNeedsPhone(outcome.user) };
   }
 
-  async loginWithApple(identityToken: string, fullName: string | undefined, req?: Request): Promise<{
-    user: IUser;
-    tokens: AuthTokens;
-    needsPhone: boolean;
-  }> {
+  /**
+   * Recibe el `form_post` de Apple y lo guarda tras un código de un solo uso
+   * para que el deep link de vuelta a la app no lleve el `id_token`. Ver
+   * `models/OAuthReplay.ts`.
+   */
+  async createAppleAuthCode(idToken: string, fullName?: string): Promise<string> {
+    const code = crypto.randomBytes(32).toString('base64url');
+    await AppleAuthCode.create({
+      codeHash: sha256(code),
+      idToken,
+      fullName: fullName ? fullName.slice(0, 100) : undefined,
+      expiresAt: new Date(Date.now() + APPLE_CODE_TTL_MS),
+    });
+    return code;
+  }
+
+  async loginWithApple(
+    input: { code: string; nonce: string; fullName?: string },
+    req?: Request
+  ): Promise<AuthOutcome & { needsPhone: boolean }> {
     if (!config.apple.servicesId) {
       throw new AppError('Inicio de sesión con Apple no está configurado', 500);
     }
 
-    let payload: ApplePayload;
+    // Canje de un solo uso: quien llega segundo no encuentra nada.
+    const pending = await AppleAuthCode.findOneAndDelete({
+      codeHash: sha256(input.code),
+      expiresAt: { $gt: new Date() },
+    });
+    if (!pending) throw new AppError('El inicio de sesión con Apple venció. Vuelve a intentarlo.', 401, 'APPLE_CODE_INVALID');
+
+    let payload: IdentityPayload;
     try {
-      payload = await verifyAppleIdentityToken(identityToken, config.apple.servicesId);
+      payload = await identityVerifiers.apple(pending.idToken, config.apple.servicesId);
     } catch {
       throw new AppError('Token de Apple inválido', 401);
     }
 
-    if (!payload.sub) {
-      throw new AppError('No pudimos verificar tu cuenta de Apple', 401);
+    // La app envió a Apple el SHA-256 de un nonce que solo ella conoce, y
+    // Apple lo firmó dentro del token. Sin el nonce en claro el código no se
+    // puede canjear, aunque se haya interceptado el deep link.
+    if (!payload.sub || !sameString(payload.nonce, sha256(input.nonce))) {
+      throw new AppError('Token de Apple inválido', 401, 'NONCE_MISMATCH');
     }
+
+    await consumeIdentityToken('apple', pending.idToken, payload.exp);
 
     // "true"/"false" en vez de booleano es una inconsistencia conocida del
     // token de Apple según la versión de iOS/macOS que lo generó.
     const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
     const email = payload.email && emailVerified ? payload.email.toLowerCase() : undefined;
 
-    let user = await User.findOne({ appleId: payload.sub }).select('+appleId');
+    const user = await this.resolveOAuthUser(
+      'apple',
+      { sub: payload.sub, email, name: pending.fullName || input.fullName },
+      req
+    );
 
-    if (!user) {
-      // Igual que con Google: si ya existe una cuenta con este correo, se
-      // vincula en vez de crear un duplicado.
-      user = email ? await User.findOne({ email }) : null;
-
-      if (user) {
-        user.appleId = payload.sub;
-        await user.save();
-      } else {
-        user = await User.create({
-          name: fullName || (email ? email.split('@')[0] : 'Usuario Apple'),
-          email,
-          appleId: payload.sub,
-          role: UserRole.CLIENT,
-          // Sin celular todavía: la app lo pide y lo verifica por OTP justo
-          // después de este login.
-          isVerified: false,
-        });
-      }
-    }
-
-    if (!user.isActive) {
-      throw new AppError('Tu cuenta está desactivada', 403);
-    }
-
-    const tokens = this.generateTokens(user);
-    user.refreshToken = tokens.refreshToken;
-    user.lastLoginAt = new Date();
-    await user.save();
-
-    if (req) {
-      const ip = getClientIP(req);
-      const ua = req.headers['user-agent'] || 'unknown';
-      await sessionManager.createSession(user._id.toString(), tokens.refreshToken, ip, ua);
-
+    const outcome = await this.completeLogin(user, req, { method: 'apple' });
+    if (req && !outcome.requiresTOTP) {
       await logAudit(req, {
         action: AuditAction.LOGIN_SUCCESS,
         entity: 'user',
         entityId: user._id.toString(),
-        description: `Login con Apple exitoso: ${user.email || user._id}`,
+        description: 'Login con Apple exitoso',
         metadata: { provider: 'apple' },
       });
     }
 
-    return { user, tokens, needsPhone: !user.phone };
+    return { ...outcome, needsPhone: this.oauthNeedsPhone(outcome.user) };
   }
 
-  async register(input: RegisterInput, req?: Request): Promise<{ user: IUser; tokens: AuthTokens }> {
-    const existing = await User.findOne({ phone: input.phone });
-    if (existing) {
-      throw new AppError('Este número de celular ya está registrado', 409);
-    }
-
-    const email = input.email && input.email.trim() !== '' ? input.email.trim().toLowerCase() : undefined;
-
-    if (email) {
-      const emailExists = await User.findOne({ email });
-      if (emailExists) {
-        throw new AppError('Este email ya está registrado', 409);
-      }
-    }
-
-    // Validate password complexity for business and admin roles
-    if (input.role === 'admin' || input.role === 'business') {
-      const passwordCheck = validatePasswordComplexity(input.password);
-      if (!passwordCheck.valid) {
-        throw new AppError(passwordCheck.errors.join('. '), 400);
-      }
-    }
-
-    return this.createUserAndSession({ ...input, email }, req);
-  }
-
-  /**
-   * Crea el `User`, genera sus tokens y abre sesión. Lo comparten `register`
-   * (celular sin verificar previamente) y `completeRegistration` (celular ya
-   * confirmado por OTP en el flujo de 3 pasos) — la creación de la cuenta es
-   * idéntica en ambos casos, solo cambia cómo se llegó hasta aquí.
-   */
-  private async createUserAndSession(
-    input: RegisterInput,
-    req?: Request
-  ): Promise<{ user: IUser; tokens: AuthTokens }> {
-    const user = await User.create({
-      name: input.name,
-      phone: input.phone,
-      email: input.email,
-      password: input.password,
-      role: input.role as UserRole,
-      isVerified: true,
-    });
-
-    const tokens = this.generateTokens(user);
-    user.refreshToken = tokens.refreshToken;
-    await user.save();
-
-    if (req) {
-      const ip = getClientIP(req);
-      const ua = req.headers['user-agent'] || 'unknown';
-      await sessionManager.createSession(user._id.toString(), tokens.refreshToken, ip, ua);
-
-      // Anti-fraud check
-      const deviceId = generateDeviceId(ua, ip);
-      await antiFraudService.checkMultipleAccounts(user._id.toString(), deviceId, ip);
-
-      // Audit log
-      await logAudit(req, {
-        action: AuditAction.REGISTER,
-        entity: 'user',
-        entityId: user._id.toString(),
-        description: `Nuevo usuario registrado: ${user.phone} (${input.role})`,
-        metadata: { role: input.role },
-      });
-    }
-
-    return { user, tokens };
-  }
+  // ── Registro en tres pasos ───────────────────────────────────────────
 
   /**
    * Entrada única: le dice al front si ese celular ya tiene cuenta, para que
@@ -362,9 +566,8 @@ export class AuthService {
 
   /**
    * Paso 1 del registro en 3 pasos: manda el OTP a un celular que todavía no
-   * tiene cuenta. Como no existe un `User` para guardar el código —a
-   * diferencia de `sendOTP`, pensado para reenvíos a cuentas ya creadas—
-   * vive en `PendingRegistration`, que se autodestruye si nadie vuelve.
+   * tiene cuenta. Como no existe un `User` para guardar el código, vive en
+   * `PendingRegistration`, que se autodestruye si nadie vuelve.
    */
   async sendRegistrationOTP(phone: string, req?: Request): Promise<void> {
     const existing = await User.findOne({ phone });
@@ -372,25 +575,28 @@ export class AuthService {
       throw new AppError('Este número de celular ya está registrado', 409);
     }
 
-    const otpCode = generateOTP();
-    const otpExpires = getOTPExpiry();
+    const current = await PendingRegistration.findOne({ phone }).select('+otpExpires');
+    if (current && !resendAllowed(current.otpExpires)) {
+      throw new AppError('Espera unos segundos antes de pedir otro código.', 429, 'OTP_COOLDOWN');
+    }
 
+    const code = generateOtpCode();
     await PendingRegistration.findOneAndUpdate(
       { phone },
-      { phone, otpCode, otpExpires, verified: false, verifiedUntil: undefined },
+      { $set: { phone, verified: false, ...otpSetFields(OTP_SLOTS.registration, code) }, $unset: { verifiedUntil: 1 } },
       { upsert: true, setDefaultsOnInsert: true }
     );
+
+    await whatsappService.sendOTP(phone, code);
 
     if (req) {
       await logAudit(req, {
         action: AuditAction.OTP_SENT,
         entity: 'user',
-        entityId: phone,
-        description: `OTP de registro enviado a ${phone}`,
+        description: `OTP de registro enviado a ${maskPhone(phone)}`,
+        metadata: { channel: 'whatsapp', purpose: 'registration' },
       });
     }
-
-    await whatsappService.sendOTP(phone, otpCode);
   }
 
   /**
@@ -399,43 +605,34 @@ export class AuthService {
    * visto bueno para que el paso 3 pueda crearla.
    */
   async verifyRegistrationOTP(phone: string, otpCode: string, req?: Request): Promise<void> {
-    const pending = await PendingRegistration.findOne({ phone }).select('+otpCode +otpExpires');
-    if (!pending || !pending.otpCode || !pending.otpExpires) {
-      throw new AppError('No hay un código pendiente para este celular', 400);
-    }
+    const result = await checkOtp(PendingRegistration, { phone }, OTP_SLOTS.registration, otpCode);
 
-    if (new Date() > pending.otpExpires) {
-      throw new AppError('OTP expirado', 400);
-    }
-
-    if (pending.otpCode !== otpCode) {
-      if (req) {
+    if (result !== 'ok') {
+      if (req && result !== 'missing') {
         await logAudit(req, {
           action: AuditAction.OTP_FAILED,
           entity: 'user',
-          entityId: phone,
           severity: AuditSeverity.MEDIUM,
-          description: `OTP de registro inválido para ${phone}`,
+          description: `OTP de registro rechazado para ${maskPhone(phone)} (${result})`,
+          metadata: { channel: 'whatsapp', purpose: 'registration', result },
         });
       }
-      throw new AppError('OTP inválido', 400);
+      throw otpError(result, 'No hay un código pendiente para este celular');
     }
 
-    pending.verified = true;
-    pending.verifiedUntil = new Date(Date.now() + 15 * 60 * 1000);
-    pending.otpCode = undefined;
-    pending.otpExpires = undefined;
-    await pending.save();
+    await PendingRegistration.updateOne(
+      { phone },
+      { $set: { verified: true, verifiedUntil: new Date(Date.now() + 15 * 60 * 1000) } }
+    );
   }
 
   /**
    * Paso 3: con el celular ya verificado, pide lo que falta y crea la
-   * cuenta de una vez, ya confirmada — no hace falta un cuarto paso de OTP
-   * después, porque ese "estilo Rappi" es justo el que reemplaza este flujo.
+   * cuenta de una vez, ya confirmada.
    */
   async completeRegistration(
     phone: string, name: string, password: string, req?: Request
-  ): Promise<{ user: IUser; tokens: AuthTokens }> {
+  ): Promise<AuthOutcome> {
     const pending = await PendingRegistration.findOne({ phone });
     if (!pending || !pending.verified || !pending.verifiedUntil || new Date() > pending.verifiedUntil) {
       throw new AppError('Verifica tu celular primero', 400);
@@ -446,176 +643,128 @@ export class AuthService {
       throw new AppError('Este número de celular ya está registrado', 409);
     }
 
-    const result = await this.createUserAndSession(
-      { name, phone, password, role: 'client' },
-      req
-    );
+    if (password.length > MAX_PASSWORD_LENGTH) {
+      throw new AppError('La contraseña no puede exceder 128 caracteres', 400);
+    }
 
-    await pending.deleteOne();
+    // Borrar primero y crear después: si dos peticiones completan a la vez,
+    // solo una encuentra el registro pendiente para consumir.
+    const consumed = await PendingRegistration.deleteOne({ _id: pending._id });
+    if (consumed.deletedCount !== 1) throw new AppError('Verifica tu celular primero', 400);
 
-    return result;
+    const user = await User.create({
+      name,
+      phone,
+      password,
+      role: UserRole.CLIENT,
+      isVerified: true,
+      // El celular se confirmó por OTP en el paso 2: ya no hace falta
+      // volver a verificarlo, y queda protegido contra cambios.
+      phoneVerified: true,
+    });
+
+    const outcome = await this.completeLogin(user, req, { method: 'otp' });
+
+    if (req) {
+      const ip = requestIp(req);
+      const ua = requestUa(req);
+      await antiFraudService.checkMultipleAccounts(user._id.toString(), generateDeviceId(ua, ip), ip);
+      await logAudit(req, {
+        action: AuditAction.REGISTER,
+        entity: 'user',
+        entityId: user._id.toString(),
+        description: `Nuevo usuario registrado: ${maskPhone(user.phone)} (client)`,
+        metadata: { role: UserRole.CLIENT, phoneVerified: true },
+      });
+    }
+
+    return outcome;
   }
 
-  async login(input: LoginInput, req?: Request): Promise<{
-    user: IUser;
-    tokens: AuthTokens;
-    requiresTOTP?: boolean;
-    isNewDevice?: boolean;
-  }> {
-    const ip = req ? getClientIP(req) : 'unknown';
+  // ── Contraseña ───────────────────────────────────────────────────────
 
-    // Check brute force protection
-    const bruteCheck = await checkBruteForce(ip, input.phone);
+  async login(input: LoginInput, req?: Request): Promise<AuthOutcome> {
+    const ip = requestIp(req);
+    const phone = normalizePhone(input.phone) ?? input.phone;
+
+    const bruteCheck = await checkBruteForce(ip, phone);
     if (!bruteCheck.allowed) {
       if (req) {
         await logAudit(req, {
           action: AuditAction.BRUTE_FORCE_DETECTED,
           entity: 'auth',
           severity: AuditSeverity.HIGH,
-          description: `Brute force detectado para ${input.phone}: ${bruteCheck.reason}`,
-          metadata: { phone: input.phone, retryAfterMs: bruteCheck.retryAfterMs },
+          description: `Brute force detectado para ${maskPhone(phone)}: ${bruteCheck.reason}`,
+          metadata: { retryAfterMs: bruteCheck.retryAfterMs },
         });
       }
       throw new AppError(bruteCheck.reason || 'Demasiados intentos. Intenta más tarde.', 429);
     }
 
-    const user = await User.findOne({ phone: input.phone })
-      .select('+password +twoFactorEnabled +twoFactorSecret +failedLoginAttempts +lockedUntil +lastLoginIp');
+    const user = await User.findOne({ phone })
+      .select('+password +twoFactorEnabled +twoFactorSecret +failedLoginAttempts +lastLoginIp');
 
-    if (!user) {
-      await recordFailedAttempt(ip, input.phone);
+    const passwordOk = !!user && (await user.comparePassword(input.password));
+
+    if (!user || !passwordOk) {
+      // Misma respuesta exista o no la cuenta. El bloqueo lo decide el
+      // contador por identificador escrito (ver security/bruteforce.ts), que
+      // se comporta igual para un teléfono registrado y uno inventado.
+      const attempt = await recordFailedAttempt(ip, phone);
+
+      if (user) {
+        await User.updateOne({ _id: user._id }, { $inc: { failedLoginAttempts: 1 } });
+        if (req) {
+          await logAudit(req, {
+            action: attempt.allowed ? AuditAction.LOGIN_FAILED : AuditAction.ACCOUNT_LOCKED,
+            entity: 'user',
+            entityId: user._id.toString(),
+            severity: attempt.allowed ? AuditSeverity.MEDIUM : AuditSeverity.HIGH,
+            description: `Login fallido para ${maskPhone(phone)}`,
+          });
+        }
+      }
+
+      if (!attempt.allowed) {
+        throw new AppError(attempt.reason || 'Demasiados intentos. Intenta más tarde.', 429);
+      }
       throw new AppError('Credenciales inválidas', 401);
     }
 
-    // Check account lock
-    if (user.lockedUntil && user.lockedUntil > new Date()) {
-      const remainingMs = user.lockedUntil.getTime() - Date.now();
-      if (req) {
-        await logAudit(req, {
-          action: AuditAction.ACCOUNT_LOCKED,
-          entity: 'user',
-          entityId: user._id.toString(),
-          severity: AuditSeverity.MEDIUM,
-          description: `Intento de login en cuenta bloqueada: ${input.phone}`,
-        });
+    let outcome: AuthOutcome;
+    try {
+      outcome = await this.completeLogin(user, req, {
+        method: 'password',
+        totpToken: input.totpToken,
+        deviceId: input.deviceId,
+      });
+    } catch (error) {
+      // Un TOTP equivocado con la contraseña correcta también es un intento
+      // fallido: si no contara, el TOTP se podía probar sin límite.
+      if (error instanceof AppError && error.code === 'MFA_CODE_INVALID') {
+        await recordFailedAttempt(ip, phone);
       }
-      throw new AppError(
-        `Cuenta bloqueada temporalmente. Intenta en ${Math.ceil(remainingMs / 60000)} minutos.`,
-        423
-      );
+      throw error;
     }
 
-    const isMatch = await user.comparePassword(input.password);
-    if (!isMatch) {
-      // Record failed attempt
-      user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+    if (outcome.requiresTOTP) return outcome;
 
-      // Lock after 5 failed attempts
-      if (user.failedLoginAttempts >= 5) {
-        user.lockedUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 min lock
-        await user.save();
+    await clearAttempts(ip, phone);
+    await User.updateOne({ _id: user._id }, { $set: { failedLoginAttempts: 0, isVerified: true }, $unset: { lockedUntil: 1 } });
 
-        if (req) {
-          await logAudit(req, {
-            action: AuditAction.ACCOUNT_LOCKED,
-            entity: 'user',
-            entityId: user._id.toString(),
-            severity: AuditSeverity.HIGH,
-            description: `Cuenta bloqueada por ${user.failedLoginAttempts} intentos fallidos`,
-          });
-        }
-        throw new AppError('Cuenta bloqueada por múltiples intentos fallidos. Intenta en 15 minutos.', 423);
-      }
-
-      await user.save();
-      await recordFailedAttempt(ip, input.phone);
-
-      if (req) {
-        await logAudit(req, {
-          action: AuditAction.LOGIN_FAILED,
-          entity: 'user',
-          entityId: user._id.toString(),
-          severity: AuditSeverity.MEDIUM,
-          description: `Login fallido para ${input.phone} (intento ${user.failedLoginAttempts})`,
-        });
-      }
-
-      throw new AppError('Credenciales inválidas', 401);
-    }
-
-    if (!user.isActive) {
-      throw new AppError('Tu cuenta está desactivada', 403);
-    }
-
-    // Check 2FA requirement
-    if (user.twoFactorEnabled && user.twoFactorSecret) {
-      if (!input.totpToken) {
-        return {
-          user,
-          tokens: { accessToken: '', refreshToken: '' },
-          requiresTOTP: true,
-        };
-      }
-
-      const isValidTOTP = verifyTOTP(user.twoFactorSecret, input.totpToken);
-      if (!isValidTOTP) {
-        if (req) {
-          await logAudit(req, {
-            action: AuditAction.TOTP_FAILED,
-            entity: 'user',
-            entityId: user._id.toString(),
-            severity: AuditSeverity.MEDIUM,
-            description: `Verificación 2FA fallida para ${input.phone}`,
-          });
-        }
-        throw new AppError('Código 2FA inválido', 401);
-      }
-    }
-
-    // Reset failed attempts on successful login
-    user.failedLoginAttempts = 0;
-    user.lockedUntil = undefined;
-    user.lastLoginAt = new Date();
-    user.lastLoginIp = ip;
-    user.isVerified = true;
-
-    await clearAttempts(ip, input.phone);
-
-    const tokens = this.generateTokens(user);
-    user.refreshToken = tokens.refreshToken;
-    await user.save();
-
-    // Create session & check for new device
-    let isNewDevice = false;
     if (req) {
-      const ua = req.headers['user-agent'] || 'unknown';
-      const result = await sessionManager.createSession(
-        user._id.toString(),
-        tokens.refreshToken,
-        ip,
-        ua,
-        input.deviceId
-      );
-      isNewDevice = result.isNewDevice;
-
-      if (isNewDevice) {
+      if (outcome.isNewDevice) {
         await logAudit(req, {
           action: AuditAction.NEW_DEVICE_DETECTED,
           entity: 'user',
           entityId: user._id.toString(),
           severity: AuditSeverity.MEDIUM,
-          description: `Nuevo dispositivo detectado para ${input.phone}`,
-          metadata: { deviceInfo: result.session.deviceInfo },
+          description: `Nuevo dispositivo detectado para ${maskPhone(phone)}`,
         });
       }
 
-      // Anti-fraud checks
-      const deviceId = generateDeviceId(ua, ip, input.deviceId);
-      const fraudCheck = await antiFraudService.checkMultipleAccounts(
-        user._id.toString(),
-        deviceId,
-        ip
-      );
+      const deviceId = generateDeviceId(requestUa(req), ip, input.deviceId);
+      const fraudCheck = await antiFraudService.checkMultipleAccounts(user._id.toString(), deviceId, ip);
       if (fraudCheck.suspicious && fraudCheck.alert) {
         await antiFraudService.createAlert(fraudCheck.alert);
       }
@@ -624,295 +773,311 @@ export class AuthService {
         action: AuditAction.LOGIN_SUCCESS,
         entity: 'user',
         entityId: user._id.toString(),
-        description: `Login exitoso: ${input.phone}`,
-        metadata: { isNewDevice, role: user.role },
+        description: `Login exitoso: ${maskPhone(phone)}`,
+        metadata: { isNewDevice: outcome.isNewDevice, role: user.role },
       });
     }
 
-    return { user, tokens, isNewDevice };
+    return outcome;
   }
 
-  async refreshTokens(refreshToken: string, req?: Request): Promise<AuthTokens> {
-    const decoded = verifyRefreshToken(refreshToken);
-    const user = await User.findById(decoded.id).select('+refreshToken');
+  // ── Refresh ──────────────────────────────────────────────────────────
 
-    if (!user || user.refreshToken !== refreshToken) {
-      throw new AppError('Refresh token inválido', 401);
+  /**
+   * Rota el refresh token contra `Session.tokenHash`, la única fuente de
+   * verdad. Antes se comparaba primero contra `User.refreshToken` (un solo
+   * campo, en claro): un token viejo recibía 401 sin llegar nunca a la
+   * detección de reuso, y abrir sesión en un segundo dispositivo dejaba al
+   * primero sin poder refrescar.
+   */
+  async refreshTokens(refreshToken: string, req?: Request): Promise<AuthTokens> {
+    let decoded;
+    try {
+      decoded = verifyRefreshToken(refreshToken);
+    } catch {
+      throw new AppError('Refresh token inválido', 401, 'REFRESH_INVALID');
     }
 
-    const tokens = this.generateTokens(user);
+    const presentedHash = hashToken(refreshToken);
+    const sessionRef = decoded.sid
+      ? { _id: decoded.sid }
+      : await Session.findOne({ $or: [{ tokenHash: presentedHash }, { previousTokenHash: presentedHash }] }).select('_id');
+    if (!sessionRef) throw new AppError('Refresh token inválido', 401, 'REFRESH_INVALID');
 
-    // Rotate refresh token in session
-    if (req) {
-      const rotated = await sessionManager.rotateRefreshToken(refreshToken, tokens.refreshToken);
-      if (!rotated) {
-        // Token reuse detected - all sessions already revoked by rotateRefreshToken
+    const user = await User.findById(decoded.id);
+    if (!user) throw new AppError('Refresh token inválido', 401, 'REFRESH_INVALID');
+
+    const tokens = this.generateTokens(user, sessionRef._id.toString());
+    const rotation = await sessionManager.rotateRefreshToken(refreshToken, tokens.refreshToken);
+
+    if (rotation.status === 'race') {
+      throw new AppError('La sesión se está renovando en otra petición. Reintenta.', 409, 'REFRESH_IN_PROGRESS');
+    }
+
+    if (rotation.status === 'reuse') {
+      if (req) {
         await logAudit(req, {
           action: AuditAction.SUSPICIOUS_ACTIVITY,
           entity: 'session',
-          entityId: user._id.toString(),
+          entityId: rotation.userId,
           severity: AuditSeverity.CRITICAL,
-          description: `Reuse de refresh token detectado para usuario ${user.phone}. Todas las sesiones revocadas.`,
+          description: `Reuso de refresh token detectado. ${rotation.revokedCount} sesiones revocadas.`,
         });
-        throw new AppError('Sesión comprometida. Todas las sesiones han sido cerradas por seguridad.', 401);
       }
+      throw new AppError('Sesión comprometida. Todas las sesiones han sido cerradas por seguridad.', 401, 'REFRESH_REUSED');
     }
 
-    user.refreshToken = tokens.refreshToken;
-    await user.save();
+    if (rotation.status === 'revoked' || rotation.session.userId !== user._id.toString()) {
+      throw new AppError('Refresh token inválido', 401, 'REFRESH_INVALID');
+    }
 
-    if (req) {
-      await logAudit(req, {
-        action: AuditAction.TOKEN_REFRESH,
-        entity: 'session',
-        entityId: user._id.toString(),
-        description: 'Token renovado exitosamente',
-      });
+    // El refresh no abre la puerta a una cuenta que se bloqueó después de
+    // iniciar sesión: se cierra la sesión en vez de rotarla.
+    if (user.isBlocked || !user.isActive || user.anonymizedAt) {
+      await sessionManager.revokeSession(rotation.session._id!.toString(), user._id.toString(), 'admin');
+      throw new AppError('Tu cuenta no está disponible.', 401, 'ACCOUNT_UNAVAILABLE');
     }
 
     return tokens;
   }
 
+  // ── OTP de WhatsApp: login y recuperación ────────────────────────────
+
+  /**
+   * Manda el OTP de login/recuperación. La respuesta es la misma exista o no
+   * la cuenta: antes un 404 "Usuario no encontrado" servía para saber qué
+   * números estaban registrados.
+   */
   async sendOTP(phone: string, req?: Request): Promise<void> {
-    const user = await User.findOne({ phone }).select('+otpCode +otpExpires');
-    if (!user) {
-      throw new AppError('Usuario no encontrado', 404);
-    }
+    const user = await User.findOne({ phone }).select('+otpExpires isActive isBlocked anonymizedAt phone');
+    if (!user || !user.isActive || user.isBlocked || user.anonymizedAt) return;
+    if (!resendAllowed(user.otpExpires)) return;
 
-    const otpCode = generateOTP();
-    const otpExpires = getOTPExpiry();
-
-    user.otpCode = otpCode;
-    user.otpExpires = otpExpires;
-    await user.save();
+    const code = generateOtpCode();
+    await User.updateOne({ _id: user._id }, { $set: otpSetFields(OTP_SLOTS.phone, code) });
+    await whatsappService.sendOTP(user.phone!, code);
 
     if (req) {
       await logAudit(req, {
         action: AuditAction.OTP_SENT,
         entity: 'user',
         entityId: user._id.toString(),
-        description: `OTP enviado a ${phone}`,
+        description: `OTP enviado a ${maskPhone(user.phone)}`,
+        metadata: { channel: 'whatsapp' },
       });
     }
-
-    await whatsappService.sendOTP(phone, otpCode);
   }
 
-  async verifyOTP(phone: string, otpCode: string, req?: Request): Promise<{ user: IUser; tokens: AuthTokens }> {
-    const user = await User.findOne({ phone }).select('+otpCode +otpExpires');
-    if (!user) {
-      throw new AppError('Usuario no encontrado', 404);
-    }
+  async verifyOTP(phone: string, otpCode: string, req?: Request): Promise<AuthOutcome> {
+    const user = await User.findOne({ phone });
+    if (!user) throw otpError('invalid');
 
-    if (!user.otpCode || !user.otpExpires) {
-      throw new AppError('No hay OTP pendiente', 400);
-    }
-
-    if (new Date() > user.otpExpires) {
-      if (req) {
+    const result = await checkOtp(User, { _id: user._id }, OTP_SLOTS.phone, otpCode);
+    if (result !== 'ok') {
+      if (req && result !== 'missing') {
         await logAudit(req, {
           action: AuditAction.OTP_FAILED,
           entity: 'user',
           entityId: user._id.toString(),
-          severity: AuditSeverity.LOW,
-          description: `OTP expirado para ${phone}`,
+          severity: result === 'locked' ? AuditSeverity.HIGH : AuditSeverity.MEDIUM,
+          description: `OTP rechazado para ${maskPhone(user.phone)} (${result})`,
+          metadata: { channel: 'whatsapp', result },
         });
       }
-      throw new AppError('OTP expirado', 400);
+      throw otpError(result, 'No hay OTP pendiente');
     }
 
-    if (user.otpCode !== otpCode) {
-      if (req) {
-        await logAudit(req, {
-          action: AuditAction.OTP_FAILED,
-          entity: 'user',
-          entityId: user._id.toString(),
-          severity: AuditSeverity.MEDIUM,
-          description: `OTP inválido para ${phone}`,
-        });
-      }
-      throw new AppError('OTP inválido', 400);
-    }
-
-    user.isVerified = true;
     // Login por WhatsApp OTP exitoso: el teléfono queda confirmado y se
     // bloquea para edición por el propio usuario (ver updateProfile).
+    await User.updateOne({ _id: user._id }, { $set: { isVerified: true, phoneVerified: true } });
+    user.isVerified = true;
     user.phoneVerified = true;
-    user.otpCode = undefined;
-    user.otpExpires = undefined;
 
-    const tokens = this.generateTokens(user);
-    user.refreshToken = tokens.refreshToken;
-    await user.save();
+    const outcome = await this.completeLogin(user, req, { method: 'otp' });
 
     if (req) {
       await logAudit(req, {
         action: AuditAction.OTP_VERIFIED,
         entity: 'user',
         entityId: user._id.toString(),
-        description: `OTP verificado para ${phone}`,
-        metadata: { channel: 'phone' },
+        description: `OTP verificado para ${maskPhone(user.phone)}`,
+        metadata: { channel: 'phone', requiresTOTP: outcome.requiresTOTP },
       });
-
-      const ip = getClientIP(req);
-      const ua = req.headers['user-agent'] || 'unknown';
-      await sessionManager.createSession(user._id.toString(), tokens.refreshToken, ip, ua);
     }
 
-    return { user, tokens };
+    return outcome;
   }
 
+  // ── OTP de correo ────────────────────────────────────────────────────
+
   async sendEmailOTP(email: string, req?: Request): Promise<void> {
-    const normalizedEmail = email.trim().toLowerCase();
-    const user = await User.findOne({ email: normalizedEmail }).select('+emailOtpCode +emailOtpExpires');
-    if (!user) {
-      throw new AppError('Usuario no encontrado', 404);
+    if (!emailService.isEnabled) {
+      throw new AppError('El inicio de sesión por correo no está disponible.', 503, 'EMAIL_OTP_DISABLED');
     }
 
-    const otpCode = generateOTP();
-    const otpExpires = getOTPExpiry();
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await User.findOne({ email: normalizedEmail }).select('+emailOtpExpires isActive isBlocked anonymizedAt');
+    if (!user || !user.isActive || user.isBlocked || user.anonymizedAt) return;
+    if (!resendAllowed(user.emailOtpExpires)) return;
 
-    user.emailOtpCode = otpCode;
-    user.emailOtpExpires = otpExpires;
-    await user.save();
+    const code = generateOtpCode();
+    await User.updateOne({ _id: user._id }, { $set: otpSetFields(OTP_SLOTS.email, code) });
+    await emailService.sendOTP(normalizedEmail, code);
 
     if (req) {
       await logAudit(req, {
         action: AuditAction.OTP_SENT,
         entity: 'user',
         entityId: user._id.toString(),
-        description: `OTP enviado a ${normalizedEmail}`,
+        description: `OTP enviado a ${maskEmail(normalizedEmail)}`,
         metadata: { channel: 'email' },
       });
     }
-
-    await emailService.sendOTP(normalizedEmail, otpCode);
   }
 
-  async verifyEmailOTP(email: string, otpCode: string, req?: Request): Promise<{ user: IUser; tokens: AuthTokens }> {
+  async verifyEmailOTP(email: string, otpCode: string, req?: Request): Promise<AuthOutcome> {
+    if (!emailService.isEnabled) {
+      throw new AppError('El inicio de sesión por correo no está disponible.', 503, 'EMAIL_OTP_DISABLED');
+    }
+
     const normalizedEmail = email.trim().toLowerCase();
-    const user = await User.findOne({ email: normalizedEmail }).select('+emailOtpCode +emailOtpExpires');
-    if (!user) {
-      throw new AppError('Usuario no encontrado', 404);
-    }
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user) throw otpError('invalid');
 
-    if (!user.emailOtpCode || !user.emailOtpExpires) {
-      throw new AppError('No hay OTP pendiente', 400);
-    }
-
-    if (new Date() > user.emailOtpExpires) {
-      if (req) {
+    const result = await checkOtp(User, { _id: user._id }, OTP_SLOTS.email, otpCode);
+    if (result !== 'ok') {
+      if (req && result !== 'missing') {
         await logAudit(req, {
           action: AuditAction.OTP_FAILED,
           entity: 'user',
           entityId: user._id.toString(),
-          severity: AuditSeverity.LOW,
-          description: `OTP expirado para ${normalizedEmail}`,
-          metadata: { channel: 'email' },
+          severity: result === 'locked' ? AuditSeverity.HIGH : AuditSeverity.MEDIUM,
+          description: `OTP rechazado para ${maskEmail(normalizedEmail)} (${result})`,
+          metadata: { channel: 'email', result },
         });
       }
-      throw new AppError('OTP expirado', 400);
+      throw otpError(result, 'No hay OTP pendiente');
     }
 
-    if (user.emailOtpCode !== otpCode) {
-      if (req) {
-        await logAudit(req, {
-          action: AuditAction.OTP_FAILED,
-          entity: 'user',
-          entityId: user._id.toString(),
-          severity: AuditSeverity.MEDIUM,
-          description: `OTP inválido para ${normalizedEmail}`,
-          metadata: { channel: 'email' },
-        });
-      }
-      throw new AppError('OTP inválido', 400);
-    }
-
-    user.isVerified = true;
     // Login por OTP de correo exitoso: el correo queda confirmado y se
     // bloquea para edición por el propio usuario (ver updateProfile).
+    await User.updateOne({ _id: user._id }, { $set: { isVerified: true, emailVerified: true } });
+    user.isVerified = true;
     user.emailVerified = true;
-    user.emailOtpCode = undefined;
-    user.emailOtpExpires = undefined;
 
-    const tokens = this.generateTokens(user);
-    user.refreshToken = tokens.refreshToken;
-    await user.save();
+    const outcome = await this.completeLogin(user, req, { method: 'email_otp' });
 
     if (req) {
       await logAudit(req, {
         action: AuditAction.OTP_VERIFIED,
         entity: 'user',
         entityId: user._id.toString(),
-        description: `OTP verificado para ${normalizedEmail}`,
-        metadata: { channel: 'email' },
+        description: `OTP verificado para ${maskEmail(normalizedEmail)}`,
+        metadata: { channel: 'email', requiresTOTP: outcome.requiresTOTP },
       });
-
-      const ip = getClientIP(req);
-      const ua = req.headers['user-agent'] || 'unknown';
-      await sessionManager.createSession(user._id.toString(), tokens.refreshToken, ip, ua);
     }
 
-    return { user, tokens };
+    return outcome;
   }
 
-  async logout(userId: string, req?: Request): Promise<void> {
-    await User.findByIdAndUpdate(userId, { refreshToken: null });
+  // ── Logout ───────────────────────────────────────────────────────────
 
-    // Revoke current session
+  /**
+   * Cierra la sesión en el servidor. La sesión sale del `sid` del access
+   * token, así que no depende de que el cliente mande el refresh token; si lo
+   * manda (tokens previos a `sid`), también se usa.
+   */
+  async logout(userId: string, req?: Request): Promise<{ revoked: boolean }> {
+    let revoked = false;
+
+    if (req?.sessionId) {
+      revoked = await sessionManager.revokeSession(req.sessionId, userId, 'logout');
+    }
+
+    const bodyToken = req?.body?.refreshToken;
+    if (typeof bodyToken === 'string' && bodyToken) {
+      revoked = (await sessionManager.revokeByRefreshToken(bodyToken, userId, 'logout')) || revoked;
+    }
+
     if (req) {
-      const refreshToken = req.body?.refreshToken;
-      if (refreshToken) {
-        const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-        await Session.findOneAndUpdate({ tokenHash }, { isActive: false });
-      }
-
       await logAudit(req, {
         action: AuditAction.LOGOUT,
         entity: 'user',
         entityId: userId,
         description: 'Sesión cerrada',
+        metadata: { revoked },
       });
     }
+
+    return { revoked };
   }
 
-  async resetPassword(phone: string, otpCode: string, newPassword: string, req?: Request): Promise<{ user: IUser; tokens: AuthTokens }> {
-    const user = await User.findOne({ phone }).select('+otpCode +otpExpires +password');
-    if (!user) {
-      throw new AppError('Usuario no encontrado', 404);
+  // ── Recuperación de contraseña ───────────────────────────────────────
+
+  /**
+   * Restablece la contraseña con el OTP de WhatsApp.
+   *
+   * En una cuenta con 2FA el OTP solo no alcanza: tener el celular (o su SIM)
+   * es justo lo que el segundo factor está para no dar por suficiente. Sin
+   * `totpToken` se valida el código SIN gastarlo y se responde
+   * `requiresTOTP`; la app pide el TOTP y reenvía todo junto.
+   */
+  async resetPassword(
+    phone: string,
+    otpCode: string,
+    newPassword: string,
+    req?: Request,
+    totpToken?: string
+  ): Promise<AuthOutcome> {
+    const ip = requestIp(req);
+    const bruteCheck = await checkBruteForce(ip, phone);
+    if (!bruteCheck.allowed) {
+      throw new AppError(bruteCheck.reason || 'Demasiados intentos. Intenta más tarde.', 429);
     }
 
-    if (!user.otpCode || !user.otpExpires) {
-      throw new AppError('No hay OTP pendiente', 400);
-    }
-
-    if (new Date() > user.otpExpires) {
-      throw new AppError('OTP expirado', 400);
-    }
-
-    if (user.otpCode !== otpCode) {
-      throw new AppError('OTP inválido', 400);
-    }
-
-    // Validate password complexity
+    // La política se valida antes de tocar el OTP: una contraseña débil no
+    // debe quemar un código correcto.
     const passwordCheck = validatePasswordComplexity(newPassword);
     if (!passwordCheck.valid) {
       throw new AppError(passwordCheck.errors.join('. '), 400);
     }
 
+    const user = await User.findOne({ phone }).select('+password');
+    if (!user) throw otpError('invalid');
+
+    const twoFactor = hasTwoFactor(user);
+    const firstCheck = await checkOtp(User, { _id: user._id }, OTP_SLOTS.phone, otpCode, { consume: !twoFactor });
+    if (firstCheck !== 'ok') throw otpError(firstCheck, 'No hay OTP pendiente');
+
+    if (twoFactor) {
+      if (!totpToken) {
+        // Sin sesión ni reto: la app reenvía el mismo formulario con el TOTP.
+        return { requiresTOTP: true, challengeToken: '', user, method: 'password_reset' };
+      }
+      if (!(await verifySecondFactor(user._id, totpToken))) {
+        await recordFailedAttempt(ip, phone);
+        throw new AppError('Código 2FA inválido', 401, 'MFA_CODE_INVALID');
+      }
+      const burned = await checkOtp(User, { _id: user._id }, OTP_SLOTS.phone, otpCode);
+      if (burned !== 'ok') throw otpError(burned, 'No hay OTP pendiente');
+    }
+
+    this.assertAccountUsable(user);
+
     user.password = newPassword;
     user.isVerified = true;
-    user.otpCode = undefined;
-    user.otpExpires = undefined;
+    // Recibir el OTP demuestra que el celular es suyo.
+    user.phoneVerified = true;
     user.failedLoginAttempts = 0;
     user.lockedUntil = undefined;
-
-    const tokens = this.generateTokens(user);
-    user.refreshToken = tokens.refreshToken;
     await user.save();
 
     // Revoke all existing sessions (password changed)
-    await sessionManager.revokeAllSessions(user._id.toString());
+    await sessionManager.revokeAllSessions(user._id.toString(), { reason: 'password_changed' });
+    await clearAttempts(ip, phone);
+
+    // El segundo factor, si hacía falta, ya se verificó arriba.
+    const session = await this.startSession(user, req);
 
     if (req) {
       await logAudit(req, {
@@ -920,33 +1085,51 @@ export class AuthService {
         entity: 'user',
         entityId: user._id.toString(),
         severity: AuditSeverity.HIGH,
-        description: `Contraseña restablecida para ${phone}`,
+        description: `Contraseña restablecida para ${maskPhone(user.phone)}`,
+        metadata: { twoFactor },
       });
-
-      const ip = getClientIP(req);
-      const ua = req.headers['user-agent'] || 'unknown';
-      await sessionManager.createSession(user._id.toString(), tokens.refreshToken, ip, ua);
     }
 
-    return { user, tokens };
+    return { requiresTOTP: false, user, method: 'password_reset', ...session };
   }
 
-  async updateProfile(userId: string, data: { name?: string; email?: string; phone?: string }, req?: Request): Promise<IUser> {
-    const user = await User.findById(userId);
+  // ── Perfil y celular ─────────────────────────────────────────────────
+
+  /**
+   * Actualiza el perfil.
+   *
+   * El celular nunca se escribe directamente: queda en `pendingPhone` y se
+   * manda un OTP a ese número. Solo al confirmarlo (`verifyPendingPhone`) pasa
+   * a ser `phone`. Antes bastaba un `PATCH` para quedarse con un número ajeno
+   * aún no registrado: se le bloqueaba el registro al dueño y, cuando pedía
+   * un OTP para "su" número, entraba en la cuenta de quien lo había puesto.
+   */
+  async updateProfile(
+    userId: string,
+    data: { name?: string; email?: string; phone?: string },
+    req?: Request
+  ): Promise<{ user: IUser; phoneVerificationSent: boolean }> {
+    const user = await User.findById(userId).select('+pendingPhoneOtpExpires');
     if (!user) {
       throw new AppError('Usuario no encontrado', 404);
     }
 
-    if (data.phone && data.phone !== user.phone) {
+    let phoneVerificationSent = false;
+
+    if (data.phone) {
       if (user.phoneVerified) {
-        throw new AppError('Tu número de celular ya fue verificado y no se puede editar. Contacta a soporte.', 403);
+        if (data.phone !== user.phone) {
+          throw new AppError('Tu número de celular ya fue verificado y no se puede editar. Contacta a soporte.', 403);
+        }
+      } else {
+        if (data.phone !== user.phone) {
+          const taken = await User.findOne({ phone: data.phone, _id: { $ne: user._id } }).select('_id');
+          if (taken) {
+            throw new AppError('Este número de celular ya está registrado por otro usuario', 409);
+          }
+        }
+        phoneVerificationSent = await this.startPhoneVerification(user, data.phone);
       }
-      const existing = await User.findOne({ phone: data.phone });
-      if (existing) {
-        throw new AppError('Este número de celular ya está registrado por otro usuario', 409);
-      }
-      user.phone = data.phone;
-      user.isVerified = false;
     }
 
     if (data.email !== undefined) {
@@ -979,11 +1162,84 @@ export class AuthService {
         entity: 'user',
         entityId: userId,
         description: `Perfil actualizado`,
-        metadata: { updatedFields: Object.keys(data) },
+        metadata: { updatedFields: Object.keys(data), phoneVerificationSent },
       });
     }
 
-    return user;
+    const fresh = (await User.findById(userId))!;
+    return { user: fresh, phoneVerificationSent };
+  }
+
+  /** Deja `phone` como pendiente y manda el OTP. Devuelve si se envió (o si el enfriamiento lo impidió). */
+  private async startPhoneVerification(user: IUser, phone: string): Promise<boolean> {
+    const samePending = user.pendingPhone === phone;
+    if (samePending && !resendAllowed(user.pendingPhoneOtpExpires)) return false;
+
+    const code = generateOtpCode();
+    await User.updateOne({ _id: user._id }, { $set: { pendingPhone: phone, ...otpSetFields(OTP_SLOTS.pendingPhone, code) } });
+    user.pendingPhone = phone;
+    await whatsappService.sendOTP(phone, code);
+    return true;
+  }
+
+  /** Reenvía el OTP al celular pendiente. */
+  async resendPendingPhoneOtp(userId: string): Promise<{ sent: boolean }> {
+    const user = await User.findById(userId).select('+pendingPhoneOtpExpires');
+    if (!user) throw new AppError('Usuario no encontrado', 404);
+    if (!user.pendingPhone) {
+      throw new AppError('No hay un celular pendiente de verificar.', 400, 'NO_PENDING_PHONE');
+    }
+    return { sent: await this.startPhoneVerification(user, user.pendingPhone) };
+  }
+
+  /** Confirma el celular pendiente con su OTP y lo asocia a la cuenta. */
+  async verifyPendingPhone(userId: string, otpCode: string, req?: Request): Promise<IUser> {
+    const user = await User.findById(userId);
+    if (!user) throw new AppError('Usuario no encontrado', 404);
+    if (!user.pendingPhone) {
+      throw new AppError('No hay un celular pendiente de verificar.', 400, 'NO_PENDING_PHONE');
+    }
+
+    const result = await checkOtp(User, { _id: user._id, pendingPhone: user.pendingPhone }, OTP_SLOTS.pendingPhone, otpCode);
+    if (result !== 'ok') throw otpError(result);
+
+    const newPhone = user.pendingPhone;
+    const taken = await User.findOne({ phone: newPhone, _id: { $ne: user._id } }).select('_id');
+    if (taken) {
+      await User.updateOne({ _id: user._id }, { $unset: { pendingPhone: 1 } });
+      throw new AppError('Este número de celular ya está registrado por otro usuario', 409);
+    }
+
+    try {
+      await User.updateOne(
+        { _id: user._id, pendingPhone: newPhone },
+        { $set: { phone: newPhone, phoneVerified: true, isVerified: true }, $unset: { pendingPhone: 1 } }
+      );
+    } catch (error) {
+      if ((error as { code?: number }).code === 11000) {
+        throw new AppError('Este número de celular ya está registrado por otro usuario', 409);
+      }
+      throw error;
+    }
+
+    // Cambió la identidad de la cuenta: cualquier otra sesión abierta sale.
+    const revoked = await sessionManager.revokeAllSessions(userId, {
+      exceptSessionId: req?.sessionId,
+      reason: 'contact_changed',
+    });
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.PROFILE_UPDATED,
+        entity: 'user',
+        entityId: userId,
+        severity: AuditSeverity.HIGH,
+        description: `Celular verificado y asociado: ${maskPhone(newPhone)}`,
+        metadata: { updatedFields: ['phone'], otherSessionsRevoked: revoked },
+      });
+    }
+
+    return (await User.findById(userId))!;
   }
 
   /**
@@ -1038,7 +1294,7 @@ export class AuthService {
     return user;
   }
 
-  // ── 2FA Methods ──
+  // ── 2FA ──────────────────────────────────────────────────────────────
 
   async setup2FA(userId: string, req?: Request): Promise<{
     secret: string;
@@ -1054,8 +1310,9 @@ export class AuthService {
 
     const result = await generateTOTPSecret(user.email || user.phone || user._id.toString());
 
-    // Store secret (not yet enabled until verified)
-    user.twoFactorSecret = result.secret;
+    // El secreto se guarda cifrado; se devuelve en claro una única vez para
+    // que el usuario lo registre en su app autenticadora.
+    user.twoFactorSecret = sealTotpSecret(result.secret);
     user.recoveryCodes = hashRecoveryCodes(result.recoveryCodes);
     await user.save();
 
@@ -1082,14 +1339,19 @@ export class AuthService {
       throw new AppError('No hay configuración 2FA pendiente', 400);
     }
 
-    const isValid = verifyTOTP(user.twoFactorSecret, token);
-    if (!isValid) {
+    const step = matchTOTPStep(user.twoFactorSecret, token);
+    if (step === null) {
       throw new AppError('Código 2FA inválido', 400);
     }
 
     user.twoFactorEnabled = true;
     user.twoFactorVerifiedAt = new Date();
+    // El código usado para activar tampoco sirve para entrar después.
+    user.twoFactorLastStep = step;
     await user.save();
+
+    // Las sesiones abiertas antes de activar el 2FA no pasaron por él.
+    await sessionManager.revokeAllSessions(userId, { exceptSessionId: req?.sessionId, reason: 'revoke_all' });
 
     if (req) {
       await logAudit(req, {
@@ -1105,36 +1367,26 @@ export class AuthService {
   }
 
   async disable2FA(userId: string, token: string, req?: Request): Promise<boolean> {
-    const user = await User.findById(userId).select('+twoFactorSecret +recoveryCodes');
+    const user = await User.findById(userId);
     if (!user) throw new AppError('Usuario no encontrado', 404);
 
     if (!user.twoFactorEnabled) {
       throw new AppError('2FA no está habilitado', 400);
     }
 
-    // Verify with TOTP or recovery code
-    let isValid = false;
-    if (user.twoFactorSecret) {
-      isValid = verifyTOTP(user.twoFactorSecret, token);
-    }
-
-    if (!isValid && user.recoveryCodes) {
-      const recoveryCheck = verifyRecoveryCode(token, user.recoveryCodes);
-      isValid = recoveryCheck.valid;
-      if (isValid) {
-        user.recoveryCodes.splice(recoveryCheck.index, 1);
-      }
-    }
-
+    // TOTP (sin repetición) o código de recuperación (se consume).
+    const isValid = await verifySecondFactor(user._id, token);
     if (!isValid) {
       throw new AppError('Código de verificación inválido', 400);
     }
 
-    user.twoFactorEnabled = false;
-    user.twoFactorSecret = undefined;
-    user.recoveryCodes = undefined;
-    user.twoFactorVerifiedAt = undefined;
-    await user.save();
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: { twoFactorEnabled: false },
+        $unset: { twoFactorSecret: 1, recoveryCodes: 1, twoFactorVerifiedAt: 1, twoFactorLastStep: 1 },
+      }
+    );
 
     if (req) {
       await logAudit(req, {
@@ -1149,14 +1401,15 @@ export class AuthService {
     return true;
   }
 
-  // ── Session Management ──
+  // ── Sesiones ─────────────────────────────────────────────────────────
 
-  async getActiveSessions(userId: string) {
-    return sessionManager.getActiveSessions(userId);
+  async getActiveSessions(userId: string, currentSessionId?: string) {
+    const sessions = await sessionManager.getActiveSessions(userId);
+    return sessions.map((s) => ({ ...s, current: !!currentSessionId && String(s._id) === currentSessionId }));
   }
 
   async revokeSession(sessionId: string, userId: string, req?: Request) {
-    const result = await sessionManager.revokeSession(sessionId, userId);
+    const result = await sessionManager.revokeSession(sessionId, userId, 'user_revoked');
 
     if (req && result) {
       await logAudit(req, {
@@ -1171,7 +1424,11 @@ export class AuthService {
   }
 
   async revokeAllSessions(userId: string, currentRefreshToken?: string, req?: Request) {
-    const count = await sessionManager.revokeAllSessions(userId, currentRefreshToken);
+    const count = await sessionManager.revokeAllSessions(userId, {
+      exceptSessionId: req?.sessionId,
+      exceptRefreshToken: currentRefreshToken,
+      reason: 'revoke_all',
+    });
 
     if (req) {
       await logAudit(req, {
@@ -1190,7 +1447,7 @@ export class AuthService {
     const user = await User.findById(userId).select('+password');
     if (!user) throw new AppError('Usuario no encontrado', 404);
 
-    const isMatch = await user.comparePassword(currentPassword);
+    const isMatch = typeof currentPassword === 'string' && (await user.comparePassword(currentPassword));
     if (!isMatch) {
       throw new AppError('Contraseña actual incorrecta', 401);
     }
@@ -1203,8 +1460,9 @@ export class AuthService {
     user.password = newPassword;
     await user.save();
 
-    // Revoke all other sessions
-    await sessionManager.revokeAllSessions(userId);
+    // Revoke all sessions: el cambio es la reacción de quien cree que le
+    // robaron la cuenta.
+    await sessionManager.revokeAllSessions(userId, { reason: 'password_changed' });
 
     if (req) {
       await logAudit(req, {
@@ -1217,12 +1475,64 @@ export class AuthService {
     }
   }
 
-  private generateTokens(user: IUser): AuthTokens {
-    const payload = { id: user._id.toString(), role: user.role as UserRole };
-    return {
-      accessToken: generateAccessToken(payload),
-      refreshToken: generateRefreshToken(payload),
-    };
+  // ── Eliminación de la cuenta ─────────────────────────────────────────
+
+  /**
+   * Primer paso para una cuenta sin contraseña (creada con Google/Apple):
+   * manda un OTP al celular verificado para confirmar la eliminación.
+   */
+  async requestAccountDeletionOtp(userId: string): Promise<{ channel: 'whatsapp' }> {
+    const user = await User.findById(userId).select('+otpExpires');
+    if (!user) throw new AppError('Usuario no encontrado', 404);
+    if (!user.phone || !user.phoneVerified) {
+      throw new AppError('Verifica tu celular antes de eliminar la cuenta.', 400, 'PHONE_NOT_VERIFIED');
+    }
+
+    const blocker = await deletionBlocker(user);
+    if (blocker) throw new AppError(blocker, 409, 'ACCOUNT_DELETION_BLOCKED');
+
+    if (resendAllowed(user.otpExpires)) {
+      const code = generateOtpCode();
+      await User.updateOne({ _id: user._id }, { $set: otpSetFields(OTP_SLOTS.phone, code) });
+      await whatsappService.sendOTP(user.phone, code);
+    }
+    return { channel: 'whatsapp' };
+  }
+
+  /**
+   * Elimina (anonimiza) la propia cuenta. Exige reautenticación: la
+   * contraseña si la cuenta tiene una, o el OTP del celular si no.
+   */
+  async deleteOwnAccount(
+    userId: string,
+    proof: { password?: string; otpCode?: string },
+    req?: Request
+  ): Promise<void> {
+    const user = await User.findById(userId).select('+password');
+    if (!user) throw new AppError('Usuario no encontrado', 404);
+
+    if (user.password) {
+      if (!proof.password || !(await user.comparePassword(proof.password))) {
+        throw new AppError('Contraseña incorrecta', 401, 'REAUTH_FAILED');
+      }
+    } else {
+      if (!proof.otpCode) throw new AppError('Confirma con el código que te enviamos.', 400, 'REAUTH_REQUIRED');
+      const result = await checkOtp(User, { _id: user._id }, OTP_SLOTS.phone, proof.otpCode);
+      if (result !== 'ok') throw otpError(result);
+    }
+
+    await anonymizeAccount(userId);
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.DATA_REQUEST_RESOLVED,
+        entity: 'user',
+        entityId: userId,
+        severity: AuditSeverity.HIGH,
+        description: 'Cuenta eliminada por su titular (datos anonimizados)',
+        metadata: { selfService: true },
+      });
+    }
   }
 }
 

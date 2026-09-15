@@ -21,7 +21,7 @@ async function withAddress(overrides: Record<string, unknown> = {}) {
 
   const res = await request(app)
     .post('/api/v1/addresses')
-    .set(authHeader(client))
+    .set(await authHeader(client))
     .send({ ...NEW_ADDRESS, ...overrides })
     .expect(201);
 
@@ -34,7 +34,7 @@ describe('PATCH /api/v1/addresses/:id', () => {
 
     const res = await request(app)
       .patch(`/api/v1/addresses/${address._id}`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ apartment: 'Torre B, apto 502' })
       .expect(200);
 
@@ -50,7 +50,7 @@ describe('PATCH /api/v1/addresses/:id', () => {
 
     const res = await request(app)
       .patch(`/api/v1/addresses/${address._id}`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ label: 'Casa de mi mamá' })
       .expect(200);
 
@@ -63,7 +63,7 @@ describe('PATCH /api/v1/addresses/:id', () => {
 
     const res = await request(app)
       .patch(`/api/v1/addresses/${address._id}`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ latitude: moved.lat, longitude: moved.lng })
       .expect(200);
 
@@ -76,7 +76,7 @@ describe('PATCH /api/v1/addresses/:id', () => {
 
     await request(app)
       .patch(`/api/v1/addresses/${address._id}`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ latitude: 2.5 })
       .expect(400);
 
@@ -91,7 +91,7 @@ describe('PATCH /api/v1/addresses/:id', () => {
 
     await request(app)
       .patch(`/api/v1/addresses/${address._id}`)
-      .set(authHeader(intruder))
+      .set(await authHeader(intruder))
       .send({ label: 'Mía ahora' })
       .expect(404);
   });
@@ -101,7 +101,7 @@ describe('PATCH /api/v1/addresses/:id', () => {
 
     const second = await request(app)
       .post('/api/v1/addresses')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ ...NEW_ADDRESS, label: 'Trabajo' })
       .expect(201);
 
@@ -109,7 +109,7 @@ describe('PATCH /api/v1/addresses/:id', () => {
 
     const res = await request(app)
       .patch(`/api/v1/addresses/${second.body.data._id}`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ label: 'Oficina', isDefault: true })
       .expect(200);
 
@@ -143,7 +143,7 @@ describe('GET /api/v1/addresses/search', () => {
 
     await request(app)
       .get('/api/v1/addresses/search')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .query({ q: 'ca' })
       .expect(400);
   });
@@ -153,7 +153,7 @@ describe('GET /api/v1/addresses/search', () => {
 
     await request(app)
       .get('/api/v1/addresses/search')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .query({ q: 'calle 5', lat: GARZON.lat })
       .expect(400);
   });
@@ -171,7 +171,7 @@ describe('GET /api/v1/addresses/search', () => {
 
     const res = await request(app)
       .get('/api/v1/addresses/search')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .query({ q: 'calle 5', lat: GARZON.lat, lng: GARZON.lng })
       .expect(200);
 

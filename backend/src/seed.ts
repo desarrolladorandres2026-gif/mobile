@@ -23,12 +23,43 @@ import { seedCatalog } from './scripts/seedCatalog';
  *
  * It also satisfies the platform's complexity policy, so business and admin
  * accounts can change it to something similar without being rejected.
+ *
+ * Personalizable con `SEED_PASSWORD`: el valor por defecto está en el
+ * repositorio, así que cualquiera que lo lea conoce la contraseña de la
+ * cuenta de admin financiero que este script crea.
  */
-const DEMO_PASSWORD = 'Zipp.2026';
+const DEMO_PASSWORD = process.env.SEED_PASSWORD || 'Zipp.2026';
+
+/**
+ * Se niega a correr contra producción.
+ *
+ * Este script hace `deleteMany({})` sobre prácticamente todas las
+ * colecciones —usuarios, pedidos, pagos— antes de sembrar. Con la
+ * corrección de A8 (`config/env.ts`), `NODE_ENV` sin definir ya no se lee
+ * como desarrollo, así que un despliegue al que se le olvidó la variable
+ * también queda cubierto por esta guarda, no solo el que la fija a
+ * `production` a propósito.
+ */
+function assertNotProduction(): void {
+  if (config.nodeEnv === 'production' && !config.isTest) {
+    console.error(
+      '\n❌ El seed no corre con NODE_ENV=production.\n' +
+        '   Este script borra usuarios, pedidos y pagos antes de sembrar.\n' +
+        '   Si esto es un entorno de pruebas desplegado como "production", ' +
+        'usa el TESTE (`npm run teste:seed`) en vez de este script.\n'
+    );
+    process.exit(1);
+  }
+}
 
 const seed = async () => {
+  assertNotProduction();
+
   await mongoose.connect(config.mongodb.uri);
-  console.log(`🗄️  Conectado a MongoDB (${mongoose.connection.name})`);
+  // Host y base de datos, ANTES de borrar nada: es la última oportunidad de
+  // notar una URI apuntada al lugar equivocado.
+  console.log(`🗄️  Conectado a MongoDB (${mongoose.connection.host} / ${mongoose.connection.name})`);
+  console.log(`⚠️  A punto de borrar y resembrar la base "${mongoose.connection.name}".`);
 
   await Promise.all([
     User.deleteMany({}), Business.deleteMany({}), Category.deleteMany({}),

@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import {
   User,
   Business,
@@ -10,6 +11,7 @@ import {
 } from '../models';
 import { UserRole, CouponType, CouponFundedBy, CouponScope, OrderCodeKind, OrderEvidenceType, OrderStatus } from '../types';
 import { generateAccessToken } from '../utils';
+import { sessionManager } from '../security';
 import { pricingConfigService } from '../services/pricingConfig.service';
 
 /**
@@ -101,12 +103,30 @@ export async function makePricingConfig(overrides: Record<string, unknown> = {})
   return config;
 }
 
-export function tokenFor(user: { _id: any; role: string }) {
-  return generateAccessToken({ id: user._id.toString(), role: user.role as UserRole });
+/**
+ * Firma un access token con una sesión real detrás.
+ *
+ * `authenticate` ahora exige que el `sid` del token corresponda a una
+ * `Session` activa (ver `middlewares/auth.ts`), así que un token sin sesión
+ * se rechaza con 401 — es justo la corrección de A9: revocar una sesión
+ * corta también su access token. Las pruebas necesitan la misma sesión que
+ * tendría un login real, no un atajo que la sortee.
+ */
+export async function tokenFor(user: { _id: any; role: string }): Promise<string> {
+  const sessionId = new Types.ObjectId();
+  const token = generateAccessToken({ id: user._id.toString(), role: user.role as UserRole, sid: sessionId.toString() });
+  await sessionManager.createSession({
+    userId: user._id.toString(),
+    sessionId,
+    refreshToken: `test-refresh-${sessionId.toString()}`,
+    ip: '127.0.0.1',
+    userAgent: 'vitest',
+  });
+  return token;
 }
 
-export function authHeader(user: { _id: any; role: string }) {
-  return { Authorization: `Bearer ${tokenFor(user)}` };
+export async function authHeader(user: { _id: any; role: string }): Promise<{ Authorization: string }> {
+  return { Authorization: `Bearer ${await tokenFor(user)}` };
 }
 
 export async function makeBusiness(ownerId: any, overrides: Partial<{

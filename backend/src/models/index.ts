@@ -1,5 +1,6 @@
 export { User, IUser } from './User';
 export { PendingRegistration, IPendingRegistration } from './PendingRegistration';
+export { OtpOutbox, IOtpOutbox } from './OtpOutbox';
 export { getNextSequence } from './Counter';
 export { Position, IPosition } from './Position';
 export { Role, IRole } from './Role';

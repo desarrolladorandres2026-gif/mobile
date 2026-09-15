@@ -63,7 +63,7 @@ describe('POST /api/v1/payments/orders/:orderId/pay', () => {
 
     const res = await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(otro))
+      .set(await authHeader(otro))
       .send({});
 
     // 404 y no 403: el pedido de otra persona es indistinguible de uno que
@@ -82,7 +82,7 @@ describe('POST /api/v1/payments/orders/:orderId/pay', () => {
     // 1 peso, o de cien millones, tiene exactamente el mismo efecto: cero.
     const res = await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ amount: 1 });
 
     expect(res.status).toBe(201);
@@ -119,7 +119,7 @@ describe('POST /api/v1/payments/orders/:orderId/pay', () => {
 
     const res = await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({});
 
     expect(res.status).toBe(201);
@@ -131,7 +131,7 @@ describe('POST /api/v1/payments/orders/:orderId/pay', () => {
 
     const first = await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({});
     expect(first.status).toBe(201);
     // El sandbox aprueba de inmediato al crear el intento.
@@ -139,7 +139,7 @@ describe('POST /api/v1/payments/orders/:orderId/pay', () => {
 
     const second = await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({});
 
     expect(second.status).toBe(409);
@@ -158,7 +158,7 @@ describe('POST /api/v1/payments/orders/:orderId/pay', () => {
 
     const res = await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({});
 
     expect(res.status).toBe(409);
@@ -170,7 +170,7 @@ describe('POST /api/v1/payments/orders/:orderId/pay', () => {
 
     const res = await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ redirectUrl: 'https://evil.com/phish' });
 
     expect(res.status).toBe(400);
@@ -182,7 +182,7 @@ describe('POST /api/v1/payments/orders/:orderId/pay', () => {
 
     const res = await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ redirectUrl: 'zipp://payment-result' });
 
     expect(res.status).toBe(201);
@@ -203,12 +203,12 @@ describe('GET /api/v1/payments/status/:transactionId', () => {
 
     const pay = await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({});
 
     const res = await request(app)
       .get(`/api/v1/payments/status/${pay.body.data.transactionId}`)
-      .set(authHeader(otro));
+      .set(await authHeader(otro));
 
     // 404 y no 403: un pago ajeno y uno inexistente responden lo mismo.
     // Un 403 confirmaba que esa referencia existe, y eso convierte el
@@ -222,16 +222,16 @@ describe('GET /api/v1/payments/status/:transactionId', () => {
 
     const pay = await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({});
 
     const ajena = await request(app)
       .get(`/api/v1/payments/status/${pay.body.data.transactionId}`)
-      .set(authHeader(otro));
+      .set(await authHeader(otro));
 
     const inexistente = await request(app)
       .get('/api/v1/payments/status/ZIPP-NO-EXISTE-000000')
-      .set(authHeader(otro));
+      .set(await authHeader(otro));
 
     expect(ajena.status).toBe(inexistente.status);
     expect(ajena.body.message).toBe(inexistente.body.message);
@@ -241,7 +241,7 @@ describe('GET /api/v1/payments/status/:transactionId', () => {
     const { client } = await scenario();
     const res = await request(app)
       .get('/api/v1/payments/status/$where:1')
-      .set(authHeader(client));
+      .set(await authHeader(client));
     expect(res.status).toBe(400);
   });
 });
@@ -253,7 +253,7 @@ describe('Referencia de pago duplicada', () => {
 
     await request(app)
       .post(`/api/v1/payments/orders/${order._id}/pay`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({});
 
     const existing = await Payment.findOne({ orderId: order._id });

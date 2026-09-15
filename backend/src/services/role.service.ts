@@ -3,6 +3,7 @@ import { Role, IRole, IUser, User, Position } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { logAudit, AuditAction, AuditSeverity, Permission } from '../security';
 import { SUPER_ADMIN_ROLE_SLUG } from '../security/rbac';
+import { escapeRegex } from '../utils';
 import { assertRoleMutable, hasPermission } from './authorization.service';
 
 function slugify(name: string): string {
@@ -19,7 +20,7 @@ export class RoleService {
     const { search, isActive, page = 1, limit = 50 } = filters;
     const filter: Record<string, unknown> = {};
     if (typeof isActive === 'boolean') filter.isActive = isActive;
-    if (search) filter.name = { $regex: search, $options: 'i' };
+    if (search) filter.name = { $regex: escapeRegex(search), $options: 'i' };
 
     const skip = (page - 1) * limit;
     const [roles, total] = await Promise.all([

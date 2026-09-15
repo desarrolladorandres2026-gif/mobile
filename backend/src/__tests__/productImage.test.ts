@@ -132,7 +132,7 @@ describe('Subida de la imagen de un producto', () => {
 
     const res = await request(app)
       .post(`/api/v1/products/${product._id}/image`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .field('businessId', business._id.toString())
       .attach('image', jpeg(1600, 1600), { filename: 'burger.jpg', contentType: 'image/jpeg' });
 
@@ -152,7 +152,7 @@ describe('Subida de la imagen de un producto', () => {
 
     const res = await request(app)
       .post(`/api/v1/products/${product._id}/image`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .field('businessId', business._id.toString())
       .attach('image', jpeg(1600, 1600), { filename: 'burger.jpg', contentType: 'image/jpeg' });
 
@@ -174,7 +174,7 @@ describe('Subida de la imagen de un producto', () => {
 
     const res = await request(app)
       .post(`/api/v1/products/${product._id}/image`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .field('businessId', business._id.toString())
       .attach('image', jpeg(300, 300), { filename: 'peque.jpg', contentType: 'image/jpeg' });
 
@@ -189,7 +189,7 @@ describe('Subida de la imagen de un producto', () => {
 
     const res = await request(app)
       .post(`/api/v1/products/${product._id}/image`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .field('businessId', business._id.toString())
       .attach('image', NOT_AN_IMAGE, { filename: 'payload.jpg', contentType: 'image/jpeg' });
 
@@ -202,7 +202,7 @@ describe('Subida de la imagen de un producto', () => {
 
     const res = await request(app)
       .post(`/api/v1/products/${product._id}/image`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .field('businessId', business._id.toString())
       // Bytes de PNG, declarado como JPEG.
       .attach('image', png(1000, 1000), { filename: 'foto.jpg', contentType: 'image/jpeg' });
@@ -213,10 +213,10 @@ describe('Subida de la imagen de un producto', () => {
 
   it('borra la imagen anterior al reemplazarla', async () => {
     const { owner, business, product } = await scenario();
-    const upload = () =>
+    const upload = async () =>
       request(app)
         .post(`/api/v1/products/${product._id}/image`)
-        .set(authHeader(owner))
+        .set(await authHeader(owner))
         .field('businessId', business._id.toString())
         .attach('image', jpeg(1600, 1600), { filename: 'b.jpg', contentType: 'image/jpeg' });
 
@@ -247,7 +247,7 @@ describe('Subida de la imagen de un producto', () => {
     // otro: la comprobación que tiene que frenarlo es la del producto.
     const res = await request(app)
       .post(`/api/v1/products/${product._id}/image`)
-      .set(authHeader(stranger))
+      .set(await authHeader(stranger))
       .field('businessId', strangerBusiness._id.toString())
       .attach('image', jpeg(1600, 1600), { filename: 'b.jpg', contentType: 'image/jpeg' });
 
@@ -261,7 +261,7 @@ describe('Ajustes y borrado de la imagen', () => {
     const s = await scenario();
     await request(app)
       .post(`/api/v1/products/${s.product._id}/image`)
-      .set(authHeader(s.owner))
+      .set(await authHeader(s.owner))
       .field('businessId', s.business._id.toString())
       .attach('image', jpeg(1600, 1600), { filename: 'b.jpg', contentType: 'image/jpeg' });
     return s;
@@ -273,7 +273,7 @@ describe('Ajustes y borrado de la imagen', () => {
 
     const res = await request(app)
       .patch(`/api/v1/products/${product._id}/image`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({ businessId: business._id.toString(), enhance: false });
 
     expect(res.status).toBe(200);
@@ -290,7 +290,7 @@ describe('Ajustes y borrado de la imagen', () => {
 
     const res = await request(app)
       .delete(`/api/v1/products/${product._id}/image`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({ businessId: business._id.toString() });
 
     expect(res.status).toBe(200);
@@ -306,7 +306,7 @@ describe('Ajustes y borrado de la imagen', () => {
 
     const res = await request(app)
       .delete(`/api/v1/products/${product._id}`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({ businessId: business._id.toString() });
 
     expect(res.status).toBe(200);
@@ -322,7 +322,7 @@ describe('Capacidades del entorno', () => {
 
     const res = await request(app)
       .get('/api/v1/products/image-capabilities')
-      .set(authHeader(owner));
+      .set(await authHeader(owner));
 
     expect(res.status).toBe(200);
     // Es un complemento de pago de Cloudinary: por defecto va apagado, y

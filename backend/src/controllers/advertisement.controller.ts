@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { advertisementService } from '../services';
 import { Advertisement } from '../models';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, escapeRegex } from '../utils';
 import { AppError } from '../middlewares';
 import { uploadImage } from '../middlewares/upload';
 import { AuditAction, AuditSeverity, logAudit } from '../security';
@@ -65,8 +65,8 @@ export class AdvertisementController {
       const search = query(req, 'search');
       if (search) {
         filter.$or = [
-          { campaignName: { $regex: search, $options: 'i' } },
-          { advertiserName: { $regex: search, $options: 'i' } },
+          { campaignName: { $regex: escapeRegex(search), $options: 'i' } },
+          { advertiserName: { $regex: escapeRegex(search), $options: 'i' } },
         ];
       }
 

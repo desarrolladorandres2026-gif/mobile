@@ -41,7 +41,7 @@ describe('Alta de producto', () => {
 
     const res = await request(app)
       .post('/api/v1/products')
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send(validBody(business._id.toString(), category._id.toString()));
 
     expect(res.status).toBe(201);
@@ -60,7 +60,7 @@ describe('Alta de producto', () => {
     // categoría.
     const res = await request(app)
       .post('/api/v1/products')
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({ ...validBody(business._id.toString(), ''), categoryId: '' });
 
     expect(res.status).toBe(400);
@@ -77,7 +77,7 @@ describe('Alta de producto', () => {
 
     const res = await request(app)
       .post('/api/v1/products')
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({ ...validBody(business._id.toString(), 'no-es-un-id') });
 
     expect(res.status).toBe(400);
@@ -91,7 +91,7 @@ describe('Alta de producto', () => {
     // camino, y el mensaje nunca decía cuál era el problema.
     const res = await request(app)
       .post('/api/v1/products')
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({
         ...validBody(business._id.toString(), category._id.toString()),
         price: null,
@@ -106,7 +106,7 @@ describe('Alta de producto', () => {
 
     const res = await request(app)
       .post('/api/v1/products')
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send(validBody(business._id.toString(), other.category._id.toString()));
 
     expect(res.status).toBe(400);
@@ -119,7 +119,7 @@ describe('Alta de producto', () => {
 
     const res = await request(app)
       .post('/api/v1/products')
-      .set(authHeader(stranger))
+      .set(await authHeader(stranger))
       .send(validBody(business._id.toString(), category._id.toString()));
 
     expect(res.status).toBe(403);
@@ -134,7 +134,7 @@ describe('Alta de producto', () => {
     // cualquier otra clave tenía que quedarse fuera.
     const res = await request(app)
       .post('/api/v1/products')
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({
         ...validBody(business._id.toString(), category._id.toString()),
         isFeatured: true,
@@ -156,12 +156,12 @@ describe('Edición de producto', () => {
 
     const created = await request(app)
       .post('/api/v1/products')
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send(validBody(business._id.toString(), category._id.toString()));
 
     const res = await request(app)
       .put(`/api/v1/products/${created.body.data._id}`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({ businessId: business._id.toString(), price: 26000, isAvailable: false });
 
     expect(res.status).toBe(200);
@@ -173,7 +173,7 @@ describe('Edición de producto', () => {
     const { owner, business, category } = await scenario();
     const created = await request(app)
       .post('/api/v1/products')
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send(validBody(business._id.toString(), category._id.toString()));
 
     const stranger = await makeUser({ role: UserRole.BUSINESS });
@@ -184,7 +184,7 @@ describe('Edición de producto', () => {
     // que tiene que frenarlo es la del producto.
     const res = await request(app)
       .put(`/api/v1/products/${created.body.data._id}`)
-      .set(authHeader(stranger))
+      .set(await authHeader(stranger))
       .send({ businessId: strangerBusiness._id.toString(), price: 1 });
 
     expect(res.status).toBe(403);

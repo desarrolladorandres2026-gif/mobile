@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { UserRole } from '../types';
 import { hashPassword, verifyPassword } from '../security';
+import { phoneSetter } from '../utils/phone';
 
 export interface IUser extends Document {
   name: string;
@@ -21,8 +22,14 @@ export interface IUser extends Document {
   avatar?: string;
   isActive: boolean;
   isVerified: boolean;
+  /**
+   * OTP de login/recuperación por WhatsApp. Se guarda el HMAC, nunca el
+   * código: quien lea la base no puede usarlo. Ver `security/otp.ts`.
+   */
   otpCode?: string;
   otpExpires?: Date;
+  /** Intentos gastados contra el OTP vigente; al llegar al tope se invalida. */
+  otpAttempts?: number;
   /**
    * True once the phone was confirmed via WhatsApp Business OTP and the user
    * logged in successfully with it. From that point the phone is locked for
@@ -33,9 +40,20 @@ export interface IUser extends Document {
   phoneVerified: boolean;
   emailOtpCode?: string;
   emailOtpExpires?: Date;
+  emailOtpAttempts?: number;
   /** Same lock as `phoneVerified`, but for email OTP login. */
   emailVerified: boolean;
-  refreshToken?: string;
+  /**
+   * Celular que el usuario pidió asociar y todavía no confirmó.
+   *
+   * `phone` solo cambia cuando llega el OTP enviado a este número: antes
+   * `PATCH /auth/profile` escribía `phone` directamente y el número quedaba
+   * "de" esa cuenta sin que nadie demostrara tenerlo.
+   */
+  pendingPhone?: string;
+  pendingPhoneOtpCode?: string;
+  pendingPhoneOtpExpires?: Date;
+  pendingPhoneOtpAttempts?: number;
 
   // ── Security fields ──
   failedLoginAttempts: number;
@@ -49,6 +67,17 @@ export interface IUser extends Document {
   twoFactorSecret?: string;
   recoveryCodes?: string[];
   twoFactorVerifiedAt?: Date;
+  /** Último paso TOTP aceptado: un mismo código no sirve dos veces. */
+  twoFactorLastStep?: number;
+  /**
+   * Reto de segundo factor pendiente. Lo abre cualquier camino que haya
+   * superado el primer factor (contraseña, Google, Apple, OTP) en una cuenta
+   * con 2FA; la sesión solo se emite al resolverlo. Ver `security/mfa.ts`.
+   */
+  mfaChallengeHash?: string;
+  mfaChallengeExpires?: Date;
+  mfaChallengeAttempts?: number;
+  mfaChallengeMethod?: string;
 
   // ── Device tracking ──
   trustedDevices: string[];
@@ -94,6 +123,8 @@ export interface IUser extends Document {
   /** Cuándo se pagó la recompensa por esta invitación, si se pagó. */
   referralRewardedAt?: Date | null;
   deactivatedAt?: Date;
+  /** Fecha en que la cuenta se anonimizó (supresión de datos). No hay vuelta atrás. */
+  anonymizedAt?: Date;
   createdBy?: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId;
 
@@ -121,6 +152,12 @@ const userSchema = new Schema<IUser>(
       unique: true,
       sparse: true,
       trim: true,
+      // Se normaliza al escribir y al consultar (Mongoose aplica el setter a
+      // los filtros), así que `+57 310…` y `310…` son el mismo documento.
+      // El `match` sigue admitiendo el formato heredado con `+57`: un
+      // documento viejo sin migrar tiene que poder guardarse, no quedar
+      // bloqueado por su propio teléfono.
+      set: phoneSetter,
       match: [/^(\+57)?[0-9]{10}$/, 'Número de celular inválido'],
     },
     email: {
@@ -178,6 +215,7 @@ const userSchema = new Schema<IUser>(
       type: Date,
       select: false,
     },
+    otpAttempts: { type: Number, select: false },
     phoneVerified: {
       type: Boolean,
       default: false,
@@ -190,14 +228,23 @@ const userSchema = new Schema<IUser>(
       type: Date,
       select: false,
     },
+    emailOtpAttempts: { type: Number, select: false },
     emailVerified: {
       type: Boolean,
       default: false,
     },
-    refreshToken: {
+    // `refreshToken` ya no existe: la fuente de verdad es `Session.tokenHash`
+    // (SHA-256). Guardar el token en claro aquí anulaba el hash de la
+    // sesión y dejaba un solo token válido por usuario.
+    pendingPhone: {
       type: String,
-      select: false,
+      trim: true,
+      set: phoneSetter,
+      match: [/^[0-9]{10}$/, 'Número de celular inválido'],
     },
+    pendingPhoneOtpCode: { type: String, select: false },
+    pendingPhoneOtpExpires: { type: Date, select: false },
+    pendingPhoneOtpAttempts: { type: Number, select: false },
 
     // ── Security fields ──
     failedLoginAttempts: {
@@ -237,6 +284,11 @@ const userSchema = new Schema<IUser>(
       type: Date,
       select: false,
     },
+    twoFactorLastStep: { type: Number, select: false },
+    mfaChallengeHash: { type: String, select: false },
+    mfaChallengeExpires: { type: Date, select: false },
+    mfaChallengeAttempts: { type: Number, select: false },
+    mfaChallengeMethod: { type: String, select: false },
 
     // ── Device tracking ──
     trustedDevices: {
@@ -274,6 +326,7 @@ const userSchema = new Schema<IUser>(
     referredBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     referralRewardedAt: { type: Date, default: null },
     deactivatedAt: { type: Date },
+    anonymizedAt: { type: Date },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
     updatedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   },
@@ -287,8 +340,20 @@ const userSchema = new Schema<IUser>(
         delete ret.appleId;
         delete ret.otpCode;
         delete ret.otpExpires;
+        delete ret.otpAttempts;
         delete ret.emailOtpCode;
         delete ret.emailOtpExpires;
+        delete ret.emailOtpAttempts;
+        delete ret.pendingPhoneOtpCode;
+        delete ret.pendingPhoneOtpExpires;
+        delete ret.pendingPhoneOtpAttempts;
+        delete ret.twoFactorLastStep;
+        delete ret.mfaChallengeHash;
+        delete ret.mfaChallengeExpires;
+        delete ret.mfaChallengeAttempts;
+        delete ret.mfaChallengeMethod;
+        // Vestigio de antes de la migración 004: si un documento viejo aún
+        // lo trae, no sale nunca por la API.
         delete ret.refreshToken;
         delete ret.failedLoginAttempts;
         delete ret.lockedUntil;

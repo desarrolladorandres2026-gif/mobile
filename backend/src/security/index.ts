@@ -5,17 +5,21 @@ export {
   logAudit, logSystemAudit
 } from './audit';
 export {
-  Session, ISession,
+  Session, ISession, SESSION_PUBLIC_FIELDS, SessionRevokeReason, RotationResult,
   DeviceFingerprint, IDeviceFingerprint,
   SessionManager, sessionManager,
   generateDeviceId
 } from './sessions';
 export {
-  generateTOTPSecret, verifyTOTP,
+  generateTOTPSecret, verifyTOTP, matchTOTPStep, sealTotpSecret, openTotpSecret,
   hashRecoveryCodes, verifyRecoveryCode
 } from './totp';
 export {
-  checkBruteForce, recordFailedAttempt, clearAttempts, getRemainingAttempts, resetBruteForce,
+  OTP_MAX_ATTEMPTS, OTP_SLOTS, OtpSlot, OtpCheck,
+  generateOtpCode, hashOtp, otpMatches, otpSetFields, otpUnsetFields, otpIssuedAt, checkOtp
+} from './otp';
+export {
+  checkBruteForce, recordFailedAttempt, clearAttempts, clearAccountLocks, getRemainingAttempts, resetBruteForce,
   LoginAttempt, ILoginAttempt
 } from './bruteforce';
 export {

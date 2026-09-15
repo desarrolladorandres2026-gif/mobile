@@ -3,6 +3,7 @@ import { Position, IPosition, IUser, User, Role } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { logAudit, AuditAction, AuditSeverity } from '../security';
 import { assertCanAssignRoles } from './authorization.service';
+import { escapeRegex } from '../utils';
 
 function slugify(name: string): string {
   return name
@@ -18,7 +19,7 @@ export class PositionService {
     const { search, isActive, page = 1, limit = 50 } = filters;
     const filter: Record<string, unknown> = {};
     if (typeof isActive === 'boolean') filter.isActive = isActive;
-    if (search) filter.name = { $regex: search, $options: 'i' };
+    if (search) filter.name = { $regex: escapeRegex(search), $options: 'i' };
 
     const skip = (page - 1) * limit;
     const [positions, total] = await Promise.all([

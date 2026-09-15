@@ -32,16 +32,20 @@ export const formatCOP = (amount: number): string => {
 /**
  * IP real de quien hace la petición.
  *
- * `trust proxy` está activo, así que Express ya resuelve `req.ip` detrás
- * del balanceador; se lee `x-forwarded-for` primero porque la auditoría
- * y la bitácora del pedido tienen que coincidir dígito a dígito con lo
- * que registra el limitador de peticiones, y ese mira la cabecera.
+ * Es `req.ip` y nada más. Detrás de nginx (`$proxy_add_x_forwarded_for`) la
+ * cabecera `X-Forwarded-For` llega como `<lo que escribió el cliente>, <IP
+ * real>`: nginx añade al final, nunca reemplaza. Leer el primer valor —como
+ * se hacía aquí y en otras tres copias— era leer justo la parte que decide
+ * el atacante, así que rotándola evadía el límite de autenticación, el
+ * bloqueo por fuerza bruta y dejaba IPs inventadas en la auditoría.
+ *
+ * Con `app.set('trust proxy', 1)` Express ya toma el último salto de
+ * confianza, que es la IP que vio nginx. Es la misma que usa el limitador
+ * global, así que auditoría, limitadores y bitácoras coinciden por
+ * construcción.
  */
-export const clientIp = (req: Request): string => {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
-  return req.ip || req.socket?.remoteAddress || 'unknown';
-};
+export const clientIp = (req: Request): string =>
+  req.ip || req.socket?.remoteAddress || 'unknown';
 
 export const userAgent = (req: Request): string =>
   (req.headers['user-agent'] as string) || 'unknown';

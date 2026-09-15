@@ -328,7 +328,7 @@ describe('POST /api/v1/coupons — financiación y presupuesto', () => {
 
     const res = await request(app)
       .post('/api/v1/coupons')
-      .set(authHeader(adminUser))
+      .set(await authHeader(adminUser))
       .send({
         code: 'PRUEBAFONDO',
         title: 'Prueba de financiación',
@@ -362,7 +362,7 @@ describe('POST /api/v1/coupons — financiación y presupuesto', () => {
 
     const res = await request(app)
       .post('/api/v1/coupons')
-      .set(authHeader(adminSinFinanzas))
+      .set(await authHeader(adminSinFinanzas))
       .send({
         code: 'BAJOMARGEN',
         title: 'Campaña bajo margen',
@@ -382,7 +382,7 @@ describe('POST /api/v1/coupons — financiación y presupuesto', () => {
 
     await request(app)
       .post('/api/v1/coupons')
-      .set(authHeader(adminFinanciero))
+      .set(await authHeader(adminFinanciero))
       .send({
         code: 'CAMPANAOK',
         title: 'Campaña aprobada',
@@ -411,7 +411,7 @@ describe('GET /api/v1/coupons/:id/redemptions', () => {
     const destination = offsetKm(GARZON, 2);
     await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({
         businessId: business._id.toString(),
         items: [{ productId: product._id.toString(), quantity: 1 }],
@@ -425,7 +425,7 @@ describe('GET /api/v1/coupons/:id/redemptions', () => {
 
     const res = await request(app)
       .get(`/api/v1/coupons/${coupon._id}/redemptions`)
-      .set(authHeader(adminUser))
+      .set(await authHeader(adminUser))
       .expect(200);
 
     expect(res.body.data.usedCount).toBe(1);
@@ -441,7 +441,7 @@ describe('GET /api/v1/coupons/:id/redemptions', () => {
 
     await request(app)
       .get(`/api/v1/coupons/${coupon._id}/redemptions`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .expect(403);
   });
 });

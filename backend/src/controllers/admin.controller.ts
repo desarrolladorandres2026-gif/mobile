@@ -280,9 +280,16 @@ export class AdminController {
 
   async overrideUserContact(req: Request, res: Response, next: NextFunction) {
     try {
-      const adminUserId = req.user?._id?.toString() || '';
       const { phone, email } = req.body;
-      const user = await adminService.overrideUserContact(param(req, 'id'), { phone, email }, adminUserId, req);
+      const user = await adminService.overrideUserContact(
+        param(req, 'id'),
+        {
+          phone: typeof phone === 'string' ? phone : undefined,
+          email: typeof email === 'string' ? email : undefined,
+        },
+        req.user!,
+        req
+      );
       sendResponse(res, 200, 'Datos de contacto actualizados', user);
     } catch (error) { next(error); }
   }

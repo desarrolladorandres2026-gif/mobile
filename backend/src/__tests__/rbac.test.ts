@@ -58,7 +58,7 @@ describe('Autenticación — casos base', () => {
     const admin = await makeAdmin();
     await request(app)
       .post('/api/v1/rbac/roles')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ name: 'Rol nuevo', permissions: [] })
       .expect(403);
   });
@@ -69,7 +69,7 @@ describe('Autenticación — casos base', () => {
 
     const res = await request(app)
       .post('/api/v1/rbac/roles')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ name: 'Soporte Nivel 1', permissions: [] })
       .expect(201);
 
@@ -83,7 +83,7 @@ describe('Autenticación — casos base', () => {
 
     await request(app)
       .get('/api/v1/auth/me')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(401);
   });
 
@@ -94,7 +94,7 @@ describe('Autenticación — casos base', () => {
 
     await request(app)
       .get('/api/v1/auth/me')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(401);
   });
 });
@@ -107,7 +107,7 @@ describe('Protección contra escalamiento de privilegios', () => {
 
     const res = await request(app)
       .patch(`/api/v1/admin/users/${admin._id}/roles`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ roleIds: [superAdminRole._id.toString()] })
       .expect(403);
 
@@ -122,7 +122,7 @@ describe('Protección contra escalamiento de privilegios', () => {
 
     const res = await request(app)
       .patch(`/api/v1/admin/users/${target._id}/roles`)
-      .set(authHeader(actor))
+      .set(await authHeader(actor))
       .send({ roleIds: [superAdminRole._id.toString()] })
       .expect(403);
 
@@ -143,7 +143,7 @@ describe('Protección contra escalamiento de privilegios', () => {
 
     await request(app)
       .patch(`/api/v1/admin/users/${target._id}/roles`)
-      .set(authHeader(grantor))
+      .set(await authHeader(grantor))
       .send({ roleIds: [superAdminRole._id.toString()] })
       .expect(200);
 
@@ -158,7 +158,7 @@ describe('Protección contra escalamiento de privilegios', () => {
 
     await request(app)
       .patch(`/api/v1/admin/users/${superAdminAccount._id}/status`)
-      .set(authHeader(ordinaryAdmin))
+      .set(await authHeader(ordinaryAdmin))
       .send({ status: 'blocked' })
       .expect(403);
 
@@ -173,13 +173,13 @@ describe('Protección contra escalamiento de privilegios', () => {
 
     await request(app)
       .patch(`/api/v1/rbac/roles/${superAdminRole._id}`)
-      .set(authHeader(actor))
+      .set(await authHeader(actor))
       .send({ description: 'intento de edición' })
       .expect(403);
 
     await request(app)
       .delete(`/api/v1/rbac/roles/${superAdminRole._id}`)
-      .set(authHeader(actor))
+      .set(await authHeader(actor))
       .expect(403);
   });
 
@@ -189,7 +189,7 @@ describe('Protección contra escalamiento de privilegios', () => {
 
     const res = await request(app)
       .post('/api/v1/rbac/roles')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ name: 'Rol con más poder', permissions: [Permission.FINANCE_MANAGE] })
       .expect(403);
 
@@ -204,17 +204,17 @@ describe('SUPER_ADMIN — acceso completo', () => {
 
     await request(app)
       .get('/api/v1/rbac/roles')
-      .set(authHeader(superAdmin))
+      .set(await authHeader(superAdmin))
       .expect(200);
 
     await request(app)
       .get('/api/v1/security/audit-logs')
-      .set(authHeader(superAdmin))
+      .set(await authHeader(superAdmin))
       .expect(200);
 
     await request(app)
       .get('/api/v1/finance/config')
-      .set(authHeader(superAdmin))
+      .set(await authHeader(superAdmin))
       .expect(200);
   });
 });
@@ -234,7 +234,7 @@ describe('Efectos inmediatos: permisos y roles', () => {
     // Antes: el rol trae ROLES_CREATE, la ruta gateada por él responde 201.
     await request(app)
       .post('/api/v1/rbac/roles')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ name: 'Rol de prueba A' })
       .expect(201);
 
@@ -245,14 +245,14 @@ describe('Efectos inmediatos: permisos y roles', () => {
     // Mismo token, sin reemitir: ya no alcanza.
     await request(app)
       .post('/api/v1/rbac/roles')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ name: 'Rol de prueba B' })
       .expect(403);
 
     // Se lo devuelven vía API (el flujo real de administración).
     await request(app)
       .patch(`/api/v1/rbac/roles/${role._id}`)
-      .set(authHeader(grantor))
+      .set(await authHeader(grantor))
       .send({ permissions: [Permission.ROLES_CREATE] })
       .expect(200);
 
@@ -260,7 +260,7 @@ describe('Efectos inmediatos: permisos y roles', () => {
     // request recalcula los permisos efectivos desde la base de datos.
     await request(app)
       .post('/api/v1/rbac/roles')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ name: 'Rol de prueba C' })
       .expect(201);
   });
@@ -275,19 +275,19 @@ describe('Efectos inmediatos: permisos y roles', () => {
 
     const before = await request(app)
       .get(`/api/v1/admin/users/${target._id}/access`)
-      .set(authHeader(grantor))
+      .set(await authHeader(grantor))
       .expect(200);
     expect(before.body.data.permissions).not.toContain(Permission.FINANCE_MANAGE);
 
     await request(app)
       .patch(`/api/v1/admin/users/${target._id}/roles`)
-      .set(authHeader(grantor))
+      .set(await authHeader(grantor))
       .send({ roleIds: [financeRole._id.toString()] })
       .expect(200);
 
     const after = await request(app)
       .get(`/api/v1/admin/users/${target._id}/access`)
-      .set(authHeader(grantor))
+      .set(await authHeader(grantor))
       .expect(200);
     expect(after.body.data.permissions).toContain(Permission.FINANCE_MANAGE);
   });
@@ -300,16 +300,16 @@ describe('Desactivación / bloqueo invalida sesiones', () => {
     const target = await makeAdmin();
 
     // El token del objetivo funciona antes de bloquearlo.
-    await request(app).get('/api/v1/auth/me').set(authHeader(target)).expect(200);
+    await request(app).get('/api/v1/auth/me').set(await authHeader(target)).expect(200);
 
     await request(app)
       .patch(`/api/v1/admin/users/${target._id}/status`)
-      .set(authHeader(actor))
+      .set(await authHeader(actor))
       .send({ status: 'blocked', reason: 'prueba' })
       .expect(200);
 
     // Mismo token, ya no sirve: authenticate revisa isBlocked en cada request.
-    await request(app).get('/api/v1/auth/me').set(authHeader(target)).expect(401);
+    await request(app).get('/api/v1/auth/me').set(await authHeader(target)).expect(401);
 
     const stored = await User.findById(target._id);
     expect(stored!.isBlocked).toBe(true);
@@ -324,7 +324,7 @@ describe('Auditoría', () => {
 
     const res = await request(app)
       .post('/api/v1/rbac/roles')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ name: 'Rol auditado', permissions: [] })
       .expect(201);
 
@@ -342,7 +342,7 @@ describe('Auditoría', () => {
 
     const res = await request(app)
       .post('/api/v1/rbac/positions')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ name: 'Cargo auditado' })
       .expect(201);
 
@@ -362,7 +362,7 @@ describe('Cargos y Roles — CRUD básico', () => {
 
     const res = await request(app)
       .post('/api/v1/rbac/positions')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ name: 'Cargo con rol', roleIds: [role._id.toString()] })
       .expect(201);
 
@@ -375,13 +375,13 @@ describe('Cargos y Roles — CRUD básico', () => {
 
     await request(app)
       .patch(`/api/v1/admin/users/${target._id}/position`)
-      .set(authHeader(other))
+      .set(await authHeader(other))
       .send({ positionId: position!._id.toString() })
       .expect(200);
 
     const access = await request(app)
       .get(`/api/v1/admin/users/${target._id}/access`)
-      .set(authHeader(other))
+      .set(await authHeader(other))
       .expect(200);
     expect(access.body.data.permissions).toContain(Permission.DRIVERS_APPROVE);
   });
@@ -392,7 +392,7 @@ describe('Cargos y Roles — CRUD básico', () => {
 
     const res = await request(app)
       .delete(`/api/v1/rbac/roles/${role._id}`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(409);
 
     expect(res.body.message).toMatch(/asignado/i);

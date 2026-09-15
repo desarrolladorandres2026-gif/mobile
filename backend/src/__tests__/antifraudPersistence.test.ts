@@ -96,9 +96,13 @@ describe('Fuerza bruta', () => {
     await recordFailedAttempt(ip, phone);
     await recordFailedAttempt(ip, phone);
 
-    const record = await LoginAttempt.findOne({ scope: 'user', key: phone });
+    // La clave del contador por cuenta va atada a la IP desde la que se
+    // intentó (`${identificador}|${ip}`): sin eso, cualquiera podía dejar
+    // bloqueado a otro fallando cinco veces con su número, sin saber su
+    // contraseña.
+    const record = await LoginAttempt.findOne({ scope: 'user', key: `${phone}|${ip}` });
     expect(record!.count).toBe(2);
-    expect(await getRemainingAttempts(phone)).toBe(3);
+    expect(await getRemainingAttempts(phone, ip)).toBe(3);
   });
 
   it('bloquea la cuenta al quinto intento', async () => {
@@ -114,7 +118,7 @@ describe('Fuerza bruta', () => {
     // Y el bloqueo se ve desde cualquier instancia, porque está escrito.
     const check = await checkBruteForce(ip, phone);
     expect(check.allowed).toBe(false);
-    expect(check.reason).toContain('bloqueada');
+    expect(check.reason).toContain('cuenta');
   });
 
   it('el bloqueo sobrevive a un reinicio', async () => {
@@ -122,7 +126,7 @@ describe('Fuerza bruta', () => {
 
     // Un proceso nuevo solo hereda la base de datos. Antes, reiniciar era
     // una amnistía: el atacante solo tenía que esperar a un despliegue.
-    const record = await LoginAttempt.findOne({ scope: 'user', key: phone }).lean();
+    const record = await LoginAttempt.findOne({ scope: 'user', key: `${phone}|${ip}` }).lean();
     expect(record!.lockedUntil).toBeInstanceOf(Date);
     expect(record!.lockedUntil!.getTime()).toBeGreaterThan(Date.now());
   });
@@ -134,7 +138,7 @@ describe('Fuerza bruta', () => {
 
     await clearAttempts(ip, phone);
 
-    expect(await LoginAttempt.findOne({ scope: 'user', key: phone })).toBeNull();
+    expect(await LoginAttempt.findOne({ scope: 'user', key: `${phone}|${ip}` })).toBeNull();
 
     // Detrás de una IP hay una casa o un café: que uno acierte no demuestra
     // que los demás intentos fueran legítimos, así que solo baja un punto.

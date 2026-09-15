@@ -97,15 +97,15 @@ async function uploadEvidence(
 ) {
   return request(app)
     .post(`/api/v1/orders/${s.orderId}/${stage}/evidence`)
-    .set(authHeader(s.driverUser))
+    .set(await authHeader(s.driverUser))
     .attach('photo', buffer, { filename, contentType: 'image/jpeg' });
 }
 
 /** Declara la llegada, como lo haría la app antes de mostrar cámara o código. */
-function arrive(s: Scenario, stage: 'pickup' | 'delivery') {
+async function arrive(s: Scenario, stage: 'pickup' | 'delivery') {
   return request(app)
     .post(`/api/v1/orders/${s.orderId}/${stage}/arrive`)
-    .set(authHeader(s.driverUser))
+    .set(await authHeader(s.driverUser))
     .send({ latitude: GARZON.lat, longitude: GARZON.lng });
 }
 
@@ -116,7 +116,7 @@ async function completePickup(s: Scenario) {
   const code = await readCode(s, OrderCodeKind.PICKUP);
   const res = await request(app)
     .post(`/api/v1/orders/${s.orderId}/pickup/verify`)
-    .set(authHeader(s.driverUser))
+    .set(await authHeader(s.driverUser))
     .send({ code });
   expect(res.status).toBe(200);
   return code;
@@ -192,13 +192,13 @@ describe('Códigos de seguridad — quién ve qué', () => {
 
     const business = await request(app)
       .get(`/api/v1/orders/${s.orderId}/flow`)
-      .set(authHeader(s.owner));
+      .set(await authHeader(s.owner));
     expect(business.status).toBe(200);
     expect(business.body.data.pickup.code).toMatch(/^\d{6}$/);
 
     const driver = await request(app)
       .get(`/api/v1/orders/${s.orderId}/flow`)
-      .set(authHeader(s.driverUser));
+      .set(await authHeader(s.driverUser));
     expect(driver.status).toBe(200);
     expect(driver.body.data.pickup.code).toBeNull();
     expect(driver.body.data.delivery.code).toBeNull();
@@ -209,14 +209,14 @@ describe('Códigos de seguridad — quién ve qué', () => {
 
     const early = await request(app)
       .get(`/api/v1/orders/${s.orderId}/flow`)
-      .set(authHeader(s.client));
+      .set(await authHeader(s.client));
     expect(early.body.data.delivery.code).toBeNull();
 
     await completePickup(s);
 
     const afterPickup = await request(app)
       .get(`/api/v1/orders/${s.orderId}/flow`)
-      .set(authHeader(s.client));
+      .set(await authHeader(s.client));
     expect(afterPickup.body.data.delivery.code).toMatch(/^\d{6}$/);
   });
 
@@ -226,7 +226,7 @@ describe('Códigos de seguridad — quién ve qué', () => {
 
     const res = await request(app)
       .get(`/api/v1/admin/orders/${s.orderId}/security`)
-      .set(authHeader(admin));
+      .set(await authHeader(admin));
 
     expect(res.status).toBe(200);
     expect(res.body.data.pickup.status).toBe(OrderCodeStatus.PENDING);
@@ -258,7 +258,7 @@ describe('Evidencias fotográficas', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${s.orderId}/pickup/evidence`)
-      .set(authHeader(s.client))
+      .set(await authHeader(s.client))
       .attach('photo', JPEG, { filename: 'foto.jpg', contentType: 'image/jpeg' });
 
     expect(res.status).toBe(403);
@@ -302,7 +302,7 @@ describe('Recogida en el comercio', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${s.orderId}/pickup/verify`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .send({ code });
 
     expect(res.status).toBe(409);
@@ -316,7 +316,7 @@ describe('Recogida en el comercio', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${s.orderId}/pickup/verify`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .send({ code });
 
     expect(res.status).toBe(409);
@@ -344,7 +344,7 @@ describe('Recogida en el comercio', () => {
 
     const again = await request(app)
       .post(`/api/v1/orders/${s.orderId}/pickup/verify`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .send({ code });
 
     expect(again.status).toBe(409);
@@ -360,7 +360,7 @@ describe('Recogida en el comercio', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${s.orderId}/pickup/verify`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .send({ code: '000000' });
 
     expect(res.status).toBe(400);
@@ -384,7 +384,7 @@ describe('Recogida en el comercio', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${mine.orderId}/pickup/verify`)
-      .set(authHeader(mine.driverUser))
+      .set(await authHeader(mine.driverUser))
       .send({ code: otherCode });
 
     expect(res.status).toBe(400);
@@ -400,7 +400,7 @@ describe('Recogida en el comercio', () => {
     for (let i = 0; i < 5; i += 1) {
       last = await request(app)
         .post(`/api/v1/orders/${s.orderId}/pickup/verify`)
-        .set(authHeader(s.driverUser))
+        .set(await authHeader(s.driverUser))
         .send({ code: '111111' });
     }
 
@@ -411,7 +411,7 @@ describe('Recogida en el comercio', () => {
     const code = await readCode(s, OrderCodeKind.PICKUP);
     const blocked = await request(app)
       .post(`/api/v1/orders/${s.orderId}/pickup/verify`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .send({ code });
 
     expect(blocked.status).toBe(429);
@@ -427,7 +427,7 @@ describe('Entrega al cliente', () => {
 
     const res = await request(app)
       .patch(`/api/v1/orders/${s.orderId}/status`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .send({ status: OrderStatus.DELIVERED });
 
     expect(res.status).toBe(409);
@@ -444,7 +444,7 @@ describe('Entrega al cliente', () => {
 
     await request(app)
       .post(`/api/v1/orders/${s.orderId}/delivery/arrive`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .send({ latitude: DESTINATION.lat, longitude: DESTINATION.lng });
 
     await uploadEvidence(s, 'delivery', JPEG_ALT);
@@ -452,7 +452,7 @@ describe('Entrega al cliente', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${s.orderId}/delivery/verify`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .send({ code, latitude: DESTINATION.lat, longitude: DESTINATION.lng });
 
     expect(res.status).toBe(200);
@@ -473,7 +473,7 @@ describe('Entrega al cliente', () => {
 
     const res = await request(app)
       .get(`/api/v1/orders/${s.orderId}/flow`)
-      .set(authHeader(s.driverUser));
+      .set(await authHeader(s.driverUser));
 
     expect(res.body.data.delivery.code).toBeNull();
   });
@@ -590,26 +590,26 @@ describe('Chat del pedido', () => {
 
     const sent = await request(app)
       .post(`/api/v1/orders/${s.orderId}/chat/messages`)
-      .set(authHeader(s.client))
+      .set(await authHeader(s.client))
       .send({ message: 'Estoy en el segundo piso' });
     expect(sent.status).toBe(201);
     expect(sent.body.data.senderRole).toBe(UserRole.CLIENT);
 
     const replied = await request(app)
       .post(`/api/v1/orders/${s.orderId}/chat/messages`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .send({ message: 'Voy llegando' });
     expect(replied.status).toBe(201);
 
     const thread = await request(app)
       .get(`/api/v1/orders/${s.orderId}/chat`)
-      .set(authHeader(s.client));
+      .set(await authHeader(s.client));
     expect(thread.body.data).toHaveLength(2);
     expect(thread.body.data[0].message).toBe('Estoy en el segundo piso');
 
     await request(app)
       .post(`/api/v1/orders/${s.orderId}/chat/read`)
-      .set(authHeader(s.client));
+      .set(await authHeader(s.client));
 
     const messages = await OrderMessage.find({ orderId: s.orderId }).sort({ createdAt: 1 });
     // El cliente marca leído lo que le escribieron, no lo suyo.
@@ -627,12 +627,12 @@ describe('Chat del pedido', () => {
 
     const read = await request(app)
       .get(`/api/v1/orders/${s.orderId}/chat`)
-      .set(authHeader(intruderClient));
+      .set(await authHeader(intruderClient));
     expect(read.status).toBe(404);
 
     const write = await request(app)
       .post(`/api/v1/orders/${s.orderId}/chat/messages`)
-      .set(authHeader(intruderDriverUser))
+      .set(await authHeader(intruderDriverUser))
       .send({ message: 'Dame tu código' });
     expect(write.status).toBe(404);
 
@@ -644,20 +644,20 @@ describe('Chat del pedido', () => {
     await completePickup(s);
     await request(app)
       .post(`/api/v1/orders/${s.orderId}/chat/messages`)
-      .set(authHeader(s.client))
+      .set(await authHeader(s.client))
       .send({ message: 'Timbre roto' });
 
     const admin = await makeUser({ role: UserRole.ADMIN });
 
     const read = await request(app)
       .get(`/api/v1/orders/${s.orderId}/chat`)
-      .set(authHeader(admin));
+      .set(await authHeader(admin));
     expect(read.status).toBe(200);
     expect(read.body.data).toHaveLength(1);
 
     const write = await request(app)
       .post(`/api/v1/orders/${s.orderId}/chat/messages`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ message: 'Soy soporte' });
     expect(write.status).toBe(403);
   });
@@ -680,7 +680,7 @@ describe('Chat del pedido', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${order._id.toString()}/chat/messages`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send({ message: '¿Hay alguien?' });
 
     expect(res.status).toBe(409);
@@ -693,7 +693,7 @@ describe('Chat del pedido', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${s.orderId}/chat/messages`)
-      .set(authHeader(s.client))
+      .set(await authHeader(s.client))
       .send({ message: '  Hola ​ mundo  ' });
 
     expect(res.status).toBe(201);
@@ -726,7 +726,7 @@ describe('Llamadas del pedido', () => {
 
     const started = await request(app)
       .post(`/api/v1/orders/${s.orderId}/call`)
-      .set(authHeader(s.client));
+      .set(await authHeader(s.client));
     expect(started.status).toBe(201);
     expect(started.body.data.status).toBe('ringing');
     // La vista de la llamada no lleva teléfonos.
@@ -736,13 +736,13 @@ describe('Llamadas del pedido', () => {
 
     const answered = await request(app)
       .post(`/api/v1/orders/${s.orderId}/call/${callId}/answer`)
-      .set(authHeader(s.driverUser));
+      .set(await authHeader(s.driverUser));
     expect(answered.status).toBe(200);
     expect(answered.body.data.status).toBe('active');
 
     const ended = await request(app)
       .post(`/api/v1/orders/${s.orderId}/call/${callId}/end`)
-      .set(authHeader(s.client))
+      .set(await authHeader(s.client))
       .send({ reason: 'listo' });
     expect(ended.status).toBe(200);
     expect(ended.body.data.status).toBe('ended');
@@ -758,12 +758,12 @@ describe('Llamadas del pedido', () => {
 
     const first = await request(app)
       .post(`/api/v1/orders/${s.orderId}/call`)
-      .set(authHeader(s.client));
+      .set(await authHeader(s.client));
     expect(first.status).toBe(201);
 
     const second = await request(app)
       .post(`/api/v1/orders/${s.orderId}/call`)
-      .set(authHeader(s.driverUser));
+      .set(await authHeader(s.driverUser));
     expect(second.status).toBe(409);
     expect(second.body.code).toBe('CALL_BUSY');
   });
@@ -774,7 +774,7 @@ describe('Llamadas del pedido', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${s.orderId}/call`)
-      .set(authHeader(intruder));
+      .set(await authHeader(intruder));
 
     expect(res.status).toBe(404);
     expect(await OrderCall.countDocuments()).toBe(0);
@@ -803,7 +803,7 @@ describe('Seguridad — manipulación de identificadores', () => {
     for (const path of ['flow', 'chat', 'evidence', 'calls']) {
       const res = await request(app)
         .get(`/api/v1/orders/${other.orderId}/${path}`)
-        .set(authHeader(mine.client));
+        .set(await authHeader(mine.client));
       expect(res.status).toBe(404);
       expect(res.body.message).toBe('Pedido no encontrado');
     }
@@ -815,10 +815,10 @@ describe('Seguridad — manipulación de identificadores', () => {
 
     const missing = await request(app)
       .get('/api/v1/orders/507f1f77bcf86cd799439011/flow')
-      .set(authHeader(s.client));
+      .set(await authHeader(s.client));
     const foreign = await request(app)
       .get(`/api/v1/orders/${other.orderId}/flow`)
-      .set(authHeader(s.client));
+      .set(await authHeader(s.client));
 
     expect(missing.status).toBe(foreign.status);
     expect(missing.body.message).toBe(foreign.body.message);
@@ -829,7 +829,7 @@ describe('Seguridad — manipulación de identificadores', () => {
 
     const res = await request(app)
       .get('/api/v1/orders/no-es-un-id/flow')
-      .set(authHeader(s.client));
+      .set(await authHeader(s.client));
 
     expect(res.status).toBe(404);
   });
@@ -841,13 +841,13 @@ describe('Seguridad — manipulación de identificadores', () => {
 
     const evidence = await request(app)
       .post(`/api/v1/orders/${s.orderId}/pickup/evidence`)
-      .set(authHeader(strangerUser))
+      .set(await authHeader(strangerUser))
       .attach('photo', JPEG, { filename: 'foto.jpg', contentType: 'image/jpeg' });
     expect(evidence.status).toBe(404);
 
     const status = await request(app)
       .patch(`/api/v1/orders/${s.orderId}/status`)
-      .set(authHeader(strangerUser))
+      .set(await authHeader(strangerUser))
       .send({ status: OrderStatus.PICKED_UP });
     expect(status.status).toBe(403);
   });
@@ -858,7 +858,7 @@ describe('Seguridad — manipulación de identificadores', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${s.orderId}/chat/messages`)
-      .set(authHeader(s.client))
+      .set(await authHeader(s.client))
       .send({ message: 'Hola', senderRole: UserRole.DRIVER, senderId: s.driverUser._id.toString() });
 
     expect(res.status).toBe(201);
@@ -872,13 +872,13 @@ describe('Seguridad — manipulación de identificadores', () => {
 
     const evidence = await request(app)
       .post(`/api/v1/orders/${s.orderId}/pickup/evidence`)
-      .set(authHeader(s.owner))
+      .set(await authHeader(s.owner))
       .attach('photo', JPEG, { filename: 'foto.jpg', contentType: 'image/jpeg' });
     expect(evidence.status).toBe(403);
 
     const forced = await request(app)
       .patch(`/api/v1/orders/${s.orderId}/status`)
-      .set(authHeader(s.owner))
+      .set(await authHeader(s.owner))
       .send({ status: OrderStatus.DELIVERED });
     expect(forced.status).toBe(400);
   });

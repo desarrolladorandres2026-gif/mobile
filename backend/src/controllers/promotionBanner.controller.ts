@@ -8,7 +8,7 @@ import {
   BANNER_DURATION,
 } from '../models';
 import { BusinessCategory } from '../types';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, escapeRegex } from '../utils';
 import { AppError } from '../middlewares';
 import { uploadBannerImage } from '../middlewares/upload';
 import { AuditAction, AuditSeverity, logAudit } from '../security';
@@ -89,8 +89,8 @@ export class PromotionBannerController {
       const search = query(req, 'search');
       if (search) {
         filter.$or = [
-          { title: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } },
+          { title: { $regex: escapeRegex(search), $options: 'i' } },
+          { description: { $regex: escapeRegex(search), $options: 'i' } },
         ];
       }
 

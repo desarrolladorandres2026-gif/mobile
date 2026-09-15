@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { couponService } from '../services';
 import { Coupon, CouponRedemption } from '../models';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, escapeRegex } from '../utils';
 import { AppError } from '../middlewares';
 import { AuditAction, AuditSeverity, logAudit } from '../security';
 
@@ -127,7 +127,7 @@ export class CouponController {
 
       const filter: Record<string, unknown> = {};
       const search = query(req, 'search');
-      if (search) filter.code = { $regex: search, $options: 'i' };
+      if (search) filter.code = { $regex: escapeRegex(search), $options: 'i' };
       const active = query(req, 'isActive');
       if (active !== undefined) filter.isActive = active === 'true';
 

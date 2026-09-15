@@ -101,10 +101,10 @@ async function deliveredCashOrder(ctx: Ctx) {
   return order;
 }
 
-const confirmCash = (orderId: string, user: any, body: Record<string, unknown>) =>
+const confirmCash = async (orderId: string, user: any, body: Record<string, unknown>) =>
   request(app)
     .post(`/api/v1/orders/${orderId}/cash/confirm`)
-    .set(authHeader(user))
+    .set(await authHeader(user))
     .send(body);
 
 /** Atajo: entrega el pedido y declara el faltante. */
@@ -256,16 +256,16 @@ describe('7-9 · Gestión administrativa', () => {
   beforeEach(() => setPaymentProvider(new SandboxPaymentProvider()));
   afterEach(() => setPaymentProvider(null));
 
-  const listIncidents = (user: any) =>
-    request(app).get('/api/v1/finance/cash/incidents').set(authHeader(user));
+  const listIncidents = async (user: any) =>
+    request(app).get('/api/v1/finance/cash/incidents').set(await authHeader(user));
 
-  const review = (id: string, user: any) =>
-    request(app).post(`/api/v1/finance/cash/incidents/${id}/review`).set(authHeader(user)).send({});
+  const review = async (id: string, user: any) =>
+    request(app).post(`/api/v1/finance/cash/incidents/${id}/review`).set(await authHeader(user)).send({});
 
-  const resolve = (id: string, user: any, body: Record<string, unknown>) =>
+  const resolve = async (id: string, user: any, body: Record<string, unknown>) =>
     request(app)
       .post(`/api/v1/finance/cash/incidents/${id}/resolve`)
-      .set(authHeader(user))
+      .set(await authHeader(user))
       .send(body);
 
   it('7 · un administrador puede consultar las incidencias abiertas', async () => {
@@ -552,7 +552,7 @@ describe('7-9 · Gestión administrativa', () => {
 
     const res = await request(app)
       .delete(`/api/v1/finance/cash/incidents/${incident._id}`)
-      .set(authHeader(ctx.finance));
+      .set(await authHeader(ctx.finance));
 
     // 404 porque la ruta no existe, y no existe a propósito: la incidencia
     // es la explicación de por qué un saldo cambió.

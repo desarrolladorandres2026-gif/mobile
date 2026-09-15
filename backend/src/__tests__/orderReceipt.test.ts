@@ -46,7 +46,7 @@ describe('GET /api/v1/orders/:id/receipt', () => {
 
     const res = await request(app)
       .get(`/api/v1/orders/${order._id}/receipt`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .expect(200);
 
     // Sí ve lo que pagó.
@@ -65,7 +65,7 @@ describe('GET /api/v1/orders/:id/receipt', () => {
 
     const res = await request(app)
       .get(`/api/v1/orders/${order._id}/receipt`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(200);
 
     expect(res.body.data.comisionZipp).toBeDefined();
@@ -77,7 +77,7 @@ describe('GET /api/v1/orders/:id/receipt', () => {
 
     await request(app)
       .get(`/api/v1/orders/${order._id}/receipt`)
-      .set(authHeader(stranger))
+      .set(await authHeader(stranger))
       .expect(403);
   });
 });

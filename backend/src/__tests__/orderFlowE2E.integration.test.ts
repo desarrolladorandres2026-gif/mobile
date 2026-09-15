@@ -92,7 +92,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // ── 0. El cliente pide, como lo haría la app ──────────────────────
       const created = await request(app)
         .post('/api/v1/orders')
-        .set(authHeader(client))
+        .set(await authHeader(client))
         .send({
           businessId: business._id.toString(),
           items: [{ productId: product._id.toString(), quantity: 1 }],
@@ -114,7 +114,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // participa.
       const tooEarly = await request(app)
         .post(`/api/v1/orders/${orderId}/pickup/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: '000000' });
       expect(tooEarly.status).toBe(404);
 
@@ -122,7 +122,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       for (const status of ['accepted', 'preparing', 'ready']) {
         const res = await request(app)
           .patch(`/api/v1/orders/${orderId}/status`)
-          .set(authHeader(owner))
+          .set(await authHeader(owner))
           .send({ status });
         expect(res.status).toBe(200);
         expect(res.body.data.status).toBe(status);
@@ -135,21 +135,21 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // transición legítima para cualquier otro actor.
       const clientForcesNow = await request(app)
         .patch(`/api/v1/orders/${orderId}/status`)
-        .set(authHeader(client))
+        .set(await authHeader(client))
         .send({ status: 'delivered' });
       expect(clientForcesNow.status).not.toBe(200);
 
       // ── 2. ASIGNACIÓN: el domiciliario reclama el pedido ──────────────
       const claimed = await request(app)
         .patch(`/api/v1/orders/${orderId}/assign-driver`)
-        .set(authHeader(driverUser));
+        .set(await authHeader(driverUser));
       expect(claimed.status).toBe(200);
       expect(claimed.body.data.driverId).toBeTruthy();
 
       // ── 3. RUTA A RECOGIDA: el backend apunta al comercio ─────────────
       const routeToStore = await request(app)
         .post(`/api/v1/tracking/orders/${orderId}/route`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ lat: GARZON.lat, lng: GARZON.lng });
       expect(routeToStore.status).toBe(200);
       expect(routeToStore.body.data.phase).toBe('to_business');
@@ -157,19 +157,19 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // El comercio ve el código de recogida; el domiciliario, no.
       const businessFlow = await request(app)
         .get(`/api/v1/orders/${orderId}/flow`)
-        .set(authHeader(owner));
+        .set(await authHeader(owner));
       const pickupCode = businessFlow.body.data.pickup.code as string;
       expect(pickupCode).toMatch(/^\d{6}$/);
 
       const driverSeesNothing = await request(app)
         .get(`/api/v1/orders/${orderId}/flow`)
-        .set(authHeader(driverUser));
+        .set(await authHeader(driverUser));
       expect(driverSeesNothing.body.data.pickup.code).toBeNull();
 
       // SALTO DE ESTADO: el código no sirve sin haber declarado la llegada.
       const skipArrival = await request(app)
         .post(`/api/v1/orders/${orderId}/pickup/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: pickupCode });
       expect(skipArrival.status).toBe(409);
       expect(skipArrival.body.code).toBe('DRIVER_NOT_ARRIVED');
@@ -177,7 +177,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // ── 4. LLEGADA AL COMERCIO ─────────────────────────────────────────
       const arriveStore = await request(app)
         .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ latitude: GARZON.lat, longitude: GARZON.lng });
       expect(arriveStore.status).toBe(200);
       expect(arriveStore.body.data.arrivedAt).toBeTruthy();
@@ -185,7 +185,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // SALTO DE ESTADO: llegada declarada, pero todavía sin foto.
       const skipEvidence = await request(app)
         .post(`/api/v1/orders/${orderId}/pickup/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: pickupCode });
       expect(skipEvidence.status).toBe(409);
       expect(skipEvidence.body.code).toBe('EVIDENCE_REQUIRED');
@@ -193,7 +193,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // ── 5. FOTO DE RECEPCIÓN — obligatoria y vinculada ────────────────
       const pickupEvidence = await request(app)
         .post(`/api/v1/orders/${orderId}/pickup/evidence`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .field('latitude', String(GARZON.lat))
         .field('longitude', String(GARZON.lng))
         .attach('photo', JPEG, { filename: 'recepcion.jpg', contentType: 'image/jpeg' });
@@ -210,7 +210,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // Un código incorrecto no avanza el pedido ni se confunde con éxito.
       const wrongPickupCode = await request(app)
         .post(`/api/v1/orders/${orderId}/pickup/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: '999999' });
       expect(wrongPickupCode.status).toBe(400);
       expect(wrongPickupCode.body.code).toBe('CODE_INVALID');
@@ -218,7 +218,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // ── 6. CÓDIGO DE RECOGIDA correcto → PAQUETE RECIBIDO ─────────────
       const pickupVerify = await request(app)
         .post(`/api/v1/orders/${orderId}/pickup/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: pickupCode, latitude: GARZON.lat, longitude: GARZON.lng });
       expect(pickupVerify.status).toBe(200);
       expect(pickupVerify.body.data.status).toBe(OrderStatus.PICKED_UP);
@@ -226,7 +226,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // Código de UN SOLO USO: el mismo código no vuelve a servir.
       const reusePickupCode = await request(app)
         .post(`/api/v1/orders/${orderId}/pickup/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: pickupCode });
       expect(reusePickupCode.status).toBe(409);
 
@@ -248,13 +248,13 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // ── El domiciliario NUNCA conoce el código de entrega de antemano ─
       const driverFlowAfterPickup = await request(app)
         .get(`/api/v1/orders/${orderId}/flow`)
-        .set(authHeader(driverUser));
+        .set(await authHeader(driverUser));
       expect(driverFlowAfterPickup.body.data.delivery.code).toBeNull();
 
       // ── 8. RUTA AL CLIENTE — cambia sola, sin que nadie la pida a mano ─
       const routeToClient = await request(app)
         .post(`/api/v1/tracking/orders/${orderId}/route`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ lat: GARZON.lat, lng: GARZON.lng });
       expect(routeToClient.status).toBe(200);
       expect(routeToClient.body.data.phase).toBe('to_client');
@@ -264,14 +264,14 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // domiciliario en la puerta — antes de recoger, no podía.
       const clientFlow = await request(app)
         .get(`/api/v1/orders/${orderId}/flow`)
-        .set(authHeader(client));
+        .set(await authHeader(client));
       const deliveryCode = clientFlow.body.data.delivery.code as string;
       expect(deliveryCode).toMatch(/^\d{6}$/);
 
       // El domiciliario declara que va en camino.
       const onWay = await request(app)
         .patch(`/api/v1/orders/${orderId}/status`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ status: 'on_way' });
       expect(onWay.status).toBe(200);
 
@@ -282,14 +282,14 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // hubiera rechazado de todas formas.
       const clientForcesAgain = await request(app)
         .patch(`/api/v1/orders/${orderId}/status`)
-        .set(authHeader(client))
+        .set(await authHeader(client))
         .send({ status: 'delivered' });
       expect(clientForcesAgain.status).toBe(403);
 
       // SALTO DE ESTADO: el código de entrega tampoco sirve sin llegada.
       const skipArrivalDelivery = await request(app)
         .post(`/api/v1/orders/${orderId}/delivery/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: deliveryCode });
       expect(skipArrivalDelivery.status).toBe(409);
       expect(skipArrivalDelivery.body.code).toBe('DRIVER_NOT_ARRIVED');
@@ -297,13 +297,13 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // ── 9. LLEGADA AL DESTINO ──────────────────────────────────────────
       const arriveClient = await request(app)
         .post(`/api/v1/orders/${orderId}/delivery/arrive`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ latitude: DESTINATION.lat, longitude: DESTINATION.lng });
       expect(arriveClient.status).toBe(200);
 
       const skipDeliveryEvidence = await request(app)
         .post(`/api/v1/orders/${orderId}/delivery/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: deliveryCode });
       expect(skipDeliveryEvidence.status).toBe(409);
       expect(skipDeliveryEvidence.body.code).toBe('EVIDENCE_REQUIRED');
@@ -311,7 +311,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // ── 10. FOTO DE ENTREGA ─────────────────────────────────────────────
       const deliveryEvidence = await request(app)
         .post(`/api/v1/orders/${orderId}/delivery/evidence`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .field('latitude', String(DESTINATION.lat))
         .field('longitude', String(DESTINATION.lng))
         .attach('photo', JPEG_ALT, { filename: 'entrega.jpg', contentType: 'image/jpeg' });
@@ -324,13 +324,13 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // ── 11. CÓDIGO DE ENTREGA correcto → ENTREGADO ────────────────────
       const wrongDeliveryCode = await request(app)
         .post(`/api/v1/orders/${orderId}/delivery/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: '555555' });
       expect(wrongDeliveryCode.status).toBe(400);
 
       const deliverRes = await request(app)
         .post(`/api/v1/orders/${orderId}/delivery/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: deliveryCode, latitude: DESTINATION.lat, longitude: DESTINATION.lng });
       expect(deliverRes.status).toBe(200);
       expect(deliverRes.body.data.status).toBe(OrderStatus.DELIVERED);
@@ -338,13 +338,13 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // No se finaliza dos veces el mismo pedido.
       const doubleFinish = await request(app)
         .post(`/api/v1/orders/${orderId}/delivery/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code: deliveryCode });
       expect(doubleFinish.status).toBe(409);
 
       const doubleStatus = await request(app)
         .patch(`/api/v1/orders/${orderId}/status`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ status: 'delivered' });
       expect(doubleStatus.status).toBe(400); // transición inválida: ya está entregado
 
@@ -356,7 +356,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
 
       const timeline = await request(app)
         .get(`/api/v1/orders/${orderId}/timeline`)
-        .set(authHeader(client));
+        .set(await authHeader(client));
       expect(timeline.status).toBe(200);
 
       const actions: string[] = timeline.body.data.map((e: any) => e.action);
@@ -388,7 +388,7 @@ describe('AUDITORÍA E2E — ciclo de vida completo del pedido', () => {
       // las tres partes que pueden necesitarla en una disputa.
       const evidenceList = await request(app)
         .get(`/api/v1/orders/${orderId}/evidence`)
-        .set(authHeader(owner));
+        .set(await authHeader(owner));
       expect(evidenceList.body.data).toHaveLength(1); // el comercio solo ve la de recogida
       expect(evidenceList.body.data[0].type).toBe(OrderEvidenceType.PICKUP);
     },
@@ -408,7 +408,7 @@ async function readyForPickupCode() {
 
   const created = await request(app)
     .post('/api/v1/orders')
-    .set(authHeader(client))
+    .set(await authHeader(client))
     .send({
       businessId: business._id.toString(),
       items: [{ productId: product._id.toString(), quantity: 1 }],
@@ -422,23 +422,23 @@ async function readyForPickupCode() {
   for (const status of ['accepted', 'preparing', 'ready']) {
     await request(app)
       .patch(`/api/v1/orders/${orderId}/status`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({ status });
   }
 
-  await request(app).patch(`/api/v1/orders/${orderId}/assign-driver`).set(authHeader(driverUser));
+  await request(app).patch(`/api/v1/orders/${orderId}/assign-driver`).set(await authHeader(driverUser));
   await request(app)
     .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-    .set(authHeader(driverUser))
+    .set(await authHeader(driverUser))
     .send({ latitude: GARZON.lat, longitude: GARZON.lng });
   await request(app)
     .post(`/api/v1/orders/${orderId}/pickup/evidence`)
-    .set(authHeader(driverUser))
+    .set(await authHeader(driverUser))
     .attach('photo', JPEG, { filename: 'recepcion.jpg', contentType: 'image/jpeg' });
 
   const businessFlow = await request(app)
     .get(`/api/v1/orders/${orderId}/flow`)
-    .set(authHeader(owner));
+    .set(await authHeader(owner));
   const code = businessFlow.body.data.pickup.code as string;
 
   return { orderId, client, owner, driverUser, code };
@@ -457,11 +457,11 @@ describe('AUDITORÍA E2E — resiliencia bajo condiciones reales', () => {
       const [first, second] = await Promise.all([
         request(app)
           .post(`/api/v1/orders/${orderId}/pickup/verify`)
-          .set(authHeader(driverUser))
+          .set(await authHeader(driverUser))
           .send({ code }),
         request(app)
           .post(`/api/v1/orders/${orderId}/pickup/verify`)
-          .set(authHeader(driverUser))
+          .set(await authHeader(driverUser))
           .send({ code }),
       ]);
 
@@ -482,7 +482,7 @@ describe('AUDITORÍA E2E — resiliencia bajo condiciones reales', () => {
       // petición perdedora no dejó rastro de haber avanzado nada.
       const timeline = await request(app)
         .get(`/api/v1/orders/${orderId}/timeline`)
-        .set(authHeader(driverUser));
+        .set(await authHeader(driverUser));
       const verifiedCount = timeline.body.data.filter(
         (e: any) => e.action === OrderTimelineAction.CODE_VERIFIED_PICKUP
       ).length;
@@ -511,7 +511,7 @@ describe('AUDITORÍA E2E — resiliencia bajo condiciones reales', () => {
 
       const failed = await request(app)
         .post(`/api/v1/orders/${orderId}/pickup/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code });
 
       // La petición no puede reportar éxito: algo se rompió a mitad de camino.
@@ -533,7 +533,7 @@ describe('AUDITORÍA E2E — resiliencia bajo condiciones reales', () => {
       // nuevo— completa la recogida sin que haga falta reemitir nada.
       const retried = await request(app)
         .post(`/api/v1/orders/${orderId}/pickup/verify`)
-        .set(authHeader(driverUser))
+        .set(await authHeader(driverUser))
         .send({ code });
       expect(retried.status).toBe(200);
 
@@ -544,7 +544,7 @@ describe('AUDITORÍA E2E — resiliencia bajo condiciones reales', () => {
       // porque es justo la clase de anomalía que soporte necesita ver.
       const timeline = await request(app)
         .get(`/api/v1/orders/${orderId}/timeline`)
-        .set(authHeader(driverUser));
+        .set(await authHeader(driverUser));
       const verifiedEntries = timeline.body.data.filter(
         (e: any) => e.action === OrderTimelineAction.CODE_VERIFIED_PICKUP
       );
