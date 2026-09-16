@@ -85,14 +85,14 @@ async function readyNormalOrder() {
   for (const status of ['accepted', 'preparing', 'ready']) {
     const res = await request(app)
       .patch(`/api/v1/orders/${orderId}/status`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({ status });
     expect(res.status).toBe(200);
   }
 
   const assigned = await request(app)
     .patch(`/api/v1/orders/${orderId}/assign-driver`)
-    .set(authHeader(driverUser));
+    .set(await authHeader(driverUser));
   expect(assigned.status).toBe(200);
 
   return { client, owner, business, driverUser, driver, orderId };
@@ -127,14 +127,14 @@ async function readyErrandOrder() {
   );
   const assigned = await request(app)
     .patch(`/api/v1/orders/${orderId}/assign-driver`)
-    .set(authHeader(driverUser));
+    .set(await authHeader(driverUser));
   expect(assigned.status).toBe(200);
 
   return { client, driverUser, driver, orderId, pickup };
 }
 
 async function pickupCodeFor(orderId: string, owner: any): Promise<string> {
-  const res = await request(app).get(`/api/v1/orders/${orderId}/flow`).set(authHeader(owner));
+  const res = await request(app).get(`/api/v1/orders/${orderId}/flow`).set(await authHeader(owner));
   return res.body.data.pickup.code as string;
 }
 
@@ -142,13 +142,13 @@ async function pickupCodeFor(orderId: string, owner: any): Promise<string> {
 async function arrivedAtStoreWithEvidence(orderId: string, driverUser: any) {
   const arrive = await request(app)
     .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-    .set(authHeader(driverUser))
+    .set(await authHeader(driverUser))
     .send({ latitude: GARZON.lat, longitude: GARZON.lng });
   expect(arrive.status).toBe(200);
 
   const evidence = await request(app)
     .post(`/api/v1/orders/${orderId}/pickup/evidence`)
-    .set(authHeader(driverUser))
+    .set(await authHeader(driverUser))
     .field('latitude', String(GARZON.lat))
     .field('longitude', String(GARZON.lng))
     .attach('photo', JPEG, { filename: 'recepcion.jpg', contentType: 'image/jpeg' });
@@ -163,7 +163,7 @@ describe('getDriverRoute (vía /tracking/orders/:id/route): pickup correcto seg�
 
     const res = await request(app)
       .post(`/api/v1/tracking/orders/${orderId}/route`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ lat: GARZON.lat, lng: GARZON.lng });
 
     expect(res.status).toBe(200);
@@ -177,7 +177,7 @@ describe('getDriverRoute (vía /tracking/orders/:id/route): pickup correcto seg�
 
     const res = await request(app)
       .post(`/api/v1/tracking/orders/${orderId}/route`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ lat: GARZON.lat, lng: GARZON.lng });
 
     expect(res.status).toBe(200);
@@ -192,7 +192,7 @@ describe('getDriverRoute (vía /tracking/orders/:id/route): pickup correcto seg�
 
     const res = await request(app)
       .post(`/api/v1/tracking/orders/${orderId}/route`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ lat: GARZON.lat, lng: GARZON.lng });
 
     expect(res.status).toBe(409);
@@ -206,14 +206,14 @@ describe('getDriverRoute (vía /tracking/orders/:id/route): pickup correcto seg�
     const code = await pickupCodeFor(orderId, owner);
     const verify = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/verify`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ code, latitude: GARZON.lat, longitude: GARZON.lng });
     expect(verify.status).toBe(200);
     expect(verify.body.data.status).toBe(OrderStatus.PICKED_UP);
 
     const res = await request(app)
       .post(`/api/v1/tracking/orders/${orderId}/route`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ lat: GARZON.lat, lng: GARZON.lng });
 
     expect(res.status).toBe(200);
@@ -231,7 +231,7 @@ describe('Geofence: "Llegué" (arrive) dentro/fuera de radio', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ latitude: GARZON.lat, longitude: GARZON.lng });
 
     expect(res.status).toBe(200);
@@ -242,7 +242,7 @@ describe('Geofence: "Llegué" (arrive) dentro/fuera de radio', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ latitude: FAR_AWAY.lat, longitude: FAR_AWAY.lng });
 
     expect(res.status).toBe(409);
@@ -253,14 +253,14 @@ describe('Geofence: "Llegué" (arrive) dentro/fuera de radio', () => {
     const { orderId, driverUser, owner } = await readyNormalOrder();
     await arrivedAtStoreWithEvidence(orderId, driverUser);
     const code = await pickupCodeFor(orderId, owner);
-    await request(app).post(`/api/v1/orders/${orderId}/pickup/verify`).set(authHeader(driverUser))
+    await request(app).post(`/api/v1/orders/${orderId}/pickup/verify`).set(await authHeader(driverUser))
       .send({ code, latitude: GARZON.lat, longitude: GARZON.lng });
-    await request(app).patch(`/api/v1/orders/${orderId}/status`).set(authHeader(driverUser))
+    await request(app).patch(`/api/v1/orders/${orderId}/status`).set(await authHeader(driverUser))
       .send({ status: 'on_way' });
 
     const res = await request(app)
       .post(`/api/v1/orders/${orderId}/delivery/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ latitude: DESTINATION.lat, longitude: DESTINATION.lng });
 
     expect(res.status).toBe(200);
@@ -270,14 +270,14 @@ describe('Geofence: "Llegué" (arrive) dentro/fuera de radio', () => {
     const { orderId, driverUser, owner } = await readyNormalOrder();
     await arrivedAtStoreWithEvidence(orderId, driverUser);
     const code = await pickupCodeFor(orderId, owner);
-    await request(app).post(`/api/v1/orders/${orderId}/pickup/verify`).set(authHeader(driverUser))
+    await request(app).post(`/api/v1/orders/${orderId}/pickup/verify`).set(await authHeader(driverUser))
       .send({ code, latitude: GARZON.lat, longitude: GARZON.lng });
-    await request(app).patch(`/api/v1/orders/${orderId}/status`).set(authHeader(driverUser))
+    await request(app).patch(`/api/v1/orders/${orderId}/status`).set(await authHeader(driverUser))
       .send({ status: 'on_way' });
 
     const res = await request(app)
       .post(`/api/v1/orders/${orderId}/delivery/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ latitude: FAR_AWAY.lat, longitude: FAR_AWAY.lng });
 
     expect(res.status).toBe(409);
@@ -289,14 +289,14 @@ describe('Geofence: "Llegué" (arrive) dentro/fuera de radio', () => {
 
     const far = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ latitude: GARZON.lat, longitude: GARZON.lng }); // GARZON está a 1 km del pickup del mandado
     expect(far.status).toBe(409);
     expect(far.body.code).toBe('DRIVER_TOO_FAR');
 
     const near = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ latitude: pickup.lat, longitude: pickup.lng });
     expect(near.status).toBe(200);
   });
@@ -311,7 +311,7 @@ describe('Geofence: validar el código según el GPS', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/verify`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ code, latitude: FAR_AWAY.lat, longitude: FAR_AWAY.lng });
 
     expect(res.status).toBe(409);
@@ -331,7 +331,7 @@ describe('Geofence: validar el código según el GPS', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/verify`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ code, latitude: GARZON.lat, longitude: GARZON.lng });
 
     expect(res.status).toBe(200);
@@ -350,7 +350,7 @@ describe('Geofence: no interfiere con la máquina de estados ni con la idempoten
 
     const res = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ latitude: GARZON.lat, longitude: GARZON.lng });
 
     expect(res.status).toBe(409);
@@ -362,13 +362,13 @@ describe('Geofence: no interfiere con la máquina de estados ni con la idempoten
 
     const first = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ latitude: GARZON.lat, longitude: GARZON.lng });
     expect(first.status).toBe(200);
 
     const second = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ latitude: GARZON.lat, longitude: GARZON.lng });
     expect(second.status).toBe(200);
     expect(second.body.data.arrivedAt).toBe(first.body.data.arrivedAt);
@@ -379,7 +379,7 @@ describe('Geofence: no interfiere con la máquina de estados ni con la idempoten
 
     const res = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({});
 
     expect(res.status).toBe(200);
@@ -394,7 +394,7 @@ describe('Geofence: precisión del GPS', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       // Exactamente sobre el negocio, pero con un margen de error enorme:
       // ese fix no prueba nada por sí solo.
       .send({ latitude: GARZON.lat, longitude: GARZON.lng, accuracy: 500 });
@@ -411,7 +411,7 @@ describe('Geofence: precisión del GPS', () => {
 
     const res = await request(app)
       .post(`/api/v1/orders/${orderId}/pickup/arrive`)
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .send({ latitude: nearby.lat, longitude: nearby.lng, accuracy: 80 });
 
     expect(res.status).toBe(200);
