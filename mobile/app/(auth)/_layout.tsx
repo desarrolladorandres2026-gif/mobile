@@ -17,10 +17,9 @@ export default function AuthLayout() {
         animation: 'slide_from_right',
       }}
     >
-      {/* Onboarding y perfil a medias (login social) solo existen en la app
-          de clientes; sus archivos ni siquiera van en el bundle del driver. */}
-      {IS_CLIENT_APP ? <Stack.Screen name="welcome" options={{ animation: 'fade' }} /> : null}
       <Stack.Screen name="login" options={{ animation: 'fade' }} />
+      {/* Perfil a medias (login social) solo existe en la app de clientes;
+          su archivo ni siquiera va en el bundle del driver. */}
       {IS_CLIENT_APP ? <Stack.Screen name="complete-profile" /> : null}
       <Stack.Screen name="otp" />
       <Stack.Screen name="forgot-password" />

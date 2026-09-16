@@ -29,7 +29,6 @@ export function useVariantGuard(): void {
     const decision = decideAtStart({
       isAuthenticated,
       user: { role, isVerified },
-      onboardingSeen: true,
     });
     if (decision.kind !== 'wrong-app' && decision.kind !== 'web-only') return;
 

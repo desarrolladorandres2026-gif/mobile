@@ -16,7 +16,6 @@ import { useCartStore } from '../../../stores/cartStore';
 import { useFavorites } from '../../../hooks/useFavorites';
 import { useLoyalty } from '../../../hooks/useApi';
 import { useThemeStore } from '../../../stores/themeStore';
-import { usePrefsStore } from '../../../stores/prefsStore';
 import { useAddresses } from '../../../hooks/useApi';
 import { useZippStats } from '../../../hooks/useUsual';
 import { useTheme } from '../../../hooks/useTheme';
@@ -84,15 +83,8 @@ export default function ProfileScreen() {
 
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
-  const resetPrefs = usePrefsStore((s) => s.reset);
 
   const [editing, setEditing] = useState(false);
-
-  const replayOnboarding = () => {
-    tap('light');
-    resetPrefs();
-    router.replace('/(auth)/welcome');
-  };
 
   /**
    * Abre WhatsApp con el mensaje ya escrito. Todavía no existe un registro de
@@ -229,12 +221,6 @@ export default function ProfileScreen() {
           ? 'Desactivadas: no te avisaremos del estado de tus pedidos'
           : 'Avisos en vivo del estado de tus pedidos',
       action: () => Linking.openSettings().catch(() => {}),
-    },
-    {
-      icon: 'rayo',
-      label: 'Ver la introducción otra vez',
-      detail: 'Reinicia el tutorial de bienvenida',
-      action: replayOnboarding,
     },
   ];
 

@@ -24,7 +24,6 @@ export type StartDecision =
   | { kind: 'otp' }
   | { kind: 'complete-profile' }
   | { kind: 'login' }
-  | { kind: 'welcome' }
   /** Cuenta válida, pero de la otra app (cliente en Zipp Domiciliarios o al revés). */
   | { kind: 'wrong-app'; role: 'client' | 'driver' }
   /** Cuentas que solo operan desde los paneles web. */
@@ -38,8 +37,6 @@ export interface SessionUser {
 export interface SessionSnapshot {
   isAuthenticated: boolean;
   user: SessionUser | null;
-  /** Solo lo mira la app de clientes: el domiciliario no tiene onboarding. */
-  onboardingSeen: boolean;
 }
 
 const acceptedRoleFor = (variant: AppVariant) => (variant === 'driver' ? 'driver' : 'client');
@@ -75,9 +72,7 @@ export function decideAtStart(
   if (session.isAuthenticated && session.user) {
     return decideAfterAuth(session.user, {}, variant);
   }
-  // El domiciliario ya sabe qué es Zipp: lo dio de alta admin. Directo al login.
-  if (variant === 'driver') return { kind: 'login' };
-  return { kind: session.onboardingSeen ? 'login' : 'welcome' };
+  return { kind: 'login' };
 }
 
 /** La ruta de expo-router que corresponde a cada decisión. */
@@ -91,8 +86,6 @@ export function hrefFor(decision: StartDecision, variant: AppVariant = APP_VARIA
       return '/(auth)/complete-profile';
     case 'login':
       return '/(auth)/login';
-    case 'welcome':
-      return '/(auth)/welcome';
     case 'wrong-app':
     case 'web-only':
       return `/(auth)/wrong-app?role=${decision.role}`;

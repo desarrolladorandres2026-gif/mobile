@@ -3,10 +3,6 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface PrefsState {
-  /** El onboarding se muestra una sola vez, en la primera apertura. */
-  onboardingSeen: boolean;
-  completeOnboarding: () => void;
-
   /** Última dirección usada, para no volver a preguntarla en cada pedido. */
   lastAddressId: string | null;
   setLastAddress: (id: string | null) => void;
@@ -24,9 +20,6 @@ interface PrefsState {
 export const usePrefsStore = create<PrefsState>()(
   persist(
     (set) => ({
-      onboardingSeen: false,
-      completeOnboarding: () => set({ onboardingSeen: true }),
-
       lastAddressId: null,
       setLastAddress: (id) => set({ lastAddressId: id }),
 
@@ -50,7 +43,7 @@ export const usePrefsStore = create<PrefsState>()(
       },
       clearRecentSearches: () => set({ recentSearches: [] }),
 
-      reset: () => set({ onboardingSeen: false, lastAddressId: null, recentSearches: [] }),
+      reset: () => set({ lastAddressId: null, recentSearches: [] }),
     }),
     {
       name: 'zipp-prefs',

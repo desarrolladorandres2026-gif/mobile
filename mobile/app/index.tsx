@@ -5,7 +5,6 @@ import { Image as ExpoImage } from 'expo-image';
 import { ZippSplashLoader } from '../components/brand/ZippSplashLoader';
 import { AdSplash } from '../components/domain/AdSplash';
 import { useAuthStore } from '../stores/authStore';
-import { usePrefsStore } from '../stores/prefsStore';
 import { adsApi, addressApi, homeCategoriesApi, type ActiveAd } from '../services/endpoints';
 import { withTimeout } from '../lib/withTimeout';
 import { decideAtStart, hrefFor } from '../lib/routing';
@@ -82,7 +81,6 @@ export default function SplashScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { isAuthenticated, user } = useAuthStore();
-  const onboardingSeen = usePrefsStore((s) => s.onboardingSeen);
   const [ad, setAd] = useState<ActiveAd | null>(null);
   // Se cumple cuando TANTO el tiempo de marca COMO la comprobación de
   // publicidad terminaron — lo que tarde más, no la suma de los dos. La
@@ -97,7 +95,7 @@ export default function SplashScreen() {
     // Una sesión guardada de la otra app (o de un panel web) cae en
     // `wrong-app`, que explica cuál es su app y cierra la sesión allí.
     // Ver lib/routing.ts para la regla completa.
-    router.replace(hrefFor(decideAtStart({ isAuthenticated, user, onboardingSeen })) as never);
+    router.replace(hrefFor(decideAtStart({ isAuthenticated, user })) as never);
   };
 
   useEffect(() => {

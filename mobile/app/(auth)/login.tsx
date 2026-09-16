@@ -27,8 +27,9 @@ const RESEND_SECONDS = 60;
 /**
  * Acceso directo de prueba — solo mientras no hay backend de producción.
  * Usa la cuenta fija que siembra `backend/src/seed.ts` para el rol de esta
- * app (la otra la rechazaría el login de todos modos). `__DEV__` lo saca
- * de cualquier build de release sin necesitar un flag aparte.
+ * app (la otra la rechazaría el login de todos modos). Se muestra también
+ * en release a propósito (a pedido explícito, 2026-09-16): quitarlo requiere
+ * borrar el bloque de abajo, no basta con envolverlo en `__DEV__`.
  */
 const QUICK_LOGIN_ACCOUNTS = {
   client: { phone: '3101234567', password: 'Zipp.2026', label: 'Cliente', icon: 'perfil' },
@@ -568,21 +569,19 @@ export default function LoginScreen() {
                 </Pressable>
               )}
 
-              {__DEV__ ? (
-                <View style={styles.quickLoginBlock}>
-                  <Text v="caption" tone="textMuted" center>
-                    Solo pruebas — entra directo con la cuenta del seed
-                  </Text>
-                  <Button
-                    title={QUICK_LOGIN.label}
-                    icon={QUICK_LOGIN.icon}
-                    variant="secondary"
-                    size="sm"
-                    loading={quickLoginLoading}
-                    onPress={handleQuickLogin}
-                  />
-                </View>
-              ) : null}
+              <View style={styles.quickLoginBlock}>
+                <Text v="caption" tone="textMuted" center>
+                  Solo pruebas — entra directo con la cuenta del seed
+                </Text>
+                <Button
+                  title={QUICK_LOGIN.label}
+                  icon={QUICK_LOGIN.icon}
+                  variant="secondary"
+                  size="sm"
+                  loading={quickLoginLoading}
+                  onPress={handleQuickLogin}
+                />
+              </View>
             </View>
           ) : (
             <Button

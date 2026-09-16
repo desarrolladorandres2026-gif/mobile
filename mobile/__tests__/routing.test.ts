@@ -44,20 +44,14 @@ describe('decideAfterAuth', () => {
 });
 
 describe('decideAtStart', () => {
-  it('sin sesión, la app de clientes respeta el onboarding', () => {
+  it('sin sesión, cualquiera de las dos apps va directo al login', () => {
     const base = { isAuthenticated: false, user: null };
-    expect(decideAtStart({ ...base, onboardingSeen: false }, 'client')).toEqual({ kind: 'welcome' });
-    expect(decideAtStart({ ...base, onboardingSeen: true }, 'client')).toEqual({ kind: 'login' });
-  });
-
-  it('sin sesión, la app de domiciliarios va directo al login (no hay onboarding)', () => {
-    const base = { isAuthenticated: false, user: null };
-    expect(decideAtStart({ ...base, onboardingSeen: false }, 'driver')).toEqual({ kind: 'login' });
-    expect(decideAtStart({ ...base, onboardingSeen: true }, 'driver')).toEqual({ kind: 'login' });
+    expect(decideAtStart(base, 'client')).toEqual({ kind: 'login' });
+    expect(decideAtStart(base, 'driver')).toEqual({ kind: 'login' });
   });
 
   it('con sesión guardada aplica la misma regla que tras el login', () => {
-    const session = (user: typeof client) => ({ isAuthenticated: true, user, onboardingSeen: true });
+    const session = (user: typeof client) => ({ isAuthenticated: true, user });
     expect(decideAtStart(session(client), 'client')).toEqual({ kind: 'home' });
     expect(decideAtStart(session(driver), 'client')).toEqual({ kind: 'wrong-app', role: 'driver' });
     expect(decideAtStart(session(client), 'driver')).toEqual({ kind: 'wrong-app', role: 'client' });
@@ -65,7 +59,7 @@ describe('decideAtStart', () => {
   });
 
   it('isAuthenticated sin user (almacenamiento a medio cargar) se trata como sin sesión', () => {
-    expect(decideAtStart({ isAuthenticated: true, user: null, onboardingSeen: true }, 'client')).toEqual({
+    expect(decideAtStart({ isAuthenticated: true, user: null }, 'client')).toEqual({
       kind: 'login',
     });
   });
@@ -86,7 +80,6 @@ describe('hrefFor', () => {
     for (const variant of ['client', 'driver'] as const) {
       expect(hrefFor({ kind: 'otp' }, variant)).toBe('/(auth)/otp');
       expect(hrefFor({ kind: 'login' }, variant)).toBe('/(auth)/login');
-      expect(hrefFor({ kind: 'welcome' }, variant)).toBe('/(auth)/welcome');
       expect(hrefFor({ kind: 'complete-profile' }, variant)).toBe('/(auth)/complete-profile');
     }
   });
