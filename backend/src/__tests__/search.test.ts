@@ -266,13 +266,13 @@ describe('GET /api/v1/search/insights', () => {
     const client = await makeUser({ role: UserRole.CLIENT });
     await request(app)
       .get(`${API}/insights`)
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .expect(403);
 
     const admin = await makeUser({ role: UserRole.ADMIN });
     const res = await request(app)
       .get(`${API}/insights`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(200);
 
     expect(res.body.data.top.map((r: any) => r.term)).toContain('pizza');

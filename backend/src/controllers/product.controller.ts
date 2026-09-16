@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { productService } from '../services';
 import { productImageService } from '../services/productImage.service';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, clampLimit } from '../utils';
 import { AppError } from '../middlewares';
 import { uploadProductImage } from '../middlewares/upload';
 import { UserRole } from '../types';
@@ -32,7 +32,7 @@ export class ProductController {
     try {
       const products = await productService.topSellers(
         param(req, 'businessId'),
-        Number(query(req, 'limit')) || 5
+        clampLimit(query(req, 'limit'), 100, 5)
       );
       sendResponse(res, 200, 'Los más pedidos', products);
     } catch (error) { next(error); }

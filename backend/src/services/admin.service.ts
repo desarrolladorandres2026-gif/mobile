@@ -1,17 +1,21 @@
 import { Request } from 'express';
 import crypto from 'crypto';
 import { User, IUser, Business, Order, Driver, Commission, DriverDebt, Payment, Position, Role } from '../models';
+import { escapeRegex } from '../utils';
 import { AppError } from '../middlewares';
 import { OrderStatus, PaymentStatus, DebtStatus, CommissionStatus, UserRole } from '../types';
-import { logAudit, AuditAction, AuditSeverity, validatePasswordComplexity } from '../security';
+import { logAudit, AuditAction, AuditSeverity, validatePasswordComplexity, clearAccountLocks } from '../security';
 import { sessionManager } from '../security/sessions';
 import {
   assertNotSelfTarget,
   assertCanAssignRoles,
   assertCanModifyPrivilegedUser,
+  assertCanTakeOverAccount,
   getEffectivePermissions,
   getEffectiveRoles,
 } from './authorization.service';
+import { normalizePhone } from '../utils/phone';
+import { maskPhone } from '../utils/mask';
 
 export class AdminService {
   // ── Dashboard Stats ──
@@ -149,9 +153,9 @@ export class AdminService {
     if (role) filter.role = role;
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
+        { name: { $regex: escapeRegex(search), $options: 'i' } },
+        { phone: { $regex: escapeRegex(search), $options: 'i' } },
+        { email: { $regex: escapeRegex(search), $options: 'i' } },
       ];
     }
     const skip = (page - 1) * limit;
@@ -180,7 +184,7 @@ export class AdminService {
     await user.save();
 
     if (!user.isActive) {
-      await sessionManager.revokeAllSessions(userId);
+      await sessionManager.revokeAllSessions(userId, { reason: 'admin' });
     }
 
     if (req) {
@@ -362,7 +366,7 @@ export class AdminService {
     await user.save();
 
     if (status !== 'active') {
-      await sessionManager.revokeAllSessions(userId);
+      await sessionManager.revokeAllSessions(userId, { reason: 'admin' });
     }
 
     if (req) {
@@ -397,20 +401,22 @@ export class AdminService {
 
     const user = await User.findById(userId);
     if (!user) throw new AppError('Usuario no encontrado', 404);
-    await assertCanModifyPrivilegedUser(actor, user);
+    // El panel ve la contraseña temporal: sobre una cuenta administrativa
+    // eso es tomarla, así que exige Super Administrador.
+    await assertCanTakeOverAccount(actor, user);
 
     const temporaryPassword = crypto.randomBytes(9).toString('base64url') + 'Aa1!';
     const check = validatePasswordComplexity(temporaryPassword);
     if (!check.valid) throw new AppError('No se pudo generar una contraseña temporal válida', 500);
 
     user.password = temporaryPassword;
-    user.refreshToken = undefined;
     user.failedLoginAttempts = 0;
     user.lockedUntil = undefined;
     user.updatedBy = actor._id;
     await user.save();
 
-    await sessionManager.revokeAllSessions(userId);
+    await sessionManager.revokeAllSessions(userId, { reason: 'admin' });
+    if (user.phone) await clearAccountLocks(user.phone);
 
     if (req) {
       await logAudit(req, {
@@ -435,9 +441,11 @@ export class AdminService {
     actor: IUser,
     req?: Request
   ): Promise<IUser> {
-    if (!/^(\+57)?[0-9]{10}$/.test(data.phone || '')) {
+    const normalizedPhone = normalizePhone(data.phone);
+    if (!normalizedPhone) {
       throw new AppError('Número de celular inválido', 400);
     }
+    data = { ...data, phone: normalizedPhone };
     if (!data.name || data.name.trim().length < 2) {
       throw new AppError('El nombre es requerido', 400);
     }
@@ -480,7 +488,7 @@ export class AdminService {
         entity: 'user',
         entityId: user._id.toString(),
         severity: AuditSeverity.HIGH,
-        description: `Cuenta administrativa creada: ${user.name} (${user.phone})`,
+        description: `Cuenta administrativa creada: ${user.name} (${maskPhone(user.phone)})`,
         metadata: { positionId: data.positionId, roleIds },
       });
     }
@@ -493,26 +501,47 @@ export class AdminService {
    * (see auth.service.updateProfile). This is the only way to change one —
    * it resets the corresponding *Verified flag so the user must re-confirm
    * the new value through the normal OTP flow before it locks again.
+   *
+   * Cambiar el contacto de alguien equivale a poder entrar en su cuenta (el
+   * OTP llega al número nuevo), así que:
+   * - nadie lo hace sobre su propia cuenta por esta vía,
+   * - sobre una cuenta administrativa o financiera exige Super Administrador,
+   * - todas las sesiones de la cuenta se cierran,
+   * - y en una cuenta con 2FA el número nuevo no basta para entrar: el login
+   *   por OTP sigue pidiendo el segundo factor (ver `AuthService.completeLogin`).
    */
   async overrideUserContact(
     userId: string,
     data: { phone?: string; email?: string },
-    adminUserId: string,
+    actor: IUser,
     req?: Request
   ) {
     const user = await User.findById(userId);
     if (!user) throw new AppError('Usuario no encontrado', 404);
+    await assertCanTakeOverAccount(actor, user);
 
     const updatedFields: string[] = [];
+    const unset: Record<string, 1> = {};
 
-    if (data.phone !== undefined && data.phone !== user.phone) {
-      const existing = await User.findOne({ phone: data.phone, _id: { $ne: userId } });
-      if (existing) {
-        throw new AppError('Este número de celular ya está registrado por otro usuario', 409);
+    if (data.phone !== undefined) {
+      const phone = normalizePhone(data.phone);
+      if (!phone) throw new AppError('Número de celular inválido', 400);
+
+      if (phone !== user.phone) {
+        const existing = await User.findOne({ phone, _id: { $ne: userId } });
+        if (existing) {
+          throw new AppError('Este número de celular ya está registrado por otro usuario', 409);
+        }
+        user.phone = phone;
+        user.phoneVerified = false;
+        user.pendingPhone = undefined;
+        // Un OTP pedido para el número anterior no puede servir con el nuevo.
+        Object.assign(unset, {
+          otpCode: 1, otpExpires: 1, otpAttempts: 1,
+          pendingPhoneOtpCode: 1, pendingPhoneOtpExpires: 1, pendingPhoneOtpAttempts: 1,
+        });
+        updatedFields.push('phone');
       }
-      user.phone = data.phone;
-      user.phoneVerified = false;
-      updatedFields.push('phone');
     }
 
     if (data.email !== undefined) {
@@ -528,22 +557,27 @@ export class AdminService {
           user.email = undefined;
         }
         user.emailVerified = false;
+        Object.assign(unset, { emailOtpCode: 1, emailOtpExpires: 1, emailOtpAttempts: 1 });
         updatedFields.push('email');
       }
     }
 
     if (updatedFields.length === 0) return user;
 
+    user.updatedBy = actor._id;
     await user.save();
+    if (Object.keys(unset).length) await User.updateOne({ _id: user._id }, { $unset: unset });
+
+    const revokedSessions = await sessionManager.revokeAllSessions(userId, { reason: 'contact_changed' });
 
     if (req) {
       await logAudit(req, {
         action: AuditAction.USER_CONTACT_OVERRIDDEN,
         entity: 'user',
         entityId: userId,
-        severity: AuditSeverity.HIGH,
-        description: `Admin ${adminUserId} sobrescribió ${updatedFields.join(', ')} del usuario ${userId}`,
-        metadata: { updatedFields },
+        severity: AuditSeverity.CRITICAL,
+        description: `Admin ${actor._id.toString()} sobrescribió ${updatedFields.join(', ')} del usuario ${userId}`,
+        metadata: { updatedFields, revokedSessions },
       });
     }
 
@@ -556,8 +590,8 @@ export class AdminService {
     if (category) filter.category = category;
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { city: { $regex: search, $options: 'i' } },
+        { name: { $regex: escapeRegex(search), $options: 'i' } },
+        { city: { $regex: escapeRegex(search), $options: 'i' } },
       ];
     }
     const skip = (page - 1) * limit;
@@ -615,7 +649,7 @@ export class AdminService {
       }
       filter.createdAt = dateFilter;
     }
-    if (search) filter.orderNumber = { $regex: search, $options: 'i' };
+    if (search) filter.orderNumber = { $regex: escapeRegex(search), $options: 'i' };
 
     const skip = (page - 1) * limit;
     const [orders, total] = await Promise.all([

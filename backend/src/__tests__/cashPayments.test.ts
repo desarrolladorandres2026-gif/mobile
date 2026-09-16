@@ -143,10 +143,10 @@ async function deliveredCashOrder(ctx: Awaited<ReturnType<typeof scenario>>) {
   return order;
 }
 
-const confirmCash = (orderId: string, user: any, body: Record<string, unknown>) =>
+const confirmCash = async (orderId: string, user: any, body: Record<string, unknown>) =>
   request(app)
     .post(`/api/v1/orders/${orderId}/cash/confirm`)
-    .set(authHeader(user))
+    .set(await authHeader(user))
     .send(body);
 
 describe('Métodos de pago — selección', () => {
@@ -177,7 +177,7 @@ describe('Métodos de pago — selección', () => {
 
     const sinMetodo = await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(ctx.client))
+      .set(await authHeader(ctx.client))
       .send({
         businessId: ctx.business._id.toString(),
         items: [{ productId: ctx.product._id.toString(), quantity: 1 }],
@@ -189,7 +189,7 @@ describe('Métodos de pago — selección', () => {
 
     const invalido = await request(app)
       .post('/api/v1/orders')
-      .set(authHeader(ctx.client))
+      .set(await authHeader(ctx.client))
       .send({
         businessId: ctx.business._id.toString(),
         items: [{ productId: ctx.product._id.toString(), quantity: 1 }],
@@ -636,10 +636,10 @@ describe('Contabilidad del efectivo', () => {
 describe('Cambio de método de pago', () => {
   afterEach(() => setPaymentProvider(null));
 
-  const changeTo = (orderId: string, user: any, paymentMethod: string) =>
+  const changeTo = async (orderId: string, user: any, paymentMethod: string) =>
     request(app)
       .patch(`/api/v1/orders/${orderId}/payment-method`)
-      .set(authHeader(user))
+      .set(await authHeader(user))
       .send({ paymentMethod });
 
   it('17 · cambiar a efectivo invalida el checkout de Wompi abierto', async () => {

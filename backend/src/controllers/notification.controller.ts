@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { notificationService } from '../services/notification.service';
 import { pushService } from '../services/push.service';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, clampLimit } from '../utils';
 
 export class NotificationController {
   async getMyNotifications(req: Request, res: Response, next: NextFunction) {
@@ -9,7 +9,7 @@ export class NotificationController {
       const result = await notificationService.getByUser(
         req.user!._id.toString(),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'), 100, 20)
       );
       sendResponse(res, 200, 'Notificaciones obtenidas', result.notifications, result.meta);
     } catch (error) { next(error); }

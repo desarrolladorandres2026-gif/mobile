@@ -24,11 +24,9 @@ export const authRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
-    return req.ip || req.socket?.remoteAddress || 'unknown';
-  },
+  // Sin `keyGenerator` propio: el de express-rate-limit usa `req.ip`, que
+  // con `trust proxy` es la IP que vio nginx. El que había aquí leía el
+  // primer valor de `X-Forwarded-For`, que escribe el cliente.
 });
 
 /**
@@ -40,6 +38,24 @@ export const otpRateLimiter = rateLimit({
   message: {
     success: false,
     message: 'Demasiadas solicitudes de OTP. Intenta en 5 minutos.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
+ * Refresh de tokens — 60 por 15 minutos por IP.
+ *
+ * Antes solo lo frenaba el límite global. Un cliente sano refresca una vez
+ * cada 15 minutos por dispositivo; 60 deja sitio a una casa entera detrás de
+ * la misma IP y frena a quien prueba refresh tokens robados a ráfagas.
+ */
+export const refreshRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: limitFor(60),
+  message: {
+    success: false,
+    message: 'Demasiadas renovaciones de sesión. Intenta en unos minutos.',
   },
   standardHeaders: true,
   legacyHeaders: false,

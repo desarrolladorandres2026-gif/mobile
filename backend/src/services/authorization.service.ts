@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { IUser, Position, Role } from '../models';
 import { AppError } from '../middlewares/errorHandler';
+import { UserRole } from '../types';
 import {
   Permission,
   getPermissionsForRole,
@@ -153,32 +154,76 @@ export function assertRoleMutable(role: { isSystem: boolean; slug?: string }): v
   }
 }
 
+type PrivilegeTarget = Pick<IUser, 'roleIds' | 'positionId'> & Partial<Pick<IUser, '_id' | 'role' | 'isFinanceAdmin'>>;
+
+async function actorIsSuperAdmin(actor: IUser): Promise<boolean> {
+  return (await getEffectiveRoleSlugs(actor)).includes(SUPER_ADMIN_ROLE_SLUG);
+}
+
+function blockEscalation(actor: IUser, target: PrivilegeTarget, description: string, message: string): never {
+  void logSystemAudit({
+    userId: actor._id.toString(),
+    role: actor.role,
+    action: AuditAction.PRIVILEGE_ESCALATION_BLOCKED,
+    entity: 'user',
+    entityId: target._id?.toString(),
+    severity: AuditSeverity.CRITICAL,
+    description,
+  });
+  throw new AppError(message, 403, 'PRIVILEGE_ESCALATION_BLOCKED');
+}
+
 /**
- * Nadie por debajo de SUPER_ADMIN puede tocar una cuenta que sí lo es:
+ * Nadie por debajo de SUPER_ADMIN puede tocar una cuenta privilegiada:
  * bloquearla, desactivarla, cambiarle el rol/cargo/roles, ni resetearle la
  * contraseña. Sin esto, un ADMIN normal con `users:block` podría bloquear
  * o tomar la cuenta principal — justamente lo que la sección 10 de la
  * especificación pide impedir.
+ *
+ * Privilegiada es una cuenta con el rol `super_admin` **o** con
+ * `isFinanceAdmin`: antes solo contaba lo primero, así que un administrador
+ * operativo podía modificar a quien fija precios y liquida dinero.
  */
 export async function assertCanModifyPrivilegedUser(
   actor: IUser,
-  target: Pick<IUser, 'roleIds' | 'positionId'>,
+  target: PrivilegeTarget,
   message = 'Esta cuenta tiene privilegios de Super Administrador: solo otro Super Administrador puede modificarla'
 ): Promise<void> {
-  const targetRoleSlugs = await getEffectiveRoleSlugs(target as IUser);
-  if (!targetRoleSlugs.includes(SUPER_ADMIN_ROLE_SLUG)) return;
+  const targetIsSuper = (await getEffectiveRoleSlugs(target as IUser)).includes(SUPER_ADMIN_ROLE_SLUG);
+  const targetIsFinance = target.isFinanceAdmin === true;
+  if (!targetIsSuper && !targetIsFinance) return;
 
-  const actorRoleSlugs = await getEffectiveRoleSlugs(actor);
-  if (!actorRoleSlugs.includes(SUPER_ADMIN_ROLE_SLUG)) {
-    void logSystemAudit({
-      userId: actor._id.toString(),
-      role: actor.role,
-      action: AuditAction.PRIVILEGE_ESCALATION_BLOCKED,
-      entity: 'user',
-      entityId: (target as IUser)._id?.toString(),
-      severity: AuditSeverity.CRITICAL,
-      description: `${actor.name} intentó modificar una cuenta Super Administrador sin serlo`,
-    });
-    throw new AppError(message, 403);
+  if (await actorIsSuperAdmin(actor)) return;
+
+  blockEscalation(
+    actor,
+    target,
+    `${actor.name} intentó modificar una cuenta ${targetIsSuper ? 'Super Administrador' : 'de administración financiera'} sin ser Super Administrador`,
+    targetIsSuper
+      ? message
+      : 'Esta cuenta administra dinero de la plataforma: solo un Super Administrador puede modificarla'
+  );
+}
+
+/**
+ * Guarda para las dos acciones que equivalen a tomar una cuenta ajena:
+ * sobrescribir su contacto (teléfono/correo, que es por donde llega el OTP)
+ * y restablecer su contraseña (el panel ve la contraseña temporal).
+ *
+ * Sobre cualquier cuenta administrativa exige ser Super Administrador. Antes
+ * un administrador operativo —que ya trae `users:update`— podía poner su
+ * propio número en la cuenta del Super Administrador y entrar por OTP.
+ */
+export async function assertCanTakeOverAccount(actor: IUser, target: PrivilegeTarget & Pick<IUser, '_id'>): Promise<void> {
+  assertNotSelfTarget(actor._id.toString(), target._id.toString(), 'Usa tu perfil para cambiar los datos de tu propia cuenta');
+  await assertCanModifyPrivilegedUser(actor, target);
+
+  if (target.role === UserRole.ADMIN && !(await actorIsSuperAdmin(actor))) {
+    blockEscalation(
+      actor,
+      target,
+      `${actor.name} intentó tomar el control de una cuenta administrativa (contacto o contraseña) sin ser Super Administrador`,
+      'Solo un Super Administrador puede cambiar el contacto o la contraseña de una cuenta administrativa'
+    );
   }
 }

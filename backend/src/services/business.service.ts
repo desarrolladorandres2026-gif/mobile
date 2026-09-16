@@ -7,6 +7,7 @@ import {
   FOOD_CATEGORIES,
 } from '../models';
 import { AppError } from '../middlewares';
+import { escapeRegex } from '../utils';
 import mongoose from 'mongoose';
 
 /**
@@ -263,7 +264,7 @@ export class BusinessService {
       }
       if (category) geoMatch.category = category;
       if (featured) geoMatch.isFeatured = true;
-      if (search) geoMatch.name = { $regex: search, $options: 'i' };
+      if (search) geoMatch.name = { $regex: escapeRegex(search), $options: 'i' };
       if (city) geoMatch.city = city;
 
       const pipeline: mongoose.PipelineStage[] = [
@@ -315,7 +316,7 @@ export class BusinessService {
     }
     if (category) filter.category = category;
     if (featured) filter.isFeatured = true;
-    if (search) filter.name = { $regex: search, $options: 'i' };
+    if (search) filter.name = { $regex: escapeRegex(search), $options: 'i' };
 
     const [businesses, total] = await Promise.all([
       Business.find(filter).skip(skip).limit(limit).sort({ isFeatured: -1, rating: -1 }),

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import app from '../app';
 import { User, PendingRegistration } from '../models';
+import { OtpOutbox } from '../models/OtpOutbox';
 import { UserRole } from '../types';
 import { makeUser, authHeader } from './factories';
 
@@ -11,8 +12,32 @@ const newClient = () => ({
   name: 'Nuevo Cliente',
   phone: `30099${String(90000 + phoneSeq++).slice(-5)}`,
   password: 'Clave.Segura123',
-  role: 'client',
 });
+
+/**
+ * El código real nunca se puede leer de `PendingRegistration` (se guarda
+ * hasheado — ver `security/otp.ts`). En pruebas, sin proveedor de WhatsApp
+ * configurado, el envío cae al buzón de desarrollo (`models/OtpOutbox.ts`),
+ * así que el código se recupera de ahí, igual que un usuario lo leería de
+ * su WhatsApp.
+ */
+async function readOtp(phone: string): Promise<string> {
+  const entry = await OtpOutbox.findOne({ channel: 'whatsapp', destination: phone }).sort({ createdAt: -1 });
+  if (!entry) throw new Error(`No se envió ningún OTP a ${phone}`);
+  return entry.code;
+}
+
+/** Registro real: los tres pasos, de punta a punta. */
+async function registerClient(client = newClient()) {
+  await request(app).post('/api/v1/auth/register/send-otp').send({ phone: client.phone }).expect(200);
+  const otpCode = await readOtp(client.phone);
+  await request(app).post('/api/v1/auth/register/verify-otp').send({ phone: client.phone, otpCode }).expect(200);
+  const res = await request(app)
+    .post('/api/v1/auth/register/complete')
+    .send({ phone: client.phone, name: client.name, password: client.password })
+    .expect(201);
+  return { client, res };
+}
 
 describe('Hash de contraseñas', () => {
   it('almacena un hash Argon2id, nunca el texto plano', async () => {
@@ -35,59 +60,22 @@ describe('Hash de contraseñas', () => {
   });
 });
 
-describe('POST /api/v1/auth/register', () => {
-  it('registra un cliente y devuelve tokens', async () => {
-    const res = await request(app)
-      .post('/api/v1/auth/register')
-      .send(newClient())
-      .expect(201);
-
-    expect(res.body.data.accessToken).toBeTruthy();
-    expect(res.body.data.refreshToken).toBeTruthy();
-    expect(res.body.data.user.password).toBeUndefined();
-  });
-
-  // Regression: `iat` has one-second resolution and is rounded down, while
-  // passwordChangedAt keeps milliseconds. Comparing them directly made the
-  // token returned by register invalid on its very first use.
-  it('el token devuelto al registrarse sirve de inmediato', async () => {
-    const registered = await request(app)
-      .post('/api/v1/auth/register')
-      .send(newClient())
-      .expect(201);
-
-    await request(app)
-      .get('/api/v1/addresses')
-      .set('Authorization', `Bearer ${registered.body.data.accessToken}`)
-      .expect(200);
-  });
-
-  it('rechaza un teléfono ya registrado', async () => {
-    const client = newClient();
-    await request(app).post('/api/v1/auth/register').send(client).expect(201);
-
-    const res = await request(app)
-      .post('/api/v1/auth/register')
-      .send({ ...client, name: 'Otro' })
-      .expect(409);
-
-    expect(res.body.message).toMatch(/ya está registrado/i);
-  });
-
-  it('exige contraseña compleja para cuentas de negocio', async () => {
-    const res = await request(app)
-      .post('/api/v1/auth/register')
-      .send({ ...newClient(), password: 'abc123', role: 'business' })
-      .expect(400);
-
-    expect(res.body.message).toMatch(/contraseña/i);
+/**
+ * `POST /auth/register` se eliminó (M14 de la auditoría de seguridad):
+ * creaba cuentas sin verificar el celular por OTP y dejaba elegir el rol
+ * `driver`/`business` sin ninguna comprobación adicional. Ningún cliente lo
+ * usaba — el registro real siempre fue el de tres pasos de más abajo.
+ */
+describe('POST /api/v1/auth/register (eliminado)', () => {
+  it('ya no existe: cualquier intento de crear una cuenta sin OTP da 404', async () => {
+    const res = await request(app).post('/api/v1/auth/register').send(newClient());
+    expect(res.status).toBe(404);
   });
 });
 
 describe('POST /api/v1/auth/phone-status', () => {
   it('dice si un celular ya tiene cuenta, sin gastar el límite de OTP', async () => {
-    const client = newClient();
-    await request(app).post('/api/v1/auth/register').send(client).expect(201);
+    const { client } = await registerClient();
 
     const known = await request(app)
       .post('/api/v1/auth/phone-status')
@@ -104,6 +92,40 @@ describe('POST /api/v1/auth/phone-status', () => {
 });
 
 describe('Registro en 3 pasos (celular → nombre → contraseña)', () => {
+  it('registra un cliente y devuelve tokens', async () => {
+    const { res } = await registerClient();
+
+    expect(res.body.data.accessToken).toBeTruthy();
+    expect(res.body.data.refreshToken).toBeTruthy();
+    expect(res.body.data.user.password).toBeUndefined();
+    // El celular se confirmó por OTP en el paso 2: la cuenta nace verificada.
+    expect(res.body.data.user.phoneVerified).toBe(true);
+  });
+
+  // Regression: `iat` has one-second resolution and is rounded down, while
+  // passwordChangedAt keeps milliseconds. Comparing them directly made the
+  // token returned right after creating the account invalid on its very
+  // first use.
+  it('el token devuelto al completar el registro sirve de inmediato', async () => {
+    const { res } = await registerClient();
+
+    await request(app)
+      .get('/api/v1/addresses')
+      .set('Authorization', `Bearer ${res.body.data.accessToken}`)
+      .expect(200);
+  });
+
+  it('rechaza un teléfono ya registrado', async () => {
+    const { client } = await registerClient();
+
+    const res = await request(app)
+      .post('/api/v1/auth/register/send-otp')
+      .send({ phone: client.phone })
+      .expect(409);
+
+    expect(res.body.message).toMatch(/ya está registrado/i);
+  });
+
   it('manda el OTP y no deja completar el registro sin verificarlo', async () => {
     const client = newClient();
 
@@ -129,38 +151,22 @@ describe('Registro en 3 pasos (celular → nombre → contraseña)', () => {
       .send({ phone: client.phone, otpCode: '000000' })
       .expect(400);
 
-    const pending = await PendingRegistration.findOne({ phone: client.phone }).select('+otpCode');
+    const otpCode = await readOtp(client.phone);
     await request(app)
       .post('/api/v1/auth/register/verify-otp')
-      .send({ phone: client.phone, otpCode: pending!.otpCode })
+      .send({ phone: client.phone, otpCode })
       .expect(200);
   });
 
   it('completa la cuenta después de verificar y devuelve tokens de una', async () => {
-    const client = newClient();
-    await request(app).post('/api/v1/auth/register/send-otp').send({ phone: client.phone }).expect(200);
-
-    const pending = await PendingRegistration.findOne({ phone: client.phone }).select('+otpCode');
-    await request(app)
-      .post('/api/v1/auth/register/verify-otp')
-      .send({ phone: client.phone, otpCode: pending!.otpCode })
-      .expect(200);
-
-    const res = await request(app)
-      .post('/api/v1/auth/register/complete')
-      .send({ phone: client.phone, name: client.name, password: client.password })
-      .expect(201);
-
-    expect(res.body.data.accessToken).toBeTruthy();
-    expect(res.body.data.user.isVerified).toBe(true);
+    const { client } = await registerClient();
 
     // El estado intermedio no debe sobrevivir a una cuenta ya creada.
     expect(await PendingRegistration.findOne({ phone: client.phone })).toBeNull();
   });
 
   it('no manda OTP de registro a un celular que ya tiene cuenta', async () => {
-    const client = newClient();
-    await request(app).post('/api/v1/auth/register').send(client).expect(201);
+    const { client } = await registerClient();
 
     const res = await request(app)
       .post('/api/v1/auth/register/send-otp')
@@ -173,8 +179,7 @@ describe('Registro en 3 pasos (celular → nombre → contraseña)', () => {
 
 describe('POST /api/v1/auth/login', () => {
   it('inicia sesión con credenciales válidas', async () => {
-    const client = newClient();
-    await request(app).post('/api/v1/auth/register').send(client).expect(201);
+    const { client } = await registerClient();
 
     const res = await request(app)
       .post('/api/v1/auth/login')
@@ -185,8 +190,7 @@ describe('POST /api/v1/auth/login', () => {
   });
 
   it('rechaza una contraseña incorrecta sin revelar si el usuario existe', async () => {
-    const client = newClient();
-    await request(app).post('/api/v1/auth/register').send(client).expect(201);
+    const { client } = await registerClient();
 
     const wrongPassword = await request(app)
       .post('/api/v1/auth/login')
@@ -219,7 +223,7 @@ describe('Autorización por rol', () => {
 
     await request(app)
       .get('/api/v1/coupons')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .expect(403);
   });
 
@@ -228,7 +232,7 @@ describe('Autorización por rol', () => {
 
     await request(app)
       .get('/api/v1/coupons')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(200);
   });
 

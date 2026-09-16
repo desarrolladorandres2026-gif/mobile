@@ -562,7 +562,11 @@ export class OrderService {
   }
 
   async getAvailableOrders(page = 1, limit = 20) {
-    const skip = (page - 1) * limit;
+    // Techo duro: sin él, un domiciliario podía pedir `?limit=999999999` y
+    // forzar a Mongoose a materializar en memoria todo lo que hubiera en
+    // estado `READY` sin asignar. Ver A11 de la auditoría.
+    const cappedLimit = Math.min(Math.max(1, limit), 50);
+    const skip = (page - 1) * cappedLimit;
     // Un mandado sin cobrar no se ofrece. Listarlo solo serviría para que
     // alguien lo tomara y se llevara un 409: no hay nada que pueda hacer
     // para arreglarlo, así que enseñárselo es enseñar un callejón.
@@ -573,12 +577,17 @@ export class OrderService {
       $or: [{ kind: { $ne: OrderKind.ERRAND } }, { paymentStatus: PaymentStatus.PAID }],
     };
     const [orders, total] = await Promise.all([
-      Order.find(filter).sort({ createdAt: 1 }).skip(skip).limit(limit)
+      Order.find(filter).sort({ createdAt: 1 }).skip(skip).limit(cappedLimit)
         .populate('businessId', 'name logo address phone location')
-        .populate('clientId', 'name phone'),
+        // Sin `phone`: antes cualquier domiciliario veía el nombre y el
+        // teléfono de clientes con los que no tenía ninguna relación de
+        // servicio, incluso pedidos para los que la cascada de reparto ni
+        // siquiera lo había ofertado (`dispatch.service.ts#canClaim`). El
+        // teléfono se entrega recién en `assignDriver`.
+        .populate('clientId', 'name'),
       Order.countDocuments(filter),
     ]);
-    return { orders, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    return { orders, meta: { page, limit: cappedLimit, total, totalPages: Math.ceil(total / cappedLimit) } };
   }
 
   async getDriverOrders(driverId: string, page = 1, limit = 20) {

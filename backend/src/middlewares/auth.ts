@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 import { config } from '../config';
 import { User, IUser } from '../models';
 import { AppError } from './errorHandler';
 import { UserRole } from '../types';
-import { Permission, logAudit, AuditAction, AuditSeverity } from '../security';
+import { Permission, logAudit, AuditAction, AuditSeverity, sessionManager } from '../security';
+import { verifyAccessToken, isLegacyTokenAcceptable } from '../utils/token';
 import { getEffectivePermissions, getEffectiveRoleSlugs } from '../services/authorization.service';
 
 // Extend Express Request. `declare global { namespace Express {...} } ` is
@@ -29,15 +29,27 @@ declare global {
        */
       permissions?: Permission[];
       roleSlugs?: string[];
+      /**
+       * Administrador sin 2FA con `TOTP_REQUIRED_ADMINS` activo: solo puede
+       * llegar a las rutas para configurarlo. Ver `authenticate`.
+       */
+      twoFactorSetupRequired?: boolean;
     }
   }
 }
 
-interface JwtPayload {
-  id: string;
-  role: UserRole;
-  sessionId?: string;
-}
+/**
+ * Rutas que un administrador sin 2FA puede usar mientras lo configura. Todo
+ * lo demás responde 403 `TWO_FACTOR_SETUP_REQUIRED` hasta que lo active.
+ */
+const TWO_FACTOR_SETUP_PATHS = new Set([
+  '/api/v1/auth/me',
+  '/api/v1/auth/logout',
+  '/api/v1/auth/2fa/setup',
+  '/api/v1/auth/2fa/verify',
+]);
+
+const requestPath = (req: Request) => (req.originalUrl || req.url || '').split('?')[0].replace(/\/+$/, '');
 
 export const authenticate = async (
   req: Request,
@@ -51,7 +63,20 @@ export const authenticate = async (
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
+    const decoded = verifyAccessToken(token);
+
+    // El token pertenece a una sesión (`sid`) y esa sesión tiene que seguir
+    // viva: cerrar sesión, revocarla desde "mis dispositivos", un cambio de
+    // contraseña o un bloqueo cortan también el access token vigente, en vez
+    // de dejarlo útil hasta que caduque.
+    if (decoded.sid) {
+      const active = await sessionManager.isSessionActive(decoded.sid, decoded.id);
+      if (!active) throw new AppError('Tu sesión se cerró. Inicia sesión nuevamente.', 401, 'SESSION_REVOKED');
+    } else if (!isLegacyTokenAcceptable(decoded)) {
+      // Sin `sid` solo se aceptan tokens emitidos antes de este despliegue,
+      // hasta que caduquen solos. Ver `LEGACY_ACCESS_TOKEN_CUTOFF`.
+      throw new AppError('Token inválido o expirado', 401);
+    }
 
     const user = await User.findById(decoded.id);
     if (!user) {
@@ -75,7 +100,7 @@ export const authenticate = async (
     // made every token minted right after a password write look stale —
     // which invalidated the tokens returned by register, reset-password and
     // change-password the instant they were used. Truncate both to seconds.
-    const issuedAt = (decoded as any).iat as number | undefined;
+    const issuedAt = decoded.iat;
     if (user.passwordChangedAt && typeof issuedAt === 'number') {
       const changedAtSeconds = Math.floor(user.passwordChangedAt.getTime() / 1000);
       if (changedAtSeconds > issuedAt) {
@@ -84,7 +109,21 @@ export const authenticate = async (
     }
 
     req.user = user;
-    req.sessionId = decoded.sessionId;
+    req.sessionId = decoded.sid;
+
+    // `TOTP_REQUIRED_ADMINS` existía en la configuración y nada lo aplicaba:
+    // un administrador con permisos sobre dinero y usuarios entraba solo con
+    // contraseña. Ahora, sin 2FA, solo alcanza las rutas para configurarlo.
+    if (config.security.twoFactor.requiredForAdmins && user.role === UserRole.ADMIN && !user.twoFactorEnabled) {
+      req.twoFactorSetupRequired = true;
+      if (!TWO_FACTOR_SETUP_PATHS.has(requestPath(req))) {
+        throw new AppError(
+          'Activa la verificación en dos pasos para usar el panel de administración.',
+          403,
+          'TWO_FACTOR_SETUP_REQUIRED'
+        );
+      }
+    }
 
     // Resueltos una vez por request; ver el comentario en la declaración
     // de tipos más arriba.

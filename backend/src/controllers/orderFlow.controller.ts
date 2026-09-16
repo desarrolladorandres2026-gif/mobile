@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError } from '../middlewares';
 import { uploadEvidenceImage } from '../middlewares/upload';
-import { sendResponse, param, query, clientIp, userAgent, readLocation } from '../utils';
+import { sendResponse, param, query, clientIp, userAgent, readLocation, clampLimit } from '../utils';
 import {
   OrderCallStatus,
   OrderCodeKind,
@@ -500,7 +500,7 @@ export class OrderFlowController {
       const access = await resolveOrderAccess(param(req, 'id'), req.user!);
       const result = await orderChatService.list(access, {
         page: Number(query(req, 'page')) || 1,
-        limit: Number(query(req, 'limit')) || 50,
+        limit: clampLimit(query(req, 'limit'), 100, 50),
       });
 
       if (access.participant === 'admin') {

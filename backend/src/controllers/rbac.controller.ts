@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { positionService } from '../services/position.service';
 import { roleService } from '../services/role.service';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, clampLimit } from '../utils';
 import { Permission } from '../security';
 
 /**
@@ -35,7 +35,7 @@ export class RbacController {
         search: query(req, 'search'),
         isActive: isActiveParam === undefined ? undefined : isActiveParam === 'true',
         page: Number(query(req, 'page')) || 1,
-        limit: Number(query(req, 'limit')) || 50,
+        limit: clampLimit(query(req, 'limit'), 100, 50),
       });
       sendResponse(res, 200, 'Cargos obtenidos', result.positions, result.meta);
     } catch (error) { next(error); }
@@ -72,7 +72,7 @@ export class RbacController {
   async getPositionUsers(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await positionService.getUsersInPosition(
-        param(req, 'id'), Number(query(req, 'page')) || 1, Number(query(req, 'limit')) || 20
+        param(req, 'id'), Number(query(req, 'page')) || 1, clampLimit(query(req, 'limit'), 100, 20)
       );
       sendResponse(res, 200, 'Usuarios del cargo', result.users, result.meta);
     } catch (error) { next(error); }
@@ -86,7 +86,7 @@ export class RbacController {
         search: query(req, 'search'),
         isActive: isActiveParam === undefined ? undefined : isActiveParam === 'true',
         page: Number(query(req, 'page')) || 1,
-        limit: Number(query(req, 'limit')) || 50,
+        limit: clampLimit(query(req, 'limit'), 100, 50),
       });
       sendResponse(res, 200, 'Roles obtenidos', result.roles, result.meta);
     } catch (error) { next(error); }
@@ -123,7 +123,7 @@ export class RbacController {
   async getRoleUsers(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await roleService.getUsersWithRole(
-        param(req, 'id'), Number(query(req, 'page')) || 1, Number(query(req, 'limit')) || 20
+        param(req, 'id'), Number(query(req, 'page')) || 1, clampLimit(query(req, 'limit'), 100, 20)
       );
       sendResponse(res, 200, 'Usuarios del rol', result.users, result.meta);
     } catch (error) { next(error); }

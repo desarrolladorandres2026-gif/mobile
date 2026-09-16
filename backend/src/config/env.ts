@@ -8,7 +8,19 @@ dotenv.config();
 // applies .env (which pins NODE_ENV=development) and whether that happens
 // before or after the runner sets NODE_ENV depends on import order.
 const isTest = process.env.NODE_ENV === 'test' || !!process.env.VITEST;
-const isDev = !isTest && (process.env.NODE_ENV || 'development') === 'development';
+// El desarrollo es un opt-in explícito, no el valor por defecto.
+//
+// Antes, `NODE_ENV` vacío o ausente se leía como `'development'`: CORS
+// aceptaba cualquier origen (`app.ts`), Socket.IO también, los secretos se
+// generaban efímeros sin avisar en producción y los pagos sandbox pasaban
+// sin aviso (`paymentConfigErrors` solo corre si `!isDev`). Un despliegue
+// manual (`node dist/app.js` sin pasar por Docker/PM2/systemd, que sí fijan
+// la variable) heredaba silenciosamente el modo más permisivo.
+//
+// Ahora hace falta escribir `NODE_ENV=development` a propósito. El flujo de
+// desarrollo documentado (`.env.example`) ya lo hace explícito, así que esto
+// no cambia nada para quien siguió esa plantilla.
+const isDev = !isTest && process.env.NODE_ENV === 'development';
 
 // ── Get local network IP for mobile/Expo connections ──
 function getLocalIP(): string {
@@ -273,8 +285,75 @@ export function paymentConfigErrors(env: Record<string, string | undefined>): st
   return errors;
 }
 
+/**
+ * Lo que impide que un despliegue de producción "mande" OTP que nunca llegan.
+ *
+ * Los servicios de WhatsApp y correo tenían sus proveedores comentados y
+ * siempre caían a un `console.log` con el código: en producción ningún
+ * usuario recibía el OTP y todos quedaban en los logs, legibles por
+ * cualquiera con acceso al servidor. Ahora el código nunca se imprime y
+ * producción no arranca sin un proveedor real completo.
+ *
+ * El correo es un canal de login aparte: si no se va a ofrecer, se apaga
+ * explícitamente con `EMAIL_OTP_ENABLED=false` en vez de dejarlo roto.
+ *
+ * Función pura sobre un mapa de variables, igual que `paymentConfigErrors`.
+ */
+export const WHATSAPP_PROVIDERS = ['meta_cloud_api', 'twilio_whatsapp'] as const;
+export const EMAIL_PROVIDERS = ['sendgrid'] as const;
+export const DEV_OTP_PROVIDER = 'dev_outbox';
+
+export function otpDeliveryConfigErrors(env: Record<string, string | undefined>): string[] {
+  const errors: string[] = [];
+  const value = (name: string) => (env[name] || '').trim();
+
+  const whatsapp = value('WHATSAPP_PROVIDER');
+  if (!whatsapp) {
+    errors.push(
+      'WHATSAPP_PROVIDER es obligatoria en producción: sin proveedor los OTP de registro, login y ' +
+        `recuperación nunca llegan. Usa ${WHATSAPP_PROVIDERS.join(' o ')}.`
+    );
+  } else if (whatsapp === DEV_OTP_PROVIDER) {
+    errors.push(`WHATSAPP_PROVIDER=${DEV_OTP_PROVIDER} es solo para desarrollo y pruebas.`);
+  } else if (whatsapp === 'meta_cloud_api') {
+    for (const name of ['WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_OTP_TEMPLATE']) {
+      if (!value(name)) errors.push(`${name} es obligatoria cuando WHATSAPP_PROVIDER=meta_cloud_api.`);
+    }
+  } else if (whatsapp === 'twilio_whatsapp') {
+    for (const name of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_WHATSAPP_FROM']) {
+      if (!value(name)) errors.push(`${name} es obligatoria cuando WHATSAPP_PROVIDER=twilio_whatsapp.`);
+    }
+    if (value('TWILIO_ACCOUNT_SID') && !value('TWILIO_ACCOUNT_SID').startsWith('AC')) {
+      errors.push('TWILIO_ACCOUNT_SID no tiene el formato de Twilio (debe empezar por "AC").');
+    }
+  } else {
+    errors.push(`WHATSAPP_PROVIDER="${whatsapp}" no es un proveedor soportado (${WHATSAPP_PROVIDERS.join(', ')}).`);
+  }
+
+  if (value('EMAIL_OTP_ENABLED') !== 'false') {
+    const email = value('EMAIL_PROVIDER');
+    if (!email) {
+      errors.push(
+        'EMAIL_PROVIDER es obligatoria en producción mientras el login por correo esté activo. ' +
+          'Configura sendgrid o apágalo con EMAIL_OTP_ENABLED=false.'
+      );
+    } else if (email === DEV_OTP_PROVIDER) {
+      errors.push(`EMAIL_PROVIDER=${DEV_OTP_PROVIDER} es solo para desarrollo y pruebas.`);
+    } else if (email === 'sendgrid') {
+      for (const name of ['SENDGRID_API_KEY', 'EMAIL_FROM_ADDRESS']) {
+        if (!value(name)) errors.push(`${name} es obligatoria cuando EMAIL_PROVIDER=sendgrid.`);
+      }
+    } else {
+      errors.push(`EMAIL_PROVIDER="${email}" no es un proveedor soportado (${EMAIL_PROVIDERS.join(', ')}).`);
+    }
+  }
+
+  return errors;
+}
+
 if (!isDev && !isTest) {
   startupErrors.push(...paymentConfigErrors(process.env));
+  startupErrors.push(...otpDeliveryConfigErrors(process.env));
 }
 
 // Fail fast: refuse to boot a production server with an insecure configuration.
@@ -287,7 +366,12 @@ if (startupErrors.length > 0) {
 
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
-  nodeEnv: process.env.NODE_ENV || 'development',
+  // Igual que `isDev`: sin `NODE_ENV`, esto ya no dice 'development'. Varios
+  // sitios comparan `config.nodeEnv === 'development'` directamente
+  // (app.ts, sockets/index.ts) en vez de leer `isDev` — con el valor
+  // literal de antes, esos sitios habrían seguido abriendo CORS/Socket.IO a
+  // cualquier origen aunque `isDev` ya dijera que no.
+  nodeEnv: process.env.NODE_ENV || (isTest ? 'test' : 'production'),
   isDev,
   isTest,
   localIP,
@@ -455,6 +539,38 @@ export const config = {
 
   otp: {
     expiryMinutes: parseInt(process.env.OTP_EXPIRY_MINUTES || '5', 10),
+    /** Segundos mínimos entre dos envíos al mismo destino (freno al bombeo de SMS/WhatsApp). */
+    resendCooldownSeconds: parseInt(process.env.OTP_RESEND_COOLDOWN_SECONDS || '30', 10),
+
+    // Sin proveedor, desarrollo y pruebas usan el buzón (`models/OtpOutbox.ts`);
+    // producción no llega hasta aquí sin uno real (ver otpDeliveryConfigErrors).
+    whatsapp: {
+      provider: (process.env.WHATSAPP_PROVIDER || '').trim() || (isDev || isTest ? DEV_OTP_PROVIDER : ''),
+      meta: {
+        phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
+        accessToken: process.env.WHATSAPP_ACCESS_TOKEN || '',
+        templateName: process.env.WHATSAPP_OTP_TEMPLATE || '',
+        templateLanguage: process.env.WHATSAPP_OTP_TEMPLATE_LANG || 'es_CO',
+        apiVersion: process.env.WHATSAPP_API_VERSION || 'v20.0',
+        // Las plantillas de autenticación de Meta con botón "copiar código"
+        // exigen repetir el código como parámetro del botón.
+        templateHasCopyButton: process.env.WHATSAPP_OTP_TEMPLATE_COPY_BUTTON !== 'false',
+      },
+      twilio: {
+        accountSid: process.env.TWILIO_ACCOUNT_SID || '',
+        authToken: process.env.TWILIO_AUTH_TOKEN || '',
+        from: process.env.TWILIO_WHATSAPP_FROM || '',
+        contentSid: process.env.TWILIO_WHATSAPP_CONTENT_SID || '',
+      },
+    },
+    email: {
+      enabled: process.env.EMAIL_OTP_ENABLED !== 'false',
+      provider: (process.env.EMAIL_PROVIDER || '').trim() || (isDev || isTest ? DEV_OTP_PROVIDER : ''),
+      fromAddress: process.env.EMAIL_FROM_ADDRESS || '',
+      sendgridApiKey: process.env.SENDGRID_API_KEY || '',
+    },
+    /** Tiempo máximo esperando al proveedor antes de dar el envío por fallido. */
+    providerTimeoutMs: parseInt(process.env.OTP_PROVIDER_TIMEOUT_MS || '8000', 10),
   },
 
   platform: {
@@ -621,7 +737,10 @@ export const config = {
     // Session
     session: {
       maxActiveSessions: parseInt(process.env.MAX_ACTIVE_SESSIONS || '5', 10),
+      /** Caducidad deslizante: días sin refrescar antes de cerrar la sesión. */
       sessionTTLDays: parseInt(process.env.SESSION_TTL_DAYS || '7', 10),
+      /** Caducidad absoluta desde el inicio de sesión, por mucho que se refresque. */
+      absoluteTTLDays: parseInt(process.env.SESSION_ABSOLUTE_TTL_DAYS || '30', 10),
     },
 
     // Brute force
@@ -633,7 +752,14 @@ export const config = {
 
     // 2FA
     twoFactor: {
-      requiredForAdmins: process.env.TOTP_REQUIRED_ADMINS !== 'false',
+      // Apagado por defecto bajo pruebas, igual que los limitadores de tasa
+      // de arriba: cada archivo de prueba crea administradores con
+      // `makeUser({ role: UserRole.ADMIN })` sin pasar por el alta de 2FA, y
+      // exigirlo convertiría casi toda la suite en 403. La aplicación real
+      // del guardia sí se prueba — ver
+      // `src/__tests__/adminTwoFactorEnforcement.test.ts` — activando el
+      // flag explícitamente dentro de ese archivo.
+      requiredForAdmins: !isTest && process.env.TOTP_REQUIRED_ADMINS !== 'false',
       issuer: process.env.TOTP_ISSUER || 'ZIPP',
     },
 

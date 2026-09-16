@@ -1,7 +1,8 @@
 import { Server as SocketServer } from 'socket.io';
 import { Server as HttpServer } from 'http';
-import jwt from 'jsonwebtoken';
 import { config } from '../config';
+import { sessionManager } from '../security';
+import { verifyAccessToken, isLegacyTokenAcceptable, DecodedToken } from '../utils/token';
 import { Business, Driver, Order, OrderCall, User } from '../models';
 import { OrderCallStatus, OrderStatus } from '../types';
 import { resolveOrderAccess } from '../services/orderAccess.service';
@@ -16,6 +17,8 @@ import { emitDriverLocation } from './emitter';
 export interface SocketIdentity {
   userId: string;
   role: string;
+  /** Sesión del token; el socket se une a `session:<id>` para cerrarse si se revoca. */
+  sessionId?: string;
 }
 
 /**
@@ -40,10 +43,19 @@ export interface SocketIdentity {
 export async function authenticateSocket(token: unknown): Promise<SocketIdentity> {
   if (!token || typeof token !== 'string') throw new Error('Token requerido');
 
-  let decoded: { id: string; role: string; iat?: number };
+  let decoded: DecodedToken;
   try {
-    decoded = jwt.verify(token, config.jwt.secret) as typeof decoded;
+    decoded = verifyAccessToken(token);
   } catch {
+    throw new Error('Token inválido o expirado');
+  }
+
+  // Igual que `authenticate`: la sesión del token tiene que seguir viva.
+  if (decoded.sid) {
+    if (!(await sessionManager.isSessionActive(decoded.sid, decoded.id))) {
+      throw new Error('Sesión cerrada');
+    }
+  } else if (!isLegacyTokenAcceptable(decoded)) {
     throw new Error('Token inválido o expirado');
   }
 
@@ -65,7 +77,7 @@ export async function authenticateSocket(token: unknown): Promise<SocketIdentity
   // El rol sale de la base, no del token: a quien le cambien el rol, su
   // token viejo seguiría afirmando el anterior y lo metería en salas que ya
   // no le corresponden — `admin`, por ejemplo.
-  return { userId: decoded.id, role: user.role };
+  return { userId: decoded.id, role: user.role, sessionId: decoded.sid };
 }
 
 export const initializeSocket = (httpServer: HttpServer): SocketServer => {
@@ -85,6 +97,7 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
       const identity = await authenticateSocket(token);
       (socket as any).userId = identity.userId;
       (socket as any).userRole = identity.role;
+      (socket as any).sessionId = identity.sessionId;
       next();
     } catch (error) {
       next(error as Error);
@@ -97,6 +110,11 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
 
     // Join personal room (always first)
     socket.join(`user:${userId}`);
+
+    // Sala de la sesión: revocarla (logout, "cerrar en otros dispositivos",
+    // cambio de contraseña) desconecta este socket al instante.
+    const sessionId = (socket as any).sessionId as string | undefined;
+    if (sessionId) socket.join(`session:${sessionId}`);
 
     // Join role-based rooms
     if (userRole === 'admin') {

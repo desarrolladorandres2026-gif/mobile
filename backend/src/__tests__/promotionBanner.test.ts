@@ -25,7 +25,7 @@ function bannerBody(overrides: Record<string, unknown> = {}) {
 }
 
 async function createBanner(admin: Awaited<ReturnType<typeof makeUser>>, overrides = {}) {
-  const res = await request(app).post(BASE).set(authHeader(admin)).send(bannerBody(overrides));
+  const res = await request(app).post(BASE).set(await authHeader(admin)).send(bannerBody(overrides));
   expect(res.status).toBe(201);
   return res.body.data;
 }
@@ -35,7 +35,7 @@ describe('Banners de inicio — autorización', () => {
     await request(app).post(BASE).send(bannerBody()).expect(401);
 
     const client = await makeUser({ role: UserRole.CLIENT });
-    await request(app).post(BASE).set(authHeader(client)).send(bannerBody()).expect(403);
+    await request(app).post(BASE).set(await authHeader(client)).send(bannerBody()).expect(403);
   });
 
   it('un cliente no puede activar, editar, reordenar ni eliminar', async () => {
@@ -43,10 +43,10 @@ describe('Banners de inicio — autorización', () => {
     const client = await makeUser({ role: UserRole.CLIENT });
     const banner = await createBanner(admin);
 
-    await request(app).patch(`${BASE}/${banner._id}/toggle`).set(authHeader(client)).expect(403);
-    await request(app).patch(`${BASE}/${banner._id}`).set(authHeader(client)).send({ isActive: false }).expect(403);
-    await request(app).patch(`${BASE}/reorder`).set(authHeader(client)).send({ ids: [banner._id] }).expect(403);
-    await request(app).delete(`${BASE}/${banner._id}`).set(authHeader(client)).expect(403);
+    await request(app).patch(`${BASE}/${banner._id}/toggle`).set(await authHeader(client)).expect(403);
+    await request(app).patch(`${BASE}/${banner._id}`).set(await authHeader(client)).send({ isActive: false }).expect(403);
+    await request(app).patch(`${BASE}/reorder`).set(await authHeader(client)).send({ ids: [banner._id] }).expect(403);
+    await request(app).delete(`${BASE}/${banner._id}`).set(await authHeader(client)).expect(403);
 
     // Y nada cambió.
     const stored = await PromotionBanner.findById(banner._id);
@@ -55,8 +55,8 @@ describe('Banners de inicio — autorización', () => {
 
   it('el listado completo y las opciones del formulario son solo para el admin', async () => {
     const client = await makeUser({ role: UserRole.CLIENT });
-    await request(app).get(BASE).set(authHeader(client)).expect(403);
-    await request(app).get(`${BASE}/options`).set(authHeader(client)).expect(403);
+    await request(app).get(BASE).set(await authHeader(client)).expect(403);
+    await request(app).get(`${BASE}/options`).set(await authHeader(client)).expect(403);
   });
 });
 
@@ -104,7 +104,7 @@ describe('Banners de inicio — endpoint público de la app', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const banner = await createBanner(admin);
 
-    await request(app).patch(`${BASE}/${banner._id}/toggle`).set(authHeader(admin)).expect(200);
+    await request(app).patch(`${BASE}/${banner._id}/toggle`).set(await authHeader(admin)).expect(200);
 
     const res = await request(app).get(`${BASE}/active`).expect(200);
     expect(res.body.data).toEqual([]);
@@ -114,7 +114,7 @@ describe('Banners de inicio — endpoint público de la app', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const banner = await createBanner(admin);
 
-    await request(app).delete(`${BASE}/${banner._id}`).set(authHeader(admin)).expect(200);
+    await request(app).delete(`${BASE}/${banner._id}`).set(await authHeader(admin)).expect(200);
 
     const res = await request(app).get(`${BASE}/active`).expect(200);
     expect(res.body.data).toEqual([]);
@@ -153,7 +153,7 @@ describe('Banners de inicio — validación del destino', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     await request(app)
       .post(BASE)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(bannerBody({ actionType: 'url', actionValue: 'javascript:alert(1)' }))
       .expect(400);
   });
@@ -162,13 +162,13 @@ describe('Banners de inicio — validación del destino', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     await request(app)
       .post(BASE)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(bannerBody({ actionType: 'screen', actionValue: 'checkout' }))
       .expect(400);
 
     await request(app)
       .post(BASE)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(bannerBody({ actionType: 'screen', actionValue: 'rewards' }))
       .expect(201);
   });
@@ -177,7 +177,7 @@ describe('Banners de inicio — validación del destino', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     await request(app)
       .post(BASE)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(bannerBody({ actionType: 'business', actionValue: '507f1f77bcf86cd799439011' }))
       .expect(400);
   });
@@ -189,7 +189,7 @@ describe('Banners de inicio — validación del destino', () => {
 
     const res = await request(app)
       .post(BASE)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(bannerBody({ actionType: 'business', actionValue: business._id.toString() }))
       .expect(201);
 
@@ -200,22 +200,22 @@ describe('Banners de inicio — validación del destino', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     await request(app)
       .post(BASE)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(bannerBody({ startDate: hourFromNow(10), endDate: hourFromNow(2) }))
       .expect(400);
 
     const banner = await createBanner(admin);
     await request(app)
       .patch(`${BASE}/${banner._id}`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ startDate: hourFromNow(48) })
       .expect(400);
   });
 
   it('rechaza una duración fuera de los topes que valida el servidor', async () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
-    await request(app).post(BASE).set(authHeader(admin)).send(bannerBody({ durationSeconds: 1 })).expect(400);
-    await request(app).post(BASE).set(authHeader(admin)).send(bannerBody({ durationSeconds: 120 })).expect(400);
+    await request(app).post(BASE).set(await authHeader(admin)).send(bannerBody({ durationSeconds: 1 })).expect(400);
+    await request(app).post(BASE).set(await authHeader(admin)).send(bannerBody({ durationSeconds: 120 })).expect(400);
   });
 });
 
@@ -237,7 +237,7 @@ describe('Banners de inicio — administración', () => {
 
     await request(app)
       .patch(`${BASE}/reorder`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ ids: [c._id, a._id, b._id] })
       .expect(200);
 
@@ -252,7 +252,7 @@ describe('Banners de inicio — administración', () => {
 
     await request(app)
       .patch(`${BASE}/reorder`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send({ ids: [b._id, a._id, '507f1f77bcf86cd799439011'] })
       .expect(400);
 
@@ -266,7 +266,7 @@ describe('Banners de inicio — administración', () => {
     await createBanner(admin, { title: 'Vencido', startDate: hourFromNow(-48), endDate: hourFromNow(-2) });
     await createBanner(admin, { title: 'Programado', startDate: hourFromNow(5), endDate: hourFromNow(48) });
 
-    const res = await request(app).get(BASE).set(authHeader(admin)).expect(200);
+    const res = await request(app).get(BASE).set(await authHeader(admin)).expect(200);
     const byTitle = Object.fromEntries(
       res.body.data.map((b: { title: string; status: string }) => [b.title, b.status])
     );
@@ -275,7 +275,7 @@ describe('Banners de inicio — administración', () => {
 
   it('las opciones del formulario salen del backend, no del panel', async () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
-    const res = await request(app).get(`${BASE}/options`).set(authHeader(admin)).expect(200);
+    const res = await request(app).get(`${BASE}/options`).set(await authHeader(admin)).expect(200);
 
     expect(res.body.data.screens.map((s: { key: string }) => s.key)).toContain('rewards');
     expect(res.body.data.categories).toContain('restaurant');

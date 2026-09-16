@@ -30,7 +30,7 @@ describe('Publicidad — administración', () => {
     const client = await makeUser({ role: UserRole.CLIENT });
     await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(client))
+      .set(await authHeader(client))
       .send(campaignBody())
       .expect(403);
   });
@@ -40,7 +40,7 @@ describe('Publicidad — administración', () => {
 
     const res = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
 
@@ -48,7 +48,7 @@ describe('Publicidad — administración', () => {
 
     const list = await request(app)
       .get('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(200);
 
     expect(list.body.data).toHaveLength(1);
@@ -61,7 +61,7 @@ describe('Publicidad — endpoint público de la app', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
 
@@ -83,7 +83,7 @@ describe('Publicidad — endpoint público de la app', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody({ startDate: hourFromNow(2), endDate: hourFromNow(48) }))
       .expect(201);
 
@@ -95,7 +95,7 @@ describe('Publicidad — endpoint público de la app', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody({ startDate: hourFromNow(-48), endDate: hourFromNow(-1) }))
       .expect(201);
 
@@ -107,13 +107,13 @@ describe('Publicidad — endpoint público de la app', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const created = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
 
     await request(app)
       .patch(`/api/v1/advertisements/${created.body.data._id}/toggle`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(200);
 
     const res = await request(app).get('/api/v1/advertisements/active').expect(200);
@@ -122,9 +122,9 @@ describe('Publicidad — endpoint público de la app', () => {
 
   it('cuando hay varias activas, gana la de mayor prioridad', async () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
-    await request(app).post('/api/v1/advertisements').set(authHeader(admin))
+    await request(app).post('/api/v1/advertisements').set(await authHeader(admin))
       .send(campaignBody({ campaignName: 'Baja prioridad', priority: 1 })).expect(201);
-    await request(app).post('/api/v1/advertisements').set(authHeader(admin))
+    await request(app).post('/api/v1/advertisements').set(await authHeader(admin))
       .send(campaignBody({ campaignName: 'Alta prioridad', priority: 50 })).expect(201);
 
     const res = await request(app).get('/api/v1/advertisements/active').expect(200);
@@ -135,7 +135,7 @@ describe('Publicidad — endpoint público de la app', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const created = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody({ maxImpressions: 1 }))
       .expect(201);
     const id = created.body.data._id;
@@ -152,7 +152,7 @@ describe('Publicidad — analítica', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const created = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
     const id = created.body.data._id;
@@ -168,7 +168,7 @@ describe('Publicidad — analítica', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const created = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
     const id = created.body.data._id;
@@ -189,12 +189,12 @@ describe('Publicidad — eliminar', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const created = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
     const id = created.body.data._id;
 
-    await request(app).delete(`/api/v1/advertisements/${id}`).set(authHeader(admin)).expect(200);
+    await request(app).delete(`/api/v1/advertisements/${id}`).set(await authHeader(admin)).expect(200);
 
     expect(await Advertisement.findById(id)).toBeNull();
   });
@@ -204,12 +204,12 @@ describe('Publicidad — eliminar', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const created = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
     const id = created.body.data._id;
 
-    await request(app).delete(`/api/v1/advertisements/${id}`).set(authHeader(admin)).expect(200);
+    await request(app).delete(`/api/v1/advertisements/${id}`).set(await authHeader(admin)).expect(200);
 
     expect(destroyFlyer).toHaveBeenCalledWith(campaignBody().flyerUrl);
   });
@@ -220,7 +220,7 @@ describe('Publicidad — duración de visualización', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const created = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
     expect(created.body.data.durationSeconds).toBe(5);
@@ -233,7 +233,7 @@ describe('Publicidad — duración de visualización', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody({ durationSeconds: 8 }))
       .expect(201);
 
@@ -245,7 +245,7 @@ describe('Publicidad — duración de visualización', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody({ durationSeconds: 60 }))
       .expect(400);
   });
@@ -256,14 +256,14 @@ describe('Publicidad — cancelar', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const created = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
     const id = created.body.data._id;
 
     const cancelled = await request(app)
       .patch(`/api/v1/advertisements/${id}/cancel`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(200);
     expect(cancelled.body.data.status).toBe('cancelled');
 
@@ -271,28 +271,28 @@ describe('Publicidad — cancelar', () => {
     expect(active.body.data).toBeNull();
 
     // Ni "reactivar" (toggle) ni cancelar dos veces deben poder revertirlo.
-    await request(app).patch(`/api/v1/advertisements/${id}/toggle`).set(authHeader(admin)).expect(409);
-    await request(app).patch(`/api/v1/advertisements/${id}/cancel`).set(authHeader(admin)).expect(409);
+    await request(app).patch(`/api/v1/advertisements/${id}/toggle`).set(await authHeader(admin)).expect(409);
+    await request(app).patch(`/api/v1/advertisements/${id}/cancel`).set(await authHeader(admin)).expect(409);
   });
 
   it('pausar y reactivar (toggle) no afecta a una campaña que no está cancelada', async () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const created = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
     const id = created.body.data._id;
 
     const paused = await request(app)
       .patch(`/api/v1/advertisements/${id}/toggle`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(200);
     expect(paused.body.data.status).toBe('paused');
 
     const reactivated = await request(app)
       .patch(`/api/v1/advertisements/${id}/toggle`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(200);
     expect(reactivated.body.data.status).toBe('active');
   });
@@ -303,7 +303,7 @@ describe('Publicidad — estadísticas', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const created = await request(app)
       .post('/api/v1/advertisements')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .send(campaignBody())
       .expect(201);
     const id = created.body.data._id;
@@ -314,7 +314,7 @@ describe('Publicidad — estadísticas', () => {
 
     const stats = await request(app)
       .get(`/api/v1/advertisements/${id}/stats`)
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(200);
 
     expect(stats.body.data).toEqual({
@@ -327,9 +327,9 @@ describe('Publicidad — estadísticas', () => {
 
   it('el resumen global suma todas las campañas', async () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
-    const a = await request(app).post('/api/v1/advertisements').set(authHeader(admin))
+    const a = await request(app).post('/api/v1/advertisements').set(await authHeader(admin))
       .send(campaignBody({ campaignName: 'Campaña A' })).expect(201);
-    const b = await request(app).post('/api/v1/advertisements').set(authHeader(admin))
+    const b = await request(app).post('/api/v1/advertisements').set(await authHeader(admin))
       .send(campaignBody({ campaignName: 'Campaña B' })).expect(201);
 
     await request(app).post(`/api/v1/advertisements/${a.body.data._id}/impression`).send({ deviceId: 'dev-1' }).expect(200);
@@ -337,7 +337,7 @@ describe('Publicidad — estadísticas', () => {
 
     const summary = await request(app)
       .get('/api/v1/advertisements/stats/summary')
-      .set(authHeader(admin))
+      .set(await authHeader(admin))
       .expect(200);
 
     expect(summary.body.data.totalImpressions).toBe(2);

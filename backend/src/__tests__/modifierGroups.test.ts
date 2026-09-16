@@ -62,8 +62,8 @@ describe('Grupos de modificadores', () => {
     ...extra,
   });
 
-  const quote = (items: unknown[]) =>
-    request(app).post('/api/v1/orders/quote').set(authHeader(client)).send(body(items));
+  const quote = async (items: unknown[]) =>
+    request(app).post('/api/v1/orders/quote').set(await authHeader(client)).send(body(items));
 
   const minimal = () => [
     pick(burger, 'Tipo de carne', 'Res 120 g'),
@@ -125,7 +125,7 @@ describe('Grupos de modificadores', () => {
         { name: 'Repetidas', minSelect: 0, maxSelect: 1, options: [{ name: 'a', price: 0 }, { name: 'A', price: 0 }] },
       ];
       for (const group of cases) {
-        const res = await request(app).put(`/api/v1/products/${burger._id}`).set(authHeader(owner))
+        const res = await request(app).put(`/api/v1/products/${burger._id}`).set(await authHeader(owner))
           .send({ ...base, modifierGroups: [group] });
         expect(res.status, group.name).toBe(400);
       }
@@ -134,7 +134,7 @@ describe('Grupos de modificadores', () => {
     });
 
     it('R-11: crear sin inventario deja `stock` en null, no en cero', async () => {
-      const res = await request(app).post('/api/v1/products').set(authHeader(owner)).send({
+      const res = await request(app).post('/api/v1/products').set(await authHeader(owner)).send({
         businessId: business._id.toString(),
         categoryId: burger.categoryId.toString(),
         name: 'Sin inventario',
@@ -149,7 +149,7 @@ describe('Grupos de modificadores', () => {
     });
 
     it('L-6: crear con inventario, umbral y mayoría de edad los guarda (antes se perdían)', async () => {
-      const res = await request(app).post('/api/v1/products').set(authHeader(owner)).send({
+      const res = await request(app).post('/api/v1/products').set(await authHeader(owner)).send({
         businessId: business._id.toString(),
         categoryId: burger.categoryId.toString(),
         name: 'Cerveza',
@@ -326,7 +326,7 @@ describe('Grupos de modificadores', () => {
     });
 
     it('R-06 / R-07: el pedido copia la selección y no cambia si el producto cambia después', async () => {
-      const created = await request(app).post('/api/v1/orders').set(authHeader(client)).send(body([{
+      const created = await request(app).post('/api/v1/orders').set(await authHeader(client)).send(body([{
         productId: burger._id.toString(), quantity: 1,
         selectedExtras: [pick(burger, 'Tipo de carne', 'Angus 150 g'), pick(burger, 'Acompañantes', 'Papas'), pick(burger, 'Acompañantes', 'Ensalada')],
       }])).expect(201);
@@ -336,7 +336,7 @@ describe('Grupos de modificadores', () => {
       expect(before.items[0].selectedExtras[0]).toMatchObject({ name: 'Angus 150 g', price: 7000, groupName: 'Tipo de carne' });
 
       // El comercio sube precios y borra la opción.
-      await request(app).put(`/api/v1/products/${burger._id}`).set(authHeader(owner)).send({
+      await request(app).put(`/api/v1/products/${burger._id}`).set(await authHeader(owner)).send({
         businessId: business._id.toString(),
         price: 30000,
         modifierGroups: [{ name: 'Tipo de carne', minSelect: 1, maxSelect: 1, options: [{ name: 'Res 120 g', price: 0 }] }],
@@ -390,7 +390,7 @@ describe('Grupos de modificadores', () => {
 
   describe('edición desde el panel (R-10)', () => {
     it('un PUT sin `modifierGroups` no toca los grupos', async () => {
-      await request(app).put(`/api/v1/products/${burger._id}`).set(authHeader(owner))
+      await request(app).put(`/api/v1/products/${burger._id}`).set(await authHeader(owner))
         .send({ businessId: business._id.toString(), description: 'Nueva descripción' }).expect(200);
       const saved = await Product.findById(burger._id);
       expect(saved!.modifierGroups).toHaveLength(4);
@@ -403,7 +403,7 @@ describe('Grupos de modificadores', () => {
         _id: g._id, name: g.name, minSelect: g.minSelect, maxSelect: g.maxSelect, sortOrder: g.sortOrder,
         options: g.options.map((o: any) => ({ _id: o._id, name: o.name === 'Angus 150 g' ? 'Angus 180 g' : o.name, price: o.price, isAvailable: o.isAvailable })),
       }));
-      await request(app).put(`/api/v1/products/${burger._id}`).set(authHeader(owner))
+      await request(app).put(`/api/v1/products/${burger._id}`).set(await authHeader(owner))
         .send({ businessId: business._id.toString(), modifierGroups: groups }).expect(200);
 
       const saved = await Product.findById(burger._id);
@@ -414,7 +414,7 @@ describe('Grupos de modificadores', () => {
 
     it('quitar todos los grupos deja extras, inventario e imagen como estaban', async () => {
       await Product.updateOne({ _id: burger._id }, { stock: 7, image: 'https://img.test/a.jpg' });
-      await request(app).put(`/api/v1/products/${burger._id}`).set(authHeader(owner))
+      await request(app).put(`/api/v1/products/${burger._id}`).set(await authHeader(owner))
         .send({ businessId: business._id.toString(), modifierGroups: [] }).expect(200);
       const saved = await Product.findById(burger._id);
       expect(saved!.modifierGroups).toEqual([]);
@@ -428,16 +428,16 @@ describe('Grupos de modificadores', () => {
       const theirs = await makeBusiness(intruder._id);
       const payload = { modifierGroups: [{ name: 'Robo', minSelect: 0, maxSelect: 1, options: [{ name: 'x', price: 0 }] }] };
 
-      await request(app).put(`/api/v1/products/${burger._id}`).set(authHeader(intruder))
+      await request(app).put(`/api/v1/products/${burger._id}`).set(await authHeader(intruder))
         .send({ businessId: theirs._id.toString(), ...payload }).expect(403);
-      await request(app).put(`/api/v1/products/${burger._id}`).set(authHeader(intruder))
+      await request(app).put(`/api/v1/products/${burger._id}`).set(await authHeader(intruder))
         .send({ businessId: business._id.toString(), ...payload }).expect(403);
 
       expect((await Product.findById(burger._id))!.modifierGroups[0].name).toBe('Tipo de carne');
     });
 
     it('borrar un producto con grupos funciona como siempre', async () => {
-      await request(app).delete(`/api/v1/products/${burger._id}`).set(authHeader(owner))
+      await request(app).delete(`/api/v1/products/${burger._id}`).set(await authHeader(owner))
         .send({ businessId: business._id.toString() }).expect(200);
       expect(await Product.findById(burger._id)).toBeNull();
     });

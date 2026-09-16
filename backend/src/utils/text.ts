@@ -11,6 +11,23 @@
  * tildes, así que el término sin acentos es el normal, no la excepción.
  */
 
+/**
+ * Escapa un término para usarlo dentro de un `$regex` de Mongo sin que sus
+ * caracteres se interpreten como sintaxis de expresión regular.
+ *
+ * Varios listados (`admin.service.ts`, `business.service.ts`, cupones,
+ * publicidad, banners de promoción) construían `{ $regex: search }`
+ * directamente con lo que escribiera el usuario. Un patrón malicioso tipo
+ * `(a+)+$` no permite inyectar datos ajenos —Mongo no ejecuta código—, pero
+ * sí puede volver catastróficamente lento el motor de regex del proceso
+ * (ReDoS) con una entrada corta. Escapar dos caracteres de más (como una
+ * tilde) nunca cambia el resultado de una búsqueda; no escapar uno de menos
+ * sí puede tumbar el servidor.
+ */
+export function escapeRegex(term: string): string {
+  return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** Longitud mínima de una palabra para que valga la pena indexarla. */
 const MIN_TOKEN = 3;
 

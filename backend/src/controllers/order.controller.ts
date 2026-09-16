@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { orderService, driverService } from '../services';
-import { sendResponse, param, query, clientIp, userAgent } from '../utils';
+import { sendResponse, param, query, clientIp, userAgent, clampLimit } from '../utils';
 import { OrderStatus, UserRole } from '../types';
 import { Business } from '../models';
 import { AppError } from '../middlewares';
@@ -96,7 +96,7 @@ export class OrderController {
       const result = await orderService.getByClient(
         req.user!._id.toString(),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'), 100, 20)
       );
       sendResponse(res, 200, 'Mis pedidos', result.orders, result.meta);
     } catch (error) { next(error); }
@@ -151,7 +151,7 @@ export class OrderController {
         param(req, 'businessId'),
         query(req, 'status'),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'), 100, 20)
       );
       sendResponse(res, 200, 'Pedidos del negocio', result.orders, result.meta);
     } catch (error) { next(error); }
@@ -287,7 +287,7 @@ export class OrderController {
     try {
       const result = await orderService.getAvailableOrders(
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'), 100, 20)
       );
       sendResponse(res, 200, 'Pedidos disponibles', result.orders, result.meta);
     } catch (error) { next(error); }
@@ -299,7 +299,7 @@ export class OrderController {
       const result = await orderService.getDriverOrders(
         driver._id.toString(),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'), 100, 20)
       );
       sendResponse(res, 200, 'Pedidos del domiciliario', result.orders, result.meta);
     } catch (error) { next(error); }

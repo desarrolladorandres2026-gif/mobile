@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import jwt from 'jsonwebtoken';
+import { Types } from 'mongoose';
 import { config } from '../config';
 import { User } from '../models';
 import { UserRole } from '../types';
 import { authenticateSocket } from '../sockets';
+import { sessionManager } from '../security';
 import { makeUser } from './factories';
 
 /**
@@ -13,18 +15,32 @@ import { makeUser } from './factories';
  * quien la cruce sin permiso no solo escucha pedidos: aparece en el mapa de
  * flota emitiendo posiciones. Estas pruebas fijan que comprueba el estado
  * ACTUAL de la cuenta y no solo la firma del token.
+ *
+ * `authenticateSocket` ahora exige que el `sid` del token corresponda a una
+ * `Session` activa (misma corrección que `authenticate`, ver A9 de la
+ * auditoría), así que estos tokens de prueba también necesitan una sesión
+ * real detrás — no solo una firma válida.
  */
-const signFor = (id: string, role: string, issuedAt?: number) =>
-  jwt.sign(
-    { id, role, ...(issuedAt ? { iat: issuedAt } : {}) },
+const signFor = async (id: string, role: string, issuedAt?: number) => {
+  const sessionId = new Types.ObjectId();
+  await sessionManager.createSession({
+    userId: id,
+    sessionId,
+    refreshToken: `test-refresh-${sessionId.toString()}`,
+    ip: '127.0.0.1',
+    userAgent: 'vitest',
+  });
+  return jwt.sign(
+    { id, role, sid: sessionId.toString(), ...(issuedAt ? { iat: issuedAt } : {}) },
     config.jwt.secret,
     issuedAt ? {} : { expiresIn: '15m' }
   );
+};
 
 describe('authenticateSocket: el handshake del socket', () => {
   it('deja entrar a un usuario activo', async () => {
     const user = await makeUser({ role: UserRole.DRIVER });
-    const identity = await authenticateSocket(signFor(user._id.toString(), 'driver'));
+    const identity = await authenticateSocket(await signFor(user._id.toString(), 'driver'));
 
     expect(identity.userId).toBe(user._id.toString());
     expect(identity.role).toBe(UserRole.DRIVER);
@@ -32,7 +48,7 @@ describe('authenticateSocket: el handshake del socket', () => {
 
   it('rechaza a un usuario borrado aunque su token siga siendo válido', async () => {
     const user = await makeUser({ role: UserRole.DRIVER });
-    const token = signFor(user._id.toString(), 'driver');
+    const token = await signFor(user._id.toString(), 'driver');
     await User.findByIdAndDelete(user._id);
 
     // Este es el caso que se vio en los logs: tras un seed, el teléfono
@@ -43,7 +59,7 @@ describe('authenticateSocket: el handshake del socket', () => {
 
   it('rechaza a un usuario bloqueado', async () => {
     const user = await makeUser({ role: UserRole.DRIVER });
-    const token = signFor(user._id.toString(), 'driver');
+    const token = await signFor(user._id.toString(), 'driver');
     await User.findByIdAndUpdate(user._id, { isBlocked: true });
 
     // Un repartidor bloqueado por fraude no puede seguir emitiendo su
@@ -53,7 +69,7 @@ describe('authenticateSocket: el handshake del socket', () => {
 
   it('rechaza a un usuario desactivado', async () => {
     const user = await makeUser({ role: UserRole.CLIENT });
-    const token = signFor(user._id.toString(), 'client');
+    const token = await signFor(user._id.toString(), 'client');
     await User.findByIdAndUpdate(user._id, { isActive: false });
 
     await expect(authenticateSocket(token)).rejects.toThrow(/no encontrado|desactivado/i);
@@ -62,7 +78,7 @@ describe('authenticateSocket: el handshake del socket', () => {
   it('cierra el socket cuando la contraseña cambió después de emitir el token', async () => {
     const user = await makeUser({ role: UserRole.CLIENT });
     const issuedAt = Math.floor(Date.now() / 1000) - 60;
-    const token = signFor(user._id.toString(), 'client', issuedAt);
+    const token = await signFor(user._id.toString(), 'client', issuedAt);
 
     await User.findByIdAndUpdate(user._id, { passwordChangedAt: new Date() });
 
@@ -74,7 +90,7 @@ describe('authenticateSocket: el handshake del socket', () => {
   it('toma el rol de la base, no del token', async () => {
     const user = await makeUser({ role: UserRole.CLIENT });
     // Token que se declara admin. Si se creyera, entraría a la sala `admin`.
-    const token = signFor(user._id.toString(), 'admin');
+    const token = await signFor(user._id.toString(), 'admin');
 
     const identity = await authenticateSocket(token);
     expect(identity.role).toBe(UserRole.CLIENT);

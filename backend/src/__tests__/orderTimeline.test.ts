@@ -75,14 +75,14 @@ async function scenario(paymentMethod = 'cash_on_delivery'): Promise<Scenario> {
   for (const status of [OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY]) {
     const res = await request(app)
       .patch(`/api/v1/orders/${orderId}/status`)
-      .set(authHeader(owner))
+      .set(await authHeader(owner))
       .send({ status });
     expect(res.status).toBe(200);
   }
 
   const assigned = await request(app)
     .patch(`/api/v1/orders/${orderId}/assign-driver`)
-    .set(authHeader(driverUser))
+    .set(await authHeader(driverUser))
     .send({});
   expect(assigned.status).toBe(200);
 
@@ -100,32 +100,32 @@ async function readCode(s: Scenario, kind: OrderCodeKind): Promise<string> {
 
 /** Recorre el traspaso completo por HTTP: llegadas, fotos y códigos. */
 async function runHandover(s: Scenario) {
-  await request(app).post(`/api/v1/orders/${s.orderId}/pickup/arrive`).set(authHeader(s.driverUser)).send({});
+  await request(app).post(`/api/v1/orders/${s.orderId}/pickup/arrive`).set(await authHeader(s.driverUser)).send({});
   await request(app)
     .post(`/api/v1/orders/${s.orderId}/pickup/evidence`)
-    .set(authHeader(s.driverUser))
+    .set(await authHeader(s.driverUser))
     .attach('photo', JPEG, { filename: 'recogida.jpg', contentType: 'image/jpeg' });
   const pickupCode = await readCode(s, OrderCodeKind.PICKUP);
   const picked = await request(app)
     .post(`/api/v1/orders/${s.orderId}/pickup/verify`)
-    .set(authHeader(s.driverUser))
+    .set(await authHeader(s.driverUser))
     .send({ code: pickupCode });
   expect(picked.status).toBe(200);
 
   await request(app)
     .patch(`/api/v1/orders/${s.orderId}/status`)
-    .set(authHeader(s.driverUser))
+    .set(await authHeader(s.driverUser))
     .send({ status: OrderStatus.ON_WAY });
 
-  await request(app).post(`/api/v1/orders/${s.orderId}/delivery/arrive`).set(authHeader(s.driverUser)).send({});
+  await request(app).post(`/api/v1/orders/${s.orderId}/delivery/arrive`).set(await authHeader(s.driverUser)).send({});
   await request(app)
     .post(`/api/v1/orders/${s.orderId}/delivery/evidence`)
-    .set(authHeader(s.driverUser))
+    .set(await authHeader(s.driverUser))
     .attach('photo', JPEG_ALT, { filename: 'entrega.jpg', contentType: 'image/jpeg' });
   const deliveryCode = await readCode(s, OrderCodeKind.DELIVERY);
   const delivered = await request(app)
     .post(`/api/v1/orders/${s.orderId}/delivery/verify`)
-    .set(authHeader(s.driverUser))
+    .set(await authHeader(s.driverUser))
     .send({ code: deliveryCode });
   expect(delivered.status).toBe(200);
 }
@@ -154,7 +154,7 @@ describe('Línea de tiempo del pedido', () => {
 
     const res = await request(app)
       .get(`/api/v1/orders/${s.orderId}/timeline`)
-      .set(authHeader(s.owner));
+      .set(await authHeader(s.owner));
 
     expect(res.status).toBe(200);
     const actions = res.body.data.map((entry: any) => entry.action);
@@ -200,7 +200,7 @@ describe('Línea de tiempo del pedido', () => {
 
     const res = await request(app)
       .get(`/api/v1/orders/${s.orderId}/timeline`)
-      .set(authHeader(s.owner));
+      .set(await authHeader(s.owner));
 
     expect(res.status).toBe(200);
     const actions = res.body.data.map((entry: any) => entry.action);
@@ -220,10 +220,10 @@ describe('Línea de tiempo del pedido', () => {
 
     const asBusiness = await request(app)
       .get(`/api/v1/orders/${s.orderId}/timeline`)
-      .set(authHeader(s.owner));
+      .set(await authHeader(s.owner));
     const asAdmin = await request(app)
       .get(`/api/v1/orders/${s.orderId}/timeline`)
-      .set(authHeader(admin));
+      .set(await authHeader(admin));
 
     expect(asBusiness.body.data.every((e: any) => e.forensics === undefined)).toBe(true);
     expect(asAdmin.body.data.some((e: any) => e.forensics?.ip)).toBe(true);
@@ -231,21 +231,21 @@ describe('Línea de tiempo del pedido', () => {
 
   it('registra el intento fallido de código como incidencia', async () => {
     const s = await scenario();
-    await request(app).post(`/api/v1/orders/${s.orderId}/pickup/arrive`).set(authHeader(s.driverUser)).send({});
+    await request(app).post(`/api/v1/orders/${s.orderId}/pickup/arrive`).set(await authHeader(s.driverUser)).send({});
     await request(app)
       .post(`/api/v1/orders/${s.orderId}/pickup/evidence`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .attach('photo', JPEG, { filename: 'recogida.jpg', contentType: 'image/jpeg' });
 
     const failed = await request(app)
       .post(`/api/v1/orders/${s.orderId}/pickup/verify`)
-      .set(authHeader(s.driverUser))
+      .set(await authHeader(s.driverUser))
       .send({ code: '000000' });
     expect(failed.status).toBe(400);
 
     const res = await request(app)
       .get(`/api/v1/orders/${s.orderId}/timeline`)
-      .set(authHeader(s.owner));
+      .set(await authHeader(s.owner));
 
     const incident = res.body.data.find(
       (entry: any) => entry.action === OrderTimelineAction.CODE_FAILED_PICKUP
@@ -262,7 +262,7 @@ describe('Línea de tiempo del pedido', () => {
 
     const res = await request(app)
       .get(`/api/v1/orders/${s.orderId}/timeline`)
-      .set(authHeader(stranger));
+      .set(await authHeader(stranger));
 
     // 404 y no 403: distinguirlos convertiría el endpoint en un oráculo
     // para enumerar pedidos ajenos.
@@ -277,7 +277,7 @@ describe('Extracto de liquidación del comercio', () => {
 
     const res = await request(app)
       .get(`/api/v1/businesses/${s.business._id}/statement`)
-      .set(authHeader(s.owner));
+      .set(await authHeader(s.owner));
 
     expect(res.status).toBe(200);
     const { data } = res.body;
@@ -300,7 +300,7 @@ describe('Extracto de liquidación del comercio', () => {
 
     const before = await request(app)
       .get(`/api/v1/businesses/${s.business._id}/statement`)
-      .set(authHeader(s.owner));
+      .set(await authHeader(s.owner));
 
     const order = await orderService.getById(s.orderId);
     expect(before.body.data.nextSettlement.orderCount).toBe(1);
@@ -326,7 +326,7 @@ describe('Extracto de liquidación del comercio', () => {
     const lines = await request(app)
       .get(`/api/v1/businesses/${s.business._id}/statement/lines`)
       .query({ settlementId: settlement!._id.toString() })
-      .set(authHeader(s.owner));
+      .set(await authHeader(s.owner));
 
     expect(lines.status).toBe(200);
     expect(lines.body.data).toHaveLength(1);
@@ -351,7 +351,7 @@ describe('Extracto de liquidación del comercio', () => {
 
     const lines = await request(app)
       .get(`/api/v1/businesses/${s.business._id}/statement/lines`)
-      .set(authHeader(s.owner));
+      .set(await authHeader(s.owner));
 
     const line = lines.body.data[0];
     expect(line.reversedAmount).toBe(5000);
@@ -365,7 +365,7 @@ describe('Extracto de liquidación del comercio', () => {
 
     const res = await request(app)
       .get(`/api/v1/businesses/${s.business._id}/statement`)
-      .set(authHeader(otherOwner));
+      .set(await authHeader(otherOwner));
 
     expect(res.status).toBe(403);
   });
@@ -376,7 +376,7 @@ describe('Extracto de liquidación del comercio', () => {
     const res = await request(app)
       .get(`/api/v1/businesses/${s.business._id}/statement/lines`)
       .query({ status: 'settled,__proto__,pagado' })
-      .set(authHeader(s.owner));
+      .set(await authHeader(s.owner));
 
     // Solo sobrevive `settled`, y ese pedido todavía no lo está.
     expect(res.status).toBe(200);

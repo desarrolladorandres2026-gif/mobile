@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { reviewService } from '../services/review.service';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, clampLimit } from '../utils';
 import { UserRole } from '../types';
 import { AuditAction, logAudit } from '../security';
+import { resolveOrderAccess } from '../services/orderAccess.service';
 
 export class ReviewController {
   async create(req: Request, res: Response, next: NextFunction) {
@@ -125,7 +126,7 @@ export class ReviewController {
       const result = await reviewService.getByBusiness(
         param(req, 'businessId'),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'))
       );
       sendResponse(res, 200, 'Reseñas obtenidas', result.reviews, result.meta);
     } catch (error) { next(error); }
@@ -136,16 +137,43 @@ export class ReviewController {
       const result = await reviewService.getByDriver(
         param(req, 'driverId'),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'))
       );
       sendResponse(res, 200, 'Calificaciones del domiciliario obtenidas', result.reviews, result.meta);
     } catch (error) { next(error); }
   }
 
+  /**
+   * La reseña de un pedido concreto. Antes bastaba `authenticate`: cualquier
+   * cuenta que conociera el `orderId` (circula por notificaciones y recibos)
+   * leía la reseña de un pedido ajeno, incluidas las notas privadas que el
+   * negocio o el domiciliario dejaron sobre el cliente — pensadas
+   * explícitamente para no llegar nunca al propio cliente (ver
+   * `review.service.ts`).
+   *
+   * Ahora exige ser parte del pedido (`resolveOrderAccess`, el mismo punto
+   * único que usa todo el flujo de entrega) y, si quien pregunta es el
+   * cliente, se quitan `clientRatingByBusiness`, `clientRatingByDriver` y
+   * `clientNotes` de la respuesta.
+   */
   async getByOrder(req: Request, res: Response, next: NextFunction) {
     try {
-      const review = await reviewService.getByOrder(param(req, 'orderId'));
-      sendResponse(res, 200, 'Reseña del pedido obtenida', review);
+      const orderId = param(req, 'orderId');
+      const access = await resolveOrderAccess(orderId, req.user!);
+
+      const review = await reviewService.getByOrder(orderId);
+      if (!review) {
+        return sendResponse(res, 200, 'Reseña del pedido obtenida', null);
+      }
+
+      const payload = review.toObject ? review.toObject() : review;
+      if (access.participant === 'client') {
+        delete (payload as any).clientRatingByBusiness;
+        delete (payload as any).clientRatingByDriver;
+        delete (payload as any).clientNotes;
+      }
+
+      sendResponse(res, 200, 'Reseña del pedido obtenida', payload);
     } catch (error) { next(error); }
   }
 }

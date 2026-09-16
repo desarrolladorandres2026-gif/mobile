@@ -160,8 +160,8 @@ describe('TESTE — la matriz por HTTP', () => {
     deliverTo = offsetPoint(TESTE_CLIENTS[0].address.offsetKm);
   });
 
-  const order = (business: any, items: unknown[], extra: Record<string, unknown> = {}) =>
-    request(app).post('/api/v1/orders').set(authHeader(client)).send({
+  const order = async (business: any, items: unknown[], extra: Record<string, unknown> = {}) =>
+    request(app).post('/api/v1/orders').set(await authHeader(client)).send({
       businessId: business._id.toString(), items, paymentMethod: 'online',
       deliveryAddress: TESTE_CLIENTS[0].address.address, deliveryLatitude: deliverTo.lat, deliveryLongitude: deliverTo.lng,
       ...extra,
@@ -277,13 +277,13 @@ describe('TESTE — la matriz por HTTP', () => {
     const first = await order(business, [{ productId: product._id.toString(), quantity: 2 }]);
     expect(first.status).toBe(201);
     expect((await Product.findById(product._id))!.stock).toBe(10);
-    await request(app).patch(`/api/v1/orders/${first.body.data._id}/status`).set(authHeader(client))
+    await request(app).patch(`/api/v1/orders/${first.body.data._id}/status`).set(await authHeader(client))
       .send({ status: 'cancelled', cancellationCode: 'client_changed_mind' }).expect(200);
     expect((await Product.findById(product._id))!.stock).toBe(12);
 
     // O-03: el comercio rechaza con motivo del catálogo.
     const second = await order(business, [{ productId: product._id.toString(), quantity: 1 }]);
-    const rejected = await request(app).patch(`/api/v1/orders/${second.body.data._id}/status`).set(authHeader(owner!))
+    const rejected = await request(app).patch(`/api/v1/orders/${second.body.data._id}/status`).set(await authHeader(owner!))
       .send({ status: 'cancelled', cancellationCode: 'business_out_of_stock', cancellationReason: 'Se acabaron' }).expect(200);
     expect(rejected.body.data.cancellationCode).toBe('business_out_of_stock');
 
@@ -294,13 +294,13 @@ describe('TESTE — la matriz por HTTP', () => {
     expect(third.status).toBe(201);
     const orderId = third.body.data._id;
     for (const status of ['accepted', 'preparing', 'ready']) {
-      await request(app).patch(`/api/v1/orders/${orderId}/status`).set(authHeader(owner!)).send({ status }).expect(200);
+      await request(app).patch(`/api/v1/orders/${orderId}/status`).set(await authHeader(owner!)).send({ status }).expect(200);
     }
-    await request(app).patch(`/api/v1/orders/${orderId}/assign-driver`).set(authHeader(driverUser)).expect(200);
+    await request(app).patch(`/api/v1/orders/${orderId}/assign-driver`).set(await authHeader(driverUser)).expect(200);
     await runDelivery(orderId, driverUser);
     expect((await Order.findById(orderId))!.status).toBe(OrderStatus.DELIVERED);
 
-    const timeline = await request(app).get(`/api/v1/orders/${orderId}/timeline`).set(authHeader(client)).expect(200);
+    const timeline = await request(app).get(`/api/v1/orders/${orderId}/timeline`).set(await authHeader(client)).expect(200);
     expect(timeline.body.data.length).toBeGreaterThanOrEqual(6);
 
     // Y con pedidos hechos, el validador sigue en PASS.

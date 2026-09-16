@@ -19,6 +19,21 @@ export const query = (req: Request, key: string): string | undefined => {
 };
 
 /**
+ * Techo duro para cualquier `limit` de paginación.
+ *
+ * Varios listados (`GET /businesses` público, y varios del panel de admin:
+ * usuarios, negocios, pedidos, domiciliarios) leían `?limit=` con
+ * `Number(...) || 20` y lo pasaban directo a `.limit()` de Mongoose: sin
+ * techo, `?limit=999999999` obligaba a materializar en memoria toda la
+ * colección que cumpliera el filtro. Ver A11 de la auditoría.
+ */
+export const clampLimit = (raw: unknown, max = 50, fallback = 20): number => {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), max);
+};
+
+/**
  * Format Colombian pesos
  */
 export const formatCOP = (amount: number): string => {
@@ -32,16 +47,20 @@ export const formatCOP = (amount: number): string => {
 /**
  * IP real de quien hace la petición.
  *
- * `trust proxy` está activo, así que Express ya resuelve `req.ip` detrás
- * del balanceador; se lee `x-forwarded-for` primero porque la auditoría
- * y la bitácora del pedido tienen que coincidir dígito a dígito con lo
- * que registra el limitador de peticiones, y ese mira la cabecera.
+ * Es `req.ip` y nada más. Detrás de nginx (`$proxy_add_x_forwarded_for`) la
+ * cabecera `X-Forwarded-For` llega como `<lo que escribió el cliente>, <IP
+ * real>`: nginx añade al final, nunca reemplaza. Leer el primer valor —como
+ * se hacía aquí y en otras tres copias— era leer justo la parte que decide
+ * el atacante, así que rotándola evadía el límite de autenticación, el
+ * bloqueo por fuerza bruta y dejaba IPs inventadas en la auditoría.
+ *
+ * Con `app.set('trust proxy', 1)` Express ya toma el último salto de
+ * confianza, que es la IP que vio nginx. Es la misma que usa el limitador
+ * global, así que auditoría, limitadores y bitácoras coinciden por
+ * construcción.
  */
-export const clientIp = (req: Request): string => {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
-  return req.ip || req.socket?.remoteAddress || 'unknown';
-};
+export const clientIp = (req: Request): string =>
+  req.ip || req.socket?.remoteAddress || 'unknown';
 
 export const userAgent = (req: Request): string =>
   (req.headers['user-agent'] as string) || 'unknown';

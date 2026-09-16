@@ -87,7 +87,7 @@ describe('Ganancias del domiciliario por rango', () => {
 
     const res = await request(app)
       .get('/api/v1/drivers/earnings/range')
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .expect(200);
 
     expect(res.body.data.totals).toMatchObject({
@@ -106,7 +106,7 @@ describe('Ganancias del domiciliario por rango', () => {
 
     const res = await request(app)
       .get('/api/v1/drivers/earnings/range')
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .expect(200);
 
     const day = res.body.data.series.find((d: any) => d.date === localDay(anoche));
@@ -121,7 +121,7 @@ describe('Ganancias del domiciliario por rango', () => {
 
     const res = await request(app)
       .get('/api/v1/drivers/earnings/range')
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .expect(200);
 
     expect(res.body.data.series).toHaveLength(7);
@@ -136,7 +136,7 @@ describe('Ganancias del domiciliario por rango', () => {
 
     const res = await request(app)
       .get('/api/v1/drivers/earnings/range')
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .expect(200);
 
     expect(res.body.data.totals.workedDays).toBe(2);
@@ -151,7 +151,7 @@ describe('Ganancias del domiciliario por rango', () => {
 
     const res = await request(app)
       .get('/api/v1/drivers/earnings/range')
-      .set(authHeader(driverUser))
+      .set(await authHeader(driverUser))
       .expect(200);
 
     expect(res.body.data.totals.total).toBe(0);
@@ -181,7 +181,7 @@ describe('Ganancias del domiciliario por rango', () => {
     const cliente = await makeUser();
     await request(app)
       .get('/api/v1/drivers/earnings/range')
-      .set(authHeader(cliente))
+      .set(await authHeader(cliente))
       .expect(403);
   });
 });

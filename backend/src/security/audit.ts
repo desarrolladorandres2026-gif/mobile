@@ -188,9 +188,10 @@ export const AuditLog = mongoose.model<IAuditLog>('AuditLog', auditLogSchema);
 
 // ── Audit Logger Service ──
 
+// La IP sale de `req.ip`, igual que en el resto del backend — ver
+// `utils/helpers.ts#clientIp`. No se importa de allí para no crear un ciclo
+// security → utils → config → security.
 function getClientIP(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
   return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 

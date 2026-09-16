@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { adminService } from '../services/admin.service';
 import { dailySummaryService } from '../services/dailySummary.service';
-import { sendResponse, param, query, toCsv, csvFilename, type CsvColumn } from '../utils';
+import { sendResponse, param, query, toCsv, csvFilename, clampLimit, type CsvColumn } from '../utils';
 import { OrderEvidenceType } from '../types';
 import { orderEvidenceService } from '../services/orderEvidence.service';
 import { orderSecurityService } from '../services/orderSecurity.service';
@@ -210,7 +210,7 @@ export class AdminController {
         query(req, 'role'),
         query(req, 'search'),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'))
       );
       sendResponse(res, 200, 'Usuarios obtenidos', result.users, result.meta);
     } catch (error) { next(error); }
@@ -280,9 +280,16 @@ export class AdminController {
 
   async overrideUserContact(req: Request, res: Response, next: NextFunction) {
     try {
-      const adminUserId = req.user?._id?.toString() || '';
       const { phone, email } = req.body;
-      const user = await adminService.overrideUserContact(param(req, 'id'), { phone, email }, adminUserId, req);
+      const user = await adminService.overrideUserContact(
+        param(req, 'id'),
+        {
+          phone: typeof phone === 'string' ? phone : undefined,
+          email: typeof email === 'string' ? email : undefined,
+        },
+        req.user!,
+        req
+      );
       sendResponse(res, 200, 'Datos de contacto actualizados', user);
     } catch (error) { next(error); }
   }
@@ -295,7 +302,7 @@ export class AdminController {
         query(req, 'search'),
         query(req, 'category'),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'))
       );
       sendResponse(res, 200, 'Negocios obtenidos', result.businesses, result.meta);
     } catch (error) { next(error); }
@@ -333,7 +340,7 @@ export class AdminController {
         dateTo: query(req, 'dateTo'),
         search: query(req, 'search'),
         page: Number(query(req, 'page')) || 1,
-        limit: Number(query(req, 'limit')) || 20,
+        limit: clampLimit(query(req, 'limit')),
       });
       sendResponse(res, 200, 'Pedidos obtenidos', result.orders, result.meta);
     } catch (error) { next(error); }
@@ -358,7 +365,7 @@ export class AdminController {
         from: query(req, 'from'),
         to: query(req, 'to'),
         page: Number(query(req, 'page')) || 1,
-        limit: Number(query(req, 'limit')) || 20,
+        limit: clampLimit(query(req, 'limit')),
       });
       sendResponse(res, 200, 'Evidencias obtenidas', result.evidences, result.meta);
     } catch (error) { next(error); }
@@ -403,7 +410,7 @@ export class AdminController {
       const result = await adminService.getCommissions(
         query(req, 'status'),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'))
       );
       sendResponse(res, 200, 'Comisiones obtenidas', result.commissions, result.meta);
     } catch (error) { next(error); }
@@ -416,7 +423,7 @@ export class AdminController {
       const result = await adminService.getDriverDebts(
         query(req, 'status'),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'))
       );
       sendResponse(res, 200, 'Deudas obtenidas', result.debts, result.meta);
     } catch (error) { next(error); }

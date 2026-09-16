@@ -1,10 +1,48 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../services';
+import type { AuthOutcome } from '../services/auth.service';
 import { getEffectivePermissions, getEffectiveRoleSlugs } from '../services/authorization.service';
 import { sendResponse } from '../utils';
 import { AppError } from '../middlewares';
 import { uploadAvatarImage } from '../middlewares/upload';
 import { config } from '../config/env';
+
+/**
+ * Traduce el resultado de cualquier camino de login a la respuesta HTTP.
+ *
+ * Es el único sitio que decide qué sale en el cuerpo: o `requiresTOTP` con un
+ * reto, o la sesión con sus tokens. Así un endpoint nuevo no puede olvidarse
+ * del 2FA y devolver tokens por su cuenta.
+ */
+async function sendAuthOutcome(
+  res: Response,
+  status: number,
+  message: string,
+  outcome: AuthOutcome,
+  extra: Record<string, unknown> = {}
+) {
+  if (outcome.requiresTOTP) {
+    return sendResponse(res, 200, 'Se requiere verificación en dos pasos', {
+      requiresTOTP: true,
+      challengeToken: outcome.challengeToken || undefined,
+      user: { _id: outcome.user._id, name: outcome.user.name },
+    });
+  }
+
+  const [permissions, roleSlugs] = await Promise.all([
+    getEffectivePermissions(outcome.user),
+    getEffectiveRoleSlugs(outcome.user),
+  ]);
+
+  return sendResponse(res, status, message, {
+    user: outcome.user,
+    ...outcome.tokens,
+    isNewDevice: outcome.isNewDevice,
+    permissions,
+    roleSlugs,
+    ...extra,
+  });
+}
 
 export class AuthController {
   async updateMarketingPreferences(req: Request, res: Response, next: NextFunction) {
@@ -15,12 +53,6 @@ export class AuthController {
       req.user!.marketingChannels = consent ? req.body.channels : [];
       await req.user!.save();
       sendResponse(res, 200, consent ? 'Preferencias de comunicaciones actualizadas' : 'Comunicaciones comerciales desactivadas', { marketingConsent: consent, marketingChannels: req.user!.marketingChannels });
-    } catch (error) { next(error); }
-  }
-  async register(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { user, tokens } = await authService.register(req.body, req);
-      sendResponse(res, 201, 'Registro exitoso', { user, ...tokens });
     } catch (error) { next(error); }
   }
 
@@ -50,50 +82,45 @@ export class AuthController {
 
   async registerComplete(req: Request, res: Response, next: NextFunction) {
     try {
-      const { user, tokens } = await authService.completeRegistration(
+      const outcome = await authService.completeRegistration(
         req.body.phone, req.body.name, req.body.password, req
       );
-      sendResponse(res, 201, 'Registro exitoso', { user, ...tokens });
+      await sendAuthOutcome(res, 201, 'Registro exitoso', outcome);
     } catch (error) { next(error); }
   }
 
   async login(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await authService.login(req.body, req);
+      const outcome = await authService.login(req.body, req);
+      await sendAuthOutcome(res, 200, 'Login exitoso', outcome);
+    } catch (error) { next(error); }
+  }
 
-      if (result.requiresTOTP) {
-        return sendResponse(res, 200, 'Se requiere verificación 2FA', {
-          requiresTOTP: true,
-          user: { _id: result.user._id, name: result.user.name },
-        });
-      }
-
-      const [permissions, roleSlugs] = await Promise.all([
-        getEffectivePermissions(result.user),
-        getEffectiveRoleSlugs(result.user),
-      ]);
-
-      sendResponse(res, 200, 'Login exitoso', {
-        user: result.user,
-        ...result.tokens,
-        isNewDevice: result.isNewDevice,
-        permissions,
-        roleSlugs,
-      });
+  /** Segundo paso de cualquier login en una cuenta con 2FA. */
+  async mfaChallenge(req: Request, res: Response, next: NextFunction) {
+    try {
+      const outcome = await authService.completeMfaChallenge(req.body.challengeToken, req.body.code, req);
+      const needsPhone = outcome.method === 'google' || outcome.method === 'apple'
+        ? !outcome.user.phone || !outcome.user.phoneVerified
+        : undefined;
+      await sendAuthOutcome(res, 200, 'Login exitoso', outcome, needsPhone === undefined ? {} : { needsPhone });
     } catch (error) { next(error); }
   }
 
   async googleLogin(req: Request, res: Response, next: NextFunction) {
     try {
-      const { user, tokens, needsPhone } = await authService.loginWithGoogle(req.body.idToken, req);
-      sendResponse(res, 200, 'Login con Google exitoso', { user, ...tokens, needsPhone });
+      const { needsPhone, ...outcome } = await authService.loginWithGoogle(req.body.idToken, req, { nonce: req.body.nonce });
+      await sendAuthOutcome(res, 200, 'Login con Google exitoso', outcome as AuthOutcome, { needsPhone });
     } catch (error) { next(error); }
   }
 
   async appleLogin(req: Request, res: Response, next: NextFunction) {
     try {
-      const { user, tokens, needsPhone } = await authService.loginWithApple(req.body.idToken, req.body.fullName, req);
-      sendResponse(res, 200, 'Login con Apple exitoso', { user, ...tokens, needsPhone });
+      const { needsPhone, ...outcome } = await authService.loginWithApple(
+        { code: req.body.code, nonce: req.body.nonce, fullName: req.body.fullName },
+        req
+      );
+      await sendAuthOutcome(res, 200, 'Login con Apple exitoso', outcome as AuthOutcome, { needsPhone });
     } catch (error) { next(error); }
   }
 
@@ -101,13 +128,16 @@ export class AuthController {
    * Apple no permite un esquema `zipp://` como `redirect_uri` — exige un
    * dominio HTTPS registrado en el Services ID. Este endpoint es ese
    * dominio: recibe el `form_post` de Apple (fuera de la app, sin sesión) y
-   * rebota de inmediato al deep link de la app con lo que trajo, para que
-   * `WebBrowser.openAuthSessionAsync` del lado del cliente cierre el
-   * navegador y continúe el login. No guarda nada ni valida el token acá:
-   * eso lo hace `POST /auth/apple`, ya dentro de la app.
+   * rebota al deep link de la app.
+   *
+   * El deep link ya NO lleva el `id_token`: lleva un código de un solo uso
+   * que solo se canjea junto con el nonce en claro que generó la app (ver
+   * `models/OAuthReplay.ts`). Una app que registre el mismo esquema y
+   * capture el deep link se queda con un código inservible.
    */
   async appleCallback(req: Request, res: Response) {
     const idToken = typeof req.body?.id_token === 'string' ? req.body.id_token : '';
+    const state = typeof req.body?.state === 'string' ? req.body.state.slice(0, 128) : '';
 
     // El campo `user` solo viaja en el primer `form_post` de siempre, como
     // JSON de texto: `{"name":{"firstName":"...","lastName":"..."}}`.
@@ -121,13 +151,20 @@ export class AuthController {
       }
     }
 
-    const state = typeof req.body?.state === 'string' ? req.body.state : '';
-
     const redirect = new URL(`${config.deepLinkScheme}://apple-callback`);
-    if (idToken) redirect.searchParams.set('idToken', idToken);
-    if (fullName) redirect.searchParams.set('fullName', fullName);
     if (state) redirect.searchParams.set('state', state);
-    if (!idToken) redirect.searchParams.set('error', '1');
+
+    if (!idToken || idToken.length > 4096) {
+      redirect.searchParams.set('error', '1');
+      return res.redirect(302, redirect.toString());
+    }
+
+    try {
+      const code = await authService.createAppleAuthCode(idToken, fullName || undefined);
+      redirect.searchParams.set('code', code);
+    } catch {
+      redirect.searchParams.set('error', '1');
+    }
 
     res.redirect(302, redirect.toString());
   }
@@ -139,54 +176,75 @@ export class AuthController {
     } catch (error) { next(error); }
   }
 
+  /** La respuesta es idéntica exista o no la cuenta. */
   async sendOTP(req: Request, res: Response, next: NextFunction) {
     try {
       await authService.sendOTP(req.body.phone, req);
-      sendResponse(res, 200, 'OTP enviado');
+      sendResponse(res, 200, 'Si el número tiene una cuenta, te enviamos un código.');
     } catch (error) { next(error); }
   }
 
   async verifyOTP(req: Request, res: Response, next: NextFunction) {
     try {
-      const { user, tokens } = await authService.verifyOTP(req.body.phone, req.body.otpCode, req);
-      sendResponse(res, 200, 'OTP verificado', { user, ...tokens });
+      const outcome = await authService.verifyOTP(req.body.phone, req.body.otpCode, req);
+      await sendAuthOutcome(res, 200, 'OTP verificado', outcome);
     } catch (error) { next(error); }
   }
 
+  /** La respuesta es idéntica exista o no la cuenta. */
   async sendEmailOTP(req: Request, res: Response, next: NextFunction) {
     try {
       await authService.sendEmailOTP(req.body.email, req);
-      sendResponse(res, 200, 'OTP enviado');
+      sendResponse(res, 200, 'Si el correo tiene una cuenta, te enviamos un código.');
     } catch (error) { next(error); }
   }
 
   async verifyEmailOTP(req: Request, res: Response, next: NextFunction) {
     try {
-      const { user, tokens } = await authService.verifyEmailOTP(req.body.email, req.body.otpCode, req);
-      sendResponse(res, 200, 'OTP verificado', { user, ...tokens });
+      const outcome = await authService.verifyEmailOTP(req.body.email, req.body.otpCode, req);
+      await sendAuthOutcome(res, 200, 'OTP verificado', outcome);
     } catch (error) { next(error); }
   }
 
   async logout(req: Request, res: Response, next: NextFunction) {
     try {
-      await authService.logout(req.user!._id.toString(), req);
-      sendResponse(res, 200, 'Sesión cerrada');
+      const result = await authService.logout(req.user!._id.toString(), req);
+      sendResponse(res, 200, 'Sesión cerrada', result);
     } catch (error) { next(error); }
   }
 
   async resetPassword(req: Request, res: Response, next: NextFunction) {
     try {
-      const { user, tokens } = await authService.resetPassword(
-        req.body.phone, req.body.otpCode, req.body.password, req
+      const outcome = await authService.resetPassword(
+        req.body.phone, req.body.otpCode, req.body.password, req, req.body.totpToken
       );
-      sendResponse(res, 200, 'Contraseña restablecida exitosamente', { user, ...tokens });
+      await sendAuthOutcome(res, 200, 'Contraseña restablecida exitosamente', outcome);
     } catch (error) { next(error); }
   }
 
   async updateProfile(req: Request, res: Response, next: NextFunction) {
     try {
-      const user = await authService.updateProfile(req.user!._id.toString(), req.body, req);
-      sendResponse(res, 200, 'Perfil actualizado', { user });
+      const { user, phoneVerificationSent } = await authService.updateProfile(req.user!._id.toString(), req.body, req);
+      sendResponse(
+        res,
+        200,
+        phoneVerificationSent ? 'Te enviamos un código para confirmar tu celular' : 'Perfil actualizado',
+        { user, phoneVerificationSent }
+      );
+    } catch (error) { next(error); }
+  }
+
+  async resendPhoneOtp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await authService.resendPendingPhoneOtp(req.user!._id.toString());
+      sendResponse(res, 200, result.sent ? 'Código enviado' : 'Espera unos segundos antes de pedir otro código', result);
+    } catch (error) { next(error); }
+  }
+
+  async verifyPhone(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = await authService.verifyPendingPhone(req.user!._id.toString(), req.body.otpCode, req);
+      sendResponse(res, 200, 'Celular verificado', { user });
     } catch (error) { next(error); }
   }
 
@@ -211,6 +269,7 @@ export class AuthController {
         user: req.user,
         permissions: req.permissions || [],
         roleSlugs: req.roleSlugs || [],
+        twoFactorSetupRequired: req.twoFactorSetupRequired === true,
       });
     } catch (error) { next(error); }
   }
@@ -242,7 +301,7 @@ export class AuthController {
 
   async getActiveSessions(req: Request, res: Response, next: NextFunction) {
     try {
-      const sessions = await authService.getActiveSessions(req.user!._id.toString());
+      const sessions = await authService.getActiveSessions(req.user!._id.toString(), req.sessionId);
       sendResponse(res, 200, 'Sesiones activas', { sessions });
     } catch (error) { next(error); }
   }
@@ -261,7 +320,7 @@ export class AuthController {
     try {
       const count = await authService.revokeAllSessions(
         req.user!._id.toString(),
-        req.body.currentRefreshToken,
+        req.body?.currentRefreshToken,
         req
       );
       sendResponse(res, 200, `${count} sesiones cerradas`, { revokedCount: count });
@@ -277,6 +336,26 @@ export class AuthController {
         req
       );
       sendResponse(res, 200, 'Contraseña cambiada exitosamente');
+    } catch (error) { next(error); }
+  }
+
+  // ── Eliminación de cuenta ──
+
+  async requestAccountDeletionOtp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await authService.requestAccountDeletionOtp(req.user!._id.toString());
+      sendResponse(res, 200, 'Te enviamos un código para confirmar', result);
+    } catch (error) { next(error); }
+  }
+
+  async deleteAccount(req: Request, res: Response, next: NextFunction) {
+    try {
+      await authService.deleteOwnAccount(
+        req.user!._id.toString(),
+        { password: req.body?.password, otpCode: req.body?.otpCode },
+        req
+      );
+      sendResponse(res, 200, 'Tu cuenta fue eliminada');
     } catch (error) { next(error); }
   }
 }

@@ -146,10 +146,10 @@ describe('Pedidos — idempotencia y concurrencia', () => {
     const product = await makeProduct(business._id);
     const other = await makeUser({ role: UserRole.CLIENT });
 
-    const mine = await request(app).post('/api/v1/orders').set(authHeader(client))
+    const mine = await request(app).post('/api/v1/orders').set(await authHeader(client))
       .send(httpBody(product, { idempotencyKey: 'clave-compartida' })).expect(201);
 
-    const theirs = await request(app).post('/api/v1/orders').set(authHeader(other))
+    const theirs = await request(app).post('/api/v1/orders').set(await authHeader(other))
       .send(httpBody(product, { idempotencyKey: 'clave-compartida' }));
 
     expect(theirs.status).toBe(409);
@@ -171,8 +171,8 @@ describe('Pedidos — idempotencia y concurrencia', () => {
 
     try {
       const body = httpBody(product, { idempotencyKey: 'doble-toque' });
-      const first = await request(app).post('/api/v1/orders').set(authHeader(client)).send(body).expect(201);
-      const second = await request(app).post('/api/v1/orders').set(authHeader(client)).send(body).expect(201);
+      const first = await request(app).post('/api/v1/orders').set(await authHeader(client)).send(body).expect(201);
+      const second = await request(app).post('/api/v1/orders').set(await authHeader(client)).send(body).expect(201);
 
       expect(second.body.data._id).toBe(first.body.data._id);
       expect(await Order.countDocuments()).toBe(1);
@@ -189,7 +189,7 @@ describe('Pedidos — idempotencia y concurrencia', () => {
     const product = await makeProduct(business._id, { extras: [{ name: 'Queso extra', price: 3000 }] });
     const selectedExtras = Array.from({ length: 51 }, () => ({ name: 'Queso extra' }));
 
-    const res = await request(app).post('/api/v1/orders/quote').set(authHeader(client))
+    const res = await request(app).post('/api/v1/orders/quote').set(await authHeader(client))
       .send(httpBody(product, { items: [{ productId: product._id.toString(), quantity: 1, selectedExtras }] }));
 
     expect(res.status).toBe(400);
@@ -203,7 +203,7 @@ describe('Pedidos — idempotencia y concurrencia', () => {
 
     const body = httpBody(product, { idempotencyKey: 'timeout-red' });
     const results = await Promise.all(
-      Array.from({ length: 4 }, () => request(app).post('/api/v1/orders').set(authHeader(client)).send(body))
+      Array.from({ length: 4 }, async () => request(app).post('/api/v1/orders').set(await authHeader(client)).send(body))
     );
 
     const ok = results.filter((r) => r.status === 201);
@@ -220,8 +220,8 @@ describe('Pedidos — idempotencia y concurrencia', () => {
     await Product.updateOne({ _id: product._id }, { stock: 1 });
 
     const results = await Promise.all([
-      request(app).post('/api/v1/orders').set(authHeader(client)).send(httpBody(product, { idempotencyKey: 'telefono' })),
-      request(app).post('/api/v1/orders').set(authHeader(client)).send(httpBody(product, { idempotencyKey: 'tableta' })),
+      request(app).post('/api/v1/orders').set(await authHeader(client)).send(httpBody(product, { idempotencyKey: 'telefono' })),
+      request(app).post('/api/v1/orders').set(await authHeader(client)).send(httpBody(product, { idempotencyKey: 'tableta' })),
     ]);
 
     expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
