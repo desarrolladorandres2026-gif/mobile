@@ -8,7 +8,7 @@ import {
   getMapConfig,
   ingestPing,
 } from '../services/tracking.service';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, clampLimit } from '../utils';
 import { emitDriverLocation } from '../sockets/emitter';
 
 export class TrackingController {
@@ -97,7 +97,7 @@ export class TrackingController {
       const lng = Number(query(req, 'lng'));
       const drivers = await findNearestDrivers(
         { lat, lng },
-        { limit: Number(query(req, 'limit')) || 5 }
+        { limit: clampLimit(query(req, 'limit'), 100, 5) }
       );
       sendResponse(res, 200, 'Repartidores cercanos', drivers);
     } catch (error) { next(error); }

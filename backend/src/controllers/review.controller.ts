@@ -1,16 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { reviewService } from '../services/review.service';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, clampLimit } from '../utils';
 import { UserRole } from '../types';
 import { AuditAction, logAudit } from '../security';
 import { resolveOrderAccess } from '../services/orderAccess.service';
-
-/** Techo duro para cualquier `limit` de listado. Ver A11 de la auditoría. */
-const clampLimit = (raw: unknown, max = 50, fallback = 20): number => {
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.min(Math.floor(n), max);
-};
 
 export class ReviewController {
   async create(req: Request, res: Response, next: NextFunction) {

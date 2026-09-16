@@ -499,3 +499,26 @@ describe('Otros intentos de ataque que deben fallar de forma controlada', () => 
     }
   });
 });
+
+// ── A11 — Límite máximo de paginación ──────────────────────────────────
+
+describe('A11 — ningún listado acepta un `limit` sin techo', () => {
+  it('el listado público de negocios ignora un limit absurdo', async () => {
+    const owner = await makeUser({ role: UserRole.BUSINESS });
+    await makeBusiness(owner._id);
+
+    const res = await request(app).get('/api/v1/businesses').query({ limit: 999999999 }).expect(200);
+    expect(res.body.meta.limit).toBeLessThanOrEqual(50);
+  });
+
+  it('el panel de administración de usuarios también lo ignora', async () => {
+    const admin = await makeUser({ role: UserRole.ADMIN });
+
+    const res = await request(app)
+      .get('/api/v1/admin/users')
+      .query({ limit: 999999999 })
+      .set(await authHeader(admin))
+      .expect(200);
+    expect(res.body.meta.limit).toBeLessThanOrEqual(50);
+  });
+});

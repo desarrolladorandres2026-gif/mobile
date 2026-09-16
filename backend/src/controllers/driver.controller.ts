@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { driverService } from '../services/driver.service';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, clampLimit } from '../utils';
 import { DriverStatus } from '../types';
 import { AuditAction, logAudit } from '../security';
 import { AppError } from '../middlewares/errorHandler';
@@ -218,7 +218,7 @@ export class DriverController {
   // Admin endpoints
   async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await driverService.getAll(Number(query(req, 'page')) || 1, Number(query(req, 'limit')) || 20);
+      const result = await driverService.getAll(Number(query(req, 'page')) || 1, clampLimit(query(req, 'limit')));
       sendResponse(res, 200, 'Domiciliarios obtenidos', result.drivers, result.meta);
     } catch (error) { next(error); }
   }

@@ -19,6 +19,21 @@ export const query = (req: Request, key: string): string | undefined => {
 };
 
 /**
+ * Techo duro para cualquier `limit` de paginación.
+ *
+ * Varios listados (`GET /businesses` público, y varios del panel de admin:
+ * usuarios, negocios, pedidos, domiciliarios) leían `?limit=` con
+ * `Number(...) || 20` y lo pasaban directo a `.limit()` de Mongoose: sin
+ * techo, `?limit=999999999` obligaba a materializar en memoria toda la
+ * colección que cumpliera el filtro. Ver A11 de la auditoría.
+ */
+export const clampLimit = (raw: unknown, max = 50, fallback = 20): number => {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(Math.floor(n), max);
+};
+
+/**
  * Format Colombian pesos
  */
 export const formatCOP = (amount: number): string => {

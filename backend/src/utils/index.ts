@@ -2,7 +2,7 @@ export { generateAccessToken, generateRefreshToken, verifyAccessToken, verifyRef
 export type { TokenPayload, DecodedToken } from './token';
 export { normalizePhone, phoneSchema, phoneSetter, PHONE_ERROR } from './phone';
 export { sendResponse, sendError } from './response';
-export { param, query, formatCOP, clientIp, userAgent, readLocation } from './helpers';
+export { param, query, formatCOP, clientIp, userAgent, readLocation, clampLimit } from './helpers';
 export { normalize, tokenize, editDistance, escapeRegex } from './text';
 export { haversineKm, haversineMeters, isValidCoordinate, fromGeoPoint, roundToStep, LatLng } from './geo';
 export { EARTH_RADIUS_M, VISIBLE_BUSINESS, withinRadius, withDistance } from './catalogQuery';

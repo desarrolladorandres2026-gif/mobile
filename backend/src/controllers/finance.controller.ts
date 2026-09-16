@@ -7,7 +7,7 @@ import {
   ledgerService,
   businessService,
 } from '../services';
-import { sendResponse, param, query } from '../utils';
+import { sendResponse, param, query, clampLimit } from '../utils';
 import { PayoutBeneficiary, LedgerAccount, CashIncidentResolution } from '../types';
 
 export class FinanceController {
@@ -41,7 +41,7 @@ export class FinanceController {
   async listConfigVersions(req: Request, res: Response, next: NextFunction) {
     try {
       const versions = await pricingConfigService.listVersions(
-        Number(query(req, 'limit')) || 50
+        clampLimit(query(req, 'limit'), 100, 50)
       );
       sendResponse(res, 200, 'Versiones de configuración', versions);
     } catch (error) { next(error); }
@@ -50,7 +50,7 @@ export class FinanceController {
   async configAudit(req: Request, res: Response, next: NextFunction) {
     try {
       const trail = await pricingConfigService.getAuditTrail(
-        Number(query(req, 'limit')) || 50
+        clampLimit(query(req, 'limit'), 100, 50)
       );
       sendResponse(res, 200, 'Historial de cambios', trail);
     } catch (error) { next(error); }
@@ -96,7 +96,7 @@ export class FinanceController {
         beneficiary: query(req, 'beneficiary') as PayoutBeneficiary | undefined,
         businessId: query(req, 'businessId'),
         driverId: query(req, 'driverId'),
-        limit: Number(query(req, 'limit')) || 50,
+        limit: clampLimit(query(req, 'limit'), 100, 50),
       });
       sendResponse(res, 200, 'Liquidaciones', settlements);
     } catch (error) { next(error); }
@@ -109,7 +109,7 @@ export class FinanceController {
       const result = await cashReconciliationService.list(
         query(req, 'status'),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'), 100, 20)
       );
       sendResponse(res, 200, 'Conciliaciones de efectivo', result.records, result.meta);
     } catch (error) { next(error); }
@@ -147,7 +147,7 @@ export class FinanceController {
       const result = await cashIncidentService.list(
         query(req, 'status'),
         Number(query(req, 'page')) || 1,
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'), 100, 20)
       );
       sendResponse(res, 200, 'Incidencias de efectivo', result.incidents, result.meta);
     } catch (error) { next(error); }
