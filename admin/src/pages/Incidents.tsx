@@ -1,11 +1,41 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { io, Socket } from 'socket.io-client';
 import {
   AlertTriangle, ShieldAlert, Banknote, MessageSquareWarning, Clock,
   RotateCw, ArrowRight, ShieldCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import api from '../services/api';
+import SosPanel from '../components/SosPanel';
+
+/**
+ * Aviso sonoro de una emergencia nueva.
+ *
+ * Sin archivo de audio: dos tonos generados con Web Audio son suficientes
+ * para que quien está mirando otra pestaña levante la vista, y no dependen
+ * de un asset que alguien podría olvidar copiar al desplegar.
+ */
+function playSosBeep() {
+  try {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = new Ctx();
+    [880, 660].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = freq;
+      osc.type = 'square';
+      gain.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.28);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.28 + 0.25);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.28);
+      osc.stop(ctx.currentTime + i * 0.28 + 0.26);
+    });
+  } catch {
+    // Sin audio disponible (política de autoplay, navegador sin soporte):
+    // el aviso visual del banner y la fila resaltada siguen sirviendo.
+  }
+}
 
 /**
  * Centro de incidentes.
@@ -95,6 +125,9 @@ export default function Incidents() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | IncidentKind>('all');
+  const [openAlertId, setOpenAlertId] = useState<string | null>(null);
+  const [justArrived, setJustArrived] = useState<{ id: string; detail: string } | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -121,6 +154,34 @@ export default function Incidents() {
     return () => clearInterval(timer);
   }, [load]);
 
+  // Una emergencia no puede depender del refresco de 30 segundos: llega por
+  // socket a la sala `admin` (el backend mete ahí a todo administrador al
+  // conectar) y refresca la lista al instante, con tono y aviso propios.
+  useEffect(() => {
+    const token = localStorage.getItem('admin_token');
+    if (!token) return;
+
+    const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
+    const socket: Socket = io(SOCKET_URL, { auth: { token }, transports: ['websocket'] });
+    socketRef.current = socket;
+
+    const onTriggered = (payload: { alertId: string; driverId: string }) => {
+      playSosBeep();
+      setJustArrived({ id: payload.alertId, detail: 'Nueva emergencia' });
+      load();
+    };
+    const onUpdated = () => load();
+
+    socket.on('sos:triggered', onTriggered);
+    socket.on('sos:updated', onUpdated);
+
+    return () => {
+      socket.off('sos:triggered', onTriggered);
+      socket.off('sos:updated', onUpdated);
+      socket.disconnect();
+    };
+  }, [load]);
+
   const shown = filter === 'all' ? incidents : incidents.filter((i) => i.kind === filter);
 
   return (
@@ -140,6 +201,19 @@ export default function Incidents() {
           <span>Actualizar</span>
         </button>
       </div>
+
+      {justArrived ? (
+        <button
+          onClick={() => { setOpenAlertId(justArrived.id); setJustArrived(null); }}
+          className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-[var(--color-danger)] bg-[var(--color-danger)] px-4 py-3 text-left text-white shadow-lg animate-fade-in"
+        >
+          <ShieldAlert className="h-5 w-5 shrink-0 animate-pulse" />
+          <span className="flex-1 text-sm font-bold">
+            {justArrived.detail}: un domiciliario acaba de activar el botón de pánico
+          </span>
+          <span className="shrink-0 text-xs font-bold underline">Atender ahora</span>
+        </button>
+      ) : null}
 
       {summary ? (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -224,12 +298,20 @@ export default function Incidents() {
                     </button>
                   ) : null}
                   {incident.kind === 'sos' ? (
-                    <button
-                      onClick={() => navigate('/fleet')}
-                      className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--color-danger)] px-3 py-1.5 text-xs font-bold text-white"
-                    >
-                      Ver en el mapa <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        onClick={() => navigate('/fleet')}
+                        className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+                      >
+                        Ver en el mapa
+                      </button>
+                      <button
+                        onClick={() => setOpenAlertId(incident.id)}
+                        className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--color-danger)] px-3 py-1.5 text-xs font-bold text-white"
+                      >
+                        Atender <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   ) : null}
                   {incident.kind === 'complaint' ? (
                     <button
@@ -245,6 +327,14 @@ export default function Incidents() {
           })}
         </ul>
       )}
+
+      {openAlertId ? (
+        <SosPanel
+          alertId={openAlertId}
+          onClose={() => setOpenAlertId(null)}
+          onChanged={load}
+        />
+      ) : null}
     </div>
   );
 }

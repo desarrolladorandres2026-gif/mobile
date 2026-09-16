@@ -21,6 +21,17 @@ export interface IBusiness extends Document {
   phone: string;
   rating: number;
   totalReviews: number;
+  /**
+   * Puntaje interno 0-100, nunca mostrado al usuario.
+   *
+   * A diferencia de `rating` (promedio simple, público), este pondera la
+   * reseña reciente por encima de la histórica y descuenta por
+   * cancelaciones/incidencias. Sirve para vigilancia interna (admin), no
+   * para castigar automáticamente a nadie por una sola mala calificación.
+   * Ver `reputation.service.ts`.
+   */
+  reputationScore: number;
+  reputationUpdatedAt?: Date;
   deliveryTime: number; // minutes
   minOrder: number;
   /** @deprecated Legacy decimal rate. Mirrors `commissionRateBps`. */
@@ -145,6 +156,18 @@ const businessSchema = new Schema<IBusiness>(
       type: Number,
       default: 0,
     },
+    // `select: false`: nunca sale en una consulta normal, ni siquiera por
+    // accidente en un endpoint público que devuelve el documento entero.
+    // Quien de verdad lo necesite (el panel de Admin) lo pide a propósito
+    // con `.select('+reputationScore')`.
+    reputationScore: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+      select: false,
+    },
+    reputationUpdatedAt: { type: Date, select: false },
     deliveryTime: {
       type: Number,
       default: 30,

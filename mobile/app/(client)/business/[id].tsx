@@ -804,6 +804,7 @@ function ProductSheet({
       productName: suggested.name,
       quantity: 1,
       unitPrice: suggested.discountPrice ?? suggested.price,
+      originalUnitPrice: suggested.discountPrice != null ? suggested.price : undefined,
       selectedExtras: [],
       notes: '',
     });
@@ -838,6 +839,7 @@ function ProductSheet({
       productName: product.name,
       quantity,
       unitPrice,
+      originalUnitPrice: product.discountPrice != null ? product.price : undefined,
       selectedExtras: [
         ...choices.map((ch) => ({
           name: ch.name, price: ch.price, quantity: 1,

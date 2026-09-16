@@ -116,6 +116,8 @@ async function main(): Promise<void> {
       phone: BUSINESS_PHONE,
       deliveryTime: 25,
       minOrder: 10000,
+      rating: 4.5,
+      totalReviews: 23,
       isActive: true,
       isApproved: true,
       approvedAt: new Date(),

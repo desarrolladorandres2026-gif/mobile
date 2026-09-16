@@ -5,12 +5,18 @@ import { config } from '../config';
  * Coordenadas opcionales que acompañan a una acción sobre el terreno.
  *
  * Opcionales de verdad: un teléfono puede tener el GPS apagado o estar en
- * un sótano, y eso no puede impedir que se entregue un pedido. Se guardan
- * como contexto para auditoría, nunca como condición.
+ * un sótano, y eso no puede impedir que se entregue un pedido — sin ellas,
+ * `orderSecurityService` simplemente no aplica la geocerca (ver
+ * `enforceGeofence`). Cuando SÍ viajan, dejan de ser solo contexto de
+ * auditoría: `pickup/verify`, `pickup/arrive`, `delivery/verify` y
+ * `delivery/arrive` las comparan contra el destino real. `accuracy` es la
+ * precisión que reportó el GPS, en metros; se usa como tolerancia y para
+ * decidir si el fix es demasiado impreciso para confiar en él.
  */
 const geo = {
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
+  accuracy: z.number().positive().optional(),
 };
 
 const orderParams = z.object({ id: z.string() });

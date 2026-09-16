@@ -188,6 +188,23 @@ export const orderEvidenceRateLimiter = rateLimit({
 });
 
 /**
+ * Crear/actualizar calificaciones — 20 por 15 minutos por IP.
+ *
+ * Cubre las cinco vías de calificación (cliente↔comercio, cliente↔domicilia-
+ * rio, comercio↔domiciliario): cada pedido solo admite una calificación por
+ * relación, así que 20 en 15 minutos ya es más que cualquier repartidor
+ * activo puede generar entregando de verdad — sirve para frenar un script,
+ * no a alguien calificando pedidos reales.
+ */
+export const reviewCreateRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: limitFor(20),
+  message: { success: false, message: 'Demasiadas calificaciones seguidas. Espera unos minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
  * Geocodificación inversa — 60 por 5 minutos por IP.
  *
  * Mapbox cobra por petición de geocodificación, así que el techo protege

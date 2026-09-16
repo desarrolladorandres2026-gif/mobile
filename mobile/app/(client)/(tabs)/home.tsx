@@ -1,13 +1,18 @@
 import { useMemo, memo } from 'react';
 import {
-  View, ScrollView, FlatList, Pressable, RefreshControl, StyleSheet,
+  View, FlatList, Pressable, RefreshControl, StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import Animated, {
+  FadeIn, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue,
+} from 'react-native-reanimated';
 import { Text, Icon, Card, SectionHeader, Badge } from '../../../components/ui';
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
 import { ProductCollectionRow } from '../../../components/domain/ProductCollectionRow';
+import { ProductBannerBlock } from '../../../components/domain/ProductBannerBlock';
+import { BusinessBannerBlock } from '../../../components/domain/BusinessBannerBlock';
+import { BusinessCollectionRow } from '../../../components/domain/BusinessCollectionRow';
 import { CategoryMarquee, type MarqueeCategory } from '../../../components/domain/CategoryMarquee';
 import { useAuthStore } from '../../../stores/authStore';
 import { useAddresses, useDeliveryCoords, useHomeSections } from '../../../hooks/useApi';
@@ -71,21 +76,40 @@ export default function HomeScreen() {
     router.push('/(client)/cart');
   };
 
+  // El encabezado (saludo + dirección + buscador) queda fijo fuera del
+  // scroll; solo se sombrea cuando el contenido de abajo ya se movió, para
+  // que se note que quedó pegado arriba.
+  //
+  // El scroll de este Home convive con carruseles con su propia animación
+  // (letrero de categorías, banners) — leer la posición con `onScroll` de
+  // React Native dispara un evento por el puente a JS y un re-render de
+  // `HomeScreen` en cada frame de scroll, compitiendo por el mismo hilo JS
+  // que esos carruseles. `useAnimatedScrollHandler` lee la posición en el
+  // hilo de UI, así que el borde/sombra se anima sin tocar React en absoluto.
+  const scrollY = useSharedValue(0);
+  const scrollHandler = useAnimatedScrollHandler((event) => {
+    scrollY.value = event.contentOffset.y;
+  });
+  const headerShadowStyle = useAnimatedStyle(() => {
+    const active = scrollY.value > 4;
+    return {
+      borderBottomColor: active ? c.border : 'transparent',
+      shadowOpacity: active ? 0.08 : 0,
+      elevation: active ? 4 : 0,
+    };
+  });
+
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: bottomSpace }}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
-            tintColor={c.primary}
-            colors={[c.primary]}
-          />
-        }
+      <Animated.View
+        style={[
+          styles.fixedHeader,
+          { backgroundColor: c.background },
+          styles.fixedHeaderShadow,
+          headerShadowStyle,
+        ]}
       >
-        {/* ── Cabecera: saludo + dirección en una sola línea ── */}
+        {/* ── Cabecera: saludo y dirección a la izquierda, logo a la derecha ── */}
         <View style={styles.header}>
           <Pressable
             onPress={() => { tap('light'); router.push('/(client)/addresses'); }}
@@ -95,18 +119,21 @@ export default function HomeScreen() {
                 ? `${greeting()}, ${firstName(user?.name) || 'qué más'}. Entregar en ${defaultAddress.label}, ${defaultAddress.address}. Toca para cambiar`
                 : `${greeting()}, ${firstName(user?.name) || 'qué más'}. Toca para agregar una dirección de entrega`
             }
-            style={styles.greetingRow}
+            style={styles.headerText}
           >
-            <Icon name="ubicacion" size="sm" color={c.textMuted} />
-            <Text v="bodyM" numberOfLines={1} style={styles.flex}>
-              <Text v="bodyM" tone="textMuted">{greeting()}, </Text>
-              <Text v="titleS">{firstName(user?.name) || 'qué más'}</Text>
-              <Text v="bodyM" tone="textMuted"> · Entregar en </Text>
-              <Text v="strongM">
-                {defaultAddress ? defaultAddress.label : 'agrega tu dirección'}
-              </Text>
+            <Text v="titleL" numberOfLines={1}>
+              {greeting()}, {firstName(user?.name) || 'qué más'}
             </Text>
-            <Icon name="desplegar" size="sm" color={c.textMuted} />
+            <View style={styles.addressRow}>
+              <Icon name="ubicacion" size="sm" color={c.textMuted} />
+              <Text v="titleL" numberOfLines={1} style={styles.addressText}>
+                {defaultAddress ? defaultAddress.label : 'agrega tu dirección'}
+                {defaultAddress ? (
+                  <Text v="titleL" tone="textMuted"> · {defaultAddress.address}</Text>
+                ) : null}
+              </Text>
+              <Icon name="desplegar" size="sm" color={c.textMuted} />
+            </View>
           </Pressable>
         </View>
 
@@ -120,7 +147,22 @@ export default function HomeScreen() {
           <Icon name="explorar" size="md" color={c.textMuted} />
           <Text v="bodyM" tone="textMuted" style={styles.flex}>¿Qué se te antoja hoy?</Text>
         </Pressable>
+      </Animated.View>
 
+      <Animated.ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: bottomSpace }}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            tintColor={c.primary}
+            colors={[c.primary]}
+          />
+        }
+      >
         {/* ── Lo de siempre ── */}
         {usual.length > 0 ? (
           <Animated.View entering={FadeIn.duration(320)} style={styles.section}>
@@ -156,11 +198,27 @@ export default function HomeScreen() {
           <CategoryMarquee categories={marqueeCategories} />
         </View>
 
-        {/* ── Colecciones dinámicas: mezclan productos de varios comercios ── */}
-        {homeSections.map((section) => (
-          <ProductCollectionRow key={section.key} section={section} />
-        ))}
-      </ScrollView>
+        {/* ── Secuencia del inicio: colecciones automáticas + bloques
+            curados por un admin (spotlights, colecciones de negocios) +
+            banners promocionales anclados a una posición — todo ya viene
+            fusionado y ordenado desde `/home-sections`. ── */}
+        {homeSections.map((entry) => {
+          switch (entry.kind) {
+            case 'collection':
+              return <ProductCollectionRow key={entry.key} section={entry} />;
+            case 'productBanner':
+              return <ProductBannerBlock key={`productBanner-${entry.order}`} entry={entry} />;
+            case 'businessBanner':
+              return <BusinessBannerBlock key={`businessBanner-${entry.order}`} entry={entry} />;
+            case 'businessCollection':
+              return <BusinessCollectionRow key={`businessCollection-${entry.order}`} entry={entry} />;
+            case 'promo':
+              return <PromoCarousel key={`promo-${entry.order}`} banners={entry.banners} />;
+            default:
+              return null;
+          }
+        })}
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
@@ -207,19 +265,37 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   flex: { flex: 1 },
 
+  fixedHeader: {
+    paddingBottom: Spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: 'transparent',
+  },
+  fixedHeaderShadow: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 4,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
+    paddingTop: Spacing.xl,
     gap: Spacing.md,
   },
-  greetingRow: {
+  headerText: {
     flex: 1,
+    gap: Spacing.xs,
+  },
+  addressRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
+  },
+  addressText: {
+    flexShrink: 1,
   },
   searchStub: {
     flexDirection: 'row',

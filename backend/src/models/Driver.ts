@@ -42,10 +42,19 @@ export interface IDriver extends Document {
   baseFund: number;
   currentFund: number;
   rating: number;
+  /** Cuántas reseñas de clientes alimentan `rating`. Antes no se contaba. */
+  totalReviews: number;
   totalDeliveries: number;
   totalEarnings: number;
   isActive: boolean;
   isApproved: boolean;
+  /**
+   * Puntaje interno 0-100, nunca mostrado al domiciliario ni al cliente.
+   * Ver el comentario equivalente en `Business.reputationScore` y
+   * `reputation.service.ts`.
+   */
+  reputationScore: number;
+  reputationUpdatedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -116,6 +125,19 @@ const driverSchema = new Schema<IDriver>(
       min: 0,
       max: 5,
     },
+    totalReviews: {
+      type: Number,
+      default: 0,
+    },
+    // Igual que en Business: nunca sale de una consulta normal.
+    reputationScore: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+      select: false,
+    },
+    reputationUpdatedAt: { type: Date, select: false },
     totalDeliveries: {
       type: Number,
       default: 0,

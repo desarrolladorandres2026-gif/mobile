@@ -17,6 +17,7 @@ export { paymentController } from './payment.controller';
 export { financeController } from './finance.controller';
 export { advertisementController } from './advertisement.controller';
 export { promotionBannerController } from './promotionBanner.controller';
+export { curatedHomeBlockController } from './curatedHomeBlock.controller';
 export { homeCategoryController } from './homeCategory.controller';
 export { trackingController } from './tracking.controller';
 export { homeSectionsController } from './homeSections.controller';

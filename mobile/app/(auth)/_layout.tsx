@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { useTheme } from '../../hooks/useTheme';
+import { IS_CLIENT_APP, IS_DRIVER_APP } from '../../constants/variant';
 
 /**
  * El flujo de auth ya no fuerza el modo oscuro: sigue el tema activo de la
@@ -16,11 +17,16 @@ export default function AuthLayout() {
         animation: 'slide_from_right',
       }}
     >
-      <Stack.Screen name="welcome" options={{ animation: 'fade' }} />
+      {/* Onboarding y perfil a medias (login social) solo existen en la app
+          de clientes; sus archivos ni siquiera van en el bundle del driver. */}
+      {IS_CLIENT_APP ? <Stack.Screen name="welcome" options={{ animation: 'fade' }} /> : null}
       <Stack.Screen name="login" options={{ animation: 'fade' }} />
-      <Stack.Screen name="complete-profile" />
+      {IS_CLIENT_APP ? <Stack.Screen name="complete-profile" /> : null}
       <Stack.Screen name="otp" />
       <Stack.Screen name="forgot-password" />
+      {/* Cuenta de la otra app: explica cuál es la suya y la enlaza. */}
+      <Stack.Screen name="wrong-app" options={{ animation: 'fade', gestureEnabled: false }} />
+      {IS_DRIVER_APP ? <Stack.Screen name="become-driver" /> : null}
     </Stack>
   );
 }

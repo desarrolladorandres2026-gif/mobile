@@ -12,4 +12,5 @@ export * from './finance.validator';
 export * from './advertisement.validator';
 export * from './payment.validator';
 export * from './promotionBanner.validator';
+export * from './curatedHomeBlock.validator';
 export { objectId, copAmount } from './common';

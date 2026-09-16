@@ -78,6 +78,17 @@ export interface IPromotionBanner extends Document {
   /** Desempata cuando dos banners comparten `displayOrder`. Mayor primero. */
   priority: number;
   placement: BannerPlacement;
+  /**
+   * Posición dentro de la secuencia fusionada del inicio (`/home-sections`),
+   * en el mismo espacio numérico que usan las colecciones automáticas y los
+   * bloques curados (10, 20, 30…).
+   *
+   * `null` por defecto: así el banner sigue en el carrusel fijo de siempre,
+   * justo después de "Buscar" — el comportamiento de toda la vida. Solo
+   * cuando un administrador le asigna un valor el banner se saca de ahí y
+   * pasa a aparecer intercalado en esa posición exacta del inicio.
+   */
+  homeOrder?: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -166,6 +177,12 @@ const promotionBannerSchema = new Schema<IPromotionBanner>(
       type: String,
       enum: Object.values(BannerPlacement),
       default: BannerPlacement.HOME,
+    },
+    homeOrder: {
+      type: Number,
+      default: null,
+      min: 0,
+      max: 999,
     },
   },
   { timestamps: true }

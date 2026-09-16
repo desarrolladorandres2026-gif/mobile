@@ -44,9 +44,51 @@ export class ReviewController {
         by,
         req.user!._id.toString(),
         req.body.rating,
-        req.body.notes
+        req.body.notes,
+        req.body.reasons
       );
       sendResponse(res, 200, 'Calificación registrada', review);
+    } catch (error) { next(error); }
+  }
+
+  /** El domiciliario califica al comercio al recoger. Operacional, no público. */
+  async rateBusinessByDriver(req: Request, res: Response, next: NextFunction) {
+    try {
+      const review = await reviewService.rateBusinessByDriver(
+        param(req, 'orderId'),
+        req.user!._id.toString(),
+        req.body.rating,
+        req.body.reasons
+      );
+      sendResponse(res, 200, 'Calificación registrada', review);
+    } catch (error) { next(error); }
+  }
+
+  /** El comercio califica al domiciliario al recoger. Operacional, no público. */
+  async rateDriverByBusiness(req: Request, res: Response, next: NextFunction) {
+    try {
+      const review = await reviewService.rateDriverByBusiness(
+        param(req, 'orderId'),
+        req.user!._id.toString(),
+        req.body.rating,
+        req.body.reasons
+      );
+      sendResponse(res, 200, 'Calificación registrada', review);
+    } catch (error) { next(error); }
+  }
+
+  /** Qué le falta calificar a cada actor de este pedido. */
+  async reviewStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const role = req.user!.role === UserRole.BUSINESS ? 'business'
+        : req.user!.role === UserRole.DRIVER ? 'driver'
+        : 'client';
+      const status = await reviewService.reviewStatusForOrder(
+        param(req, 'orderId'),
+        req.user!._id.toString(),
+        role
+      );
+      sendResponse(res, 200, 'Estado de calificación', status);
     } catch (error) { next(error); }
   }
 

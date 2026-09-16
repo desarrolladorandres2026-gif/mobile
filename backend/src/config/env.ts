@@ -519,6 +519,28 @@ export const config = {
       /** Segundos que suena antes de darse por perdida. */
       ringSeconds: parseInt(process.env.ORDER_CALL_RING_SECONDS || '45', 10),
     },
+
+    /**
+     * Geocerca del traspaso físico: "Llegué" y el código no bastan solos.
+     *
+     * Antes las coordenadas que mandaba el teléfono se guardaban para
+     * auditoría y nunca se comparaban contra nada — un domiciliario podía
+     * declarar la llegada y validar el código estando a cualquier
+     * distancia real del comercio o del cliente. Estos radios son la
+     * tolerancia bajo la cual SÍ se compara.
+     *
+     * 150 m cubre un centro comercial grande o una manzana con parqueo
+     * propio sin ser tan ancho que dos negocios contiguos se confundan.
+     * `maxAccuracyMeters` reutiliza el mismo criterio que ya existe para
+     * filtrar los pings de seguimiento en vivo (`tracking.maxAccuracyMeters`
+     * = 100 m): un fix peor que eso no se suma como tolerancia, se rechaza
+     * pidiendo mejor señal, porque sumarlo volvería la geocerca inútil.
+     */
+    geofence: {
+      pickupRadiusMeters: parseInt(process.env.ORDER_GEOFENCE_PICKUP_RADIUS_METERS || '150', 10),
+      dropoffRadiusMeters: parseInt(process.env.ORDER_GEOFENCE_DROPOFF_RADIUS_METERS || '150', 10),
+      maxAccuracyMeters: parseInt(process.env.ORDER_GEOFENCE_MAX_ACCURACY_METERS || '100', 10),
+    },
   },
 
   /**
@@ -584,9 +606,13 @@ export const config = {
     // middleware stays on the tested path; only the ceiling is lifted.
     rateLimit: {
       windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // 15 min
+      // Los paneles de admin/negocio abren varios dashboards a la vez desde
+      // la misma IP y agotaban el límite de producción (100) en minutos,
+      // mostrando 429 como si no hubiera datos. En desarrollo se sube el
+      // techo por defecto; producción sigue en 100 salvo override explícito.
       maxRequests: isTest
         ? Number.MAX_SAFE_INTEGER
-        : parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+        : parseInt(process.env.RATE_LIMIT_MAX || (isDev ? '2000' : '100'), 10),
       authMaxRequests: isTest
         ? Number.MAX_SAFE_INTEGER
         : parseInt(process.env.AUTH_RATE_LIMIT_MAX || '10', 10),

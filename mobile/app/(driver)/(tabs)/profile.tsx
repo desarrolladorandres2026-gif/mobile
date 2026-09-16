@@ -8,6 +8,7 @@ import {
   Text, Icon, Card, Badge, Notice, SectionHeader, DetailRow,
 } from '../../../components/ui';
 import { EmergencyContactSheet } from '../../../components/domain/EmergencyContactSheet';
+import { SosButton } from '../../../components/domain/SosButton';
 import { ContentIcon, type ContentIllustrationName } from '../../../components/illustrations';
 import { Avatar } from '../../../components/domain/Avatar';
 import { useAuthStore } from '../../../stores/authStore';
@@ -22,6 +23,7 @@ import { authApi } from '../../../services/endpoints';
 import { unregisterPush } from '../../../hooks/usePushNotifications';
 import { pushPermissionGranted } from '../../../lib/push';
 import { socketService } from '../../../services/socket';
+import { ROUTES } from '../../../lib/routing';
 
 export default function DriverProfileScreen() {
   const [pushGranted, setPushGranted] = useState<boolean | null>(null);
@@ -142,7 +144,9 @@ export default function DriverProfileScreen() {
                   <ContentIcon name="calificacion" size={20} />
                   <Text v="titleM">{(profile?.rating ?? 5).toFixed(1)}</Text>
                 </View>
-                <Text v="caption" tone="textMuted">Calificación</Text>
+                <Text v="caption" tone="textMuted">
+                  {profile?.totalReviews ? `${profile.totalReviews} calificaciones` : 'Calificación'}
+                </Text>
               </View>
 
               <View style={[styles.statDivider, { backgroundColor: c.border }]} />
@@ -266,7 +270,7 @@ export default function DriverProfileScreen() {
           <SectionHeader title="Ayuda y Soporte" />
           <Card style={styles.menuCard}>
             <Pressable
-              onPress={() => { tap('light'); router.push('/(client)/help'); }}
+              onPress={() => { tap('light'); router.push(ROUTES.help as never); }}
               style={styles.menuRow}
             >
               <View style={[styles.menuIcon, { backgroundColor: c.surfaceLight }]}>
@@ -335,6 +339,13 @@ export default function DriverProfileScreen() {
         <View style={styles.section}>
           <SectionHeader title="Ayuda y legal" />
           <Card style={styles.menuCard}>
+            {/* El botón de pánico vivía como un FAB flotante sobre toda la
+                app; se movió aquí para que no esté siempre a la vista ni se
+                active por accidente. Lleva su propio borde inferior porque
+                es un componente aparte, no un MenuRow más. */}
+            <View style={[styles.bordered, { borderBottomColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)' }]}>
+              <SosButton />
+            </View>
             <MenuRow
               illustration="seguridad"
               label="Centro legal, datos y SIC"
@@ -429,9 +440,6 @@ export default function DriverProfileScreen() {
         {/* ── Footer ── */}
         <View style={styles.footer}>
           <Text v="dataS" tone="textMuted">ZIPP</Text>
-          <Text v="caption" tone="textMuted">
-            Versión 1.0.0 • El Trazo OS
-          </Text>
         </View>
       </ScrollView>
 
@@ -529,6 +537,7 @@ const styles = StyleSheet.create({
   metricsCard: { gap: Spacing.sm, padding: Spacing.lg },
   metricsTop: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.md },
   menuCard: { padding: 0, overflow: 'hidden' },
+  bordered: { borderBottomWidth: StyleSheet.hairlineWidth },
   menuRow: {
     flexDirection: 'row',
     alignItems: 'center',

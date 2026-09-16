@@ -7,6 +7,8 @@ import { notificationsApi } from '../services/endpoints';
 import { registerForPush, pushPlatform, addPushListeners } from '../lib/push';
 import { offerFromPushData, publishOffer } from '../lib/offerInbox';
 import { reportError } from '../lib/crashReporting';
+import { IS_DRIVER_APP } from '../constants/variant';
+import { ROUTES } from '../lib/routing';
 
 const TOKEN_KEY = '@zipp_push_token';
 
@@ -85,12 +87,12 @@ export function usePushNotifications() {
        * sentido, ni los botones de esa pantalla (cancelar, "algo anda
        * mal") son los que le sirven a quien está entregando.
        *
-       * Se lee en el momento de tocar la push, no al montar el hook: la
-       * sesión pudo cambiar de cuenta entre que se registró el listener y
-       * que llegó la notificación.
+       * Ya no se mira el rol de la sesión sino qué app es esta: en Zipp
+       * Domiciliarios solo puede haber sesiones de domiciliario (el login
+       * y el arranque rechazan cualquier otra), y las pantallas de cliente
+       * ni siquiera existen en su bundle.
        */
-      const role = useAuthStore.getState().user?.role;
-      const isDriver = role === 'driver';
+      const isDriver = IS_DRIVER_APP;
 
       /**
        * Una oferta no es un pedido suyo. Todavía.
@@ -134,7 +136,7 @@ export function usePushNotifications() {
       // por haber tocado la push. Cliente y domiciliario tienen cada uno
       // el suyo, en rutas distintas.
       if (data?.pqrsId) {
-        router.push(isDriver ? '/(driver)/requests' : '/(client)/requests');
+        router.push(ROUTES.requests as never);
       }
     };
 

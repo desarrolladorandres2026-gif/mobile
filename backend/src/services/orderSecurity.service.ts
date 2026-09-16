@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { config } from '../config';
 import { AppError } from '../middlewares';
-import { IOrder, OrderEvidence } from '../models';
+import { Business, IOrder, OrderEvidence } from '../models';
 import {
   OrderSecurity,
   IOrderSecurity,
@@ -11,7 +11,8 @@ import {
   normalizeOrderCode,
 } from '../security/orderSecurity';
 import { encrypt, decrypt } from '../security/encryption';
-import { OrderCodeKind, OrderCodeStatus, OrderEvidenceType, OrderStatus } from '../types';
+import { OrderCodeKind, OrderCodeStatus, OrderEvidenceType, OrderKind, OrderStatus } from '../types';
+import { LatLng, fromGeoPoint, validateLocationProximity } from '../utils/geo';
 import { OrderAccess, assertParticipant } from './orderAccess.service';
 
 /** Etiquetas de error que la app usa para decidir qué pantalla mostrar. */
@@ -25,6 +26,8 @@ export const CODE_ERROR = {
   WRONG_STAGE: 'ORDER_WRONG_STAGE',
   EVIDENCE_REQUIRED: 'EVIDENCE_REQUIRED',
   NOT_ARRIVED: 'DRIVER_NOT_ARRIVED',
+  TOO_FAR: 'DRIVER_TOO_FAR',
+  LOCATION_INACCURATE: 'LOCATION_ACCURACY_TOO_LOW',
 } as const;
 
 /** Resumen sin secretos: lo que puede ver un administrador o un panel. */
@@ -246,13 +249,103 @@ export class OrderSecurityService {
   }
 
   /**
+   * A dónde debería estar el domiciliario para esta etapa, y con qué
+   * tolerancia.
+   *
+   * Mismo criterio que `getDriverRoute` en `tracking.service.ts`: un
+   * mandado no tiene comercio afiliado detrás, así que su "negocio" es la
+   * dirección de recogida que escribió el cliente. Se duplica aquí en vez
+   * de importarlo porque son preguntas distintas —una calcula una ruta,
+   * esta valida una distancia— aunque compartan el mismo origen de datos.
+   */
+  private async resolveGeofenceTarget(
+    order: IOrder,
+    kind: OrderCodeKind
+  ): Promise<{ location: LatLng | null; radiusMeters: number }> {
+    if (kind === OrderCodeKind.DELIVERY) {
+      return {
+        location: fromGeoPoint(order.deliveryLocation),
+        radiusMeters: config.orderFlow.geofence.dropoffRadiusMeters,
+      };
+    }
+
+    if (order.kind === OrderKind.ERRAND && order.errand) {
+      return {
+        location: fromGeoPoint(order.errand.pickupLocation),
+        radiusMeters: config.orderFlow.geofence.pickupRadiusMeters,
+      };
+    }
+
+    const business = await Business.findById(order.businessId).select('location');
+    return {
+      location: fromGeoPoint(business?.location),
+      radiusMeters: config.orderFlow.geofence.pickupRadiusMeters,
+    };
+  }
+
+  /**
+   * Compara dónde dice estar el domiciliario contra dónde debería estar.
+   *
+   * No confía únicamente en el cliente —la comparación ocurre aquí, en el
+   * servidor, contra las coordenadas ya persistidas del negocio/mandado o
+   * del cliente— pero tampoco inventa datos: si el teléfono no mandó
+   * posición (GPS apagado, sin señal) o el destino no tiene coordenadas
+   * registradas, no hay nada que comparar y la geocerca simplemente no
+   * opina, exactamente como se comportaba el traspaso antes de que
+   * existiera esta validación.
+   *
+   * Sí lanza cuando SÍ hay datos y dicen que está lejos, o que el fix no
+   * es confiable — ver `CODE_ERROR.TOO_FAR` / `LOCATION_INACCURATE`.
+   */
+  private async enforceGeofence(
+    order: IOrder,
+    kind: OrderCodeKind,
+    current: LatLng | null,
+    accuracyMeters: number | null | undefined
+  ): Promise<void> {
+    if (!current) return;
+
+    const { location: target, radiusMeters } = await this.resolveGeofenceTarget(order, kind);
+    if (!target) return;
+
+    const result = validateLocationProximity(current, target, {
+      radiusMeters,
+      accuracyMeters,
+      maxAccuracyMeters: config.orderFlow.geofence.maxAccuracyMeters,
+    });
+
+    if (result.status === 'accuracy_too_low') {
+      throw new AppError(
+        'Tu ubicación no es lo bastante precisa todavía. Sal a espacio abierto y vuelve a intentar.',
+        409,
+        CODE_ERROR.LOCATION_INACCURATE
+      );
+    }
+
+    if (result.status === 'too_far') {
+      throw new AppError(
+        kind === OrderCodeKind.PICKUP
+          ? 'Estás demasiado lejos del comercio para confirmar esta etapa.'
+          : 'Estás demasiado lejos del destino para confirmar esta etapa.',
+        409,
+        CODE_ERROR.TOO_FAR
+      );
+    }
+  }
+
+  /**
    * El domiciliario declara que llegó al comercio o al destino.
    *
-   * Es un hecho declarado, no verificado: sirve para avisar a la otra
-   * parte y para ordenar la interfaz, nunca para autorizar nada. Lo que
-   * autoriza es el código.
+   * Es un hecho declarado — la geocerca ya lo contrasta contra la
+   * ubicación real, ver `enforceGeofence` — pero sigue sin ser lo que
+   * autoriza el traspaso: eso lo hace el código, más abajo.
    */
-  async markArrival(access: OrderAccess, kind: OrderCodeKind): Promise<Date> {
+  async markArrival(
+    access: OrderAccess,
+    kind: OrderCodeKind,
+    location?: LatLng | null,
+    accuracyMeters?: number | null
+  ): Promise<Date> {
     assertParticipant(access, ['driver'], 'declarar la llegada');
 
     const expected =
@@ -267,6 +360,8 @@ export class OrderSecurityService {
         CODE_ERROR.WRONG_STAGE
       );
     }
+
+    await this.enforceGeofence(access.order, kind, location ?? null, accuracyMeters);
 
     const security = await this.ensureIssued(access.order._id.toString());
     const now = new Date();
@@ -303,8 +398,10 @@ export class OrderSecurityService {
     access: OrderAccess;
     kind: OrderCodeKind;
     code: string;
+    location?: LatLng | null;
+    accuracyMeters?: number | null;
   }): Promise<{ security: IOrderSecurity; verifiedAt: Date }> {
-    const { access, kind } = params;
+    const { access, kind, location, accuracyMeters } = params;
     assertParticipant(access, ['driver'], 'validar el código');
 
     const order = access.order;
@@ -322,6 +419,13 @@ export class OrderSecurityService {
         CODE_ERROR.WRONG_STAGE
       );
     }
+
+    // ── Geocerca ──
+    // Un código correcto tecleado a varios kilómetros de distancia no
+    // prueba una entrega — prueba que alguien lo conoce. Va antes de tocar
+    // el estado del código: un rechazo por distancia no debe gastar ni
+    // contar como un intento fallido.
+    await this.enforceGeofence(order, kind, location ?? null, accuracyMeters);
 
     const security = await this.ensureIssued(orderId);
     const state = security[kind];

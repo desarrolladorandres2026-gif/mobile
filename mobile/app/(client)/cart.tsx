@@ -1,11 +1,13 @@
-import { View, ScrollView, StyleSheet, Alert } from 'react-native';
+import { View, ScrollView, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn, Layout, FadeOut } from 'react-native-reanimated';
+import { Swipeable } from 'react-native-gesture-handler';
 import {
   Text, Icon, Button, IconButton, Card, QtyStepper, EmptyState,
   Screen, ScreenFooter, Header, DetailRow,
 } from '../../components/ui';
 import { useCartStore } from '../../stores/cartStore';
+import { useFavorites } from '../../hooks/useFavorites';
 import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { money } from '../../lib/format';
@@ -28,9 +30,12 @@ export default function CartScreen() {
   const businessId = useCartStore((s) => s.businessId);
   const businessName = useCartStore((s) => s.businessName);
   const subtotal = useCartStore((s) => s.getSubtotal());
+  const savings = useCartStore((s) => s.getSavings());
   const getLineTotal = useCartStore((s) => s.getLineTotal);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
+  const removeItem = useCartStore((s) => s.removeItem);
   const clearCart = useCartStore((s) => s.clearCart);
+  const { isFavorite, toggle: toggleFavorite } = useFavorites();
 
   const confirmClear = () => {
     Alert.alert(
@@ -92,33 +97,69 @@ export default function CartScreen() {
               exiting={FadeOut.duration(160)}
               layout={Layout.springify().damping(18)}
             >
-              <Card padded={false} style={styles.item}>
-                <View style={styles.itemBody}>
-                  <Text v="titleS">{item.productName}</Text>
+              <Swipeable
+                renderRightActions={() => (
+                  <TouchableOpacity
+                    style={[styles.deleteAction, { backgroundColor: c.error }]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Quitar ${item.productName} de la bolsa`}
+                    onPress={() => {
+                      tap('warning');
+                      removeItem(item.lineId);
+                    }}
+                  >
+                    <Icon name="eliminar" size="md" color={c.textOnPrimary} />
+                  </TouchableOpacity>
+                )}
+                overshootRight={false}
+              >
+                <Card padded={false} style={styles.item}>
+                  <View style={styles.itemBody}>
+                    <Text v="titleS">{item.productName}</Text>
 
-                  {item.selectedExtras.length > 0 ? (
-                    <Text v="bodyS" tone="primaryText" numberOfLines={2}>
-                      {describeExtras(item.selectedExtras)}
-                    </Text>
-                  ) : null}
+                    {item.selectedExtras.length > 0 ? (
+                      <Text v="bodyS" tone="primaryText" numberOfLines={2}>
+                        {describeExtras(item.selectedExtras)}
+                      </Text>
+                    ) : null}
 
-                  {item.notes ? (
-                    <Text v="bodyS" tone="textMuted" numberOfLines={2}>“{item.notes}”</Text>
-                  ) : null}
+                    {item.notes ? (
+                      <Text v="bodyS" tone="textMuted" numberOfLines={2}>“{item.notes}”</Text>
+                    ) : null}
 
-                  <Text v="dataM" tone="text">{money(getLineTotal(item))}</Text>
-                </View>
+                    <Text v="dataM" tone="text">{money(getLineTotal(item))}</Text>
+                  </View>
 
-                <QtyStepper
-                  value={item.quantity}
-                  onChange={(next) => updateQuantity(item.lineId, next)}
-                  itemName={item.productName}
-                  size="sm"
-                />
-              </Card>
+                  <IconButton
+                    icon="favorito"
+                    label={
+                      isFavorite(item.productId, 'product')
+                        ? `Quitar ${item.productName} de favoritos`
+                        : `Guardar ${item.productName} en favoritos`
+                    }
+                    tone={isFavorite(item.productId, 'product') ? 'primary' : 'neutral'}
+                    filled={isFavorite(item.productId, 'product')}
+                    onPress={() => toggleFavorite(item.productId, 'product')}
+                    size={32}
+                  />
+
+                  <QtyStepper
+                    value={item.quantity}
+                    onChange={(next) => updateQuantity(item.lineId, next)}
+                    itemName={item.productName}
+                    size="sm"
+                  />
+                </Card>
+              </Swipeable>
             </Animated.View>
           ))}
         </View>
+
+        {/* Desliza a la izquierda para quitar un producto sin abrir la
+            alerta de vaciar toda la bolsa. */}
+        <Text v="caption" tone="textMuted" style={styles.swipeHint}>
+          Desliza un producto para quitarlo
+        </Text>
 
         <Button
           title="Agregar algo más"
@@ -136,6 +177,9 @@ export default function CartScreen() {
             los impuestos y el descuento los define el servidor en el checkout. */}
         <Card style={styles.summary}>
           <DetailRow label="Subtotal" value={money(subtotal)} />
+          {savings > 0 ? (
+            <DetailRow label="Ahorraste" value={money(savings)} tone="successText" />
+          ) : null}
           <Text v="caption" tone="textMuted">
             El envío y los descuentos se calculan en el siguiente paso, según tu dirección.
           </Text>
@@ -175,6 +219,15 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
   },
   itemBody: { flex: 1, gap: 3 },
+
+  deleteAction: {
+    width: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: BorderRadius.sm,
+    marginLeft: Spacing.sm,
+  },
+  swipeHint: { textAlign: 'center', marginTop: -Spacing.sm },
 
   summary: { gap: Spacing.sm },
 });

@@ -134,7 +134,9 @@ export class OrderFlowController {
   ) {
     try {
       const access = await resolveOrderAccess(param(req, 'id'), req.user!);
-      const arrivedAt = await orderSecurityService.markArrival(access, kind);
+      const location = readLocation(req.body);
+      const accuracy = typeof req.body?.accuracy === 'number' ? req.body.accuracy : undefined;
+      const arrivedAt = await orderSecurityService.markArrival(access, kind, location, accuracy);
       const order = access.order;
       const participants = await getOrderParticipants(order);
 
@@ -334,9 +336,11 @@ export class OrderFlowController {
       const access = await resolveOrderAccess(param(req, 'id'), req.user!);
       const order = access.order;
       const orderId = order._id.toString();
+      const location = readLocation(req.body);
+      const accuracy = typeof req.body?.accuracy === 'number' ? req.body.accuracy : undefined;
 
       try {
-        await orderSecurityService.verify({ access, kind, code: req.body.code });
+        await orderSecurityService.verify({ access, kind, code: req.body.code, location, accuracyMeters: accuracy });
       } catch (error) {
         logAudit(req, {
           action: AuditAction.ORDER_CODE_FAILED,

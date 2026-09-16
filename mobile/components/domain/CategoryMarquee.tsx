@@ -86,12 +86,22 @@ export function CategoryMarquee({ categories }: { categories: MarqueeCategory[] 
   // colchón, para que al envolver nunca asome un hueco. Antes de medir, dos.
   const [copies, setCopies] = useState(2);
 
+  // El ancho de la tanda puede cambiar después de la primera medición —el
+  // admin agrega/quita una categoría, o gira el teléfono— y `tx`/el gesto
+  // envuelven usando `groupW.value`. Si nos quedáramos con la primera
+  // medición para siempre, el envolvimiento usaría un ancho viejo y el
+  // letrero saltaría o se trabaría al coser la costura. Por eso se remide en
+  // cada layout, no solo la primera vez.
   const onGroupLayout = (e: LayoutChangeEvent) => {
     const w = e.nativeEvent.layout.width;
-    if (w > 0 && groupW.value === 0) {
-      groupW.value = w;
-      setCopies(Math.max(2, Math.ceil(width / w) + 1));
+    if (w <= 0 || w === groupW.value) return;
+    // Reencuadra `tx` al nuevo ancho para no dar un tirón visible si la
+    // tanda cambió de tamaño a mitad de ciclo.
+    if (groupW.value > 0) {
+      tx.value = ((tx.value % w) + w) % w - w;
     }
+    groupW.value = w;
+    setCopies(Math.max(2, Math.ceil(width / w) + 1));
   };
 
   const frame = useFrameCallback((info) => {

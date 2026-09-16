@@ -8,6 +8,7 @@ import { API_URL } from '../../constants';
 import { isOlder } from '../../lib/versionCompare';
 import { Spacing } from '../../theme/tokens';
 import { tap } from '../../lib/haptics';
+import { APP_VARIANT, APP_DISPLAY_NAME } from '../../constants/variant';
 
 /**
  * Bloquea las versiones que ya no se pueden soportar.
@@ -46,7 +47,9 @@ export function VersionGate({ children }: { children: React.ReactNode }) {
         // `fetch` pelado y no el cliente `api`: esta comprobación tiene que
         // funcionar aunque la sesión esté rota, que es justo lo que le puede
         // pasar a una versión demasiado vieja.
-        const response = await fetch(`${API_URL}/app/version`);
+        // Cada app tiene su propia versión mínima: subir la del cliente no
+        // debe bloquear a los domiciliarios, ni al revés.
+        const response = await fetch(`${API_URL}/app/version?app=${APP_VARIANT}`);
         if (!response.ok) return;
 
         const { data } = await response.json();
@@ -73,7 +76,7 @@ export function VersionGate({ children }: { children: React.ReactNode }) {
   return (
     <View style={[styles.root, { backgroundColor: c.background }]}>
       <ContentIcon name="seguridad" size={72} />
-      <Text v="titleL" center>Actualiza Zipp</Text>
+      <Text v="titleL" center>Actualiza {APP_DISPLAY_NAME}</Text>
       <Text v="bodyM" tone="textSecondary" center>
         Esta versión ya no se puede usar. Actualízala para seguir pidiendo:
         es rápido y no pierdes nada de tu cuenta.
@@ -90,7 +93,7 @@ export function VersionGate({ children }: { children: React.ReactNode }) {
         />
       ) : (
         <Text v="caption" tone="textMuted" center>
-          Búscala como "Zipp" en tu tienda de aplicaciones.
+          Búscala como "{APP_DISPLAY_NAME}" en tu tienda de aplicaciones.
         </Text>
       )}
     </View>

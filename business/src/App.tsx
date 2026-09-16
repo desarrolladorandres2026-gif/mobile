@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useThemeStore } from './stores/themeStore';
 import { RealtimeProvider } from './hooks/RealtimeProvider';
+import UpdateBanner from './components/UpdateBanner';
 import PrivateRoute from './components/PrivateRoute';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
@@ -25,6 +26,7 @@ function App() {
 
   return (
     <BrowserRouter>
+      <UpdateBanner />
       {/*
         El proveedor envuelve también al login: la conexión solo se abre
         cuando hay sesión, y montarlo aquí evita que entrar al panel

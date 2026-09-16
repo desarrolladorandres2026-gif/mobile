@@ -211,6 +211,72 @@ export enum CashIncidentStatus {
  * dinero, así que se guarda aparte del estado: "resuelta" no dice si el
  * domiciliario acabó debiendo o no.
  */
+/**
+ * Motivos cerrados de una calificación baja, agrupados por relación.
+ *
+ * Igual que `CancellationReason`: un `comment` libre no se puede contar, y
+ * la pregunta que de verdad importa —¿los negocios entregan tarde o los
+ * domiciliarios se demoran en recoger?— solo se responde con motivos
+ * cerrados. Nunca son obligatorios en un rating alto: solo tienen sentido
+ * cuando algo salió mal.
+ */
+export enum ReviewReasonClientToBusiness {
+  PRODUCT_QUALITY = 'product_quality',
+  MISSING_ITEM = 'missing_item',
+  WRONG_ITEM = 'wrong_item',
+  BAD_CONDITION = 'bad_condition',
+  PREPARATION_DELAY = 'preparation_delay',
+  OTHER = 'other',
+}
+
+export enum ReviewReasonClientToDriver {
+  LATE_DELIVERY = 'late_delivery',
+  POOR_TREATMENT = 'poor_treatment',
+  DID_NOT_FOLLOW_INSTRUCTIONS = 'did_not_follow_instructions',
+  DELIVERY_PROBLEM = 'delivery_problem',
+  OTHER = 'other',
+}
+
+export enum ReviewReasonDriverToBusiness {
+  ORDER_NOT_READY = 'order_not_ready',
+  WAITING_TIME = 'waiting_time',
+  POOR_TREATMENT = 'poor_treatment',
+  ORDER_PREPARATION_PROBLEM = 'order_preparation_problem',
+  OTHER = 'other',
+}
+
+export enum ReviewReasonDriverToClient {
+  WRONG_ADDRESS = 'wrong_address',
+  COMMUNICATION_PROBLEM = 'communication_problem',
+  LONG_WAIT = 'long_wait',
+  POOR_TREATMENT = 'poor_treatment',
+  OTHER = 'other',
+}
+
+export enum ReviewReasonBusinessToDriver {
+  LATE_PICKUP = 'late_pickup',
+  POOR_TREATMENT = 'poor_treatment',
+  DELIVERY_PROBLEM = 'delivery_problem',
+  ORDER_HANDLING = 'order_handling',
+  OTHER = 'other',
+}
+
+/**
+ * El negocio calificando al cliente no estaba en la lista original de
+ * relaciones pedidas, pero el campo `clientRatingByBusiness` ya existía:
+ * reusa los mismos motivos que el domiciliario, que describen el mismo
+ * problema (dirección, trato, espera) desde el otro lado del mostrador.
+ */
+export const ReviewReasonBusinessToClient = ReviewReasonDriverToClient;
+export type ReviewReasonBusinessToClient = ReviewReasonDriverToClient;
+
+/** Estado de moderación de una reseña — reemplaza el booleano `isHidden`. */
+export enum ReviewModerationStatus {
+  ACTIVE = 'active',
+  HIDDEN = 'hidden',
+  REMOVED = 'removed',
+}
+
 export enum CashIncidentResolution {
   /** Se le cree: no recibió el dinero y no debe la comisión. */
   DRIVER_FAVOR = 'driver_favor',

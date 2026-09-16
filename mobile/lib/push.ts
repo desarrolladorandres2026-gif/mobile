@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { IS_DRIVER_APP } from '../constants/variant';
 
 /**
  * Registro del dispositivo para notificaciones push (Expo).
@@ -87,6 +88,11 @@ export async function ensureAndroidChannel(): Promise<void> {
     lightColor: '#C6A15B',
     sound: 'default',
   });
+
+  // Las ofertas solo existen en Zipp Domiciliarios: crear el canal en la
+  // app de clientes sería un "Pedidos disponibles" en sus ajustes de
+  // notificaciones que nunca sonaría y solo daría que pensar.
+  if (!IS_DRIVER_APP) return;
 
   /**
    * Las ofertas de pedido, en su propio canal.

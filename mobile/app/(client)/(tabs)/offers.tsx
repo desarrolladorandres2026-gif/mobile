@@ -5,7 +5,7 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  Text, Card, SectionHeader, EmptyState, ErrorState, BusinessCardSkeleton, CatalogBadges,
+  Text, Icon, Card, SectionHeader, EmptyState, ErrorState, BusinessCardSkeleton, CatalogBadges,
 } from '../../../components/ui';
 import { BusinessRow } from '../../../components/domain/BusinessCard';
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
@@ -14,6 +14,7 @@ import { categoryIllustration } from '../../../components/illustrations';
 import { useOffers, useDeliveryCoords } from '../../../hooks/useApi';
 import type { OfferBusiness, ProductSearchHit } from '../../../services/endpoints';
 import { productImageUri, productImagePlaceholder } from '../../../lib/productImage';
+import { minutes } from '../../../lib/format';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
@@ -182,11 +183,25 @@ const OfferProductCard = memo(function OfferProductCard({
       <View style={styles.productBody}>
         <CatalogBadges product={product} />
         <Text v="strongS" numberOfLines={1}>{product.name}</Text>
-        <Text v="caption" tone="textMuted" numberOfLines={1}>{product.businessName}</Text>
+        <View style={styles.businessRow}>
+          <Text v="caption" tone="textMuted" numberOfLines={1} style={styles.flex}>{product.businessName}</Text>
+          <View style={styles.rating}>
+            <Icon name="calificacion" size={11} color={c.warning} />
+            <Text v="caption" tone="textMuted">{(product.businessRating ?? 0).toFixed(1)}</Text>
+          </View>
+          {product.businessDeliveryTime ? (
+            <View style={styles.rating}>
+              <Icon name="domiciliario" size={11} color={c.text} />
+              <Text v="captionStrong" tone="text">{minutes(product.businessDeliveryTime)}</Text>
+            </View>
+          ) : null}
+        </View>
         <View style={styles.priceRow}>
-          <Text v="dataM" color={c.primary}>
-            ${(product.discountPrice ?? product.price).toLocaleString('es-CO')}
-          </Text>
+          <View style={[styles.pricePill, { backgroundColor: c.gold }]}>
+            <Text v="dataM" color={c.black}>
+              ${(product.discountPrice ?? product.price).toLocaleString('es-CO')}
+            </Text>
+          </View>
           <Text v="dataS" tone="textMuted" style={styles.strike}>
             ${product.price.toLocaleString('es-CO')}
           </Text>
@@ -198,7 +213,7 @@ const OfferProductCard = memo(function OfferProductCard({
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md },
+  top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.xl },
 
   section: { marginTop: Spacing.xxxl, paddingHorizontal: Spacing.xl },
   hList: { gap: Spacing.md, paddingRight: Spacing.xl },
@@ -208,6 +223,14 @@ const styles = StyleSheet.create({
   productImage: { width: '100%', height: 112, borderRadius: BorderRadius.sm },
   productFallback: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   productBody: { gap: 2 },
-  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: Spacing.sm },
+  businessRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  rating: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  flex: { flex: 1 },
+  priceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   strike: { textDecorationLine: 'line-through' },
+  pricePill: {
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+  },
 });

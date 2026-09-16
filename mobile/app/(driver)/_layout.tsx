@@ -3,7 +3,6 @@ import { Colors } from '../../constants';
 import { DriverTrackingProvider } from '../../hooks/useDriverTracking';
 import { OfferSheet } from '../../components/domain/OfferSheet';
 import { VerificationSheet } from '../../components/domain/VerificationSheet';
-import { SosButton } from '../../components/domain/SosButton';
 
 export default function DriverLayout() {
   return (
@@ -21,7 +20,11 @@ export default function DriverLayout() {
         <Stack.Screen name="(tabs)" />
         {/* Recogida y entrega: evidencia, código de seguridad, chat y llamada. */}
         <Stack.Screen name="order/[id]" />
-        {/* Aspectos legales: mismo centro que ve el cliente, en el stack del repartidor. */}
+        {/* Pantallas compartidas con la app de clientes (screens/shared), en
+            el stack del repartidor para no perder el tracking, la hoja de
+            ofertas ni el botón SOS mientras las lee. */}
+        <Stack.Screen name="order-timeline" />
+        <Stack.Screen name="help" />
         <Stack.Screen name="legal" />
         <Stack.Screen name="legal-document" />
         <Stack.Screen name="requests" />
@@ -35,10 +38,6 @@ export default function DriverLayout() {
       */}
       <OfferSheet />
       <VerificationSheet />
-
-      {/* Fuera del navegador, como el GPS: una emergencia no espera a que
-          el domiciliario esté en la pantalla correcta. */}
-      <SosButton />
     </DriverTrackingProvider>
   );
 }

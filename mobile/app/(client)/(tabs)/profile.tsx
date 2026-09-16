@@ -31,6 +31,7 @@ import { apiMessage, validateName, validatePhone } from '../../../lib/errors';
 import { tap } from '../../../lib/haptics';
 import { pushPermissionGranted } from '../../../lib/push';
 import { SUPPORT_PHONE, supportWhatsAppUrl } from '../../../constants/config';
+import { OTHER_APP, OTHER_APP_STORE_URL } from '../../../constants/variant';
 
 
 interface MenuLink {
@@ -147,8 +148,23 @@ export default function ProfileScreen() {
     {
       illustration: 'domiciliario',
       label: 'Empezar a repartir con Zipp',
-      detail: 'Escríbenos para postularte como domiciliario',
+      detail: 'Postúlate por WhatsApp; luego entras con Zipp Domiciliarios',
       action: () => writeToZipp('Hola, quiero empezar a repartir con Zipp.'),
+    },
+    {
+      // Los domiciliarios tienen su propia app. La postulación se queda
+      // aquí porque es donde llega la gente que ya conoce Zipp; el enlace
+      // evita que busquen en la tienda y acaben reinstalando esta.
+      illustration: 'paquete',
+      label: `Descargar ${OTHER_APP.name}`,
+      detail: 'La app para repartir, en la tienda',
+      action: () => {
+        // TODO(tienda): la ficha existe cuando se publique; hasta entonces
+        // Play mostrará "no encontrado".
+        Linking.openURL(OTHER_APP.marketUrl).catch(() => {
+          Linking.openURL(OTHER_APP_STORE_URL).catch(() => {});
+        });
+      },
     },
   ];
 
@@ -774,7 +790,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
+    paddingTop: Spacing.xl,
     gap: Spacing.xxl,
   },
 

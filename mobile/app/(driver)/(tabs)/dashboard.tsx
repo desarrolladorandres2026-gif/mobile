@@ -44,8 +44,8 @@ export default function DriverDashboard() {
   const {
     data: profile, isLoading: loadingProfile, isError: errorProfile, refetch: refetchProfile, isRefetching,
   } = useDriverProfile();
-  const { data: earnings, isLoading: loadingEarnings, refetch: refetchEarnings } = useDriverEarnings();
-  const { data: debts, isLoading: loadingDebts, refetch: refetchDebts } = useDriverDebts();
+  const { data: earnings, refetch: refetchEarnings } = useDriverEarnings();
+  const { data: debts, refetch: refetchDebts } = useDriverDebts();
 
   const updateStatusMutation = useUpdateDriverStatus();
 
@@ -117,9 +117,11 @@ export default function DriverDashboard() {
     await Promise.all([refetchProfile(), refetchEarnings(), refetchDebts()]);
   };
 
-  const loading = loadingProfile || loadingEarnings || loadingDebts;
-
-  if (loading && !isRefetching) {
+  // Solo el perfil bloquea la pantalla: ganancias y deudas corren en paralelo
+  // y ya tienen su propio valor por defecto (0) mientras llegan, así que
+  // esperarlas aquí solo alargaba el spinner sin ganar nada — el repartidor
+  // veía "Cargando tu turno..." de más por la más lenta de las tres.
+  if (loadingProfile && !isRefetching) {
     return <LoadingScreen message="Cargando tu turno..." />;
   }
 

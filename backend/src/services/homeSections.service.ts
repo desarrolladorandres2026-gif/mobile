@@ -1,5 +1,5 @@
 import { PipelineStage, Types } from 'mongoose';
-import { Order, Product } from '../models';
+import { Order, Product, Business, CuratedHomeBlock, PromotionBanner, BannerPlacement } from '../models';
 import { OrderStatus } from '../types';
 import { LatLng } from '../utils/geo';
 import { VISIBLE_BUSINESS, withinRadius, withDistance } from '../utils/catalogQuery';
@@ -78,6 +78,238 @@ export interface HomeSectionsOptions {
   city?: string;
 }
 
+/**
+ * Espacio numérico que ordena la secuencia entera del inicio: las veinte
+ * colecciones automáticas de `sectionDefs` (10, 20, 30… 200, en el mismo
+ * orden en que ya están declaradas ahí abajo — ese orden no cambia), los
+ * bloques curados por un admin (`CuratedHomeBlock.order`, elegido a mano
+ * para intercalarse entre ellas) y los banners promocionales que un admin
+ * decidió anclar a una posición concreta (`PromotionBanner.homeOrder`).
+ */
+const AUTO_SECTION_ORDER_STEP = 10;
+
+/** Un producto tal como lo necesita una tarjeta de spotlight/collection —
+ * el mismo shape que ya arma `PROJECT_STAGE` + `productImageUrls`, sin la
+ * maquinaria de candidatos/ranking que sí necesitan las 20 automáticas. */
+interface CuratedProduct {
+  _id: Types.ObjectId;
+  name: string;
+  description?: string;
+  price: number;
+  discountPrice?: number | null;
+  discountPercent: number;
+  effectivePrice: number;
+  images: ReturnType<typeof productImageUrls>;
+  businessId: Types.ObjectId;
+  businessName: string;
+  businessLogo?: string | null;
+  businessCategory: string;
+  businessRating: number;
+  businessDeliveryTime: number;
+}
+
+/** Un negocio tal como lo necesita una tarjeta de banner/collection de negocios. */
+interface CuratedBusiness {
+  _id: Types.ObjectId;
+  name: string;
+  category: string;
+  rating: number;
+  totalReviews: number;
+  deliveryTime: number;
+  logo?: string | null;
+  coverImage?: string | null;
+  freeDeliveryThreshold: number;
+}
+
+/** Una entrada cualquiera de la secuencia fusionada del inicio. */
+export type HomeFeedEntry =
+  | {
+      kind: 'collection';
+      order: number;
+      key: string;
+      emoji: string;
+      title: string;
+      subtitle?: string;
+      displayVariant: DisplayVariant;
+      products: unknown[];
+    }
+  | { kind: 'productBanner'; order: number; title: string; subtitle?: string; products: CuratedProduct[] }
+  | { kind: 'businessBanner'; order: number; title: string; subtitle?: string; businesses: CuratedBusiness[] }
+  | { kind: 'businessCollection'; order: number; title: string; subtitle?: string; businesses: CuratedBusiness[] }
+  | { kind: 'promo'; order: number; banners: PromoEntry[] };
+
+interface PromoEntry {
+  id: string;
+  imageUrl: string;
+  title: string;
+  description: string;
+  buttonText: string;
+  actionType: string;
+  actionValue: string;
+  durationSeconds: number;
+}
+
+function toCuratedProduct(p: {
+  _id: Types.ObjectId;
+  name: string;
+  description?: string;
+  price: number;
+  discountPrice?: number | null;
+  imageAsset?: unknown;
+  businessId: Types.ObjectId;
+  business: { name: string; logo?: string | null; category: string; rating: number; deliveryTime: number };
+}): CuratedProduct {
+  const discountPercent =
+    p.discountPrice && p.discountPrice > 0 && p.discountPrice < p.price && p.price > 0
+      ? Math.floor(((p.price - p.discountPrice) / p.price) * 100)
+      : 0;
+  const effectivePrice = discountPercent > 0 ? (p.discountPrice as number) : p.price;
+  return {
+    _id: p._id,
+    name: p.name,
+    description: p.description,
+    price: p.price,
+    discountPrice: p.discountPrice,
+    discountPercent,
+    effectivePrice,
+    images: productImageUrls(p.imageAsset as any),
+    businessId: p.businessId,
+    businessName: p.business.name,
+    businessLogo: p.business.logo,
+    businessCategory: p.business.category,
+    businessRating: p.business.rating,
+    businessDeliveryTime: p.business.deliveryTime,
+  };
+}
+
+function toCuratedBusiness(b: {
+  _id: Types.ObjectId;
+  name: string;
+  category: string;
+  rating: number;
+  totalReviews: number;
+  deliveryTime: number;
+  logo?: string | null;
+  coverImage?: string | null;
+  freeDeliveryThreshold: number;
+}): CuratedBusiness {
+  return {
+    _id: b._id,
+    name: b.name,
+    category: b.category,
+    rating: b.rating,
+    totalReviews: b.totalReviews,
+    deliveryTime: b.deliveryTime,
+    logo: b.logo,
+    coverImage: b.coverImage,
+    freeDeliveryThreshold: b.freeDeliveryThreshold,
+  };
+}
+
+/**
+ * Los bloques curados por un admin (`productBanner`, `businessBanner`,
+ * `businessCollection`), ya resueltos con los mismos datos que pinta una
+ * tarjeta. Son a lo sumo unas pocas docenas de items en total, así que
+ * consultas directas por id no comprometen el presupuesto de peticiones:
+ * siguen siendo parte de esta misma llamada a `/home-sections`.
+ */
+async function getCuratedBlocks(): Promise<HomeFeedEntry[]> {
+  const now = new Date();
+  const blocks = await CuratedHomeBlock.find({
+    isActive: true,
+    $and: [
+      { $or: [{ startDate: { $exists: false } }, { startDate: null }, { startDate: { $lte: now } }] },
+      { $or: [{ endDate: { $exists: false } }, { endDate: null }, { endDate: { $gte: now } }] },
+    ],
+  }).sort({ order: 1 });
+
+  if (blocks.length === 0) return [];
+
+  const productIds = blocks.filter((b) => b.kind === 'productBanner').flatMap((b) => b.items);
+  const businessIds = blocks
+    .filter((b) => b.kind !== 'productBanner')
+    .flatMap((b) => b.items);
+
+  const [products, businesses] = await Promise.all([
+    productIds.length
+      ? Product.aggregate([
+          { $match: { _id: { $in: productIds } } },
+          { $lookup: { from: 'businesses', localField: 'businessId', foreignField: '_id', as: 'business' } },
+          { $unwind: '$business' },
+        ])
+      : Promise.resolve([]),
+    businessIds.length ? Business.find({ _id: { $in: businessIds } }) : Promise.resolve([]),
+  ]);
+
+  const productById = new Map(products.map((p: any) => [String(p._id), p]));
+  const businessById = new Map(businesses.map((b: any) => [String(b._id), b]));
+
+  const entries: HomeFeedEntry[] = [];
+  for (const block of blocks) {
+    if (block.kind === 'productBanner') {
+      const items = block.items
+        .map((id) => productById.get(String(id)))
+        .filter((p): p is any => !!p)
+        .map(toCuratedProduct);
+      if (items.length === 0) continue;
+      entries.push({
+        kind: 'productBanner', order: block.order, title: block.title, subtitle: block.subtitle, products: items,
+      });
+    } else {
+      const items = block.items
+        .map((id) => businessById.get(String(id)))
+        .filter((b): b is any => !!b)
+        .map(toCuratedBusiness);
+      if (items.length === 0) continue;
+      entries.push({
+        kind: block.kind as 'businessBanner' | 'businessCollection',
+        order: block.order,
+        title: block.title,
+        subtitle: block.subtitle,
+        businesses: items,
+      });
+    }
+  }
+  return entries;
+}
+
+/**
+ * Los banners promocionales que un admin ancló a una posición concreta del
+ * inicio (`homeOrder` distinto de `null`). Los que comparten el mismo
+ * `homeOrder` van juntos en un único bloque `promo`, que el cliente pinta
+ * con el mismo `PromoCarousel` de siempre.
+ */
+async function getPositionedPromoBlocks(): Promise<HomeFeedEntry[]> {
+  const now = new Date();
+  const banners = await PromotionBanner.find({
+    isActive: true,
+    startDate: { $lte: now },
+    endDate: { $gte: now },
+    placement: { $in: [BannerPlacement.HOME, BannerPlacement.ALL] },
+    imageUrl: { $ne: '' },
+    homeOrder: { $ne: null },
+  }).sort({ homeOrder: 1, displayOrder: 1, priority: -1, createdAt: -1 });
+
+  const byOrder = new Map<number, PromoEntry[]>();
+  for (const b of banners) {
+    const order = b.homeOrder as number;
+    const list = byOrder.get(order) ?? [];
+    list.push({
+      id: b._id.toString(),
+      imageUrl: b.imageUrl,
+      title: b.title,
+      description: b.description,
+      buttonText: b.buttonText,
+      actionType: b.actionType,
+      actionValue: b.actionValue,
+      durationSeconds: b.durationSeconds,
+    });
+    byOrder.set(order, list);
+  }
+
+  return Array.from(byOrder.entries()).map(([order, list]) => ({ kind: 'promo' as const, order, banners: list }));
+}
+
 interface SectionProduct {
   _id: Types.ObjectId;
   name: string;
@@ -99,6 +331,7 @@ interface SectionProduct {
   businessRating: number;
   businessTotalReviews: number;
   businessDeliveryTime: number;
+  businessFreeDeliveryThreshold: number;
   businessLocation?: { coordinates?: number[] };
   businessSchedule: Record<string, { open: string; close: string; isOpen: boolean }>;
   businessCreatedAt: Date;
@@ -127,6 +360,7 @@ const PROJECT_STAGE: PipelineStage.Project = {
     businessRating: '$business.rating',
     businessTotalReviews: '$business.totalReviews',
     businessDeliveryTime: '$business.deliveryTime',
+    businessFreeDeliveryThreshold: '$business.freeDeliveryThreshold',
     businessLocation: '$business.location',
     businessSchedule: '$business.schedule',
     businessCreatedAt: '$business.createdAt',
@@ -225,11 +459,20 @@ function filterOpenNow(docs: SectionProduct[]): SectionProduct[] {
   return docs.filter((d) => businessService.isCurrentlyOpen({ schedule: d.businessSchedule } as any));
 }
 
+/**
+ * Formato visual de la colección — decide qué componente de tarjeta usa el
+ * cliente. Vive en el backend (no hardcodeado en la app) para que a futuro
+ * administración pueda reasignarlo sin tocar código, tal como pide el
+ * catálogo: `collection.displayVariant`.
+ */
+type DisplayVariant = 'compact' | 'large' | 'horizontal' | 'featured' | 'price_focus' | 'banner';
+
 interface SectionDefinition {
   key: string;
   emoji: string;
   title: string;
   subtitle?: string;
+  displayVariant: DisplayVariant;
   candidates: SectionProduct[];
 }
 
@@ -449,53 +692,60 @@ export async function getHomeSections(options: HomeSectionsOptions = {}) {
 
   const sectionDefs: SectionDefinition[] = [
     {
-      key: 'losMasPedidos', emoji: '🔥', title: 'Los más pedidos',
+      key: 'losMasPedidos', emoji: '🔥', title: 'Los más pedidos', displayVariant: 'large',
       subtitle: 'Lo que más se pide ahora mismo',
       candidates: orderByIds(clean('byIdMostOrdered'), sales.mostOrdered.map((r) => r._id)),
     },
     {
-      key: 'pideYRepite', emoji: '⭐', title: 'Pide y repite',
+      key: 'pideYRepite', emoji: '⭐', title: 'Pide y repite', displayVariant: 'compact',
       subtitle: 'A la gente le gustó tanto que volvió por más',
       candidates: orderByIds(clean('byIdRepeatPurchase'), sales.repeatPurchase.map((r) => r._id)),
     },
-    { key: 'descuentosLocos', emoji: '💸', title: 'Descuentos locos', candidates: clean('discounts') },
-    { key: 'antojoDelDia', emoji: '🍔', title: 'El antojo del día', candidates: clean('antojoDelDia') },
-    { key: 'paraCompartir', emoji: '🍟', title: 'Para compartir', candidates: clean('paraCompartir') },
-    { key: 'algoDulce', emoji: '🍦', title: 'Algo dulce', candidates: clean('algoDulce') },
-    { key: 'paraEmpezarElDia', emoji: '☕', title: 'Para empezar el día', candidates: clean('paraEmpezarElDia') },
-    { key: 'paraLaNoche', emoji: '🌙', title: 'Para la noche', candidates: clean('paraLaNoche') },
-    { key: 'algoParaTomar', emoji: '🥤', title: 'Algo para tomar', candidates: clean('algoParaTomar') },
-    { key: 'buenoYBarato', emoji: '💰', title: 'Bueno y barato', candidates: clean('buenoYBarato') },
-    { key: 'listoParaPedir', emoji: '⚡', title: 'Listo para pedir', candidates: clean('listoParaPedir') },
-    { key: 'recienLlegados', emoji: '🆕', title: 'Recién llegados', candidates: clean('recienLlegados') },
-    { key: 'favoritosZipp', emoji: '❤️', title: 'Favoritos de ZIPP', candidates: clean('favoritosZipp') },
+    { key: 'descuentosLocos', emoji: '💸', title: 'Descuentos locos', displayVariant: 'price_focus', candidates: clean('discounts') },
+    { key: 'antojoDelDia', emoji: '🍔', title: 'El antojo del día', displayVariant: 'compact', candidates: clean('antojoDelDia') },
+    { key: 'paraCompartir', emoji: '🍟', title: 'Para compartir', displayVariant: 'horizontal', candidates: clean('paraCompartir') },
+    { key: 'algoDulce', emoji: '🍦', title: 'Algo dulce', displayVariant: 'featured', candidates: clean('algoDulce') },
+    { key: 'paraEmpezarElDia', emoji: '☕', title: 'Para empezar el día', displayVariant: 'compact', candidates: clean('paraEmpezarElDia') },
+    { key: 'paraLaNoche', emoji: '🌙', title: 'Para la noche', displayVariant: 'compact', candidates: clean('paraLaNoche') },
+    { key: 'algoParaTomar', emoji: '🥤', title: 'Algo para tomar', displayVariant: 'compact', candidates: clean('algoParaTomar') },
+    { key: 'buenoYBarato', emoji: '💰', title: 'Bueno y barato', displayVariant: 'price_focus', candidates: clean('buenoYBarato') },
+    { key: 'listoParaPedir', emoji: '⚡', title: 'Listo para pedir', displayVariant: 'compact', candidates: clean('listoParaPedir') },
+    { key: 'recienLlegados', emoji: '🆕', title: 'Recién llegados', displayVariant: 'compact', candidates: clean('recienLlegados') },
+    { key: 'favoritosZipp', emoji: '❤️', title: 'ZIPP recomienda', displayVariant: 'featured', candidates: clean('favoritosZipp') },
     {
-      key: 'estaEnTendencia', emoji: '📈', title: 'Está en tendencia',
+      key: 'estaEnTendencia', emoji: '📈', title: 'Está en tendencia', displayVariant: 'compact',
       subtitle: 'Cada vez lo pide más gente',
       candidates: orderByIds(clean('byIdTrending'), sales.trending.map((r) => r._id)),
     },
-    { key: 'favoritosCiudad', emoji: '🏆', title: 'Los favoritos de la ciudad', candidates: clean('favoritosCiudad') },
+    { key: 'favoritosCiudad', emoji: '🏆', title: 'Los favoritos de la ciudad', displayVariant: 'horizontal', candidates: clean('favoritosCiudad') },
     {
-      key: 'cercaDeTi', emoji: '🛵', title: 'Cerca de ti',
+      key: 'cercaDeTi', emoji: '🛵', title: 'Cerca de ti', displayVariant: 'compact',
       candidates: coords
         ? withDistance(clean('cercaDeTi'), coords, 'businessLocation')
             .sort((a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity))
         : [],
     },
-    { key: 'combosQueValenLaPena', emoji: '🎁', title: 'Combos que valen la pena', candidates: clean('combosQueValenLaPena') },
-    { key: 'porMenosDe10000', emoji: '🤑', title: 'Por menos de $10.000', candidates: clean('porMenosDe10000') },
-    { key: 'dateUnGusto', emoji: '👑', title: 'Date un gusto', candidates: clean('dateUnGusto') },
-    { key: 'refrescaElDia', emoji: '🧊', title: 'Refresca el día', candidates: clean('refrescaElDia') },
+    { key: 'combosQueValenLaPena', emoji: '🎁', title: 'Combos que valen la pena', displayVariant: 'horizontal', candidates: clean('combosQueValenLaPena') },
+    { key: 'porMenosDe10000', emoji: '🤑', title: 'Por menos de $10.000', displayVariant: 'price_focus', candidates: clean('porMenosDe10000') },
+    { key: 'dateUnGusto', emoji: '👑', title: 'Date un gusto', displayVariant: 'banner', candidates: clean('dateUnGusto') },
+    { key: 'refrescaElDia', emoji: '🧊', title: 'Refresca el día', displayVariant: 'compact', candidates: clean('refrescaElDia') },
   ];
 
   const usageCount = new Map<string, number>();
 
-  return sectionDefs
-    .map((section) => ({
+  // Las veinte automáticas, con su `order` implícito (10, 20, 30…) en el
+  // mismo orden en que están declaradas arriba en `sectionDefs` — ese orden
+  // interno no cambia, solo se le añade `kind`/`order` al resultado final
+  // para que pueda fusionarse con los bloques curados y los banners.
+  const autoSections: HomeFeedEntry[] = sectionDefs
+    .map((section, i) => ({
+      kind: 'collection' as const,
+      order: (i + 1) * AUTO_SECTION_ORDER_STEP,
       key: section.key,
       emoji: section.emoji,
       title: section.title,
       subtitle: section.subtitle,
+      displayVariant: section.displayVariant,
       // `businessSchedule`/`businessCreatedAt` solo existen para decidir
       // aquí adentro qué entra y qué no; la app no los pinta y no tiene
       // sentido mandarlos en cada carga del inicio. `images` se calcula a
@@ -510,6 +760,13 @@ export async function getHomeSections(options: HomeSectionsOptions = {}) {
       ),
     }))
     .filter((section) => section.products.length >= MIN_SECTION_SIZE);
+
+  const [curatedBlocks, promoBlocks] = await Promise.all([getCuratedBlocks(), getPositionedPromoBlocks()]);
+
+  // Todo fusionado y ordenado por `order` ascendente: así un admin puede
+  // intercalar un bloque curado o un banner entre dos colecciones
+  // automáticas con solo elegir el número, sin tocar código.
+  return [...autoSections, ...curatedBlocks, ...promoBlocks].sort((a, b) => a.order - b.order);
 }
 
 export const homeSectionsService = { getHomeSections };

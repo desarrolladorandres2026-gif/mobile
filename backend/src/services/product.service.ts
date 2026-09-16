@@ -139,7 +139,7 @@ export class ProductService {
     return Product.find({ businessId: { $in: businessIds }, isAvailable: true })
       .sort({ isFeatured: -1, createdAt: -1 })
       .limit(limit)
-      .populate('businessId', 'name category');
+      .populate('businessId', 'name category rating deliveryTime');
   }
 
   async getByBusiness(businessId: string, categoryId?: string, includeUnavailable = false) {

@@ -96,10 +96,14 @@ async function searchBusinesses(
   const query = Business.find(match).limit(CANDIDATE_CAP);
 
   // El orden por relevancia solo existe si hubo búsqueda de texto; con
-  // prefijos se cae al criterio de siempre.
+  // prefijos se cae al criterio de siempre. El `_id` al final de cada orden
+  // desempata: sin él, dos negocios con el mismo rating (o el mismo
+  // puntaje de texto) pueden salir en orden distinto entre una página y la
+  // siguiente —cada una es una consulta aparte—, y eso repite uno y se come
+  // otro al deslizar.
   return usePrefix
-    ? query.sort({ isFeatured: -1, rating: -1 }).lean()
-    : query.select({ score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' } }).lean();
+    ? query.sort({ isFeatured: -1, rating: -1, _id: 1 }).lean()
+    : query.select({ score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' }, _id: 1 }).lean();
 }
 
 async function searchProducts(

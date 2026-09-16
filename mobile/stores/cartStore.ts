@@ -22,6 +22,8 @@ export interface CartItem {
   image?: string;
   selectedExtras: CartExtra[];
   notes?: string;
+  /** Precio de lista antes del descuento. Solo cuando el producto tenía uno. */
+  originalUnitPrice?: number;
 }
 
 /** Input shape callers provide; the store derives `lineId`. */
@@ -40,6 +42,8 @@ interface CartState {
   getLineTotal: (item: CartItem) => number;
   getSubtotal: () => number;
   getItemCount: () => number;
+  /** Cuánto se ahorra por los descuentos de producto, sumado a toda la bolsa. */
+  getSavings: () => number;
 }
 
 /**
@@ -127,6 +131,12 @@ export const useCartStore = create<CartState>()(
       getSubtotal: () => get().items.reduce((sum, item) => sum + lineTotal(item), 0),
 
       getItemCount: () => get().items.reduce((sum, item) => sum + item.quantity, 0),
+
+      getSavings: () =>
+        get().items.reduce((sum, item) => {
+          if (!item.originalUnitPrice || item.originalUnitPrice <= item.unitPrice) return sum;
+          return sum + (item.originalUnitPrice - item.unitPrice) * item.quantity;
+        }, 0),
     }),
     {
       name: 'zipp-cart-storage',

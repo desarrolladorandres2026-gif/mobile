@@ -5,8 +5,9 @@ import Animated, {
   FadeInDown, SlideInRight, SlideInLeft, SlideOutLeft, SlideOutRight,
 } from 'react-native-reanimated';
 import {
-  Text, Input, Button, GoogleButton, FacebookButton, AppleButton, Notice, OtpInput, Screen, Header,
+  Text, Input, Button, Notice, OtpInput, Screen, Header,
 } from '../../components/ui';
+import { SocialSignIn, type SocialAuthResult } from '../../components/domain/SocialSignIn';
 import { useBottomInset } from '../../hooks/useBottomSpace';
 import { useAuthStore } from '../../stores/authStore';
 import { authApi } from '../../services/endpoints';
@@ -15,8 +16,8 @@ import { BorderRadius, Spacing } from '../../theme/tokens';
 import { apiMessage, validateName, validatePhone, validatePassword } from '../../lib/errors';
 import { scorePasswordStrength, PASSWORD_STRENGTH_LABEL } from '../../lib/passwordStrength';
 import { tap } from '../../lib/haptics';
-import { useGoogleAuth } from '../../lib/googleAuth';
-import { useAppleAuth } from '../../lib/appleAuth';
+import { decideAfterAuth, hrefFor } from '../../lib/routing';
+import { IS_DRIVER_APP, IS_CLIENT_APP, ACCEPTED_ROLE } from '../../constants/variant';
 
 type Step = 'chooser' | 'phone-input' | 'login-password' | 'otp' | 'name' | 'create-password';
 type Errors = Partial<Record<'phone' | 'password' | 'name' | 'newPassword' | 'confirmPassword', string>>;
@@ -24,14 +25,16 @@ type Errors = Partial<Record<'phone' | 'password' | 'name' | 'newPassword' | 'co
 const RESEND_SECONDS = 60;
 
 /**
- * Accesos directos de prueba — solo mientras no hay backend de producción.
- * Usan las cuentas fijas que siembra `backend/src/seed.ts`. `__DEV__` los
- * saca de cualquier build de release sin necesitar un flag aparte.
+ * Acceso directo de prueba — solo mientras no hay backend de producción.
+ * Usa la cuenta fija que siembra `backend/src/seed.ts` para el rol de esta
+ * app (la otra la rechazaría el login de todos modos). `__DEV__` lo saca
+ * de cualquier build de release sin necesitar un flag aparte.
  */
 const QUICK_LOGIN_ACCOUNTS = {
-  client: { phone: '3101234567', password: 'Zipp.2026' },
-  driver: { phone: '3111234567', password: 'Zipp.2026' },
+  client: { phone: '3101234567', password: 'Zipp.2026', label: 'Cliente', icon: 'perfil' },
+  driver: { phone: '3111234567', password: 'Zipp.2026', label: 'Domiciliario', icon: 'domiciliario' },
 } as const;
+const QUICK_LOGIN = QUICK_LOGIN_ACCOUNTS[ACCEPTED_ROLE];
 
 const REGISTER_STEPS: Step[] = ['otp', 'name', 'create-password'];
 const PREVIOUS_STEP: Partial<Record<Step, Step>> = {
@@ -51,6 +54,10 @@ const PREVIOUS_STEP: Partial<Record<Step, Step>> = {
  * `checkPhone` (endpoint de solo lectura) mira si el número ya tiene cuenta
  * y bifurca: existe → pide la contraseña; es nuevo → manda el OTP real y
  * sigue el registro.
+ *
+ * En Zipp Domiciliarios el registro no existe: las cuentas las crea admin.
+ * Un celular sin cuenta se queda en el primer paso con el camino para
+ * postularse, y los botones sociales ni se montan.
  */
 export default function LoginScreen() {
   const router = useRouter();
@@ -72,12 +79,9 @@ export default function LoginScreen() {
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
-  const [appleLoading, setAppleLoading] = useState(false);
-  const [quickLoginRole, setQuickLoginRole] = useState<'client' | 'driver' | null>(null);
-
-  const { signIn: googleSignIn, isConfigured: googleConfigured } = useGoogleAuth();
-  const { signIn: appleSignIn, isConfigured: appleConfigured } = useAppleAuth();
+  const [quickLoginLoading, setQuickLoginLoading] = useState(false);
+  /** Solo en la app de domiciliarios: el celular no tiene cuenta y no se puede registrar aquí. */
+  const [noDriverAccount, setNoDriverAccount] = useState(false);
 
   const clear = (field: keyof Errors) => setErrors((e) => ({ ...e, [field]: undefined }));
   const cleanPhone = phone.replace(/\D/g, '');
@@ -101,77 +105,54 @@ export default function LoginScreen() {
     if (prev) goToStep(prev, 'back');
   };
 
-  const routeAfterAuth = (user: { role: string; isVerified: boolean }, needsPhone: boolean) => {
-    if (needsPhone) router.replace('/(auth)/complete-profile');
-    else if (!user.isVerified) router.replace('/(auth)/otp');
-    else if (user.role === 'driver') router.replace('/(driver)/(tabs)/dashboard');
-    else router.replace('/(client)/(tabs)/home');
-  };
+  /**
+   * Cierra cualquier forma de entrar (contraseña, Google, Apple, registro).
+   *
+   * Decide a dónde ir ANTES de guardar la sesión: una cuenta de la otra app
+   * o de un panel web no debe quedar persistida en este teléfono ni un
+   * instante, o el próximo arranque la encontraría y tendría que volver a
+   * rechazarla.
+   */
+  const finishAuth = async ({ user, accessToken, refreshToken, needsPhone }: SocialAuthResult) => {
+    const decision = decideAfterAuth(user, { needsPhone });
 
-  const handleGoogleSignIn = async () => {
-    setGoogleLoading(true);
-    setFormError('');
-
-    try {
-      const idToken = await googleSignIn();
-      if (!idToken) { setGoogleLoading(false); return; } // el usuario cerró el selector
-
-      const data = await authApi.google(idToken);
-      const { user, accessToken, refreshToken, needsPhone } = data;
-      await setAuth(user, accessToken, refreshToken);
-      tap('success');
-      routeAfterAuth(user, needsPhone);
-    } catch (error) {
-      setFormError(apiMessage(error, 'No pudimos iniciar sesión con Google.'));
-      tap('error');
-    } finally {
-      setGoogleLoading(false);
+    if (decision.kind === 'web-only') {
+      setFormError(
+        decision.role === 'admin'
+          ? 'Las cuentas de administrador entran por la consola web.'
+          : 'Las cuentas de comercio entran por el portal de negocios.'
+      );
+      tap('warning');
+      return;
     }
-  };
 
-  const handleAppleSignIn = async () => {
-    setAppleLoading(true);
-    setFormError('');
-
-    try {
-      const result = await appleSignIn();
-      if (!result) { setAppleLoading(false); return; } // el usuario cerró el navegador
-
-      const data = await authApi.apple(result.idToken, result.fullName);
-      const { user, accessToken, refreshToken, needsPhone } = data;
-      await setAuth(user, accessToken, refreshToken);
-      tap('success');
-      routeAfterAuth(user, needsPhone);
-    } catch (error) {
-      setFormError(apiMessage(error, 'No pudimos iniciar sesión con Apple.'));
-      tap('error');
-    } finally {
-      setAppleLoading(false);
+    if (decision.kind === 'wrong-app') {
+      // La pantalla explica cuál es su app y la enlaza; no hay sesión que cerrar.
+      tap('warning');
+      router.replace(hrefFor(decision) as never);
+      return;
     }
+
+    await setAuth(user, accessToken, refreshToken);
+    tap('success');
+    router.replace(hrefFor(decision) as never);
   };
 
   /**
-   * Entrada directa con las cuentas fijas del seed, sin pedir contraseña.
-   * Solo para pruebas: cliente y domiciliario son los únicos roles que la
-   * app móvil deja pasar (admin/business entran por sus paneles web), así
-   * que son los únicos dos botones que tiene sentido ofrecer acá.
+   * Entrada directa con la cuenta fija del seed, sin pedir contraseña.
+   * Solo para pruebas, y solo la del rol de esta app.
    */
-  const handleQuickLogin = async (role: 'client' | 'driver') => {
-    setQuickLoginRole(role);
+  const handleQuickLogin = async () => {
+    setQuickLoginLoading(true);
     setFormError('');
 
     try {
-      const { phone: testPhone, password: testPassword } = QUICK_LOGIN_ACCOUNTS[role];
-      const data = await authApi.login(testPhone, testPassword);
-      const { user, accessToken, refreshToken } = data;
-      await setAuth(user, accessToken, refreshToken);
-      tap('success');
-      routeAfterAuth(user, false);
+      await finishAuth(await authApi.login(QUICK_LOGIN.phone, QUICK_LOGIN.password));
     } catch (error) {
       setFormError(apiMessage(error, 'No pudimos entrar con la cuenta de prueba.'));
       tap('error');
     } finally {
-      setQuickLoginRole(null);
+      setQuickLoginLoading(false);
     }
   };
 
@@ -181,6 +162,7 @@ export default function LoginScreen() {
     if (error) { setErrors((e) => ({ ...e, phone: error })); tap('error'); return; }
 
     clear('phone');
+    setNoDriverAccount(false);
     setLoading(true);
 
     try {
@@ -189,6 +171,15 @@ export default function LoginScreen() {
       if (exists) {
         setPassword('');
         goToStep('login-password', 'forward');
+        return;
+      }
+
+      // En la app de domiciliarios no hay registro: la cuenta la crea admin
+      // después de la postulación. Se dice aquí, con el camino para hacerlo.
+      if (IS_DRIVER_APP) {
+        setErrors((e) => ({ ...e, phone: 'No hay una cuenta de domiciliario con este número.' }));
+        setNoDriverAccount(true);
+        tap('warning');
         return;
       }
 
@@ -215,26 +206,7 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      const data = await authApi.login(cleanPhone, password);
-      const { user, accessToken, refreshToken } = data;
-
-      if (user.role === 'admin' || user.role === 'business') {
-        setFormError(
-          user.role === 'admin'
-            ? 'Las cuentas de administrador entran por la consola web.'
-            : 'Las cuentas de comercio entran por el portal de negocios.'
-        );
-        setLoading(false);
-        tap('warning');
-        return;
-      }
-
-      await setAuth(user, accessToken, refreshToken);
-      tap('success');
-
-      if (!user.isVerified) router.replace('/(auth)/otp');
-      else if (user.role === 'driver') router.replace('/(driver)/(tabs)/dashboard');
-      else router.replace('/(client)/(tabs)/home');
+      await finishAuth(await authApi.login(cleanPhone, password));
     } catch (error) {
       setFormError(apiMessage(error, 'No pudimos iniciar tu sesión. Verifica tus datos.'));
       tap('error');
@@ -295,17 +267,14 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      const data = await authApi.registerComplete({
-        phone: cleanPhone,
-        name: name.trim(),
-        password: newPassword,
-      });
-      const { user, accessToken, refreshToken } = data;
-      await setAuth(user, accessToken, refreshToken);
-      tap('success');
-
       // El celular ya quedó verificado en el paso anterior: directo a la app.
-      router.replace('/(client)/(tabs)/home');
+      await finishAuth(
+        await authApi.registerComplete({
+          phone: cleanPhone,
+          name: name.trim(),
+          password: newPassword,
+        })
+      );
     } catch (error) {
       setFormError(apiMessage(error, 'No pudimos crear tu cuenta.'));
       tap('error');
@@ -362,7 +331,9 @@ export default function LoginScreen() {
                   Bienvenido
                 </Text>
                 <Text v="bodyM" center tone="textSecondary">
-                  Entra a tu cuenta y disfruta de tus restaurantes y tiendas favoritas.
+                  {IS_DRIVER_APP
+                    ? 'Entra con tu cuenta de domiciliario y empieza tu turno.'
+                    : 'Entra a tu cuenta y disfruta de tus restaurantes y tiendas favoritas.'}
                 </Text>
                 {formError ? <Notice tone="error">{formError}</Notice> : null}
               </View>
@@ -395,6 +366,17 @@ export default function LoginScreen() {
                   onSubmitEditing={handleContinue}
                   returnKeyType="next"
                 />
+
+                {noDriverAccount ? (
+                  <Pressable
+                    onPress={() => { tap('light'); router.push('/(auth)/become-driver' as never); }}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    style={styles.forgotWrapper}
+                  >
+                    <Text v="strongS" tone="primaryText">¿Quieres repartir con Zipp? Postúlate</Text>
+                  </Pressable>
+                ) : null}
               </>
             ) : null}
 
@@ -573,51 +555,32 @@ export default function LoginScreen() {
                 haptic="medium"
               />
 
-              <GoogleButton
-                full
-                pill
-                loading={googleLoading}
-                disabled={!googleConfigured}
-                onPress={handleGoogleSignIn}
-              />
-
-              <FacebookButton full pill />
-
-              <AppleButton
-                full
-                pill
-                loading={appleLoading}
-                disabled={!appleConfigured}
-                onPress={handleAppleSignIn}
-              />
+              {IS_CLIENT_APP ? (
+                <SocialSignIn onAuth={finishAuth} onError={setFormError} />
+              ) : (
+                <Pressable
+                  onPress={() => { tap('light'); router.push('/(auth)/become-driver' as never); }}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  style={styles.becomeDriver}
+                >
+                  <Text v="strongM" tone="primaryText" center>Quiero ser domiciliario</Text>
+                </Pressable>
+              )}
 
               {__DEV__ ? (
                 <View style={styles.quickLoginBlock}>
                   <Text v="caption" tone="textMuted" center>
-                    Solo pruebas — entra directo con una cuenta del seed
+                    Solo pruebas — entra directo con la cuenta del seed
                   </Text>
-                  <View style={styles.quickLoginRow}>
-                    <Button
-                      title="Cliente"
-                      icon="perfil"
-                      variant="secondary"
-                      size="sm"
-                      loading={quickLoginRole === 'client'}
-                      disabled={quickLoginRole === 'driver'}
-                      onPress={() => handleQuickLogin('client')}
-                      style={styles.quickLoginButton}
-                    />
-                    <Button
-                      title="Domiciliario"
-                      icon="domiciliario"
-                      variant="secondary"
-                      size="sm"
-                      loading={quickLoginRole === 'driver'}
-                      disabled={quickLoginRole === 'client'}
-                      onPress={() => handleQuickLogin('driver')}
-                      style={styles.quickLoginButton}
-                    />
-                  </View>
+                  <Button
+                    title={QUICK_LOGIN.label}
+                    icon={QUICK_LOGIN.icon}
+                    variant="secondary"
+                    size="sm"
+                    loading={quickLoginLoading}
+                    onPress={handleQuickLogin}
+                  />
                 </View>
               ) : null}
             </View>
@@ -724,6 +687,5 @@ const styles = StyleSheet.create({
   },
   choiceButtons: { gap: Spacing.md },
   quickLoginBlock: { gap: Spacing.sm, marginTop: Spacing.sm },
-  quickLoginRow: { flexDirection: 'row', gap: Spacing.sm },
-  quickLoginButton: { flex: 1 },
+  becomeDriver: { alignSelf: 'center', paddingVertical: Spacing.sm },
 });

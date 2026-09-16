@@ -9,6 +9,7 @@ import { authApi } from '../../services/endpoints';
 import { Spacing } from '../../theme/tokens';
 import { apiMessage, validatePhone, validatePassword } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
+import { decideAfterAuth, hrefFor } from '../../lib/routing';
 
 const RESEND_SECONDS = 60;
 
@@ -95,9 +96,7 @@ export default function ForgotPasswordScreen() {
       await setAuth(user, accessToken, refreshToken);
       tap('success');
 
-      router.replace(
-        user.role === 'driver' ? '/(driver)/(tabs)/dashboard' : '/(client)/(tabs)/home'
-      );
+      router.replace(hrefFor(decideAfterAuth(user)) as never);
     } catch (err) {
       setFormError(apiMessage(err, 'No pudimos cambiar tu contraseña.'));
       tap('error');

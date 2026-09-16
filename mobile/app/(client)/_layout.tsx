@@ -3,6 +3,7 @@ import { Stack, useRouter } from 'expo-router';
 import { useAuthStore } from '../../stores/authStore';
 import { useTheme } from '../../hooks/useTheme';
 import { useFavoritesMigration } from '../../hooks/useFavorites';
+import { useCartAbandonment } from '../../hooks/useCartAbandonment';
 
 export default function ClientLayout() {
   const { user, isAuthenticated } = useAuthStore();
@@ -12,6 +13,11 @@ export default function ClientLayout() {
   // Sube una sola vez los favoritos que quedaron en el teléfono. Sin esto,
   // estrenar la sincronización empezaría vaciándole la lista al cliente.
   useFavoritesMigration();
+
+  // Avisa al servidor cómo va la bolsa para el recordatorio de bolsa
+  // abandonada. Vive aquí, no en cart.tsx, porque el carrito sigue "activo"
+  // aunque el cliente esté navegando la carta en vez de mirando la bolsa.
+  useCartAbandonment();
 
   useEffect(() => {
     if (isAuthenticated && user && !user.isVerified) {

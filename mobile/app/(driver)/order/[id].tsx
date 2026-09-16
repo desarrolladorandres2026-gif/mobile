@@ -13,10 +13,12 @@ import {
 import { OrderChatSheet } from '../../../components/domain/OrderChatSheet';
 import { OrderCallSheet } from '../../../components/domain/OrderCallSheet';
 import { DriverRouteCard } from '../../../components/domain/DriverRouteCard';
+import { DriverRatingSheet } from '../../../components/domain/DriverRatingSheet';
 import { useDriverTrackingContext } from '../../../hooks/useDriverTracking';
 import {
   useOrder, useOrderFlow, useOrderArrive, useUploadOrderEvidence,
   useVerifyOrderCode, useUpdateOrderStatus, useConfirmCash, useDeclareErrandCost,
+  useReviewStatus,
 } from '../../../hooks/useApi';
 import { useOrderRealtime, useOrderFlowRealtime } from '../../../hooks/useRealtime';
 import { useTheme } from '../../../hooks/useTheme';
@@ -27,13 +29,14 @@ import { apiMessage } from '../../../lib/errors';
 import { money, orderCode } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
 import { Spacing, BorderRadius } from '../../../theme/tokens';
+import { ROUTES } from '../../../lib/routing';
+import { buildDirectionsUrl } from '../../../lib/mapNavigation';
 
 const CODE_LENGTH = 6;
 
 function openMap(address?: string, lat?: number, lng?: number) {
   tap('light');
-  const query = lat && lng ? `${lat},${lng}` : encodeURIComponent(address ?? '');
-  Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`).catch(() => {});
+  Linking.openURL(buildDirectionsUrl(address, lat, lng)).catch(() => {});
 }
 
 export default function DriverActiveOrderScreen() {
@@ -64,6 +67,8 @@ export default function DriverActiveOrderScreen() {
   const [uploadingStage, setUploadingStage] = useState<'pickup' | 'delivery' | null>(null);
   const [cashError, setCashError] = useState('');
   const [spentText, setSpentText] = useState('');
+  const [ratingOpen, setRatingOpen] = useState(false);
+  const { data: reviewStatus } = useReviewStatus(order?.status === 'delivered' ? id : undefined);
   const [spentError, setSpentError] = useState('');
   const declareCost = useDeclareErrandCost();
 
@@ -136,7 +141,9 @@ export default function DriverActiveOrderScreen() {
       await arrive.mutateAsync({
         orderId,
         stage,
-        coords: coords ? { latitude: coords.latitude, longitude: coords.longitude } : undefined,
+        coords: coords
+          ? { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy ?? undefined }
+          : undefined,
       });
     } catch (error) {
       Alert.alert('No se pudo registrar la llegada', apiMessage(error, 'Inténtalo de nuevo.'));
@@ -153,7 +160,9 @@ export default function DriverActiveOrderScreen() {
         orderId,
         stage,
         code,
-        coords: coords ? { latitude: coords.latitude, longitude: coords.longitude } : undefined,
+        coords: coords
+          ? { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy ?? undefined }
+          : undefined,
       });
       tap('success');
       setJustCompleted(stage);
@@ -249,7 +258,7 @@ export default function DriverActiveOrderScreen() {
             label="Ver la cronología completa del pedido"
             onPress={() => {
               tap('light');
-              router.push({ pathname: '/(client)/order-timeline', params: { id: orderId } });
+              router.push(ROUTES.orderTimeline(orderId) as never);
             }}
           />
         }
@@ -365,6 +374,14 @@ export default function DriverActiveOrderScreen() {
                 ? `Cobraste ${money(order.total)} en efectivo. Buen trabajo.`
                 : 'Buen trabajo. Ya puedes tomar tu próximo pedido.'}
             </Text>
+            {reviewStatus?.driverCanRateBusiness || reviewStatus?.driverCanRateCustomer ? (
+              <Button
+                title="Calificar este pedido"
+                variant="secondary"
+                full
+                onPress={() => { tap('light'); setRatingOpen(true); }}
+              />
+            ) : null}
             <Button title="Volver a mis entregas" full onPress={() => router.replace('/(driver)/(tabs)/orders')} />
           </Card>
         ) : isErrand && !inDeliveryPhase ? (
@@ -664,6 +681,14 @@ export default function DriverActiveOrderScreen() {
         orderNumber={order.orderNumber ?? orderCode(orderId)}
         startOnOpen={callStartedByMe}
         onOpenChat={() => { setCallOpen(false); setChatOpen(true); }}
+      />
+      <DriverRatingSheet
+        visible={ratingOpen}
+        onClose={() => setRatingOpen(false)}
+        orderId={orderId}
+        businessName={business?.name}
+        canRateBusiness={!!reviewStatus?.driverCanRateBusiness}
+        canRateClient={!!reviewStatus?.driverCanRateCustomer}
       />
     </Screen>
   );

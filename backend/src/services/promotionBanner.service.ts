@@ -60,6 +60,11 @@ export class PromotionBannerService {
       endDate: { $gte: now },
       placement: { $in: placements },
       imageUrl: { $ne: '' },
+      // Los banners con `homeOrder` ya asignado no van en el carrusel fijo:
+      // el administrador los intercaló en una posición concreta del inicio,
+      // y esos solo aparecen fusionados desde `/home-sections`. Mostrarlos
+      // aquí también los duplicaría.
+      homeOrder: null,
     }).sort({ displayOrder: 1, priority: -1, createdAt: -1 });
 
     return banners.map((b) => ({

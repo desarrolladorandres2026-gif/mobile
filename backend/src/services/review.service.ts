@@ -1,7 +1,12 @@
 import { Types } from 'mongoose';
 import { Review, Order, Business, Driver } from '../models';
 import { AppError } from '../middlewares';
-import { OrderStatus } from '../types';
+import {
+  OrderStatus,
+  ReviewReasonClientToBusiness, ReviewReasonClientToDriver,
+  ReviewReasonDriverToBusiness, ReviewReasonBusinessToDriver,
+} from '../types';
+import { recalculateBusinessReputation, recalculateDriverReputation } from './reputation.service';
 
 interface CreateReviewInput {
   orderId: string;
@@ -9,7 +14,9 @@ interface CreateReviewInput {
   businessId: string;
   driverId?: string;
   businessRating: number;
+  businessRatingReasons?: ReviewReasonClientToBusiness[];
   driverRating?: number;
+  driverRatingReasons?: ReviewReasonClientToDriver[];
   comment?: string;
   productFeedback?: Array<{ productId: string; liked: boolean }>;
 }
@@ -22,6 +29,19 @@ export class ReviewService {
     if (order.clientId.toString() !== input.userId) throw new AppError('No autorizado para calificar este pedido', 403);
     if (order.status !== OrderStatus.DELIVERED) throw new AppError('Solo puedes calificar pedidos entregados', 400);
 
+    // El frontend manda businessId/driverId, pero nunca son la fuente de
+    // verdad: el pedido lo es. Sin esto, un cliente podría calificar (o
+    // hundir) un negocio o domiciliario que nunca participó en su pedido.
+    if (!order.businessId || order.businessId.toString() !== input.businessId) {
+      throw new AppError('El comercio no corresponde a este pedido', 400);
+    }
+    if (input.driverId && order.driverId?.toString() !== input.driverId) {
+      throw new AppError('El domiciliario no corresponde a este pedido', 400);
+    }
+    if (input.driverRating && !input.driverId) {
+      throw new AppError('Falta el domiciliario a calificar', 400);
+    }
+
     const existing = await Review.findOne({ orderId: input.orderId });
     if (existing) throw new AppError('Ya calificaste este pedido', 409);
 
@@ -31,36 +51,16 @@ export class ReviewService {
       businessId: input.businessId,
       driverId: input.driverId || null,
       businessRating: input.businessRating,
+      businessRatingReasons: input.businessRatingReasons?.length ? input.businessRatingReasons : undefined,
       driverRating: input.driverRating || null,
+      driverRatingReasons: input.driverRatingReasons?.length ? input.driverRatingReasons : undefined,
       comment: input.comment || '',
       productFeedback: input.productFeedback?.length ? input.productFeedback : undefined,
     });
 
-    // Update business average rating
-    const businessStats = await Review.aggregate([
-      { $match: { businessId: review.businessId, isHidden: { $ne: true }, businessRating: { $ne: null } } },
-      { $group: { _id: null, avgRating: { $avg: '$businessRating' }, count: { $sum: 1 } } },
-    ]);
-
-    if (businessStats.length > 0) {
-      await Business.findByIdAndUpdate(input.businessId, {
-        rating: Math.round(businessStats[0].avgRating * 10) / 10,
-        totalReviews: businessStats[0].count,
-      });
-    }
-
-    // Update driver average rating
+    await this.recalculateBusinessRating(input.businessId);
     if (input.driverId && input.driverRating) {
-      const driverStats = await Review.aggregate([
-        { $match: { driverId: review.driverId, driverRating: { $ne: null }, isHidden: { $ne: true } } },
-        { $group: { _id: null, avgRating: { $avg: '$driverRating' }, count: { $sum: 1 } } },
-      ]);
-
-      if (driverStats.length > 0) {
-        await Driver.findByIdAndUpdate(input.driverId, {
-          rating: Math.round(driverStats[0].avgRating * 10) / 10,
-        });
-      }
+      await this.recalculateDriverRating(input.driverId);
     }
 
     return review;
@@ -176,6 +176,26 @@ export class ReviewService {
       rating: stats.length ? Math.round(stats[0].avgRating * 10) / 10 : 0,
       totalReviews: stats.length ? stats[0].count : 0,
     });
+
+    // El score interno se recalcula junto al público: son la misma fuente
+    // de datos y mantenerlos separados en el tiempo abriría una ventana en
+    // la que uno cambió y el otro todavía no.
+    await recalculateBusinessReputation(businessId);
+  }
+
+  /** Igual que `recalculateBusinessRating`, para la nota pública del domiciliario. */
+  async recalculateDriverRating(driverId: string): Promise<void> {
+    const stats = await Review.aggregate([
+      { $match: { driverId: new Types.ObjectId(driverId), isHidden: { $ne: true }, driverRating: { $ne: null } } },
+      { $group: { _id: null, avgRating: { $avg: '$driverRating' }, count: { $sum: 1 } } },
+    ]);
+
+    await Driver.findByIdAndUpdate(driverId, {
+      rating: stats.length ? Math.round(stats[0].avgRating * 10) / 10 : 5,
+      totalReviews: stats.length ? stats[0].count : 0,
+    });
+
+    await recalculateDriverReputation(driverId);
   }
 
   /**
@@ -216,7 +236,8 @@ export class ReviewService {
     by: 'business' | 'driver',
     actorId: string,
     rating: number,
-    notes?: string
+    notes?: string,
+    reasons?: string[]
   ) {
     const order = await Order.findById(orderId);
     if (!order) throw new AppError('Pedido no encontrado', 404);
@@ -237,6 +258,11 @@ export class ReviewService {
     }
 
     const field = by === 'business' ? 'clientRatingByBusiness' : 'clientRatingByDriver';
+    const reasonsField = by === 'business' ? 'clientRatingByBusinessReasons' : 'clientRatingByDriverReasons';
+    const existing = await Review.findOne({ orderId }).select(field);
+    if (existing && existing.get(field) != null) {
+      throw new AppError('Ya calificaste al cliente de este pedido', 409);
+    }
 
     // Se usa upsert porque la calificación al cliente puede llegar antes que
     // la del cliente al negocio: son dos actos independientes y ninguno
@@ -244,7 +270,11 @@ export class ReviewService {
     return Review.findOneAndUpdate(
       { orderId },
       {
-        $set: { [field]: rating, ...(notes ? { clientNotes: notes } : {}) },
+        $set: {
+          [field]: rating,
+          ...(reasons?.length ? { [reasonsField]: reasons } : {}),
+          ...(notes ? { clientNotes: notes } : {}),
+        },
         $setOnInsert: {
           orderId,
           userId: order.clientId,
@@ -257,6 +287,145 @@ export class ReviewService {
       },
       { new: true, upsert: true, setDefaultsOnInsert: false }
     );
+  }
+
+  /**
+   * El domiciliario califica al comercio: qué tan lista estaba la orden al
+   * recogerla. Operacional — no toca `Business.rating` público, solo el
+   * `reputationScore` interno.
+   */
+  async rateBusinessByDriver(orderId: string, actorUserId: string, rating: number, reasons?: ReviewReasonDriverToBusiness[]) {
+    const order = await Order.findById(orderId);
+    if (!order) throw new AppError('Pedido no encontrado', 404);
+    if (order.status !== OrderStatus.DELIVERED) {
+      throw new AppError('Solo puedes calificar pedidos entregados', 400);
+    }
+
+    const driver = await Driver.findOne({ userId: actorUserId }).select('_id');
+    if (!driver || order.driverId?.toString() !== driver._id.toString()) {
+      throw new AppError('No autorizado para calificar este pedido', 403);
+    }
+    if (!order.businessId) throw new AppError('Este pedido no tiene comercio que calificar', 400);
+
+    const existing = await Review.findOne({ orderId }).select('driverRatingOfBusiness');
+    if (existing?.driverRatingOfBusiness != null) {
+      throw new AppError('Ya calificaste al comercio de este pedido', 409);
+    }
+
+    const review = await Review.findOneAndUpdate(
+      { orderId },
+      {
+        $set: {
+          driverRatingOfBusiness: rating,
+          ...(reasons?.length ? { driverRatingOfBusinessReasons: reasons } : {}),
+        },
+        $setOnInsert: {
+          orderId,
+          userId: order.clientId,
+          businessId: order.businessId,
+          driverId: order.driverId ?? null,
+          businessRating: null,
+        },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: false }
+    );
+
+    await recalculateBusinessReputation(order.businessId.toString());
+    return review;
+  }
+
+  /**
+   * El comercio califica al domiciliario: qué tal se portó al recoger.
+   * Operacional — no toca `Driver.rating` público, solo el `reputationScore`
+   * interno.
+   */
+  async rateDriverByBusiness(orderId: string, actorUserId: string, rating: number, reasons?: ReviewReasonBusinessToDriver[]) {
+    const order = await Order.findById(orderId);
+    if (!order) throw new AppError('Pedido no encontrado', 404);
+    if (order.status !== OrderStatus.DELIVERED) {
+      throw new AppError('Solo puedes calificar pedidos entregados', 400);
+    }
+    if (!order.businessId) throw new AppError('Este pedido no tiene comercio', 400);
+
+    const business = await Business.findById(order.businessId).select('ownerId');
+    if (!business || business.ownerId.toString() !== actorUserId) {
+      throw new AppError('No autorizado para calificar este pedido', 403);
+    }
+    if (!order.driverId) throw new AppError('Este pedido no tiene domiciliario que calificar', 400);
+
+    const existing = await Review.findOne({ orderId }).select('businessRatingOfDriver');
+    if (existing?.businessRatingOfDriver != null) {
+      throw new AppError('Ya calificaste al domiciliario de este pedido', 409);
+    }
+
+    const review = await Review.findOneAndUpdate(
+      { orderId },
+      {
+        $set: {
+          businessRatingOfDriver: rating,
+          ...(reasons?.length ? { businessRatingOfDriverReasons: reasons } : {}),
+        },
+        $setOnInsert: {
+          orderId,
+          userId: order.clientId,
+          businessId: order.businessId,
+          driverId: order.driverId,
+          businessRating: null,
+        },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: false }
+    );
+
+    await recalculateDriverReputation(order.driverId.toString());
+    return review;
+  }
+
+  /**
+   * Qué le falta calificar a cada actor de un pedido entregado.
+   *
+   * El frontend no debería adivinar qué botones mostrar comprobando campos
+   * sueltos: aquí se decide una sola vez, con las mismas reglas que
+   * `create`/`rateClient`/`rateBusinessByDriver`/`rateDriverByBusiness`
+   * usan para aceptar o rechazar la calificación.
+   */
+  async reviewStatusForOrder(orderId: string, actorUserId: string, role: 'client' | 'driver' | 'business') {
+    const order = await Order.findById(orderId);
+    if (!order) throw new AppError('Pedido no encontrado', 404);
+
+    const deliverable = order.status === OrderStatus.DELIVERED;
+    const review = await Review.findOne({ orderId }).lean();
+
+    const status = {
+      customerCanRateBusiness: false,
+      customerCanRateDriver: false,
+      driverCanRateBusiness: false,
+      driverCanRateCustomer: false,
+      businessCanRateDriver: false,
+    };
+
+    if (!deliverable) return status;
+
+    if (role === 'client' && order.clientId.toString() === actorUserId) {
+      status.customerCanRateBusiness = review?.businessRating == null;
+      status.customerCanRateDriver = !!order.driverId && review?.driverRating == null;
+    }
+
+    if (role === 'driver') {
+      const driver = await Driver.findOne({ userId: actorUserId }).select('_id');
+      if (driver && order.driverId?.toString() === driver._id.toString()) {
+        status.driverCanRateBusiness = !!order.businessId && review?.driverRatingOfBusiness == null;
+        status.driverCanRateCustomer = review?.clientRatingByDriver == null;
+      }
+    }
+
+    if (role === 'business' && order.businessId) {
+      const business = await Business.findById(order.businessId).select('ownerId');
+      if (business && business.ownerId.toString() === actorUserId) {
+        status.businessCanRateDriver = !!order.driverId && review?.businessRatingOfDriver == null;
+      }
+    }
+
+    return status;
   }
 
   /** Oculta o restaura una reseña, y recalcula lo que dependía de ella. */
@@ -272,6 +441,9 @@ export class ReviewService {
     if (!review) throw new AppError('Reseña no encontrada', 404);
 
     await this.recalculateBusinessRating(review.businessId.toString());
+    if (review.driverId && review.driverRating != null) {
+      await this.recalculateDriverRating(review.driverId.toString());
+    }
     return review;
   }
 

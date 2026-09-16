@@ -18,11 +18,13 @@ import { socketService } from '../../../services/socket';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { money, orderCode, orderDate } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
+import { buildDirectionsUrl, geoPointToLatLng } from '../../../lib/mapNavigation';
 
 type OrderTab = 'available' | 'my_deliveries';
 
 export default function DriverOrdersScreen() {
   const { c } = useTheme();
+  const router = useRouter();
   const bottomSpace = useTabContentPadding();
   const [tab, setTab] = useState<OrderTab>('available');
 
@@ -59,6 +61,15 @@ export default function DriverOrdersScreen() {
   const list = tab === 'available' ? availableOrders : myOrders;
   const isLoading = tab === 'available' ? loadingAvailable : loadingDriverOrders;
 
+  /**
+   * Aceptar desde la lista de "Disponibles".
+   *
+   * Se comporta igual que `OfferSheet` (la oferta de la cascada
+   * automática): mismo endpoint, mismo destino tras el éxito. Antes se
+   * quedaba en la lista con un `Alert` y el domiciliario tenía que buscar
+   * la tarjeta en "Mis Entregas" y tocarla para recién ver la ruta al
+   * negocio — un paso extra que la cascada nunca exigió.
+   */
   const handleAcceptOrder = useCallback((orderId: string) => {
     if (!driverProfile) {
       Alert.alert('Error', 'No se encontró tu perfil de domiciliario');
@@ -70,10 +81,9 @@ export default function DriverOrdersScreen() {
       {
         onSuccess: () => {
           tap('success');
-          Alert.alert('¡Pedido aceptado!', 'Dirígete al negocio para recoger los productos.');
           refetchAvailable();
           refetchMy();
-          setTab('my_deliveries');
+          router.push(`/(driver)/order/${orderId}` as never);
         },
         onError: (error: any) => {
           tap('error');
@@ -81,7 +91,7 @@ export default function DriverOrdersScreen() {
         },
       }
     );
-  }, [driverProfile, assignDriverMutation, refetchAvailable, refetchMy]);
+  }, [driverProfile, assignDriverMutation, refetchAvailable, refetchMy, router]);
 
   /**
    * El estado lo cambia el servidor, y el servidor es quien lo anuncia.
@@ -112,9 +122,7 @@ export default function DriverOrdersScreen() {
 
   const openMap = useCallback((address: string, lat?: number, lng?: number) => {
     tap('light');
-    const query = lat && lng ? `${lat},${lng}` : encodeURIComponent(address);
-    const url = `https://www.google.com/maps/search/?api=1&query=${query}`;
-    Linking.openURL(url).catch(() => {});
+    Linking.openURL(buildDirectionsUrl(address, lat, lng)).catch(() => {});
   }, []);
 
 
@@ -244,12 +252,15 @@ const DriverOrderCard = memo(function DriverOrderCard({
   const originAddress = errand
     ? errand.pickupAddress
     : business?.address || 'Direccion del negocio';
-  const originLat = errand
-    ? errand.pickupLocation?.coordinates?.[1]
-    : business?.location?.coordinates?.[1];
-  const originLng = errand
-    ? errand.pickupLocation?.coordinates?.[0]
-    : business?.location?.coordinates?.[0];
+  const { lat: originLat, lng: originLng } = geoPointToLatLng(
+    errand ? errand.pickupLocation : business?.location
+  );
+  // GeoJSON: `deliveryLocation.coordinates` es `[lng, lat]`. El pedido NO
+  // trae `deliveryLatitude`/`deliveryLongitude` planos —esos campos solo
+  // existen como entrada al crear el pedido (ver order.validator.ts)—, así
+  // que leerlos aquí siempre daba `undefined` y este botón caía en
+  // silencio a buscar por texto, ignorando la coordenada real.
+  const { lat: deliveryLat, lng: deliveryLng } = geoPointToLatLng(order.deliveryLocation);
   const deliveryFee = order.deliveryFee || 0;
   const tip = order.tip || 0;
   const totalEarning = deliveryFee + tip;
@@ -300,7 +311,7 @@ const DriverOrderCard = memo(function DriverOrderCard({
 
           {/* Destino */}
           <Pressable
-            onPress={() => onOpenMap(order.deliveryAddress, order.deliveryLatitude, order.deliveryLongitude)}
+            onPress={() => onOpenMap(order.deliveryAddress, deliveryLat, deliveryLng)}
             accessibilityRole="button"
             accessibilityLabel={`Entregar a ${client?.name || 'cliente'} en ${order.deliveryAddress}. Abre la navegación`}
             style={styles.routeRow}

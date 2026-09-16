@@ -61,25 +61,107 @@ export interface HomeSectionProduct {
   businessRating: number;
   businessTotalReviews: number;
   businessDeliveryTime: number;
+  businessFreeDeliveryThreshold: number;
   /** Solo la trae "Cerca de ti". */
   distanceMeters?: number;
 }
 
+/** Qué tarjeta usa el cliente para pintar la colección — la decide el servidor. */
+export type HomeSectionDisplayVariant =
+  | 'compact' | 'large' | 'horizontal' | 'featured' | 'price_focus' | 'banner';
+
 export interface HomeSection {
+  kind: 'collection';
+  order: number;
   key: string;
   emoji: string;
   title: string;
   subtitle?: string;
+  displayVariant: HomeSectionDisplayVariant;
   products: HomeSectionProduct[];
 }
 
+/** Un producto dentro de un `productBanner` curado por un admin. Mismo shape
+ * que `HomeSectionProduct`, sin los campos que solo servían para el ranking
+ * automático (calificación de negocio de sobra, distancia, etc.). */
+export interface CuratedHomeProduct {
+  _id: string;
+  name: string;
+  description?: string;
+  images?: ProductImages | null;
+  price: number;
+  discountPrice?: number | null;
+  discountPercent: number;
+  effectivePrice: number;
+  businessId: string;
+  businessName: string;
+  businessLogo?: string | null;
+  businessCategory: string;
+  businessRating: number;
+  businessDeliveryTime: number;
+}
+
+/** Un negocio dentro de un `businessBanner`/`businessCollection` curado por un admin. */
+export interface CuratedHomeBusiness {
+  _id: string;
+  name: string;
+  category: string;
+  rating: number;
+  totalReviews: number;
+  deliveryTime: number;
+  logo?: string | null;
+  coverImage?: string | null;
+  freeDeliveryThreshold: number;
+}
+
+export interface ProductBannerEntry {
+  kind: 'productBanner';
+  order: number;
+  title: string;
+  subtitle?: string;
+  products: CuratedHomeProduct[];
+}
+
+export interface BusinessBannerEntry {
+  kind: 'businessBanner';
+  order: number;
+  title: string;
+  subtitle?: string;
+  businesses: CuratedHomeBusiness[];
+}
+
+export interface BusinessCollectionEntry {
+  kind: 'businessCollection';
+  order: number;
+  title: string;
+  subtitle?: string;
+  businesses: CuratedHomeBusiness[];
+}
+
+export interface PromoFeedEntry {
+  kind: 'promo';
+  order: number;
+  banners: PromoBanner[];
+}
+
+/** Una entrada cualquiera de la secuencia fusionada del inicio, ya en el
+ * orden en que se debe pintar. */
+export type HomeFeedEntry =
+  | HomeSection
+  | ProductBannerEntry
+  | BusinessBannerEntry
+  | BusinessCollectionEntry
+  | PromoFeedEntry;
+
 export const homeSectionsApi = {
   /**
-   * Las colecciones dinámicas del inicio: "Los más pedidos", "Descuentos
-   * locos", "Cerca de ti"… Una sola llamada trae las que tengan suficiente
-   * material — el servidor ya decide cuáles esconder.
+   * La secuencia completa del inicio bajo Categorías: colecciones dinámicas
+   * ("Los más pedidos", "Descuentos locos"…), bloques curados por un admin
+   * (spotlights de producto/negocio, colecciones de negocios) y banners
+   * promocionales anclados a una posición — todo en una sola llamada,
+   * ya fusionado y ordenado. El servidor decide qué esconder.
    */
-  get: (params?: { lat?: number; lng?: number; maxDistance?: number; city?: string }): Promise<HomeSection[]> =>
+  get: (params?: { lat?: number; lng?: number; maxDistance?: number; city?: string }): Promise<HomeFeedEntry[]> =>
     api.get('/home-sections', { params }).then((r) => r.data.data),
 };
 
@@ -293,8 +375,11 @@ export const orderFlowApi = {
   getState: (orderId: string): Promise<OrderFlowState> =>
     api.get(`/orders/${orderId}/flow`).then((r) => r.data.data),
 
-  arrive: (orderId: string, stage: 'pickup' | 'delivery', coords?: { latitude: number; longitude: number }) =>
-    api.post(`/orders/${orderId}/${stage}/arrive`, coords ?? {}).then((r) => r.data.data),
+  arrive: (
+    orderId: string,
+    stage: 'pickup' | 'delivery',
+    coords?: { latitude: number; longitude: number; accuracy?: number | null }
+  ) => api.post(`/orders/${orderId}/${stage}/arrive`, coords ?? {}).then((r) => r.data.data),
 
   /**
    * Sube la evidencia fotográfica.
@@ -332,7 +417,7 @@ export const orderFlowApi = {
     orderId: string,
     stage: 'pickup' | 'delivery',
     code: string,
-    coords?: { latitude: number; longitude: number }
+    coords?: { latitude: number; longitude: number; accuracy?: number | null }
   ) =>
     api
       .post(`/orders/${orderId}/${stage}/verify`, { code, ...(coords ?? {}) })
@@ -493,6 +578,30 @@ export interface PaginatedReviews {
   meta: { page: number; limit: number; total: number; totalPages: number };
 }
 
+/** Motivos de una calificación baja del domiciliario al comercio. */
+export type ReviewReasonDriverToBusiness =
+  | 'order_not_ready' | 'waiting_time' | 'poor_treatment' | 'order_preparation_problem' | 'other';
+
+/** Motivos de una calificación baja del domiciliario al cliente. */
+export type ReviewReasonDriverToClient =
+  | 'wrong_address' | 'communication_problem' | 'long_wait' | 'poor_treatment' | 'other';
+
+/** Qué le falta calificar a un actor de un pedido entregado. */
+export interface ReviewStatus {
+  customerCanRateBusiness: boolean;
+  customerCanRateDriver: boolean;
+  driverCanRateBusiness: boolean;
+  driverCanRateCustomer: boolean;
+  businessCanRateDriver: boolean;
+}
+
+export interface DriverReview {
+  _id: string;
+  driverRating?: number;
+  comment?: string;
+  createdAt: string;
+}
+
 export const reviewsApi = {
   /** Pedidos entregados que este cliente aún no ha calificado. */
   pending: (): Promise<PendingRating[]> =>
@@ -513,6 +622,24 @@ export const reviewsApi = {
     api
       .get(`/reviews/business/${businessId}`, { params: { page, limit } })
       .then((r) => ({ reviews: r.data.data, meta: r.data.meta })),
+
+  /** Reseñas del domiciliario, para su propio perfil. */
+  byDriver: (driverId: string, page = 1, limit = 20): Promise<{ reviews: DriverReview[]; meta: PaginatedReviews['meta'] }> =>
+    api
+      .get(`/reviews/driver/${driverId}`, { params: { page, limit } })
+      .then((r) => ({ reviews: r.data.data, meta: r.data.meta })),
+
+  /** Qué le falta calificar al usuario actual en este pedido. */
+  status: (orderId: string): Promise<ReviewStatus> =>
+    api.get(`/reviews/order/${orderId}/status`).then((r) => r.data.data),
+
+  /** El domiciliario califica al cliente. Privado: alimenta el perfil de riesgo. */
+  rateClient: (orderId: string, rating: number, reasons?: ReviewReasonDriverToClient[], notes?: string) =>
+    api.post(`/reviews/order/${orderId}/rate-client`, { rating, reasons, notes }).then((r) => r.data.data),
+
+  /** El domiciliario califica al comercio al recoger. Operacional, no público. */
+  rateBusiness: (orderId: string, rating: number, reasons?: ReviewReasonDriverToBusiness[]) =>
+    api.post(`/reviews/order/${orderId}/rate-business`, { rating, reasons }).then((r) => r.data.data),
 };
 
 export type FavoriteKind = 'business' | 'product';
@@ -535,6 +662,15 @@ export const favoritesApi = {
   /** Sube de una vez lo que la app guardaba en el teléfono. */
   importLocal: (items: Array<{ kind: FavoriteKind; targetId: string }>) =>
     api.post('/favorites/import', { items }).then((r) => r.data.data),
+};
+
+export const cartApi = {
+  /** Se manda con rebote cada vez que la bolsa cambia, para el recordatorio de bolsa abandonada. */
+  sync: (businessId: string, businessName: string, itemCount: number, subtotal: number) =>
+    api.post('/cart/sync', { businessId, businessName, itemCount, subtotal }),
+
+  /** Bolsa vacía o pedido confirmado: ya no hay nada que recordar. */
+  clear: () => api.delete('/cart'),
 };
 
 export interface LoyaltyMovement {

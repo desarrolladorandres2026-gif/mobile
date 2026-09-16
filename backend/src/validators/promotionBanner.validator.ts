@@ -57,6 +57,7 @@ const bannerFields = {
   isActive: z.boolean().optional(),
   priority: z.number().int().min(0).max(100).optional(),
   placement: z.enum(placements).optional(),
+  homeOrder: z.number().int().min(0).max(999).nullable().optional(),
 };
 
 const createBody = z

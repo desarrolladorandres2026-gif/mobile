@@ -9,6 +9,7 @@ import { authApi } from '../../services/endpoints';
 import { Spacing } from '../../theme/tokens';
 import { apiMessage } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
+import { decideAfterAuth, hrefFor } from '../../lib/routing';
 
 const RESEND_SECONDS = 60;
 
@@ -59,11 +60,7 @@ export default function OtpScreen() {
       tap('success');
 
       setTimeout(() => {
-        router.replace(
-          verifiedUser.role === 'driver'
-            ? '/(driver)/(tabs)/dashboard'
-            : '/(client)/(tabs)/home'
-        );
+        router.replace(hrefFor(decideAfterAuth(verifiedUser)) as never);
       }, 1100);
     } catch (err) {
       setError(apiMessage(err, 'Ese código no es correcto.'));

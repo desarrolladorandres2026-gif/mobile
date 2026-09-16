@@ -20,7 +20,15 @@ import { Spacing, BorderRadius } from '../../theme/tokens';
  * funciona. Esto es la forma de decir "esto no es un pedido, esto es una
  * emergencia".
  *
- * Tres decisiones que gobiernan el diseño:
+ * Vive como una fila más dentro de Perfil → Ayuda y legal, no como un FAB
+ * flotante sobre toda la app. Un botón rojo siempre a la vista en cada
+ * pantalla resultaba más alarmante que útil, y activarlo por accidente
+ * (con el pulgar, sacando el teléfono del bolsillo) era demasiado fácil.
+ * El coste es real —hay que entrar al perfil para usarlo— pero es el
+ * mismo lugar donde ya vive el contacto de emergencia, así que no es un
+ * sitio inesperado para buscarlo.
+ *
+ * Tres decisiones que gobiernan el resto del diseño:
  *
  * 1. **Mantener pulsado, no un toque.** Un botón rojo grande que se activa
  *    con un roce en el bolsillo genera falsas alarmas hasta que nadie las
@@ -141,14 +149,27 @@ export function SosButton() {
     <>
       <Pressable
         onPress={() => { tap('light'); setSheetOpen(true); }}
-        style={[styles.fab, { backgroundColor: c.error }]}
         accessibilityRole="button"
-        accessibilityLabel="Emergencia"
+        accessibilityLabel={sent ? 'Emergencia activa' : 'Botón de emergencia'}
         accessibilityHint="Abre el botón de pánico"
+        style={({ pressed }) => [styles.menuRow, pressed && { opacity: 0.7 }]}
       >
-        <Animated.View style={sent ? pulseStyle : undefined}>
-          <Icon name="alerta" size="md" color="#FFFFFF" />
-        </Animated.View>
+        <View style={[styles.menuIcon, { backgroundColor: c.error + '1A' }]}>
+          <Animated.View style={sent ? pulseStyle : undefined}>
+            <Icon name="alerta" size="md" color={c.error} />
+          </Animated.View>
+        </View>
+        <View style={styles.flex}>
+          <Text v="strongS" color={c.error}>
+            {sent ? 'Emergencia en curso' : 'Botón de emergencia'}
+          </Text>
+          <Text v="caption" tone="textMuted">
+            {sent
+              ? (acknowledged ? 'El equipo ya te está atendiendo' : 'Avisando al equipo…')
+              : 'Mantén pulsado si algo va mal en el reparto'}
+          </Text>
+        </View>
+        <Icon name="siguiente" size="sm" color={c.textMuted} />
       </Pressable>
 
       <Sheet
@@ -223,21 +244,17 @@ export function SosButton() {
 }
 
 const styles = StyleSheet.create({
-  fab: {
-    position: 'absolute',
-    right: Spacing.lg,
-    bottom: 120,
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+  menuRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
+    gap: Spacing.md,
+    padding: Spacing.md,
   },
+  menuIcon: {
+    width: 40, height: 40, borderRadius: BorderRadius.md,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  flex: { flex: 1 },
   body: { gap: Spacing.lg, paddingTop: Spacing.md, alignItems: 'center' },
   statusDot: { width: 14, height: 14, borderRadius: 7 },
   holdButton: {

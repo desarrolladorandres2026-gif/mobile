@@ -20,6 +20,7 @@ export {
   orderChatRateLimiter,
   orderEvidenceRateLimiter,
   orderCallRateLimiter,
+  reviewCreateRateLimiter,
   geocodeRateLimiter,
   securityHeaders,
   sanitizeRequest,

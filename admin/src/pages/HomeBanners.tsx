@@ -7,6 +7,7 @@ import {
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
+import CuratedHomeBlocks from './CuratedHomeBlocks';
 
 type BannerStatus = 'active' | 'scheduled' | 'expired' | 'inactive';
 type ActionType = 'none' | 'url' | 'business' | 'category' | 'screen' | 'search';
@@ -27,6 +28,7 @@ interface Banner {
   isActive: boolean;
   priority: number;
   placement: Placement;
+  homeOrder: number | null;
   status: BannerStatus;
 }
 
@@ -43,6 +45,7 @@ interface BannerForm {
   isActive: boolean;
   priority: number;
   placement: Placement;
+  homeOrder: number | null;
 }
 
 /**
@@ -106,11 +109,44 @@ const emptyForm = (duration: number): BannerForm => {
     durationSeconds: duration,
     startDate: toDatetimeLocal(now.toISOString()),
     endDate: toDatetimeLocal(inAMonth.toISOString()),
-    isActive: true, priority: 0, placement: 'home',
+    isActive: true, priority: 0, placement: 'home', homeOrder: null,
   };
 };
 
+type PanelTab = 'banners' | 'blocks';
+
 export default function HomeBanners() {
+  const [tab, setTab] = useState<PanelTab>('banners');
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex gap-1.5">
+        <button
+          onClick={() => setTab('banners')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${tab === 'banners'
+            ? 'bg-[var(--color-primary)] text-white shadow-xs'
+            : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+            }`}
+        >
+          Banners de Inicio
+        </button>
+        <button
+          onClick={() => setTab('blocks')}
+          className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${tab === 'blocks'
+            ? 'bg-[var(--color-primary)] text-white shadow-xs'
+            : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+            }`}
+        >
+          Bloques Curados
+        </button>
+      </div>
+
+      {tab === 'banners' ? <PromotionBannersPanel /> : <CuratedHomeBlocks />}
+    </div>
+  );
+}
+
+function PromotionBannersPanel() {
   const [banners, setBanners] = useState<Banner[]>([]);
   const [options, setOptions] = useState<BannerOptions | null>(null);
   const [businesses, setBusinesses] = useState<{ _id: string; name: string }[]>([]);
@@ -173,6 +209,7 @@ export default function HomeBanners() {
       isActive: b.isActive,
       priority: b.priority,
       placement: b.placement,
+      homeOrder: b.homeOrder,
     });
     setShowModal(true);
   };
@@ -216,6 +253,9 @@ export default function HomeBanners() {
       isActive: form.isActive,
       priority: Number(form.priority),
       placement: form.placement,
+      homeOrder: form.homeOrder === null || form.homeOrder === undefined || Number.isNaN(form.homeOrder)
+        ? null
+        : Number(form.homeOrder),
     };
     try {
       setError('');
@@ -711,6 +751,24 @@ export default function HomeBanners() {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Posición en el Inicio (intercalar entre colecciones)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={999}
+                  value={form.homeOrder ?? ''}
+                  onChange={(e) => setForm({ ...form, homeOrder: e.target.value === '' ? null : Number(e.target.value) })}
+                  className={inputClass}
+                  placeholder="Vacío = carrusel fijo de siempre"
+                />
+                <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                  Si lo dejas vacío, el banner sigue en el carrusel fijo de siempre, arriba de Categorías.
+                  Si le pones un número, sale de ahí y aparece intercalado en esa posición del inicio,
+                  junto con las colecciones y los bloques curados.
+                </p>
               </div>
 
               <label className="flex items-center gap-2.5 cursor-pointer w-fit">

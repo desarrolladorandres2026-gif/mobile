@@ -21,6 +21,7 @@ import legalRoutes from './legal.routes';
 import pqrsRoutes from './pqrs.routes';
 import advertisementRoutes from './advertisement.routes';
 import promotionBannerRoutes from './promotionBanner.routes';
+import curatedHomeBlockRoutes from './curatedHomeBlock.routes';
 import homeCategoryRoutes from './homeCategory.routes';
 import rbacRoutes from './rbac.routes';
 import trackingRoutes from './tracking.routes';
@@ -32,6 +33,7 @@ import referralRoutes from './referral.routes';
 import sosRoutes from './sos.routes';
 import errandRoutes from './errand.routes';
 import homeSectionsRoutes from './homeSections.routes';
+import cartRoutes from './cart.routes';
 
 const router = Router();
 
@@ -57,6 +59,7 @@ router.use('/legal', legalRoutes);
 router.use('/pqrs', pqrsRoutes);
 router.use('/advertisements', advertisementRoutes);
 router.use('/promotion-banners', promotionBannerRoutes);
+router.use('/curated-home-blocks', curatedHomeBlockRoutes);
 router.use('/home-categories', homeCategoryRoutes);
 router.use('/rbac', rbacRoutes);
 router.use('/tracking', trackingRoutes);
@@ -68,5 +71,6 @@ router.use('/referrals', referralRoutes);
 router.use('/sos', sosRoutes);
 router.use('/errands', errandRoutes);
 router.use('/home-sections', homeSectionsRoutes);
+router.use('/cart', cartRoutes);
 
 export default router;

@@ -19,6 +19,7 @@ import {
 } from '../../../hooks/useApi';
 import { searchApi, type ProductSearchHit, type SearchSuggestion } from '../../../services/endpoints';
 import { productImageUri, productImagePlaceholder } from '../../../lib/productImage';
+import { minutes } from '../../../lib/format';
 import { Image } from 'expo-image';
 import { useHomeCategories, type DisplayCategory } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
@@ -125,7 +126,13 @@ export default function SearchScreen() {
   const found = useMemo(() => pages.flatMap((p) => p.businesses as Business[]), [pages]);
   // Los platos y la corrección solo viven en la primera página: son la
   // cabecera de los resultados, no la lista que se sigue deslizando.
-  const products: ProductSearchHit[] = hasTerm ? pages[0]?.products ?? [] : [];
+  // La búsqueda de catálogo no filtra por categoría en el servidor: si se
+  // llegó con una categoría activa (desde Inicio o desde el propio chip) y
+  // encima se escribió un término, sin este filtro el resumen dice "en
+  // <categoría>" mientras la lista real mezcla todo el catálogo.
+  const products: ProductSearchHit[] = hasTerm
+    ? (pages[0]?.products ?? []).filter((p) => !category || p.businessCategory === category)
+    : [];
   const suggestedTerm = hasTerm ? pages[0]?.suggestedTerm : undefined;
 
   const data: Business[] = hasTerm ? found : listing.data;
@@ -144,6 +151,10 @@ export default function SearchScreen() {
     if (filters.maxDeliveryTime > 0) {
       list = list.filter((b) => (b.deliveryTime ?? Infinity) <= filters.maxDeliveryTime);
     }
+    // Misma razón que el filtro de `products` de arriba: el buscador por
+    // término no acota por categoría en el servidor, así que hay que
+    // hacerlo aquí para que el chip activo no mienta sobre lo que se ve.
+    if (category) list = list.filter((b) => b.category === category);
 
     // Con término escrito el orden ya lo decidió el servidor, y respetarlo
     // es lo que mantiene estable la lista al cargar más páginas.
@@ -168,7 +179,7 @@ export default function SearchScreen() {
           return (b.rating ?? 0) - (a.rating ?? 0);
       }
     });
-  }, [data, filters, hasTerm]);
+  }, [data, filters, hasTerm, category]);
 
   // ── Búsqueda confirmada ──────────────────────────────────────────
   //
@@ -581,6 +592,7 @@ function ProductHit({
   const { c } = useTheme();
   const uri = productImageUri(product as never, 'thumb');
   const price = product.discountPrice ?? product.price;
+  const hasDiscount = product.discountPrice != null && product.discountPrice < product.price;
   const Illustration = categoryIllustration(product.businessCategory ?? '');
 
   return (
@@ -608,12 +620,33 @@ function ProductHit({
 
       <View style={styles.hitBody}>
         <Text v="strongS" numberOfLines={1}>{product.name}</Text>
-        <Text v="caption" tone="textMuted" numberOfLines={1}>{product.businessName}</Text>
+        <View style={styles.hitBusinessRow}>
+          <Text v="caption" tone="textMuted" numberOfLines={1} style={styles.flex}>{product.businessName}</Text>
+          <View style={styles.rating}>
+            <Icon name="calificacion" size={11} color={c.warning} />
+            <Text v="caption" tone="textMuted">{(product.businessRating ?? 0).toFixed(1)}</Text>
+          </View>
+          {product.businessDeliveryTime ? (
+            <View style={styles.rating}>
+              <Icon name="domiciliario" size={11} color={c.text} />
+              <Text v="captionStrong" tone="text">{minutes(product.businessDeliveryTime)}</Text>
+            </View>
+          ) : null}
+        </View>
       </View>
 
-      <Text v="dataM" color={c.primary}>
-        ${price.toLocaleString('es-CO')}
-      </Text>
+      <View style={styles.hitPrice}>
+        <View style={[styles.pricePill, { backgroundColor: c.gold }]}>
+          <Text v="dataM" color={c.black}>
+            ${price.toLocaleString('es-CO')}
+          </Text>
+        </View>
+        {hasDiscount ? (
+          <Text v="caption" tone="textMuted" style={styles.strike}>
+            ${product.price.toLocaleString('es-CO')}
+          </Text>
+        ) : null}
+      </View>
     </Pressable>
   );
 }
@@ -779,6 +812,15 @@ const styles = StyleSheet.create({
   hitImage: { width: 52, height: 52, borderRadius: BorderRadius.md },
   hitFallback: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   hitBody: { flex: 1, gap: 2 },
+  hitBusinessRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  rating: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  hitPrice: { alignItems: 'flex-end', gap: 1 },
+  strike: { textDecorationLine: 'line-through' },
+  pricePill: {
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+  },
 
   suggestionRow: {
     flexDirection: 'row',
@@ -790,7 +832,7 @@ const styles = StyleSheet.create({
 
   screen: { flex: 1 },
   flex: { flex: 1 },
-  top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.lg },
+  top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.xl, gap: Spacing.lg },
   chips: { gap: Spacing.sm, paddingRight: Spacing.xl },
   summary: {
     flexDirection: 'row',

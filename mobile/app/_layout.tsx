@@ -19,6 +19,8 @@ import { useAuthStore } from '../stores/authStore';
 import { useTheme } from '../hooks/useTheme';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useSessionGuard } from '../hooks/useSessionGuard';
+import { useVariantGuard } from '../hooks/useVariantGuard';
+import { IS_DRIVER_APP } from '../constants/variant';
 import { ZippSplashLoader } from '../components/brand/ZippSplashLoader';
 import { registerServiceWorker } from '../lib/pwa';
 import { reportError, installGlobalHandler } from '../lib/crashReporting';
@@ -27,18 +29,10 @@ import { checkForUpdate } from '../lib/appUpdates';
 import { AppErrorScreen } from '../components/shared/AppErrorScreen';
 import { VersionGate } from '../components/shared/VersionGate';
 
-// Registra la tarea de ubicación en segundo plano.
-//
-// Tiene que estar aquí, en el módulo raíz, y no dentro del layout del
-// repartidor: el sistema operativo puede lanzar la app *directamente en
-// la tarea*, sin abrir ninguna pantalla, para entregarle posiciones
-// acumuladas. En ese arranque el layout de `(driver)` no llega a montarse
-// nunca, y si la tarea se definiera allí Expo la daría por desconocida y
-// descartaría el lote entero de posiciones.
-//
-// El `import` sin nombre es intencional: el efecto de cargar el módulo
-// —el `defineTask`— es exactamente lo que se busca.
-import '../lib/locationTask';
+// La tarea de ubicación en segundo plano (`lib/locationTask`) se registra
+// en `index.js`, el entry del bundle, y no aquí: expo-router carga este
+// layout de forma perezosa en release, y un arranque headless por la tarea
+// no lo evalúa nunca. Ver el comentario en index.js.
 
 /**
  * Lo que se ve cuando una pantalla revienta al renderizar.
@@ -114,6 +108,11 @@ function RootLayoutContent() {
   // usuario.
   useSessionGuard();
 
+  // Y si la sesión es de la otra app (cliente en Zipp Domiciliarios o al
+  // revés), la saca a `wrong-app`. Cubre las entradas que no pasan por el
+  // splash: deep links y pushes con la app cerrada.
+  useVariantGuard();
+
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -185,8 +184,11 @@ function RootLayoutContent() {
       <Stack screenOptions={screenOptions}>
         <Stack.Screen name="index" options={{ animation: 'fade' }} />
         <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
-        <Stack.Screen name="(client)" options={{ animation: 'fade' }} />
-        <Stack.Screen name="(driver)" options={{ animation: 'fade' }} />
+        {/* Solo existe el grupo de esta app: metro.config.js deja el otro
+            fuera del bundle, y declararlo aquí sería un warning en cada arranque. */}
+        {IS_DRIVER_APP
+          ? <Stack.Screen name="(driver)" options={{ animation: 'fade' }} />
+          : <Stack.Screen name="(client)" options={{ animation: 'fade' }} />}
       </Stack>
     </VersionGate>
   );

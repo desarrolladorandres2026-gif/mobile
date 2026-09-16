@@ -70,6 +70,12 @@ export {
   BANNER_DURATION,
 } from './PromotionBanner';
 export { HomeCategory, IHomeCategory } from './HomeCategory';
+export {
+  CuratedHomeBlock,
+  ICuratedHomeBlock,
+  CuratedHomeBlockKind,
+  CURATED_HOME_BLOCK_KINDS,
+} from './CuratedHomeBlock';
 
 export { FeatureFlag, IFeatureFlag, FeatureAudience } from './FeatureFlag';
 
@@ -82,6 +88,8 @@ export {
 } from './BusinessDocument';
 
 export { Favorite, IFavorite, FavoriteKind } from './Favorite';
+
+export { CartActivity, ICartActivity } from './CartActivity';
 
 export {
   BusinessStaff,

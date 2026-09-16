@@ -15,7 +15,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useProductsByCategory } from '../../hooks/useApi';
 import { discountPercent } from '../../lib/catalog';
 import { businessAccent } from '../../lib/business';
-import { money } from '../../lib/format';
+import { money, minutes } from '../../lib/format';
 import { tap } from '../../lib/haptics';
 import {
   productImageUri, productImagePlaceholder, hasProductImage, type WithProductImage,
@@ -27,7 +27,7 @@ interface CategoryProduct extends WithProductImage {
   name: string;
   price: number;
   discountPrice?: number | null;
-  businessId: { _id: string; name: string } | string;
+  businessId: { _id: string; name: string; rating?: number; deliveryTime?: number } | string;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -213,6 +213,8 @@ const ProductCard = memo(function ProductCard({
 }: CardProps) {
   const { c } = useTheme();
   const businessName = typeof product.businessId === 'string' ? '' : product.businessId.name;
+  const businessRating = typeof product.businessId === 'string' ? undefined : product.businessId.rating;
+  const businessDeliveryTime = typeof product.businessId === 'string' ? undefined : product.businessId.deliveryTime;
   const businessId = typeof product.businessId === 'string' ? product.businessId : product.businessId._id;
   const accent = businessAccent(businessId);
   const pct = discountPercent(product);
@@ -309,7 +311,21 @@ const ProductCard = memo(function ProductCard({
         >
           <Text v="titleM" color="#FFFFFF" numberOfLines={1}>{product.name}</Text>
           {businessName ? (
-            <Text v="bodyS" color="rgba(255,255,255,0.84)" numberOfLines={1}>{businessName}</Text>
+            <View style={styles.businessRow}>
+              <Text v="bodyS" color="rgba(255,255,255,0.84)" numberOfLines={1}>{businessName}</Text>
+              {/* Calificación del comercio: no existe una por producto, así
+                  que es la misma nota que se ve en su ficha. */}
+              <View style={styles.rating}>
+                <Icon name="calificacion" size={11} color={c.warning} />
+                <Text v="caption" color="rgba(255,255,255,0.84)">{(businessRating ?? 0).toFixed(1)}</Text>
+              </View>
+              {businessDeliveryTime ? (
+                <View style={styles.rating}>
+                  <Icon name="domiciliario" size={11} color="#FFFFFF" />
+                  <Text v="captionStrong" color="#FFFFFF">{minutes(businessDeliveryTime)}</Text>
+                </View>
+              ) : null}
+            </View>
           ) : null}
           <View style={[styles.cta, { backgroundColor: c.warning }]}>
             <Text v="strongS" color={c.black} numberOfLines={1}>
@@ -353,6 +369,8 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     gap: 2,
   },
+  businessRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  rating: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',

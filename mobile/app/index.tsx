@@ -8,6 +8,8 @@ import { useAuthStore } from '../stores/authStore';
 import { usePrefsStore } from '../stores/prefsStore';
 import { adsApi, addressApi, homeCategoriesApi, type ActiveAd } from '../services/endpoints';
 import { withTimeout } from '../lib/withTimeout';
+import { decideAtStart, hrefFor } from '../lib/routing';
+import { IS_CLIENT_APP } from '../constants/variant';
 
 /** Tiempo de bienvenida para apreciar la marca y el efecto de reflejo metálico. */
 const HOLD_MS = 2200;
@@ -24,6 +26,9 @@ const AD_PREFETCH_TIMEOUT_MS = 2000;
  * nunca "esperando publicidad".
  */
 async function prepareAd(): Promise<ActiveAd | null> {
+  // La publicidad es de comercios para clientes; en Zipp Domiciliarios no
+  // hay nada que anunciar y el flyer enlaza a pantallas que no existen.
+  if (!IS_CLIENT_APP) return null;
   try {
     const ad = await withTimeout(adsApi.getActive(), AD_FETCH_TIMEOUT_MS);
     if (!ad) return null;
@@ -89,22 +94,10 @@ export default function SplashScreen() {
     if (navigated.current) return;
     navigated.current = true;
 
-    // Las cuentas de administrador y comercio no operan desde el móvil.
-    if (isAuthenticated && user) {
-      if (user.role === 'admin' || user.role === 'business') {
-        useAuthStore.getState().logout();
-        router.replace('/(auth)/login');
-      } else if (!user.isVerified) {
-        router.replace('/(auth)/otp');
-      } else if (user.role === 'driver') {
-        router.replace('/(driver)/(tabs)/dashboard');
-      } else {
-        router.replace('/(client)/(tabs)/home');
-      }
-      return;
-    }
-
-    router.replace(onboardingSeen ? '/(auth)/login' : '/(auth)/welcome');
+    // Una sesión guardada de la otra app (o de un panel web) cae en
+    // `wrong-app`, que explica cuál es su app y cierra la sesión allí.
+    // Ver lib/routing.ts para la regla completa.
+    router.replace(hrefFor(decideAtStart({ isAuthenticated, user, onboardingSeen })) as never);
   };
 
   useEffect(() => {
@@ -116,9 +109,9 @@ export default function SplashScreen() {
       if (brandHoldDone && adCheckDone && !cancelled) setReady(true);
     };
 
-    // Solo tiene sentido para un cliente con sesión: un domiciliario no va a
-    // ver el catálogo, y sin sesión estas peticiones darían 401.
-    if (isAuthenticated && user && user.role === 'client') warmCache(queryClient);
+    // Solo tiene sentido para un cliente con sesión: sin sesión estas
+    // peticiones darían 401, y en la app de domiciliarios no hay catálogo.
+    if (IS_CLIENT_APP && isAuthenticated && user?.role === 'client') warmCache(queryClient);
 
     const holdTimer = setTimeout(() => {
       brandHoldDone = true;

@@ -33,6 +33,11 @@ react {
     //   skip the bundling of the JS bundle and the assets. By default is just 'debug'.
     //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
     // debuggableVariants = ["liteDebug", "prodDebug"]
+    //
+    //   Con flavors el plugin compara contra el nombre completo de la
+    //   variante, así que "debug" a secas dejaría de casar y los builds de
+    //   desarrollo intentarían empaquetar el JS en vez de pedírselo a Metro.
+    debuggableVariants = ["clientDebug", "driverDebug"]
 
     /* Bundling */
     //   A list containing the node command and its flags. Default is just 'node'.
@@ -97,6 +102,35 @@ android {
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
+
+    // Dos apps de un mismo proyecto: Zipp (clientes) y Zipp Domiciliarios.
+    // Lo nativo que cambia entre ellas se decide aquí y no en app.config.ts,
+    // porque esta carpeta está commiteada y no se regenera con prebuild.
+    //
+    // El applicationId de defaultConfig se queda en com.zipp.app a propósito:
+    // Expo CLI toma el PRIMER applicationId del archivo para saber qué
+    // lanzar, y la app de domiciliarios se lanza pasándole --app-id.
+    // El namespace tampoco cambia: MainActivity.kt y MainApplication.kt
+    // siguen en com.zipp.app para las dos apps.
+    //
+    // versionCode es único para ambas: Play exige que suba por app, y un
+    // contador compartido lo cumple para las dos sin llevar dos cuentas.
+    flavorDimensions "app"
+    productFlavors {
+        client {
+            dimension "app"
+            applicationId "com.zipp.app"
+            resValue "string", "app_name", "Zipp"
+            manifestPlaceholders = [appScheme: "zipp"]
+        }
+        driver {
+            dimension "app"
+            applicationId "com.zipp.driver"
+            resValue "string", "app_name", "Zipp Domiciliarios"
+            manifestPlaceholders = [appScheme: "zippdriver"]
+        }
+    }
+
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -148,6 +182,47 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+// El bundle de JS tiene que saber para qué app se está generando:
+// EXPO_PUBLIC_APP_VARIANT decide las rutas que entran, el rol que se acepta
+// y el nombre. Sin esto los dos APK salen con el MISMO JavaScript (el de
+// clientes), y la app de domiciliarios arranca en el Inicio del cliente.
+//
+// No se puede hacer con variables de entorno: las tareas que empaquetan
+// (createBundle<Variante>JsAndAssets de React Native y
+// create<Variante>UpdatesResources de expo-updates) lanzan Node heredando el
+// entorno del *demonio* de Gradle, que es un proceso de larga vida y no ve
+// lo que se exporte en la terminal. Lo que sí admiten las dos es cambiar el
+// ejecutable de Node por tarea, así que se les pasa `node -r <preload>`, que
+// fija la variante dentro del proceso antes de que arranque el CLI de Expo.
+//
+// Y tiene que ir dentro de `onVariants`, no en un `tasks.configureEach` al
+// vuelo: los dos plugins registran sus tareas desde la API de variantes de
+// AGP, que corre DESPUÉS de evaluar este archivo, y su propio
+// `nodeExecutableAndArgs.set(...)` pisaría al nuestro. Registrando aquí —al
+// final, después de que ambos plugins se hayan aplicado— nuestra
+// configuración se añade después de la suya y es la que queda.
+def variantPreload = { String flavor ->
+    ["node", "-r", new File(projectRoot, "scripts/variant-preload/${flavor}.cjs").absolutePath]
+}
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        def flavor = variant.name.startsWith('driver') ? 'driver' : 'client'
+        def nodeWithVariant = variantPreload(flavor)
+        def targetName = variant.name.capitalize()
+
+        // `matching` y no `named`: en las variantes de depuración el plugin
+        // de React Native no crea la tarea de bundle (lo hace Metro en vivo),
+        // y `named` reventaría buscándola.
+        ["createBundle${targetName}JsAndAssets", "create${targetName}UpdatesResources"].each { name ->
+            tasks.matching { it.name == name }.configureEach { task ->
+                if (task.hasProperty('nodeExecutableAndArgs')) {
+                    task.nodeExecutableAndArgs.set(nodeWithVariant)
+                }
+            }
+        }
     }
 }
 

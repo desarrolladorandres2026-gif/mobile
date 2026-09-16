@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { secureGet, secureSet, secureDelete } from '../lib/secureStorage';
 import { API_URL } from '../constants';
 
-interface User {
+export interface User {
   _id: string;
   name: string;
   phone?: string;

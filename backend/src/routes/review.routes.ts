@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { reviewController } from '../controllers/review.controller';
-import { authenticate, authorize, validate } from '../middlewares';
-import { createReviewSchema } from '../validators';
+import { authenticate, authorize, validate, reviewCreateRateLimiter } from '../middlewares';
+import {
+  createReviewSchema, rateBusinessByDriverSchema, rateDriverByBusinessSchema,
+  rateClientReasonsSchema,
+} from '../validators';
 import { UserRole } from '../types';
 import { z } from 'zod';
 
@@ -13,6 +16,7 @@ const rateClientSchema = z.object({
   body: z.object({
     rating: z.number().int().min(1).max(5),
     notes: z.string().trim().max(500).optional(),
+    reasons: rateClientReasonsSchema,
   }),
 });
 
@@ -26,7 +30,7 @@ const moderateSchema = z.object({
 const router = Router();
 
 // Create a review (only clients, after delivery)
-router.post('/', authenticate, authorize(UserRole.CLIENT), validate(createReviewSchema), (req, res, next) => reviewController.create(req, res, next));
+router.post('/', authenticate, authorize(UserRole.CLIENT), reviewCreateRateLimiter, validate(createReviewSchema), (req, res, next) => reviewController.create(req, res, next));
 
 // Lo que este cliente tiene pendiente de calificar. Va antes de las rutas
 // con parámetro para que "pending" no se lea como un id.
@@ -41,7 +45,16 @@ router.patch('/:id/moderate', authenticate, authorize(UserRole.ADMIN), validate(
 // El negocio responde en público; negocio y domiciliario califican al
 // cliente en privado, para el perfil de riesgo.
 router.post('/:id/reply', authenticate, authorize(UserRole.BUSINESS), validate(replySchema), (req, res, next) => reviewController.reply(req, res, next));
-router.post('/order/:orderId/rate-client', authenticate, authorize(UserRole.BUSINESS, UserRole.DRIVER), validate(rateClientSchema), (req, res, next) => reviewController.rateClient(req, res, next));
+router.post('/order/:orderId/rate-client', authenticate, authorize(UserRole.BUSINESS, UserRole.DRIVER), reviewCreateRateLimiter, validate(rateClientSchema), (req, res, next) => reviewController.rateClient(req, res, next));
+
+// ── Comercio ↔ domiciliario ──
+// Operacional: no sale a ningún perfil público, alimenta el reputationScore
+// interno de cada uno.
+router.post('/order/:orderId/rate-business', authenticate, authorize(UserRole.DRIVER), reviewCreateRateLimiter, validate(rateBusinessByDriverSchema), (req, res, next) => reviewController.rateBusinessByDriver(req, res, next));
+router.post('/order/:orderId/rate-driver', authenticate, authorize(UserRole.BUSINESS), reviewCreateRateLimiter, validate(rateDriverByBusinessSchema), (req, res, next) => reviewController.rateDriverByBusiness(req, res, next));
+
+// Qué le falta calificar a cada actor de este pedido.
+router.get('/order/:orderId/status', authenticate, (req, res, next) => reviewController.reviewStatus(req, res, next));
 
 // Get reviews for a business (public)
 router.get('/business/:businessId', (req, res, next) => reviewController.getByBusiness(req, res, next));

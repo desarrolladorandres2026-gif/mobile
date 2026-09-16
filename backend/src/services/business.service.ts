@@ -280,6 +280,11 @@ export class BusinessService {
             spherical: true,
           },
         },
+        // `$geoNear` no respeta el `select: false` del esquema — devuelve
+        // el documento crudo. `reputationScore` es interno a propósito
+        // (ver el comentario en el modelo): sin este `$project` se colaría
+        // en la respuesta pública de este listado.
+        { $project: { reputationScore: 0, reputationUpdatedAt: 0 } },
         {
           $facet: {
             businesses: [

@@ -210,6 +210,8 @@ function ProductRow({
   const { c, isDark } = useTheme();
   const businessName =
     typeof product.businessId === 'object' ? product.businessId?.name : undefined;
+  const businessRating: number | undefined =
+    typeof product.businessId === 'object' ? product.businessId?.rating : undefined;
 
   return (
     <View
@@ -243,7 +245,15 @@ function ProductRow({
         <View style={styles.flex}>
           <Text v="strongS" numberOfLines={1}>{product.name}</Text>
           {businessName ? (
-            <Text v="caption" tone="textMuted" numberOfLines={1}>{businessName}</Text>
+            <View style={styles.businessRow}>
+              <Text v="caption" tone="textMuted" numberOfLines={1}>{businessName}</Text>
+              {businessRating ? (
+                <View style={styles.rating}>
+                  <Icon name="calificacion" size={11} color={c.warning} />
+                  <Text v="caption" tone="textMuted">{businessRating.toFixed(1)}</Text>
+                </View>
+              ) : null}
+            </View>
           ) : null}
           <Text v="dataS" tone="primaryText">{money(product.discountPrice ?? product.price)}</Text>
         </View>
@@ -262,6 +272,8 @@ function ProductRow({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  businessRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  rating: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, gap: Spacing.lg },
   segments: {
     flexDirection: 'row',

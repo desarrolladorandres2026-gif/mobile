@@ -17,6 +17,7 @@ import routes from './routes';
 import { initializeSocket } from './sockets';
 import { setIO } from './sockets/emitter';
 import { startDispatchSweeper, stopDispatchSweeper } from './services/dispatch.service';
+import { startCartAbandonmentSweeper, stopCartAbandonmentSweeper } from './services/cartActivity.service';
 
 const app = express();
 const httpServer = createServer(app);
@@ -204,6 +205,7 @@ const start = async () => {
   // cargan `app` con supertest y un intervalo de reparto suelto las
   // dejaría escribiendo en la base entre casos.
   startDispatchSweeper();
+  startCartAbandonmentSweeper();
 
   httpServer.listen(config.port, '0.0.0.0', () => {
     console.log(`\n🚀 ZIPP API en puerto ${config.port}`);
@@ -221,6 +223,7 @@ const start = async () => {
 const shutdown = async (signal: string) => {
   console.log(`\n[${signal}] Cerrando servidor...`);
   stopDispatchSweeper();
+  stopCartAbandonmentSweeper();
   httpServer.close(async () => {
     try {
       await mongoose.connection.close();

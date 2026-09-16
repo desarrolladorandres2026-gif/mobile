@@ -1,0 +1,11 @@
+<!--
+  Recursos del flavor de domiciliarios; pisan por nombre a los de src/main.
+
+  TODO(diseño): la app de domiciliarios todavía no tiene ícono propio. Mientras
+  llega, comparte el trazo del cliente sobre azul noche en vez de dorado, para
+  que los dos íconos se distingan a simple vista en el mismo teléfono. Cuando
+  exista el arte, va en src/driver/res/mipmap-*/ic_launcher*.
+-->
+<resources>
+  <color name="iconBackground">#141A2E</color>
+</resources>

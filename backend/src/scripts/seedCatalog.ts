@@ -36,6 +36,16 @@ function nearby(index: number) {
   };
 }
 
+/**
+ * Descuento entre 10% y 25% del precio, redondeado a los $500 más cercanos
+ * para que se vea como un precio real y no como un cálculo de máquina.
+ */
+function randomDiscount(price: number): number {
+  const pct = 0.10 + Math.random() * 0.15;
+  const raw = price * (1 - pct);
+  return Math.max(500, Math.round(raw / 500) * 500);
+}
+
 interface ProductSeed {
   name: string;
   description: string;
@@ -367,6 +377,7 @@ export async function seedCatalog(): Promise<CatalogReport> {
 
   const admin = await User.findOne({ email: 'admin@zipp.co' }).select('_id');
   const byName = new Map<string, Types.ObjectId>();
+  let productIndex = 0;
 
   for (const [index, spec] of BUSINESSES.entries()) {
     const owner = await User.findOne({ phone: spec.ownerPhone }).select('_id');
@@ -409,13 +420,22 @@ export async function seedCatalog(): Promise<CatalogReport> {
       report.categories += 1;
 
       for (const p of cat.products) {
+        // 4 de cada 10 productos llevan descuento: los que ya traen uno
+        // manual en el catálogo lo conservan, el resto se completa por
+        // posición (índice % 10 < 4) para llegar a esa proporción.
+        const autoDiscount =
+          p.discountPrice == null && productIndex % 10 < 4
+            ? randomDiscount(p.price)
+            : null;
+        productIndex += 1;
+
         await Product.create({
           businessId: business._id,
           categoryId: category._id,
           name: p.name,
           description: p.description,
           price: p.price,
-          discountPrice: p.discountPrice ?? null,
+          discountPrice: p.discountPrice ?? autoDiscount,
           extras: p.extras ?? [],
           isAvailable: true,
         });

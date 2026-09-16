@@ -67,3 +67,68 @@ export function roundToStep(amount: number, step: number): number {
   if (!step || step <= 1) return Math.round(amount);
   return Math.round(amount / step) * step;
 }
+
+// ── Geocerca del traspaso físico ──────────────────────────────────────
+
+export type ProximityStatus = 'ok' | 'too_far' | 'accuracy_too_low';
+
+export interface ProximityOptions {
+  /** Radio dentro del cual se considera "en el sitio", en metros. */
+  radiusMeters: number;
+  /**
+   * Precisión que reportó el GPS al tomar el fix, en metros. Se suma al
+   * radio como tolerancia: un fix con 40 m de margen de error no debería
+   * fallar la geocerca por una diferencia de 40 m que el propio sensor ya
+   * avisó que podía tener.
+   */
+  accuracyMeters?: number | null;
+  /**
+   * Precisión por encima de la cual el fix ya no es confiable para decidir
+   * nada. Sumarla igual como tolerancia volvería la geocerca inútil —un fix
+   * de 2 km de margen "pasaría" casi cualquier distancia—, así que en vez de
+   * ensanchar el radio, este caso se marca aparte para que quien llama pida
+   * una mejor ubicación en lugar de fingir que la comparación significó algo.
+   */
+  maxAccuracyMeters?: number;
+}
+
+export interface ProximityResult {
+  status: ProximityStatus;
+  distanceMeters: number;
+  radiusMeters: number;
+  /** La precisión considerada, o `null` si no venía o no era un número usable. */
+  accuracyMeters: number | null;
+}
+
+/**
+ * Compara una posición reportada contra un punto objetivo.
+ *
+ * Pura y sin efectos secundarios a propósito: quien llama decide qué
+ * significa cada `status` (bloquear, solo auditar, pedir mejor señal), y
+ * eso depende del punto del flujo, no de esta función.
+ */
+export function validateLocationProximity(
+  current: LatLng,
+  target: LatLng,
+  options: ProximityOptions
+): ProximityResult {
+  const { radiusMeters, accuracyMeters, maxAccuracyMeters } = options;
+  const distanceMeters = haversineMeters(current, target);
+
+  const accuracy =
+    typeof accuracyMeters === 'number' && Number.isFinite(accuracyMeters) && accuracyMeters > 0
+      ? accuracyMeters
+      : null;
+
+  if (accuracy != null && maxAccuracyMeters != null && accuracy > maxAccuracyMeters) {
+    return { status: 'accuracy_too_low', distanceMeters, radiusMeters, accuracyMeters: accuracy };
+  }
+
+  const withinRadius = distanceMeters <= radiusMeters + (accuracy ?? 0);
+  return {
+    status: withinRadius ? 'ok' : 'too_far',
+    distanceMeters,
+    radiusMeters,
+    accuracyMeters: accuracy,
+  };
+}

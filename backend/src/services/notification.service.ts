@@ -274,6 +274,18 @@ export class NotificationService {
     });
   }
 
+  /** La bolsa se quedó llena y sin tocar. Se manda una sola vez por bolsa. */
+  async notifyAbandonedCart(userId: string, businessName: string, itemCount: number) {
+    const plural = itemCount === 1 ? 'producto' : 'productos';
+    return this.create({
+      userId,
+      type: NotificationType.SYSTEM,
+      title: 'Se te quedó la bolsa llena',
+      body: `Tienes ${itemCount} ${plural} de ${businessName} esperando en tu bolsa. ¿Los pedimos?`,
+      data: { event: 'abandoned_cart' },
+    });
+  }
+
   async notifySystem(userId: string, title: string, body: string, data?: Record<string, any>) {
     return this.create({
       userId,

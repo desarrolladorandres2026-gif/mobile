@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 import { Driver, DriverLocation, Order, Business, IOrder } from '../models';
-import { DriverStatus, OrderStatus, UserRole } from '../types';
+import { DriverStatus, OrderKind, OrderStatus, UserRole } from '../types';
 import { config } from '../config';
 import { AppError } from '../middlewares/errorHandler';
 import { haversineMeters, isValidCoordinate, fromGeoPoint, LatLng } from '../utils/geo';
@@ -539,14 +539,23 @@ export async function getDriverRoute(
     throw new AppError('No tenemos tu ubicación todavía. Activa el GPS y vuelve a intentarlo.', 409);
   }
 
-  const business = await Business.findById(order.businessId).select('name address location');
-  const to =
-    phase === 'to_business' ? fromGeoPoint(business?.location) : fromGeoPoint(order.deliveryLocation);
+  // Un mandado no tiene comercio afiliado detrás: el punto de recogida es
+  // la dirección que escribió el cliente (`order.errand.pickupLocation`),
+  // no `Business.findById(order.businessId)` — que para un mandado siempre
+  // es `undefined`. Mismo criterio que ya usa `getOrderTracking` para el
+  // mapa de seguimiento del cliente.
+  const isErrand = order.kind === OrderKind.ERRAND && !!order.errand;
+  const business = isErrand
+    ? null
+    : await Business.findById(order.businessId).select('name address location');
+
+  const pickupLocation = isErrand ? fromGeoPoint(order.errand!.pickupLocation) : fromGeoPoint(business?.location);
+  const to = phase === 'to_business' ? pickupLocation : fromGeoPoint(order.deliveryLocation);
 
   if (!to) {
     throw new AppError(
       phase === 'to_business'
-        ? 'El local no tiene coordenadas registradas'
+        ? (isErrand ? 'El punto de recogida no tiene coordenadas registradas' : 'El local no tiene coordenadas registradas')
         : 'La dirección de entrega no tiene coordenadas',
       409
     );
@@ -554,12 +563,19 @@ export async function getDriverRoute(
 
   const route = await getRoute(from, to);
 
+  const targetLabel = phase === 'to_business'
+    ? (isErrand ? (order.errand!.pickupAddress || 'Punto de recogida') : (business?.name ?? 'El local'))
+    : 'Cliente';
+  const targetAddress = phase === 'to_business'
+    ? (isErrand ? (order.errand!.pickupAddress || '') : (business?.address ?? ''))
+    : order.deliveryAddress;
+
   return {
     phase,
     from,
     to,
-    targetLabel: phase === 'to_business' ? (business?.name ?? 'El local') : 'Cliente',
-    targetAddress: phase === 'to_business' ? (business?.address ?? '') : order.deliveryAddress,
+    targetLabel,
+    targetAddress,
     route,
     offRouteMeters: null,
   };

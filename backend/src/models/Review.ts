@@ -1,4 +1,9 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
+import {
+  ReviewReasonClientToBusiness, ReviewReasonClientToDriver,
+  ReviewReasonDriverToBusiness, ReviewReasonDriverToClient,
+  ReviewReasonBusinessToDriver, ReviewReasonBusinessToClient,
+} from '../types';
 
 export interface IReview extends Document {
   orderId: Types.ObjectId;
@@ -6,8 +11,32 @@ export interface IReview extends Document {
   businessId: Types.ObjectId;
   driverId?: Types.ObjectId;
   businessRating?: number;
+  /**
+   * Por qué calificó bajo. Nunca obligatorio en un rating alto — solo tiene
+   * sentido cuando algo salió mal.
+   */
+  businessRatingReasons?: ReviewReasonClientToBusiness[];
   driverRating?: number;
+  driverRatingReasons?: ReviewReasonClientToDriver[];
   comment?: string;
+
+  /**
+   * El domiciliario califica al comercio: qué tan lista estaba la orden al
+   * recogerla. Vive en el mismo documento que el resto del pedido —no una
+   * colección aparte— porque un pedido ya reúne a los tres actores.
+   * Operacional, no alimenta el `rating` público del negocio (ese es solo
+   * la voz del cliente): alimenta `reputationScore`.
+   */
+  driverRatingOfBusiness?: number;
+  driverRatingOfBusinessReasons?: ReviewReasonDriverToBusiness[];
+
+  /**
+   * El comercio califica al domiciliario: qué tan bien se portó al recoger.
+   * Igual que arriba, operacional — alimenta `reputationScore` del
+   * domiciliario, no su `rating` público (ese es solo la voz del cliente).
+   */
+  businessRatingOfDriver?: number;
+  businessRatingOfDriverReasons?: ReviewReasonBusinessToDriver[];
 
   /**
    * Respuesta pública del negocio.
@@ -29,7 +58,9 @@ export interface IReview extends Document {
    * el perfil de riesgo, no una estrella en el perfil de nadie.
    */
   clientRatingByBusiness?: number;
+  clientRatingByBusinessReasons?: ReviewReasonBusinessToClient[];
   clientRatingByDriver?: number;
+  clientRatingByDriverReasons?: ReviewReasonDriverToClient[];
   clientNotes?: string;
 
   /**
@@ -62,14 +93,23 @@ const reviewSchema = new Schema<IReview>(
     // dicho nada. Quien exige la nota es el flujo del cliente, no el
     // esquema, porque el documento sirve a tres actores distintos.
     businessRating: { type: Number, min: 1, max: 5, default: null },
+    businessRatingReasons: { type: [String], enum: Object.values(ReviewReasonClientToBusiness), default: undefined },
     driverRating: { type: Number, min: 1, max: 5, default: null },
+    driverRatingReasons: { type: [String], enum: Object.values(ReviewReasonClientToDriver), default: undefined },
     comment: { type: String, default: '', maxlength: 500 },
 
     businessReply: { type: String, maxlength: 500 },
     businessRepliedAt: { type: Date },
 
+    driverRatingOfBusiness: { type: Number, min: 1, max: 5, default: null },
+    driverRatingOfBusinessReasons: { type: [String], enum: Object.values(ReviewReasonDriverToBusiness), default: undefined },
+    businessRatingOfDriver: { type: Number, min: 1, max: 5, default: null },
+    businessRatingOfDriverReasons: { type: [String], enum: Object.values(ReviewReasonBusinessToDriver), default: undefined },
+
     clientRatingByBusiness: { type: Number, min: 1, max: 5, default: null },
+    clientRatingByBusinessReasons: { type: [String], enum: Object.values(ReviewReasonBusinessToClient), default: undefined },
     clientRatingByDriver: { type: Number, min: 1, max: 5, default: null },
+    clientRatingByDriverReasons: { type: [String], enum: Object.values(ReviewReasonDriverToClient), default: undefined },
     clientNotes: { type: String, maxlength: 500 },
 
     productFeedback: {

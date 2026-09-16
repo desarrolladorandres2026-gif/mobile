@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi, referralsApi, homeSectionsApi } from '../services/endpoints';
-import type { PromoBanner, HomeCategory, SearchSort, CancellationCode } from '../services/endpoints';
+import type {
+  PromoBanner, HomeCategory, SearchSort, CancellationCode,
+  ReviewReasonDriverToClient, ReviewReasonDriverToBusiness,
+} from '../services/endpoints';
 
 // ── Businesses ──
 /**
@@ -160,6 +163,48 @@ export const useCreateReview = () => {
     },
   });
 };
+
+/** Qué le falta calificar al usuario actual en un pedido entregado. */
+export const useReviewStatus = (orderId: string | undefined) =>
+  useQuery({
+    queryKey: ['reviews', 'status', orderId],
+    queryFn: () => reviewsApi.status(orderId!),
+    enabled: !!orderId,
+    staleTime: 30_000,
+  });
+
+/** El domiciliario califica al cliente de un pedido. Privado. */
+export const useRateClientByDriver = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, rating, reasons, notes }: {
+      orderId: string; rating: number; reasons?: ReviewReasonDriverToClient[]; notes?: string;
+    }) => reviewsApi.rateClient(orderId, rating, reasons, notes),
+    onSuccess: (_data, vars) => qc.invalidateQueries({ queryKey: ['reviews', 'status', vars.orderId] }),
+  });
+};
+
+/** El domiciliario califica al comercio al recoger. Operacional, no público. */
+export const useRateBusinessByDriver = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, rating, reasons }: {
+      orderId: string; rating: number; reasons?: ReviewReasonDriverToBusiness[];
+    }) => reviewsApi.rateBusiness(orderId, rating, reasons),
+    onSuccess: (_data, vars) => qc.invalidateQueries({ queryKey: ['reviews', 'status', vars.orderId] }),
+  });
+};
+
+/** Reseñas del domiciliario, para su propio perfil. */
+export const useDriverReviews = (driverId: string | undefined) =>
+  useInfiniteQuery({
+    queryKey: ['reviews', 'driver', driverId],
+    queryFn: ({ pageParam }) => reviewsApi.byDriver(driverId!, pageParam),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) =>
+      last.meta.page < last.meta.totalPages ? pages.length + 1 : undefined,
+    enabled: !!driverId,
+  });
 
 /**
  * Los más pedidos de un negocio.
@@ -330,7 +375,8 @@ export const useOrderArrive = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ orderId, stage, coords }: {
-      orderId: string; stage: 'pickup' | 'delivery'; coords?: { latitude: number; longitude: number };
+      orderId: string; stage: 'pickup' | 'delivery';
+      coords?: { latitude: number; longitude: number; accuracy?: number | null };
     }) => orderFlowApi.arrive(orderId, stage, coords),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['orderFlow', vars.orderId] });
@@ -362,7 +408,8 @@ export const useVerifyOrderCode = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ orderId, stage, code, coords }: {
-      orderId: string; stage: 'pickup' | 'delivery'; code: string; coords?: { latitude: number; longitude: number };
+      orderId: string; stage: 'pickup' | 'delivery'; code: string;
+      coords?: { latitude: number; longitude: number; accuracy?: number | null };
     }) => orderFlowApi.verify(orderId, stage, code, coords),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['orderFlow', vars.orderId] });
@@ -878,10 +925,11 @@ export const useSetDefaultAddress = () => {
  * El arreglo vacío por defecto hace que "sin banners", "sin conexión" y
  * "API caída" terminen en el mismo lugar: el componente no se dibuja.
  */
-export const useHomeBanners = (placement: 'home' | 'offers' = 'home') =>
+export const useHomeBanners = (placement: 'home' | 'offers' = 'home', enabled = true) =>
   useQuery<PromoBanner[]>({
     queryKey: ['banners', placement],
     queryFn: () => bannersApi.getActive(placement),
+    enabled,
     retry: false,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,

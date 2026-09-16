@@ -71,7 +71,7 @@ export class FavoriteService {
         ? Business.find({ _id: { $in: businessIds }, isActive: true, isApproved: true }).lean()
         : [],
       productIds.length
-        ? Product.find({ _id: { $in: productIds } }).populate('businessId', 'name').lean()
+        ? Product.find({ _id: { $in: productIds } }).populate('businessId', 'name rating').lean()
         : [],
     ]);
 

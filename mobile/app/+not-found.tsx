@@ -3,7 +3,7 @@ import { useRouter, Stack } from 'expo-router';
 import { Text, Button, Screen } from '../components/ui';
 import { ContentIcon } from '../components/illustrations';
 import { useTheme } from '../hooks/useTheme';
-import { useAuthStore } from '../stores/authStore';
+import { HOME_ROUTE } from '../constants/variant';
 import { Spacing } from '../theme/tokens';
 import { tap } from '../lib/haptics';
 
@@ -16,16 +16,13 @@ import { tap } from '../lib/haptics';
  * `(client)/(tabs)/orders`, que no existe, incluida "Ver mis pedidos"
  * después de pagar.
  *
- * La salida depende de quién sea: mandar a un domiciliario al Inicio del
- * cliente sería sacarlo de su turno.
+ * La salida es el inicio de esta app: en Zipp el Home del cliente, en Zipp
+ * Domiciliarios el panel del repartidor.
  */
 export default function NotFoundScreen() {
   const router = useRouter();
   const { c } = useTheme();
-  const user = useAuthStore((s) => s.user);
-
-  const home =
-    user?.role === 'driver' ? '/(driver)/(tabs)/dashboard' : '/(client)/(tabs)/home';
+  const home = HOME_ROUTE;
 
   return (
     <>

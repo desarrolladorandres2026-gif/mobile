@@ -8,6 +8,7 @@ import { Icon } from './Icon';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
+import { HOME_ROUTE } from '../../constants/variant';
 
 export function Screen({
   children, edges = ['top'], style,
@@ -71,7 +72,7 @@ export interface HeaderProps {
  * vez de quedarse sin hacer nada.
  */
 export function Header({
-  title, subtitle, fallback = '/(client)/(tabs)/home', onBack, hideBack, right, bare,
+  title, subtitle, fallback = HOME_ROUTE, onBack, hideBack, right, bare,
 }: HeaderProps) {
   const { c } = useTheme();
   const router = useRouter();
