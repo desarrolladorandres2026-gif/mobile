@@ -315,9 +315,11 @@ export function ConfirmDialog({
 
 /** Fila etiqueta/valor. La base del desglose de precios. */
 export function DetailRow({
-  label, value, tone = 'text', strong, mono = true,
+  label, value, tone = 'text', strong, mono = true, labelTone,
 }: {
   label: string;
+  /** Color de la etiqueta; por defecto el secundario, salvo en filas `strong`. */
+  labelTone?: 'text' | 'textSecondary';
   value: string;
   tone?: 'text' | 'textSecondary' | 'successText' | 'errorText';
   strong?: boolean;
@@ -325,7 +327,7 @@ export function DetailRow({
 }) {
   return (
     <View style={styles.detailRow}>
-      <Text v={strong ? 'strongM' : 'bodyM'} tone={strong ? 'text' : 'textSecondary'}>
+      <Text v={strong ? 'strongM' : 'bodyM'} tone={labelTone ?? (strong ? 'text' : 'textSecondary')}>
         {label}
       </Text>
       <Text v={mono ? (strong ? 'dataL' : 'dataM') : strong ? 'strongM' : 'bodyM'} tone={tone}>

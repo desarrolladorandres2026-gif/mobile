@@ -113,6 +113,16 @@ export function ErrorState({
 }
 
 /** Aviso en línea. Para bloqueos que el usuario puede resolver sin salir. */
+/**
+ * ¿Son solo textos? JSX con interpolaciones (`Faltan {money(x)} más`) no llega
+ * como un string sino como un arreglo de strings; RN no admite texto suelto
+ * dentro de un `View`, así que ese caso también hay que envolverlo en `Text`.
+ */
+const isPlainText = (node: ReactNode): boolean =>
+  typeof node === 'string' ||
+  typeof node === 'number' ||
+  (Array.isArray(node) && node.every((part) => typeof part === 'string' || typeof part === 'number'));
+
 export function Notice({
   tone = 'warning', icon, children,
 }: { tone?: 'warning' | 'error' | 'info' | 'lime'; icon?: IconName; children: ReactNode }) {
@@ -129,7 +139,7 @@ export function Notice({
     <View style={[styles.notice, { backgroundColor: skin.bg }]}>
       <Icon name={icon ?? skin.icon} size="md" color={skin.fg} />
       <View style={styles.noticeBody}>
-        {typeof children === 'string' ? (
+        {isPlainText(children) ? (
           <Text v="bodyS" color={skin.fg}>{children}</Text>
         ) : children}
       </View>

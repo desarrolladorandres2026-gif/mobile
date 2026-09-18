@@ -1,7 +1,8 @@
-﻿import { useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { Store, Star, MapPin, Clock, ToggleLeft, ToggleRight, X, AlertCircle, Trash2, Plus, Search } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
+import Pagination from '../components/Pagination';
 import { apiMessage } from '../lib/apiError';
 import type { AdminUser } from '../lib/apiTypes';
 import { categoryIllustration } from '../components/illustrations';
@@ -27,6 +28,9 @@ export default function Businesses() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
+  const PAGE_SIZE = 25;
 
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({
@@ -44,30 +48,53 @@ export default function Businesses() {
   const [owners, setOwners] = useState<AdminUser[]>([]);
   const [confirmDelete, setConfirmDelete] = useState<Business | null>(null);
 
-  const fetchBusinessesAndOwners = async () => {
+  // La búsqueda se manda al servidor (ahí vive el índice y el `$regex`
+  // sobre toda la tabla), no se filtra en el navegador sobre la página
+  // actual — si no, "buscar" solo encontraría coincidencias dentro de
+  // los 25 negocios ya cargados.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+  useEffect(() => { setPage(1); }, [selectedCategory, debouncedSearch]);
+
+  const fetchBusinesses = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      const [resBus, resUsers] = await Promise.all([
-        api.get('/businesses?limit=100&includeInactive=true'),
-        api.get('/admin/users?role=business&limit=100'),
-      ]);
-      setBusinesses(resBus.data.data);
-      setOwners(resUsers.data.data);
-      if (resUsers.data.data.length > 0) {
-        setForm((prev) => ({ ...prev, ownerId: resUsers.data.data[0]._id }));
-      }
+      const params: Record<string, string | number | boolean> = {
+        page, limit: PAGE_SIZE, includeInactive: true,
+      };
+      if (selectedCategory !== 'all') params.category = selectedCategory;
+      if (debouncedSearch) params.search = debouncedSearch;
+      const { data } = await api.get('/businesses', { params });
+      setBusinesses(data.data);
+      if (data.meta) setMeta(data.meta);
     } catch (err) {
       console.error(err);
       setError('No se pudieron cargar los negocios.');
     } finally {
       setLoading(false);
     }
+  }, [page, selectedCategory, debouncedSearch]);
+
+  // Los dueños candidatos del formulario de alta no dependen de la página
+  // visible de negocios: es un catálogo aparte, se pide una sola vez.
+  const fetchOwners = async () => {
+    try {
+      const { data } = await api.get('/admin/users?role=business&limit=100');
+      setOwners(data.data);
+      if (data.data.length > 0) {
+        setForm((prev) => ({ ...prev, ownerId: data.data[0]._id }));
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  useEffect(() => {
-    fetchBusinessesAndOwners();
-  }, []);
+  useEffect(() => { fetchBusinesses(); }, [fetchBusinesses]);
+  useEffect(() => { fetchOwners(); }, []);
 
   const handleToggleActive = async (business: Business) => {
     try {
@@ -133,7 +160,7 @@ export default function Businesses() {
       });
 
       setShowModal(false);
-      fetchBusinessesAndOwners();
+      fetchBusinesses();
       setForm({
         name: '', description: '', category: 'restaurant', address: '', phone: '',
         latitude: 2.1958, longitude: -75.6258, deliveryTime: 30,
@@ -151,12 +178,6 @@ export default function Businesses() {
     };
     return map[cat] || cat;
   };
-
-  const filteredBusinesses = businesses.filter((b) => {
-    const matchesSearch = b.name.toLowerCase().includes(search.toLowerCase()) || b.address.toLowerCase().includes(search.toLowerCase());
-    const matchesCat = selectedCategory === 'all' || b.category === selectedCategory;
-    return matchesSearch && matchesCat;
-  });
 
   const inputClass = 'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-muted)]';
   const labelClass = 'block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1.5';
@@ -186,7 +207,7 @@ export default function Businesses() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nombre o dirección..."
+            placeholder="Buscar por nombre..."
             className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
           />
         </div>
@@ -227,7 +248,7 @@ export default function Businesses() {
         </div>
       ) : (
         <div className="grid gap-4">
-          {filteredBusinesses.map((b) => {
+          {businesses.map((b) => {
             const CategoryArt = categoryIllustration(b.category);
             return (
             <div
@@ -306,11 +327,12 @@ export default function Businesses() {
             );
           })}
 
-          {filteredBusinesses.length === 0 && (
+          {businesses.length === 0 && (
             <div className="zipp-card p-12 text-center text-[var(--color-text-muted)] text-xs font-semibold">
               No hay establecimientos que coincidan con la búsqueda.
             </div>
           )}
+          <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
         </div>
       )}
 

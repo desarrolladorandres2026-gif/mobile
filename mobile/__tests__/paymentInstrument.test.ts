@@ -1,4 +1,13 @@
-import { payNativeBody, isReusable, isExpiredSelection, cardLabel, type SelectedInstrument } from '../lib/paymentInstrument';
+import {
+  payNativeBody,
+  isReusable,
+  isExpiredSelection,
+  cardLabel,
+  acceptsInstallments,
+  installmentsOf,
+  withInstallments,
+  type SelectedInstrument,
+} from '../lib/paymentInstrument';
 import type { CheckoutConfig } from '../hooks/useApi';
 
 const config: CheckoutConfig = {
@@ -7,7 +16,11 @@ const config: CheckoutConfig = {
   acceptanceToken: 'ACEPTACION',
   personalDataAuthToken: 'DATOS',
   permalinks: {},
+  returnUrl: 'https://zipp.example/pago/retorno',
+  threeDs: false,
 };
+
+const fakeBrowser = () => ({ browser_language: 'es-CO', browser_tz: '300' });
 
 const card = (save = false): SelectedInstrument => ({
   instrument: { kind: 'card_token', token: 'tok_test_1', installments: 1, save },
@@ -17,21 +30,28 @@ const card = (save = false): SelectedInstrument => ({
 
 describe('paymentInstrument', () => {
   it('manda los términos siempre y los datos personales solo al guardar', () => {
-    expect(payNativeBody(card(false), config)).toEqual({
+    expect(payNativeBody(card(false), config, fakeBrowser)).toEqual({
       instrument: card(false).instrument,
       acceptanceToken: 'ACEPTACION',
     });
-    expect(payNativeBody(card(true), config).personalDataAuthToken).toBe('DATOS');
+    expect(payNativeBody(card(true), config, fakeBrowser).personalDataAuthToken).toBe('DATOS');
   });
 
-  it('la dirección de regreso solo viaja con PSE', () => {
+  it('nunca manda dirección de regreso: la de PSE la fija el servidor', () => {
     const pse: SelectedInstrument = {
       instrument: { kind: 'pse', financialInstitutionCode: '1', userType: 0, userLegalIdType: 'CC', userLegalId: '123456' },
       label: 'PSE',
       icon: 'edificio',
     };
-    expect(payNativeBody(pse, config, 'zipp://payment-result').redirectUrl).toBe('zipp://payment-result');
-    expect(payNativeBody(card(), config, 'zipp://payment-result')).not.toHaveProperty('redirectUrl');
+    expect(payNativeBody(pse, config, fakeBrowser)).not.toHaveProperty('redirectUrl');
+  });
+
+  it('manda el navegador para 3DS solo con tarjeta nueva y 3DS encendido', () => {
+    const on = { ...config, threeDs: true };
+    expect(payNativeBody(card(), on, fakeBrowser).browserInfo).toEqual(fakeBrowser());
+    expect(payNativeBody(card(), config, fakeBrowser)).not.toHaveProperty('browserInfo');
+    const saved: SelectedInstrument = { instrument: { kind: 'saved_card', savedCardId: 'x' }, label: 'Visa', icon: 'tarjeta' };
+    expect(payNativeBody(saved, on, fakeBrowser)).not.toHaveProperty('browserInfo');
   });
 
   it('una tarjeta recién escrita no se reutiliza tras un intento: su token es de un solo uso', () => {
@@ -48,5 +68,33 @@ describe('paymentInstrument', () => {
 
   it('pinta la marca con su nombre', () => {
     expect(cardLabel('MASTERCARD', '4444')).toBe('Mastercard ···· 4444');
+  });
+});
+
+describe('paymentInstrument · cuotas', () => {
+  const newCard: SelectedInstrument = {
+    instrument: { kind: 'card_token', token: 'tok_test_1', installments: 1 },
+    label: 'Visa',
+    icon: 'tarjeta',
+  };
+  const saved: SelectedInstrument = { instrument: { kind: 'saved_card', savedCardId: 'x' }, label: 'Visa', icon: 'tarjeta' };
+  const nequi: SelectedInstrument = { instrument: { kind: 'nequi', phone: '3001234567' }, label: 'Nequi', icon: 'celular' };
+
+  it('solo las tarjetas admiten cuotas', () => {
+    expect(acceptsInstallments(newCard)).toBe(true);
+    expect(acceptsInstallments(saved)).toBe(true);
+    expect(acceptsInstallments(nequi)).toBe(false);
+    expect(acceptsInstallments(null)).toBe(false);
+  });
+
+  it('cambia las cuotas de una tarjeta nueva o guardada', () => {
+    expect(installmentsOf(withInstallments(newCard, 6))).toBe(6);
+    expect(installmentsOf(withInstallments(saved, 12))).toBe(12);
+    // Una guardada sin cuotas explícitas cuenta como una.
+    expect(installmentsOf(saved)).toBe(1);
+  });
+
+  it('a Nequi no le inventa un campo de cuotas', () => {
+    expect(withInstallments(nequi, 6)).toBe(nequi);
   });
 });

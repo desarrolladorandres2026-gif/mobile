@@ -138,11 +138,11 @@ export function QtyStepper({
   const btn = size === 'sm' ? 32 : 38;
 
   return (
-    <View style={[styles.stepper, { backgroundColor: c.surfaceLight, borderColor: c.border }]}>
+    <View style={styles.stepper}>
       <StepperButton
         icon={removes ? 'eliminar' : 'menos'}
-        color={removes ? c.error : c.text}
-        bg={c.surface}
+        color={c.text}
+        bg="transparent"
         size={btn}
         label={
           removes
@@ -155,7 +155,7 @@ export function QtyStepper({
       <StepperButton
         icon="mas"
         color={c.text}
-        bg={c.surface}
+        bg="transparent"
         size={btn}
         label={`Agregar una unidad${itemName ? ` de ${itemName}` : ''}`}
         onPress={() => onChange(value + 1)}
@@ -217,8 +217,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
-    padding: 3,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
   },
 });

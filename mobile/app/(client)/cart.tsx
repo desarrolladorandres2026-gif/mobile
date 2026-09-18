@@ -21,6 +21,9 @@ import { productImageUri } from '../../lib/productImage';
 import { describeExtras, needsChoices, type ModifierGroup } from '../../lib/modifiers';
 import { tap } from '../../lib/haptics';
 
+/** Verde vivo de la barra de progreso (emerald500 de la paleta); igual en claro y oscuro. */
+const GOAL_GREEN = '#10B981';
+
 /** Lo que la bolsa necesita del catálogo para poder sugerir y agregar. */
 interface CatalogProduct extends SuggestedProduct {
   categoryId?: string;
@@ -33,7 +36,8 @@ interface CatalogProduct extends SuggestedProduct {
  * Antes esta pantalla también pedía dirección, pago, cupón y propina: casi
  * mil líneas y un muro de decisiones antes de poder confirmar. Ahora hace una
  * sola cosa —revisar lo que vas a pedir— y el resto vive en el checkout. Dos
- * pasos cortos se completan mejor que uno larguísimo.
+ * pasos cortos se completan mejor que uno larguísimo. La propina tiene su
+ * propia pantalla entre las dos.
  *
  * Cada negocio tiene su propia bolsa y las dos pueden estar vivas a la vez.
  * Sin un `businessId` en la URL (por ejemplo, tocando el ícono genérico del
@@ -87,7 +91,7 @@ function CartChooser({ carts }: { carts: BusinessCart[] }) {
     <Screen>
       <Header title="Tus bolsas" fallback="/(client)/(tabs)/home" />
       <ScrollView contentContainerStyle={styles.chooserContent} showsVerticalScrollIndicator={false}>
-        <Text v="bodyS" tone="textMuted">
+        <Text v="bodyS">
           Tienes pedidos de {carts.length} negocios distintos. Cada uno se revisa y se paga por su cuenta.
         </Text>
 
@@ -118,12 +122,12 @@ function CartChooser({ carts }: { carts: BusinessCart[] }) {
                 )}
                 <View style={styles.flex}>
                   <Text v="strongM" numberOfLines={1}>{cart.businessName}</Text>
-                  <Text v="bodyS" tone="textMuted">
+                  <Text v="bodyS">
                     {count} {count === 1 ? 'producto' : 'productos'}
                   </Text>
                 </View>
                 <Text v="dataM" tone="text">{money(getSubtotal(cart.businessId))}</Text>
-                <Icon name="siguiente" size="md" color={c.textMuted} />
+                <Icon name="siguiente" size="md" color={c.text} />
               </Card>
             </Pressable>
           );
@@ -217,10 +221,10 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
   return (
     <Screen>
       <Header
-        title="Tu bolsa"
+        title="Resumen de pedido"
         fallback="/(client)/(tabs)/home"
         right={
-          <IconButton icon="eliminar" label="Vaciar la bolsa" tone="danger" onPress={confirmClear} />
+          <IconButton icon="eliminar" label="Vaciar la bolsa" tone="neutral" onPress={confirmClear} />
         }
       />
 
@@ -229,7 +233,7 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
         showsVerticalScrollIndicator={false}
       >
         {/* De qué negocio es esta bolsa */}
-        <Card tone="accent" style={styles.business}>
+        <View style={styles.business}>
           {businessLogo ? (
             <Image
               source={{ uri: businessLogo }}
@@ -243,10 +247,10 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
             </View>
           )}
           <View style={styles.flex}>
-            <Text v="caption" tone="textMuted">PEDIDO A</Text>
+            <Text v="caption">PEDIDO A</Text>
             <Text v="strongM" numberOfLines={1}>{businessName}</Text>
           </View>
-        </Card>
+        </View>
 
         {/* Productos */}
         <View style={styles.items}>
@@ -273,7 +277,7 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
                 )}
                 overshootRight={false}
               >
-                <Card padded={false} style={styles.item}>
+                <View style={styles.item}>
                   {item.image ? (
                     <Image
                       source={{ uri: item.image }}
@@ -283,7 +287,7 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
                     />
                   ) : (
                     <View style={[styles.itemImage, styles.itemImageFallback, { backgroundColor: c.surfaceLight }]}>
-                      <Icon name="catRestaurante" size="md" color={c.textMuted} />
+                      <Icon name="catRestaurante" size="md" color={c.text} />
                     </View>
                   )}
 
@@ -305,13 +309,13 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
                     </View>
 
                     {item.selectedExtras.length > 0 ? (
-                      <Text v="bodyS" tone="primaryText" numberOfLines={2}>
+                      <Text v="bodyS" numberOfLines={2}>
                         {describeExtras(item.selectedExtras)}
                       </Text>
                     ) : null}
 
                     {item.notes ? (
-                      <Text v="bodyS" tone="textMuted" numberOfLines={2}>“{item.notes}”</Text>
+                      <Text v="bodyS" numberOfLines={2}>“{item.notes}”</Text>
                     ) : null}
 
                     <View style={styles.itemFooter}>
@@ -324,7 +328,7 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
                       />
                     </View>
                   </View>
-                </Card>
+                </View>
               </Swipeable>
             </Animated.View>
           ))}
@@ -332,7 +336,7 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
 
         {/* Desliza a la izquierda para quitar un producto sin abrir la
             alerta de vaciar toda la bolsa. */}
-        <Text v="caption" tone="textMuted" style={styles.swipeHint}>
+        <Text v="caption" style={styles.swipeHint}>
           Desliza un producto para quitarlo
         </Text>
 
@@ -362,20 +366,20 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
 
         {/* El subtotal es lo único que la app puede calcular sola: el envío,
             los impuestos y el descuento los define el servidor en el checkout. */}
-        <Card style={styles.summary}>
-          <DetailRow label="Subtotal" value={money(subtotal)} />
+        <View style={styles.summary}>
+          <DetailRow label="Subtotal" value={money(subtotal)} strong />
           {savings > 0 ? (
-            <DetailRow label="Ahorraste" value={money(savings)} tone="successText" />
+            <DetailRow label="Ahorraste" value={money(savings)} tone="successText" labelTone="text" />
           ) : null}
           <CartGoal
             subtotal={subtotal}
             minOrder={business?.minOrder ?? 0}
             freeDeliveryThreshold={business?.freeDeliveryThreshold}
           />
-          <Text v="caption" tone="textMuted">
+          <Text v="strongS">
             El envío y los descuentos se calculan en el siguiente paso, según tu dirección.
           </Text>
-        </Card>
+        </View>
       </ScrollView>
 
       <ScreenFooter>
@@ -385,7 +389,7 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
           size="lg"
           full
           iconRight="adelante"
-          onPress={() => router.push({ pathname: '/(client)/checkout', params: { businessId } })}
+          onPress={() => router.push({ pathname: '/(client)/tip', params: { businessId } })}
           haptic="medium"
         />
       </ScreenFooter>
@@ -422,7 +426,7 @@ function CartGoal({
 
   if (!goal) {
     return freeDeliveryThreshold && subtotal >= freeDeliveryThreshold ? (
-      <Text v="bodyS" tone="successText">Este pedido ya tiene el envío gratis.</Text>
+      <Text v="strongS" tone="successText">Este pedido ya tiene el envío gratis.</Text>
     ) : null;
   }
 
@@ -432,11 +436,11 @@ function CartGoal({
         <View
           style={[
             styles.goalFill,
-            { width: `${Math.min(1, subtotal / goal.target) * 100}%`, backgroundColor: c.primary },
+            { width: `${Math.min(1, subtotal / goal.target) * 100}%`, backgroundColor: GOAL_GREEN },
           ]}
         />
       </View>
-      <Text v="bodyS" tone="textSecondary">{goal.label}</Text>
+      <Text v="strongS">{goal.label}</Text>
     </View>
   );
 }
@@ -454,7 +458,7 @@ const styles = StyleSheet.create({
 
   business: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   businessIcon: {
-    width: 40, height: 40, borderRadius: BorderRadius.sm,
+    width: 40, height: 40, borderRadius: BorderRadius.full, overflow: 'hidden',
     alignItems: 'center', justifyContent: 'center',
   },
 
@@ -463,7 +467,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: Spacing.md,
-    padding: Spacing.md,
+    paddingVertical: Spacing.sm,
   },
   itemImage: {
     width: 72,
@@ -471,13 +475,13 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
   },
   itemImageFallback: { alignItems: 'center', justifyContent: 'center' },
-  itemBody: { flex: 1, gap: 3 },
+  itemBody: { flex: 1, gap: 0 },
   itemHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
   itemFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: Spacing.xs,
+    marginTop: 2,
   },
 
   deleteAction: {

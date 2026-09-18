@@ -130,6 +130,16 @@ describe('WompiPaymentProvider', () => {
       },
     });
 
+    it('informa la dirección de regreso y si 3DS está encendido', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => merchant() }));
+      Object.assign(config.payments.wompi, { threeDs: true, returnUrl: 'https://zipp.example/pago/retorno' });
+
+      const cfg = await new WompiPaymentProvider().getCheckoutConfig();
+
+      expect(cfg.returnUrl).toBe('https://zipp.example/pago/retorno');
+      expect(cfg.threeDs).toBe(true);
+    });
+
     it('devuelve la llave pública, el entorno y los dos consentimientos', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => merchant() }));
 
@@ -270,7 +280,7 @@ describe('WompiPaymentProvider', () => {
       expect(body.payment_method).toEqual({ installments: 3 });
     });
 
-    it('PSE lleva banco, documento, descripción acotada y dirección de regreso', async () => {
+    it('PSE lleva banco, documento, descripción acotada y la dirección de regreso del servidor', async () => {
       const spy = stubCreate(
         transaction({
           payment_method_type: 'PSE',
@@ -281,7 +291,8 @@ describe('WompiPaymentProvider', () => {
       const intent = await provider.createNativePayment(
         nativeInput({
           description: 'Pedido ZIPP-000123 con una descripción larguísima',
-          redirectUrl: 'zipp://payment-result',
+          // Lo que diga quien llama no cuenta: la dirección es del servidor.
+          redirectUrl: 'https://evil.example/robar',
           instrument: {
             kind: 'pse',
             financialInstitutionCode: '1022',
@@ -296,7 +307,8 @@ describe('WompiPaymentProvider', () => {
       expect(body.payment_method.type).toBe('PSE');
       expect(body.payment_method.financial_institution_code).toBe('1022');
       expect(body.payment_method.payment_description.length).toBeLessThanOrEqual(30);
-      expect(body.redirect_url).toBe('zipp://payment-result');
+      expect(body.redirect_url).toBe(config.payments.wompi.returnUrl);
+      expect(body.redirect_url).toMatch(/^https:\/\//);
       expect(intent.asyncPaymentUrl).toBe('https://banco.example/pse?x=1');
     });
 
@@ -372,6 +384,114 @@ describe('WompiPaymentProvider', () => {
       expect(intent.id).toBe('1234-1610641025-49201');
       expect(intent.orderId).toBe('order-1');
       expect(intent.status).toBe('pending');
+    });
+  });
+
+  describe('3D Secure', () => {
+    const BROWSER = {
+      browser_color_depth: '24',
+      browser_screen_height: '800',
+      browser_screen_width: '400',
+      browser_language: 'es-CO',
+      browser_user_agent: 'Mozilla/5.0 Zipp',
+      browser_tz: '300',
+    };
+
+    const card = (instrument: Record<string, unknown> = { kind: 'card_token', token: 'tok_test_1_A', installments: 1 }) => ({
+      ...input(),
+      acceptanceToken: 'eyJhbGciOi.TERMINOS',
+      instrument: instrument as any,
+      browserInfo: BROWSER,
+    });
+
+    const stub = () => {
+      const spy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          data: { id: 'tx-1', reference: 'ZIPP-order-1-REF', status: 'PENDING', amount_in_cents: 2500000, currency: 'COP' },
+        }),
+      });
+      vi.stubGlobal('fetch', spy);
+      return spy;
+    };
+    const body = (spy: ReturnType<typeof vi.fn>) => JSON.parse(spy.mock.calls[0][1].body);
+
+    it('apagado por defecto: no se pide 3DS aunque llegue el navegador', async () => {
+      const spy = stub();
+      await provider.createNativePayment(card());
+      expect(body(spy)).not.toHaveProperty('is_three_ds');
+      expect(body(spy).customer_data).not.toHaveProperty('browser_info');
+    });
+
+    it('encendido: tarjeta nueva lleva is_three_ds en la raíz y el navegador en customer_data', async () => {
+      Object.assign(config.payments.wompi, { threeDs: true });
+      const spy = stub();
+      await provider.createNativePayment(card());
+
+      const sent = body(spy);
+      expect(sent.is_three_ds).toBe(true);
+      expect(sent.payment_method).not.toHaveProperty('is_three_ds');
+      expect(sent.customer_data.browser_info).toEqual(BROWSER);
+      // Sandbox: se simula el resultado del reto.
+      expect(sent.three_ds_auth_type).toBe(config.payments.wompi.threeDsSandboxType);
+    });
+
+    it('en producción nunca manda el campo de simulación del sandbox', async () => {
+      Object.assign(config.payments.wompi, KEYS, { publicKey: 'pub_prod_x', privateKey: 'prv_prod_x', threeDs: true });
+      const spy = stub();
+      await new WompiPaymentProvider().createNativePayment(card());
+
+      expect(body(spy).is_three_ds).toBe(true);
+      expect(body(spy)).not.toHaveProperty('three_ds_auth_type');
+    });
+
+    it('ni tarjeta guardada ni Nequi piden 3DS por este camino', async () => {
+      Object.assign(config.payments.wompi, { threeDs: true });
+
+      const saved = stub();
+      await provider.createNativePayment(card({ kind: 'saved_source', paymentSourceId: 9, installments: 1 }));
+      expect(body(saved)).not.toHaveProperty('is_three_ds');
+
+      const nequi = stub();
+      await provider.createNativePayment(card({ kind: 'nequi', phone: '3991111111' }));
+      expect(body(nequi)).not.toHaveProperty('is_three_ds');
+    });
+
+    it('sin datos del navegador el cobro sale sin 3DS en vez de fallar', async () => {
+      Object.assign(config.payments.wompi, { threeDs: true });
+      const spy = stub();
+      await provider.createNativePayment({ ...card(), browserInfo: undefined });
+      expect(body(spy)).not.toHaveProperty('is_three_ds');
+    });
+
+    it('el reto aparece al consultar, no al crear: getPayment también lo entrega', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            data: {
+              id: 'tx-1',
+              reference: 'ZIPP-order-1-REF',
+              status: 'PENDING',
+              amount_in_cents: 2500000,
+              currency: 'COP',
+              payment_method: {
+                extra: {
+                  three_ds_auth: {
+                    current_step: 'CHALLENGE',
+                    current_step_status: 'PENDING',
+                    three_ds_method_data: '&lt;iframe&gt;&lt;/iframe&gt;',
+                  },
+                },
+              },
+            },
+          }),
+        })
+      );
+
+      const intent = await provider.getPayment('tx-1');
+      expect(intent.threeDsChallengeHtml).toBe('<iframe></iframe>');
     });
   });
 

@@ -746,7 +746,7 @@ export async function findNearestDrivers(
   const {
     limit = 5,
     radiusMeters = config.tracking.nearestRadiusMeters,
-    candidatePool = 15,
+    candidatePool = config.tracking.candidatePool,
   } = options;
 
   if (!isValidCoordinate(point.lat, point.lng)) return [];
@@ -810,7 +810,10 @@ export async function findNearestDrivers(
  * dirección del cliente. El viaje al cliente lo hace igual quien sea, pero
  * el primer tramo es el que determina cuánto se enfría la comida.
  */
-export async function suggestDriverForOrder(orderId: string): Promise<NearestDriver[]> {
+export async function suggestDriverForOrder(
+  orderId: string,
+  limit = config.tracking.candidatePool
+): Promise<NearestDriver[]> {
   const order = await Order.findById(orderId).select('businessId');
   if (!order) throw new AppError('Pedido no encontrado', 404);
 
@@ -818,7 +821,7 @@ export async function suggestDriverForOrder(orderId: string): Promise<NearestDri
   const pickup = fromGeoPoint(business?.location);
   if (!pickup) return [];
 
-  return findNearestDrivers(pickup);
+  return findNearestDrivers(pickup, { limit });
 }
 
 /** Config pública de mapas que las apps necesitan para renderizar. */

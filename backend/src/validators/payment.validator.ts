@@ -217,7 +217,9 @@ export const payNativeSchema = z.object({
       // longitud, pero quien decide si sigue vigente es la pasarela.
       acceptanceToken: z.string().min(20).max(2000),
       personalDataAuthToken: z.string().min(20).max(2000).optional(),
-      redirectUrl: redirectUrl.optional(),
+      // Sin `redirectUrl`: la dirección de regreso de PSE la fija el
+      // servidor (https, dominio propio). Aceptarla de la app sería volver a
+      // abrir la puerta a un redireccionamiento arbitrario.
       amount: z.number().int().min(0).max(100_000_000).optional(),
       /**
        * Solo para cuentas creadas con teléfono, que no tienen correo. Wompi
@@ -227,13 +229,14 @@ export const payNativeSchema = z.object({
        */
       customerEmail: z.string().trim().toLowerCase().email().max(254).optional(),
       /**
-       * Datos del dispositivo que 3D Secure v2 exige. Se aceptan como
-       * cadenas y números acotados y se reenvían tal cual: su semántica es
-       * del estándar, no nuestra, y validarla campo a campo aquí solo
-       * serviría para romper cuando el estándar añada uno.
+       * Datos del navegador que 3D Secure v2 exige, con los nombres de Wompi
+       * (`browser_color_depth`, `browser_user_agent`…). Solo se acota la
+       * forma —claves `browser_*`, valores de texto cortos— y se reenvían tal
+       * cual: su significado es del estándar, y validarlos campo a campo
+       * aquí rompería el día que el estándar añada uno.
        */
       browserInfo: z
-        .record(z.string().max(40), z.union([z.string().max(300), z.number()]))
+        .record(z.string().regex(/^browser_[a-z_]{2,40}$/), z.string().max(400))
         .refine((value) => Object.keys(value).length <= 20, 'Demasiados campos de navegador')
         .optional(),
     })

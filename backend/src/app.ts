@@ -12,7 +12,7 @@ import hpp from 'hpp';
 import mongoose from 'mongoose';
 
 import { config, connectDB } from './config';
-import { errorHandler, securityHeaders, sanitizeRequest, requestId } from './middlewares';
+import { errorHandler, securityHeaders, sanitizeRequest, requestId, perUserRateLimiter } from './middlewares';
 import routes from './routes';
 import businessShareRoutes from './routes/businessShare.routes';
 import { initializeSocket } from './sockets';
@@ -85,7 +85,7 @@ const globalLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => req.path === '/health',
 });
-app.use('/api/', globalLimiter);
+app.use('/api/', globalLimiter, perUserRateLimiter);
 
 // ── Body parsing with size limits ──
 //

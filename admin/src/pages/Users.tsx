@@ -3,6 +3,7 @@ import {
   Plus, Briefcase, KeyRound, Ban, Copy, History, type LucideIcon,
 } from 'lucide-react';
 import ConfirmDialog from '../components/ConfirmDialog';
+import Pagination from '../components/Pagination';
 import UserProfile360 from '../components/UserProfile360';
 import { PermissionGate } from '../components/PermissionGate';
 import { Permission } from '../lib/permissions';
@@ -62,6 +63,9 @@ export default function Users() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
+  const PAGE_SIZE = 25;
 
   const [confirmStatus, setConfirmStatus] = useState<{ user: UserType; status: Status } | null>(null);
   const [confirmRoleChange, setConfirmRoleChange] = useState(false);
@@ -96,18 +100,32 @@ export default function Users() {
   // dependía de [roleFilter] a mano: la lista tenía que mantenerse
   // sincronizada con lo que la función lee por dentro, y cuando dejaba
   // de estarlo el panel se quedaba pidiendo datos del filtro anterior.
+  // La búsqueda se manda al servidor (ahí vive el índice y el `$regex`
+  // sobre toda la tabla), no se filtra en el navegador sobre la página
+  // actual — si no, "buscar" solo encontraría coincidencias dentro de
+  // los 25 usuarios ya cargados.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+  useEffect(() => { setPage(1); }, [roleFilter, debouncedSearch]);
+
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
-      const roleQuery = roleFilter === 'all' ? '' : `role=${roleFilter}`;
-      const { data } = await api.get(`/admin/users?limit=100&${roleQuery}`);
+      const params: Record<string, string | number> = { page, limit: PAGE_SIZE };
+      if (roleFilter !== 'all') params.role = roleFilter;
+      if (debouncedSearch) params.search = debouncedSearch;
+      const { data } = await api.get('/admin/users', { params });
       setUsers(data.data);
+      if (data.meta) setMeta(data.meta);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [roleFilter]);
+  }, [roleFilter, debouncedSearch, page]);
 
   const fetchRbacCatalog = async () => {
     try {
@@ -254,10 +272,6 @@ export default function Users() {
     }
   };
 
-  const filteredUsers = users.filter((u) =>
-    u.name?.toLowerCase().includes(search.toLowerCase()) || u.phone?.includes(search)
-  );
-
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -337,7 +351,7 @@ export default function Users() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-border-light)]">
-                {filteredUsers.map((u) => {
+                {users.map((u) => {
                   const status: Status = u.status || (u.isBlocked ? 'blocked' : u.isActive ? 'active' : 'inactive');
                   const isSelf = u._id === currentUserId;
                   const positionName = refName(u.positionId);
@@ -457,7 +471,7 @@ export default function Users() {
                   );
                 })}
 
-                {filteredUsers.length === 0 && (
+                {users.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-[var(--color-text-muted)] text-xs font-medium">
                       No se encontraron usuarios que coincidan con la búsqueda.
@@ -467,6 +481,7 @@ export default function Users() {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
         </div>
       )}
 

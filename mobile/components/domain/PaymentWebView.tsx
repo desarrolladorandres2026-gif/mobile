@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text, Icon, IconButton } from '../ui';
 import { useTheme } from '../../hooks/useTheme';
 import { Spacing } from '../../theme/tokens';
+import { PAYMENT_USER_AGENT } from '../../lib/browserInfo';
 
 /**
  * La página del banco, **dentro** de Zipp.
@@ -88,6 +89,9 @@ export function PaymentWebView({ visible, source, title, returnUrl, onReturned, 
             onLoadEnd={() => setLoading(false)}
             javaScriptEnabled
             domStorageEnabled
+            // El mismo que se declaró a 3D Secure: el emisor compara el
+            // navegador que inició la autenticación con el que la termina.
+            userAgent={PAYMENT_USER_AGENT}
             // Sin ventanas nuevas: un `target=_blank` del banco se abre en
             // esta misma vista en vez de escaparse al navegador.
             setSupportMultipleWindows={false}

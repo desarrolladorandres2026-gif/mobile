@@ -47,7 +47,7 @@ export function SuggestionRow<T extends SuggestedProduct>({
 
   return (
     <View style={styles.section}>
-      <Text v="label" tone="textMuted">{title}</Text>
+      <Text v="label">{title}</Text>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -60,10 +60,7 @@ export function SuggestionRow<T extends SuggestedProduct>({
           const itemPct = discountPercent(item);
 
           return (
-            <View
-              key={item._id}
-              style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
-            >
+            <View key={item._id} style={styles.card}>
               <View
                 style={[
                   styles.image,
@@ -118,10 +115,7 @@ const styles = StyleSheet.create({
   section: { gap: Spacing.sm },
   row: { gap: Spacing.md, paddingRight: Spacing.md },
   card: {
-    width: 128,
-    padding: Spacing.sm + 2,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
+    width: 120,
     gap: Spacing.xs + 1,
   },
   image: {

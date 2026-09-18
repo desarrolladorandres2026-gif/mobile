@@ -224,7 +224,7 @@ interface InitiateNativeInput extends InitiateInput {
   acceptanceToken: string;
   /** Solo si va a guardarse la tarjeta. */
   personalDataAuthToken?: string;
-  browserInfo?: Record<string, string | number>;
+  browserInfo?: Record<string, string>;
 }
 
 interface GatewayStatusMeta {
@@ -530,7 +530,8 @@ export class PaymentService {
         currency: config.payments.currency,
         description: input.description,
         customer: input.customer,
-        redirectUrl: input.redirectUrl,
+        // Sin `redirectUrl`: para PSE la pone el provider desde la
+        // configuración, nunca desde la app.
         reference,
         instrument,
         acceptanceToken: input.acceptanceToken,

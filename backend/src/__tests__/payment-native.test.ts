@@ -92,6 +92,12 @@ class FakeNativeProvider implements PaymentProvider {
     return { id: 9000 + this.sources };
   }
 
+  /** Wompi publica un reto 3DS mientras la transacción sigue pendiente. */
+  challenge(id: string, html: string) {
+    const tx = this.txs.get(id)!;
+    this.txs.set(id, { ...tx, threeDsChallengeHtml: html });
+  }
+
   /** Lo que haría Wompi al resolver la transacción por su cuenta. */
   settle(id: string, status: PaymentIntentStatus) {
     const tx = this.txs.get(id)!;
@@ -291,6 +297,48 @@ describe('POST /api/v1/payments/orders/:orderId/pay-native', () => {
     expect(provider.created).toBe(1);
     const updated = await Order.findById(order._id);
     expect(updated?.paymentStatus).toBe(PaymentStatus.PAID);
+  });
+
+  it('rechaza una dirección de regreso de la app: la de PSE la fija el servidor', async () => {
+    const { client, order } = await scenario();
+
+    const res = await payNative(order._id, client, { redirectUrl: 'https://evil.example/robar' });
+
+    expect(res.status).toBe(400);
+    expect(provider.created).toBe(0);
+  });
+
+  it('acepta los datos del navegador para 3DS y los reenvía tal cual', async () => {
+    const { client, order } = await scenario();
+    const browserInfo = { browser_language: 'es-CO', browser_tz: '300', browser_user_agent: 'Mozilla/5.0 Zipp' };
+
+    const res = await payNative(order._id, client, { browserInfo });
+
+    expect(res.status).toBe(201);
+    expect(provider.lastInput?.browserInfo).toEqual(browserInfo);
+  });
+
+  it('rechaza campos de navegador que no son del estándar', async () => {
+    const { client, order } = await scenario();
+
+    const res = await payNative(order._id, client, { browserInfo: { $where: 'x' } });
+
+    expect(res.status).toBe(400);
+    expect(provider.created).toBe(0);
+  });
+
+  it('el reto 3DS que Wompi publica después llega por el endpoint de estado', async () => {
+    const { client, order } = await scenario();
+    const created = await payNative(order._id, client);
+    provider.challenge('wompi-tx-1', '<form action="https://acs.example"></form>');
+
+    const res = await request(app)
+      .get(`/api/v1/payments/status/${created.body.data.transactionId}`)
+      .set(await authHeader(client));
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe('pending');
+    expect(res.body.data.threeDsChallengeHtml).toBe('<form action="https://acs.example"></form>');
   });
 
   it('una aprobación inmediata marca el pedido como pagado por el camino de siempre', async () => {

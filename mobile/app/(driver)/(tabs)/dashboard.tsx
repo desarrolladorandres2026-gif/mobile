@@ -69,7 +69,11 @@ export default function DriverDashboard() {
   // perfil, no el que quedó pintado en esta pantalla.
   useEffect(() => {
     if (!profile || toggling.current) return;
-    const online = profile.status === 'available';
+    // 'busy' cuenta como en línea: el servidor lo pone así mientras el
+    // repartidor reparte un pedido (para que la cascada deje de ofrecerle
+    // otros), pero el GPS y el interruptor tienen que seguir encendidos —
+    // apagarlos aquí dejaría de rastrear a alguien que está en la calle.
+    const online = profile.status === 'available' || profile.status === 'busy';
     setIsOnline(online);
     tracking.setOnDuty(online);
   }, [profile]);

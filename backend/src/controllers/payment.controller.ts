@@ -112,7 +112,6 @@ export class PaymentController {
         amount: req.body.amount,
         description: `Pedido ${order.orderNumber}`,
         customer: { name: req.user!.name, phone: req.user!.phone, email },
-        redirectUrl: req.body.redirectUrl,
         instrument: req.body.instrument,
         acceptanceToken: req.body.acceptanceToken,
         personalDataAuthToken: req.body.personalDataAuthToken,
@@ -289,6 +288,12 @@ export class PaymentController {
         orderId: payment.orderId.toString(),
         declineReason: intent.declineReason,
         paymentMethodType: intent.paymentMethodType,
+        // El reto 3D Secure no llega al crear la transacción: Wompi lo
+        // publica después, mientras la app consulta. Viaja aquí para que la
+        // pantalla de espera lo abra en cuanto exista. Es HTML del emisor de
+        // la tarjeta y la app solo lo pinta dentro de su WebView acotado.
+        ...(intent.threeDsChallengeHtml ? { threeDsChallengeHtml: intent.threeDsChallengeHtml } : {}),
+        ...(intent.asyncPaymentUrl ? { asyncPaymentUrl: intent.asyncPaymentUrl } : {}),
       });
     } catch (error) { next(error); }
   }

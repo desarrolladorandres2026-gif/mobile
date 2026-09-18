@@ -653,6 +653,9 @@ La referencia completa y comentada está en
 | `PLATFORM_COMMISSION_RATE` | Comisión de la plataforma | `0.10` |
 | `PLATFORM_TAX_RATE` | Impuesto añadido | `0` |
 | `AUTH_RATE_LIMIT_MAX` | Intentos de autenticación por ventana | `10` |
+| `RATE_LIMIT_MAX` | Peticiones por IP cada 15 min (toda la API) | `10000` |
+| `RATE_LIMIT_PER_USER_MAX` | Peticiones por cuenta autenticada cada 15 min | `1000` |
+| `MONGO_MAX_POOL_SIZE` | Conexiones concurrentes a MongoDB por proceso | `200` |
 
 Sin `GOOGLE_MAPS_API_KEY` la distancia se calcula con la fórmula de
 Haversine sobre las coordenadas guardadas: funciona sin conexión y es

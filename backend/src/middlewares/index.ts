@@ -23,6 +23,7 @@ export {
   orderCallRateLimiter,
   reviewCreateRateLimiter,
   geocodeRateLimiter,
+  perUserRateLimiter,
   securityHeaders,
   sanitizeRequest,
   auditMiddleware,

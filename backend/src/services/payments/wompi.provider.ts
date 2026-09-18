@@ -623,6 +623,8 @@ export class WompiPaymentProvider implements PaymentProvider {
         termsAndConditions: data.presigned_acceptance.permalink,
         personalDataAuth: data.presigned_personal_data_auth?.permalink,
       },
+      returnUrl: config.payments.wompi.returnUrl,
+      threeDs: config.payments.wompi.threeDs,
     };
 
     this.checkoutConfigCache = {
@@ -713,14 +715,33 @@ export class WompiPaymentProvider implements PaymentProvider {
 
     if (input.personalDataAuthToken) body.accept_personal_auth = input.personalDataAuthToken;
 
-    // PSE y Bancolombia devuelven al cliente a esta dirección cuando su banco
-    // termina. El WebView de la app la intercepta y la cierra.
-    if (input.redirectUrl) body.redirect_url = input.redirectUrl;
+    // PSE devuelve a la persona a esta dirección cuando su banco termina. La
+    // pone el servidor, nunca la app: https y en un dominio nuestro. El
+    // WebView de la app la intercepta antes de cargarla.
+    if (input.instrument.kind === 'pse') body.redirect_url = config.payments.wompi.returnUrl;
 
     const customerData: Record<string, unknown> = {};
     if (input.customer.name) customerData.full_name = input.customer.name;
     if (input.customer.phone) customerData.phone_number = input.customer.phone;
-    if (input.browserInfo) customerData.browser_info = input.browserInfo;
+
+    // ── 3D Secure ──
+    // Solo con tarjeta nueva: una fuente de pago guardada tiene su propio
+    // flujo de 3DS en Wompi, que se hace al crearla. Y solo con los datos
+    // del navegador, que Wompi exige; sin ellos el cobro sale sin 3DS en
+    // vez de fallar entero.
+    if (
+      config.payments.wompi.threeDs &&
+      input.instrument.kind === 'card_token' &&
+      input.browserInfo &&
+      Object.keys(input.browserInfo).length
+    ) {
+      body.is_three_ds = true;
+      customerData.browser_info = input.browserInfo;
+      // Este campo solo existe en sandbox, para simular el resultado del
+      // reto. En producción Wompi lo ignora; aquí ni se envía.
+      if (!this.isProduction) body.three_ds_auth_type = config.payments.wompi.threeDsSandboxType;
+    }
+
     if (Object.keys(customerData).length) body.customer_data = customerData;
 
     const res = await fetch(`${this.apiBaseUrl}/transactions`, {

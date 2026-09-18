@@ -117,6 +117,13 @@ function requireValue(name: string, fallbackForDev: string): string {
 // dev ports we trust".
 const EXPO_DEV_PORTS = ['8081', '8082', '19000', '19006'];
 
+/**
+ * El sitio público (`web/`). Constante aparte porque lo leen dos secciones
+ * de la configuración: los enlaces para compartir y la dirección de regreso
+ * de PSE.
+ */
+const WEB_URL = (process.env.WEB_URL || 'https://45-93-100-122.sslip.io').replace(/\/+$/, '');
+
 // ── Build CORS origins ──
 function buildCorsOrigins(): string[] {
   const origins = [
@@ -462,6 +469,14 @@ export const config = {
     staleAfterMs: parseInt(process.env.TRACKING_STALE_AFTER_MS || '90000', 10),
     /** Radio por defecto para buscar el repartidor más cercano, en metros. */
     nearestRadiusMeters: parseInt(process.env.TRACKING_NEAREST_RADIUS_METERS || '8000', 10),
+    /**
+     * Candidatos que trae el `$near` de Mongo antes de que Mapbox los
+     * reordene por ETA real. En una zona con muchos domiciliarios
+     * disponibles a la vez, es el techo real de a cuántos puede llegar a
+     * ofrecerse un pedido — subirlo da margen sin mandarle la oferta a
+     * cientos de personas.
+     */
+    candidatePool: parseInt(process.env.TRACKING_CANDIDATE_POOL || '40', 10),
   },
 
   // Client IDs de OAuth de Google (uno por plataforma, todos apuntan al
@@ -525,6 +540,29 @@ export const config = {
       // at all once it ages out, instead of relying only on deduplication.
       // 0 disables the bound.
       webhookMaxAgeSeconds: parseInt(process.env.WOMPI_WEBHOOK_MAX_AGE_SECONDS || '259200', 10),
+      /**
+       * A dónde devuelve Wompi a quien paga con PSE o Bancolombia.
+       *
+       * La fija el servidor y no la app: https y en un dominio nuestro, que es
+       * lo que la API de Transacciones espera. En el camino normal nunca se
+       * carga —el WebView de la app la intercepta antes—; la página de
+       * `web/pago/retorno` está para cuando el banco termina fuera de él.
+       */
+      returnUrl: process.env.WOMPI_RETURN_URL || `${WEB_URL}/pago/retorno`,
+      /**
+       * Pedir 3D Secure en los cobros con tarjeta nueva.
+       *
+       * Apagado por defecto a propósito: Wompi tiene que activarlo en la
+       * cuenta del comercio, y encenderlo antes de que lo haga podría
+       * rechazar todos los cobros con tarjeta. Se enciende con
+       * `WOMPI_THREE_DS=true` cuando Wompi confirme la activación.
+       */
+      threeDs: process.env.WOMPI_THREE_DS === 'true',
+      /**
+       * Solo sandbox: qué resultado simula Wompi para el reto. En producción
+       * Wompi ignora el campo y el provider ni lo envía.
+       */
+      threeDsSandboxType: process.env.WOMPI_THREE_DS_SANDBOX_TYPE || 'challenge_v2',
     },
   },
 
@@ -610,7 +648,7 @@ export const config = {
    * etiquetas `og:` de esa misma URL. El valor por defecto es el despliegue
    * actual, mismo criterio que `PROD_ORIGIN` en `mobile/constants/config.ts`.
    */
-  webUrl: process.env.WEB_URL || 'https://45-93-100-122.sslip.io',
+  webUrl: WEB_URL,
 
   // ── Security Configuration ──
   // ── Flujo de entrega: chat, evidencias y códigos de seguridad ──────
@@ -733,15 +771,44 @@ export const config = {
     rateLimit: {
       windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // 15 min
       // Los paneles de admin/negocio abren varios dashboards a la vez desde
-      // la misma IP y agotaban el límite de producción (100) en minutos,
-      // mostrando 429 como si no hubiera datos. En desarrollo se sube el
-      // techo por defecto; producción sigue en 100 salvo override explícito.
+      // la misma IP y agotaban el límite de producción (antes 100) en
+      // minutos, mostrando 429 como si no hubiera datos. Con millones de
+      // usuarios reales, muchos comparten la misma IP pública (NAT de
+      // oficina, edificio, operador móvil), así que el techo por IP tiene
+      // que ser holgado: la protección fina contra abuso individual la da
+      // `perUserMaxRequests`, que limita por cuenta y no penaliza a los
+      // vecinos de red de alguien que se porta mal.
       maxRequests: isTest
         ? Number.MAX_SAFE_INTEGER
-        : parseInt(process.env.RATE_LIMIT_MAX || (isDev ? '2000' : '100'), 10),
+        : parseInt(process.env.RATE_LIMIT_MAX || (isDev ? '2000' : '10000'), 10),
+      // Límite por usuario autenticado, complementario al de IP (ver
+      // `perUserRateLimiter` en middlewares/security.ts). Cubre a un mismo
+      // usuario golpeando la API desde varios dispositivos/pestañas a la
+      // vez sin depender de qué IP use.
+      perUserMaxRequests: isTest
+        ? Number.MAX_SAFE_INTEGER
+        : parseInt(process.env.RATE_LIMIT_PER_USER_MAX || '1000', 10),
       authMaxRequests: isTest
         ? Number.MAX_SAFE_INTEGER
         : parseInt(process.env.AUTH_RATE_LIMIT_MAX || '10', 10),
+      // Flujo de entrega (evidencia, código de recogida, llamadas, efectivo):
+      // un domiciliario los usa en cada entrega, y hasta ahora estaban
+      // hardcodeados en 20-30/15min por IP. En una zona con muchos
+      // repartidores compartiendo la misma IP de operador móvil (CGNAT), esa
+      // cuenta se agota entre varios domiciliarios reales — el mismo
+      // síntoma que motivó subir el límite de documentos de 100 a 2000.
+      orderEvidenceMaxRequests: isTest
+        ? Number.MAX_SAFE_INTEGER
+        : parseInt(process.env.ORDER_EVIDENCE_RATE_LIMIT_MAX || '300', 10),
+      orderCodeMaxRequests: isTest
+        ? Number.MAX_SAFE_INTEGER
+        : parseInt(process.env.ORDER_CODE_RATE_LIMIT_MAX || '300', 10),
+      cashConfirmMaxRequests: isTest
+        ? Number.MAX_SAFE_INTEGER
+        : parseInt(process.env.CASH_CONFIRM_RATE_LIMIT_MAX || '300', 10),
+      orderCallMaxRequests: isTest
+        ? Number.MAX_SAFE_INTEGER
+        : parseInt(process.env.ORDER_CALL_RATE_LIMIT_MAX || '150', 10),
     },
 
     // Session

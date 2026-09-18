@@ -5,6 +5,7 @@ import Footer from './components/Footer';
 import Home from './pages/Home';
 import LegalDocument from './pages/LegalDocument';
 import BusinessShare from './pages/BusinessShare';
+import PaymentReturn from './pages/PaymentReturn';
 
 /**
  * React Router no reproduce el scroll nativo del navegador a un `#id`: en una
@@ -60,6 +61,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/legal/:kind" element={<LegalDocument />} />
           <Route path="/negocio/:slug" element={<BusinessShare />} />
+          <Route path="/pago/retorno" element={<PaymentReturn />} />
         </Routes>
       </main>
       <Footer />

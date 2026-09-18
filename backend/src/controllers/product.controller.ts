@@ -64,7 +64,7 @@ export class ProductController {
     try {
       const products = await productService.getByBusinessCategory(
         param(req, 'categoryKey'),
-        Number(query(req, 'limit')) || 20
+        clampLimit(query(req, 'limit'), 100, 20)
       );
       sendResponse(res, 200, 'Productos por categoría', products);
     } catch (error) { next(error); }

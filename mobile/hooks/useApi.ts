@@ -739,6 +739,10 @@ export interface CheckoutConfig {
   acceptanceToken: string;
   personalDataAuthToken: string;
   permalinks: { termsAndConditions?: string; personalDataAuth?: string };
+  /** A dónde vuelve el banco en PSE; el WebView la intercepta. */
+  returnUrl: string;
+  /** Si el cobro con tarjeta nueva pide 3D Secure. */
+  threeDs: boolean;
 }
 
 export interface CardDisplay {

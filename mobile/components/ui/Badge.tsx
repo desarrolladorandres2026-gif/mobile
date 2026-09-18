@@ -179,10 +179,12 @@ export interface ChipProps {
   active?: boolean;
   onPress: () => void;
   icon?: IconName;
+  /** Sin recuadro: solo texto; el activo va en negro y subrayado. */
+  bare?: boolean;
 }
 
 /** Filtro seleccionable. Se hunde levemente al tocarlo. */
-export function Chip({ label, active, onPress, icon }: ChipProps) {
+export function Chip({ label, active, onPress, icon, bare }: ChipProps) {
   const { c } = useTheme();
   const scale = useSharedValue(1);
   const animated = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
@@ -196,18 +198,32 @@ export function Chip({ label, active, onPress, icon }: ChipProps) {
         accessibilityRole="button"
         accessibilityState={{ selected: !!active }}
         accessibilityLabel={label}
-        style={[
-          styles.chip,
-          {
-            backgroundColor: active ? c.primary : c.surface,
-            borderColor: active ? c.primary : c.border,
-          },
-        ]}
+        style={
+          bare
+            ? styles.chipBare
+            : [
+                styles.chip,
+                {
+                  backgroundColor: active ? c.primary : c.surface,
+                  borderColor: active ? c.primary : c.border,
+                },
+              ]
+        }
       >
         {icon ? (
           <Icon name={icon} size="sm" color={active ? c.textOnPrimary : c.textSecondary} />
         ) : null}
-        <Text v="strongS" color={active ? c.textOnPrimary : c.textSecondary}>{label}</Text>
+        {bare ? (
+          <Text
+            v="strongM"
+            color={active ? c.text : c.textSecondary}
+            style={active ? styles.chipBareActive : undefined}
+          >
+            {label}
+          </Text>
+        ) : (
+          <Text v="strongS" color={active ? c.textOnPrimary : c.textSecondary}>{label}</Text>
+        )}
       </Pressable>
     </Animated.View>
   );
@@ -294,6 +310,8 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     borderWidth: 1.5,
   },
+  chipBare: { paddingVertical: Spacing.sm, paddingRight: Spacing.lg },
+  chipBareActive: { textDecorationLine: 'underline' },
   metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: Spacing.xs + 1 },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   metaDot: { width: 3, height: 3, borderRadius: 1.5, marginRight: Spacing.xs },

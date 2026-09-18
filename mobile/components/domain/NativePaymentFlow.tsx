@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, BackHandler } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Linking from 'expo-linking';
 import { useQueryClient } from '@tanstack/react-query';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Text, Icon, Button, Screen, Header, EmptyState, SuccessCheck } from '../ui';
@@ -86,8 +85,12 @@ export function NativePaymentFlow({ orderId, code }: Props) {
   attemptRef.current = attempt;
   const phaseRef = useRef<Phase>(phase);
   phaseRef.current = phase;
-
-  const redirectUrl = useMemo(() => Linking.createURL('payment-result'), []);
+  /**
+   * El último reto 3DS que se abrió. Wompi lo sigue publicando mientras
+   * esté pendiente, y sin esto cada consulta lo volvería a abrir encima de
+   * quien acaba de cerrarlo.
+   */
+  const shownChallenge = useRef<string | null>(null);
   const reference = code || orderCode(orderId ?? '');
   const capabilities = { pse: !!methods?.inApp?.pse, savedCards: !!methods?.inApp?.savedCards };
 
@@ -116,6 +119,7 @@ export function NativePaymentFlow({ orderId, code }: Props) {
       return;
     }
     if (result?.threeDsChallengeHtml) {
+      shownChallenge.current = result.threeDsChallengeHtml;
       setWeb({ html: result.threeDsChallengeHtml });
       setPhase('challenge');
       return;
@@ -143,7 +147,7 @@ export function NativePaymentFlow({ orderId, code }: Props) {
     try {
       const result = await payNative.mutateAsync({
         orderId,
-        body: payNativeBody(instrument, config.data, redirectUrl),
+        body: payNativeBody(instrument, config.data),
       });
       setAttempt(result);
       settle(result.status, result.declineReason, result);
@@ -166,9 +170,14 @@ export function NativePaymentFlow({ orderId, code }: Props) {
       }
       tap('error');
       setMessage(apiMessage(error, 'No pudimos procesar el pago.'));
-      // La pasarela lo rechazó (502) o no pasó una regla del pedido (4xx):
-      // es un "no" y se ofrece otro método. Sin respuesta es otra cosa.
-      setPhase(httpStatus && httpStatus < 600 ? 'declined' : 'error');
+      // Un "no" de verdad —la pasarela lo rechazó (502) o el pedido no
+      // pasó una regla (4xx)— se presenta como rechazo y ofrece otro
+      // método. Demasiados intentos (429), un fallo nuestro (5xx) o no
+      // tener respuesta no son un rechazo del banco: son un error, y
+      // decir "no se pudo cobrar" haría pensar que la tarjeta falló.
+      const declined =
+        httpStatus === 502 || (!!httpStatus && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 429);
+      setPhase(declined ? 'declined' : 'error');
     }
   };
 
@@ -197,12 +206,19 @@ export function NativePaymentFlow({ orderId, code }: Props) {
   }, [config.isError]);
 
   // ── Respaldo: consultar ──
+  // También es por aquí por donde llega el reto 3D Secure: Wompi no lo
+  // incluye al crear la transacción, lo publica unos segundos después.
   useEffect(() => {
     if (!status || !watching) return;
     if (status.status === 'approved') settle('approved');
     else if (status.status === 'declined') settle('declined', status.declineReason);
+    else if (status.threeDsChallengeHtml && status.threeDsChallengeHtml !== shownChallenge.current) {
+      shownChallenge.current = status.threeDsChallengeHtml;
+      setWeb({ html: status.threeDsChallengeHtml });
+      setPhase('challenge');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.status]);
+  }, [status?.status, status?.threeDsChallengeHtml]);
 
   // ── Aviso principal: el socket ──
   useEffect(() => {
@@ -427,13 +443,28 @@ export function NativePaymentFlow({ orderId, code }: Props) {
             {clock}
           </Text>
         ) : null}
+        {/* Quien cerró la verificación del banco sin terminarla necesita
+            una forma de volver a ella: el reto sigue pendiente y no se
+            reabre solo. */}
+        {phase === 'waiting' && status?.threeDsChallengeHtml ? (
+          <Button
+            title="Volver a la verificación del banco"
+            icon="seguridad"
+            variant="secondary"
+            onPress={() => {
+              tap('light');
+              setWeb({ html: status.threeDsChallengeHtml });
+              setPhase('challenge');
+            }}
+          />
+        ) : null}
       </View>
 
       <PaymentWebView
         visible={phase === 'challenge' && !!web}
         source={web}
         title={kind === 'pse' ? 'Tu banco' : 'Verificación de tu banco'}
-        returnUrl={redirectUrl}
+        returnUrl={config.data?.returnUrl}
         onReturned={() => { setWeb(null); startWaiting(); }}
         onClosed={() => { setWeb(null); startWaiting(); }}
       />

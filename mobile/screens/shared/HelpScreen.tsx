@@ -55,7 +55,7 @@ const CLIENT_FAQS: Faq[] = [
   {
     question: '¿La propina le llega completa al domiciliario?',
     answer:
-      'Completa, sin descuento de ninguna clase. Es opcional y la decides tú en el checkout.',
+      'Completa, sin descuento de ninguna clase. Es opcional y la eliges en una pantalla propia antes de confirmar el pedido. Después de la entrega ya no se puede agregar.',
   },
   {
     question: '¿Cómo se calcula el envío?',

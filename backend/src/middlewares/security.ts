@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import { logAudit, AuditAction, AuditSeverity } from '../security';
 import { config } from '../config';
+import { verifyAccessToken } from '../utils/token';
 
 // These are the limiters actually mounted on the auth routes. They used to
 // hardcode their ceilings, which meant AUTH_RATE_LIMIT_MAX and friends
@@ -136,17 +137,19 @@ export const paymentWebhookRateLimiter = rateLimit({
 });
 
 /**
- * Confirmación de efectivo — 30 por 15 minutos por IP.
+ * Confirmación de efectivo — 300 por 15 minutos por IP (CASH_CONFIRM_RATE_LIMIT_MAX).
  *
  * Es una acción rara y cara: un domiciliario la ejecuta una vez por
- * pedido entregado, y un turno intenso no pasa de una decena. El techo
- * deja sitio de sobra para eso y para los reintentos de una red mala,
- * pero no para alguien recorriendo pedidos ajenos a ver cuál cuela — que
- * de todos modos chocaría antes con la comprobación de pertenencia.
+ * pedido entregado, y un turno intenso no pasa de una decena. El techo por
+ * IP es holgado porque cuenta a TODOS los domiciliarios de esa IP
+ * compartida, no solo a uno — deja sitio de sobra para eso y para los
+ * reintentos de una red mala, y sigue sin dejar pasar a alguien recorriendo
+ * pedidos ajenos a ver cuál cuela, que de todos modos chocaría antes con la
+ * comprobación de pertenencia.
  */
 export const cashConfirmRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: limitFor(30),
+  max: limitFor(config.security.rateLimit.cashConfirmMaxRequests),
   message: {
     success: false,
     message: 'Demasiadas confirmaciones de efectivo. Espera un momento.',
@@ -163,15 +166,18 @@ export const cashConfirmRateLimiter = rateLimit({
 // pero sí frena a quien golpea la API desde una sola máquina.
 
 /**
- * Validación de códigos — 30 por 15 minutos por IP.
+ * Validación de códigos — 300 por 15 minutos por IP (ORDER_CODE_RATE_LIMIT_MAX).
  *
  * Generoso a propósito: un domiciliario se equivoca tecleando y el
  * castigo de verdad (bloqueo temporal del código) ya lo aplica el
- * servicio tras unos pocos fallos sobre ese pedido concreto.
+ * servicio tras unos pocos fallos sobre ese pedido concreto. El techo por
+ * IP subió de 30 a 300 porque muchos domiciliarios reales pueden compartir
+ * la misma IP de operador móvil (CGNAT) en una zona concurrida, y 30 se
+ * agotaba entre varios sin que ninguno estuviera abusando.
  */
 export const orderCodeRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: limitFor(30),
+  max: limitFor(config.security.rateLimit.orderCodeMaxRequests),
   message: {
     success: false,
     message: 'Demasiados intentos de validación. Espera unos minutos.',
@@ -190,14 +196,15 @@ export const orderChatRateLimiter = rateLimit({
 });
 
 /**
- * Subida de evidencias — 30 por 15 minutos por IP.
+ * Subida de evidencias — 300 por 15 minutos por IP (ORDER_EVIDENCE_RATE_LIMIT_MAX).
  *
  * Cada subida cuesta una imagen en Cloudinary, así que el techo protege
- * también la factura, no solo el servidor.
+ * también la factura, no solo el servidor. Subido de 30 a 300 por la misma
+ * razón que el de códigos: por IP compartida entre varios domiciliarios.
  */
 export const orderEvidenceRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: limitFor(30),
+  max: limitFor(config.security.rateLimit.orderEvidenceMaxRequests),
   message: { success: false, message: 'Demasiadas subidas. Espera unos minutos.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -237,13 +244,47 @@ export const geocodeRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-/** Apertura de llamadas — 20 por 15 minutos por IP. */
+/** Apertura de llamadas — 150 por 15 minutos por IP (ORDER_CALL_RATE_LIMIT_MAX). Subido de 20 por IP compartida entre domiciliarios. */
 export const orderCallRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: limitFor(20),
+  max: limitFor(config.security.rateLimit.orderCallMaxRequests),
   message: { success: false, message: 'Demasiadas llamadas. Espera unos minutos.' },
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+/**
+ * Límite por usuario autenticado, complementario al límite global por IP.
+ *
+ * El límite por IP (`globalLimiter` en app.ts) tiene que ser holgado porque
+ * miles de usuarios reales pueden compartir una misma IP pública (NAT de
+ * oficina, edificio, operador móvil): apretarlo ahí castiga a los vecinos
+ * de red de quien abusa. Este limitador cuenta por cuenta (`sub` del JWT),
+ * así que sí aísla a un usuario individual golpeando la API sin tocar a
+ * nadie más. Se salta por completo si la petición no trae un Bearer token
+ * — esas ya quedan cubiertas por el límite de IP y por los limitadores
+ * específicos de cada endpoint público (login, OTP, etc.).
+ */
+export const perUserRateLimiter = rateLimit({
+  windowMs: config.security.rateLimit.windowMs,
+  max: limitFor(config.security.rateLimit.perUserMaxRequests),
+  message: {
+    success: false,
+    message: 'Demasiadas peticiones desde tu cuenta. Intenta más tarde.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => !req.headers.authorization?.startsWith('Bearer '),
+  keyGenerator: (req) => {
+    const token = req.headers.authorization!.split(' ')[1];
+    try {
+      return `user:${verifyAccessToken(token).id}`;
+    } catch {
+      // Token inválido/expirado: `authenticate` lo va a rechazar con 401
+      // más adelante en la cadena; aquí basta con no reventar el limitador.
+      return `anon:${req.ip}`;
+    }
+  },
 });
 
 /**

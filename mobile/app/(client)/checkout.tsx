@@ -8,7 +8,7 @@ import { Image } from 'expo-image';
 import * as Linking from 'expo-linking';
 import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
 import {
-  Text, Icon, Button, Card, Chip, DetailRow, Notice, Screen, ScreenFooter, Header,
+  Text, Icon, Button, Chip, DetailRow, Notice, Screen, ScreenFooter, Header,
   Skeleton, EmptyState, Input,
 } from '../../components/ui';
 import { AddressSheet, hasCoordinates, type Address } from '../../components/domain/AddressPicker';
@@ -16,7 +16,14 @@ import { PaymentMethodSheet } from '../../components/domain/PaymentMethodSheet';
 import { useCartStore } from '../../stores/cartStore';
 import { usePrefsStore } from '../../stores/prefsStore';
 import { usePendingPaymentStore } from '../../stores/pendingPaymentStore';
-import { isExpiredSelection, type SelectedInstrument } from '../../lib/paymentInstrument';
+import {
+  isExpiredSelection,
+  acceptsInstallments,
+  installmentsOf,
+  withInstallments,
+  INSTALLMENT_OPTIONS,
+  type SelectedInstrument,
+} from '../../lib/paymentInstrument';
 import {
   useAddresses, useOrderQuote, useCreateOrder, usePaymentMethods, usePayOrder, useBusiness,
   useLoyalty, useMyCoupons, useRedeemPoints,
@@ -32,10 +39,8 @@ import { BorderRadius, Spacing, Motion } from '../../theme/tokens';
 import { money, km, groupThousands } from '../../lib/format';
 import { describeExtras } from '../../lib/modifiers';
 import { apiMessage } from '../../lib/errors';
+import { tipFromParam } from '../../lib/tip';
 import { tap } from '../../lib/haptics';
-
-/** Propinas como porcentaje del subtotal. Van completas al domiciliario. */
-const TIPS = [0, 0.05, 0.1, 0.15];
 
 const MAX_NOTES = 120;
 
@@ -63,7 +68,10 @@ export default function CheckoutScreen() {
   // Cada negocio tiene su propia bolsa. Se llega aquí siempre con el
   // `businessId` en la URL (lo manda la pantalla de la bolsa); sin él, y con
   // una sola bolsa abierta, esa es la que se confirma.
-  const { businessId: paramBusinessId } = useLocalSearchParams<{ businessId?: string }>();
+  const { businessId: paramBusinessId, tip: tipParam } = useLocalSearchParams<{
+    businessId?: string;
+    tip?: string;
+  }>();
   const carts = useCartStore((s) => s.carts);
   const businessId = paramBusinessId ?? (carts.length === 1 ? carts[0].businessId : undefined);
   const cart = businessId ? carts.find((entry) => entry.businessId === businessId) : undefined;
@@ -117,7 +125,9 @@ export default function CheckoutScreen() {
   const [needsChange, setNeedsChange] = useState<boolean | null>(null);
   const [payingWithDigits, setPayingWithDigits] = useState('');
 
-  const [tipRate, setTipRate] = useState(0);
+  // La propina se decidió en su propia pantalla y llega por la URL; aquí solo
+  // se muestra en el resumen. Sin parámetro (o con uno ilegible) es cero.
+  const tipAmount = tipFromParam(tipParam);
   const [notes, setNotes] = useState('');
 
   const [showItems, setShowItems] = useState(false);
@@ -236,7 +246,6 @@ export default function CheckoutScreen() {
   const address = addresses.find((a) => a._id === addressId);
   const destination = address?.location?.coordinates;
   const deliverable = hasCoordinates(address);
-  const tipAmount = Math.round(subtotal * tipRate);
 
   const orderItems = useMemo(
     () =>
@@ -615,101 +624,13 @@ export default function CheckoutScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          {/* ── Qué estás confirmando ──
-              La pantalla se llama "Confirmar pedido" y hasta ahora no mostraba
-              un solo producto. Va cerrada porque el usuario acaba de verlos en
-              la bolsa; abrirla cuesta un toque y despeja la duda de siempre. */}
-          <Card padded={false}>
-            <Pressable
-              onPress={() => { tap('light'); setShowItems((v) => !v); }}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: showItems }}
-              accessibilityLabel={`${itemCount} ${itemCount === 1 ? 'producto' : 'productos'} de ${businessName ?? 'el negocio'}. ${showItems ? 'Ocultar' : 'Ver'} el detalle`}
-              style={({ pressed }) => [styles.summaryHead, pressed && styles.pressed]}
-            >
-              {businessLogo ? (
-                <Image
-                  source={{ uri: businessLogo }}
-                  style={styles.summaryIcon}
-                  contentFit="cover"
-                  transition={150}
-                />
-              ) : (
-                <View style={[styles.summaryIcon, { backgroundColor: c.primarySoft }]}>
-                  <Icon name="bolsa" size="md" color={c.primaryText} />
-                </View>
-              )}
-              <View style={styles.flex}>
-                <Text v="strongM" numberOfLines={1}>
-                  {itemCount} {itemCount === 1 ? 'producto' : 'productos'}
-                </Text>
-                <Text v="bodyS" tone="textSecondary" numberOfLines={1}>
-                  {businessName ?? 'Tu pedido'}
-                </Text>
-              </View>
-              <Text v="dataM" tone="textSecondary">{money(subtotal)}</Text>
-              <Icon name={showItems ? 'plegar' : 'desplegar'} size="md" color={c.textMuted} />
-            </Pressable>
-
-            {showItems ? (
-              <Animated.View
-                entering={FadeIn.duration(160)}
-                exiting={FadeOut.duration(120)}
-                layout={Layout.springify().damping(18)}
-                style={[styles.summaryBody, { borderTopColor: c.border }]}
-              >
-                {items.map((item) => (
-                  <View key={item.lineId} style={styles.line}>
-                    <View style={styles.lineImageWrap}>
-                      {item.image ? (
-                        <Image
-                          source={{ uri: item.image }}
-                          style={[styles.lineImage, { backgroundColor: c.surfaceLight }]}
-                          contentFit="cover"
-                          transition={150}
-                        />
-                      ) : (
-                        <View style={[styles.lineImage, styles.lineImageFallback, { backgroundColor: c.surfaceLight }]}>
-                          <Icon name="bolsa" size="sm" color={c.textMuted} />
-                        </View>
-                      )}
-                      <View style={[styles.lineQty, { backgroundColor: c.textSecondary }]}>
-                        <Text v="captionStrong" color={c.surface}>{item.quantity}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.flex}>
-                      <Text v="strongS" numberOfLines={1}>{item.productName}</Text>
-                      {item.selectedExtras.length > 0 ? (
-                        <Text v="caption" tone="textMuted" numberOfLines={2}>
-                          {describeExtras(item.selectedExtras)}
-                        </Text>
-                      ) : null}
-                      {item.notes ? (
-                        <Text v="caption" tone="textMuted" numberOfLines={1}>“{item.notes}”</Text>
-                      ) : null}
-                    </View>
-                    <Text v="dataS" tone="textSecondary">{money(getLineTotal(item))}</Text>
-                  </View>
-                ))}
-
-                <Button
-                  title="Editar la bolsa"
-                  icon="editar"
-                  variant="ghost"
-                  size="sm"
-                  onPress={() => router.push({ pathname: '/(client)/cart', params: { businessId } })}
-                />
-              </Animated.View>
-            ) : null}
-          </Card>
-
           {/* ── Dirección ── */}
           <View style={styles.section}>
-            <Text v="label" tone="textMuted">Entregar en</Text>
-            <Card
+            <Text v="titleS">Entregar en</Text>
+            <Pressable
               onPress={() => { tap('light'); setAddressSheet(true); }}
-              tone={address && deliverable ? 'flat' : 'accent'}
-              style={styles.picker}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.picker, pressed && styles.pressed]}
               accessibilityLabel={
                 address
                   ? `Entregar en ${address.label}, ${address.address}`
@@ -738,7 +659,7 @@ export default function CheckoutScreen() {
                 )}
               </View>
               <Icon name="siguiente" size="md" color={c.textMuted} />
-            </Card>
+            </Pressable>
 
             {address && !deliverable ? (
               <Notice tone="warning">
@@ -748,9 +669,40 @@ export default function CheckoutScreen() {
             ) : null}
           </View>
 
+          <View style={[styles.rule, { backgroundColor: c.border }]} />
+
+          {/* ── Cuándo llega ──
+              Hasta ahora el checkout no decía ningún tiempo: se pagaba sin
+              saber cuándo llegaba la comida. Va justo bajo la dirección,
+              arriba de todo — es lo que más pesa en la decisión, así que
+              se ve antes que el pago y el total. */}
+          <View style={styles.eta}>
+            <View style={styles.etaIcon}>
+              <Icon name="minutos" size="md" color={c.primaryText} />
+            </View>
+            <View style={styles.flex}>
+              <Text v="label">
+                {scheduledFor ? 'Programado para' : 'Llega en'}
+              </Text>
+              {quote ? (
+                <Text v="titleM">
+                  {scheduledFor
+                    ? `${scheduleDay?.label ?? ''} · ${slotLabel(scheduledFor)}`
+                    : `${quote.etaMinutesMin}–${quote.etaMinutesMax} min`}
+                </Text>
+              ) : quoting ? (
+                <Skeleton width={96} height={18} />
+              ) : (
+                <Text v="titleS" tone="textMuted">—</Text>
+              )}
+            </View>
+          </View>
+
+          <View style={[styles.rule, { backgroundColor: c.border }]} />
+
           {/* ── Para quién y para cuándo ── */}
           <View style={styles.section}>
-            <Text v="label" tone="textMuted">Para quién y cuándo</Text>
+            <Text v="titleS">Para quién y cuándo</Text>
 
             <View style={styles.optionsCard}>
               <Pressable
@@ -818,6 +770,7 @@ export default function CheckoutScreen() {
               <View style={styles.slots}>
                 <Chip
                   label="Ahora"
+                  bare
                   active={!scheduledFor}
                   onPress={() => {
                     tap('select');
@@ -828,6 +781,7 @@ export default function CheckoutScreen() {
                 {scheduleOptions.length > 0 ? (
                   <Chip
                     label="Programar"
+                    bare
                     active={!!scheduledFor}
                     onPress={() => { if (!scheduledFor) pickScheduleDay(scheduleOptions[0]); }}
                   />
@@ -869,12 +823,14 @@ export default function CheckoutScreen() {
             </View>
           </View>
 
+          <View style={[styles.rule, { backgroundColor: c.border }]} />
+
           {/* ── Pago ── */}
           <View
             style={styles.section}
             onLayout={(e) => { paymentY.current = e.nativeEvent.layout.y; }}
           >
-            <Text v="label" tone="textMuted">Cómo pagas</Text>
+            <Text v="titleS">Cómo pagas</Text>
             <View style={styles.payments} accessibilityRole="radiogroup">
               {methods?.cashOnDelivery ? (
                 <PaymentOption
@@ -916,13 +872,7 @@ export default function CheckoutScreen() {
                       ? `Pagas con ${instrument.label}. Toca para cambiar`
                       : 'Elegir tarjeta, Nequi o PSE'
                   }
-                  style={[
-                    styles.instrumentRow,
-                    {
-                      backgroundColor: c.surface,
-                      borderColor: needsInstrument ? c.primary : c.border,
-                    },
-                  ]}
+                  style={styles.instrumentRow}
                 >
                   <Icon
                     name={instrument && !instrumentExpired ? instrument.icon : 'tarjeta'}
@@ -945,6 +895,39 @@ export default function CheckoutScreen() {
                     {instrument && !instrumentExpired ? 'Cambiar' : 'Elegir'}
                   </Text>
                 </Pressable>
+
+                {/* ── Cuotas ──
+                    Solo con tarjeta. No se puede saber desde aquí si es de
+                    crédito o débito (Wompi no lo dice al tokenizar), así que
+                    se ofrece siempre y se avisa: en débito el banco lo
+                    cobra a una sola cuota. */}
+                {instrument && !instrumentExpired && acceptsInstallments(instrument) ? (
+                  <View style={styles.installments}>
+                    <Text v="label" tone="textMuted">Cuotas</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.slotRow}
+                    >
+                      {INSTALLMENT_OPTIONS.map((count) => (
+                        <Chip
+                          key={count}
+                          label={count === 1 ? '1 cuota' : `${count}`}
+                          active={installmentsOf(instrument) === count}
+                          onPress={() => {
+                            tap('select');
+                            setInstrument((current) => (current ? withInstallments(current, count) : current));
+                          }}
+                        />
+                      ))}
+                    </ScrollView>
+                    <Text v="caption" tone="textMuted">
+                      {installmentsOf(instrument) > 1
+                        ? `${installmentsOf(instrument)} cuotas de unos ${money(Math.ceil((quote?.total ?? 0) / installmentsOf(instrument)))}, más los intereses de tu banco. Solo tarjetas de crédito.`
+                        : 'Con tarjeta de crédito puedes diferir el pago; tu banco define los intereses.'}
+                    </Text>
+                  </View>
+                ) : null}
               </Animated.View>
             ) : null}
 
@@ -1022,12 +1005,105 @@ export default function CheckoutScreen() {
             ) : null}
           </View>
 
+          <View style={[styles.rule, { backgroundColor: c.border }]} />
+
+          {/* ── Qué estás confirmando ──
+              La pantalla se llama "Confirmar pedido" y hasta ahora no mostraba
+              un solo producto. Va cerrada porque el usuario acaba de verlos en
+              la bolsa; abrirla cuesta un toque y despeja la duda de siempre. */}
+          <View>
+            <Text v="titleS">Resumen del pedido</Text>
+            <Pressable
+              onPress={() => { tap('light'); setShowItems((v) => !v); }}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showItems }}
+              accessibilityLabel={`${itemCount} ${itemCount === 1 ? 'producto' : 'productos'} de ${businessName ?? 'el negocio'}. ${showItems ? 'Ocultar' : 'Ver'} el detalle`}
+              style={({ pressed }) => [styles.summaryHead, pressed && styles.pressed]}
+            >
+              {businessLogo ? (
+                <Image
+                  source={{ uri: businessLogo }}
+                  style={styles.summaryIcon}
+                  contentFit="cover"
+                  transition={150}
+                />
+              ) : (
+                <View style={[styles.summaryIcon, { backgroundColor: c.primarySoft }]}>
+                  <Icon name="bolsa" size="md" color={c.primaryText} />
+                </View>
+              )}
+              <View style={styles.flex}>
+                <Text v="strongM" numberOfLines={1}>
+                  {itemCount} {itemCount === 1 ? 'producto' : 'productos'}
+                </Text>
+                <Text v="bodyS" tone="textSecondary" numberOfLines={1}>
+                  {businessName ?? 'Tu pedido'}
+                </Text>
+              </View>
+              <Text v="dataM" tone="textSecondary">{money(subtotal)}</Text>
+              <Icon name={showItems ? 'plegar' : 'desplegar'} size="md" color={c.textMuted} />
+            </Pressable>
+
+            {showItems ? (
+              <Animated.View
+                entering={FadeIn.duration(160)}
+                exiting={FadeOut.duration(120)}
+                layout={Layout.springify().damping(18)}
+                style={styles.summaryBody}
+              >
+                {items.map((item) => (
+                  <View key={item.lineId} style={styles.line}>
+                    <View style={styles.lineImageWrap}>
+                      {item.image ? (
+                        <Image
+                          source={{ uri: item.image }}
+                          style={[styles.lineImage, { backgroundColor: c.surfaceLight }]}
+                          contentFit="cover"
+                          transition={150}
+                        />
+                      ) : (
+                        <View style={[styles.lineImage, styles.lineImageFallback, { backgroundColor: c.surfaceLight }]}>
+                          <Icon name="bolsa" size="sm" color={c.textMuted} />
+                        </View>
+                      )}
+                      <View style={[styles.lineQty, { backgroundColor: c.textSecondary }]}>
+                        <Text v="captionStrong" color={c.surface}>{item.quantity}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.flex}>
+                      <Text v="strongS" numberOfLines={1}>{item.productName}</Text>
+                      {item.selectedExtras.length > 0 ? (
+                        <Text v="caption" tone="textMuted" numberOfLines={2}>
+                          {describeExtras(item.selectedExtras)}
+                        </Text>
+                      ) : null}
+                      {item.notes ? (
+                        <Text v="caption" tone="textMuted" numberOfLines={1}>“{item.notes}”</Text>
+                      ) : null}
+                    </View>
+                    <Text v="dataS" tone="textSecondary">{money(getLineTotal(item))}</Text>
+                  </View>
+                ))}
+
+                <Button
+                  title="Editar la bolsa"
+                  icon="editar"
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => router.push({ pathname: '/(client)/cart', params: { businessId } })}
+                />
+              </Animated.View>
+            ) : null}
+          </View>
+
+          <View style={[styles.rule, { backgroundColor: c.border }]} />
+
           {/* ── Descuentos: puntos, cupones propios y código ──
               Un pedido admite un solo descuento (el servidor guarda un solo
               cupón por pedido), y los puntos se canjean como cupón. Por eso
               viven juntos: son tres formas de ocupar el mismo hueco. */}
           <View style={styles.section}>
-            <Text v="label" tone="textMuted">Descuentos</Text>
+            <Text v="titleS">Descuentos</Text>
 
             {quote?.coupon ? (
               <View style={styles.couponApplied}>
@@ -1067,7 +1143,7 @@ export default function CheckoutScreen() {
                 ) : null}
 
                 {redeemPlan.kind === 'redeem' ? (
-                  <View style={[styles.pointsCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+                  <View style={styles.pointsCard}>
                     <View style={styles.flex}>
                       <Text v="strongS">Tienes {groupThousands(loyaltyBalance)} puntos</Text>
                       <Text v="caption" tone="textMuted">
@@ -1147,36 +1223,12 @@ export default function CheckoutScreen() {
             )}
           </View>
 
-          {/* ── Propina ──
-              El monto en pesos va en la etiqueta: "10%" no dice nada hasta que
-              se traduce a plata, y traducirla es decisión del que paga. */}
-          <View style={styles.section}>
-            <Text v="label" tone="textMuted">Propina al domiciliario</Text>
-            <View style={styles.tips}>
-              {TIPS.map((rate) => (
-                <Chip
-                  key={rate}
-                  label={
-                    rate === 0
-                      ? 'Sin propina'
-                      : `${Math.round(rate * 100)}% · ${money(Math.round(subtotal * rate))}`
-                  }
-                  active={tipRate === rate}
-                  onPress={() => { tap('select'); setTipRate(rate); }}
-                />
-              ))}
-            </View>
-            {tipAmount > 0 ? (
-              <Text v="bodyS" tone="successText">
-                {money(tipAmount)} van completos para quien te lo lleva.
-              </Text>
-            ) : null}
-          </View>
+          <View style={[styles.rule, { backgroundColor: c.border }]} />
 
           {/* ── Indicaciones ── */}
           <View style={styles.section}>
             <View style={styles.notesHead}>
-              <Text v="label" tone="textMuted">Algo que deba saber</Text>
+              <Text v="titleS">Algo que deba saber</Text>
               {notes.length > 0 ? (
                 <Text v="caption" tone="textMuted">{notes.length}/{MAX_NOTES}</Text>
               ) : null}
@@ -1197,36 +1249,11 @@ export default function CheckoutScreen() {
             />
           </View>
 
-          {/* ── Cuándo llega ──
-              Hasta ahora el checkout no decía ningún tiempo: se pagaba sin
-              saber cuándo llegaba la comida. Va antes del desglose a
-              propósito — es lo que más pesa en la decisión, así que se ve
-              antes que el total y no después. */}
-          <View style={styles.eta}>
-            <View style={[styles.etaIcon, { backgroundColor: c.primarySoft }]}>
-              <Icon name="minutos" size="md" color={c.primaryText} />
-            </View>
-            <View style={styles.flex}>
-              <Text v="label" tone="textMuted">
-                {scheduledFor ? 'Programado para' : 'Llega en'}
-              </Text>
-              {quote ? (
-                <Text v="titleS">
-                  {scheduledFor
-                    ? `${scheduleDay?.label ?? ''} · ${slotLabel(scheduledFor)}`
-                    : `${quote.etaMinutesMin}–${quote.etaMinutesMax} min`}
-                </Text>
-              ) : quoting ? (
-                <Skeleton width={96} height={18} />
-              ) : (
-                <Text v="titleS" tone="textMuted">—</Text>
-              )}
-            </View>
-          </View>
+          <View style={[styles.rule, { backgroundColor: c.border }]} />
 
           {/* ── Desglose del servidor ── */}
           <View style={styles.breakdown}>
-            <Text v="label" tone="textMuted">El detalle</Text>
+            <Text v="titleS">El detalle</Text>
 
             <DetailRow label="Productos" value={money(quote?.subtotal ?? subtotal)} />
 
@@ -1390,14 +1417,7 @@ function PaymentOption({
       accessibilityRole="radio"
       accessibilityState={{ selected: active }}
       accessibilityLabel={`${title}. ${subtitle}`}
-      style={[
-        styles.payment,
-        {
-          backgroundColor: active ? c.primarySoft : c.surface,
-          borderColor: active ? c.primary : c.border,
-          borderWidth: active ? 2 : 1,
-        },
-      ]}
+      style={styles.payment}
     >
       {/* El check ocupa un hueco reservado: sin él, elegir un método
           desplazaría el texto de las dos tarjetas medio pixel. */}
@@ -1424,7 +1444,8 @@ const styles = StyleSheet.create({
   slotRow: { flexDirection: 'row', gap: Spacing.sm, paddingRight: Spacing.md },
 
   flex: { flex: 1 },
-  content: { padding: Spacing.xl, gap: Spacing.xxl, paddingBottom: Spacing.huge },
+  content: { padding: Spacing.xl, gap: Spacing.xl, paddingBottom: Spacing.huge },
+  rule: { height: StyleSheet.hairlineWidth },
   section: { gap: Spacing.sm },
   pressed: { opacity: 0.7 },
 
@@ -1432,17 +1453,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
-    padding: Spacing.lg,
+    paddingVertical: Spacing.md,
   },
   summaryIcon: {
     width: 40, height: 40, borderRadius: BorderRadius.sm,
     alignItems: 'center', justifyContent: 'center',
   },
   summaryBody: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
-    paddingTop: Spacing.md,
     gap: Spacing.md,
   },
   line: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
@@ -1470,20 +1488,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.md,
     marginTop: Spacing.md,
-    paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
     minHeight: 60,
   },
   instrumentText: { flex: 1, gap: 2 },
+  installments: { gap: Spacing.sm, marginTop: Spacing.md },
   payment: {
     flex: 1,
     alignItems: 'center',
     gap: Spacing.xs,
     paddingBottom: Spacing.lg,
     paddingHorizontal: Spacing.sm,
-    borderRadius: BorderRadius.lg,
   },
   paymentCheck: { height: 20, justifyContent: 'center', marginTop: Spacing.sm },
 
@@ -1509,12 +1524,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
-    padding: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
   },
 
-  tips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
 
   notesHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   notes: {

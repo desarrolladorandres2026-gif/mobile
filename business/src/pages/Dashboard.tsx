@@ -13,6 +13,7 @@ import OrderDetailPanel from '../components/OrderDetailPanel';
 import RejectOrderDialog from '../components/RejectOrderDialog';
 import {
   statusStyle, isActive, nextBusinessStep, money, signedMoney, shortId, clock,
+  ACTIVE_STATUSES,
   type BusinessOrder,
   type OrderItem,
 } from '../lib/orderFlow';
@@ -74,8 +75,19 @@ export default function Dashboard() {
     if (!businessId) return;
     try {
       setError('');
+      // Antes se traían los últimos 100 pedidos de CUALQUIER estado
+      // (entregados, cancelados, activos, todo mezclado) y se filtraba
+      // aquí con `isActive`. Un negocio muy movido podía acumular más de
+      // 100 pedidos recientes de cualquier estado, y un pedido activo
+      // antiguo quedaba fuera de esos 100 sin que nadie lo notara: el
+      // domiciliario nunca llegaba a verlo como pendiente. Ahora el
+      // filtro de estado va en el servidor — se pide la lista de
+      // estados activos tal cual, no "los últimos N para adivinar
+      // cuáles siguen abiertos". El límite sigue siendo generoso, pero
+      // ya es solo defensivo: la corrección real es el filtro, no el
+      // tamaño de la página.
       const [ordersRes, statementRes] = await Promise.all([
-        api.get(`/orders/business/${businessId}`, { params: { limit: 100 } }),
+        api.get(`/orders/business/${businessId}`, { params: { status: ACTIVE_STATUSES.join(','), limit: 500 } }),
         api.get(`/businesses/${businessId}/statement`),
       ]);
       setOrders(ordersRes.data.data);

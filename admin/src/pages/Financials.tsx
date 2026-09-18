@@ -4,6 +4,7 @@ import {
   CheckCircle2, ShieldAlert, Landmark, CreditCard
 } from 'lucide-react';
 import api from '../services/api';
+import Pagination from '../components/Pagination';
 import { apiMessage } from '../lib/apiError';
 
 interface SummaryType {
@@ -108,6 +109,15 @@ export default function Financials() {
   const [errorIncidencia, setErrorIncidencia] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // Dos tablas, dos paginadores independientes: no comparten contador de
+  // página porque una persona puede estar en la página 3 de incidencias
+  // y en la 1 de efectivo pendiente al mismo tiempo.
+  const [cashPage, setCashPage] = useState(1);
+  const [cashMeta, setCashMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
+  const [incidentsPage, setIncidentsPage] = useState(1);
+  const [incidentsMeta, setIncidentsMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
+  const PAGE_SIZE = 25;
+
   // `useCallback` con sus dependencias de verdad, y el efecto colgando de
   // ella. Antes la función se recreaba en cada render y el efecto
   // dependía de [period] a mano: la lista tenía que mantenerse
@@ -120,20 +130,22 @@ export default function Financials() {
         api.get(`/admin/financials?period=${period}`),
         api.get('/finance/payouts/summary'),
         api.get('/finance/ledger/summary'),
-        api.get('/finance/cash?limit=100'),
-        api.get('/finance/cash/incidents?limit=100'),
+        api.get('/finance/cash', { params: { page: cashPage, limit: PAGE_SIZE } }),
+        api.get('/finance/cash/incidents', { params: { page: incidentsPage, limit: PAGE_SIZE } }),
       ]);
       setSummary(resSummary.data.data);
       setPayouts(resPayouts.data.data);
       setLedger(resLedger.data.data);
       setCash(resCash.data.data);
+      if (resCash.data.meta) setCashMeta(resCash.data.meta);
       setIncidents(resIncidents.data.data);
+      if (resIncidents.data.meta) setIncidentsMeta(resIncidents.data.meta);
     } catch (err) {
       console.error('Error fetching financial data:', err);
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [period, cashPage, incidentsPage]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -535,6 +547,11 @@ export default function Financials() {
                   );
                 })}
               </div>
+              <Pagination
+                page={incidentsPage} totalPages={incidentsMeta.totalPages}
+                total={incidentsMeta.total} limit={incidentsMeta.limit}
+                onPageChange={setIncidentsPage}
+              />
             </div>
           )}
 
@@ -588,6 +605,11 @@ export default function Financials() {
                 </div>
               )}
             </div>
+            <Pagination
+              page={cashPage} totalPages={cashMeta.totalPages}
+              total={cashMeta.total} limit={cashMeta.limit}
+              onPageChange={setCashPage}
+            />
           </div>
         </>
       )}

@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useBusinessEvent } from '../hooks/realtimeContext';
 import api from '../services/api';
 import OrderDetailPanel from '../components/OrderDetailPanel';
+import Pagination from '../components/Pagination';
 import {
   ORDER_STATUS, statusStyle, money, shortId, dateTime, type OrderStatus,
   type BusinessOrder,
@@ -41,6 +42,11 @@ export default function Orders() {
   const [filter, setFilter] = useState<OrderStatus | 'all'>('all');
   const [detailOrder, setDetailOrder] = useState<BusinessOrder | null>(null);
   const [liveTick, setLiveTick] = useState(0);
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
+  const PAGE_SIZE = 25;
+
+  useEffect(() => { setPage(1); }, [filter]);
 
   const load = useCallback(async () => {
     if (!businessId) return;
@@ -50,16 +56,17 @@ export default function Orders() {
       // esconder noventa en el navegador desperdicia la consulta y deja
       // fuera justo los que el filtro debería encontrar.
       const { data } = await api.get(`/orders/business/${businessId}`, {
-        params: { limit: 100, ...(filter === 'all' ? {} : { status: filter }) },
+        params: { page, limit: PAGE_SIZE, ...(filter === 'all' ? {} : { status: filter }) },
       });
       setOrders(data.data);
+      if (data.meta) setMeta(data.meta);
     } catch (err) {
       console.error(err);
       setError('No pudimos cargar el historial de pedidos.');
     } finally {
       setLoading(false);
     }
-  }, [businessId, filter]);
+  }, [businessId, filter, page]);
 
   useEffect(() => { setLoading(true); load(); }, [load]);
 
@@ -73,6 +80,10 @@ export default function Orders() {
   useBusinessEvent('order:driver:assigned', () => load());
   useBusinessEvent('order:driver:arrived', () => setLiveTick((tick) => tick + 1));
 
+  // El backend de `/orders/business/:id` no acepta un filtro de texto
+  // (ver `order.service.ts` → `getByBusiness`): esta búsqueda sigue
+  // siendo del navegador, sobre la página de 25 pedidos ya cargada, no
+  // sobre todo el historial. Cambiar de página resetea lo que se ve.
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return orders;
@@ -245,6 +256,7 @@ export default function Orders() {
             </tbody>
           </table>
         </div>
+        <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
       </div>
 
       {detailOrder && businessId && (

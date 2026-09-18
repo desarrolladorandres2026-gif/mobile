@@ -169,6 +169,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
 
   // ── Acciones por método ──
 
+  /** El botón "Usar esta tarjeta": aquí sí se exige todo. */
   const pickSavedCard = (saved: SavedCardSummary) => {
     if (!commonReady()) {
       setPickedCardId(saved.id);
@@ -426,7 +427,17 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
               ]}
             >
               <Pressable
-                onPress={() => { tap('select'); setConfirmDeleteId(null); pickSavedCard(savedCard); }}
+                onPress={() => {
+                  tap('select');
+                  setConfirmDeleteId(null);
+                  // El segundo pedido es de un toque: si ya aceptó estos
+                  // términos y no falta correo, tocar la tarjeta basta. Si
+                  // no, solo se marca y el pie pide lo que falta, sin
+                  // regañar antes de que la casilla se haya visto.
+                  const ready = terms && (!needsEmail || EMAIL_RE.test(email.trim()));
+                  if (ready) pickSavedCard(savedCard);
+                  else setPickedCardId(savedCard.id);
+                }}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: picked }}
                 accessibilityLabel={`${cardLabel(savedCard.brand, savedCard.lastFour)}, vence ${savedCard.expMonth}/${savedCard.expYear}`}

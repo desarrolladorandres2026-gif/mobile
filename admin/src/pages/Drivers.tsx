@@ -1,7 +1,8 @@
-﻿import { useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { Truck, Star, DollarSign, AlertCircle, CheckCircle, X, Ban, PlayCircle } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
+import Pagination from '../components/Pagination';
 import { apiMessage } from '../lib/apiError';
 
 interface DriverType {
@@ -31,27 +32,34 @@ export default function Drivers() {
   const [drivers, setDrivers] = useState<DriverType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
+  const PAGE_SIZE = 25;
 
   const [showFundModal, setShowFundModal] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState<DriverType | null>(null);
   const [newBaseFund, setNewBaseFund] = useState('');
   const [confirmSuspend, setConfirmSuspend] = useState<DriverType | null>(null);
 
-  const fetchDrivers = async () => {
+  // El backend de `/drivers` todavía no acepta un filtro de búsqueda por
+  // nombre o placa, así que no hay nada que mandar al servidor aparte de
+  // la página: esta pantalla nunca tuvo una caja de búsqueda.
+  const fetchDrivers = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      const { data } = await api.get('/drivers?limit=100');
+      const { data } = await api.get('/drivers', { params: { page, limit: PAGE_SIZE } });
       setDrivers(data.data);
+      if (data.meta) setMeta(data.meta);
     } catch (err) {
       console.error(err);
       setError('No se pudieron obtener los domiciliarios.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [page]);
 
-  useEffect(() => { fetchDrivers(); }, []);
+  useEffect(() => { fetchDrivers(); }, [fetchDrivers]);
 
   const handleApprove = async (driverId: string) => {
     try {
@@ -241,6 +249,7 @@ export default function Drivers() {
               No hay domiciliarios registrados en el sistema.
             </div>
           )}
+          <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
         </div>
       )}
 

@@ -13,6 +13,7 @@ import {
   OrderKind,
   CancellationReason,
   CancelledBy,
+  DriverStatus,
 } from '../types';
 import { OrderSecurity } from '../security/orderSecurity';
 import { emitToUser } from '../sockets/emitter';
@@ -566,7 +567,13 @@ export class OrderService {
 
   async getByBusiness(businessId: string, status?: string, page = 1, limit = 20) {
     const filter: Record<string, unknown> = { businessId };
-    if (status) filter.status = status;
+    // La cocina necesita ver TODOS los estados activos a la vez, no uno
+    // solo: "pending,accepted,preparing,ready" pide una lista. El resto
+    // de pantallas (como el historial del comercio) sigue mandando un
+    // único estado o ninguno, y ese caso no cambia.
+    if (status) {
+      filter.status = status.includes(',') ? { $in: status.split(',') } : status;
+    }
 
     // Un pedido programado no aparece en la cocina hasta que toca. Sin
     // esto, el negocio vería mañana a las ocho un pedido que hay que
@@ -997,6 +1004,9 @@ export class OrderService {
       );
     }
 
+    // Vuelve a la cascada: el pedido que lo tenía ocupado ya no es suyo.
+    await Driver.updateOne({ _id: order.driverId }, { $set: { status: DriverStatus.AVAILABLE } });
+
     await logSystemAudit({
       userId: 'system',
       role: 'system',
@@ -1131,7 +1141,14 @@ export class OrderService {
       if (order.kind === OrderKind.ERRAND && order.errand) {
         increments.currentFund = order.errand.maxCost;
       }
-      await Driver.updateOne({ _id: order.driverId }, { $inc: increments });
+      // Vuelve a estar disponible para la cascada. `$set` y no un segundo
+      // `updateOne`: la misma escritura que abona el fondo lo libera, así
+      // que no hay un instante en el que el fondo ya se acreditó pero el
+      // domiciliario sigue marcado ocupado.
+      await Driver.updateOne(
+        { _id: order.driverId },
+        { $inc: increments, $set: { status: DriverStatus.AVAILABLE } }
+      );
     }
   }
 
@@ -1190,6 +1207,13 @@ export class OrderService {
         { _id: order.driverId },
         { $inc: { currentFund: order.errand.maxCost } }
       );
+    }
+
+    // Una cancelación también lo libera, tenga o no fondo que devolver
+    // (un pedido en línea cancelado no movió su fondo, pero igual lo tenía
+    // ocupado desde que lo aceptó).
+    if (order.driverId) {
+      await Driver.updateOne({ _id: order.driverId }, { $set: { status: DriverStatus.AVAILABLE } });
     }
 
     if (!finance?.customerTotal) {
@@ -1510,6 +1534,11 @@ export class OrderService {
     // les conste que lo perdieron, no que lo ignoraron.
     const { stopDispatch } = await import('./dispatch.service');
     await stopDispatch(claimed._id.toString(), driver._id.toString());
+
+    // Deja de ofrecérsele nuevos pedidos mientras reparte este. Sin esto,
+    // nada le impedía a la cascada seguir tocando la puerta de alguien que
+    // ya está en camino a otra dirección.
+    await Driver.updateOne({ _id: driver._id }, { $set: { status: DriverStatus.BUSY } });
 
     await payoutService.accrueForOrder(claimed);
 

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Ticket, Plus, Search, X, AlertCircle, Pencil, Percent, Store,
   ToggleLeft, ToggleRight, Banknote, Truck, History, Building2, Landmark,
 } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
+import Pagination from '../components/Pagination';
 import { apiFieldMessage, apiMessage } from '../lib/apiError';
 import type { CouponHistory } from '../lib/apiTypes';
 
@@ -183,6 +184,9 @@ export default function Coupons() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [estadoFiltro, setEstadoFiltro] = useState<EstadoFiltro>('all');
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
+  const PAGE_SIZE = 25;
 
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -191,15 +195,34 @@ export default function Coupons() {
 
   const [historial, setHistorial] = useState<{ coupon: Coupon; data: CouponHistory } | null>(null);
 
-  const fetchAll = async () => {
+  // La búsqueda se manda al servidor, igual que en Users.tsx: filtrar en
+  // el navegador sobre la página actual solo encontraría coincidencias
+  // dentro de los 25 cupones ya cargados.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+  useEffect(() => { setPage(1); }, [estadoFiltro, debouncedSearch]);
+
+  const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
+      const params: Record<string, string | number> = { page, limit: PAGE_SIZE };
+      if (debouncedSearch) params.search = debouncedSearch;
+      // El backend sólo distingue activo/inactivo (`isActive`); no sabe
+      // de vencimiento. "Vigentes" y "Vencidos" comparten ese mismo
+      // `isActive: true` en el servidor y se terminan de separar abajo,
+      // sobre lo que llegó en esta página.
+      if (estadoFiltro === 'inactive') params.isActive = 'false';
+      else if (estadoFiltro === 'active' || estadoFiltro === 'expired') params.isActive = 'true';
       const [resCoupons, resBiz] = await Promise.all([
-        api.get('/coupons?limit=100'),
+        api.get('/coupons', { params }),
         api.get('/businesses?limit=100'),
       ]);
       setCoupons(resCoupons.data.data);
+      if (resCoupons.data.meta) setMeta(resCoupons.data.meta);
       setBusinesses(resBiz.data.data);
     } catch (err) {
       console.error(err);
@@ -207,9 +230,9 @@ export default function Coupons() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, debouncedSearch, estadoFiltro]);
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -317,11 +340,10 @@ export default function Coupons() {
     }
   };
 
-  const filtered = coupons.filter((c) => {
-    const q = search.toLowerCase();
-    const coincide = c.code.toLowerCase().includes(q) || c.title.toLowerCase().includes(q);
-    return coincide && (estadoFiltro === 'all' || estadoDe(c) === estadoFiltro);
-  });
+  // La búsqueda ya viene filtrada del servidor. "Vigente" vs "Vencido"
+  // se termina de decidir aquí porque el backend no distingue esos dos
+  // dentro de `isActive: true` (ver `fetchAll`).
+  const filtered = coupons.filter((c) => estadoFiltro === 'all' || estadoDe(c) === estadoFiltro);
 
   const inputClass = 'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-muted)]';
   const labelClass = 'block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1.5';
@@ -351,7 +373,7 @@ export default function Coupons() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por código o título..."
+            placeholder="Buscar por código..."
             className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
           />
         </div>
@@ -504,6 +526,10 @@ export default function Coupons() {
             );
           })}
         </div>
+      )}
+
+      {!loading && (
+        <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
       )}
 
       {/* ── Historial de uso ── */}

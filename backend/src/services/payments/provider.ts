@@ -130,6 +130,16 @@ export interface CheckoutConfig {
     termsAndConditions?: string;
     personalDataAuth?: string;
   };
+  /**
+   * A dónde vuelve la persona desde su banco (PSE). La app la intercepta
+   * dentro de su WebView en vez de cargarla.
+   */
+  returnUrl: string;
+  /**
+   * Si los cobros con tarjeta nueva piden 3D Secure. Con esto en verdadero
+   * la app manda los datos de su navegador, que Wompi exige para el reto.
+   */
+  threeDs: boolean;
 }
 
 /**
@@ -188,8 +198,12 @@ export interface CreateNativePaymentInput extends CreatePaymentInput {
   acceptanceToken: string;
   /** Solo cuando se va a guardar la tarjeta. */
   personalDataAuthToken?: string;
-  /** Datos del dispositivo que 3D Secure v2 exige para las tarjetas. */
-  browserInfo?: Record<string, string | number>;
+  /**
+   * Datos del navegador que 3D Secure v2 exige (`browser_color_depth`,
+   * `browser_user_agent`…), con los nombres de Wompi. Solo se usan si el
+   * comercio tiene 3DS encendido y el cobro es con tarjeta nueva.
+   */
+  browserInfo?: Record<string, string>;
 }
 
 /**

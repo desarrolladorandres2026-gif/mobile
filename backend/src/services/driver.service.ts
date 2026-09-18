@@ -56,6 +56,18 @@ export class DriverService {
       await this.assertDocumentsCurrent(driver._id.toString());
       await this.assertVerificationsCurrent(driver._id.toString());
     }
+    // `busy` lo pone el propio flujo del pedido (order.service.ts) al
+    // aceptar/entregar/cancelar — no es un estado que el domiciliario elija
+    // a mano. Si intenta desconectarse mientras reparte, el rechazo evita
+    // que su GPS deje de reportar justo mientras alguien lo está esperando;
+    // ir a "disponible" en cambio no hace daño, solo confirma lo que ya es.
+    if (status === DriverStatus.OFFLINE && driver.status === DriverStatus.BUSY) {
+      throw new AppError(
+        'No puedes desconectarte mientras tienes un pedido activo. Termina la entrega primero.',
+        409,
+        'DRIVER_BUSY'
+      );
+    }
     driver.status = status;
     await driver.save();
     return driver;

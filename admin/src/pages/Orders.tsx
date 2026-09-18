@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import RefundPanel from '../components/RefundPanel';
+import Pagination from '../components/Pagination';
 import { PermissionGate } from '../components/PermissionGate';
 
 interface OrderItem {
@@ -89,6 +90,22 @@ export default function Orders() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState<OrderType | null>(null);
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
+  const PAGE_SIZE = 25;
+
+  // La búsqueda se manda al servidor (ahí vive el índice y el `$regex`
+  // sobre toda la tabla), no se filtra en el navegador sobre la página
+  // actual — si no, "buscar" solo encontraría coincidencias dentro de
+  // los 25 pedidos ya cargados. El backend sólo busca por `orderNumber`,
+  // no por el `_id` crudo ni por nombre de negocio/cliente como hacía
+  // antes el filtro del navegador.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+  useEffect(() => { setPage(1); }, [statusFilter, debouncedSearch]);
 
   // `useCallback` con sus dependencias de verdad, y el efecto colgando de
   // ella. Antes la función se recreaba en cada render y el efecto
@@ -98,28 +115,22 @@ export default function Orders() {
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
-      const statusQuery = statusFilter === 'all' ? '' : `status=${statusFilter}`;
-      const { data } = await api.get(`/admin/orders?limit=100&${statusQuery}`);
+      const params: Record<string, string | number> = { page, limit: PAGE_SIZE };
+      if (statusFilter !== 'all') params.status = statusFilter;
+      if (debouncedSearch) params.search = debouncedSearch;
+      const { data } = await api.get('/admin/orders', { params });
       setOrders(data.data);
+      if (data.meta) setMeta(data.meta);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, debouncedSearch, page]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
-
-  const filteredOrders = orders.filter((o) => {
-    const term = search.toLowerCase();
-    return (
-      o._id.toLowerCase().includes(term) ||
-      o.businessId?.name?.toLowerCase().includes(term) ||
-      o.clientId?.name?.toLowerCase().includes(term)
-    );
-  });
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -147,7 +158,7 @@ export default function Orders() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por ID, negocio o cliente..."
+            placeholder="Buscar por número de pedido..."
             className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
           />
         </div>
@@ -193,7 +204,7 @@ export default function Orders() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--color-border-light)]">
-                {filteredOrders.map((o) => {
+                {orders.map((o) => {
                   const sc = statusMap[o.status] || { label: o.status, bg: 'bg-gray-50 border-gray-200', text: 'text-gray-600', dot: 'bg-gray-400' };
                   return (
                     <tr key={o._id} className="hover:bg-[var(--color-bg)] transition-colors">
@@ -239,7 +250,7 @@ export default function Orders() {
                     </tr>
                   );
                 })}
-                {filteredOrders.length === 0 && (
+                {orders.length === 0 && (
                   <tr>
                     <td colSpan={8} className="px-6 py-12 text-center text-[var(--color-text-muted)] text-xs font-medium">
                       No hay pedidos que coincidan con el filtro seleccionado.
@@ -249,6 +260,7 @@ export default function Orders() {
               </tbody>
             </table>
           </div>
+          <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
         </div>
       )}
 

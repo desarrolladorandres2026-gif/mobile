@@ -37,7 +37,7 @@ export class CampaignService {
    * enseñar "esto llega a 240 personas" antes de pulsar el botón, que es la
    * diferencia entre una herramienta y una escopeta.
    */
-  async resolve(segment: Segment, limit = 5000): Promise<string[]> {
+  async resolve(segment: Segment, limit = 200_000): Promise<string[]> {
     const filter: Record<string, unknown> = {
       isActive: true,
       // Quien pidió no recibir comunicaciones comerciales no las recibe.
