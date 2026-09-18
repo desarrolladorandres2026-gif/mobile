@@ -101,9 +101,8 @@ const ICON_SIZE_LARGE = 50;
  * `section.key → variant` vive en `ProductCollectionRow.tsx`.
  *
  * Reglas duras que todas las variantes respetan: nada de caja/borde/fondo
- * alrededor del título (`bannerPanel` es otra cosa, envuelve el carrusel, no
- * el encabezado), el dorado es acento — nunca un lavado de color — y el
- * título nunca le quita el protagonismo al carrusel de abajo.
+ * alrededor del título, el dorado es acento — nunca un lavado de color — y
+ * el título nunca le quita el protagonismo al carrusel de abajo.
  */
 export const CollectionHeader = memo(function CollectionHeader({
   variant, title, subtitle, Illustration, index = 1,

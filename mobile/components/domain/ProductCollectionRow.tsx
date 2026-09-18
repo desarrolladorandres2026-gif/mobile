@@ -168,11 +168,7 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
         Illustration={Illustration}
       />
 
-      {variant === 'banner' ? (
-        <View style={[styles.bannerPanel, { backgroundColor: c.primarySoft, borderColor: c.primarySoftBorder }, Shadow.goldGlow]}>
-          {list}
-        </View>
-      ) : list}
+      {list}
     </View>
   );
 });
@@ -282,7 +278,7 @@ const CompactCard = memo(function CompactCard({ product, onPress }: CardProps) {
       accessibilityRole="button"
       accessibilityLabel={`${product.name}, ${product.businessName}, ${money(product.effectivePrice)}`}
       accessibilityHint="Abre este producto en su negocio"
-      style={[styles.card, { width: CARD_WIDTH, backgroundColor: c.surface, borderColor: c.border }]}
+      style={[styles.card, { width: CARD_WIDTH }]}
     >
       <ProductPhoto product={product} height={138}>
         {hasDiscount ? (
@@ -308,7 +304,7 @@ const CompactCard = memo(function CompactCard({ product, onPress }: CardProps) {
           style={styles.businessRow}
         >
           <BusinessTile business={business} size={16} radius={8} />
-          <Text v="caption" tone="textMuted" numberOfLines={1} style={styles.businessName}>
+          <Text v="caption" tone="text" numberOfLines={1} style={styles.businessName}>
             {product.businessName}
           </Text>
         </Pressable>
@@ -318,7 +314,7 @@ const CompactCard = memo(function CompactCard({ product, onPress }: CardProps) {
         <View style={styles.hMetaRow}>
                       <View style={styles.rating}>
               <Icon name="calificacion" size={11} color={c.warning} />
-              <Text v="caption" tone="textMuted">{product.businessRating.toFixed(1)}</Text>
+              <Text v="caption" tone="text">{product.businessRating.toFixed(1)}</Text>
             </View>
           {product.businessDeliveryTime > 0 ? (
             <View style={styles.rating}>
@@ -332,7 +328,7 @@ const CompactCard = memo(function CompactCard({ product, onPress }: CardProps) {
           <PriceTag product={product} size="dataS" />
           {hasDiscount ? (
             <>
-              <Text v="caption" tone="textMuted" style={styles.strike}>{money(product.price)}</Text>
+              <Text v="caption" tone="text" style={styles.strike}>{money(product.price)}</Text>
               <Text v="captionStrong" tone="limeText">-{product.discountPercent}%</Text>
             </>
           ) : null}
@@ -362,7 +358,7 @@ const LargeCard = memo(function LargeCard({ product, onPress, rank }: CardProps)
       accessibilityRole="button"
       accessibilityLabel={`${product.name}, ${product.businessName}, ${money(product.effectivePrice)}`}
       accessibilityHint="Abre este producto en su negocio"
-      style={[styles.card, { width: LARGE_WIDTH, backgroundColor: c.surface, borderColor: c.border }]}
+      style={[styles.card, { width: LARGE_WIDTH }]}
     >
       <ProductPhoto product={product} height={195}>
         {rank ? (
@@ -392,7 +388,7 @@ const LargeCard = memo(function LargeCard({ product, onPress, rank }: CardProps)
           style={styles.businessRow}
         >
           <BusinessTile business={business} size={24} radius={12} />
-          <Text v="bodyM" tone="textMuted" numberOfLines={1} style={styles.businessName}>
+          <Text v="bodyM" tone="text" numberOfLines={1} style={styles.businessName}>
             {product.businessName}
           </Text>
         </Pressable>
@@ -402,7 +398,7 @@ const LargeCard = memo(function LargeCard({ product, onPress, rank }: CardProps)
         <View style={styles.hMetaRow}>
                       <View style={styles.rating}>
               <Icon name="calificacion" size={13} color={c.warning} />
-              <Text v="caption" tone="textMuted">{product.businessRating.toFixed(1)}</Text>
+              <Text v="caption" tone="text">{product.businessRating.toFixed(1)}</Text>
             </View>
           {product.businessDeliveryTime > 0 ? (
             <View style={styles.rating}>
@@ -416,7 +412,7 @@ const LargeCard = memo(function LargeCard({ product, onPress, rank }: CardProps)
           <PriceTag product={product} size="dataL" />
           {hasDiscount ? (
             <>
-              <Text v="caption" tone="textMuted" style={styles.strike}>{money(product.price)}</Text>
+              <Text v="caption" tone="text" style={styles.strike}>{money(product.price)}</Text>
               <Text v="captionStrong" tone="limeText">-{product.discountPercent}%</Text>
             </>
           ) : null}
@@ -441,7 +437,7 @@ const HorizontalCard = memo(function HorizontalCard({ product, onPress }: CardPr
       accessibilityRole="button"
       accessibilityLabel={`${product.name}, ${product.businessName}, ${money(product.effectivePrice)}`}
       accessibilityHint="Abre este producto en su negocio"
-      style={[styles.hCard, { width: HORIZONTAL_WIDTH, backgroundColor: c.surface, borderColor: c.border }]}
+      style={[styles.hCard, { width: HORIZONTAL_WIDTH }]}
     >
       <ProductPhoto product={product} height={130} width={130}>
         {hasDiscount ? (
@@ -460,7 +456,7 @@ const HorizontalCard = memo(function HorizontalCard({ product, onPress }: CardPr
           style={styles.businessRow}
         >
           <BusinessTile business={business} size={18} radius={9} />
-          <Text v="caption" tone="textMuted" numberOfLines={1} style={styles.businessName}>
+          <Text v="caption" tone="text" numberOfLines={1} style={styles.businessName}>
             {product.businessName}
           </Text>
         </Pressable>
@@ -470,7 +466,7 @@ const HorizontalCard = memo(function HorizontalCard({ product, onPress }: CardPr
         <View style={styles.hMetaRow}>
                       <View style={styles.rating}>
               <Icon name="calificacion" size={12} color={c.warning} />
-              <Text v="caption" tone="textMuted">{product.businessRating.toFixed(1)}</Text>
+              <Text v="caption" tone="text">{product.businessRating.toFixed(1)}</Text>
             </View>
           {product.businessDeliveryTime > 0 ? (
             <View style={styles.rating}>
@@ -480,8 +476,8 @@ const HorizontalCard = memo(function HorizontalCard({ product, onPress }: CardPr
           ) : null}
           {distance ? (
             <View style={styles.rating}>
-              <Icon name="ubicacion" size={12} color={c.textMuted} />
-              <Text v="caption" tone="textMuted">{distance}</Text>
+              <Icon name="ubicacion" size={12} color={c.text} />
+              <Text v="caption" tone="text">{distance}</Text>
             </View>
           ) : null}
         </View>
@@ -489,7 +485,7 @@ const HorizontalCard = memo(function HorizontalCard({ product, onPress }: CardPr
         <View style={styles.priceRow}>
           <PriceTag product={product} size="dataS" />
           {hasDiscount ? (
-            <Text v="caption" tone="textMuted" style={styles.strike}>{money(product.price)}</Text>
+            <Text v="caption" tone="text" style={styles.strike}>{money(product.price)}</Text>
           ) : null}
         </View>
       </View>
@@ -517,8 +513,8 @@ const FeaturedCard = memo(function FeaturedCard({ product, onPress, emphasized }
       accessibilityHint="Abre este producto en su negocio"
       style={[
         styles.card,
-        { width: FEATURED_WIDTH, backgroundColor: c.surface, borderColor: emphasized ? c.gold : c.border },
-        emphasized ? { borderWidth: 1.5, ...Shadow.goldGlow } : null,
+        { width: FEATURED_WIDTH },
+        emphasized ? { borderWidth: 1.5, borderColor: c.gold, ...Shadow.goldGlow } : null,
       ]}
     >
       <ProductPhoto product={product} height={205}>
@@ -538,7 +534,7 @@ const FeaturedCard = memo(function FeaturedCard({ product, onPress, emphasized }
           style={styles.businessRow}
         >
           <BusinessTile business={business} size={18} radius={9} />
-          <Text v="caption" tone="textMuted" numberOfLines={1} style={styles.businessName}>
+          <Text v="caption" tone="text" numberOfLines={1} style={styles.businessName}>
             {product.businessName}
           </Text>
         </Pressable>
@@ -548,7 +544,7 @@ const FeaturedCard = memo(function FeaturedCard({ product, onPress, emphasized }
         <View style={styles.hMetaRow}>
                       <View style={styles.rating}>
               <Icon name="calificacion" size={11} color={c.warning} />
-              <Text v="caption" tone="textMuted">{product.businessRating.toFixed(1)}</Text>
+              <Text v="caption" tone="text">{product.businessRating.toFixed(1)}</Text>
             </View>
           {product.businessDeliveryTime > 0 ? (
             <View style={styles.rating}>
@@ -583,7 +579,7 @@ const PriceFocusCard = memo(function PriceFocusCard({ product, onPress }: CardPr
       accessibilityRole="button"
       accessibilityLabel={`${product.name}, ${product.businessName}, ${money(product.effectivePrice)}`}
       accessibilityHint="Abre este producto en su negocio"
-      style={[styles.card, { width: PRICE_FOCUS_WIDTH, backgroundColor: c.surface, borderColor: c.border }]}
+      style={[styles.card, { width: PRICE_FOCUS_WIDTH }]}
     >
       <ProductPhoto product={product} height={104}>
         {hasDiscount ? (
@@ -602,7 +598,7 @@ const PriceFocusCard = memo(function PriceFocusCard({ product, onPress }: CardPr
           style={styles.businessRow}
         >
           <BusinessTile business={business} size={14} radius={7} />
-          <Text v="caption" tone="textMuted" numberOfLines={1} style={styles.businessName}>
+          <Text v="caption" tone="text" numberOfLines={1} style={styles.businessName}>
             {product.businessName}
           </Text>
         </Pressable>
@@ -612,7 +608,7 @@ const PriceFocusCard = memo(function PriceFocusCard({ product, onPress }: CardPr
         <View style={styles.hMetaRow}>
                       <View style={styles.rating}>
               <Icon name="calificacion" size={10} color={c.warning} />
-              <Text v="caption" tone="textMuted">{product.businessRating.toFixed(1)}</Text>
+              <Text v="caption" tone="text">{product.businessRating.toFixed(1)}</Text>
             </View>
           {product.businessDeliveryTime > 0 ? (
             <View style={styles.rating}>
@@ -625,7 +621,7 @@ const PriceFocusCard = memo(function PriceFocusCard({ product, onPress }: CardPr
         <PriceTag product={product} size="dataM" alone />
         {hasDiscount ? (
           <View style={styles.priceFocusDiscountRow}>
-            <Text v="caption" tone="textMuted" style={styles.strike}>{money(product.price)}</Text>
+            <Text v="caption" tone="text" style={styles.strike}>{money(product.price)}</Text>
             <Text v="captionStrong" tone="limeText">-{product.discountPercent}%</Text>
           </View>
         ) : null}
@@ -634,11 +630,7 @@ const PriceFocusCard = memo(function PriceFocusCard({ product, onPress }: CardPr
   );
 });
 
-/**
- * `banner`: la única sección permitida a sentirse un bloque distinto — el
- * panel dorado suave lo envuelve `ProductCollectionRow`; la tarjeta de
- * adentro reutiliza el tamaño de `large`.
- */
+/** `banner`: misma tarjeta que `large`, sin panel propio alrededor del carrusel. */
 const BannerCard = LargeCard;
 
 const CARD_BY_VARIANT: Record<HomeSectionDisplayVariant, ComponentType<CardProps>> = {
@@ -653,16 +645,9 @@ const CARD_BY_VARIANT: Record<HomeSectionDisplayVariant, ComponentType<CardProps
 const styles = StyleSheet.create({
   section: { marginTop: Spacing.xxxl, paddingHorizontal: Spacing.xl },
   hList: { gap: Spacing.md, paddingRight: Spacing.xl },
-  bannerPanel: {
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    paddingVertical: Spacing.md,
-    paddingLeft: Spacing.md,
-  },
 
   card: {
     borderRadius: BorderRadius.lg,
-    borderWidth: 1,
     overflow: 'hidden',
   },
   image: { width: '100%' },
@@ -683,7 +668,7 @@ const styles = StyleSheet.create({
   businessRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 1 },
   businessName: { flex: 1 },
   rating: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  name: { minHeight: 40 },
+  name: {},
   priceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 2 },
   priceStrong: { fontWeight: '700' },
   strike: { textDecorationLine: 'line-through' },
@@ -698,7 +683,6 @@ const styles = StyleSheet.create({
   hCard: {
     flexDirection: 'row',
     borderRadius: BorderRadius.lg,
-    borderWidth: 1,
     overflow: 'hidden',
   },
   hBody: { flex: 1, padding: Spacing.sm, gap: 3, justifyContent: 'center' },

@@ -15,6 +15,18 @@ export interface OrderOffer {
   etaSeconds: number;
 }
 
+/**
+ * El pago de un pedido cambió de estado. Lo emite el backend en el mismo
+ * punto por el que pasan el webhook y la consulta directa, así que llega
+ * una vez por cambio real, venga de donde venga.
+ */
+export interface PaymentUpdate {
+  orderId: string;
+  reference?: string;
+  status: 'approved' | 'declined' | 'refunded' | 'pending';
+  declineReason?: string;
+}
+
 export interface VerificationRequest {
   verificationId: string;
   type: string;
@@ -210,6 +222,13 @@ class SocketService {
 
   leaveOrderRoom(orderId: string) {
     this.socket?.emit('order:leave', orderId);
+  }
+
+  onPaymentUpdated(callback: (data: PaymentUpdate) => void) {
+    this.socket?.on('payment:updated', callback);
+  }
+  offPaymentUpdated(callback: (data: PaymentUpdate) => void) {
+    this.socket?.off('payment:updated', callback);
   }
 
   onDriverArrived(callback: (data: any) => void) {

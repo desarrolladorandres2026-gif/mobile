@@ -391,6 +391,8 @@ export enum LedgerEventType {
   LOYALTY_REDEEMED = 'loyalty_redeemed',
   /** Los puntos caducaron sin canjearse: se libera la provisión. */
   LOYALTY_EXPIRED = 'loyalty_expired',
+  /** La compra que los generó se reembolsó: se deshace la provisión. */
+  LOYALTY_REVERSED = 'loyalty_reversed',
   /** El domiciliario declaró lo que costó de verdad la compra del mandado. */
   ERRAND_COST_ADJUSTED = 'errand_cost_adjusted',
   /** Se le devolvió al domiciliario el dinero que adelantó. */

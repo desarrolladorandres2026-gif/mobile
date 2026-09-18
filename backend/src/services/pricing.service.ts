@@ -459,6 +459,37 @@ export class PricingService {
     };
   }
 
+  /**
+   * El piso real del domicilio de un negocio: el "Desde $X" de su ficha.
+   *
+   * Es `priceRoute` con origen y destino en el propio local. Distancia cero
+   * significa que no hay componente por kilómetro, así que lo que queda es
+   * la tarifa base de su zona (o la global), el recargo de zona, el mínimo
+   * al domiciliario, el margen de la plataforma y el redondeo. Ninguna
+   * entrega de ese negocio puede costar menos que esto.
+   *
+   * Importa que salga de la misma función que cobra el checkout y no de una
+   * fórmula paralela: dos cuentas del mismo precio se desincronizan a la
+   * primera subida de la gasolina, y entonces la ficha promete una cosa y
+   * el carrito cobra otra.
+   *
+   * Devuelve `null` en vez de lanzar. Es un adorno de la ficha: un negocio
+   * sin ubicación válida o una zona mal configurada tienen que dejar la
+   * celda vacía, nunca romper la pantalla del cliente.
+   */
+  async minimumDeliveryFee(business: IBusiness): Promise<number | null> {
+    const origin = fromGeoPoint(business.location);
+    if (!origin) return null;
+
+    try {
+      const cfg = await pricingConfigService.getCurrent();
+      const quote = await this.priceRoute(origin, origin, business.city, cfg);
+      return quote.customerFee;
+    } catch {
+      return null;
+    }
+  }
+
   /** Finds the active zone containing a point, preferring higher priority. */
   private async findZone(point: LatLng, city?: string) {
     const filter: Record<string, unknown> = {

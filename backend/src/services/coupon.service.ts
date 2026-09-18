@@ -411,6 +411,29 @@ export class CouponService {
     return coupon;
   }
 
+  /**
+   * Los cupones que son de un cliente y de nadie más, todavía usables.
+   *
+   * Hoy son los que salen de canjear puntos. Son privados (`isPublic:
+   * false`), así que `getPublic` no los devuelve nunca: sin esto, el código
+   * solo se veía una vez, en el aviso del canje, y un canje abandonado a
+   * medio checkout eran puntos que el cliente ya no podía encontrar aunque el
+   * cupón siguiera vivo un mes.
+   */
+  async getForUser(userId: string): Promise<ICoupon[]> {
+    const now = new Date();
+    const coupons = await Coupon.find({
+      restrictedToUserId: userId,
+      isActive: true,
+      validFrom: { $lte: now },
+      validUntil: { $gte: now },
+    })
+      .sort({ validUntil: 1 })
+      .limit(20);
+
+    return coupons.filter((c) => c.usageLimit === 0 || c.usedCount < c.usageLimit);
+  }
+
   async getPublic(city?: string, businessId?: string): Promise<ICoupon[]> {
     const now = new Date();
     const filter: Record<string, unknown> = {

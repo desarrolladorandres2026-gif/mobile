@@ -8,7 +8,7 @@ import {
 } from '../../components/ui';
 import { ZippMap } from '../../components/domain/ZippMap';
 import { AddressSheet, hasCoordinates, type Address } from '../../components/domain/AddressPicker';
-import { useAddresses, usePayOrder } from '../../hooks/useApi';
+import { useAddresses, usePayOrder, usePaymentMethods } from '../../hooks/useApi';
 import { errandsApi } from '../../services/endpoints';
 import { useTheme } from '../../hooks/useTheme';
 import { Spacing, BorderRadius } from '../../theme/tokens';
@@ -49,6 +49,7 @@ export default function ErrandScreen() {
   const router = useRouter();
   const { c, isDark } = useTheme();
   const payOrder = usePayOrder();
+  const { data: methods } = usePaymentMethods();
 
   const { data: addresses } = useAddresses();
   const [address, setAddress] = useState<Address | null>(null);
@@ -144,6 +145,16 @@ export default function ErrandScreen() {
           // domiciliario ya adelantó, y nadie podría comprobar cuánto
           // costó de verdad. Además nadie sale a la calle a poner su
           // dinero hasta que el cobro está confirmado.
+          if (methods?.inApp?.native) {
+            // Cobro dentro de la app: el método se elige en la pantalla de
+            // pago, que es la misma que usa el checkout.
+            tap('success');
+            router.replace({
+              pathname: '/(client)/payment-result',
+              params: { id: order._id, code: order.orderNumber ?? '', mode: 'native' },
+            });
+            return;
+          }
           try {
             const redirectUrl = Linking.createURL('payment-result');
             const intent = await payOrder.mutateAsync({ orderId: order._id, redirectUrl });
@@ -159,6 +170,13 @@ export default function ErrandScreen() {
                   redirectUrl,
                 },
               });
+              return;
+            }
+            // Sin enlace solo es éxito si ya quedó aprobado (sandbox con
+            // aprobación automática); si no, es un mandado sin cobrar.
+            if (intent?.status !== 'approved') {
+              setError('Creamos tu mandado, pero no pudimos iniciar el cobro. Puedes pagarlo desde Mis pedidos.');
+              tap('error');
               return;
             }
           } catch (err) {

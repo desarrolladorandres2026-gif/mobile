@@ -12,6 +12,9 @@ import {
 import { refundSchema } from '../validators/finance.validator';
 import {
   initiatePaymentSchema,
+  payNativeSchema,
+  saveCardSchema,
+  savedCardParamsSchema,
   paymentStatusSchema,
   orderPaymentsSchema,
   chargebackSchema,
@@ -37,6 +40,13 @@ router.post('/webhook', paymentWebhookRateLimiter, (req, res, next) =>
 // Which methods checkout may offer. Public: the client needs it before login.
 router.get('/methods', (req, res, next) => paymentController.methods(req, res, next));
 
+// Llave pública y tokens de aceptación para el cobro dentro de la app.
+// Autenticado: no es secreto, pero tampoco tiene por qué ser un proxy
+// abierto hacia Wompi.
+router.get('/checkout-config', authenticate, (req, res, next) =>
+  paymentController.checkoutConfig(req, res, next)
+);
+
 // ── Customer ──
 // `redirectUrl` is checked against an allowlist before it can reach the
 // gateway's redirect-url parameter — see validators/payment.validator.ts.
@@ -47,6 +57,40 @@ router.post(
   paymentInitiateRateLimiter,
   validate(initiatePaymentSchema),
   (req, res, next) => paymentController.initiate(req, res, next)
+);
+// Cobro dentro de la app. Convive con `/pay` (redirección) mientras haya
+// versiones de la app instaladas que solo conocen ese camino.
+router.post(
+  '/orders/:orderId/pay-native',
+  authenticate,
+  authorize(UserRole.CLIENT),
+  paymentInitiateRateLimiter,
+  validate(payNativeSchema),
+  (req, res, next) => paymentController.payNative(req, res, next)
+);
+router.get('/pse-banks', authenticate, (req, res, next) =>
+  paymentController.pseBanks(req, res, next)
+);
+
+// Tarjetas guardadas del propio usuario. Guardar y borrar comparten el
+// limitador de inicio de cobro: guardar llama a la pasarela.
+router.get('/cards', authenticate, authorize(UserRole.CLIENT), (req, res, next) =>
+  paymentController.listCards(req, res, next)
+);
+router.post(
+  '/cards',
+  authenticate,
+  authorize(UserRole.CLIENT),
+  paymentInitiateRateLimiter,
+  validate(saveCardSchema),
+  (req, res, next) => paymentController.saveCard(req, res, next)
+);
+router.delete(
+  '/cards/:id',
+  authenticate,
+  authorize(UserRole.CLIENT),
+  validate(savedCardParamsSchema),
+  (req, res, next) => paymentController.deleteCard(req, res, next)
 );
 router.get(
   '/status/:transactionId',

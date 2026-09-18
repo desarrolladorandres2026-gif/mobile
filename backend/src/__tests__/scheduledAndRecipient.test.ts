@@ -3,6 +3,7 @@ import { Order, Business } from '../models';
 import { OrderStatus, UserRole, PaymentMethod } from '../types';
 import { orderService } from '../services/order.service';
 import { makeUser, makeBusiness, makeProduct, makePricingConfig, GARZON } from './factories';
+import { isOpenAt } from '../utils/businessHours';
 
 /**
  * Pedidos para otra persona y pedidos programados.
@@ -34,11 +35,20 @@ describe('Destinatario y programación', () => {
 
   const inHours = (h: number) => new Date(Date.now() + h * 60 * 60 * 1000);
 
+  const day = (open: string, close: string, isOpen = true) => ({ open, close, isOpen });
+  const everyDay = (d: ReturnType<typeof day>) => ({
+    monday: d, tuesday: d, wednesday: d, thursday: d, friday: d, saturday: d, sunday: d,
+  });
+
   beforeEach(async () => {
     await makePricingConfig();
     client = await makeUser({ role: UserRole.CLIENT });
     const owner = await makeUser({ role: UserRole.BUSINESS });
     business = await makeBusiness(owner._id, { lat: GARZON.lat, lng: GARZON.lng });
+    // Abierto las 24 horas: estas pruebas programan a horas relativas a
+    // "ahora", y con el horario por defecto (8 a 22) fallarían según a qué
+    // hora se corra la suite. El horario tiene sus propias pruebas abajo.
+    await Business.updateOne({ _id: business._id }, { schedule: everyDay(day('00:00', '00:00')) });
     product = await makeProduct(business._id);
   });
 
@@ -141,5 +151,60 @@ describe('Destinatario y programación', () => {
     await Order.updateOne({ _id: order._id }, { status: OrderStatus.CANCELLED });
 
     expect(await orderService.activateScheduledOrders()).toBe(0);
+  });
+
+  it('rechaza programar para cuando el negocio no atiende', async () => {
+    // Antes solo se miraba el margen: el pedido se activaba solo a su hora
+    // y no había nadie en el local para recibirlo.
+    await Business.updateOne(
+      { _id: business._id },
+      { schedule: everyDay(day('08:00', '22:00', false)) }
+    );
+
+    await expect(newOrder({ scheduledFor: inHours(3) })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'SCHEDULE_CLOSED',
+    });
+  });
+});
+
+/**
+ * La regla de horario, con instantes fijos. El servidor corre en UTC y los
+ * horarios están en hora de Colombia (UTC−5), así que cada caso se escribe
+ * en UTC a propósito: es donde un `getHours()` a secas se equivocaría.
+ */
+describe('isOpenAt', () => {
+  const TZ = 'America/Bogota';
+  const bar = {
+    monday: { open: '18:00', close: '02:00', isOpen: true },
+    tuesday: { open: '18:00', close: '02:00', isOpen: true },
+    wednesday: { open: '18:00', close: '02:00', isOpen: true },
+    thursday: { open: '18:00', close: '02:00', isOpen: true },
+    friday: { open: '18:00', close: '02:00', isOpen: true },
+    saturday: { open: '18:00', close: '02:00', isOpen: true },
+    sunday: { open: '18:00', close: '02:00', isOpen: false },
+  };
+
+  it('lee la hora en Colombia, no la del servidor', () => {
+    // Miércoles 16 de septiembre de 2026, 23:00 UTC = 18:00 en Bogotá.
+    expect(isOpenAt(bar, new Date('2026-09-16T23:00:00Z'), TZ)).toBe(true);
+    // 20:00 UTC = 15:00 en Bogotá: todavía cerrado.
+    expect(isOpenAt(bar, new Date('2026-09-16T20:00:00Z'), TZ)).toBe(false);
+  });
+
+  it('la madrugada pertenece a la noche anterior cuando el local cruza medianoche', () => {
+    // Jueves 17, 06:00 UTC = 01:00 en Bogotá: cola del miércoles.
+    expect(isOpenAt(bar, new Date('2026-09-17T06:00:00Z'), TZ)).toBe(true);
+    // 08:00 UTC = 03:00 en Bogotá: ya cerró.
+    expect(isOpenAt(bar, new Date('2026-09-17T08:00:00Z'), TZ)).toBe(false);
+  });
+
+  it('un domingo cerrado no le deja cola al lunes', () => {
+    // Lunes 21, 06:00 UTC = 01:00 en Bogotá.
+    expect(isOpenAt(bar, new Date('2026-09-21T06:00:00Z'), TZ)).toBe(false);
+  });
+
+  it('sin horario, abierto', () => {
+    expect(isOpenAt(undefined, new Date('2026-09-17T08:00:00Z'), TZ)).toBe(true);
   });
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BUSINESS_BRAND_COLORS } from '../utils/businessBrand';
 
 /**
  * Merchant-facing schemas.
@@ -51,6 +52,18 @@ export const updateBusinessSchema = z.object({
       minOrder: merchantEditableFields.minOrder,
       /** Merchants may pause themselves; they may not switch themselves live. */
       isActive: z.boolean().optional(),
+
+      /**
+       * Color del encabezado cuando no hay portada.
+       *
+       * Lista cerrada: un hex libre deja pasar un amarillo sobre el que el
+       * nombre del negocio no se lee, y el comercio no tiene por qué saber
+       * de contraste. `null` devuelve el color que Zipp le asigna.
+       */
+      brandColor: z.enum(BUSINESS_BRAND_COLORS).nullable().optional(),
+
+      /** Si la ficha muestra la franja de promoción. El texto no es suyo. */
+      showPromoBanner: z.boolean().optional(),
 
       /**
        * Compra mínima a partir de la cual el negocio regala el domicilio.

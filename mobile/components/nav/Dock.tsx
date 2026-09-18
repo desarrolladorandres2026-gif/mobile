@@ -26,9 +26,13 @@ import { tap } from '../../lib/haptics';
 export function Dock({ onHeightChange }: { onHeightChange?: (height: number) => void }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const carts = useCartStore((s) => s.carts);
   const itemCount = useCartStore((s) => s.getItemCount());
-  const subtotal = useCartStore((s) => s.getSubtotal());
-  const businessName = useCartStore((s) => s.businessName);
+  const getSubtotal = useCartStore((s) => s.getSubtotal);
+  // Con una sola bolsa abierta se puede mostrar de qué negocio y cuánto va;
+  // con varias, el subtotal ya no es una sola cifra, así que la tira solo
+  // invita a elegir cuál revisar.
+  const singleCart = carts.length === 1 ? carts[0] : null;
   const activeOrder = useActiveOrder();
 
   const hidden = itemCount === 0 && !activeOrder;
@@ -63,9 +67,14 @@ export function Dock({ onHeightChange }: { onHeightChange?: (height: number) => 
       {itemCount > 0 ? (
         <CartBar
           count={itemCount}
-          subtotal={subtotal}
-          businessName={businessName}
-          onPress={() => router.push('/(client)/cart')}
+          subtotal={singleCart ? getSubtotal(singleCart.businessId) : null}
+          businessName={singleCart?.businessName ?? null}
+          cartCount={carts.length}
+          onPress={() => router.push(
+            singleCart
+              ? { pathname: '/(client)/cart', params: { businessId: singleCart.businessId } }
+              : '/(client)/cart'
+          )}
         />
       ) : null}
     </View>
@@ -121,16 +130,28 @@ function LiveOrderStrip({ order, onPress }: { order: any; onPress: () => void })
 
 /** Barra de la bolsa. La acción principal cuando hay algo por pedir. */
 function CartBar({
-  count, subtotal, businessName, onPress,
-}: { count: number; subtotal: number; businessName: string | null; onPress: () => void }) {
+  count, subtotal, businessName, cartCount, onPress,
+}: {
+  count: number;
+  /** `null` cuando hay más de una bolsa: el subtotal deja de ser una sola cifra. */
+  subtotal: number | null;
+  businessName: string | null;
+  cartCount: number;
+  onPress: () => void;
+}) {
   const { c } = useTheme();
+  const multiple = cartCount > 1;
 
   return (
     <Animated.View entering={FadeInDown.springify().damping(18)} exiting={FadeOutDown} layout={Layout}>
       <Pressable
         onPress={() => { tap('medium'); onPress(); }}
         accessibilityRole="button"
-        accessibilityLabel={`Ver la bolsa. ${count} ${count === 1 ? 'producto' : 'productos'} de ${businessName ?? 'tu negocio'}. Subtotal ${money(subtotal)}`}
+        accessibilityLabel={
+          multiple
+            ? `Ver tus bolsas. ${count} productos en ${cartCount} negocios distintos.`
+            : `Ver la bolsa. ${count} ${count === 1 ? 'producto' : 'productos'} de ${businessName ?? 'tu negocio'}. Subtotal ${money(subtotal ?? 0)}`
+        }
         style={[styles.cart, { backgroundColor: c.primary }, Shadow.primaryGlow]}
       >
         <View style={[styles.cartCount, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
@@ -138,15 +159,17 @@ function CartBar({
         </View>
 
         <View style={styles.cartBody}>
-          <Text v="buttonMd" color={c.textOnPrimary}>Ver la bolsa</Text>
-          {businessName ? (
-            <Text v="caption" color="rgba(255,255,255,0.75)" numberOfLines={1}>
-              {businessName}
-            </Text>
-          ) : null}
+          <Text v="buttonMd" color={c.textOnPrimary}>
+            {multiple ? 'Ver tus bolsas' : 'Ver la bolsa'}
+          </Text>
+          <Text v="caption" color="rgba(255,255,255,0.75)" numberOfLines={1}>
+            {multiple ? `${cartCount} negocios` : businessName}
+          </Text>
         </View>
 
-        <Text v="dataL" color={c.textOnPrimary}>{money(subtotal)}</Text>
+        {subtotal != null ? (
+          <Text v="dataL" color={c.textOnPrimary}>{money(subtotal)}</Text>
+        ) : null}
       </Pressable>
     </Animated.View>
   );

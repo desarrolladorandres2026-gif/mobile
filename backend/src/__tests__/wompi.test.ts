@@ -113,6 +113,351 @@ describe('WompiPaymentProvider', () => {
     });
   });
 
+  describe('getCheckoutConfig', () => {
+    const merchant = (overrides: Record<string, unknown> = {}) => ({
+      data: {
+        presigned_acceptance: {
+          acceptance_token: 'eyJhbGciOi.TERMINOS',
+          permalink: 'https://wompi.com/terminos.pdf',
+          type: 'END_USER_POLICY',
+        },
+        presigned_personal_data_auth: {
+          acceptance_token: 'eyJhbGciOi.DATOS',
+          permalink: 'https://wompi.com/datos.pdf',
+          type: 'PERSONAL_DATA_AUTH',
+        },
+        ...overrides,
+      },
+    });
+
+    it('devuelve la llave pública, el entorno y los dos consentimientos', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => merchant() }));
+
+      const cfg = await provider.getCheckoutConfig();
+
+      expect(cfg.publicKey).toBe(KEYS.publicKey);
+      expect(cfg.environment).toBe('test');
+      expect(cfg.acceptanceToken).toBe('eyJhbGciOi.TERMINOS');
+      expect(cfg.personalDataAuthToken).toBe('eyJhbGciOi.DATOS');
+      expect(cfg.permalinks.termsAndConditions).toBe('https://wompi.com/terminos.pdf');
+      expect(cfg.permalinks.personalDataAuth).toBe('https://wompi.com/datos.pdf');
+    });
+
+    it('nunca deja salir la llave privada ni el secreto de integridad', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => merchant() }));
+
+      const serialised = JSON.stringify(await provider.getCheckoutConfig());
+
+      expect(serialised).not.toContain(KEYS.privateKey);
+      expect(serialised).not.toContain(KEYS.integritySecret);
+      expect(serialised).not.toContain(KEYS.eventsSecret);
+    });
+
+    it('pide la configuración una sola vez: la cachea', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue({ ok: true, json: async () => merchant() });
+      vi.stubGlobal('fetch', fetchSpy);
+
+      await provider.getCheckoutConfig();
+      await provider.getCheckoutConfig();
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('la caché es por instancia, no global: otro entorno no hereda la anterior', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => merchant() }));
+      await provider.getCheckoutConfig();
+
+      Object.assign(config.payments.wompi, KEYS, { publicKey: 'pub_prod_xyz' });
+      const production = new WompiPaymentProvider();
+
+      expect((await production.getCheckoutConfig()).environment).toBe('production');
+    });
+
+    it('falla si Wompi no devuelve token de aceptación, en vez de entregar una configuración a medias', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => merchant({ presigned_acceptance: {} }),
+        })
+      );
+
+      await expect(provider.getCheckoutConfig()).rejects.toThrow(/token de aceptación/);
+    });
+
+    it('propaga un error legible si Wompi responde con un estado HTTP de error', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+      await expect(provider.getCheckoutConfig()).rejects.toThrow(/503/);
+    });
+  });
+
+  describe('createNativePayment (API de Transacciones)', () => {
+    const nativeInput = (overrides: Record<string, unknown> = {}) => ({
+      ...input(),
+      acceptanceToken: 'eyJhbGciOi.TERMINOS',
+      instrument: { kind: 'card_token' as const, token: 'tok_test_1_ABC', installments: 1 },
+      ...overrides,
+    });
+
+    const transaction = (overrides: Record<string, unknown> = {}) => ({
+      id: '1234-1610641025-49201',
+      reference: 'ZIPP-order-1-REF',
+      status: 'PENDING',
+      amount_in_cents: 2500000,
+      currency: 'COP',
+      payment_method_type: 'CARD',
+      ...overrides,
+    });
+
+    const stubCreate = (tx: Record<string, unknown> = transaction()) => {
+      const spy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: tx }) });
+      vi.stubGlobal('fetch', spy);
+      return spy;
+    };
+
+    const sentBody = (spy: ReturnType<typeof vi.fn>) => JSON.parse(spy.mock.calls[0][1].body);
+
+    it('cobra con la llave privada contra /transactions', async () => {
+      const spy = stubCreate();
+      await provider.createNativePayment(nativeInput());
+
+      const [url, init] = spy.mock.calls[0];
+      expect(url).toBe('https://sandbox.wompi.co/v1/transactions');
+      expect(init.method).toBe('POST');
+      expect(init.headers.Authorization).toBe(`Bearer ${KEYS.privateKey}`);
+    });
+
+    it('firma SIN tiempo de expiración: ese parámetro es solo del Web Checkout', async () => {
+      const spy = stubCreate();
+      await provider.createNativePayment(nativeInput());
+
+      const expected = crypto
+        .createHash('sha256')
+        .update('ZIPP-order-1-REF2500000COPtest_integrity_secret')
+        .digest('hex');
+      expect(sentBody(spy).signature).toBe(expected);
+    });
+
+    it('arma el cuerpo de una tarjeta tokenizada con cuotas y aceptación', async () => {
+      const spy = stubCreate();
+      await provider.createNativePayment(nativeInput());
+
+      const body = sentBody(spy);
+      expect(body.payment_method).toEqual({ type: 'CARD', token: 'tok_test_1_ABC', installments: 1 });
+      expect(body.acceptance_token).toBe('eyJhbGciOi.TERMINOS');
+      expect(body.amount_in_cents).toBe(2500000);
+      expect(body.customer_email).toBe('cliente@zipp.co');
+      expect(body).not.toHaveProperty('payment_source_id');
+    });
+
+    it('Nequi viaja con el teléfono y nada más', async () => {
+      const spy = stubCreate(transaction({ payment_method_type: 'NEQUI' }));
+      await provider.createNativePayment(
+        nativeInput({ instrument: { kind: 'nequi', phone: '3991111111' } })
+      );
+      expect(sentBody(spy).payment_method).toEqual({ type: 'NEQUI', phone_number: '3991111111' });
+    });
+
+    it('una tarjeta guardada va como payment_source_id, con solo las cuotas en payment_method', async () => {
+      const spy = stubCreate();
+      await provider.createNativePayment(
+        nativeInput({ instrument: { kind: 'saved_source', paymentSourceId: 3891, installments: 3 } })
+      );
+
+      const body = sentBody(spy);
+      expect(body.payment_source_id).toBe(3891);
+      // Ni tipo ni token: la pasarela ya sabe qué tarjeta es.
+      expect(body.payment_method).toEqual({ installments: 3 });
+    });
+
+    it('PSE lleva banco, documento, descripción acotada y dirección de regreso', async () => {
+      const spy = stubCreate(
+        transaction({
+          payment_method_type: 'PSE',
+          payment_method: { extra: { async_payment_url: 'https://banco.example/pse?x=1' } },
+        })
+      );
+
+      const intent = await provider.createNativePayment(
+        nativeInput({
+          description: 'Pedido ZIPP-000123 con una descripción larguísima',
+          redirectUrl: 'zipp://payment-result',
+          instrument: {
+            kind: 'pse',
+            financialInstitutionCode: '1022',
+            userType: 0,
+            userLegalIdType: 'CC',
+            userLegalId: '1999888777',
+          },
+        })
+      );
+
+      const body = sentBody(spy);
+      expect(body.payment_method.type).toBe('PSE');
+      expect(body.payment_method.financial_institution_code).toBe('1022');
+      expect(body.payment_method.payment_description.length).toBeLessThanOrEqual(30);
+      expect(body.redirect_url).toBe('zipp://payment-result');
+      expect(intent.asyncPaymentUrl).toBe('https://banco.example/pse?x=1');
+    });
+
+    it('descarta una URL de banco que no sea https: se abriría dentro del WebView de la app', async () => {
+      stubCreate(
+        transaction({ payment_method: { extra: { async_payment_url: 'javascript:alert(1)' } } })
+      );
+      const intent = await provider.createNativePayment(nativeInput());
+      expect(intent.asyncPaymentUrl).toBeUndefined();
+    });
+
+    it('entrega el reto 3DS ya desescapado, y solo si está pendiente', async () => {
+      stubCreate(
+        transaction({
+          payment_method: {
+            extra: {
+              three_ds_auth: {
+                current_step: 'CHALLENGE',
+                current_step_status: 'PENDING',
+                three_ds_method_data: '&lt;form action=&quot;x&quot;&gt;&amp;lt;&lt;/form&gt;',
+              },
+            },
+          },
+        })
+      );
+
+      const intent = await provider.createNativePayment(nativeInput());
+      // `&amp;lt;` debe quedar en `&lt;`: desescapar `&amp;` primero lo
+      // convertiría en `<` y cambiaría el documento.
+      expect(intent.threeDsChallengeHtml).toBe('<form action="x">&lt;</form>');
+    });
+
+    it('no inventa un reto cuando el paso 3DS ya terminó', async () => {
+      stubCreate(
+        transaction({
+          payment_method: {
+            extra: {
+              three_ds_auth: {
+                current_step: 'CHALLENGE',
+                current_step_status: 'COMPLETED',
+                three_ds_method_data: '&lt;p&gt;viejo&lt;/p&gt;',
+              },
+            },
+          },
+        })
+      );
+      expect((await provider.createNativePayment(nativeInput())).threeDsChallengeHtml).toBeUndefined();
+    });
+
+    it('conserva el motivo de Wompi cuando rechaza la creación', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 422,
+          json: async () => ({ error: { reason: 'La tarjeta está vencida' } }),
+        })
+      );
+      await expect(provider.createNativePayment(nativeInput())).rejects.toThrow(/422.*vencida/);
+    });
+
+    it('exige correo antes de llamar a Wompi, en vez de recibir su 422', async () => {
+      const spy = stubCreate();
+      await expect(
+        provider.createNativePayment(nativeInput({ customer: { name: 'Sin correo' } }))
+      ).rejects.toThrow(/correo/);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('devuelve el id real de Wompi y el pedido de quien llama', async () => {
+      stubCreate();
+      const intent = await provider.createNativePayment(nativeInput());
+      expect(intent.id).toBe('1234-1610641025-49201');
+      expect(intent.orderId).toBe('order-1');
+      expect(intent.status).toBe('pending');
+    });
+  });
+
+  describe('createPaymentSource', () => {
+    const sourceInput = {
+      token: 'tok_test_1_ABCDEF',
+      customerEmail: 'cliente@zipp.co',
+      acceptanceToken: 'eyJhbGciOi.TERMINOS',
+      personalDataAuthToken: 'eyJhbGciOi.DATOS',
+    };
+
+    it('crea la fuente con la llave privada y los dos consentimientos', async () => {
+      const spy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: { id: 3891, status: 'AVAILABLE' } }),
+      });
+      vi.stubGlobal('fetch', spy);
+
+      const source = await provider.createPaymentSource(sourceInput);
+
+      expect(source.id).toBe(3891);
+      const [url, init] = spy.mock.calls[0];
+      expect(url).toBe('https://sandbox.wompi.co/v1/payment_sources');
+      expect(init.headers.Authorization).toBe(`Bearer ${KEYS.privateKey}`);
+      const body = JSON.parse(init.body);
+      expect(body).toMatchObject({
+        type: 'CARD',
+        token: 'tok_test_1_ABCDEF',
+        acceptance_token: 'eyJhbGciOi.TERMINOS',
+        accept_personal_auth: 'eyJhbGciOi.DATOS',
+      });
+    });
+
+    it('rechaza una fuente que Wompi no deja disponible', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { id: 1, status: 'PENDING' } }) })
+      );
+      await expect(provider.createPaymentSource(sourceInput)).rejects.toThrow(/PENDING/);
+    });
+
+    it('rechaza una respuesta sin identificador utilizable', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { id: '3891' } }) })
+      );
+      await expect(provider.createPaymentSource(sourceInput)).rejects.toThrow(/identificador/);
+    });
+  });
+
+  describe('listPseBanks', () => {
+    const banks = [
+      { financial_institution_code: '0', financial_institution_name: 'A continuación seleccione su banco' },
+      { financial_institution_code: '1022', financial_institution_name: 'BANCO UNION COLOMBIANO' },
+      { financial_institution_code: '', financial_institution_name: 'sin código' },
+    ];
+
+    it('mapea la lista y descarta entradas incompletas', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: banks }) }));
+      const list = await provider.listPseBanks();
+      expect(list).toContainEqual({ code: '1022', name: 'BANCO UNION COLOMBIANO' });
+      expect(list.find((b) => b.name === 'sin código')).toBeUndefined();
+    });
+
+    it('usa la llave pública: es un catálogo, no un movimiento de dinero', async () => {
+      const spy = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: banks }) });
+      vi.stubGlobal('fetch', spy);
+      await provider.listPseBanks();
+      expect(spy.mock.calls[0][1].headers.Authorization).toBe(`Bearer ${KEYS.publicKey}`);
+    });
+
+    it('cachea una lista con bancos, pero nunca una vacía', async () => {
+      const empty = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [] }) });
+      vi.stubGlobal('fetch', empty);
+      await provider.listPseBanks();
+      await provider.listPseBanks();
+      expect(empty).toHaveBeenCalledTimes(2);
+
+      const full = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: banks }) });
+      vi.stubGlobal('fetch', full);
+      await provider.listPseBanks();
+      await provider.listPseBanks();
+      expect(full).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('getPayment', () => {
     it('mapea la transacción de Wompi a un PaymentIntent', async () => {
       vi.stubGlobal(

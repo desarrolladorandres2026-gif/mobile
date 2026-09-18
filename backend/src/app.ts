@@ -14,10 +14,12 @@ import mongoose from 'mongoose';
 import { config, connectDB } from './config';
 import { errorHandler, securityHeaders, sanitizeRequest, requestId } from './middlewares';
 import routes from './routes';
+import businessShareRoutes from './routes/businessShare.routes';
 import { initializeSocket } from './sockets';
 import { setIO } from './sockets/emitter';
 import { startDispatchSweeper, stopDispatchSweeper } from './services/dispatch.service';
 import { startCartAbandonmentSweeper, stopCartAbandonmentSweeper } from './services/cartActivity.service';
+import { startLoyaltyExpirySweeper, stopLoyaltyExpirySweeper } from './services/loyalty.service';
 
 const app = express();
 const httpServer = createServer(app);
@@ -139,6 +141,12 @@ if (config.nodeEnv === 'development') {
 // ── Routes ──
 app.use('/api/v1', routes);
 
+// Fuera de `/api/v1`: es la URL corta que se comparte en WhatsApp, no un
+// endpoint de la API. Vive fuera del alcance de `globalLimiter` (atado a
+// `/api/`), así que lleva el mismo limitador a mano — sin él, esta ruta
+// quedaría sin ningún tope de peticiones.
+app.use('/negocio', globalLimiter, businessShareRoutes);
+
 // ── Health check ──
 app.get('/health', async (_req, res) => {
   const dbState = mongoose.connection.readyState;
@@ -206,6 +214,7 @@ const start = async () => {
   // dejaría escribiendo en la base entre casos.
   startDispatchSweeper();
   startCartAbandonmentSweeper();
+  startLoyaltyExpirySweeper();
 
   httpServer.listen(config.port, '0.0.0.0', () => {
     console.log(`\n🚀 ZIPP API en puerto ${config.port}`);
@@ -224,6 +233,7 @@ const shutdown = async (signal: string) => {
   console.log(`\n[${signal}] Cerrando servidor...`);
   stopDispatchSweeper();
   stopCartAbandonmentSweeper();
+  stopLoyaltyExpirySweeper();
   httpServer.close(async () => {
     try {
       await mongoose.connection.close();

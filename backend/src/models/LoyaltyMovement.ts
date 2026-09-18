@@ -35,6 +35,12 @@ export interface ILoyaltyMovement extends Document {
   description: string;
   /** Cuándo caducan estos puntos. Solo en los ganados. */
   expiresAt?: Date | null;
+  /**
+   * Cuándo el barrido de caducidad ya pasó por estos puntos. Es la marca que
+   * deja reclamarlos con una sola escritura condicional: con varios
+   * procesos barriendo a la vez, solo uno puede caducar cada lote.
+   */
+  expiryProcessedAt?: Date | null;
   createdBy?: Types.ObjectId | null;
   createdAt: Date;
 }
@@ -55,6 +61,7 @@ const loyaltyMovementSchema = new Schema<ILoyaltyMovement>(
     couponId: { type: Schema.Types.ObjectId, ref: 'Coupon', default: null },
     description: { type: String, required: true, maxlength: 200 },
     expiresAt: { type: Date, default: null },
+    expiryProcessedAt: { type: Date, default: null },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
@@ -66,6 +73,14 @@ const loyaltyMovementSchema = new Schema<ILoyaltyMovement>(
 loyaltyMovementSchema.index(
   { orderId: 1, kind: 1 },
   { unique: true, partialFilterExpression: { orderId: { $type: 'objectId' }, kind: 'earned' } }
+);
+// Y se revierten una sola vez: un reembolso que se reintenta no puede
+// quitarle al cliente dos veces los puntos de la misma compra. Distinto orden
+// de campos que el de arriba a propósito — dos índices con la misma clave y
+// distinto filtro parcial no los aceptan todas las versiones de Mongo.
+loyaltyMovementSchema.index(
+  { kind: 1, orderId: 1 },
+  { unique: true, partialFilterExpression: { orderId: { $type: 'objectId' }, kind: 'reversed' } }
 );
 loyaltyMovementSchema.index({ userId: 1, createdAt: -1 });
 loyaltyMovementSchema.index({ expiresAt: 1, kind: 1 });

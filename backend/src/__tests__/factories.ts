@@ -131,6 +131,7 @@ export async function authHeader(user: { _id: any; role: string }): Promise<{ Au
 
 export async function makeBusiness(ownerId: any, overrides: Partial<{
   name: string;
+  description: string;
   lat: number;
   lng: number;
   minOrder: number;
@@ -151,7 +152,7 @@ export async function makeBusiness(ownerId: any, overrides: Partial<{
   return Business.create({
     ownerId,
     name: overrides.name ?? `Negocio ${counter++}`,
-    description: 'Negocio de prueba',
+    description: overrides.description ?? 'Negocio de prueba',
     category: overrides.category ?? 'fast_food',
     address: 'Cra 10 #5-23, Garzón',
     location: {

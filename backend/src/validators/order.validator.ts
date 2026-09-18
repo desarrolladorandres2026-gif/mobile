@@ -72,19 +72,49 @@ const moneyExtras = {
   scheduledFor: z.coerce.date().optional(),
 };
 
+/**
+ * Cómo paga en efectivo: si necesita vuelto, y con cuánto paga.
+ *
+ * `payingWith` solo tiene sentido junto con `needsChange: true` — sin
+ * vuelto que calcular, no hay billete que declarar. Se valida contra el
+ * total del pedido en el servicio, no aquí: el total todavía no existe en
+ * este punto, se calcula recién con la cotización.
+ */
+const cashPaymentSchema = z
+  .object({
+    needsChange: z.boolean({
+      required_error: 'Indica si necesitas cambio',
+      invalid_type_error: 'Indica si necesitas cambio',
+    }),
+    payingWith: z.number().positive().optional(),
+  })
+  .refine((c) => !c.needsChange || c.payingWith !== undefined, {
+    message: 'Indica con cuánto vas a pagar',
+    path: ['payingWith'],
+  });
+
 export const createOrderSchema = z.object({
-  body: z.object({
-    businessId: z.string(),
-    items: z.array(orderItemSchema).min(1, 'Mínimo un producto'),
-    paymentMethod,
-    deliveryAddress: z.string().min(5),
-    deliveryDetails: z.string().max(200).optional(),
-    deliveryLongitude: z.number().min(-180).max(180),
-    deliveryLatitude: z.number().min(-90).max(90),
-    notes: z.string().max(200).optional(),
-    idempotencyKey: z.string().max(120).optional(),
-    ...moneyExtras,
-  }),
+  body: z
+    .object({
+      businessId: z.string(),
+      items: z.array(orderItemSchema).min(1, 'Mínimo un producto'),
+      paymentMethod,
+      deliveryAddress: z.string().min(5),
+      deliveryDetails: z.string().max(200).optional(),
+      deliveryLongitude: z.number().min(-180).max(180),
+      deliveryLatitude: z.number().min(-90).max(90),
+      notes: z.string().max(200).optional(),
+      idempotencyKey: z.string().max(120).optional(),
+      cashPayment: cashPaymentSchema.optional(),
+      ...moneyExtras,
+    })
+    // Se exige aquí y no con un `required` plano en el campo: un pedido
+    // digital no tiene nada que declarar, y obligar a mandar `cashPayment`
+    // en todos los pedidos rompería esa mitad del flujo para nada.
+    .refine(
+      (b) => b.paymentMethod !== PaymentMethod.CASH_ON_DELIVERY || !!b.cashPayment,
+      { message: 'Indica si necesitas cambio', path: ['cashPayment'] }
+    ),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
 });

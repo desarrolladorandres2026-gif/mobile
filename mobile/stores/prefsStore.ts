@@ -13,6 +13,21 @@ interface PrefsState {
   removeRecentSearch: (query: string) => void;
   clearRecentSearches: () => void;
 
+  /**
+   * El documento de términos de Wompi que esta persona aceptó, por su URL.
+   *
+   * Se recuerda la versión, no un "sí" genérico: si Wompi publica otros
+   * términos la URL cambia y la casilla vuelve a aparecer vacía. Así el
+   * segundo pago es de un toque sin que el consentimiento se herede a un
+   * documento que nadie leyó.
+   */
+  acceptedPaymentTerms: string | null;
+  setAcceptedPaymentTerms: (permalink: string | null) => void;
+
+  /** Correo para comprobantes de quien se registró solo con teléfono. */
+  receiptEmail: string | null;
+  setReceiptEmail: (email: string | null) => void;
+
   /** Se guarda para poder restaurar el estado en pruebas y soporte. */
   reset: () => void;
 }
@@ -43,7 +58,14 @@ export const usePrefsStore = create<PrefsState>()(
       },
       clearRecentSearches: () => set({ recentSearches: [] }),
 
-      reset: () => set({ lastAddressId: null, recentSearches: [] }),
+      acceptedPaymentTerms: null,
+      setAcceptedPaymentTerms: (permalink) => set({ acceptedPaymentTerms: permalink }),
+
+      receiptEmail: null,
+      setReceiptEmail: (email) => set({ receiptEmail: email }),
+
+      reset: () =>
+        set({ lastAddressId: null, recentSearches: [], acceptedPaymentTerms: null, receiptEmail: null }),
     }),
     {
       name: 'zipp-prefs',

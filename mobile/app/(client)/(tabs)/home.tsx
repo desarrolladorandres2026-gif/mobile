@@ -239,9 +239,7 @@ const UsualCard = memo(function UsualCard({ item, onPress }: { item: UsualOrder;
       accessibilityHint="Agrega estos productos a tu bolsa"
     >
       <View style={styles.usualTop}>
-        <View style={[styles.usualIcon, { backgroundColor: c.surfaceLight }]}>
-          <Illustration size={30} />
-        </View>
+        <Illustration size={30} />
         {item.timesOrdered > 1 ? (
           <Badge label={`${item.timesOrdered} veces`} tone="lime" icon="racha" />
         ) : null}
@@ -314,10 +312,6 @@ const styles = StyleSheet.create({
 
   usual: { width: 236, gap: Spacing.md, padding: Spacing.md },
   usualTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  usualIcon: {
-    width: 40, height: 40, borderRadius: BorderRadius.sm,
-    alignItems: 'center', justifyContent: 'center',
-  },
   usualBody: { gap: 2, minHeight: 52 },
   usualCta: {
     flexDirection: 'row',

@@ -5,8 +5,9 @@ import {
 import { Image } from 'expo-image';
 import { Lightbox } from '../../../components/domain/Lightbox';
 import { ReviewsSheet } from '../../../components/domain/ReviewsSheet';
+import { BusinessHeader, BusinessPromoBanner } from '../../../components/domain/BusinessHeader';
 import { formatDistance } from '../../../components/domain/BusinessCard';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown, FadeOutDown, Layout } from 'react-native-reanimated';
 import {
@@ -22,9 +23,13 @@ import { categoryIllustration } from '../../../components/illustrations';
 import { Type } from '../../../theme/typography';
 import { BorderRadius, Shadow, Spacing } from '../../../theme/tokens';
 import { businessAccent, openState } from '../../../lib/business';
-import { money, minutes } from '../../../lib/format';
+import { API_ORIGIN } from '../../../constants/config';
+import { money } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
-import { freeDeliveryGap, likeRatio, catalogBadges, discountPercent } from '../../../lib/catalog';
+import {
+  freeDeliveryGap, likeRatio, catalogBadges, discountPercent, pickSuggestions,
+} from '../../../lib/catalog';
+import { SuggestionRow } from '../../../components/domain/SuggestionRow';
 import { normalize, matches } from '../../../lib/text';
 import {
   productImageUri, productImagePlaceholder, hasProductImage, productGallery,
@@ -64,8 +69,6 @@ interface Product {
 
 /** Espacio que reserva el scroll cuando la barra de "mi coronita" está a la vista. */
 const STORE_CART_CLEARANCE = 92;
-/** Cuántos platos sugeridos como acompañamiento se muestran como máximo. */
-const MAX_SUGGESTIONS = 6;
 
 /** Cartas a partir de las cuales se ofrece buscar dentro del negocio. */
 const MENU_SEARCH_MIN = 8;
@@ -92,6 +95,17 @@ export default function BusinessScreen() {
   const [reviewsOpen, setReviewsOpen] = useState(false);
 
   /**
+   * `stickyHeaderIndices` pega la barra de búsqueda contra el borde real
+   * de la pantalla (y=0 del ScrollView), tape o no el notch: mientras
+   * todavía va bajando junto con la portada no necesita el hueco del
+   * notch, y solo hace falta apenas queda enganchada arriba del todo.
+   * Por eso el padding del notch solo se activa después de ese punto,
+   * medido con el alto real de la portada+info (`headerHeight`).
+   */
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const [menuStuck, setMenuStuck] = useState(false);
+
+  /**
    * Llegar con `?productId=` —desde la tira de platos de Inicio— abre esa
    * ficha sola, en cuanto la carta termine de cargar.
    *
@@ -116,12 +130,11 @@ export default function BusinessScreen() {
     setSelected(product);
   }, []);
 
-  const { toggle: toggleFavorite, isFavorite } = useFavorites();
   const bottomInset = useBottomInset();
+  const { top: topInset } = useSafeAreaInsets();
 
-  const cartBusinessId = useCartStore((s) => s.businessId);
-  const cartItemCount = useCartStore((s) => s.getItemCount());
-  const cartSubtotal = useCartStore((s) => s.getSubtotal());
+  const cartItemCount = useCartStore((s) => s.getItemCount(business?._id));
+  const cartSubtotal = useCartStore((s) => s.getSubtotal(business?._id ?? ''));
 
   const status = openState(business?.schedule);
   const accent = businessAccent(id);
@@ -182,19 +195,30 @@ export default function BusinessScreen() {
     );
   }
 
-  const HeroIllustration = categoryIllustration(business.category);
 
-  // Solo se ofrece "seguir agregando" cuando lo que hay en la bolsa es de
-  // ESTE negocio: la bolsa es de un solo negocio a la vez, así que si el
-  // cliente trae algo de otro lado, esta pantalla no debe insinuar que
-  // puede sumarlo aquí.
-  const showCartBar = cartItemCount > 0 && cartBusinessId === business._id;
+  // Cada negocio tiene su propia bolsa, así que basta con mirar la de este.
+  const showCartBar = cartItemCount > 0;
 
+  /**
+   * Comparte un enlace de verdad, no un mensaje de texto.
+   *
+   * No apunta directo a la página de `web/` (esa es una SPA de React: el
+   * rastreador de vista previa de WhatsApp no ejecuta JavaScript, así que
+   * vería el HTML vacío de antes de que React pinte nada). Apunta a
+   * `/negocio/:slug` del **backend**, que arma esas etiquetas del lado del
+   * servidor con los datos reales del negocio — nombre, descripción, foto
+   * — y solo después manda a un humano de verdad a la página interactiva.
+   * Ver `businessShare.controller.ts` para el porqué completo.
+   *
+   * `url` es lo que iOS usa para compartirlo como enlace real —con vista
+   * previa, no como texto suelto—; Android no distingue el campo `url` de
+   * `message`, así que el mismo valor va en los dos y WhatsApp/SMS
+   * reconocen la URL dentro del texto igual.
+   */
   const share = async () => {
+    const link = `${API_ORIGIN}/negocio/${business.slug}`;
     try {
-      await Share.share({
-        message: `${business.name} está en Zipp. ${business.description || 'Pide a domicilio.'}`,
-      });
+      await Share.share({ message: link, url: link, title: business.name });
     } catch {
       // El usuario canceló la hoja de compartir. No hay nada que reportar.
     }
@@ -216,71 +240,54 @@ export default function BusinessScreen() {
     if (business.phone) Linking.openURL(`tel:${business.phone}`).catch(() => {});
   };
 
-  const favorite = isFavorite(business._id);
-
   return (
     <View style={[styles.screen, { backgroundColor: c.background }]}>
-      <SafeAreaView edges={['top']} style={styles.navWrap}>
-        <View style={styles.nav}>
-          <IconButton
-            icon="atras"
-            label="Volver"
-            onPress={() => {
-              if (router.canGoBack()) router.back();
-              else router.replace('/(client)/(tabs)/home');
-            }}
-          />
-          <View style={styles.navRight}>
-            <IconButton icon="compartir" label="Compartir este negocio" onPress={share} />
-            <IconButton
-              icon="favorito"
-              label={favorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
-              tone={favorite ? 'danger' : 'neutral'}
-              filled={favorite}
-              onPress={() => {
-                tap(favorite ? 'light' : 'success');
-                // Solo el id: el servidor ya sabe el resto y guardar una
-                // copia del negocio dejaba nombres y precios congelados en
-                // el momento de marcarlo.
-                toggleFavorite(business._id);
-              }}
-            />
-          </View>
-        </View>
-      </SafeAreaView>
-
       <ScrollView
         showsVerticalScrollIndicator={false}
         stickyHeaderIndices={showMenuTools ? [1] : undefined}
+        onScroll={(e) => {
+          if (!headerHeight) return;
+          const stuck = e.nativeEvent.contentOffset.y >= headerHeight;
+          setMenuStuck((prev) => (prev === stuck ? prev : stuck));
+        }}
+        scrollEventThrottle={32}
         contentContainerStyle={{
           paddingBottom: bottomInset + Spacing.huge + (showCartBar ? STORE_CART_CLEARANCE : 0),
         }}
       >
         {/* ── Portada e identidad ── */}
-        <View>
-          <View style={[styles.hero, { backgroundColor: accent }]}>
-            {business.coverImage ? (
-              <Image
-                source={{ uri: business.coverImage }}
-                style={StyleSheet.absoluteFill}
-                contentFit="cover"
-                transition={220}
-                accessible={false}
+        <View onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}>
+          <BusinessHeader
+            business={business}
+            fallbackAccent={accent}
+            distanceLabel={formatDistance(business.distanceMeters)}
+            statusBadge={
+              <Badge
+                label={status.label || (status.open ? 'Abierto' : 'Cerrado')}
+                tone={status.open ? 'lime' : 'neutral'}
+                icon="reloj"
               />
-            ) : (
-              <View style={styles.heroBadgeCircle}>
-                <HeroIllustration size={56} />
-              </View>
-            )}
-            <View style={[styles.heroFade, { backgroundColor: c.background }]} />
-          </View>
+            }
+          />
+
+          {/* Volver/compartir van sobre la portada y se van con ella al
+              desplazar: fijarlos habría tapado el notch (la sticky de abajo
+              ya resuelve la necesidad de tener algo siempre a mano). */}
+          <SafeAreaView edges={['top']} style={styles.navWrap} pointerEvents="box-none">
+            <View style={styles.nav}>
+              <IconButton
+                icon="atras"
+                label="Volver"
+                onPress={() => {
+                  if (router.canGoBack()) router.back();
+                  else router.replace('/(client)/(tabs)/home');
+                }}
+              />
+              <IconButton icon="compartir" label="Compartir este negocio" onPress={share} />
+            </View>
+          </SafeAreaView>
 
           <View style={styles.info}>
-            <Text v="displayL">{business.name}</Text>
-            {business.description ? (
-              <Text v="bodyM" tone="textSecondary">{business.description}</Text>
-            ) : null}
-
             <Pressable
               onPress={() => { tap('light'); setReviewsOpen(true); }}
               accessibilityRole="button"
@@ -288,14 +295,13 @@ export default function BusinessScreen() {
               accessibilityHint="Ver las reseñas de este negocio"
               style={styles.ratingRow}
             >
+              {/* Solo la calificación: el tiempo de entrega y la distancia
+                  ya los dice la tarjeta de arriba, y repetir el mismo
+                  número dos veces en la misma pantalla es ruido. */}
               <MetaRow
                 items={[
                   { icon: 'calificacion', text: business.rating.toFixed(1), strong: true, tone: 'text' },
                   { text: `${business.totalReviews ?? 0} reseñas` },
-                  { icon: 'minutos', text: minutes(business.deliveryTime) },
-                  ...(formatDistance(business.distanceMeters)
-                    ? [{ icon: 'navegar' as const, text: formatDistance(business.distanceMeters)! }]
-                    : []),
                 ]}
               />
               <Icon name="siguiente" size="sm" color={c.textMuted} />
@@ -316,23 +322,32 @@ export default function BusinessScreen() {
               </Pressable>
             ) : null}
 
-            <View style={styles.badges}>
-              <Badge
-                label={status.label || (status.open ? 'Abierto' : 'Cerrado')}
-                tone={status.open ? 'lime' : 'neutral'}
-                icon="reloj"
-              />
-              {business.minOrder ? (
-                <Badge label={`Pedido mínimo ${money(business.minOrder)}`} tone="neutral" icon="bolsa" />
-              ) : null}
-            </View>
-
             <View style={styles.actions}>
               {business.phone ? (
-                <Button title="Llamar" icon="llamar" variant="secondary" size="sm" onPress={call} />
+                <Pressable
+                  onPress={() => { tap('light'); call(); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Llamar"
+                  style={styles.actionItem}
+                  hitSlop={8}
+                >
+                  <Icon name="llamar" size="sm" color={c.text} />
+                  <Text v="buttonSm" color={c.text}>Llamar</Text>
+                </Pressable>
               ) : null}
-              <Button title="Cómo llegar" icon="ubicacion" variant="secondary" size="sm" onPress={openMap} />
+              <Pressable
+                onPress={() => { tap('light'); openMap(); }}
+                accessibilityRole="button"
+                accessibilityLabel="Cómo llegar"
+                style={styles.actionItem}
+                hitSlop={8}
+              >
+                <Icon name="ubicacion" size="sm" color={c.text} />
+                <Text v="buttonSm" color={c.text}>Cómo llegar</Text>
+              </Pressable>
             </View>
+
+            <BusinessPromoBanner business={business} />
 
             {!status.open ? (
               <Notice tone="warning">
@@ -344,7 +359,7 @@ export default function BusinessScreen() {
 
         {/* ── Buscar en la carta y secciones (fijos al desplazar) ── */}
         {showMenuTools ? (
-          <View style={[styles.tabs, { backgroundColor: c.background, borderBottomColor: c.border }]}>
+          <View style={[styles.tabs, { backgroundColor: c.background, borderBottomColor: c.border, paddingTop: menuStuck ? topInset : 0 }]}>
             {/* Queda fijo al desplazar a propósito: en una carta larga, el
                 momento en que hace falta buscar es justo cuando ya se lleva
                 medio menú recorrido y la cabecera quedó arriba del todo. */}
@@ -388,7 +403,7 @@ export default function BusinessScreen() {
             <View style={styles.productSkeletons}>
               {[0, 1, 2, 3].map((i) => (
                 <View key={i} style={styles.productSkeleton}>
-                  <Skeleton width={84} height={84} radius={BorderRadius.md} />
+                  <Skeleton width={136} height={136} radius={BorderRadius.lg} />
                   <View style={styles.flex}>
                     <Skeleton width="70%" height={17} />
                     <Skeleton width="90%" height={13} style={{ marginTop: 8 }} />
@@ -427,6 +442,7 @@ export default function BusinessScreen() {
                     disabled={!status.open}
                     likePercent={likeRatio(sentiment[product._id])}
                     freeDelivery={freeDelivery}
+                    fallbackPrepMinutes={business.deliveryTime}
                     onPress={selectProduct}
                   />
                 ))}
@@ -442,6 +458,7 @@ export default function BusinessScreen() {
                 disabled={!status.open}
                 likePercent={likeRatio(sentiment[product._id])}
                 freeDelivery={freeDelivery}
+                fallbackPrepMinutes={business.deliveryTime}
                 onPress={selectProduct}
               />
             ))}
@@ -458,6 +475,8 @@ export default function BusinessScreen() {
           category={business.category}
           businessId={business._id}
           businessName={business.name}
+          businessLogo={business.logo}
+          fallbackPrepMinutes={business.deliveryTime}
           onClose={() => setSelected(null)}
           onOpenProduct={setSelected}
         />
@@ -485,7 +504,7 @@ export default function BusinessScreen() {
           count={cartItemCount}
           subtotal={cartSubtotal}
           bottomInset={bottomInset}
-          onPress={() => router.push('/(client)/cart')}
+          onPress={() => router.push({ pathname: '/(client)/cart', params: { businessId: business._id } })}
         />
       ) : null}
     </View>
@@ -533,7 +552,7 @@ function SectionTab({
  * la carta re-renderizaba las cuarenta.
  */
 const ProductRow = memo(function ProductRow({
-  product, accent, category, disabled, onPress, likePercent, freeDelivery,
+  product, accent, category, disabled, onPress, likePercent, freeDelivery, fallbackPrepMinutes,
 }: {
   product: Product;
   accent: string;
@@ -544,6 +563,8 @@ const ProductRow = memo(function ProductRow({
   likePercent?: number | null;
   /** Si el negocio regala el domicilio a partir de cierto monto. */
   freeDelivery?: boolean;
+  /** `business.deliveryTime`, para cuando el plato no declaró un tiempo propio. */
+  fallbackPrepMinutes: number;
 }) {
   const { c } = useTheme();
   const unavailable = !product.isAvailable || disabled;
@@ -571,21 +592,16 @@ const ProductRow = memo(function ProductRow({
       accessibilityLabel={`${product.name}. ${money(product.discountPrice ?? product.price)}${!product.isAvailable ? '. Agotado' : ''}`}
       accessibilityHint={unavailable ? undefined : 'Abre las opciones del producto'}
       accessibilityState={{ disabled: unavailable }}
-      style={[
-        styles.product,
-        { backgroundColor: c.surface, borderColor: c.border },
-        unavailable && styles.productOff,
-      ]}
+      style={[styles.product, unavailable && styles.productOff]}
     >
       {/*
-        108 pt en pantalla: se pide la variante de 200 px, no la de
-        catálogo. En una lista de treinta productos la diferencia es de
-        megabytes sobre datos móviles.
+        136 pt en pantalla, a 3x eso son ~408 px: la variante de catálogo
+        (400 px) ya alcanza sin subir a `detail`, que pesa el doble.
       */}
       <View style={[styles.productImage, { backgroundColor: hasProductImage(product) ? accent : c.surfaceLight }]}>
         {hasProductImage(product) ? (
           <Image
-            source={{ uri: productImageUri(product, 'thumb')! }}
+            source={{ uri: productImageUri(product, 'catalog')! }}
             placeholder={productImagePlaceholder(product)}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
@@ -593,7 +609,7 @@ const ProductRow = memo(function ProductRow({
             accessible={false}
           />
         ) : (
-          <Illustration size={52} />
+          <Illustration size={64} />
         )}
         {pct ? (
           <View style={styles.discountRibbon}>
@@ -637,15 +653,12 @@ const ProductRow = memo(function ProductRow({
               <Text v="caption" tone="textMuted">A {likePercent}% le gustó</Text>
             </View>
           ) : null}
-          {/* Solo aparece cuando el negocio declaró un tiempo propio para
-              este plato: la mayoría de la carta hereda el general y
-              repetirlo en cada fila sería ruido, no información. */}
-          {product.prepTimeMinutes ? (
-            <View style={styles.likeRow}>
-              <Icon name="minutos" size={12} color={c.textMuted} />
-              <Text v="caption" tone="textMuted">~{product.prepTimeMinutes} min</Text>
-            </View>
-          ) : null}
+          {/* Propio del plato si el negocio lo declaró; si no, el general
+              del negocio (el mismo que usa el checkout para el estimado). */}
+          <View style={styles.likeRow}>
+            <Icon name="minutos" size={12} color={c.textMuted} />
+            <Text v="caption" tone="textMuted">~{product.prepTimeMinutes ?? fallbackPrepMinutes} min</Text>
+          </View>
         </View>
         {product.description ? (
           <Text v="bodyS" tone="textMuted" numberOfLines={2}>{product.description}</Text>
@@ -731,7 +744,7 @@ function StoreCartBar({
 // ──────────────────────────────────────────────────────────────
 
 function ProductSheet({
-  product, allProducts, accent, category, businessId, businessName, onClose, onOpenProduct,
+  product, allProducts, accent, category, businessId, businessName, businessLogo, fallbackPrepMinutes, onClose, onOpenProduct,
 }: {
   product: Product;
   allProducts: Product[];
@@ -739,6 +752,10 @@ function ProductSheet({
   category: string;
   businessId: string;
   businessName: string;
+  /** Logo del negocio, para pintarlo en la bolsa en vez de un ícono genérico. */
+  businessLogo?: string;
+  /** `business.deliveryTime`, para cuando el plato no declaró un tiempo propio. */
+  fallbackPrepMinutes: number;
   onClose: () => void;
   /** Abre la hoja de otro producto (una sugerencia que exige elegir algo). */
   onOpenProduct: (product: Product) => void;
@@ -775,19 +792,10 @@ function ProductSheet({
   const extrasTotal = extras.reduce((sum, e) => sum + e.price, 0) + selectionTotal(choices);
   const lineTotal = (unitPrice + extrasTotal) * quantity;
 
-  // Primero lo de otras secciones del menú (la bebida, el postre, el
-  // adicional que no es del mismo plato): eso es lo que de verdad "acompaña".
-  // Si el negocio no tiene más secciones, se completa con lo que haya.
-  const suggestions = useMemo(() => {
-    return allProducts
-      .filter((p) => p._id !== product._id && p.isAvailable)
-      .sort((a, b) => {
-        const aPaired = a.categoryId !== product.categoryId ? 0 : 1;
-        const bPaired = b.categoryId !== product.categoryId ? 0 : 1;
-        return aPaired - bPaired;
-      })
-      .slice(0, MAX_SUGGESTIONS);
-  }, [allProducts, product]);
+  const suggestions = useMemo(
+    () => pickSuggestions(allProducts, { exclude: [product._id], covered: [product.categoryId] }),
+    [allProducts, product]
+  );
 
   const quickAdd = (suggested: Product) => {
     // Una sugerencia que exige elegir algo (la carne, el tamaño) no se
@@ -805,9 +813,10 @@ function ProductSheet({
       quantity: 1,
       unitPrice: suggested.discountPrice ?? suggested.price,
       originalUnitPrice: suggested.discountPrice != null ? suggested.price : undefined,
+      image: productImageUri(suggested, 'thumb') ?? undefined,
       selectedExtras: [],
       notes: '',
-    });
+    }, businessLogo);
     setJustAdded(suggested._id);
     setTimeout(() => {
       setJustAdded((current) => (current === suggested._id ? null : current));
@@ -840,6 +849,7 @@ function ProductSheet({
       quantity,
       unitPrice,
       originalUnitPrice: product.discountPrice != null ? product.price : undefined,
+      image: productImageUri(product, 'thumb') ?? undefined,
       selectedExtras: [
         ...choices.map((ch) => ({
           name: ch.name, price: ch.price, quantity: 1,
@@ -848,7 +858,7 @@ function ProductSheet({
         ...extras.map((e) => ({ name: e.name, price: e.price, quantity: 1 })),
       ],
       notes: notes.trim(),
-    });
+    }, businessLogo);
     onClose();
   };
 
@@ -936,12 +946,10 @@ function ProductSheet({
             }}
           />
         </View>
-        {product.prepTimeMinutes ? (
-          <View style={styles.likeRow}>
-            <Icon name="minutos" size={12} color={c.textMuted} />
-            <Text v="caption" tone="textMuted">Tarda ~{product.prepTimeMinutes} min en cocina</Text>
-          </View>
-        ) : null}
+        <View style={styles.likeRow}>
+          <Icon name="minutos" size={12} color={c.textMuted} />
+          <Text v="caption" tone="textMuted">Tarda ~{product.prepTimeMinutes ?? fallbackPrepMinutes} min en cocina</Text>
+        </View>
         {product.description ? (
           <Text v="bodyM" tone="textSecondary">{product.description}</Text>
         ) : null}
@@ -1059,67 +1067,13 @@ function ProductSheet({
         </View>
       ) : null}
 
-      {suggestions.length > 0 ? (
-        <View style={styles.sheetSection}>
-          <Text v="label" tone="textMuted">Para acompañar</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.suggestRow}
-          >
-            {suggestions.map((item) => {
-              const added = justAdded === item._id;
-              const itemPrice = item.discountPrice ?? item.price;
-              const itemPct = discountPercent(item);
-              return (
-                <View
-                  key={item._id}
-                  style={[styles.suggestCard, { backgroundColor: c.surface, borderColor: c.border }]}
-                >
-                  <View
-                    style={[
-                      styles.suggestImage,
-                      { backgroundColor: hasProductImage(item) ? accent : c.surfaceLight },
-                    ]}
-                  >
-                    {hasProductImage(item) ? (
-                      <Image
-                        source={{ uri: productImageUri(item, 'thumb')! }}
-                        placeholder={productImagePlaceholder(item)}
-                        style={StyleSheet.absoluteFill}
-                        contentFit="cover"
-                        accessible={false}
-                      />
-                    ) : (
-                      <Illustration size={26} />
-                    )}
-                    {itemPct ? (
-                      <View style={styles.discountRibbon}>
-                        <CatalogBadge kind="descuento" label={`-${itemPct}%`} />
-                      </View>
-                    ) : null}
-                  </View>
-
-                  <Text v="bodyS" numberOfLines={1}>{item.name}</Text>
-
-                  <View style={styles.suggestFooter}>
-                    <Text v="dataS" tone="primaryText">{money(itemPrice)}</Text>
-                    <Pressable
-                      onPress={() => quickAdd(item)}
-                      disabled={added}
-                      accessibilityRole="button"
-                      accessibilityLabel={added ? `${item.name} agregado` : `Agregar ${item.name}, ${money(itemPrice)} adicional`}
-                      style={[styles.suggestAddBtn, { backgroundColor: added ? c.lime : c.primary }]}
-                    >
-                      <Icon name={added ? 'check' : 'mas'} size="sm" color={c.textOnPrimary} strong />
-                    </Pressable>
-                  </View>
-                </View>
-              );
-            })}
-          </ScrollView>
-        </View>
-      ) : null}
+      <SuggestionRow
+        products={suggestions}
+        accent={accent}
+        category={category}
+        justAddedId={justAdded}
+        onAdd={quickAdd}
+      />
 
       <View style={styles.sheetSection}>
         <View style={styles.notesLabel}>
@@ -1161,23 +1115,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.sm,
   },
-  navRight: { flexDirection: 'row', gap: Spacing.sm },
 
-  hero: { height: 210, alignItems: 'center', justifyContent: 'center' },
-  heroBadgeCircle: {
-    width: 96, height: 96, borderRadius: 48,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.94)',
-  },
-  heroFade: {
-    position: 'absolute', bottom: -1, left: 0, right: 0, height: 28,
-    borderTopLeftRadius: BorderRadius.xxl, borderTopRightRadius: BorderRadius.xxl,
-  },
-  info: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl, gap: Spacing.md },
+  info: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, paddingBottom: Spacing.xl, gap: Spacing.md },
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   addressRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: -Spacing.xs },
-  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  actions: { flexDirection: 'row', gap: Spacing.sm },
+  actions: { flexDirection: 'row', gap: Spacing.xl },
+  actionItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
 
   tabs: { borderBottomWidth: StyleSheet.hairlineWidth },
   menuSearch: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md },
@@ -1193,13 +1136,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.lg,
-    padding: Spacing.md + 2,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
+    paddingVertical: Spacing.sm,
   },
   productOff: { opacity: 0.55 },
   productImage: {
-    width: 108, height: 108, borderRadius: BorderRadius.lg,
+    width: 136, height: 136, borderRadius: BorderRadius.lg,
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
   discountRibbon: { position: 'absolute', top: 4, left: 4 },
@@ -1214,7 +1155,7 @@ const styles = StyleSheet.create({
   priceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 3 },
   strike: { textDecorationLine: 'line-through' },
   addBtn: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 44, height: 44, borderRadius: 22,
     alignItems: 'center', justifyContent: 'center',
     ...Shadow.sm,
   },
@@ -1270,26 +1211,6 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   sheetFooter: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-
-  suggestRow: { gap: Spacing.md, paddingRight: Spacing.md },
-  suggestCard: {
-    width: 128,
-    padding: Spacing.sm + 2,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    gap: Spacing.xs + 1,
-  },
-  suggestImage: {
-    width: '100%', height: 64, borderRadius: BorderRadius.md,
-    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-  },
-  suggestFooter: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-  },
-  suggestAddBtn: {
-    width: 26, height: 26, borderRadius: 13,
-    alignItems: 'center', justifyContent: 'center',
-  },
 
   storeCartWrap: { position: 'absolute', left: Spacing.lg, right: Spacing.lg },
   storeCart: {

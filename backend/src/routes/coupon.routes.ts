@@ -10,6 +10,12 @@ const router = Router();
 // Public — promotions shown in the app
 router.get('/public', (req, res, next) => couponController.getPublic(req, res, next));
 
+// Los cupones nominales del cliente (los de canjear puntos). Privados: no
+// salen en `/public`.
+router.get('/mine', authenticate, authorize(UserRole.CLIENT), (req, res, next) =>
+  couponController.getForUser(req, res, next)
+);
+
 // Authenticated — preview a coupon against a cart (does not consume it)
 router.post(
   '/validate',

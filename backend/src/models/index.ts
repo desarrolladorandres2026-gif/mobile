@@ -51,6 +51,7 @@ export {
   CASH_INCIDENT_TRANSITIONS,
 } from './CashPaymentIncident';
 export { Refund, IRefund, ProcessedWebhook, IProcessedWebhook } from './Refund';
+export { SavedCard, ISavedCard, toPublicCard } from './SavedCard';
 export { LegalDocument, ILegalDocument, LegalAcceptance, ILegalAcceptance, DataRequest, IDataRequest } from './Legal';
 export { Pqrs, IPqrs } from './Pqrs';
 export { DriverDocument, IDriverDocument } from './DriverDocument';

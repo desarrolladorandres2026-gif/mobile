@@ -342,6 +342,9 @@ const DriverOrderCard = memo(function DriverOrderCard({
         {order.paymentMethod === 'cash_on_delivery' ? (
           <Notice tone="warning" icon="efectivo">
             Cobrar al cliente: {money(order.total)} en efectivo.
+            {order.cashPayment?.needsChange && order.cashPayment.payingWith
+              ? ` Paga con ${money(order.cashPayment.payingWith)}: lleva ${money(order.cashPayment.payingWith - order.total)} de vuelto.`
+              : ' Entrega el valor exacto, sin cambio.'}
           </Notice>
         ) : (
           <Notice tone="info" icon="tarjeta">

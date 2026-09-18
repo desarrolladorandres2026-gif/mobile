@@ -33,6 +33,7 @@ export {
   uploadImage,
   uploadBannerImage,
   uploadHomeCategoryImage,
+  uploadBusinessImage,
   uploadAvatarImage,
   uploadEvidenceImage,
 } from './upload';

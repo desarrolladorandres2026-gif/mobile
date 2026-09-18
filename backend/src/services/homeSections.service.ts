@@ -118,6 +118,8 @@ interface CuratedBusiness {
   deliveryTime: number;
   logo?: string | null;
   coverImage?: string | null;
+  /** Color propio del negocio para el respaldo de portada, si lo eligió. */
+  brandColor?: string | null;
   freeDeliveryThreshold: number;
 }
 
@@ -191,6 +193,7 @@ function toCuratedBusiness(b: {
   deliveryTime: number;
   logo?: string | null;
   coverImage?: string | null;
+  brandColor?: string | null;
   freeDeliveryThreshold: number;
 }): CuratedBusiness {
   return {
@@ -202,6 +205,7 @@ function toCuratedBusiness(b: {
     deliveryTime: b.deliveryTime,
     logo: b.logo,
     coverImage: b.coverImage,
+    brandColor: b.brandColor,
     freeDeliveryThreshold: b.freeDeliveryThreshold,
   };
 }

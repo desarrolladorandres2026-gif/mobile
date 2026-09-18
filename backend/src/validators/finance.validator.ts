@@ -45,6 +45,12 @@ export const updatePricingConfigSchema = z.object({
       campaignBudgetTotal: money.optional(),
       defaultMinimumContributionMargin: money.optional(),
 
+      // El techo del 20% es el mismo del modelo: más que eso ya no es un
+      // programa de puntos, es regalar el margen.
+      loyaltyEarnBps: z.number().int().min(0).max(2000).optional(),
+      loyaltyExpiryDays: z.number().int().min(0).max(3650).optional(),
+      loyaltyMinRedeem: money.optional(),
+
       cashOnDeliveryEnabled: z.boolean().optional(),
       cashOnDeliveryMaxAmount: money.optional(),
       // 0 desactiva el techo. Se admite a propósito: apagar la regla no

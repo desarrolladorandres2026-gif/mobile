@@ -38,6 +38,14 @@ const ALLOWED_NEW_KEYS = new Set([
   'groupId',
   'groupName',
   'optionId',
+
+  // ── Encabezado de la ficha de negocio (2026-09-17) ──
+  // Los tres son aditivos y opcionales: un cliente compilado que no los
+  // conozca los ignora y sigue pintando la ficha igual que antes.
+  'brandColor',
+  'showPromoBanner',
+  /** Solo en la ficha individual, nunca en el listado. Puede venir `null`. */
+  'deliveryFeeFrom',
 ]);
 
 type Shape = string | Shape[] | { [key: string]: Shape };

@@ -58,6 +58,23 @@ describe('GET /api/v1/search', () => {
     expect(names).toContain('Pizzería del Centro');
   });
 
+  it('encuentra un negocio por su descripción cuando ni el nombre ni la carta dicen el término', async () => {
+    // El caso real: "Carbón & Pan" no se llama "Hamburguesas" y su carta usa
+    // nombres de autor ("Doble Smash") que nunca dicen la palabra. Solo la
+    // descripción la tiene, y por eso tiene que estar en el índice de texto.
+    const owner = await makeUser({ role: UserRole.BUSINESS });
+    await makeBusiness(owner._id, {
+      name: 'Carbón & Pan',
+      description: 'Hamburguesas de carne madurada a la parrilla de carbón, en pan brioche.',
+    });
+    searchDictionaryService.invalidate();
+
+    const res = await request(app).get(API).query({ q: 'hamburguesa' }).expect(200);
+
+    expect(res.body.data.strategy).toBe('text');
+    expect(res.body.data.businesses.map((b: any) => b.name)).toContain('Carbón & Pan');
+  });
+
   it('encuentra un plato aunque ningún negocio se llame así', async () => {
     const res = await request(app).get(API).query({ q: 'hamburguesa' }).expect(200);
 

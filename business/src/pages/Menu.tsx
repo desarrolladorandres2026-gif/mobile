@@ -287,7 +287,11 @@ export default function Menu() {
           form.append('businessId', businessId);
           form.append('image', pendingImage.blob, 'producto.jpg');
           if (pendingImage.removeBackground) form.append('removeBackground', 'true');
-          await api.post(`/products/${productId}/image`, form);
+          // Sin esto axios manda el FormData como JSON — la instancia del
+          // panel declara 'application/json' por defecto.
+          await api.post(`/products/${productId}/image`, form, {
+            headers: { 'Content-Type': undefined },
+          });
         } catch (imageError) {
           setError(
             `Guardamos el producto, pero la foto no subió: ${apiMessage(imageError, 'inténtalo de nuevo desde "Editar".')}`

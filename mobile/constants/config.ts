@@ -38,6 +38,19 @@ export const SOCKET_URL = __DEV__
   : PROD_ORIGIN;
 
 /**
+ * El origen del backend, siempre el real — nunca el de desarrollo.
+ *
+ * Lo usa el botón "Compartir": ese enlace lo abre alguien en otro
+ * teléfono, o el rastreador de vista previa de WhatsApp desde internet, así
+ * que un host de LAN (`192.168.x.x`) sería un enlace roto para todos menos
+ * para quien está probando en este mismo momento. `API_URL` sí cambia con
+ * `__DEV__` a propósito —ese es el que usa *esta* app para hablar con el
+ * backend—, pero un enlace que sale de la app tiene que servir fuera de
+ * ella.
+ */
+export const API_ORIGIN = PROD_ORIGIN;
+
+/**
  * Categorías de negocio. El icono ya no viaja aquí: lo resuelve
  * `categoryIcon()` en `theme/icons.ts`, para que exista un solo lugar donde
  * se decide cómo se ve cada categoría.

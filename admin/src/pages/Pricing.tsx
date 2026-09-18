@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import {
   Percent, Bike, Receipt, History, Save, AlertTriangle, Lock, CheckCircle2,
-  MapPin, Wallet, Banknote
+  MapPin, Wallet, Banknote, Gift
 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage, apiStatus } from '../lib/apiError';
@@ -30,6 +30,9 @@ interface PricingConfig {
   couponSubsidyLimit: number;
   campaignBudgetTotal: number;
   defaultMinimumContributionMargin: number;
+  loyaltyEarnBps: number;
+  loyaltyExpiryDays: number;
+  loyaltyMinRedeem: number;
   cashOnDeliveryEnabled: boolean;
   cashOnDeliveryMaxAmount: number;
   changeReason: string;
@@ -355,6 +358,14 @@ export default function Pricing() {
           {campoMoneda('couponSubsidyLimit', 'Tope de Subsidio por Cupón', 'Ningún cupón financiado por ZIPP puede descontar más que esto en un solo pedido, sin importar lo que el cupón permita.')}
           {campoMoneda('campaignBudgetTotal', 'Presupuesto Total de Campañas', 'Techo agregado para todas las campañas activas financiadas por la plataforma. 0 = sin techo agregado.')}
           {campoMoneda('defaultMinimumContributionMargin', 'Margen Mínimo por Defecto', 'Un cupón de plataforma se rechaza si el pedido queda por debajo de este margen, salvo que la campaña esté aprobada por un admin financiero.')}
+        </>
+      ))}
+
+      {seccion(Gift, 'Programa de Puntos', 'Lo que el cliente gana por comprar y cuándo puede usarlo. 1 punto = $1. En 0% el programa está apagado: nadie gana puntos por pedidos.', (
+        <>
+          {campoBps('loyaltyEarnBps', 'Puntos por Compra', 'Porcentaje del subtotal de productos que vuelve como puntos al entregarse el pedido. Sale del margen de ZIPP. Máximo 20%.')}
+          {campoMoneda('loyaltyMinRedeem', 'Canje Mínimo', 'Puntos mínimos para convertirlos en descuento. Por debajo, el cliente ve cuánto le falta.')}
+          {campoEntero('loyaltyExpiryDays', 'Vigencia de los Puntos', 'días', 'Días que duran los puntos ganados sin usarse. 0 = no caducan.')}
         </>
       ))}
 

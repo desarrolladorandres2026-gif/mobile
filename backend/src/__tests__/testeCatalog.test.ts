@@ -290,7 +290,10 @@ describe('TESTE — la matriz por HTTP', () => {
     // O-01: aceptar → preparar → listo → domiciliario → entregado. Contra
     // entrega: un pedido en línea queda bloqueado hasta que Wompi confirme
     // el pago, y aquí no hay pasarela.
-    const third = await order(business, [{ productId: product._id.toString(), quantity: 1 }], { paymentMethod: 'cash_on_delivery' });
+    const third = await order(business, [{ productId: product._id.toString(), quantity: 1 }], {
+      paymentMethod: 'cash_on_delivery',
+      cashPayment: { needsChange: false },
+    });
     expect(third.status).toBe(201);
     const orderId = third.body.data._id;
     for (const status of ['accepted', 'preparing', 'ready']) {

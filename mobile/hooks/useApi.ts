@@ -1,8 +1,10 @@
+import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
+import { paymentPollInterval } from '../lib/paymentPolling';
 import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi, referralsApi, homeSectionsApi } from '../services/endpoints';
 import type {
   PromoBanner, HomeCategory, SearchSort, CancellationCode,
-  ReviewReasonDriverToClient, ReviewReasonDriverToBusiness,
+  ReviewReasonDriverToClient, ReviewReasonDriverToBusiness, OwnCoupon,
 } from '../services/endpoints';
 
 // ── Businesses ──
@@ -239,7 +241,8 @@ export const useLoyalty = () =>
 export const useRedeemPoints = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (points: number) => loyaltyApi.redeem(points),
+    mutationFn: (points: number): Promise<{ coupon: OwnCoupon; points: number; value: number }> =>
+      loyaltyApi.redeem(points),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['loyalty'] });
       // El canje genera un cupón: la lista de promociones cambió.
@@ -247,6 +250,20 @@ export const useRedeemPoints = () => {
     },
   });
 };
+
+/**
+ * Los cupones propios del cliente, vivos y sin usar.
+ *
+ * Antes el código de un canje solo aparecía en el aviso que lo anunciaba:
+ * cerrarlo, o salir del checkout sin pagar, era perder de vista un cupón
+ * que seguía vivo un mes.
+ */
+export const useMyCoupons = () =>
+  useQuery({
+    queryKey: ['coupons', 'mine'],
+    queryFn: () => couponsApi.mine(),
+    staleTime: 60_000,
+  });
 
 /** Pulgares por plato de un negocio, para pintarlos en la carta. */
 export const useProductSentiment = (businessId: string) =>
@@ -598,13 +615,21 @@ export const usePayOrder = () => {
  * else to track the payment by until its own webhook lands on the backend.
  * Polling stops itself once the status is no longer 'pending'.
  */
-export const usePaymentStatus = (transactionId: string | undefined, enabled = true) =>
-  useQuery({
+export const usePaymentStatus = (transactionId: string | undefined, enabled = true) => {
+  // Desde cuándo se espera este pago; de ahí sale el escalón del intervalo.
+  const startedAt = useRef(Date.now());
+  useEffect(() => { startedAt.current = Date.now(); }, [transactionId]);
+
+  return useQuery({
     queryKey: ['payments', 'status', transactionId],
     queryFn: () => paymentsApi.getStatus(transactionId!),
     enabled: !!transactionId && enabled,
-    refetchInterval: (query) => (query.state.data?.status === 'pending' ? 3000 : false),
+    refetchInterval: (query) =>
+      query.state.data?.status === 'pending'
+        ? paymentPollInterval(Date.now() - startedAt.current)
+        : false,
   });
+};
 
 export const useAvailableOrders = (page = 1) =>
   useQuery({ queryKey: ['orders', 'available', page], queryFn: () => ordersApi.getAvailableOrders(page) });
@@ -627,7 +652,15 @@ export const useAssignDriver = () => {
 
 export interface OrderQuote {
   subtotal: number;
+  /** Bruto: antes del cupón de envío y del envío gratis del comercio. */
   deliveryFee: number;
+  /**
+   * Lo que se paga de envío de verdad. `total` ya lo usa, así que el desglose
+   * tiene que usarlo también: pintando solo el bruto, las líneas no suman el
+   * total y el ahorro no aparece por ningún lado.
+   */
+  deliveryPayable: number;
+  freeDeliveryApplied: boolean;
   /**
    * La ventana de entrega, en minutos desde ahora. El extremo alto es el
    * que se le promete al cliente y el que el pedido guarda como
@@ -673,6 +706,12 @@ export interface PaymentMethods {
   online: boolean;
   cashOnDelivery: boolean;
   cashOnDeliveryMaxAmount: number;
+  /**
+   * Qué se puede cobrar sin salir de la app. Ausente en un backend anterior
+   * a esta función; en ese caso, o con `native` en falso, se usa el Web
+   * Checkout de siempre.
+   */
+  inApp?: { native: boolean; pse: boolean; savedCards: boolean };
 }
 
 /**
@@ -690,6 +729,111 @@ export const usePaymentMethods = () =>
     queryFn: paymentsApi.getMethods,
     staleTime: 5 * 60_000,
   });
+
+// ── Cobro dentro de la app ──────────────────────────────────────────
+
+export interface CheckoutConfig {
+  /** Llave con la que el teléfono tokeniza. Pública por diseño. */
+  publicKey: string;
+  environment: 'test' | 'production';
+  acceptanceToken: string;
+  personalDataAuthToken: string;
+  permalinks: { termsAndConditions?: string; personalDataAuth?: string };
+}
+
+export interface CardDisplay {
+  brand: string;
+  lastFour: string;
+  expMonth: string;
+  expYear: string;
+}
+
+/**
+ * Con qué se paga. Ninguna variante lleva número de tarjeta ni CVV: la
+ * tarjeta nueva ya viene tokenizada, y la guardada se nombra por nuestro id.
+ */
+export type PaymentInstrument =
+  | { kind: 'card_token'; token: string; installments: number; save?: boolean; card?: CardDisplay }
+  | { kind: 'saved_card'; savedCardId: string; installments?: number }
+  | { kind: 'nequi'; phone: string }
+  | {
+      kind: 'pse';
+      financialInstitutionCode: string;
+      userType: 0 | 1;
+      userLegalIdType: string;
+      userLegalId: string;
+    };
+
+export interface NativePaymentResult {
+  paymentId: string;
+  reference: string;
+  transactionId: string;
+  status: 'pending' | 'approved' | 'declined' | 'voided' | 'error' | 'processing';
+  amount: number;
+  declineReason?: string;
+  paymentMethodType?: string;
+  /** PSE: la página del banco, que se abre en un WebView de la app. */
+  asyncPaymentUrl?: string;
+  /** Reto 3D Secure, ya listo para pintarse. */
+  threeDsChallengeHtml?: string;
+}
+
+export interface SavedCardSummary extends CardDisplay {
+  id: string;
+  lastUsedAt: string;
+}
+
+export interface PseBank {
+  code: string;
+  name: string;
+}
+
+/**
+ * Configuración para tokenizar. Los tokens de aceptación rotan y el
+ * backend los cachea 5 minutos: aquí se reutilizan 4 para no pedir uno
+ * que ya caducó allí.
+ */
+export const useCheckoutConfig = (enabled = true) =>
+  useQuery<CheckoutConfig>({
+    queryKey: ['payments', 'checkout-config'],
+    queryFn: paymentsApi.getCheckoutConfig,
+    staleTime: 4 * 60_000,
+    enabled,
+  });
+
+export const usePayNative = () => {
+  const queryClient = useQueryClient();
+  return useMutation<NativePaymentResult, unknown, { orderId: string; body: Record<string, unknown> }>({
+    mutationFn: ({ orderId, body }) => paymentsApi.payNative(orderId, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+      queryClient.invalidateQueries({ queryKey: ['payments', 'cards'] });
+    },
+  });
+};
+
+export const usePseBanks = (enabled = true) =>
+  useQuery<PseBank[]>({
+    queryKey: ['payments', 'pse-banks'],
+    queryFn: paymentsApi.getPseBanks,
+    staleTime: 30 * 60_000,
+    enabled,
+  });
+
+export const useSavedCards = (enabled = true) =>
+  useQuery<SavedCardSummary[]>({
+    queryKey: ['payments', 'cards'],
+    queryFn: paymentsApi.listCards,
+    enabled,
+  });
+
+export const useDeleteSavedCard = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => paymentsApi.deleteCard(id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['payments', 'cards'] }); },
+  });
+};
 
 /**
  * Live price breakdown for the cart. Every input that can change the total

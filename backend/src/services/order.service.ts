@@ -27,6 +27,8 @@ import { pricingConfigService } from './pricingConfig.service';
 import { refundService, allocateRefund } from './refund.service';
 import { orderSecurityService } from './orderSecurity.service';
 import { orderTimelineService, TimelineContext } from './orderTimeline.service';
+import { isOpenAt } from '../utils/businessHours';
+import { config } from '../config';
 
 // Estado → transiciones válidas
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -71,6 +73,8 @@ interface CreateOrderInput {
   recipient?: { name: string; phone: string; note?: string };
   /** Cuándo debe llegar, si no es cuanto antes. */
   scheduledFor?: Date | string;
+  /** Solo en efectivo: si necesita vuelto y con cuánto paga. */
+  cashPayment?: { needsChange: boolean; payingWith?: number };
 }
 
 /** Unidades apartadas para un pedido que todavía se está creando. */
@@ -312,6 +316,25 @@ export class OrderService {
       ? PaymentStatus.PENDING_CASH
       : PaymentStatus.PENDING;
 
+    // ── Con qué billete paga, si es en efectivo ──
+    //
+    // El validador ya exige que venga `cashPayment` en un pedido en
+    // efectivo; aquí se comprueba lo único que el validador no puede
+    // saber, porque el total todavía no existía en ese punto: que el
+    // billete alcance para cubrirlo. Sin este tope, "necesito cambio de
+    // $5.000" en un pedido de $40.000 llegaría al domiciliario como una
+    // cifra negativa.
+    if (isCash && input.cashPayment?.needsChange) {
+      const payingWith = input.cashPayment.payingWith ?? 0;
+      if (payingWith <= quote.customerTotal) {
+        throw new AppError(
+          `El billete con el que pagas debe ser mayor al total del pedido ` +
+            `($${quote.customerTotal.toLocaleString('es-CO')}).`,
+          400
+        );
+      }
+    }
+
     // ── Programación ──
     //
     // Se valida contra el reloj del servidor, no contra el del teléfono: un
@@ -333,6 +356,16 @@ export class OrderService {
       }
       if (scheduledFor > maximum) {
         throw new AppError('Solo puedes programar pedidos con una semana de anticipación.', 400);
+      }
+      // Antes solo se miraba el margen de tiempo, así que se podía programar
+      // para el domingo a las 6 de la mañana en un local que abre a las 11:
+      // el pedido se activaba solo y nadie lo recibía.
+      if (!isOpenAt(business.schedule, scheduledFor, config.settlement.timezone)) {
+        throw new AppError(
+          'El negocio no atiende a esa hora. Elige otra franja.',
+          400,
+          'SCHEDULE_CLOSED'
+        );
       }
     }
 
@@ -363,6 +396,7 @@ export class OrderService {
         deliveryAddress: input.deliveryAddress,
         deliveryDetails: input.deliveryDetails,
         recipient: input.recipient,
+        cashPayment: isCash ? input.cashPayment : undefined,
         scheduledFor: scheduledFor,
         /**
          * La hora que se le prometió al cliente, congelada al crear.

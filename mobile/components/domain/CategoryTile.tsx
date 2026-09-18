@@ -2,9 +2,8 @@ import { memo, useState } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Text } from '../ui';
-import { useTheme } from '../../hooks/useTheme';
 import { categoryIllustration } from '../illustrations';
-import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
+import { BorderRadius, Spacing } from '../../theme/tokens';
 import { tap } from '../../lib/haptics';
 
 export interface CategoryTileProps {
@@ -33,25 +32,13 @@ export interface CategoryTileProps {
 export const CategoryTile = memo(function CategoryTile({
   categoryKey, label, imageUrl, onPress, selected, layout = 'tile',
 }: CategoryTileProps) {
-  const { c } = useTheme();
   const [broken, setBroken] = useState(false);
 
   const Illustration = categoryIllustration(categoryKey);
   const showImage = !!imageUrl && !broken;
 
   const box = (
-    <View
-      style={[
-        styles.box,
-        layout === 'icon' && styles.boxCompact,
-        {
-          backgroundColor: c.surface,
-          borderColor: selected ? c.primary : c.border,
-          borderWidth: selected ? 2 : 1,
-        },
-        layout === 'tile' && Shadow.sm,
-      ]}
-    >
+    <View style={[styles.box, layout === 'icon' && styles.boxCompact]}>
       {showImage ? (
         <Image
           source={{ uri: imageUrl }}

@@ -223,6 +223,14 @@ export default function DriverActiveOrderScreen() {
   const cashCollected = isCashOrder && order.paymentStatus === 'paid';
   const cashDisputed = isCashOrder && order.paymentStatus === 'cash_not_received';
 
+  // Con qué billete paga el cliente, para llevar el cambio listo desde
+  // antes de tocar el timbre. Sin esto el domiciliario se enteraba de que
+  // faltaba vuelto justo en la puerta, con el cliente delante.
+  const cashChange =
+    isCashOrder && order.cashPayment?.needsChange && order.cashPayment.payingWith
+      ? { payingWith: order.cashPayment.payingWith, give: order.cashPayment.payingWith - order.total }
+      : null;
+
   const declareCash = (received: boolean) => {
     tap(received ? 'success' : 'warning');
     setCashError('');
@@ -305,6 +313,11 @@ export default function DriverActiveOrderScreen() {
             <Text v="bodyM" tone="textSecondary">
               El cliente debía pagarte {money(order.total)} al recibir el pedido.
             </Text>
+            {cashChange ? (
+              <Notice tone="info" icon="efectivo">
+                Pagó con {money(cashChange.payingWith)}: dale {money(cashChange.give)} de vuelto.
+              </Notice>
+            ) : null}
 
             <Button
               title="Sí, recibí el efectivo"
@@ -556,7 +569,12 @@ export default function DriverActiveOrderScreen() {
               </Pressable>
 
               {order.paymentMethod === 'cash_on_delivery' ? (
-                <Notice tone="warning" icon="efectivo">Cobra {money(order.total)} en efectivo.</Notice>
+                <Notice tone="warning" icon="efectivo">
+                  Cobra {money(order.total)} en efectivo.
+                  {cashChange
+                    ? ` Paga con ${money(cashChange.payingWith)}: lleva ${money(cashChange.give)} de vuelto.`
+                    : ' Entrega el valor exacto, sin cambio.'}
+                </Notice>
               ) : (
                 <Notice tone="info" icon="tarjeta">Pedido ya pagado. No cobres nada en la entrega.</Notice>
               )}

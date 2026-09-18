@@ -13,7 +13,9 @@ import { OrderChatSheet } from '../../components/domain/OrderChatSheet';
 import { OrderCallSheet } from '../../components/domain/OrderCallSheet';
 import { ZippMap } from '../../components/domain/ZippMap';
 import { CancelOrderSheet, isCancellable } from '../../components/domain/CancelOrderSheet';
-import { useOrder, useOrderFlow } from '../../hooks/useApi';
+import { useOrder, useOrderFlow, usePaymentMethods, usePayOrder } from '../../hooks/useApi';
+import * as Linking from 'expo-linking';
+import { apiMessage } from '../../lib/errors';
 import { useOrderRealtime, useOrderFlowRealtime, orderProgress } from '../../hooks/useRealtime';
 import { useOrderTracking, formatEta } from '../../hooks/useOrderTracking';
 import { useTheme } from '../../hooks/useTheme';
@@ -46,6 +48,9 @@ export default function OrderTrackingScreen() {
   const { width } = useWindowDimensions();
 
   const { data: order, isLoading, isError, refetch } = useOrder(id);
+  const { data: methods } = usePaymentMethods();
+  const payOrder = usePayOrder();
+  const [payError, setPayError] = useState('');
   const { connected } = useOrderRealtime();
   const { data: flow } = useOrderFlow(order?._id);
   const { incomingCall, clearIncomingCall, dispatchStalled } = useOrderFlowRealtime(order?._id);
@@ -379,6 +384,51 @@ export default function OrderTrackingScreen() {
             </Card>
           </>
         )}
+
+        {/* ── Pago en línea sin completar ──
+            Un pedido en línea no le llega al negocio hasta que se paga. Si
+            el cobro falló o la persona salió a mitad, aquí es donde lo
+            retoma: los mensajes de error del checkout mandan a este lugar. */}
+        {order.paymentMethod === 'online' &&
+        (order.paymentStatus === 'pending' || order.paymentStatus === 'failed') &&
+        !delivered &&
+        !cancelled ? (
+          <Card style={styles.summary}>
+            <Notice tone="warning" icon="tarjeta">
+              Este pedido aún no está pagado. El negocio lo recibe en cuanto se confirme el pago.
+            </Notice>
+            <Button
+              title="Completar pago"
+              icon="tarjeta"
+              full
+              loading={payOrder.isPending}
+              onPress={async () => {
+                tap('medium');
+                setPayError('');
+                const code = order.orderNumber ?? '';
+                if (methods?.inApp?.native) {
+                  router.push({ pathname: '/(client)/payment-result', params: { id: order._id, code, mode: 'native' } });
+                  return;
+                }
+                try {
+                  const redirectUrl = Linking.createURL('payment-result');
+                  const intent = await payOrder.mutateAsync({ orderId: order._id, redirectUrl });
+                  if (intent?.checkoutUrl) {
+                    router.push({
+                      pathname: '/(client)/payment-result',
+                      params: { id: order._id, code, checkoutUrl: intent.checkoutUrl, transactionId: intent.transactionId ?? '', redirectUrl },
+                    });
+                  } else {
+                    refetch();
+                  }
+                } catch (err) {
+                  setPayError(apiMessage(err, 'No pudimos iniciar el cobro.'));
+                }
+              }}
+            />
+            {payError ? <Notice tone="error">{payError}</Notice> : null}
+          </Card>
+        ) : null}
 
         {/* ── Efectivo listo ── */}
         {order.paymentMethod === 'cash_on_delivery' && !delivered && !cancelled ? (

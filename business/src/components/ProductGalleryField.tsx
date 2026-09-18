@@ -53,7 +53,12 @@ export default function ProductGalleryField({
       const form = new FormData();
       form.append('businessId', businessId);
       form.append('image', file, file.name);
-      const { data } = await api.post(`/products/${productId}/gallery`, form);
+      // El Content-Type explícito evita que axios convierta el FormData a
+      // JSON: la instancia declara 'application/json' por defecto, y con
+      // ese tipo puesto la imagen nunca llega — llega el texto "{}".
+      const { data } = await api.post(`/products/${productId}/gallery`, form, {
+        headers: { 'Content-Type': undefined },
+      });
       onUpdated(data.data);
     } catch (err) {
       setError(apiMessage(err, 'No pudimos subir la foto.'));

@@ -3,7 +3,8 @@ import {
   View, ScrollView, Pressable, StyleSheet, TextInput,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Image } from 'expo-image';
 import * as Linking from 'expo-linking';
 import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
 import {
@@ -11,17 +12,24 @@ import {
   Skeleton, EmptyState, Input,
 } from '../../components/ui';
 import { AddressSheet, hasCoordinates, type Address } from '../../components/domain/AddressPicker';
+import { PaymentMethodSheet } from '../../components/domain/PaymentMethodSheet';
 import { useCartStore } from '../../stores/cartStore';
 import { usePrefsStore } from '../../stores/prefsStore';
+import { usePendingPaymentStore } from '../../stores/pendingPaymentStore';
+import { isExpiredSelection, type SelectedInstrument } from '../../lib/paymentInstrument';
 import {
-  useAddresses, useOrderQuote, useCreateOrder, usePaymentMethods, usePayOrder,
+  useAddresses, useOrderQuote, useCreateOrder, usePaymentMethods, usePayOrder, useBusiness,
+  useLoyalty, useMyCoupons, useRedeemPoints,
 } from '../../hooks/useApi';
+import { planRedemption } from '../../lib/loyalty';
+import { scheduleDays, slotLabel, type ScheduleDay } from '../../lib/schedule';
+import type { DaySchedule } from '../../lib/business';
 import { useTheme } from '../../hooks/useTheme';
 import { ContentIcon } from '../../components/illustrations';
 import type { IconName } from '../../theme/icons';
 import { Type } from '../../theme/typography';
 import { BorderRadius, Spacing, Motion } from '../../theme/tokens';
-import { money, km } from '../../lib/format';
+import { money, km, groupThousands } from '../../lib/format';
 import { describeExtras } from '../../lib/modifiers';
 import { apiMessage } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
@@ -48,50 +56,34 @@ type Blocker = {
   onPress: () => void;
 };
 
-/**
- * Atajos de programación.
- *
- * El servidor exige media hora de margen, así que "En 1 hora" es el primero
- * que existe de verdad. Las horas fijas se saltan al día siguiente cuando
- * ya pasaron: ofrecer "Hoy 8:00 pm" a las nueve de la noche es ofrecer un
- * botón que devuelve un error.
- */
-const SCHEDULE_SLOTS: Array<{ label: string; at: () => Date }> = [
-  {
-    label: 'En 1 hora',
-    at: () => new Date(Date.now() + 60 * 60 * 1000),
-  },
-  {
-    label: 'Hoy 12:00 pm',
-    at: () => nextAt(12),
-  },
-  {
-    label: 'Hoy 7:00 pm',
-    at: () => nextAt(19),
-  },
-];
-
-/** La próxima vez que den esas horas, hoy o mañana. */
-function nextAt(hour: number): Date {
-  const when = new Date();
-  when.setHours(hour, 0, 0, 0);
-  if (when.getTime() < Date.now() + 30 * 60 * 1000) {
-    when.setDate(when.getDate() + 1);
-  }
-  return when;
-}
-
 export default function CheckoutScreen() {
   const router = useRouter();
   const { c } = useTheme();
 
-  const items = useCartStore((s) => s.items);
-  const businessId = useCartStore((s) => s.businessId);
-  const businessName = useCartStore((s) => s.businessName);
-  const subtotal = useCartStore((s) => s.getSubtotal());
-  const itemCount = useCartStore((s) => s.getItemCount());
+  // Cada negocio tiene su propia bolsa. Se llega aquí siempre con el
+  // `businessId` en la URL (lo manda la pantalla de la bolsa); sin él, y con
+  // una sola bolsa abierta, esa es la que se confirma.
+  const { businessId: paramBusinessId } = useLocalSearchParams<{ businessId?: string }>();
+  const carts = useCartStore((s) => s.carts);
+  const businessId = paramBusinessId ?? (carts.length === 1 ? carts[0].businessId : undefined);
+  const cart = businessId ? carts.find((entry) => entry.businessId === businessId) : undefined;
+
+  const items = cart?.items ?? [];
+  const businessName = cart?.businessName ?? null;
+  const businessLogo = cart?.businessLogo ?? null;
+  const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
+  const subtotal = useCartStore((s) => (businessId ? s.getSubtotal(businessId) : 0));
   const getLineTotal = useCartStore((s) => s.getLineTotal);
   const clearCart = useCartStore((s) => s.clearCart);
+
+  // El pedido mínimo se pregunta al negocio, no al presupuesto: cuando el
+  // carrito no llega, el servidor rechaza la cotización con un 400 en vez de
+  // devolver cifras, así que esperar al quote para saberlo es esperar a algo
+  // que nunca llega. Viene cacheado de la ficha del negocio.
+  const { data: business } = useBusiness(businessId ?? '') as {
+    data?: { minOrder?: number; schedule?: Record<string, DaySchedule> };
+  };
+  const minOrder = business?.minOrder ?? 0;
 
   const { data: addresses = [] } = useAddresses() as { data: Address[] };
   const lastAddressId = usePrefsStore((s) => s.lastAddressId);
@@ -105,6 +97,26 @@ export default function CheckoutScreen() {
   // "pago digital" y bastaba con no mirar esta sección para acabar en la
   // pasarela sin haberlo decidido.
   const [payment, setPayment] = useState<PaymentMethod | null>(null);
+  /**
+   * Con qué se paga en línea, cuando se cobra dentro de la app. `null`
+   * hasta que la persona lo elige en la hoja; con el Web Checkout de antes
+   * no se usa.
+   */
+  const [instrument, setInstrument] = useState<SelectedInstrument | null>(null);
+  const [methodSheet, setMethodSheet] = useState(false);
+  const putPendingPayment = usePendingPaymentStore((s) => s.put);
+
+  // ── Cambio en efectivo ──
+  //
+  // Como en Rappi: en efectivo hay que decir si se paga con el valor exacto
+  // o si hace falta vuelto, y de qué billete. Sin esto el domiciliario se
+  // enteraba de que faltaba cambio parado en la puerta, con el cliente
+  // delante. `null` es "todavía no ha dicho" — no se asume "exacto" por
+  // defecto, porque eso es justo lo que el domiciliario no puede dar por
+  // hecho.
+  const [needsChange, setNeedsChange] = useState<boolean | null>(null);
+  const [payingWithDigits, setPayingWithDigits] = useState('');
+
   const [tipRate, setTipRate] = useState(0);
   const [notes, setNotes] = useState('');
 
@@ -113,6 +125,17 @@ export default function CheckoutScreen() {
   const [couponInput, setCouponInput] = useState('');
   const [appliedCode, setAppliedCode] = useState<string | null>(null);
   const [couponError, setCouponError] = useState('');
+
+  const { data: loyalty } = useLoyalty();
+  const { data: myCoupons = [] } = useMyCoupons();
+  const redeemPoints = useRedeemPoints();
+
+  const applyCode = (code: string) => {
+    tap('light');
+    setCouponError('');
+    setCouponInput('');
+    setAppliedCode(code);
+  };
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -163,6 +186,20 @@ export default function CheckoutScreen() {
   const [scheduledFor, setScheduledFor] = useState<Date | null>(null);
   const payOrder = usePayOrder();
 
+  // Día y franja en vez de tres horas fijas, y solo las horas en que el
+  // negocio atiende: antes se podía programar para cuando estaba cerrado.
+  const scheduleOptions = useMemo(() => scheduleDays(business?.schedule), [business?.schedule]);
+  const [scheduleDayKey, setScheduleDayKey] = useState<string | null>(null);
+  const scheduleDay = scheduledFor
+    ? scheduleOptions.find((day) => day.key === scheduleDayKey) ?? null
+    : null;
+
+  const pickScheduleDay = (day: ScheduleDay) => {
+    tap('select');
+    setScheduleDayKey(day.key);
+    setScheduledFor(day.slots[0]);
+  };
+
   // Se preselecciona la última dirección usada, luego la principal.
   useEffect(() => {
     if (addressId || addresses.length === 0) return;
@@ -183,6 +220,18 @@ export default function CheckoutScreen() {
     if (payment === 'online' && !methods.online) setPayment(null);
     if (payment === 'cash_on_delivery' && !methods.cashOnDelivery) setPayment(null);
   }, [methods]);
+
+  // La decisión de cambio es propia de efectivo: si el cliente se pasa a
+  // pago digital, no debe arrastrarla en silencio hasta que vuelva a elegir
+  // efectivo, ni bloquear la confirmación con una pregunta que ya no aplica.
+  useEffect(() => {
+    if (payment !== 'cash_on_delivery') {
+      setNeedsChange(null);
+      setPayingWithDigits('');
+    }
+  }, [payment]);
+
+  const payingWithAmount = payingWithDigits ? Number(payingWithDigits) : 0;
 
   const address = addresses.find((a) => a._id === addressId);
   const destination = address?.location?.coordinates;
@@ -242,6 +291,25 @@ export default function CheckoutScreen() {
     ? apiMessage(quoteError, 'No pudimos calcular el total de tu pedido.')
     : '';
 
+  // El envío que regala el negocio al superar su umbral. El servidor ya lo
+  // descontó del total y lo manda aparte (`deliveryPayable`); sin esta línea,
+  // el desglose enseña el envío bruto y no cuadra con lo que se va a cobrar.
+  const freeDeliverySaved = quote?.freeDeliveryApplied
+    ? quote.deliveryFee - (quote.coupon?.deliveryDiscount ?? 0) - quote.deliveryPayable
+    : 0;
+
+  const loyaltyBalance = loyalty?.balance ?? 0;
+  const redeemPlan = planRedemption({
+    balance: loyaltyBalance,
+    minRedeem: loyalty?.minRedeem ?? 0,
+    maxPerOrder: loyalty?.maxPerOrder ?? 0,
+    subtotal: quote?.subtotal ?? subtotal,
+  });
+
+  // Los de puntos valen en cualquier negocio; uno atado a otro negocio aquí
+  // solo produciría un error al cotizar.
+  const ownCoupons = myCoupons.filter((own) => !own.businessId || own.businessId === businessId);
+
   // El servidor es quien acepta o rechaza un cupón. Si la cotización falla
   // con un código puesto, el código es el sospechoso: se retira y se explica.
   useEffect(() => {
@@ -257,12 +325,50 @@ export default function CheckoutScreen() {
   // recibir un rechazo que el cliente no sabe traducir.
   const noMethods = !!methods && !methods.online && !methods.cashOnDelivery;
   const cashMax = methods?.cashOnDeliveryMaxAmount ?? 0;
+  /** El backend puede cobrar sin salir de la app (si no, Web Checkout). */
+  const nativeCheckout = !!methods?.online && !!methods?.inApp?.native;
+  const inAppCapabilities = {
+    pse: !!methods?.inApp?.pse,
+    savedCards: !!methods?.inApp?.savedCards,
+  };
+  const instrumentExpired = !!instrument && isExpiredSelection(instrument);
+  const needsInstrument =
+    payment === 'online' && nativeCheckout && (!instrument || instrumentExpired);
   const cashOverLimit =
     payment === 'cash_on_delivery' && cashMax > 0 && !!quote && quote.total > cashMax;
-  const missingForMin =
-    quote?.minOrder && quote.subtotal < quote.minOrder ? quote.minOrder - quote.subtotal : 0;
+  const missingForMin = minOrder > 0 && subtotal < minOrder ? minOrder - subtotal : 0;
 
-  const blocker: Blocker | null = !address
+  // Falta decidir si paga exacto o con vuelto.
+  const cashChangeUndecided = payment === 'cash_on_delivery' && needsChange === null;
+  // Dijo que necesita vuelto pero el billete no alcanza a cubrir el total
+  // (o todavía no escribió ninguno). El servidor aplica la misma regla al
+  // crear el pedido; se repite aquí para no gastar el intento en un
+  // rechazo que el cliente no sabe traducir.
+  const cashChangeInvalid =
+    payment === 'cash_on_delivery' &&
+    needsChange === true &&
+    !!quote &&
+    (payingWithAmount <= 0 || payingWithAmount <= quote.total);
+  const cashChangeAmount =
+    payment === 'cash_on_delivery' && needsChange === true && !!quote && payingWithAmount > quote.total
+      ? payingWithAmount - quote.total
+      : 0;
+
+  const blocker: Blocker | null = missingForMin > 0
+    ? {
+        // Va el primero de la cadena: es lo único que se sabe sin preguntarle
+        // nada al servidor, y mandar a alguien a elegir dirección y método de
+        // pago para un pedido que el negocio no va a aceptar es hacerle
+        // perder el viaje entero.
+        label: `Agregar ${money(missingForMin)} más`,
+        icon: 'mas',
+        hint: `Este negocio pide mínimo ${money(minOrder)}.`,
+        onPress: () => {
+          if (businessId) router.push(`/(client)/business/${businessId}`);
+          else router.replace('/(client)/(tabs)/home');
+        },
+      }
+    : !address
     ? {
         label: 'Elegir dirección',
         icon: 'ubicacion',
@@ -294,6 +400,33 @@ export default function CheckoutScreen() {
         hint: 'Falta elegir cómo vas a pagar.',
         onPress: () => scrollToPayment(),
       }
+    : needsInstrument
+    ? {
+        // Pago digital elegido, pero falta con qué: el botón abre la hoja
+        // en vez de apagarse.
+        label: 'Elegir tarjeta, Nequi o PSE',
+        icon: 'tarjeta',
+        hint: instrumentExpired
+          ? 'Por seguridad, vuelve a ingresar la tarjeta.'
+          : 'Falta elegir con qué pagas.',
+        onPress: () => setMethodSheet(true),
+      }
+    : cashChangeUndecided
+    ? {
+        label: 'Decir si necesitas cambio',
+        icon: 'efectivo',
+        hint: 'Falta decir si pagas con el valor exacto o necesitas vuelto.',
+        onPress: () => scrollToPayment(),
+      }
+    : cashChangeInvalid
+    ? {
+        label: 'Revisar el billete',
+        icon: 'efectivo',
+        hint: quote
+          ? `El billete debe ser mayor al total (${money(quote.total)}).`
+          : 'Escribe con cuánto vas a pagar.',
+        onPress: () => scrollToPayment(),
+      }
     : cashOverLimit
     ? methods?.online
       ? {
@@ -306,18 +439,8 @@ export default function CheckoutScreen() {
           label: 'Revisar la bolsa',
           icon: 'bolsa',
           hint: `En efectivo aceptamos hasta ${money(cashMax)}.`,
-          onPress: () => router.push('/(client)/cart'),
+          onPress: () => router.push({ pathname: '/(client)/cart', params: { businessId } }),
         }
-    : missingForMin > 0
-    ? {
-        label: `Agregar ${money(missingForMin)} más`,
-        icon: 'mas',
-        hint: `Este negocio pide mínimo ${money(quote!.minOrder)}.`,
-        onPress: () => {
-          if (businessId) router.push(`/(client)/business/${businessId}`);
-          else router.replace('/(client)/(tabs)/home');
-        },
-      }
     : quoteError
     ? {
         // El motivo completo va en la tarjeta del detalle: el pie es una
@@ -338,6 +461,14 @@ export default function CheckoutScreen() {
     // hay pedido que crear, y el servidor lo rechazaría de todos modos.
     if (!businessId || !address || !destination || !quote || !payment || submitting) return;
 
+    // Un token de tarjeta caduca. Si la selección envejeció mientras la
+    // pantalla seguía abierta, se pide otra vez antes de crear nada.
+    if (payment === 'online' && nativeCheckout && (!instrument || isExpiredSelection(instrument))) {
+      setInstrument(null);
+      setMethodSheet(true);
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError('');
 
@@ -353,6 +484,10 @@ export default function CheckoutScreen() {
         notes: notes.trim() || undefined,
         couponCode: appliedCode || undefined,
         tip: tipAmount,
+        cashPayment:
+          payment === 'cash_on_delivery'
+            ? { needsChange: !!needsChange, payingWith: needsChange ? payingWithAmount : undefined }
+            : undefined,
         // Solo viajan si el usuario los eligió. Mandar un destinatario
         // vacío haría que el domiciliario llamara a un número en blanco.
         recipient: forOther && recipientName.trim() && recipientPhone.trim()
@@ -368,12 +503,27 @@ export default function CheckoutScreen() {
       {
         onSuccess: async (order: any) => {
           setLastAddress(address._id);
-          clearCart();
+          clearCart(businessId);
 
           // El pedido existe, pero en digital todavía no está pagado: se
           // inicia el cobro aquí. Si la pasarela falla, el pedido queda
           // pendiente de pago en vez de darse por cobrado —
           // exactamente lo que antes se asumía sin cobrar nada.
+          if (payment === 'online' && nativeCheckout && instrument) {
+            // El cobro lo hace la pantalla de pago, que es la que sabe
+            // esperar, abrir el banco y ofrecer otro método si falla. El
+            // método viaja en memoria, nunca en los parámetros de la ruta.
+            putPendingPayment(order._id, instrument);
+            // Una tarjeta nueva es de un solo uso: no se queda a mano.
+            setInstrument(null);
+            setSubmitting(false);
+            router.replace({
+              pathname: '/(client)/payment-result',
+              params: { id: order._id, code: order.orderNumber ?? '', mode: 'native' },
+            });
+            return;
+          }
+
           if (payment === 'online') {
             try {
               // Los grupos de rutas entre paréntesis, como (client), no
@@ -392,6 +542,18 @@ export default function CheckoutScreen() {
                   },
                 });
                 setSubmitting(false);
+                return;
+              }
+              // Sin enlace de pago solo es un éxito si el cobro ya quedó
+              // aprobado (el sandbox de desarrollo con aprobación
+              // automática). Cualquier otra cosa es un pedido sin cobrar, y
+              // mandarlo a "pedido confirmado" era mentirle a la persona.
+              if (intent?.status !== 'approved') {
+                setSubmitting(false);
+                setSubmitError(
+                  'Creamos tu pedido, pero no pudimos iniciar el cobro. Puedes pagarlo desde Mis pedidos.'
+                );
+                tap('error');
                 return;
               }
             } catch (error) {
@@ -465,9 +627,18 @@ export default function CheckoutScreen() {
               accessibilityLabel={`${itemCount} ${itemCount === 1 ? 'producto' : 'productos'} de ${businessName ?? 'el negocio'}. ${showItems ? 'Ocultar' : 'Ver'} el detalle`}
               style={({ pressed }) => [styles.summaryHead, pressed && styles.pressed]}
             >
-              <View style={[styles.summaryIcon, { backgroundColor: c.primarySoft }]}>
-                <Icon name="bolsa" size="md" color={c.primaryText} />
-              </View>
+              {businessLogo ? (
+                <Image
+                  source={{ uri: businessLogo }}
+                  style={styles.summaryIcon}
+                  contentFit="cover"
+                  transition={150}
+                />
+              ) : (
+                <View style={[styles.summaryIcon, { backgroundColor: c.primarySoft }]}>
+                  <Icon name="bolsa" size="md" color={c.primaryText} />
+                </View>
+              )}
               <View style={styles.flex}>
                 <Text v="strongM" numberOfLines={1}>
                   {itemCount} {itemCount === 1 ? 'producto' : 'productos'}
@@ -489,8 +660,22 @@ export default function CheckoutScreen() {
               >
                 {items.map((item) => (
                   <View key={item.lineId} style={styles.line}>
-                    <View style={[styles.lineQty, { backgroundColor: c.surfaceLight }]}>
-                      <Text v="captionStrong" tone="textSecondary">{item.quantity}</Text>
+                    <View style={styles.lineImageWrap}>
+                      {item.image ? (
+                        <Image
+                          source={{ uri: item.image }}
+                          style={[styles.lineImage, { backgroundColor: c.surfaceLight }]}
+                          contentFit="cover"
+                          transition={150}
+                        />
+                      ) : (
+                        <View style={[styles.lineImage, styles.lineImageFallback, { backgroundColor: c.surfaceLight }]}>
+                          <Icon name="bolsa" size="sm" color={c.textMuted} />
+                        </View>
+                      )}
+                      <View style={[styles.lineQty, { backgroundColor: c.textSecondary }]}>
+                        <Text v="captionStrong" color={c.surface}>{item.quantity}</Text>
+                      </View>
                     </View>
                     <View style={styles.flex}>
                       <Text v="strongS" numberOfLines={1}>{item.productName}</Text>
@@ -512,7 +697,7 @@ export default function CheckoutScreen() {
                   icon="editar"
                   variant="ghost"
                   size="sm"
-                  onPress={() => router.push('/(client)/cart')}
+                  onPress={() => router.push({ pathname: '/(client)/cart', params: { businessId } })}
                 />
               </Animated.View>
             ) : null}
@@ -567,7 +752,7 @@ export default function CheckoutScreen() {
           <View style={styles.section}>
             <Text v="label" tone="textMuted">Para quién y cuándo</Text>
 
-            <Card tone="flat" style={styles.optionsCard}>
+            <View style={styles.optionsCard}>
               <Pressable
                 onPress={() => { tap('select'); setForOther((v) => !v); }}
                 style={styles.optionRow}
@@ -611,9 +796,9 @@ export default function CheckoutScreen() {
                   />
                 </Animated.View>
               ) : null}
-            </Card>
+            </View>
 
-            <Card tone="flat" style={styles.optionsCard}>
+            <View style={styles.optionsCard}>
               <View style={styles.optionRow}>
                 <View style={styles.flex}>
                   <Text v="strongS">
@@ -621,39 +806,67 @@ export default function CheckoutScreen() {
                   </Text>
                   <Text v="caption" tone="textMuted">
                     {scheduledFor
-                      ? scheduledFor.toLocaleString('es-CO', {
-                          weekday: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
+                      ? `${scheduleDay?.label ?? ''} · ${slotLabel(scheduledFor)}`
                       : 'Sale en cuanto el negocio lo prepare'}
                   </Text>
                 </View>
               </View>
 
-              {/* Atajos en vez de un selector de fecha: casi todo lo que se
-                  programa es para hoy o para mañana temprano, y elegir eso
-                  con un calendario cuesta cinco toques. */}
+              {/* Chips y no un calendario: casi todo lo que se programa es
+                  para hoy o mañana, y elegir eso con un selector de fecha
+                  cuesta cinco toques. */}
               <View style={styles.slots}>
                 <Chip
                   label="Ahora"
                   active={!scheduledFor}
-                  onPress={() => { tap('select'); setScheduledFor(null); }}
+                  onPress={() => {
+                    tap('select');
+                    setScheduledFor(null);
+                    setScheduleDayKey(null);
+                  }}
                 />
-                {SCHEDULE_SLOTS.map((slot) => {
-                  const when = slot.at();
-                  const active = scheduledFor?.getTime() === when.getTime();
-                  return (
-                    <Chip
-                      key={slot.label}
-                      label={slot.label}
-                      active={active}
-                      onPress={() => { tap('select'); setScheduledFor(active ? null : when); }}
-                    />
-                  );
-                })}
+                {scheduleOptions.length > 0 ? (
+                  <Chip
+                    label="Programar"
+                    active={!!scheduledFor}
+                    onPress={() => { if (!scheduledFor) pickScheduleDay(scheduleOptions[0]); }}
+                  />
+                ) : null}
               </View>
-            </Card>
+
+              {scheduleDay ? (
+                <Animated.View entering={FadeIn.duration(Motion.fast)} style={styles.optionBody}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.slotRow}
+                  >
+                    {scheduleOptions.map((day) => (
+                      <Chip
+                        key={day.key}
+                        label={day.label}
+                        active={day.key === scheduleDay.key}
+                        onPress={() => pickScheduleDay(day)}
+                      />
+                    ))}
+                  </ScrollView>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.slotRow}
+                  >
+                    {scheduleDay.slots.map((slot) => (
+                      <Chip
+                        key={slot.getTime()}
+                        label={slotLabel(slot)}
+                        active={scheduledFor?.getTime() === slot.getTime()}
+                        onPress={() => { tap('select'); setScheduledFor(slot); }}
+                      />
+                    ))}
+                  </ScrollView>
+                </Animated.View>
+              ) : null}
+            </View>
           </View>
 
           {/* ── Pago ── */}
@@ -677,11 +890,114 @@ export default function CheckoutScreen() {
                   active={payment === 'online'}
                   icon="tarjeta"
                   title="Pago digital"
-                  subtitle="Se cobra desde la app"
-                  onPress={() => { tap('select'); setPayment('online'); }}
+                  subtitle={nativeCheckout ? 'Tarjeta, Nequi o PSE' : 'Se cobra desde la app'}
+                  onPress={() => {
+                    tap('select');
+                    setPayment('online');
+                    // Elegir "digital" sin decir con qué deja el pedido a
+                    // medias: se abre la hoja en el mismo gesto.
+                    if (nativeCheckout && !instrument) setMethodSheet(true);
+                  }}
                 />
               ) : null}
             </View>
+
+            {/* ── Con qué se paga en línea ──
+                La tarjeta, el Nequi o el banco elegido, con un toque para
+                cambiarlo. Es lo que hace que el segundo pedido se sienta de
+                un toque: la tarjeta guardada aparece aquí sola. */}
+            {payment === 'online' && nativeCheckout ? (
+              <Animated.View entering={FadeIn.duration(Motion.fast)}>
+                <Pressable
+                  onPress={() => { tap('light'); setMethodSheet(true); }}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    instrument && !instrumentExpired
+                      ? `Pagas con ${instrument.label}. Toca para cambiar`
+                      : 'Elegir tarjeta, Nequi o PSE'
+                  }
+                  style={[
+                    styles.instrumentRow,
+                    {
+                      backgroundColor: c.surface,
+                      borderColor: needsInstrument ? c.primary : c.border,
+                    },
+                  ]}
+                >
+                  <Icon
+                    name={instrument && !instrumentExpired ? instrument.icon : 'tarjeta'}
+                    size="md"
+                    color={instrument && !instrumentExpired ? c.text : c.primaryText}
+                  />
+                  <View style={styles.instrumentText}>
+                    <Text v="strongS">
+                      {instrument && !instrumentExpired ? instrument.label : 'Elige con qué pagas'}
+                    </Text>
+                    <Text v="caption" tone="textMuted" numberOfLines={1}>
+                      {instrument && !instrumentExpired
+                        ? instrument.detail ?? 'Toca para cambiar'
+                        : instrumentExpired
+                          ? 'Por seguridad, vuelve a ingresar la tarjeta'
+                          : 'Tarjeta, Nequi o PSE, sin salir de Zipp'}
+                    </Text>
+                  </View>
+                  <Text v="caption" tone="primaryText">
+                    {instrument && !instrumentExpired ? 'Cambiar' : 'Elegir'}
+                  </Text>
+                </Pressable>
+              </Animated.View>
+            ) : null}
+
+            {/* ── Cambio en efectivo ──
+                Como en Rappi: elegir efectivo no basta, hace falta decir si
+                se paga exacto o con un billete que exige vuelto. Es la
+                pregunta que antes nadie hacía y que el domiciliario
+                terminaba resolviendo parado en la puerta. */}
+            {payment === 'cash_on_delivery' ? (
+              <Animated.View entering={FadeIn.duration(Motion.fast)} style={styles.cashChangeCard}>
+                <Text v="strongS">¿Pagas con el valor exacto?</Text>
+                <View style={styles.cashChangeOptions}>
+                  <Chip
+                    label="Exacto, sin cambio"
+                    active={needsChange === false}
+                    onPress={() => {
+                      tap('select');
+                      setNeedsChange(false);
+                      setPayingWithDigits('');
+                    }}
+                  />
+                  <Chip
+                    label="Necesito cambio"
+                    active={needsChange === true}
+                    onPress={() => { tap('select'); setNeedsChange(true); }}
+                  />
+                </View>
+
+                {needsChange ? (
+                  <Animated.View entering={FadeIn.duration(Motion.fast)} style={styles.cashChangeInput}>
+                    <Input
+                      label="¿Con qué billete pagas?"
+                      prefix="$"
+                      numeric
+                      keyboardType="number-pad"
+                      placeholder="50.000"
+                      value={payingWithDigits ? groupThousands(payingWithAmount) : ''}
+                      onChangeText={(t) => setPayingWithDigits(t.replace(/\D/g, '').slice(0, 7))}
+                      error={
+                        payingWithDigits && cashChangeInvalid && quote
+                          ? `Debe ser mayor al total (${money(quote.total)})`
+                          : undefined
+                      }
+                    />
+                    {cashChangeAmount > 0 ? (
+                      <Text v="bodyS" tone="successText">
+                        Te llevamos {money(cashChangeAmount)} de vuelto.
+                      </Text>
+                    ) : null}
+                  </Animated.View>
+                ) : null}
+              </Animated.View>
+            ) : null}
 
             {highlightPayment && !payment ? (
               <Notice tone="warning" icon="tarjeta">
@@ -706,12 +1022,15 @@ export default function CheckoutScreen() {
             ) : null}
           </View>
 
-          {/* ── Cupón ── */}
+          {/* ── Descuentos: puntos, cupones propios y código ──
+              Un pedido admite un solo descuento (el servidor guarda un solo
+              cupón por pedido), y los puntos se canjean como cupón. Por eso
+              viven juntos: son tres formas de ocupar el mismo hueco. */}
           <View style={styles.section}>
-            <Text v="label" tone="textMuted">¿Tienes un cupón?</Text>
+            <Text v="label" tone="textMuted">Descuentos</Text>
 
             {quote?.coupon ? (
-              <Card tone="flat" style={styles.couponApplied}>
+              <View style={styles.couponApplied}>
                 <Icon name="checkCirculo" size="md" color={c.successText} />
                 <View style={styles.flex}>
                   <Text v="strongS" tone="successText">{quote.coupon.code}</Text>
@@ -728,9 +1047,65 @@ export default function CheckoutScreen() {
                     setCouponError('');
                   }}
                 />
-              </Card>
+              </View>
             ) : (
               <>
+                {/* Primero lo que ya es del cliente: un cupón de un canje que
+                    no llegó a usarse vale lo mismo que canjear de nuevo, y no
+                    gasta más puntos. */}
+                {ownCoupons.length > 0 ? (
+                  <View style={styles.ownCoupons}>
+                    {ownCoupons.map((own) => (
+                      <Chip
+                        key={own._id}
+                        label={`${own.title} · ${money(own.value)}`}
+                        active={false}
+                        onPress={() => applyCode(own.code)}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+
+                {redeemPlan.kind === 'redeem' ? (
+                  <View style={[styles.pointsCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+                    <View style={styles.flex}>
+                      <Text v="strongS">Tienes {groupThousands(loyaltyBalance)} puntos</Text>
+                      <Text v="caption" tone="textMuted">
+                        {redeemPlan.points < loyaltyBalance
+                          ? `Usas ${groupThousands(redeemPlan.points)} aquí y te quedan ${groupThousands(loyaltyBalance - redeemPlan.points)} para otro pedido.`
+                          : 'Cada punto vale un peso.'}
+                      </Text>
+                    </View>
+                    <Button
+                      title={`Usar ${money(redeemPlan.points)}`}
+                      variant="secondary"
+                      size="sm"
+                      loading={redeemPoints.isPending}
+                      onPress={() => {
+                        tap('light');
+                        setCouponError('');
+                        redeemPoints.mutate(redeemPlan.points, {
+                          onSuccess: ({ coupon }) => applyCode(coupon.code),
+                          onError: (error) => {
+                            setCouponError(apiMessage(error, 'No pudimos canjear tus puntos.'));
+                            tap('error');
+                          },
+                        });
+                      }}
+                    />
+                  </View>
+                ) : redeemPlan.kind === 'below-minimum' ? (
+                  <Text v="caption" tone="textMuted">
+                    Tienes {groupThousands(loyaltyBalance)} puntos. Te faltan{' '}
+                    {groupThousands(redeemPlan.missing)} para poder usarlos.
+                  </Text>
+                ) : redeemPlan.kind === 'order-too-small' ? (
+                  <Text v="caption" tone="textMuted">
+                    Tus puntos se usan desde {money(redeemPlan.minRedeem)} y este pedido no
+                    alcanza a absorberlos.
+                  </Text>
+                ) : null}
+
                 <View style={styles.couponRow}>
                   <View
                     style={[
@@ -763,6 +1138,11 @@ export default function CheckoutScreen() {
                   />
                 </View>
                 {couponError ? <Notice tone="error">{couponError}</Notice> : null}
+                {redeemPlan.kind === 'redeem' || ownCoupons.length > 0 ? (
+                  <Text v="caption" tone="textMuted">
+                    Un pedido admite un solo descuento: puntos o cupón.
+                  </Text>
+                ) : null}
               </>
             )}
           </View>
@@ -822,7 +1202,7 @@ export default function CheckoutScreen() {
               saber cuándo llegaba la comida. Va antes del desglose a
               propósito — es lo que más pesa en la decisión, así que se ve
               antes que el total y no después. */}
-          <Card style={styles.eta}>
+          <View style={styles.eta}>
             <View style={[styles.etaIcon, { backgroundColor: c.primarySoft }]}>
               <Icon name="minutos" size="md" color={c.primaryText} />
             </View>
@@ -833,11 +1213,7 @@ export default function CheckoutScreen() {
               {quote ? (
                 <Text v="titleS">
                   {scheduledFor
-                    ? scheduledFor.toLocaleString('es-CO', {
-                        weekday: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })
+                    ? `${scheduleDay?.label ?? ''} · ${slotLabel(scheduledFor)}`
                     : `${quote.etaMinutesMin}–${quote.etaMinutesMax} min`}
                 </Text>
               ) : quoting ? (
@@ -846,10 +1222,10 @@ export default function CheckoutScreen() {
                 <Text v="titleS" tone="textMuted">—</Text>
               )}
             </View>
-          </Card>
+          </View>
 
           {/* ── Desglose del servidor ── */}
-          <Card style={styles.breakdown}>
+          <View style={styles.breakdown}>
             <Text v="label" tone="textMuted">El detalle</Text>
 
             <DetailRow label="Productos" value={money(quote?.subtotal ?? subtotal)} />
@@ -859,16 +1235,27 @@ export default function CheckoutScreen() {
                 <Text v="bodyM" tone="textSecondary">Envío</Text>
                 {quoting ? <Skeleton width={64} height={16} /> : <Text v="dataM" tone="textMuted">—</Text>}
               </View>
-            ) : quote.coupon?.deliveryDiscount ? (
-              <>
-                <DetailRow label="Envío" value={money(quote.deliveryFee)} />
-                <DetailRow label="Descuento de envío" value={`−${money(quote.coupon.deliveryDiscount)}`} tone="successText" />
-              </>
             ) : (
-              <DetailRow
-                label={quote.deliveryDistanceKm ? `Envío · ${km(quote.deliveryDistanceKm)}` : 'Envío'}
-                value={money(quote.deliveryFee)}
-              />
+              <>
+                <DetailRow
+                  label={quote.deliveryDistanceKm ? `Envío · ${km(quote.deliveryDistanceKm)}` : 'Envío'}
+                  value={money(quote.deliveryFee)}
+                />
+                {quote.coupon?.deliveryDiscount ? (
+                  <DetailRow
+                    label="Descuento de envío"
+                    value={`−${money(quote.coupon.deliveryDiscount)}`}
+                    tone="successText"
+                  />
+                ) : null}
+                {freeDeliverySaved > 0 ? (
+                  <DetailRow
+                    label="Envío gratis"
+                    value={`−${money(freeDeliverySaved)}`}
+                    tone="successText"
+                  />
+                ) : null}
+              </>
             )}
 
             {quote?.coupon?.productDiscount ? (
@@ -912,13 +1299,18 @@ export default function CheckoutScreen() {
 
             {missingForMin > 0 ? (
               <Notice tone="warning">
-                Este negocio pide mínimo {money(quote!.minOrder)}. Te faltan{' '}
+                Este negocio pide mínimo {money(minOrder)}. Te faltan{' '}
                 {money(missingForMin)}.
               </Notice>
             ) : null}
-          </Card>
+          </View>
 
-          {quoteMessage && deliverable ? <Notice tone="error">{quoteMessage}</Notice> : null}
+          {/* Por debajo del mínimo el servidor rechaza la cotización con ese
+              mismo motivo; el aviso de arriba ya lo dice mejor y con el
+              faltante exacto, así que aquí sobra repetirlo. */}
+          {quoteMessage && deliverable && missingForMin === 0 ? (
+            <Notice tone="error">{quoteMessage}</Notice>
+          ) : null}
           {submitError ? <Notice tone="error">{submitError}</Notice> : null}
         </ScrollView>
 
@@ -934,7 +1326,9 @@ export default function CheckoutScreen() {
             {blocker
               ? blocker.hint
               : payment === 'cash_on_delivery'
-              ? 'Pagas en efectivo al recibir el pedido.'
+              ? cashChangeAmount > 0
+                ? `Pagas en efectivo al recibir: pides ${money(cashChangeAmount)} de vuelto.`
+                : 'Pagas en efectivo al recibir, con el valor exacto.'
               : 'El cobro se hace desde la app en el siguiente paso.'}
 
           </Text>
@@ -965,6 +1359,15 @@ export default function CheckoutScreen() {
         onClose={() => setAddressSheet(false)}
         selectedId={addressId}
         onSelect={(next) => setAddressId(next._id)}
+      />
+      <PaymentMethodSheet
+        visible={methodSheet}
+        onClose={() => setMethodSheet(false)}
+        capabilities={inAppCapabilities}
+        onSelect={(next) => {
+          setInstrument(next);
+          setPayment('online');
+        }}
       />
     </Screen>
   );
@@ -1018,6 +1421,7 @@ const styles = StyleSheet.create({
   optionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   optionBody: { gap: Spacing.sm },
   slots: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' },
+  slotRow: { flexDirection: 'row', gap: Spacing.sm, paddingRight: Spacing.md },
 
   flex: { flex: 1 },
   content: { padding: Spacing.xl, gap: Spacing.xxl, paddingBottom: Spacing.huge },
@@ -1042,9 +1446,15 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   line: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  lineImageWrap: { width: 40, height: 40 },
+  lineImage: { width: 40, height: 40, borderRadius: BorderRadius.sm },
+  lineImageFallback: { alignItems: 'center', justifyContent: 'center' },
   lineQty: {
-    minWidth: 24, height: 24, paddingHorizontal: 6,
-    borderRadius: BorderRadius.sm,
+    position: 'absolute',
+    right: -6,
+    bottom: -6,
+    minWidth: 18, height: 18, paddingHorizontal: 4,
+    borderRadius: BorderRadius.full,
     alignItems: 'center', justifyContent: 'center',
   },
 
@@ -1055,6 +1465,18 @@ const styles = StyleSheet.create({
   },
 
   payments: { flexDirection: 'row', gap: Spacing.md },
+  instrumentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    minHeight: 60,
+  },
+  instrumentText: { flex: 1, gap: 2 },
   payment: {
     flex: 1,
     alignItems: 'center',
@@ -1064,6 +1486,10 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
   },
   paymentCheck: { height: 20, justifyContent: 'center', marginTop: Spacing.sm },
+
+  cashChangeCard: { gap: Spacing.sm },
+  cashChangeOptions: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' },
+  cashChangeInput: { gap: Spacing.xs },
 
   couponRow: { flexDirection: 'row', gap: Spacing.sm },
   couponField: {
@@ -1078,6 +1504,15 @@ const styles = StyleSheet.create({
   },
   couponInput: { flex: 1, paddingVertical: 0 },
   couponApplied: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  ownCoupons: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  pointsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+  },
 
   tips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
 

@@ -62,7 +62,7 @@ const BusinessCollectionCard = memo(function BusinessCollectionCard({
   business, onPress,
 }: { business: CuratedHomeBusiness; onPress: () => void }) {
   const { c } = useTheme();
-  const accent = businessAccent(business._id);
+  const accent = businessAccent(business._id, business.brandColor);
   const Illustration = categoryIllustration(business.category);
 
   return (
@@ -71,7 +71,7 @@ const BusinessCollectionCard = memo(function BusinessCollectionCard({
       accessibilityRole="button"
       accessibilityLabel={`${business.name}, ${minutes(business.deliveryTime)}, calificación ${business.rating.toFixed(1)}`}
       accessibilityHint="Abre el perfil del negocio"
-      style={[styles.card, { width: CARD_WIDTH, backgroundColor: c.surface, borderColor: c.border }]}
+      style={[styles.card, { width: CARD_WIDTH }]}
     >
       <View style={[styles.image, { backgroundColor: accent }]}>
         {business.coverImage ? (
@@ -115,7 +115,6 @@ const styles = StyleSheet.create({
   hList: { gap: Spacing.md, paddingRight: Spacing.xl },
   card: {
     borderRadius: BorderRadius.lg,
-    borderWidth: 1,
     overflow: 'hidden',
   },
   image: { width: '100%', height: 120, alignItems: 'center', justifyContent: 'center' },

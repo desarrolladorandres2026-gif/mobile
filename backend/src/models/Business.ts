@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { BusinessCategory, GeoPoint, WeekSchedule } from '../types';
 import { normalize } from '../utils/text';
+import { BUSINESS_BRAND_COLORS } from '../utils/businessBrand';
 
 export interface IBusiness extends Document {
   ownerId: Types.ObjectId;
@@ -15,6 +16,24 @@ export interface IBusiness extends Document {
   description: string;
   logo?: string;
   coverImage?: string;
+  /**
+   * Color del encabezado cuando el comercio no subió portada.
+   *
+   * Sale de una lista cerrada (`BUSINESS_BRAND_COLORS`) y no de un selector
+   * libre: el cliente ve decenas de fichas seguidas, y un solo color mal
+   * elegido vuelve ilegible el nombre del negocio sobre él. Vacío significa
+   * "el que Zipp le asigne", que es un color derivado de su id.
+   */
+  brandColor?: string | null;
+  /**
+   * Si la ficha muestra la franja de promoción del encabezado.
+   *
+   * El texto de esa franja lo arma Zipp con datos reales —envío gratis
+   * desde X, cupón vigente—, así que el comercio no puede escribir en ella;
+   * lo único que decide es si quiere darle ese protagonismo en su ficha.
+   * Sin nada que anunciar, la franja no aparece aunque esto esté en `true`.
+   */
+  showPromoBanner: boolean;
   category: BusinessCategory;
   address: string;
   location: GeoPoint;
@@ -121,6 +140,17 @@ const businessSchema = new Schema<IBusiness>(
     coverImage: {
       type: String,
       default: null,
+    },
+    brandColor: {
+      type: String,
+      default: null,
+      // El enum vive en `utils/businessBrand` para que el validador, el
+      // panel y el modelo no mantengan tres listas que se desincronizan.
+      enum: [...BUSINESS_BRAND_COLORS, null],
+    },
+    showPromoBanner: {
+      type: Boolean,
+      default: true,
     },
     category: {
       type: String,
@@ -287,10 +317,19 @@ businessSchema.index({ isFeatured: 1 });
 // índice; sin él cada pulsación recorrería la colección entera.
 businessSchema.index({ searchName: 1 });
 
-/** Mismo criterio que en productos: nombre por encima de todo, en español. */
+/**
+ * Mismo criterio que en productos: nombre por encima de todo, en español.
+ *
+ * `description` entró después (migración 005) porque quedó fuera la primera
+ * vez y es justo donde un negocio dice qué vende cuando su carta usa nombres
+ * de autor: "Carbón & Pan" no se llama "Hamburguesas" ni tiene un plato que
+ * se llame así, pero su descripción sí dice "Hamburguesas de carne madurada
+ * a la parrilla…". Sin indexarla, buscar "hamburguesa" no encontraba ese
+ * negocio aunque fuera exactamente lo que el cliente buscaba.
+ */
 businessSchema.index(
-  { name: 'text', category: 'text' },
-  { weights: { name: 10, category: 2 }, default_language: 'spanish', name: 'business_search' }
+  { name: 'text', description: 'text', category: 'text' },
+  { weights: { name: 10, category: 2, description: 1 }, default_language: 'spanish', name: 'business_search' }
 );
 
 // Virtual: products

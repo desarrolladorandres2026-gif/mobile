@@ -30,12 +30,22 @@ router.get('/pending', authenticate, authorize(UserRole.ADMIN), (req, res, next)
 
 router.get('/', (req, res, next) => businessController.getAll(req, res, next));
 router.get('/slug/:slug', (req, res, next) => businessController.getBySlug(req, res, next));
+/** Tarjeta pública para el enlace del botón "Compartir". Ver el controlador. */
+router.get('/slug/:slug/share', (req, res, next) => businessController.sharePreview(req, res, next));
 router.get('/:id', (req, res, next) => businessController.getById(req, res, next));
 
 // Protected – owner/admin
 router.post('/', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(createBusinessSchema), (req, res, next) => businessController.create(req, res, next));
 router.put('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(updateBusinessSchema), (req, res, next) => businessController.update(req, res, next));
 router.delete('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), (req, res, next) => businessController.delete(req, res, next));
+
+// ── Identidad visual: logo y portada ──
+// Sin `validate`: el cuerpo es multipart y lo lee multer dentro del
+// controlador, como en la foto de producto. Pasarlo por zod aquí vaciaría
+// `req.body` antes de que multer llegue a verlo.
+router.post('/:id/logo', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), (req, res, next) => businessController.uploadLogo(req, res, next));
+router.post('/:id/cover', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), (req, res, next) => businessController.uploadCover(req, res, next));
+router.delete('/:id/image/:slot', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), (req, res, next) => businessController.removeBrandImage(req, res, next));
 router.get('/:id/documents', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), (req, res, next) => businessController.listDocuments(req, res, next));
 router.post('/:id/documents', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(businessDocumentSchema), (req, res, next) => businessController.submitDocument(req, res, next));
 router.patch('/documents/:documentId/review', authenticate, authorize(UserRole.ADMIN), validate(reviewBusinessDocumentSchema), (req, res, next) => businessController.reviewDocument(req, res, next));

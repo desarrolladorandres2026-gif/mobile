@@ -6,22 +6,36 @@ import {
   PaymentIntent,
   PaymentIntentStatus,
   WebhookEvent,
+  CheckoutConfig,
+  CreateNativePaymentInput,
+  PaymentInstrument,
+  PseFinancialInstitution,
+  CreatePaymentSourceInput,
 } from './provider';
 
 /**
- * Wompi Colombia — Web Checkout (hosted redirect) provider.
+ * Wompi Colombia. Dos caminos de cobro, que conviven a propósito.
  *
- * Deliberately does NOT integrate card tokenization, PSE bank selection or
- * Nequi phone push directly: the mobile app would then be in PCI scope and
- * would have to reimplement a payment method picker Wompi already built.
- * Instead it builds a signed link to Wompi's own hosted checkout page
- * (https://checkout.wompi.co/p/), which shows every payment method enabled
- * on this merchant account — cards, PSE, Nequi, Bancolombia Transfer —
- * without ZIPP ever touching a card number, CVV or bank credential.
+ * **Web Checkout (`createPayment`).** Un enlace firmado a la página de Wompi
+ * (https://checkout.wompi.co/p/). Fue el único camino durante un tiempo, y
+ * por una razón que sigue siendo cierta: ni la app ni este servidor ven
+ * nunca un número de tarjeta, y Wompi ya trae el selector de métodos. Se
+ * mantiene para las versiones de la app que solo lo conocen.
+ *
+ * **Cobro dentro de la app (`createNativePayment` y compañía).** El cliente
+ * paga sin salir de Zipp. La decisión de antes se revirtió a sabiendas, y
+ * el costo es real: capturar la tarjeta en una pantalla propia mete a la
+ * app en alcance PCI (SAQ A-EP). Lo que se conserva es que **el PAN no toca
+ * este servidor**: el dispositivo tokeniza directamente contra Wompi con la
+ * llave pública (`getCheckoutConfig`) y aquí solo llega un `tok_...`. La
+ * llave privada y el secreto de integridad no salen del proceso. Nequi no
+ * sale de la app; PSE y el reto 3D Secure se resuelven en un WebView propio,
+ * nunca en el navegador del sistema.
  *
  * Reference: https://docs.wompi.co/docs/colombia/widget-checkout-web/,
  * https://docs.wompi.co/docs/colombia/eventos/,
- * https://docs.wompi.co/docs/colombia/transacciones/
+ * https://docs.wompi.co/docs/colombia/transacciones/,
+ * https://docs.wompi.co/docs/colombia/fuentes-de-pago/
  */
 
 const CHECKOUT_URL = 'https://checkout.wompi.co/p/';
@@ -94,10 +108,106 @@ interface WompiTransaction {
   amount_in_cents: number;
   currency: string;
   payment_method_type?: string;
+  /**
+   * Solo llega por la API de Transacciones, nunca por el webhook. Dentro
+   * viajan las dos cosas que obligan a seguir interactuando con el cliente:
+   * la URL del banco (PSE) y el reto 3D Secure de la tarjeta.
+   */
+  payment_method?: {
+    extra?: {
+      async_payment_url?: string;
+      three_ds_auth?: {
+        current_step?: string;
+        current_step_status?: string;
+        three_ds_method_data?: string;
+      };
+    };
+  };
+}
+
+/** Los dos consentimientos que Wompi prefirma, con el documento que los respalda. */
+interface WompiPresignedAcceptance {
+  acceptance_token?: string;
+  permalink?: string;
+  type?: string;
+}
+
+interface WompiMerchant {
+  presigned_acceptance?: WompiPresignedAcceptance;
+  presigned_personal_data_auth?: WompiPresignedAcceptance;
+}
+
+/**
+ * Cuánto se reutiliza la configuración del comercio.
+ *
+ * Corto a propósito: los tokens de aceptación caducan y uno vencido hace
+ * fallar el cobro, no la pantalla que lo mostró. Cinco minutos quitan la
+ * llamada repetida sin acercarse a la caducidad.
+ */
+const CHECKOUT_CONFIG_TTL_MS = 5 * 60_000;
+
+/**
+ * Cuánto se reutiliza la lista de bancos de PSE.
+ *
+ * Mucho más larga que la de los tokens porque un banco nuevo en PSE es
+ * noticia anual, no algo que caduque.
+ */
+const PSE_BANKS_TTL_MS = 30 * 60_000;
+
+/**
+ * Lo que todavía le falta hacer al cliente, si algo le falta.
+ *
+ * Dos carriles no terminan en la respuesta de Wompi: PSE devuelve la URL de
+ * su banco y una tarjeta con 3D Secure devuelve un reto. Los dos se resuelven
+ * dentro de la app —WebView propio, nunca el navegador del sistema—, así que
+ * salen del proveedor como datos y no como una redirección ya decidida.
+ *
+ * El HTML del reto llega con las entidades escapadas y hay que desescaparlo
+ * antes de pintarlo; se hace aquí, en el único sitio que sabe de dónde viene.
+ */
+function extractPendingAction(tx: WompiTransaction): {
+  asyncPaymentUrl?: string;
+  threeDsChallengeHtml?: string;
+} {
+  const extra = tx.payment_method?.extra;
+  if (!extra) return {};
+
+  const result: { asyncPaymentUrl?: string; threeDsChallengeHtml?: string } = {};
+
+  // Solo https: un `javascript:` o un `data:` colocado aquí se ejecutaría
+  // dentro del WebView de la app, con su origen.
+  if (typeof extra.async_payment_url === 'string' && /^https:\/\//i.test(extra.async_payment_url)) {
+    result.asyncPaymentUrl = extra.async_payment_url;
+  }
+
+  const auth = extra.three_ds_auth;
+  if (
+    auth?.current_step === 'CHALLENGE' &&
+    auth.current_step_status === 'PENDING' &&
+    typeof auth.three_ds_method_data === 'string'
+  ) {
+    result.threeDsChallengeHtml = unescapeHtml(auth.three_ds_method_data);
+  }
+
+  return result;
+}
+
+function unescapeHtml(value: string): string {
+  return value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(?:39|x27);/g, "'")
+    // El `&amp;` va al final: hacerlo antes reintroduciría las entidades que
+    // los reemplazos anteriores acaban de resolver.
+    .replace(/&amp;/g, '&');
 }
 
 export class WompiPaymentProvider implements PaymentProvider {
   readonly name = 'wompi';
+
+  private checkoutConfigCache: { value: CheckoutConfig; expiresAt: number } | null = null;
+  private pseBanksCache: { value: PseFinancialInstitution[]; expiresAt: number } | null = null;
 
   private get publicKey(): string {
     return config.payments.wompi.publicKey;
@@ -177,6 +287,7 @@ export class WompiPaymentProvider implements PaymentProvider {
       paymentMethodType: sanitizePaymentMethodType(tx.payment_method_type),
       rawStatus: tx.status,
       raw: tx,
+      ...extractPendingAction(tx),
     };
   }
 
@@ -471,5 +582,263 @@ export class WompiPaymentProvider implements PaymentProvider {
       rawStatus: tx.status,
       raw: payload,
     };
+  }
+
+  /**
+   * Llave pública, entorno y tokens de aceptación vigentes.
+   *
+   * Los dos tokens vienen prefirmados por Wompi y caducan, así que no se
+   * pueden fijar en configuración: hay que pedirlos. Se cachean unos
+   * minutos porque cada pantalla de pago los necesita y son idénticos para
+   * todo el comercio — no hay nada por usuario aquí.
+   *
+   * Autorizado con la llave pública, que es lo que este endpoint espera.
+   */
+  async getCheckoutConfig(): Promise<CheckoutConfig> {
+    const cached = this.checkoutConfigCache;
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+    const res = await fetch(`${this.apiBaseUrl}/merchants/${encodeURIComponent(this.publicKey)}`);
+
+    if (!res.ok) {
+      throw new Error(`Wompi respondió ${res.status} al pedir la configuración del comercio`);
+    }
+
+    const body = (await res.json()) as { data?: WompiMerchant };
+    const data = body?.data;
+
+    // Sin tokens de aceptación no hay transacción posible: Wompi los exige
+    // en el cuerpo. Fallar aquí es preferible a devolver una configuración
+    // a medias que reventaría más tarde, en mitad de un cobro.
+    if (!data?.presigned_acceptance?.acceptance_token) {
+      throw new Error('Respuesta de Wompi sin token de aceptación');
+    }
+
+    const value: CheckoutConfig = {
+      publicKey: this.publicKey,
+      environment: this.isProduction ? 'production' : 'test',
+      acceptanceToken: data.presigned_acceptance.acceptance_token,
+      personalDataAuthToken: data.presigned_personal_data_auth?.acceptance_token ?? '',
+      permalinks: {
+        termsAndConditions: data.presigned_acceptance.permalink,
+        personalDataAuth: data.presigned_personal_data_auth?.permalink,
+      },
+    };
+
+    this.checkoutConfigCache = {
+      value,
+      expiresAt: Date.now() + CHECKOUT_CONFIG_TTL_MS,
+    };
+
+    return value;
+  }
+
+  /**
+   * Traduce el instrumento de la plataforma al `payment_method` de Wompi.
+   *
+   * Una fuente de pago guardada es la excepción: su identificador va en la
+   * raíz del cuerpo (`payment_source_id`) y `payment_method` solo lleva las
+   * cuotas, sin tipo ni token — la pasarela ya sabe qué tarjeta es.
+   */
+  private buildPaymentMethod(
+    instrument: PaymentInstrument,
+    description: string
+  ): Record<string, unknown> {
+    switch (instrument.kind) {
+      case 'card_token':
+        return {
+          type: 'CARD',
+          token: instrument.token,
+          installments: instrument.installments,
+        };
+
+      case 'nequi':
+        return { type: 'NEQUI', phone_number: instrument.phone };
+
+      case 'pse':
+        return {
+          type: 'PSE',
+          user_type: instrument.userType,
+          user_legal_id_type: instrument.userLegalIdType,
+          user_legal_id: instrument.userLegalId,
+          financial_institution_code: instrument.financialInstitutionCode,
+          // Wompi lo muestra en el extracto del banco y lo acota a 30.
+          payment_description: description.slice(0, 30),
+        };
+
+      case 'saved_source':
+        return { installments: instrument.installments };
+    }
+  }
+
+  /**
+   * Crea una transacción real contra Wompi con un instrumento que el cliente
+   * ya capturó dentro de la app.
+   *
+   * Al revés que `createPayment` —que solo firma una URL y no toca la red—,
+   * esto sí cobra. Lo que devuelve casi nunca es definitivo: Wompi contesta
+   * `PENDING` y resuelve después, en segundos para una tarjeta y en minutos
+   * para un Nequi. Quien llama tiene que esperar el webhook o consultar; dar
+   * por aprobado lo que vuelve de aquí es regalar pedidos.
+   */
+  async createNativePayment(input: CreateNativePaymentInput): Promise<PaymentIntent> {
+    if (!input.reference) {
+      throw new Error('WompiPaymentProvider requiere una referencia única por intento de pago');
+    }
+    if (!input.customer.email) {
+      // Wompi lo exige, y es a donde manda su comprobante. Fallar aquí da un
+      // mensaje entendible; dejarlo pasar da un 422 de la pasarela.
+      throw new Error('Wompi requiere un correo del cliente para cobrar');
+    }
+
+    const amountInCents = Math.round(input.amount * 100);
+    const paymentMethod = this.buildPaymentMethod(input.instrument, input.description);
+
+    const body: Record<string, unknown> = {
+      acceptance_token: input.acceptanceToken,
+      amount_in_cents: amountInCents,
+      currency: input.currency,
+      customer_email: input.customer.email,
+      reference: input.reference,
+      // La misma firma de siempre, pero **sin** tiempo de expiración: ese
+      // parámetro es del Web Checkout. Incluirlo aquí produce una firma que
+      // Wompi no reconoce.
+      signature: this.integritySignature(input.reference, amountInCents, input.currency),
+    };
+
+    body.payment_method = paymentMethod;
+    if (input.instrument.kind === 'saved_source') {
+      body.payment_source_id = input.instrument.paymentSourceId;
+    }
+
+    if (input.personalDataAuthToken) body.accept_personal_auth = input.personalDataAuthToken;
+
+    // PSE y Bancolombia devuelven al cliente a esta dirección cuando su banco
+    // termina. El WebView de la app la intercepta y la cierra.
+    if (input.redirectUrl) body.redirect_url = input.redirectUrl;
+
+    const customerData: Record<string, unknown> = {};
+    if (input.customer.name) customerData.full_name = input.customer.name;
+    if (input.customer.phone) customerData.phone_number = input.customer.phone;
+    if (input.browserInfo) customerData.browser_info = input.browserInfo;
+    if (Object.keys(customerData).length) body.customer_data = customerData;
+
+    const res = await fetch(`${this.apiBaseUrl}/transactions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.privateKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    const payload = (await res.json().catch(() => null)) as
+      | { data?: WompiTransaction; error?: { reason?: string; messages?: unknown } }
+      | null;
+
+    if (!res.ok) {
+      // El detalle de Wompi es lo único que explica por qué un cobro no
+      // entró (tarjeta vencida, banco caído, documento mal). Se conserva
+      // acotado; tirar un "error de pasarela" a secas deja al soporte sin
+      // nada que mirar.
+      const detail =
+        payload?.error?.reason ??
+        (payload?.error?.messages ? JSON.stringify(payload.error.messages) : '');
+      throw new Error(
+        `Wompi rechazó la creación de la transacción (HTTP ${res.status}). ${detail}`.trim().slice(0, 400)
+      );
+    }
+
+    if (!payload?.data) {
+      throw new Error('Respuesta de Wompi sin datos de transacción al crear el cobro');
+    }
+
+    return { ...this.mapTransaction(payload.data), orderId: input.orderId };
+  }
+
+  /**
+   * Bancos disponibles para PSE.
+   *
+   * Se cachea porque la lista cambia de higos a brevas y la pantalla de pago
+   * la pide cada vez que alguien elige PSE. Con la llave pública: es un
+   * catálogo, no un movimiento de dinero.
+   */
+  async listPseBanks(): Promise<PseFinancialInstitution[]> {
+    const cached = this.pseBanksCache;
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+    const res = await fetch(`${this.apiBaseUrl}/pse/financial_institutions`, {
+      headers: { Authorization: `Bearer ${this.publicKey}` },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Wompi respondió ${res.status} al pedir la lista de bancos de PSE`);
+    }
+
+    const body = (await res.json()) as {
+      data?: { financial_institution_code?: string; financial_institution_name?: string }[];
+    };
+
+    const value = (body?.data ?? [])
+      .filter((bank) => bank.financial_institution_code && bank.financial_institution_name)
+      .map((bank) => ({
+        code: String(bank.financial_institution_code),
+        name: String(bank.financial_institution_name),
+      }));
+
+    // Una lista vacía no se cachea: sería convertir un hipo de Wompi en
+    // media hora sin PSE para todo el mundo.
+    if (value.length) {
+      this.pseBanksCache = { value, expiresAt: Date.now() + PSE_BANKS_TTL_MS };
+    }
+
+    return value;
+  }
+
+  /**
+   * Convierte una tarjeta tokenizada en una fuente de pago reutilizable.
+   *
+   * Con la llave privada: una fuente de pago es, literalmente, permiso para
+   * cobrar más tarde sin que el cliente vuelva a escribir nada.
+   */
+  async createPaymentSource(input: CreatePaymentSourceInput): Promise<{ id: number }> {
+    const res = await fetch(`${this.apiBaseUrl}/payment_sources`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.privateKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'CARD',
+        token: input.token,
+        customer_email: input.customerEmail,
+        acceptance_token: input.acceptanceToken,
+        accept_personal_auth: input.personalDataAuthToken,
+      }),
+    });
+
+    const payload = (await res.json().catch(() => null)) as
+      | { data?: { id?: number; status?: string }; error?: { reason?: string } }
+      | null;
+
+    if (!res.ok) {
+      const detail = payload?.error?.reason ?? '';
+      throw new Error(
+        `Wompi no pudo guardar la tarjeta (HTTP ${res.status}). ${detail}`.trim().slice(0, 400)
+      );
+    }
+
+    const id = payload?.data?.id;
+    if (typeof id !== 'number' || !Number.isInteger(id) || id <= 0) {
+      throw new Error('Respuesta de Wompi sin identificador de fuente de pago');
+    }
+
+    // Una fuente que Wompi no deja disponible no sirve para cobrar; mejor
+    // saberlo ahora que en el próximo pedido.
+    if (payload?.data?.status && payload.data.status !== 'AVAILABLE') {
+      throw new Error(`Wompi dejó la tarjeta en estado ${payload.data.status} y no puede usarse`);
+    }
+
+    return { id };
   }
 }

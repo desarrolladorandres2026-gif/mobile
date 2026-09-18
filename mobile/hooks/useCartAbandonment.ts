@@ -17,10 +17,8 @@ const SYNC_DEBOUNCE_MS = 4_000;
  */
 export function useCartAbandonment() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const businessId = useCartStore((s) => s.businessId);
-  const businessName = useCartStore((s) => s.businessName);
-  const itemCount = useCartStore((s) => s.getItemCount());
-  const subtotal = useCartStore((s) => s.getSubtotal());
+  const carts = useCartStore((s) => s.carts);
+  const getSubtotal = useCartStore((s) => s.getSubtotal);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -28,19 +26,25 @@ export function useCartAbandonment() {
 
     if (timer.current) clearTimeout(timer.current);
 
-    if (!businessId || itemCount === 0) {
-      // Bolsa vacía: se limpia de inmediato, sin rebote, para no dejar un
+    if (carts.length === 0) {
+      // Sin bolsas: se limpia de inmediato, sin rebote, para no dejar un
       // recordatorio pendiente de un carrito que ya no existe.
       cartApi.clear().catch(() => {});
       return;
     }
 
     timer.current = setTimeout(() => {
-      cartApi.sync(businessId, businessName || '', itemCount, subtotal).catch(() => {});
+      // Una bolsa por negocio: cada una manda su propio aviso de abandono.
+      carts.forEach((cart) => {
+        const itemCount = cart.items.reduce((sum, i) => sum + i.quantity, 0);
+        cartApi
+          .sync(cart.businessId, cart.businessName, itemCount, getSubtotal(cart.businessId))
+          .catch(() => {});
+      });
     }, SYNC_DEBOUNCE_MS);
 
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [isAuthenticated, businessId, businessName, itemCount, subtotal]);
+  }, [isAuthenticated, carts, getSubtotal]);
 }

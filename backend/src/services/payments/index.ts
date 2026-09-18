@@ -11,8 +11,24 @@ import {
 import { AppError } from '../../middlewares';
 import { PaymentType, PaymentStatus, PaymentMethod, OrderStatus, OrderKind } from '../../types';
 import { AuditAction, AuditSeverity, logSystemAudit } from '../../security';
-import { PaymentProvider, PaymentIntent, PaymentIntentStatus } from './provider';
+import { emitToUser } from '../../sockets/emitter';
+import {
+  PaymentProvider,
+  PaymentIntent,
+  PaymentIntentStatus,
+  CheckoutConfig,
+  PaymentInstrument,
+  PseFinancialInstitution,
+} from './provider';
 import { SandboxPaymentProvider } from './sandbox.provider';
+import {
+  CardDisplay,
+  saveCardFromToken,
+  resolveSavedCard,
+  touchSavedCard,
+  listSavedCards,
+  deleteSavedCard,
+} from './savedCards';
 import { WompiPaymentProvider } from './wompi.provider';
 
 export * from './provider';
@@ -69,6 +85,28 @@ export function isOnlinePaymentAvailable(): boolean {
   }
 }
 
+/**
+ * Qué puede cobrarse sin salir de la app con el proveedor activo.
+ *
+ * La app lo pregunta junto con los métodos para decidir qué pinta: con
+ * `native` en falso cae al camino de redirección de siempre, que es lo que
+ * pasa con el sandbox de desarrollo y con cualquier proveedor futuro que
+ * solo sepa redirigir.
+ */
+export function nativeCapabilities(): { native: boolean; pse: boolean; savedCards: boolean } {
+  try {
+    const provider = getPaymentProvider();
+    const native = Boolean(provider.createNativePayment && provider.getCheckoutConfig);
+    return {
+      native,
+      pse: native && Boolean(provider.listPseBanks),
+      savedCards: native && Boolean(provider.createPaymentSource),
+    };
+  } catch {
+    return { native: false, pse: false, savedCards: false };
+  }
+}
+
 /** Test/bootstrap seam so a provider can be swapped at runtime. */
 export function setPaymentProvider(provider: PaymentProvider | null): void {
   activeProvider = provider;
@@ -91,6 +129,24 @@ export function toPaymentStatus(status: PaymentIntentStatus): PaymentStatus {
       return PaymentStatus.FAILED;
     default:
       return PaymentStatus.PENDING;
+  }
+}
+
+/**
+ * El vocabulario que ve la app: el de `GET /payments/status`, no el de la
+ * plataforma. Un solo sitio, para que el socket y el polling no puedan
+ * contar el mismo pago de dos formas distintas.
+ */
+export function toClientStatus(status: PaymentStatus): 'approved' | 'declined' | 'refunded' | 'pending' {
+  switch (status) {
+    case PaymentStatus.PAID:
+      return 'approved';
+    case PaymentStatus.FAILED:
+      return 'declined';
+    case PaymentStatus.REFUNDED:
+      return 'refunded';
+    default:
+      return 'pending';
   }
 }
 
@@ -139,6 +195,38 @@ interface InitiateInput {
   // llama.
 }
 
+/**
+ * El instrumento tal como lo manda la app.
+ *
+ * Difiere del `PaymentInstrument` del proveedor en un punto deliberado: una
+ * tarjeta guardada llega como `saved_card` con **nuestro** id, nunca con el
+ * `payment_source_id` de la pasarela. Ese número es un entero adivinable, y
+ * aceptarlo de la app permitiría cobrarle a la tarjeta de otra persona.
+ * `PaymentService` lo traduce tras comprobar el dueño.
+ */
+export type ClientInstrument =
+  | {
+      kind: 'card_token';
+      token: string;
+      installments: number;
+      /** Guardarla para la próxima vez. Exige `card` y el consentimiento de datos. */
+      save?: boolean;
+      card?: CardDisplay;
+    }
+  | { kind: 'saved_card'; savedCardId: string; installments?: number }
+  | Extract<PaymentInstrument, { kind: 'nequi' }>
+  | Extract<PaymentInstrument, { kind: 'pse' }>;
+
+interface InitiateNativeInput extends InitiateInput {
+  /** Con qué se cobra. Nunca contiene número de tarjeta: ya está tokenizada. */
+  instrument: ClientInstrument;
+  /** El consentimiento que el cliente tuvo delante, tal cual. */
+  acceptanceToken: string;
+  /** Solo si va a guardarse la tarjeta. */
+  personalDataAuthToken?: string;
+  browserInfo?: Record<string, string | number>;
+}
+
 interface GatewayStatusMeta {
   /** The gateway's own transaction id, when it differs from the lookup key. */
   gatewayTransactionId?: string;
@@ -154,6 +242,27 @@ interface GatewayStatusMeta {
 }
 
 export class PaymentService {
+  /**
+   * Lo que la app necesita para cobrar sin salir de sí misma.
+   *
+   * Un proveedor que solo sabe redirigir no implementa esto, y entonces la
+   * respuesta honesta es "aquí no se puede" y no un objeto vacío que la app
+   * interpretaría como permiso para pedir una tarjeta que nadie va a poder
+   * cobrar. El checkout usa esa distinción para ofrecer el camino viejo.
+   */
+  async getCheckoutConfig(): Promise<CheckoutConfig> {
+    const provider = getPaymentProvider();
+
+    if (!provider.getCheckoutConfig) {
+      throw new AppError(
+        `El proveedor de pagos "${provider.name}" no admite cobro dentro de la aplicación`,
+        501
+      );
+    }
+
+    return provider.getCheckoutConfig();
+  }
+
   /**
    * Starts a digital payment for an order and records it locally.
    *
@@ -314,6 +423,308 @@ export class PaymentService {
 
     await this.applyIfTerminal(intent);
     return { intent, paymentId: payment._id.toString() };
+  }
+
+  /**
+   * Cobra dentro de la aplicación, con un instrumento que el cliente ya
+   * capturó (tarjeta tokenizada, Nequi, PSE o una tarjeta guardada).
+   *
+   * Tres cosas lo separan de `initiate`, y ninguna es cosmética:
+   *
+   * 1. **La fila se guarda antes de cobrar.** En el camino de redirección
+   *    `createPayment` no toca la red, así que daba igual el orden. Aquí sí
+   *    se mueve dinero: si el proceso muriera entre el cobro y el `save()`,
+   *    habría plata en Wompi sin nada que la reclame. Guardando primero, el
+   *    webhook siempre encuentra una fila por su referencia.
+   * 2. **Un intento abierto no se reutiliza.** Un enlace de Web Checkout se
+   *    puede reabrir; una transacción no: cobrar otra vez sería un segundo
+   *    cargo. Si el anterior sigue vivo en la pasarela se rechaza el intento
+   *    y la app espera en la pantalla que ya tiene.
+   * 3. **Un fallo de la pasarela cierra la fila.** Si no, quedaría PENDING
+   *    para siempre ocupando el único hueco que el índice parcial
+   *    `one_open_online_payment_per_order` concede por pedido, y el cliente
+   *    no podría reintentar nunca.
+   */
+  async initiateNative(
+    input: InitiateNativeInput
+  ): Promise<{ intent: PaymentIntent; paymentId: string; reference: string }> {
+    const provider = getPaymentProvider();
+
+    if (!provider.createNativePayment) {
+      throw new AppError(
+        `El proveedor de pagos "${provider.name}" no admite cobro dentro de la aplicación`,
+        501
+      );
+    }
+
+    const order = await Order.findById(input.orderId);
+    if (!order) throw new AppError('Pedido no encontrado', 404);
+
+    if (order.paymentMethod !== PaymentMethod.ONLINE) {
+      throw new AppError('Este pedido no es de pago en línea', 400);
+    }
+    if (order.paymentStatus === PaymentStatus.PAID) {
+      throw new AppError('Este pedido ya fue pagado', 409);
+    }
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new AppError('Este pedido fue cancelado y no admite pago', 409);
+    }
+
+    // El importe lo pone el servidor. `input.amount` solo sirve de contraste.
+    const amount = order.finance?.customerTotal ?? order.total;
+    if (input.amount && input.amount !== amount) {
+      throw new AppError('El monto no coincide con el total del pedido', 409);
+    }
+
+    await this.clearOpenAttempt(input.orderId);
+
+    // Después de todas las guardas y antes de la fila: guardar una tarjeta
+    // es un efecto en la pasarela, y no debe ocurrir para un cobro que de
+    // todos modos se iba a rechazar.
+    const { instrument, savedCardId } = await this.resolveInstrument(provider, input);
+
+    const reference = generatePaymentReference(input.orderId);
+
+    const payment = new Payment({
+      orderId: input.orderId,
+      userId: input.userId,
+      type: PaymentType.ORDER_PAYMENT,
+      // Siempre `online`: el carril concreto (CARD, NEQUI, PSE) vive en
+      // `paymentMethodType`. Escribirlo aquí borraría la distinción de la
+      // que dependen la invalidación de intentos y la guarda de efectivo.
+      method: PaymentMethod.ONLINE,
+      status: PaymentStatus.PENDING,
+      amount,
+      currency: config.payments.currency,
+      reference,
+      // Provisional, como en el camino de redirección: asciende al id real
+      // de Wompi en cuanto la transacción existe.
+      transactionId: reference,
+      metadata: { instrumentKind: input.instrument.kind },
+    });
+    payment.statusHistory.push({
+      status: PaymentStatus.PENDING,
+      source: 'create',
+      at: new Date(),
+    });
+
+    try {
+      await payment.save();
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        throw new AppError(
+          'Ya hay un cobro en curso para este pedido. Espera a que termine.',
+          409,
+          'PAYMENT_IN_PROGRESS'
+        );
+      }
+      throw error;
+    }
+
+    let intent: PaymentIntent;
+    try {
+      intent = await provider.createNativePayment({
+        orderId: input.orderId,
+        userId: input.userId,
+        amount,
+        currency: config.payments.currency,
+        description: input.description,
+        customer: input.customer,
+        redirectUrl: input.redirectUrl,
+        reference,
+        instrument,
+        acceptanceToken: input.acceptanceToken,
+        personalDataAuthToken: input.personalDataAuthToken,
+        browserInfo: input.browserInfo,
+      });
+    } catch (error) {
+      const reason = ((error as Error).message || 'La pasarela rechazó el cobro').slice(0, 300);
+      // Se cierra la fila para liberar el hueco del índice; si no, el cliente
+      // quedaría bloqueado sin poder reintentar nunca.
+      await this.retireAttempt(payment, reason);
+      throw new AppError(reason, 502, 'GATEWAY_REJECTED');
+    }
+
+    await Payment.updateOne(
+      { _id: payment._id },
+      {
+        $set: {
+          transactionId: intent.id,
+          ...(intent.paymentMethodType ? { paymentMethodType: intent.paymentMethodType } : {}),
+          ...(intent.rawStatus ? { gatewayStatus: intent.rawStatus } : {}),
+        },
+      }
+    );
+
+    if (savedCardId) await touchSavedCard(savedCardId);
+
+    await this.applyIfTerminal(intent);
+    return { intent, paymentId: payment._id.toString(), reference };
+  }
+
+  /**
+   * Del instrumento de la app al de la pasarela.
+   *
+   * "Pagar y guardar" crea primero la fuente de pago y cobra contra ella:
+   * Wompi consume el token al crear la fuente, así que no se puede usar
+   * además para la transacción.
+   */
+  private async resolveInstrument(
+    provider: PaymentProvider,
+    input: InitiateNativeInput
+  ): Promise<{ instrument: PaymentInstrument; savedCardId?: string }> {
+    const client = input.instrument;
+
+    switch (client.kind) {
+      case 'card_token': {
+        if (!client.save) {
+          return {
+            instrument: { kind: 'card_token', token: client.token, installments: client.installments },
+          };
+        }
+        if (!client.card) {
+          throw new AppError('Faltan los datos de la tarjeta para guardarla', 400);
+        }
+        if (!input.customer.email) {
+          throw new AppError('Necesitamos un correo para guardar la tarjeta', 422, 'EMAIL_REQUIRED');
+        }
+        const card = await saveCardFromToken(provider, {
+          userId: input.userId,
+          token: client.token,
+          display: client.card,
+          customerEmail: input.customer.email,
+          acceptanceToken: input.acceptanceToken,
+          personalDataAuthToken: input.personalDataAuthToken,
+        });
+        return {
+          instrument: {
+            kind: 'saved_source',
+            paymentSourceId: card.gatewaySourceId,
+            installments: client.installments,
+          },
+          savedCardId: card._id.toString(),
+        };
+      }
+
+      case 'saved_card': {
+        const card = await resolveSavedCard(provider, input.userId, client.savedCardId);
+        return {
+          instrument: {
+            kind: 'saved_source',
+            paymentSourceId: card.gatewaySourceId,
+            installments: client.installments ?? 1,
+          },
+          savedCardId: card._id.toString(),
+        };
+      }
+
+      case 'nequi':
+      case 'pse':
+        return { instrument: client };
+    }
+  }
+
+  // ── Tarjetas guardadas ──
+
+  listCards(userId: string) {
+    return listSavedCards(userId);
+  }
+
+  /** Guarda una tarjeta sin cobrar nada (desde el perfil, p. ej.). */
+  async saveCard(input: {
+    userId: string;
+    token: string;
+    display: CardDisplay;
+    customerEmail: string;
+    acceptanceToken: string;
+    personalDataAuthToken?: string;
+  }) {
+    return saveCardFromToken(getPaymentProvider(), input);
+  }
+
+  deleteCard(userId: string, cardId: string) {
+    return deleteSavedCard(userId, cardId);
+  }
+
+  /**
+   * Deja libre el único hueco de intento abierto que el pedido admite.
+   *
+   * Antes de retirar nada se le pregunta a la pasarela: una fila local que
+   * dice PENDING puede ser una transacción que Wompi ya resolvió y cuyo
+   * webhook aún no ha llegado. Retirarla a ciegas convertiría un cobro
+   * aprobado en un intento fallido y abriría la puerta a un segundo cargo.
+   */
+  private async clearOpenAttempt(orderId: string): Promise<void> {
+    const existing = await Payment.findOne({
+      orderId,
+      type: PaymentType.ORDER_PAYMENT,
+      method: { $ne: PaymentMethod.CASH_ON_DELIVERY },
+      status: { $in: [PaymentStatus.PENDING, PaymentStatus.PAID] },
+    }).sort({ createdAt: -1 });
+
+    if (!existing) return;
+
+    if (existing.status === PaymentStatus.PAID) {
+      throw new AppError(
+        'Este pedido ya tiene un cobro aprobado pendiente de revisión. Contacta a soporte.',
+        409,
+        'PAYMENT_UNDER_REVIEW'
+      );
+    }
+
+    // ¿Sigue vivo de verdad? Solo tiene sentido preguntar cuando la pasarela
+    // ya le asignó un identificador propio; mientras siga siendo la
+    // referencia, la transacción no llegó a existir allí.
+    const hasGatewayRecord = Boolean(
+      existing.transactionId && existing.transactionId !== existing.reference
+    );
+
+    if (!hasGatewayRecord) {
+      // Nunca llegó a la pasarela: retirarla no puede perder dinero.
+      await this.retireAttempt(
+        existing,
+        'Intento anterior que no llegó a la pasarela; sustituido por uno nuevo',
+        { supersededAmount: existing.amount, supersededAt: new Date().toISOString() }
+      );
+      return;
+    }
+
+    let asked = false;
+    try {
+      await this.sync(existing.transactionId!);
+      asked = true;
+    } catch {
+      // No se pudo preguntar. Se decide con lo que diga la fila local, que
+      // es lo único disponible.
+    }
+
+    const refreshed = await Payment.findById(existing._id);
+
+    if (refreshed?.status === PaymentStatus.PAID) {
+      throw new AppError('Este pedido ya fue pagado.', 409, 'PAYMENT_ALREADY_PAID');
+    }
+
+    if (refreshed?.status === PaymentStatus.PENDING) {
+      throw new AppError(
+        asked
+          ? 'Ya hay un cobro en curso para este pedido. Termínalo o espera a que caduque.'
+          : 'No pudimos verificar el cobro anterior. Espera un momento y vuelve a intentarlo.',
+        409,
+        'PAYMENT_IN_PROGRESS'
+      );
+    }
+    // Terminal (FAILED): el hueco del índice quedó libre por sí solo.
+  }
+
+  /** Bancos disponibles para PSE. */
+  async listPseBanks(): Promise<PseFinancialInstitution[]> {
+    const provider = getPaymentProvider();
+
+    if (!provider.listPseBanks) {
+      throw new AppError(`El proveedor de pagos "${provider.name}" no admite PSE`, 501);
+    }
+
+    return provider.listPseBanks();
   }
 
   private createIntent(
@@ -504,6 +915,17 @@ export class PaymentService {
       const order = await Order.findById(payment.orderId);
       return { order, changed: false };
     }
+
+    // Aviso en vivo a la pantalla de espera de la app. Va aquí, después del
+    // reclamo atómico, porque este es el único punto por el que pasan tanto
+    // el webhook como `sync` y solo quien gana la carrera llega: un cambio,
+    // un aviso. El polling de la app queda de respaldo, no de mecanismo.
+    emitToUser(claimed.userId.toString(), 'payment:updated', {
+      orderId: claimed.orderId.toString(),
+      reference: claimed.reference,
+      status: toClientStatus(nextStatus),
+      declineReason: nextStatus === PaymentStatus.FAILED ? meta?.message : undefined,
+    });
 
     const order = await Order.findById(claimed.orderId);
     if (!order) {

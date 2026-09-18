@@ -111,6 +111,8 @@ export interface CuratedHomeBusiness {
   deliveryTime: number;
   logo?: string | null;
   coverImage?: string | null;
+  /** Color propio del negocio para el respaldo de portada. Ver `lib/business.ts`. */
+  brandColor?: string | null;
   freeDeliveryThreshold: number;
 }
 
@@ -690,8 +692,13 @@ export const loyaltyApi = {
    * así que sobreviven a cambiar de teléfono y son los mismos que ZIPP
    * tiene anotados como deuda.
    */
-  mine: (): Promise<{ balance: number; history: LoyaltyMovement[] }> =>
-    api.get('/loyalty').then((r) => r.data.data),
+  mine: (): Promise<{
+    balance: number;
+    minRedeem: number;
+    /** Lo máximo que un canje puede descontar en un pedido. 0 = sin tope. */
+    maxPerOrder: number;
+    history: LoyaltyMovement[];
+  }> => api.get('/loyalty').then((r) => r.data.data),
 
   /** Cambia puntos por un cupón nominal. Devuelve el cupón entero. */
   redeem: (points: number) =>
@@ -971,6 +978,28 @@ export const paymentsApi = {
 
   getStatus: (transactionId: string) =>
     api.get(`/payments/status/${transactionId}`).then((r) => r.data.data),
+
+  // ── Cobro dentro de la app ──
+
+  /** Llave pública y consentimientos vigentes de la pasarela. */
+  getCheckoutConfig: () =>
+    api.get('/payments/checkout-config').then((r) => r.data.data),
+
+  /**
+   * Cobra con un instrumento ya capturado. Una tarjeta nueva llega aquí
+   * tokenizada: el número nunca sale del teléfono hacia Zipp.
+   */
+  payNative: (orderId: string, body: Record<string, unknown>) =>
+    api.post(`/payments/orders/${orderId}/pay-native`, body).then((r) => r.data.data),
+
+  getPseBanks: () =>
+    api.get('/payments/pse-banks').then((r) => r.data.data),
+
+  listCards: () =>
+    api.get('/payments/cards').then((r) => r.data.data),
+
+  deleteCard: (id: string) =>
+    api.delete(`/payments/cards/${id}`).then((r) => r.data.data),
 };
 
 export const authApi = {
@@ -1041,10 +1070,25 @@ export const authApi = {
   },
 };
 
+export interface OwnCoupon {
+  _id: string;
+  code: string;
+  title: string;
+  type: string;
+  scope: string;
+  value: number;
+  minOrderAmount: number;
+  validUntil: string;
+  businessId: string | null;
+}
+
 export const couponsApi = {
   /** Promotions shown in the home carousel. */
   getPublic: (params?: { city?: string; businessId?: string }) =>
     api.get('/coupons/public', { params }).then((r) => r.data.data),
+
+  /** Los cupones nominales del cliente: los de canjear puntos. */
+  mine: (): Promise<OwnCoupon[]> => api.get('/coupons/mine').then((r) => r.data.data),
 
   validate: (data: { code: string; businessId: string; subtotal: number; deliveryFee?: number }) =>
     // The authoritative validation is ordersApi.quote; never send prices to
@@ -1068,8 +1112,26 @@ export interface OfferBusiness {
   offer: { kind: 'discount' | 'free_delivery'; label: string };
 }
 
+/** Un cupón público tal como lo devuelve `/offers`: el documento entero, no un resumen. */
+export interface OfferCoupon {
+  _id: string;
+  code: string;
+  title: string;
+  description?: string;
+  type: 'percentage' | 'fixed' | 'free_delivery';
+  value: number;
+  maxDiscount?: number;
+  minOrderAmount?: number;
+  /** ISO. Cuándo deja de ser válido — la fuente de la cuenta regresiva. */
+  validUntil: string;
+  /** 0 = sin límite de canjes totales. */
+  usageLimit?: number;
+  usedCount?: number;
+  firstOrderOnly?: boolean;
+}
+
 export interface OffersResult {
-  coupons: any[];
+  coupons: OfferCoupon[];
   products: ProductSearchHit[];
   businesses: OfferBusiness[];
 }

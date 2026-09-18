@@ -55,7 +55,7 @@ function BusinessCardContent({
   business, opts,
 }: { business: CuratedHomeBusiness; opts: SpotlightRenderOpts }) {
   const { c } = useTheme();
-  const accent = businessAccent(business._id);
+  const accent = businessAccent(business._id, business.brandColor);
   const Illustration = categoryIllustration(business.category);
 
   return (

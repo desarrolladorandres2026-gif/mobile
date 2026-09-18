@@ -1,5 +1,7 @@
 import { Types } from 'mongoose';
-import { LoyaltyMovement, LoyaltyBalance, LoyaltyMovementKind, Coupon, IOrder } from '../models';
+import {
+  LoyaltyMovement, ILoyaltyMovement, LoyaltyBalance, LoyaltyMovementKind, Coupon, IOrder, User,
+} from '../models';
 import {
   LedgerAccount,
   LedgerDirection,
@@ -325,35 +327,283 @@ export class LoyaltyService {
 
     if (!earned) return 0;
 
-    const already = await LoyaltyMovement.findOne({
-      orderId: order._id,
-      kind: LoyaltyMovementKind.REVERSED,
-    });
-    if (already) return 0;
-
-    await LoyaltyMovement.create({
-      userId: order.clientId,
-      kind: LoyaltyMovementKind.REVERSED,
-      points: -earned.points,
-      orderId: order._id,
-      description: `Puntos revertidos del pedido ${order.orderNumber}`,
-    });
-
     // El saldo puede haber bajado ya por otros canjes, así que se descuenta
     // solo lo que quede: dejarlo en negativo sería peor que perdonar la
     // diferencia, porque un saldo negativo bloquea al cliente para siempre
-    // por un pedido que ZIPP le reembolsó.
+    // por un pedido que ZIPP le reembolsó. Lo perdonado ya se canjeó, y su
+    // pasivo ya se extinguió con ese canje: no queda nada que asentar.
     const account = await LoyaltyBalance.findOne({ userId: order.clientId });
     const deduct = Math.min(earned.points, account?.balance ?? 0);
-    if (deduct > 0) {
-      await LoyaltyBalance.updateOne(
-        { userId: order.clientId },
-        { $inc: { balance: -deduct } }
-      );
+
+    try {
+      await LoyaltyMovement.create({
+        userId: order.clientId,
+        kind: LoyaltyMovementKind.REVERSED,
+        points: -earned.points,
+        orderId: order._id,
+        description: `Puntos revertidos del pedido ${order.orderNumber}`,
+      });
+    } catch (error: unknown) {
+      // Ya se revirtieron: el índice único es quien lo impide, no una
+      // lectura previa que dos reembolsos simultáneos pasarían los dos.
+      if ((error as { code?: number }).code === 11000) return 0;
+      throw error;
     }
 
+    if (deduct <= 0) return earned.points;
+
+    await LoyaltyBalance.updateOne(
+      { userId: order.clientId, balance: { $gte: deduct } },
+      { $inc: { balance: -deduct } }
+    );
+
+    const cfg = await pricingConfigService.getCurrent();
+    await ledgerService.post(
+      {
+        orderId: order._id,
+        event: LedgerEventType.LOYALTY_REVERSED,
+        pricingConfigVersion: cfg.version,
+        reference: `loyalty:reverse:${order._id}`,
+      },
+      [
+        {
+          account: LedgerAccount.LOYALTY_PAYABLE,
+          direction: LedgerDirection.DEBIT,
+          amount: deduct * POINT_VALUE_COP,
+          memo: `Puntos revertidos del pedido ${order.orderNumber}`,
+        },
+        {
+          account: LedgerAccount.PROMOTION_EXPENSE,
+          direction: LedgerDirection.CREDIT,
+          amount: deduct * POINT_VALUE_COP,
+          memo: 'Provisión revertida: la compra se reembolsó',
+        },
+      ]
+    );
+
     return earned.points;
+  }
+
+  /**
+   * Caduca los lotes de puntos que vencieron sin usarse.
+   *
+   * Cada lote se reclama con una escritura condicional sobre
+   * `expiryProcessedAt`, como `activateScheduledOrders` reclama un pedido
+   * programado: con varios procesos barriendo, ninguno caduca dos veces lo
+   * mismo. Devuelve cuántos puntos caducó en total.
+   */
+  async expireDue(now = new Date(), maxLots = 200): Promise<number> {
+    let total = 0;
+
+    for (let i = 0; i < maxLots; i++) {
+      const lot = await LoyaltyMovement.findOneAndUpdate(
+        {
+          kind: LoyaltyMovementKind.EARNED,
+          expiresAt: { $lte: now },
+          expiryProcessedAt: null,
+        },
+        { $set: { expiryProcessedAt: now } },
+        { new: true, sort: { expiresAt: 1 } }
+      );
+      if (!lot) break;
+
+      total += await this.expireLot(lot);
+    }
+
+    return total;
+  }
+
+  /**
+   * Lo que queda sin usar de un lote.
+   *
+   * Los puntos son fungibles en el saldo, así que "cuáles se gastaron" es
+   * una convención, y la que se usa es la que más favorece al cliente: todo
+   * lo consumido (canjes, reversas, caducidades anteriores) se imputa
+   * primero a los lotes que vencen antes. Los puntos que no caducan
+   * —referidos, ajustes— van al final: se gastan los últimos.
+   */
+  private async unusedOf(lot: ILoyaltyMovement): Promise<number> {
+    const movements = await LoyaltyMovement.find({ userId: lot.userId })
+      .select('points expiresAt createdAt')
+      .lean();
+
+    let consumed = movements
+      .filter((m) => m.points < 0)
+      .reduce((sum, m) => sum - m.points, 0);
+
+    const lots = movements
+      .filter((m) => m.points > 0)
+      .sort((a, b) => {
+        const byExpiry =
+          (a.expiresAt?.getTime() ?? Infinity) - (b.expiresAt?.getTime() ?? Infinity);
+        return byExpiry || a.createdAt.getTime() - b.createdAt.getTime();
+      });
+
+    for (const current of lots) {
+      const used = Math.min(consumed, current.points);
+      consumed -= used;
+      if (current._id.equals(lot._id)) return current.points - used;
+    }
+
+    return 0;
+  }
+
+  private async expireLot(lot: ILoyaltyMovement): Promise<number> {
+    const account = await LoyaltyBalance.findOne({ userId: lot.userId });
+    const amount = Math.min(await this.unusedOf(lot), account?.balance ?? 0);
+    if (amount <= 0) return 0;
+
+    const debited = await LoyaltyBalance.findOneAndUpdate(
+      { userId: lot.userId, balance: { $gte: amount } },
+      { $inc: { balance: -amount } }
+    );
+    if (!debited) {
+      // Otro canje movió el saldo entre la lectura y la escritura. Se suelta
+      // el lote para el próximo barrido en vez de caducar una cifra vieja.
+      await LoyaltyMovement.updateOne({ _id: lot._id }, { $set: { expiryProcessedAt: null } });
+      return 0;
+    }
+
+    try {
+      await LoyaltyMovement.create({
+        userId: lot.userId,
+        kind: LoyaltyMovementKind.EXPIRED,
+        points: -amount,
+        description: `Caducaron ${amount} puntos (${lot.description})`,
+      });
+    } catch (error) {
+      await LoyaltyBalance.updateOne({ userId: lot.userId }, { $inc: { balance: amount } });
+      await LoyaltyMovement.updateOne({ _id: lot._id }, { $set: { expiryProcessedAt: null } });
+      throw error;
+    }
+
+    const cfg = await pricingConfigService.getCurrent();
+    await ledgerService.post(
+      {
+        orderId: lot.orderId ?? lot.userId,
+        event: LedgerEventType.LOYALTY_EXPIRED,
+        pricingConfigVersion: cfg.version,
+        reference: `loyalty:expire:${lot._id}`,
+      },
+      [
+        {
+          account: LedgerAccount.LOYALTY_PAYABLE,
+          direction: LedgerDirection.DEBIT,
+          amount: amount * POINT_VALUE_COP,
+          memo: `Caducaron ${amount} puntos`,
+        },
+        {
+          account: LedgerAccount.PROMOTION_EXPENSE,
+          direction: LedgerDirection.CREDIT,
+          amount: amount * POINT_VALUE_COP,
+          memo: 'Provisión liberada: los puntos vencieron sin usarse',
+        },
+      ]
+    );
+
+    return amount;
+  }
+
+  /**
+   * Corrección manual desde el admin, en cualquier sentido.
+   *
+   * Para resolver un reclamo sin tocar la base de datos a mano. Siempre con
+   * motivo y con autor, porque es la única vía por la que alguien de ZIPP
+   * mueve el saldo de un cliente con sus propias manos.
+   */
+  async adjust(userId: string, points: number, reason: string, adminId: string) {
+    if (!Number.isInteger(points) || points === 0) {
+      throw new AppError('Indica cuántos puntos sumar o restar', 400);
+    }
+    const description = reason.trim();
+    if (description.length < 5) {
+      throw new AppError('Escribe el motivo del ajuste (mínimo 5 caracteres)', 400);
+    }
+    if (!Types.ObjectId.isValid(userId) || !(await User.exists({ _id: userId }))) {
+      throw new AppError('Usuario no encontrado', 404);
+    }
+
+    if (points < 0) {
+      // Igual que un canje: la condición viaja dentro de la escritura, y se
+      // debita antes de escribir el movimiento.
+      const debited = await LoyaltyBalance.findOneAndUpdate(
+        { userId, balance: { $gte: -points } },
+        { $inc: { balance: points } },
+        { new: true }
+      );
+      if (!debited) {
+        const balance = await this.balanceOf(userId);
+        throw new AppError(`El cliente solo tiene ${balance} puntos`, 400, 'LOYALTY_INSUFFICIENT');
+      }
+    }
+
+    let movement;
+    try {
+      movement = await LoyaltyMovement.create({
+        userId,
+        kind: LoyaltyMovementKind.ADJUSTED,
+        points,
+        description,
+        createdBy: adminId,
+      });
+    } catch (error) {
+      if (points < 0) await LoyaltyBalance.updateOne({ userId }, { $inc: { balance: -points } });
+      throw error;
+    }
+
+    if (points > 0) {
+      await LoyaltyBalance.updateOne({ userId }, { $inc: { balance: points } }, { upsert: true });
+    }
+
+    const amount = Math.abs(points) * POINT_VALUE_COP;
+    const cfg = await pricingConfigService.getCurrent();
+    await ledgerService.post(
+      {
+        orderId: new Types.ObjectId(userId),
+        event: points > 0 ? LedgerEventType.LOYALTY_EARNED : LedgerEventType.LOYALTY_REVERSED,
+        pricingConfigVersion: cfg.version,
+        reference: `loyalty:adjust:${movement._id}`,
+      },
+      points > 0
+        ? [
+            { account: LedgerAccount.PROMOTION_EXPENSE, direction: LedgerDirection.DEBIT, amount, memo: description },
+            { account: LedgerAccount.LOYALTY_PAYABLE, direction: LedgerDirection.CREDIT, amount, memo: 'Puntos pendientes de canje' },
+          ]
+        : [
+            { account: LedgerAccount.LOYALTY_PAYABLE, direction: LedgerDirection.DEBIT, amount, memo: description },
+            { account: LedgerAccount.PROMOTION_EXPENSE, direction: LedgerDirection.CREDIT, amount, memo: 'Provisión revertida por ajuste' },
+          ]
+    );
+
+    return { balance: await this.balanceOf(userId), movement };
   }
 }
 
 export const loyaltyService = new LoyaltyService();
+
+let expiryTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Arranca el barrido de caducidad. Idempotente.
+ *
+ * Aparte del barrido de reparto y no dentro de él: aquel solo corre con el
+ * reparto automático encendido, y que los puntos caduquen no puede depender
+ * de ese interruptor. Cada hora basta — lo que no hay que hacer es dejar que
+ * nunca ocurra, que es lo que pasaba: los puntos no caducaban y el pasivo no
+ * se liberaba nunca.
+ */
+export function startLoyaltyExpirySweeper(intervalMs = 60 * 60 * 1000): void {
+  if (expiryTimer) return;
+  expiryTimer = setInterval(() => {
+    loyaltyService
+      .expireDue()
+      .catch((err) => console.error('[Loyalty] Falló el barrido de caducidad:', err));
+  }, intervalMs);
+  expiryTimer.unref?.();
+}
+
+export function stopLoyaltyExpirySweeper(): void {
+  if (!expiryTimer) return;
+  clearInterval(expiryTimer);
+  expiryTimer = null;
+}

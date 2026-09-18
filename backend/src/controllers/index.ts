@@ -1,5 +1,6 @@
 export { authController } from './auth.controller';
 export { businessController } from './business.controller';
+export { businessShareController } from './businessShare.controller';
 export { orderController } from './order.controller';
 export { orderFlowController } from './orderFlow.controller';
 export { productController } from './product.controller';

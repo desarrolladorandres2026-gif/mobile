@@ -41,6 +41,19 @@ export class AdminController {
     } catch (error) { next(error); }
   }
 
+  async adjustLoyalty(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { loyaltyService } = await import('../services/loyalty.service');
+      const result = await loyaltyService.adjust(
+        param(req, 'id'),
+        Number(req.body?.points),
+        typeof req.body?.reason === 'string' ? req.body.reason : '',
+        req.user!._id.toString()
+      );
+      sendResponse(res, 201, 'Puntos ajustados', result);
+    } catch (error) { next(error); }
+  }
+
   // ── Envíos dirigidos ──
 
   /** Cuánta gente alcanza un segmento, sin mandar nada todavía. */

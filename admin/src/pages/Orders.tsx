@@ -32,6 +32,8 @@ interface OrderType {
   deliveryFee?: number;
   total: number;
   paymentMethod: string;
+  /** Solo en efectivo: si el cliente avisó que paga con un billete que necesita vuelto. */
+  cashPayment?: { needsChange: boolean; payingWith?: number };
   paymentStatus?: string;
   status: string;
   createdAt: string;
@@ -358,6 +360,14 @@ export default function Orders() {
                   ) : null}
                 </div>
               </div>
+
+              {selectedOrder.paymentMethod === 'cash_on_delivery' ? (
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  {selectedOrder.cashPayment?.needsChange && selectedOrder.cashPayment.payingWith
+                    ? `Paga con $${selectedOrder.cashPayment.payingWith.toLocaleString('es-CO')} · dar $${(selectedOrder.cashPayment.payingWith - (selectedOrder.total || 0)).toLocaleString('es-CO')} de vuelto`
+                    : 'Entrega el valor exacto, sin cambio'}
+                </p>
+              ) : null}
             </div>
 
             <div className="pt-2 flex justify-end gap-2">

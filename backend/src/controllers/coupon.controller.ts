@@ -69,6 +69,26 @@ export class CouponController {
   }
 
   /** Public: promotions carousel for the app home screen. */
+  async getForUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const coupons = await couponService.getForUser(req.user!._id.toString());
+      // Lo justo para mostrarlo y aplicarlo; los contadores internos no son
+      // del cliente.
+      const safe = coupons.map((c) => ({
+        _id: c._id,
+        code: c.code,
+        title: c.title,
+        type: c.type,
+        scope: c.scope,
+        value: c.value,
+        minOrderAmount: c.minOrderAmount,
+        validUntil: c.validUntil,
+        businessId: c.businessId,
+      }));
+      sendResponse(res, 200, 'Tus cupones', safe);
+    } catch (error) { next(error); }
+  }
+
   async getPublic(req: Request, res: Response, next: NextFunction) {
     try {
       const coupons = await couponService.getPublic(

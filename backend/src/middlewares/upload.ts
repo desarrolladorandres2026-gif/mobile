@@ -86,3 +86,12 @@ export const uploadProductImage = singleImageUpload(
   'image',
   config.productImages.maxBytes
 );
+
+/**
+ * Logo o portada de un comercio.
+ *
+ * Comparte el tope general de 5 MB y no el ampliado de catálogo: lo que
+ * llega aquí ya viene recortado por el editor del panel, así que un
+ * archivo grande solo puede venir de una subida hecha por fuera.
+ */
+export const uploadBusinessImage = singleImageUpload('image');

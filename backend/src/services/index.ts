@@ -2,6 +2,7 @@ export { authService } from './auth.service';
 export { whatsappService } from './whatsapp.service';
 export { emailService } from './email.service';
 export { businessService } from './business.service';
+export { businessImageService } from './businessImage.service';
 export { orderService } from './order.service';
 
 // ── Traspaso físico del pedido ───────────────────────────────────────

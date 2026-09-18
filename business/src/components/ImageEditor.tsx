@@ -4,18 +4,19 @@ import {
 } from 'lucide-react';
 
 /**
- * Encuadre de la foto de un producto.
+ * Encuadre de una foto antes de subirla.
  *
- * El recorte es **cuadrado y no se puede cambiar**. No es una limitación:
- * el catálogo de ZIPP mezcla fotos de decenas de comercios, y la
- * uniformidad de proporción es justo lo que hace que una rejilla de
- * productos parezca un catálogo y no un tablón de anuncios. Dejar elegir
- * la relación de aspecto devuelve el problema al comercio, que es quien
- * menos puede resolverlo.
+ * **El comercio no elige la proporción; la elige la pantalla donde va la
+ * foto.** Un producto se recorta cuadrado porque el catálogo de ZIPP mezcla
+ * fotos de decenas de comercios y la uniformidad es justo lo que hace que
+ * una rejilla parezca un catálogo y no un tablón de anuncios; una portada
+ * de negocio se recorta 16:9 porque ese es el hueco del encabezado. En los
+ * dos casos la decisión está tomada de antemano: dejarla abierta devuelve
+ * el problema a quien menos puede resolverlo.
  *
  * La imagen nunca se deforma. Lo único que se mueve es qué parte de la
- * foto cae dentro del cuadro: se desplaza, se acerca y se gira, y el
- * desplazamiento está acotado para que el cuadro siempre esté lleno —
+ * foto cae dentro del marco: se desplaza, se acerca y se gira, y el
+ * desplazamiento está acotado para que el marco siempre esté lleno —
  * nunca aparece un borde vacío.
  *
  * Escrito sobre `<canvas>` y eventos de puntero en vez de traer una
@@ -23,10 +24,18 @@ import {
  * editor usa los tokens de ZIPP y funciona igual con dedo y con ratón.
  */
 
-/** Lado del master que se sube. Coincide con la variante grande. */
-const OUTPUT_SIZE = 1200;
+/** Ancho del master que se sube. En cuadrado, coincide con la variante grande. */
+const OUTPUT_WIDTH = 1200;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
+
+/** Proporción del marco. Cuadrada salvo que la pantalla de destino pida otra. */
+export interface Aspect {
+  w: number;
+  h: number;
+}
+
+const SQUARE: Aspect = { w: 1, h: 1 };
 
 interface Props {
   /** La foto que el comercio acaba de elegir. */
@@ -40,6 +49,8 @@ interface Props {
    * archivo, y para entonces ya no lo tenemos.
    */
   extras?: React.ReactNode;
+  /** Proporción del recorte. Por defecto cuadrada, como el catálogo. */
+  aspect?: Aspect;
   onCancel: () => void;
   onConfirm: (cropped: Blob) => void | Promise<void>;
 }
@@ -49,7 +60,15 @@ interface Offset {
   y: number;
 }
 
-export default function ImageEditor({ file, busy = false, extras, onCancel, onConfirm }: Props) {
+export default function ImageEditor({
+  file, busy = false, extras, aspect = SQUARE, onCancel, onConfirm,
+}: Props) {
+  /** Alto que corresponde a un ancho dado, con la proporción pedida. */
+  const heightFor = useCallback(
+    (width: number) => Math.round((width * aspect.h) / aspect.w),
+    [aspect.h, aspect.w]
+  );
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const dragRef = useRef<{ id: number; x: number; y: number } | null>(null);
@@ -90,13 +109,13 @@ export default function ImageEditor({ file, busy = false, extras, onCancel, onCo
    * apaisada girada dejaría dos franjas vacías.
    */
   const coverScale = useCallback(
-    (size: number) => {
+    (frameWidth: number, frameHeight: number) => {
       const image = imageRef.current;
       if (!image) return 1;
       const swapped = rotation % 180 !== 0;
       const width = swapped ? image.naturalHeight : image.naturalWidth;
       const height = swapped ? image.naturalWidth : image.naturalHeight;
-      return Math.max(size / width, size / height);
+      return Math.max(frameWidth / width, frameHeight / height);
     },
     [rotation]
   );
@@ -109,49 +128,52 @@ export default function ImageEditor({ file, busy = false, extras, onCancel, onCo
    * foto no se puede mover, que es el comportamiento correcto.
    */
   const clampOffset = useCallback(
-    (next: Offset, size: number, currentZoom: number): Offset => {
+    (next: Offset, frameWidth: number, currentZoom: number): Offset => {
       const image = imageRef.current;
       if (!image) return { x: 0, y: 0 };
 
+      const frameHeight = heightFor(frameWidth);
       const swapped = rotation % 180 !== 0;
       const width = swapped ? image.naturalHeight : image.naturalWidth;
       const height = swapped ? image.naturalWidth : image.naturalHeight;
-      const scale = coverScale(size) * currentZoom;
+      const scale = coverScale(frameWidth, frameHeight) * currentZoom;
 
-      const slackX = Math.max(0, (width * scale - size) / 2);
-      const slackY = Math.max(0, (height * scale - size) / 2);
+      const slackX = Math.max(0, (width * scale - frameWidth) / 2);
+      const slackY = Math.max(0, (height * scale - frameHeight) / 2);
 
       return {
         x: Math.min(slackX, Math.max(-slackX, next.x)),
         y: Math.min(slackY, Math.max(-slackY, next.y)),
       };
     },
-    [coverScale, rotation]
+    [coverScale, heightFor, rotation]
   );
 
-  /** Pinta la foto transformada dentro de un lienzo cuadrado. */
+  /** Pinta la foto transformada dentro del marco. */
   const paint = useCallback(
-    (canvas: HTMLCanvasElement, size: number, currentOffset: Offset, currentZoom: number) => {
+    (canvas: HTMLCanvasElement, frameWidth: number, currentOffset: Offset, currentZoom: number) => {
       const image = imageRef.current;
       const context = canvas.getContext('2d');
       if (!image || !context) return;
 
-      context.clearRect(0, 0, size, size);
+      const frameHeight = heightFor(frameWidth);
+
+      context.clearRect(0, 0, frameWidth, frameHeight);
       context.save();
 
       // El orden importa: primero al centro, luego el desplazamiento del
       // usuario, luego el giro. Girar antes movería la foto en diagonal.
-      context.translate(size / 2 + currentOffset.x, size / 2 + currentOffset.y);
+      context.translate(frameWidth / 2 + currentOffset.x, frameHeight / 2 + currentOffset.y);
       context.rotate((rotation * Math.PI) / 180);
 
-      const scale = coverScale(size) * currentZoom;
+      const scale = coverScale(frameWidth, frameHeight) * currentZoom;
       const drawWidth = image.naturalWidth * scale;
       const drawHeight = image.naturalHeight * scale;
       context.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
 
       context.restore();
     },
-    [coverScale, rotation]
+    [coverScale, heightFor, rotation]
   );
 
   // ── Repintado de la vista previa ──
@@ -163,20 +185,21 @@ export default function ImageEditor({ file, busy = false, extras, onCancel, onCo
     // 320 px lógicos deja la vista previa visiblemente peor que el
     // resultado, y el comercio juzga por lo que ve aquí.
     const ratio = Math.min(window.devicePixelRatio || 1, 3);
-    const displaySize = canvas.clientWidth || 320;
-    const size = Math.round(displaySize * ratio);
+    const width = Math.round((canvas.clientWidth || 320) * ratio);
+    const height = heightFor(width);
 
-    if (canvas.width !== size) {
-      canvas.width = size;
-      canvas.height = size;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
     }
 
-    paint(canvas, size, { x: offset.x * ratio, y: offset.y * ratio }, zoom);
-  }, [ready, offset, zoom, rotation, paint]);
+    paint(canvas, width, { x: offset.x * ratio, y: offset.y * ratio }, zoom);
+  }, [ready, offset, zoom, rotation, paint, heightFor]);
 
   // ── Gestos ──
 
-  const displaySize = () => canvasRef.current?.clientWidth || 320;
+  /** Ancho real del marco en pantalla. El alto sale de la proporción. */
+  const displayWidth = () => canvasRef.current?.clientWidth || 320;
 
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     (event.target as Element).setPointerCapture(event.pointerId);
@@ -206,7 +229,7 @@ export default function ImageEditor({ file, busy = false, extras, onCancel, onCo
         MAX_ZOOM
       );
       setZoom(next);
-      setOffset((current) => clampOffset(current, displaySize(), next));
+      setOffset((current) => clampOffset(current, displayWidth(), next));
       return;
     }
 
@@ -218,7 +241,7 @@ export default function ImageEditor({ file, busy = false, extras, onCancel, onCo
     dragRef.current = { id: drag.id, x: event.clientX, y: event.clientY };
 
     setOffset((current) =>
-      clampOffset({ x: current.x + dx, y: current.y + dy }, displaySize(), zoom)
+      clampOffset({ x: current.x + dx, y: current.y + dy }, displayWidth(), zoom)
     );
   };
 
@@ -231,7 +254,7 @@ export default function ImageEditor({ file, busy = false, extras, onCancel, onCo
   const onWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
     const next = clamp(zoom * (event.deltaY < 0 ? 1.08 : 1 / 1.08), MIN_ZOOM, MAX_ZOOM);
     setZoom(next);
-    setOffset((current) => clampOffset(current, displaySize(), next));
+    setOffset((current) => clampOffset(current, displayWidth(), next));
   };
 
   const rotate = (degrees: number) => {
@@ -251,7 +274,7 @@ export default function ImageEditor({ file, busy = false, extras, onCancel, onCo
   const applyZoom = (next: number) => {
     const clamped = clamp(next, MIN_ZOOM, MAX_ZOOM);
     setZoom(clamped);
-    setOffset((current) => clampOffset(current, displaySize(), clamped));
+    setOffset((current) => clampOffset(current, displayWidth(), clamped));
   };
 
   // ── Exportación ──
@@ -263,11 +286,11 @@ export default function ImageEditor({ file, busy = false, extras, onCancel, onCo
     // Lienzo aparte, a la resolución de salida: el de la vista previa
     // está a tamaño de pantalla y subir eso daría una foto diminuta.
     const output = document.createElement('canvas');
-    output.width = OUTPUT_SIZE;
-    output.height = OUTPUT_SIZE;
+    output.width = OUTPUT_WIDTH;
+    output.height = heightFor(OUTPUT_WIDTH);
 
-    const factor = OUTPUT_SIZE / displaySize();
-    paint(output, OUTPUT_SIZE, { x: offset.x * factor, y: offset.y * factor }, zoom);
+    const factor = OUTPUT_WIDTH / displayWidth();
+    paint(output, OUTPUT_WIDTH, { x: offset.x * factor, y: offset.y * factor }, zoom);
 
     const blob = await new Promise<Blob | null>((resolve) =>
       // JPEG al 92%: por encima el archivo crece sin que nadie note la
@@ -305,8 +328,11 @@ export default function ImageEditor({ file, busy = false, extras, onCancel, onCo
         Arrastra para mover, pellizca o usa la rueda para acercar.
       </div>
 
-      {/* Lienzo de recorte. El marco es el encuadre real del catálogo. */}
-      <div className="relative mx-auto w-full max-w-[320px] aspect-square rounded-2xl overflow-hidden bg-[var(--color-bg-alt)] select-none">
+      {/* Lienzo de recorte. El marco es el encuadre real de destino. */}
+      <div
+        className="relative mx-auto w-full max-w-[320px] rounded-2xl overflow-hidden bg-[var(--color-bg-alt)] select-none"
+        style={{ aspectRatio: `${aspect.w} / ${aspect.h}` }}
+      >
         <canvas
           ref={canvasRef}
           onPointerDown={onPointerDown}

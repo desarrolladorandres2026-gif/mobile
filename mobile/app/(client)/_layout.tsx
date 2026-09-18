@@ -46,6 +46,13 @@ export default function ClientLayout() {
         name="order-confirmed"
         options={{ animation: 'fade', gestureEnabled: false }}
       />
+      {/* Sin gesto de volver: deslizar hacia atrás a mitad de un cobro
+          dejaría el pago corriendo sin nadie mirando. La pantalla decide
+          cuándo se puede salir. */}
+      <Stack.Screen
+        name="payment-result"
+        options={{ animation: 'fade', gestureEnabled: false }}
+      />
       <Stack.Screen name="order-tracking" />
 
       {/* Cuenta */}

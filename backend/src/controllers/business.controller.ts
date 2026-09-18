@@ -1,10 +1,28 @@
 import { Request, Response, NextFunction } from 'express';
-import { businessService, payoutService } from '../services';
-import { AppError } from '../middlewares';
+import { businessService, businessImageService, payoutService, pricingService } from '../services';
+import { AppError, uploadBusinessImage } from '../middlewares';
+import { IBusiness } from '../models';
 import { PayoutStatus } from '../types';
 import { sendResponse, param, query, toCsv, csvFilename, clampLimit } from '../utils';
 import { UserRole } from '../types';
 import { AuditAction, logAudit } from '../security';
+
+/**
+ * Añade a la ficha el piso de su domicilio, el "Desde $X" del encabezado.
+ *
+ * Se calcula aquí y no en el servicio porque es información de
+ * presentación: quien pide el negocio para operar con él —el checkout, el
+ * reparto— no quiere un número aproximado rondando en el documento, quiere
+ * la cotización real de su dirección.
+ *
+ * Una consulta geoespacial indexada por apertura de ficha, contra la
+ * alternativa de guardarlo en el negocio y que quede viejo cada vez que
+ * administración toque una zona o la tarifa base.
+ */
+async function withDeliveryFloor(business: IBusiness) {
+  const deliveryFeeFrom = await pricingService.minimumDeliveryFee(business);
+  return { ...business.toJSON(), deliveryFeeFrom };
+}
 
 export class BusinessController {
   /**
@@ -272,13 +290,26 @@ export class BusinessController {
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
       const business = await businessService.getById(param(req, 'id'));
-      sendResponse(res, 200, 'Negocio obtenido', business);
+      sendResponse(res, 200, 'Negocio obtenido', await withDeliveryFloor(business));
     } catch (error) { next(error); }
   }
 
   async getBySlug(req: Request, res: Response, next: NextFunction) {
     try {
       const business = await businessService.getBySlug(param(req, 'slug'));
+      sendResponse(res, 200, 'Negocio obtenido', await withDeliveryFloor(business));
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * La tarjeta pública que carga `web/` cuando alguien abre un enlace
+   * compartido desde el botón "Compartir" de la app. Público a propósito
+   * —es justo el punto de un enlace para compartir— y con su propio
+   * proyecto de campos: ver `businessService.getPublicBySlug`.
+   */
+  async sharePreview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const business = await businessService.getPublicBySlug(param(req, 'slug'));
       sendResponse(res, 200, 'Negocio obtenido', business);
     } catch (error) { next(error); }
   }
@@ -296,6 +327,93 @@ export class BusinessController {
       await businessService.delete(param(req, 'id'), req.user!._id.toString(), isAdmin);
       sendResponse(res, 200, 'Negocio eliminado exitosamente');
     } catch (error) { next(error); }
+  }
+
+  /**
+   * Reemplaza el logo o la portada del comercio.
+   *
+   * Una sola función para las dos ranuras: el camino es idéntico —multer,
+   * dueño del negocio, Cloudinary, guardar la URL— y duplicarlo es cómo se
+   * acaba con dos comprobaciones de propiedad que un día dejan de decir lo
+   * mismo. Lo único que cambia es el campo y el recorte, y eso viaja como
+   * dato.
+   */
+  private uploadBrandImage(
+    slot: 'logo' | 'cover',
+    field: 'logo' | 'coverImage',
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) {
+    uploadBusinessImage(req, res, async (err: unknown) => {
+      try {
+        if (err) {
+          throw new AppError(
+            err instanceof Error ? err.message : 'No se pudo procesar la imagen',
+            400
+          );
+        }
+        if (!req.file) throw new AppError('Adjunta una imagen', 400);
+
+        const business = await this.assertOwnsBusiness(req, param(req, 'id'));
+        const url = await businessImageService.upload(
+          slot,
+          String(business._id),
+          req.file.buffer
+        );
+
+        business.set(field, url);
+        await business.save();
+
+        sendResponse(res, 201, 'Imagen actualizada', { [field]: url });
+      } catch (error) { next(error); }
+    });
+  }
+
+  async uploadLogo(req: Request, res: Response, next: NextFunction) {
+    this.uploadBrandImage('logo', 'logo', req, res, next);
+  }
+
+  async uploadCover(req: Request, res: Response, next: NextFunction) {
+    this.uploadBrandImage('cover', 'coverImage', req, res, next);
+  }
+
+  /**
+   * Quita el logo o la portada.
+   *
+   * Solo borra la referencia, no el archivo en Cloudinary. Es deliberado:
+   * la ficha vuelve al respaldo de color e ilustración al instante, y una
+   * imagen huérfana en el almacén cuesta céntimos, mientras que borrar el
+   * archivo de verdad deja rotas las copias que ya viajaron en respuestas
+   * cacheadas o en una pantalla abierta.
+   */
+  async removeBrandImage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const field = param(req, 'slot') === 'logo' ? 'logo' : 'coverImage';
+      const business = await this.assertOwnsBusiness(req, param(req, 'id'));
+
+      business.set(field, null);
+      await business.save();
+
+      sendResponse(res, 200, 'Imagen eliminada', { [field]: null });
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * El negocio, si quien pregunta puede editarlo.
+   *
+   * Aparte de `assertCanReadFinance` porque aquello autoriza *lectura* de
+   * cuentas y esto autoriza *escritura* sobre la ficha pública. Compartir
+   * una sola función para ambas cosas es cómo un permiso de lectura acaba
+   * dejando cambiar el logo de otro.
+   */
+  private async assertOwnsBusiness(req: Request, businessId: string) {
+    const business = await businessService.getById(businessId);
+    const isAdmin = req.user?.role === 'admin';
+    if (!isAdmin && business.ownerId.toString() !== req.user!._id.toString()) {
+      throw new AppError('No autorizado', 403);
+    }
+    return business;
   }
 
   async getMyBusinesses(req: Request, res: Response, next: NextFunction) {

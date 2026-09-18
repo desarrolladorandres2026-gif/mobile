@@ -270,6 +270,49 @@ describe('PricingService.priceDelivery', () => {
   });
 });
 
+/**
+ * El "Desde $X" que enseña la ficha del negocio.
+ *
+ * Lo que hay que proteger no es el número concreto —ese lo mueve la
+ * configuración— sino la promesa: que sea un piso de verdad. Si algún día
+ * supera el precio de una entrega real, la ficha estaría prometiendo menos
+ * de lo que cobra el carrito, que es justo la queja que este dato existe
+ * para evitar.
+ */
+describe('PricingService.minimumDeliveryFee', () => {
+  it('nunca supera lo que cuesta una entrega real', async () => {
+    const owner = await makeUser();
+    const business = await makeBusiness(owner._id);
+
+    const floor = await pricingService.minimumDeliveryFee(business);
+    const cfg = await deliveryConfig();
+    const cerca = await pricingService.priceDelivery(business, offsetKm(GARZON, 0.5), cfg);
+    const lejos = await pricingService.priceDelivery(business, offsetKm(GARZON, 4), cfg);
+
+    expect(floor).not.toBeNull();
+    expect(floor!).toBeLessThanOrEqual(cerca.customerFee);
+    expect(floor!).toBeLessThanOrEqual(lejos.customerFee);
+  });
+
+  it('respeta la tarifa base de la zona del negocio', async () => {
+    const owner = await makeUser();
+    const business = await makeBusiness(owner._id);
+    await makeZone(GARZON, 5, { baseFee: 9000, perKm: 0, surcharge: 0 });
+
+    expect(await pricingService.minimumDeliveryFee(business)).toBe(9000);
+  });
+
+  it('devuelve null en vez de romper la ficha cuando el negocio no tiene ubicación', async () => {
+    const owner = await makeUser();
+    const business = await makeBusiness(owner._id);
+    // Un negocio mal dado de alta no puede tumbar la pantalla del cliente:
+    // el encabezado tiene que saber pintarse sin este dato.
+    business.set('location', undefined);
+
+    expect(await pricingService.minimumDeliveryFee(business)).toBeNull();
+  });
+});
+
 describe('PricingService.quote', () => {
   // Online by default: cash on delivery is disabled until reconciliation is
   // operating, so a cash quote is now a deliberate opt-in per test.

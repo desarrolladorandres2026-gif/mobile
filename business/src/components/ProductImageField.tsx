@@ -144,7 +144,12 @@ export default function ProductImageField({
       form.append('image', blob, 'producto.jpg');
       if (removeBackground) form.append('removeBackground', 'true');
 
-      const { data } = await api.post(`/products/${productId}/image`, form);
+      // El Content-Type explícito evita que axios convierta el FormData a
+      // JSON: la instancia declara 'application/json' por defecto, y con
+      // ese tipo puesto la imagen nunca llega — llega el texto "{}".
+      const { data } = await api.post(`/products/${productId}/image`, form, {
+        headers: { 'Content-Type': undefined },
+      });
       onUpdated(data.data);
       onPendingChange(null);
       if (pendingPreview) {

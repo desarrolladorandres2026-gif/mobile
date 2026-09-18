@@ -40,6 +40,8 @@ export interface Business {
   description?: string;
   logo?: string | null;
   coverImage?: string | null;
+  /** Color propio del negocio para el respaldo de portada. Ver `lib/business.ts`. */
+  brandColor?: string | null;
   minOrder?: number;
   isFeatured?: boolean;
   schedule?: Record<string, { open?: string; close?: string; isOpen?: boolean }>;
@@ -191,7 +193,7 @@ export const BusinessRow = memo(function BusinessRow({
   onPressProduct?: (businessId: string, productId: string) => void;
 }) {
   const { c } = useTheme();
-  const accent = businessAccent(business._id);
+  const accent = businessAccent(business._id, business.brandColor);
   const status = openState(business.schedule);
   const closed = showStatus && !status.open;
   const offer = rowOffer(business);
@@ -409,7 +411,7 @@ export const BusinessFeatured = memo(function BusinessFeatured({
   business, onPress, width = 220,
 }: { business: Business; onPress: (id: string) => void; width?: number }) {
   const { c } = useTheme();
-  const accent = businessAccent(business._id);
+  const accent = businessAccent(business._id, business.brandColor);
   const status = openState(business.schedule);
   const Illustration = categoryIllustration(business.category);
 

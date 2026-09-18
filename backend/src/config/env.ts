@@ -602,6 +602,16 @@ export const config = {
     origins: buildCorsOrigins(),
   },
 
+  /**
+   * El sitio público (`web/`), sin barra final.
+   *
+   * Solo lo usa `GET /negocio/:slug`: es a donde reenvía a un humano de
+   * verdad después de que un rastreador (WhatsApp, Facebook…) ya leyó las
+   * etiquetas `og:` de esa misma URL. El valor por defecto es el despliegue
+   * actual, mismo criterio que `PROD_ORIGIN` en `mobile/constants/config.ts`.
+   */
+  webUrl: process.env.WEB_URL || 'https://45-93-100-122.sslip.io',
+
   // ── Security Configuration ──
   // ── Flujo de entrega: chat, evidencias y códigos de seguridad ──────
   // Todos los límites del traspaso físico del pedido viven aquí, no

@@ -88,6 +88,182 @@ export const initiatePaymentSchema = z.object({
 });
 
 /**
+ * Lo que un instrumento de pago **no** puede traer.
+ *
+ * El número de tarjeta y el CVV se tokenizan en el dispositivo contra Wompi
+ * y jamás pasan por aquí. Si alguno llega, no es un caso que haya que
+ * tolerar y limpiar: es un cliente mal programado mandando datos de tarjeta
+ * a un servidor que no está preparado para verlos, y tiene que fallar de
+ * forma ruidosa antes de que ese dato entre a un log de peticiones.
+ *
+ * Por eso cada variante es `.strict()` y además existe esta comprobación:
+ * `.strict()` sola ya rechazaría el campo, pero con un mensaje genérico de
+ * "clave desconocida" que nadie relacionaría con una fuga de PAN.
+ */
+const PROHIBITED_CARD_FIELDS = [
+  'number',
+  'card_number',
+  'cardNumber',
+  'pan',
+  'cvc',
+  'cvv',
+  'card_holder',
+  'exp_month',
+  'exp_year',
+];
+
+const noRawCardData = (value: unknown, ctx: z.RefinementCtx) => {
+  if (!value || typeof value !== 'object') return;
+  for (const field of PROHIBITED_CARD_FIELDS) {
+    if (field in (value as Record<string, unknown>)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        fatal: true,
+        message:
+          'Los datos de la tarjeta no se envían a este servidor: tokenízalos contra la pasarela desde la aplicación.',
+      });
+      return;
+    }
+  }
+};
+
+/** `tok_test_…` / `tok_prod_…`, emitido por Wompi al dispositivo. */
+const cardToken = z
+  .string()
+  .min(10)
+  .max(120)
+  .regex(/^tok_[a-z]+_[A-Za-z0-9_-]+$/, 'Token de tarjeta inválido');
+
+/**
+ * Con qué se cobra, discriminado por `kind`.
+ *
+ * Unión discriminada y no un objeto con todo opcional: así un Nequi no
+ * puede traer campos de PSE "por si acaso", y lo que no corresponde al
+ * carril elegido se rechaza en el borde en vez de ignorarse silenciosamente
+ * en el proveedor.
+ */
+/**
+ * Lo que la tokenización devolvió al dispositivo para pintar la tarjeta.
+ * Nada de esto permite cobrar: marca, últimos cuatro y vencimiento.
+ */
+const cardDisplay = z
+  .object({
+    brand: z.string().trim().min(2).max(20).regex(/^[A-Za-z_ ]+$/),
+    lastFour: z.string().regex(/^\d{4}$/),
+    expMonth: z.string().regex(/^(0[1-9]|1[0-2])$/),
+    expYear: z.string().regex(/^\d{2}$/),
+  })
+  .strict();
+
+const installments = z.number().int().min(1).max(36);
+
+const paymentInstrument = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('card_token'),
+      token: cardToken,
+      // Wompi las exige en toda transacción con tarjeta. 1 = una sola cuota.
+      installments: installments.default(1),
+      save: z.boolean().optional(),
+      card: cardDisplay.optional(),
+    })
+    .strict(),
+  // Por **nuestro** id, nunca por el de la pasarela: ese es un entero
+  // adivinable y aceptarlo permitiría cobrar la tarjeta de otra persona.
+  z
+    .object({
+      kind: z.literal('saved_card'),
+      savedCardId: objectId,
+      installments: installments.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('nequi'),
+      // Celular colombiano: 10 dígitos empezando por 3.
+      phone: z.string().regex(/^3\d{9}$/, 'Número de Nequi inválido'),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('pse'),
+      financialInstitutionCode: z.string().min(1).max(20).regex(/^[A-Za-z0-9_-]+$/),
+      // Codificación de Wompi: 0 natural, 1 jurídica.
+      userType: z.union([z.literal(0), z.literal(1)]),
+      userLegalIdType: z.enum(['CC', 'CE', 'NIT', 'TI', 'PP', 'DNI', 'RG', 'OTHER']),
+      userLegalId: z.string().min(4).max(20).regex(/^[A-Za-z0-9]+$/),
+    })
+    .strict(),
+]).refine((value) => value.kind !== 'card_token' || !value.save || Boolean(value.card), {
+  message: 'Para guardar la tarjeta hacen falta su marca, últimos cuatro y vencimiento',
+  path: ['card'],
+});
+
+/**
+ * POST /payments/orders/:orderId/pay-native
+ *
+ * `params` se declara para que el id llegue a Mongo ya comprobado como
+ * ObjectId, igual que en `/pay`.
+ */
+export const payNativeSchema = z.object({
+  params: z.object({ orderId: objectId }),
+  body: z
+    .object({
+      // La guarda corre **antes** del esquema: con `.strict()` sola, un
+      // `cvc` colado saldría como "clave desconocida" y nadie lo leería
+      // como lo que es.
+      instrument: z.unknown().superRefine(noRawCardData).pipe(paymentInstrument),
+      // El token de aceptación de Wompi es un JWT; se acota por forma y
+      // longitud, pero quien decide si sigue vigente es la pasarela.
+      acceptanceToken: z.string().min(20).max(2000),
+      personalDataAuthToken: z.string().min(20).max(2000).optional(),
+      redirectUrl: redirectUrl.optional(),
+      amount: z.number().int().min(0).max(100_000_000).optional(),
+      /**
+       * Solo para cuentas creadas con teléfono, que no tienen correo. Wompi
+       * lo exige para mandar su comprobante; en el Web Checkout lo pedía su
+       * propia página, y ahora que no hay página lo pide la app. Si la
+       * cuenta ya tiene correo, este campo se ignora.
+       */
+      customerEmail: z.string().trim().toLowerCase().email().max(254).optional(),
+      /**
+       * Datos del dispositivo que 3D Secure v2 exige. Se aceptan como
+       * cadenas y números acotados y se reenvían tal cual: su semántica es
+       * del estándar, no nuestra, y validarla campo a campo aquí solo
+       * serviría para romper cuando el estándar añada uno.
+       */
+      browserInfo: z
+        .record(z.string().max(40), z.union([z.string().max(300), z.number()]))
+        .refine((value) => Object.keys(value).length <= 20, 'Demasiados campos de navegador')
+        .optional(),
+    })
+    .strict(),
+});
+
+/**
+ * POST /payments/cards — guardar una tarjeta sin cobrar nada.
+ *
+ * El consentimiento de datos personales es obligatorio aquí, no opcional:
+ * no hay forma de guardar una tarjeta sin él.
+ */
+export const saveCardSchema = z.object({
+  body: z
+    .object({
+      token: cardToken,
+      card: cardDisplay,
+      acceptanceToken: z.string().min(20).max(2000),
+      personalDataAuthToken: z.string().min(20).max(2000),
+      customerEmail: z.string().trim().toLowerCase().email().max(254).optional(),
+    })
+    .strict(),
+});
+
+/** DELETE /payments/cards/:id */
+export const savedCardParamsSchema = z.object({
+  params: z.object({ id: objectId }),
+});
+
+/**
  * GET /payments/status/:transactionId
  *
  * The key is either our own reference (`ZIPP-<id>-<base36>-<hex>`) or a

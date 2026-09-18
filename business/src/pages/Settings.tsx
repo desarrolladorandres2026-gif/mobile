@@ -1,19 +1,28 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Check, Clock, Store, Truck, Save } from 'lucide-react';
+import { AlertCircle, Check, Clock, Store, Truck, Save, Image as ImageIcon } from 'lucide-react';
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
+import { BRAND_COLORS } from '../lib/brandColors';
+import BusinessImageField from '../components/BusinessImageField';
+import BusinessLocationField, { type LatLng } from '../components/BusinessLocationField';
 
 /**
- * Ajustes del comercio: cuándo abre y cuándo regala el domicilio.
+ * Ajustes del comercio: cómo se ve su ficha, cuándo abre y cuándo regala el
+ * domicilio.
  *
- * Las dos cosas de esta pantalla las paga el negocio, y por eso las decide
- * el negocio. Su comisión y su aprobación no están aquí: eso es el acuerdo
- * con ZIPP y se toca desde el panel de administración.
+ * Todo lo de esta pantalla lo paga o lo firma el negocio, y por eso lo
+ * decide el negocio. Su comisión y su aprobación no están aquí: eso es el
+ * acuerdo con ZIPP y se toca desde el panel de administración.
  *
  * El horario no es decorativo. El servidor decide con él si la tienda está
  * abierta, así que dejar mal un día cierra la tienda de verdad — por eso se
  * avisa antes de guardar y no después.
+ *
+ * Las dos imágenes se guardan solas al subirlas; el resto espera al botón
+ * de guardar. No es una inconsistencia: una foto es un cambio que se juzga
+ * mirándolo, y tenerla en el limbo hasta que alguien pulse un botón es cómo
+ * se acaba subiendo tres veces la misma.
  */
 
 type DaySchedule = { open?: string; close?: string; isOpen?: boolean };
@@ -31,14 +40,31 @@ const DAYS: Array<{ key: string; label: string }> = [
 
 const money = (value: number) => `$${value.toLocaleString('es-CO')}`;
 
+/** El mismo campo de texto que ya usan los ajustes de entrega, en un sitio. */
+const INPUT =
+  'w-full px-3 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] ' +
+  'text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]';
+
 export default function Settings() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
+  const setSelectedBusiness = useAuthStore((s) => s.setSelectedBusiness);
   const businessId = selectedBusiness?._id;
 
   const [schedule, setSchedule] = useState<Schedule>({});
   const [threshold, setThreshold] = useState(0);
   const [minOrder, setMinOrder] = useState(0);
   const [deliveryTime, setDeliveryTime] = useState(30);
+
+  // ── Ficha pública ──
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [address, setAddress] = useState('');
+  const [location, setLocation] = useState<LatLng | null>(null);
+  const [phone, setPhone] = useState('');
+  const [brandColor, setBrandColor] = useState<string | null>(null);
+  const [showPromoBanner, setShowPromoBanner] = useState(true);
+  const [logo, setLogo] = useState<string | null>(null);
+  const [coverImage, setCoverImage] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -63,6 +89,24 @@ export default function Settings() {
       setThreshold(business.freeDeliveryThreshold ?? 0);
       setMinOrder(business.minOrder ?? 0);
       setDeliveryTime(business.deliveryTime ?? 30);
+
+      setName(business.name ?? '');
+      setDescription(business.description ?? '');
+      setAddress(business.address ?? '');
+
+      // GeoJSON guarda [longitud, latitud]; el mapa habla en {lat, lng}.
+      const coords = business.location?.coordinates;
+      setLocation(
+        Array.isArray(coords) && Number.isFinite(coords[0]) && Number.isFinite(coords[1])
+          ? { lat: coords[1], lng: coords[0] }
+          : null
+      );
+
+      setPhone(business.phone ?? '');
+      setBrandColor(business.brandColor ?? null);
+      setShowPromoBanner(business.showPromoBanner !== false);
+      setLogo(business.logo ?? null);
+      setCoverImage(business.coverImage ?? null);
     } catch (err) {
       setError(apiMessage(err, 'No se pudieron cargar los ajustes.'));
     } finally {
@@ -87,7 +131,25 @@ export default function Settings() {
         freeDeliveryThreshold: threshold,
         minOrder,
         deliveryTime,
+        name: name.trim(),
+        description: description.trim(),
+        address: address.trim(),
+        phone: phone.trim(),
+        brandColor,
+        showPromoBanner,
+        // Solo van si el negocio de verdad tiene un punto puesto: mandar
+        // el centro por defecto del mapa sería fijar cada negocio sin
+        // ubicación en el mismo sitio.
+        ...(location ? { longitude: location.lng, latitude: location.lat } : {}),
       });
+
+      // El nombre sale en el menú lateral y en el selector de local: sin
+      // esto, el comercio se renombra y sigue viendo el nombre viejo por
+      // todo el panel hasta que vuelve a entrar.
+      if (selectedBusiness && name.trim() !== selectedBusiness.name) {
+        setSelectedBusiness({ ...selectedBusiness, name: name.trim() });
+      }
+
       setSaved(true);
     } catch (err) {
       setError(apiMessage(err, 'No se pudieron guardar los ajustes.'));
@@ -118,7 +180,8 @@ export default function Settings() {
         <div>
           <h1 className="page-title">Ajustes</h1>
           <p className="page-subtitle">
-            Tu horario y tus promociones. Lo que decides aquí sale de tu bolsillo, no del de ZIPP
+            Cómo se ve tu tienda, cuándo abre y cuándo regalas el domicilio. Lo que decides aquí
+            sale de tu bolsillo, no del de ZIPP
           </p>
         </div>
 
@@ -154,6 +217,148 @@ export default function Settings() {
         </div>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
+          {/* ── Ficha pública ── */}
+          <div className="zipp-card p-5 space-y-5 lg:col-span-2">
+            <div className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-[var(--color-primary)]" />
+              <h2 className="text-sm font-bold text-[var(--color-text-main)]">Tu ficha en la app</h2>
+            </div>
+
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Es lo primero que ve un cliente al entrar a tu tienda, antes de mirar un solo
+              producto.
+            </p>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              <BusinessImageField
+                businessId={businessId!}
+                slot="cover"
+                label="Portada"
+                hint="La foto grande del encabezado. Se recorta a 16:9 — lo que se vea dentro del marco es lo que sale en la app."
+                value={coverImage}
+                onChange={setCoverImage}
+              />
+
+              <BusinessImageField
+                businessId={businessId!}
+                slot="logo"
+                label="Logo"
+                hint="Va en el círculo sobre la portada. Se recorta cuadrado porque la app lo muestra redondo."
+                value={logo}
+                onChange={setLogo}
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Nombre del negocio">
+                <input
+                  type="text"
+                  value={name}
+                  maxLength={100}
+                  onChange={(e) => { setSaved(false); setName(e.target.value); }}
+                  className={INPUT}
+                />
+              </Field>
+
+              <Field label="Teléfono de contacto">
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => { setSaved(false); setPhone(e.target.value); }}
+                  className={INPUT}
+                />
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                  Es el número al que llama el cliente desde tu ficha.
+                </p>
+              </Field>
+            </div>
+
+            <Field label="Descripción">
+              <textarea
+                value={description}
+                maxLength={500}
+                rows={2}
+                onChange={(e) => { setSaved(false); setDescription(e.target.value); }}
+                className={`${INPUT} resize-y`}
+              />
+              <p className="text-xs text-[var(--color-text-secondary)]">
+                Una línea sobre la portada, debajo de tu nombre. Di qué vendes con las palabras
+                que usaría quien te busca — también es lo que se usa para encontrarte.
+              </p>
+            </Field>
+
+            <Field label="Dirección">
+              <input
+                type="text"
+                value={address}
+                onChange={(e) => { setSaved(false); setAddress(e.target.value); }}
+                className={INPUT}
+              />
+              <p className="text-xs text-[var(--color-text-secondary)]">
+                El texto que lee el cliente. El punto por el que pasa el domiciliario se ajusta
+                aparte, abajo.
+              </p>
+            </Field>
+
+            <Field label="Punto de recogida">
+              {/* `key`: el mapa es imperativo (Leaflet vive fuera de React) y
+                  se construye una sola vez al montar, así que solo sabe
+                  seguir al negocio activo si se le obliga a remontar cuando
+                  cambia. Hoy el bloque de "Cargando ajustes..." ya lo
+                  desmonta en cada cambio de negocio del selector lateral;
+                  esta key deja ese requisito escrito en vez de apoyado en
+                  que nadie quite ese `if` más adelante. */}
+              <BusinessLocationField
+                key={businessId}
+                value={location}
+                onChange={(point) => { setSaved(false); setLocation(point); }}
+              />
+            </Field>
+
+            <Field label="Color del encabezado">
+              <div className="flex flex-wrap items-center gap-2">
+                <ColorSwatch
+                  color={null}
+                  label="Automático"
+                  active={brandColor === null}
+                  onSelect={() => { setSaved(false); setBrandColor(null); }}
+                />
+                {BRAND_COLORS.map((option) => (
+                  <ColorSwatch
+                    key={option.value}
+                    color={option.value}
+                    label={option.label}
+                    active={brandColor === option.value}
+                    onSelect={() => { setSaved(false); setBrandColor(option.value); }}
+                  />
+                ))}
+              </div>
+              <p className="text-xs text-[var(--color-text-secondary)]">
+                Solo se ve cuando no tienes portada. Con foto puesta, el color queda debajo y no
+                se aprecia.
+              </p>
+            </Field>
+
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showPromoBanner}
+                onChange={(e) => { setSaved(false); setShowPromoBanner(e.target.checked); }}
+                className="accent-[var(--color-primary)] cursor-pointer mt-0.5"
+              />
+              <span className="space-y-1">
+                <span className="block text-xs font-bold text-[var(--color-text-main)]">
+                  Mostrar la franja de promoción
+                </span>
+                <span className="block text-xs text-[var(--color-text-secondary)]">
+                  Anuncia tu envío gratis en el encabezado. El texto lo escribe ZIPP con tus
+                  propios datos, así que nunca puede prometer algo que no esté activo. Si no
+                  tienes envío gratis puesto, la franja no aparece aunque esto esté marcado.
+                </span>
+              </span>
+            </label>
+          </div>
+
           {/* ── Horario ── */}
           <div className="zipp-card p-5 space-y-4">
             <div className="flex items-center gap-2">
@@ -283,5 +488,54 @@ export default function Settings() {
         </div>
       )}
     </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-bold text-[var(--color-text-main)]">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Un color de la paleta, o el automático.
+ *
+ * El nombre va en `title` y en `aria-label` y no debajo de la muestra: ocho
+ * etiquetas de texto convierten una fila de colores en una lista, y lo que
+ * el comercio compara aquí es el color, no cómo se llama.
+ */
+function ColorSwatch({
+  color, label, active, onSelect,
+}: {
+  color: string | null;
+  label: string;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      className={`w-9 h-9 rounded-full cursor-pointer transition-all grid place-items-center ${
+        active
+          ? 'ring-2 ring-offset-2 ring-[var(--color-primary)] ring-offset-[var(--color-surface)]'
+          : 'hover:scale-105'
+      }`}
+      style={color ? { backgroundColor: color } : undefined}
+    >
+      {color ? (
+        active && <Check className="w-4 h-4 text-white" />
+      ) : (
+        <span className="w-full h-full rounded-full border border-dashed border-[var(--color-border-strong)] grid place-items-center text-[10px] font-bold text-[var(--color-text-muted)]">
+          {active ? <Check className="w-4 h-4 text-[var(--color-primary)]" /> : 'A'}
+        </span>
+      )}
+    </button>
   );
 }

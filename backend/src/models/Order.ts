@@ -121,6 +121,19 @@ export interface IOrder extends Document {
   recipient?: { name: string; phone: string; note?: string };
 
   /**
+   * Solo cuando `paymentMethod` es efectivo. El cliente decide, al
+   * confirmar el pedido, si va a pagar con un billete que necesita vuelto
+   * o si entrega el valor exacto — es lo que el domiciliario necesita
+   * saber para llevar cambio suficiente, y lo que antes no se preguntaba
+   * en ningún momento del flujo.
+   */
+  cashPayment?: {
+    needsChange: boolean;
+    /** Con cuánto paga, cuando `needsChange` es true. */
+    payingWith?: number;
+  };
+
+  /**
    * Cuándo quiere el cliente que llegue, si no es cuanto antes.
    *
    * Ausente en la inmensa mayoría de pedidos. Cuando está, el pedido
@@ -300,6 +313,16 @@ const orderSchema = new Schema<IOrder>(
           name: { type: String, required: true, trim: true, maxlength: 80 },
           phone: { type: String, required: true, trim: true, maxlength: 20 },
           note: { type: String, trim: true, maxlength: 200 },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
+    cashPayment: {
+      type: new Schema(
+        {
+          needsChange: { type: Boolean, required: true },
+          payingWith: { type: Number, min: 0, default: null },
         },
         { _id: false }
       ),

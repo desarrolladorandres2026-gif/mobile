@@ -1,9 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { paymentService, isOnlinePaymentAvailable, refundService } from '../services';
-import { Order, Payment } from '../models';
+import { toClientStatus, nativeCapabilities } from '../services/payments';
+import { Order, Payment, toPublicCard } from '../models';
 import { AppError } from '../middlewares';
 import { sendResponse, param } from '../utils';
-import { RefundKind, PaymentStatus, UserRole } from '../types';
+import { RefundKind, UserRole } from '../types';
 
 export class PaymentController {
   /** Lets checkout know whether to offer online payment at all. */
@@ -17,7 +18,26 @@ export class PaymentController {
         online,
         cashOnDelivery: config.cashOnDeliveryEnabled,
         cashOnDeliveryMaxAmount: config.cashOnDeliveryMaxAmount,
+        // Qué se puede cobrar dentro de la app. Con `native` en falso la app
+        // usa el Web Checkout de siempre.
+        inApp: online ? nativeCapabilities() : { native: false, pse: false, savedCards: false },
       });
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Llave pública y consentimientos vigentes, para que la app pueda
+   * tokenizar la tarjeta contra Wompi por su cuenta.
+   *
+   * Nada de lo que sale de aquí es secreto —la llave pública está pensada
+   * para viajar al dispositivo y los tokens de aceptación son los mismos
+   * para todo el comercio—, pero sigue detrás de `authenticate` porque no
+   * hay razón para que esto sea también un proxy abierto hacia Wompi.
+   */
+  async checkoutConfig(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await paymentService.getCheckoutConfig();
+      sendResponse(res, 200, 'Configuración de pago', data);
     } catch (error) { next(error); }
   }
 
@@ -60,6 +80,103 @@ export class PaymentController {
     } catch (error) { next(error); }
   }
 
+  /**
+   * Cobra dentro de la app con un instrumento ya capturado en el
+   * dispositivo. La tarjeta llega tokenizada; el esquema rechaza cualquier
+   * dato crudo antes de que alcance este punto.
+   */
+  async payNative(req: Request, res: Response, next: NextFunction) {
+    try {
+      const orderId = param(req, 'orderId');
+      const order = await Order.findById(orderId);
+
+      // Ajeno e inexistente responden igual, como en `initiate`.
+      if (!order || order.clientId.toString() !== req.user!._id.toString()) {
+        throw new AppError('Pedido no encontrado', 404);
+      }
+
+      // El correo de la cuenta manda. El del cuerpo solo cubre a quien se
+      // registró con teléfono y no tiene ninguno.
+      const email = req.user!.email || req.body.customerEmail;
+      if (!email) {
+        throw new AppError(
+          'Necesitamos un correo para enviarte el comprobante del pago',
+          422,
+          'EMAIL_REQUIRED'
+        );
+      }
+
+      const result = await paymentService.initiateNative({
+        orderId: order._id.toString(),
+        userId: req.user!._id.toString(),
+        amount: req.body.amount,
+        description: `Pedido ${order.orderNumber}`,
+        customer: { name: req.user!.name, phone: req.user!.phone, email },
+        redirectUrl: req.body.redirectUrl,
+        instrument: req.body.instrument,
+        acceptanceToken: req.body.acceptanceToken,
+        personalDataAuthToken: req.body.personalDataAuthToken,
+        browserInfo: req.body.browserInfo,
+      });
+
+      // Forma propia, nunca el `PaymentIntent` entero: `raw` arrastra la
+      // transacción de Wompi con datos del medio de pago.
+      sendResponse(res, 201, 'Cobro iniciado', {
+        paymentId: result.paymentId,
+        reference: result.reference,
+        transactionId: result.intent.id,
+        status: result.intent.status,
+        amount: result.intent.amount,
+        declineReason: result.intent.declineReason,
+        paymentMethodType: result.intent.paymentMethodType,
+        asyncPaymentUrl: result.intent.asyncPaymentUrl,
+        threeDsChallengeHtml: result.intent.threeDsChallengeHtml,
+      });
+    } catch (error) { next(error); }
+  }
+
+  async pseBanks(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const banks = await paymentService.listPseBanks();
+      sendResponse(res, 200, 'Bancos PSE', banks);
+    } catch (error) { next(error); }
+  }
+
+
+  // ── Tarjetas guardadas ──
+  // Siempre sobre `req.user`: ninguna de estas rutas acepta un userId.
+
+  async listCards(req: Request, res: Response, next: NextFunction) {
+    try {
+      const cards = await paymentService.listCards(req.user!._id.toString());
+      sendResponse(res, 200, 'Tarjetas guardadas', cards);
+    } catch (error) { next(error); }
+  }
+
+  async saveCard(req: Request, res: Response, next: NextFunction) {
+    try {
+      const email = req.user!.email || req.body.customerEmail;
+      if (!email) {
+        throw new AppError('Necesitamos un correo para guardar la tarjeta', 422, 'EMAIL_REQUIRED');
+      }
+      const card = await paymentService.saveCard({
+        userId: req.user!._id.toString(),
+        token: req.body.token,
+        display: req.body.card,
+        customerEmail: email,
+        acceptanceToken: req.body.acceptanceToken,
+        personalDataAuthToken: req.body.personalDataAuthToken,
+      });
+      sendResponse(res, 201, 'Tarjeta guardada', toPublicCard(card));
+    } catch (error) { next(error); }
+  }
+
+  async deleteCard(req: Request, res: Response, next: NextFunction) {
+    try {
+      await paymentService.deleteCard(req.user!._id.toString(), param(req, 'id'));
+      sendResponse(res, 200, 'Tarjeta eliminada', null);
+    } catch (error) { next(error); }
+  }
   /**
    * Gateway callback.
    *
@@ -143,11 +260,7 @@ export class PaymentController {
       const hasGatewayRecord = Boolean(payment.transactionId) && payment.transactionId !== payment.reference;
 
       if (!hasGatewayRecord) {
-        const status =
-          payment.status === PaymentStatus.PAID ? 'approved'
-          : payment.status === PaymentStatus.FAILED ? 'declined'
-          : payment.status === PaymentStatus.REFUNDED ? 'refunded'
-          : 'pending';
+        const status = toClientStatus(payment.status);
 
         return sendResponse(res, 200, 'Estado del pago', {
           id: payment.reference ?? payment.transactionId,

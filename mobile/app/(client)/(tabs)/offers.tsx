@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { View, ScrollView, FlatList, RefreshControl, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -10,11 +10,16 @@ import {
 import { BusinessRow } from '../../../components/domain/BusinessCard';
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
 import { CouponCard } from '../../../components/domain/CouponCard';
+import { CouponSpotlight } from '../../../components/domain/CouponSpotlight';
+import { LoyaltyProgressBanner } from '../../../components/domain/LoyaltyProgressBanner';
 import { categoryIllustration } from '../../../components/illustrations';
 import { useOffers, useDeliveryCoords } from '../../../hooks/useApi';
 import type { OfferBusiness, ProductSearchHit } from '../../../services/endpoints';
 import { productImageUri, productImagePlaceholder } from '../../../lib/productImage';
 import { minutes } from '../../../lib/format';
+import {
+  pickSpotlightCoupon, isExpiringSoon, bigDiscountProducts, splitBusinessOffers,
+} from '../../../lib/offers';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
@@ -23,12 +28,12 @@ import { BorderRadius, Spacing } from '../../../theme/tokens';
  * Todo lo que está en oferta, en un solo scroll.
  *
  * Antes esto eran tres pestañas —Cupones, Productos, Negocios— y solo se
- * veía una a la vez: para saber si había algo rebajado había que tocar las
- * tres. Ahora es un feed seccionado, como el de las apps grandes: los
- * cupones y los platos van en rieles horizontales, los negocios en una
- * lista, y cada sección se dibuja solo si tiene algo que mostrar. Siguen
- * siendo tres formas de la misma promesa —"esto te cuesta menos"— pero ya
- * no compiten por un interruptor.
+ * veía una a la vez. Después pasó a ser un feed seccionado plano: mismo
+ * peso visual para un cupón que vence en una hora que para uno que vence
+ * en un mes. Ahora la urgencia real —`validUntil`, cupo agotándose— decide
+ * qué sube arriba: el mejor cupón se lleva un spotlight propio, y lo que
+ * de verdad se acaba pronto se agrupa aparte, cupones y platos juntos, en
+ * vez de obligar a mirar dos rieles distintos para enterarse.
  */
 export default function OffersScreen() {
   const router = useRouter();
@@ -53,6 +58,48 @@ export default function OffersScreen() {
     [router]
   );
 
+  // El cupón del spotlight no vuelve a aparecer en el riel de cupones de
+  // abajo — repetirlo ahí se sentiría como un error, no como énfasis.
+  const spotlightCoupon = useMemo(() => pickSpotlightCoupon(coupons), [coupons]);
+
+  const expiringCoupons = useMemo(
+    () => coupons.filter((cp) => cp._id !== spotlightCoupon?._id && isExpiringSoon(cp)),
+    [coupons, spotlightCoupon]
+  );
+  const remainingCoupons = useMemo(
+    () => coupons.filter(
+      (cp) => cp._id !== spotlightCoupon?._id && !expiringCoupons.some((e) => e._id === cp._id)
+    ),
+    [coupons, spotlightCoupon, expiringCoupons]
+  );
+
+  // Mismo criterio con los platos: los de mayor rebaja se adelantan a "Se
+  // acaban hoy" y no se repiten después en "Platos rebajados".
+  const urgentProducts = useMemo(() => bigDiscountProducts(products), [products]);
+  const urgentProductIds = useMemo(
+    () => new Set(urgentProducts.map((p) => p._id)),
+    [urgentProducts]
+  );
+  const remainingProducts = useMemo(
+    () => products.filter((p) => !urgentProductIds.has(p._id)),
+    [products, urgentProductIds]
+  );
+
+  const urgentItems = useMemo(
+    () => [
+      ...expiringCoupons.map((item) => ({ kind: 'coupon' as const, item })),
+      ...urgentProducts.map((item) => ({ kind: 'product' as const, item })),
+    ],
+    [expiringCoupons, urgentProducts]
+  );
+
+  // Envío gratis y descuento en la carta son promesas distintas: juntarlas
+  // bajo un solo título obligaba a leer cada tarjeta para saber cuál era.
+  const { freeDelivery, discounted } = useMemo(
+    () => splitBusinessOffers(businesses),
+    [businesses]
+  );
+
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
       <ScrollView
@@ -66,8 +113,12 @@ export default function OffersScreen() {
           <Text v="displayM">Descuentos</Text>
         </View>
 
+        {spotlightCoupon ? (
+          <CouponSpotlight coupon={spotlightCoupon} onExpire={refetch} />
+        ) : null}
+
         {/* Se dibuja solo si el servidor mandó banners vigentes para esta
-            pantalla; si no, la primera sección sube y no queda hueco. */}
+            pantalla; si no, la sección siguiente sube y no queda hueco. */}
         <PromoCarousel placement="offers" />
 
         {isError ? (
@@ -80,60 +131,109 @@ export default function OffersScreen() {
             <BusinessCardSkeleton />
             <BusinessCardSkeleton />
           </View>
-        ) : isEmpty ? (
-          <View style={styles.section}>
-            <EmptyState
-              icon="descuento"
-              title="Sin descuentos por ahora"
-              message="Cuando haya cupones, platos rebajados o negocios en oferta cerca de ti, van a aparecer aquí."
-            />
-          </View>
         ) : (
           <>
-            {coupons.length > 0 ? (
+            {isEmpty ? (
               <View style={styles.section}>
-                <SectionHeader title="Cupones" subtitle="Aplícalos al confirmar tu pedido" />
-                <FlatList
-                  horizontal
-                  data={coupons}
-                  keyExtractor={(item: any) => item._id}
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.hList}
-                  removeClippedSubviews
-                  renderItem={({ item }) => <CouponCard coupon={item} />}
+                <EmptyState
+                  icon="descuento"
+                  title="Sin descuentos por ahora"
+                  message="Cuando haya cupones, platos rebajados o negocios en oferta cerca de ti, van a aparecer aquí."
                 />
               </View>
-            ) : null}
+            ) : (
+              <>
+                {urgentItems.length > 0 ? (
+                  <View style={styles.section}>
+                    <SectionHeader title="Se acaban hoy" subtitle="Corre antes de que se agoten" />
+                    <FlatList
+                      horizontal
+                      data={urgentItems}
+                      keyExtractor={(row) => `${row.kind}-${row.item._id}`}
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.hList}
+                      removeClippedSubviews
+                      renderItem={({ item: row }) =>
+                        row.kind === 'coupon' ? (
+                          <CouponCard coupon={row.item} onExpire={refetch} />
+                        ) : (
+                          <OfferProductCard
+                            product={row.item}
+                            onPress={() => openBusiness(row.item.businessId)}
+                          />
+                        )
+                      }
+                    />
+                  </View>
+                ) : null}
 
-            {products.length > 0 ? (
-              <View style={styles.section}>
-                <SectionHeader title="Platos rebajados" subtitle="Del mejor descuento al más pequeño" />
-                <FlatList
-                  horizontal
-                  data={products}
-                  keyExtractor={(item: ProductSearchHit) => item._id}
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.hList}
-                  removeClippedSubviews
-                  renderItem={({ item }) => (
-                    <OfferProductCard product={item} onPress={() => openBusiness(item.businessId)} />
-                  )}
-                />
-              </View>
-            ) : null}
+                {remainingCoupons.length > 0 ? (
+                  <View style={styles.section}>
+                    <SectionHeader title="Cupones" subtitle="Aplícalos al confirmar tu pedido" />
+                    <FlatList
+                      horizontal
+                      data={remainingCoupons}
+                      keyExtractor={(item) => item._id}
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.hList}
+                      removeClippedSubviews
+                      renderItem={({ item }) => <CouponCard coupon={item} />}
+                    />
+                  </View>
+                ) : null}
 
-            {businesses.length > 0 ? (
-              <View style={styles.section}>
-                <SectionHeader title="Negocios en oferta" subtitle="Envío gratis o descuentos activos" />
-                <View style={styles.list}>
-                  {businesses.map((item: OfferBusiness) => (
-                    <Animated.View key={item._id} entering={FadeIn.duration(240)}>
-                      <BusinessRow business={item} onPress={openBusiness} />
-                    </Animated.View>
-                  ))}
-                </View>
-              </View>
-            ) : null}
+                {remainingProducts.length > 0 ? (
+                  <View style={styles.section}>
+                    <SectionHeader title="Platos rebajados" subtitle="Del mejor descuento al más pequeño" />
+                    <FlatList
+                      horizontal
+                      data={remainingProducts}
+                      keyExtractor={(item: ProductSearchHit) => item._id}
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.hList}
+                      removeClippedSubviews
+                      renderItem={({ item }) => (
+                        <OfferProductCard product={item} onPress={() => openBusiness(item.businessId)} />
+                      )}
+                    />
+                  </View>
+                ) : null}
+
+                {freeDelivery.length > 0 ? (
+                  <View style={styles.section}>
+                    <SectionHeader title="Envío gratis cerca de ti" />
+                    <View style={styles.list}>
+                      {freeDelivery.map((item: OfferBusiness) => (
+                        <Animated.View key={item._id} entering={FadeIn.duration(240)}>
+                          <BusinessRow business={item} onPress={openBusiness} />
+                        </Animated.View>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+
+                {discounted.length > 0 ? (
+                  <View style={styles.section}>
+                    <SectionHeader title="Negocios en oferta" subtitle="Descuentos activos en la carta" />
+                    <View style={styles.list}>
+                      {discounted.map((item: OfferBusiness) => (
+                        <Animated.View key={item._id} entering={FadeIn.duration(240)}>
+                          <BusinessRow business={item} onPress={openBusiness} />
+                        </Animated.View>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+              </>
+            )}
+
+            {/* Fuera del vacío a propósito: aunque no haya ni un descuento
+                cerca, los puntos siguen siendo un camino a algo, no un
+                callejón sin salida. */}
+            <View style={styles.section}>
+              <SectionHeader title="Tus puntos ZIPP" subtitle="Cada pedido entregado suma" />
+              <LoyaltyProgressBanner />
+            </View>
           </>
         )}
       </ScrollView>
@@ -184,10 +284,10 @@ const OfferProductCard = memo(function OfferProductCard({
         <CatalogBadges product={product} />
         <Text v="strongS" numberOfLines={1}>{product.name}</Text>
         <View style={styles.businessRow}>
-          <Text v="caption" tone="textMuted" numberOfLines={1} style={styles.flex}>{product.businessName}</Text>
+          <Text v="caption" tone="text" numberOfLines={1} style={styles.flex}>{product.businessName}</Text>
           <View style={styles.rating}>
             <Icon name="calificacion" size={11} color={c.warning} />
-            <Text v="caption" tone="textMuted">{(product.businessRating ?? 0).toFixed(1)}</Text>
+            <Text v="caption" tone="text">{(product.businessRating ?? 0).toFixed(1)}</Text>
           </View>
           {product.businessDeliveryTime ? (
             <View style={styles.rating}>
@@ -202,7 +302,7 @@ const OfferProductCard = memo(function OfferProductCard({
               ${(product.discountPrice ?? product.price).toLocaleString('es-CO')}
             </Text>
           </View>
-          <Text v="dataS" tone="textMuted" style={styles.strike}>
+          <Text v="dataS" tone="text" style={styles.strike}>
             ${product.price.toLocaleString('es-CO')}
           </Text>
         </View>

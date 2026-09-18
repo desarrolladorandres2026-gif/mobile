@@ -344,6 +344,33 @@ export class BusinessService {
   }
 
   /**
+   * La ficha de un negocio, para la página pública que se comparte fuera de
+   * la app (el enlace del botón "Compartir").
+   *
+   * A diferencia de `getBySlug` —que alimenta la app y necesita el
+   * documento completo—, esta lee con un `.select()` explícito: quien la
+   * llama no está autenticado, puede ser cualquiera en internet, y hasta un
+   * bot indexando enlaces compartidos. `commissionRate`/`commissionRateBps`
+   * no llevan `select: false` en el esquema porque la app misma los
+   * necesitaba con sesión de por medio; aquí no hay sesión, así que se
+   * excluyen a mano en vez de heredar por accidente el mismo descuido que
+   * ya tiene `getBySlug` desde antes de esta función (no se toca ese
+   * método: es una decisión aparte que no se tomó en este cambio).
+   *
+   * Exige `isApproved`: un negocio que nunca llegó a aprobarse no debería
+   * tener una ficha pública circulando, aunque alguien conozca su slug.
+   */
+  async getPublicBySlug(slug: string) {
+    const business = await Business.findOne({ slug, isApproved: true }).select(
+      'name slug description logo coverImage brandColor category address phone ' +
+        'rating totalReviews deliveryTime minOrder freeDeliveryThreshold ' +
+        'showPromoBanner schedule city isActive location'
+    );
+    if (!business) throw new AppError('Negocio no encontrado', 404);
+    return business;
+  }
+
+  /**
    * Updates the operational profile of a business.
    *
    * Commercial terms cannot arrive here: the validator strips them and this

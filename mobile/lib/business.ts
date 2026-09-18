@@ -18,7 +18,18 @@ const ACCENTS = [
   '#0FA3C4',
 ] as const;
 
-export function businessAccent(id: string | undefined): string {
+/**
+ * El color de fondo de la ficha de un negocio: el suyo propio si lo eligió,
+ * o el derivado de su id si no.
+ *
+ * `brandColor` gana siempre que esté puesto. Es el mismo color que ya
+ * escogió en Ajustes para el encabezado de su ficha — mostrar uno distinto
+ * aquí sería que el negocio se vea de un color en su portada y de otro en
+ * la tarjeta del Inicio, que es justo la inconsistencia que este color
+ * existe para evitar.
+ */
+export function businessAccent(id: string | undefined, brandColor?: string | null): string {
+  if (brandColor) return brandColor;
   if (!id) return ACCENTS[0];
   let hash = 0;
   for (let i = 0; i < id.length; i++) {
@@ -31,13 +42,13 @@ export function businessAccent(id: string | undefined): string {
 // Horarios
 // ──────────────────────────────────────────────────────────────
 
-interface DaySchedule {
+export interface DaySchedule {
   open?: string;
   close?: string;
   isOpen?: boolean;
 }
 
-const DAY_KEYS = [
+export const DAY_KEYS = [
   'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
 ] as const;
 
@@ -91,6 +102,43 @@ export function openState(schedule: Record<string, DaySchedule> | undefined): Op
     return { open: true, label: `Cierra en ${minutesLeft} min` };
   }
   return { open: true, label: `Abierto hasta las ${prettyTime(today.close!)}` };
+}
+
+/**
+ * Si el negocio atiende en un momento dado, no solo ahora.
+ *
+ * Mira dos ventanas: la del propio día y la cola de la del día anterior
+ * cuando esa cruza medianoche. `openState` solo mira la de hoy, así que a la
+ * una de la mañana da por cerrado un bar que abrió a las seis de la tarde
+ * del día anterior y cierra a las dos. Para programar un pedido para el
+ * sábado a la 1 a. m. hace falta la cuenta completa.
+ *
+ * El backend repite exactamente esta regla al crear el pedido; si una cambia,
+ * la otra también.
+ */
+export function isOpenAt(schedule: Record<string, DaySchedule> | undefined, when: Date): boolean {
+  if (!schedule) return true;
+
+  const minutes = when.getHours() * 60 + when.getMinutes();
+  const today = schedule[DAY_KEYS[when.getDay()]];
+  const yesterday = schedule[DAY_KEYS[(when.getDay() + 6) % 7]];
+
+  const window = (day: DaySchedule | undefined) => {
+    if (!day || day.isOpen === false) return null;
+    const open = toMinutes(day.open);
+    const close = toMinutes(day.close);
+    // Sin horas escritas se trata como abierto todo el día, igual que
+    // `openState`: es mejor dejar pedir que bloquear a un negocio que
+    // simplemente no llenó el formulario.
+    if (open === null || close === null) return { open: 0, close: 1440, crosses: false };
+    return { open, close, crosses: close <= open };
+  };
+
+  const t = window(today);
+  if (t && (t.crosses ? minutes >= t.open : minutes >= t.open && minutes < t.close)) return true;
+
+  const y = window(yesterday);
+  return !!y && y.crosses && minutes < y.close;
 }
 
 /** "22:00" → "10:00 p. m." */

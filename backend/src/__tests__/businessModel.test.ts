@@ -239,7 +239,10 @@ describe('Modelo de negocio · 5 pedidos de punta a punta', () => {
 
     const { cotizacion, pedido } = await cotizarYCrear(
       cliente,
-      cuerpoPedido(negocio, producto, { paymentMethod: 'cash_on_delivery' })
+      cuerpoPedido(negocio, producto, {
+        paymentMethod: 'cash_on_delivery',
+        cashPayment: { needsChange: false },
+      })
     );
 
     expect(cotizacion.subtotal).toBe(30000);

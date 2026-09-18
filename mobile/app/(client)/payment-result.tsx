@@ -4,9 +4,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import {
-  Text, Icon, Button, Screen, Header, ErrorState, SuccessCheck,
+  Text, Icon, Button, Screen, Header, ErrorState, EmptyState, SuccessCheck,
 } from '../../components/ui';
 import { TrazoLoader } from '../../components/brand/Trazo';
+import { NativePaymentFlow } from '../../components/domain/NativePaymentFlow';
 import { usePaymentStatus, usePayOrder } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing } from '../../theme/tokens';
@@ -17,6 +18,21 @@ import { tap } from '../../lib/haptics';
 type Phase = 'opening' | 'waiting' | 'approved' | 'declined' | 'pending' | 'error';
 
 /**
+ * La pantalla del pago en línea. Dos modos:
+ *
+ * - `mode=native`: el cobro dentro de la app (`NativePaymentFlow`). Es el
+ *   camino normal cuando el backend lo ofrece.
+ * - Sin `mode`: el Web Checkout de Wompi en el navegador, que se mantiene
+ *   para cuando el proveedor activo solo sabe redirigir (el sandbox de
+ *   desarrollo, por ejemplo).
+ */
+export default function PaymentResultScreen() {
+  const { id, code, mode } = useLocalSearchParams<{ id?: string; code?: string; mode?: string }>();
+  if (mode === 'native') return <NativePaymentFlow orderId={id} code={code} />;
+  return <WebCheckoutResult />;
+}
+
+/**
  * "Wompi → Resultado" del flujo de pago.
  *
  * El navegador hospedado de Wompi (Web Checkout) decide qué pasó, pero
@@ -25,7 +41,7 @@ type Phase = 'opening' | 'waiting' | 'approved' | 'declined' | 'pending' | 'erro
  * directa — y solo esa respuesta decide qué pantalla se muestra. El pedido
  * jamás se marca como pagado desde aquí.
  */
-export default function PaymentResultScreen() {
+function WebCheckoutResult() {
   const router = useRouter();
   const { c } = useTheme();
   const { id, code, checkoutUrl, transactionId, redirectUrl } = useLocalSearchParams<{
@@ -92,6 +108,25 @@ export default function PaymentResultScreen() {
   };
 
   const reference = code || orderCode(id);
+
+  // Android puede cerrar la app mientras la persona está en Wompi; al
+  // volver por `zipp://payment-result` la pantalla llega sin parámetros y
+  // no hay nada que abrir ni que consultar. Antes eso dejaba el cargador
+  // girando para siempre.
+  if (!checkoutUrl && !transactionId) {
+    return (
+      <Screen>
+        <Header title="Tu pago" fallback="/(client)/(tabs)/home" />
+        <EmptyState
+          icon="pedidos"
+          title="Revisa tu pedido"
+          message="No pudimos recuperar este pago aquí. Su estado real está en Mis pedidos."
+          actionLabel="Ver mis pedidos"
+          onAction={() => router.replace('/(client)/orders')}
+        />
+      </Screen>
+    );
+  }
 
   if (phase === 'approved') {
     return (
