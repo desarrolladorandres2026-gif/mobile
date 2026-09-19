@@ -11,6 +11,7 @@ import { minutes } from '../../lib/format';
 import { tap } from '../../lib/haptics';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
 import type { BusinessCollectionEntry, CuratedHomeBusiness } from '../../services/endpoints';
+import { sizedImageUri } from '../../lib/cloudinaryImage';
 
 const CARD_WIDTH = 195;
 
@@ -49,7 +50,9 @@ export const BusinessCollectionRow = memo(function BusinessCollectionRow({
         removeClippedSubviews
         maxToRenderPerBatch={10}
         windowSize={9}
-        initialNumToRender={6}
+        // En pantalla caben dos tarjetas y media: montar seis por fila, con
+        // veinte filas, eran 120 tarjetas con foto al abrir el Inicio.
+        initialNumToRender={3}
         renderItem={({ item }) => (
           <BusinessCollectionCard business={item} onPress={() => goToBusiness(item)} />
         )}
@@ -76,7 +79,7 @@ const BusinessCollectionCard = memo(function BusinessCollectionCard({
       <View style={[styles.image, { backgroundColor: accent }]}>
         {business.coverImage ? (
           <Image
-            source={{ uri: business.coverImage }}
+            source={{ uri: sizedImageUri(business.coverImage, CARD_WIDTH) }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={180}

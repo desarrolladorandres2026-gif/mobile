@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import { cacheInvalidationPlugin, CachePrefix } from '../cache';
 
 /**
  * Categorías de negocio que se muestran en el Home de la app móvil
@@ -53,5 +54,10 @@ const homeCategorySchema = new Schema<IHomeCategory>(
 
 // La consulta que hace la app en cada arranque: solo activas, ya ordenadas.
 homeCategorySchema.index({ status: 1, order: 1 });
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+homeCategorySchema.plugin(cacheInvalidationPlugin, {
+  prefixesFor: () => [CachePrefix.HOME_CATEGORIES, CachePrefix.HOME],
+});
 
 export const HomeCategory = mongoose.model<IHomeCategory>('HomeCategory', homeCategorySchema);

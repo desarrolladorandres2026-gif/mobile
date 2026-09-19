@@ -24,6 +24,10 @@ import { categoryIllustration } from '../../../components/illustrations';
 import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { greeting, firstName, money } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
+import { useProgressiveLimit } from '../../../hooks/useProgressiveLimit';
+
+/** Colecciones del Inicio que se montan con la pantalla (ver `useProgressiveLimit`). */
+const INITIAL_HOME_SECTIONS = 3;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -43,6 +47,9 @@ export default function HomeScreen() {
   // de Categorías: reemplaza a Cupones, Destacados y las listas de
   // negocios que vivían ahí antes.
   const { data: homeSections = [], refetch, isRefetching } = useHomeSections(coords, coordsReady);
+  // Las primeras colecciones con la pantalla; el resto (hasta veinte, con
+  // sus fotos) un instante después, en vez de todas en el mismo fotograma.
+  const sectionLimit = useProgressiveLimit(INITIAL_HOME_SECTIONS);
 
   const defaultAddress = useMemo(
     () => addresses.find((a: any) => a.isDefault) ?? addresses[0],
@@ -121,15 +128,15 @@ export default function HomeScreen() {
             }
             style={styles.headerText}
           >
-            <Text v="titleL" numberOfLines={1}>
+            <Text v="titleM" numberOfLines={1}>
               {greeting()}, {firstName(user?.name) || 'qué más'}
             </Text>
             <View style={styles.addressRow}>
               <Icon name="ubicacion" size="sm" color={c.textMuted} />
-              <Text v="titleL" numberOfLines={1} style={styles.addressText}>
+              <Text v="strongS" numberOfLines={1} style={styles.addressText}>
                 {defaultAddress ? defaultAddress.label : 'agrega tu dirección'}
                 {defaultAddress ? (
-                  <Text v="titleL" tone="textMuted"> · {defaultAddress.address}</Text>
+                  <Text v="strongS" tone="textMuted"> · {defaultAddress.address}</Text>
                 ) : null}
               </Text>
               <Icon name="desplegar" size="sm" color={c.textMuted} />
@@ -202,7 +209,7 @@ export default function HomeScreen() {
             curados por un admin (spotlights, colecciones de negocios) +
             banners promocionales anclados a una posición — todo ya viene
             fusionado y ordenado desde `/home-sections`. ── */}
-        {homeSections.map((entry) => {
+        {homeSections.slice(0, sectionLimit).map((entry) => {
           switch (entry.kind) {
             case 'collection':
               return <ProductCollectionRow key={entry.key} section={entry} />;
@@ -264,7 +271,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
 
   fixedHeader: {
-    paddingBottom: Spacing.lg,
+    paddingBottom: Spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: 'transparent',
   },
@@ -280,12 +287,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl,
+    paddingTop: Spacing.sm,
     gap: Spacing.md,
   },
   headerText: {
     flex: 1,
-    gap: Spacing.xs,
+    gap: 2,
   },
   addressRow: {
     flexDirection: 'row',
@@ -300,9 +307,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.md,
     marginHorizontal: Spacing.xl,
-    marginTop: Spacing.lg,
+    marginTop: Spacing.sm,
     paddingHorizontal: Spacing.lg,
-    height: 54,
+    height: 44,
     borderRadius: BorderRadius.full,
     borderWidth: 1,
   },

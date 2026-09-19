@@ -9,8 +9,9 @@ import type { IconName } from '../../theme/icons';
 import { BorderRadius, Shadow, Size, Spacing } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
+import { NEQUI } from '../brand/NequiLogo';
 
-export type ButtonVariant = 'primary' | 'lime' | 'secondary' | 'ghost' | 'danger' | 'success' | 'successLight';
+export type ButtonVariant = 'primary' | 'lime' | 'secondary' | 'ghost' | 'danger' | 'success' | 'successLight' | 'nequi';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps {
@@ -112,6 +113,13 @@ export function Button({
       border: 'transparent',
       shadow: Shadow.none,
     },
+    // Solo dentro del flujo de pago con Nequi: el magenta de su app.
+    nequi: {
+      bg: NEQUI.magenta,
+      fg: c.white,
+      border: 'transparent',
+      shadow: Shadow.none,
+    },
   }[variant];
 
   const typeVariant = size === 'lg' ? 'buttonLg' : size === 'sm' ? 'buttonSm' : 'buttonMd';
@@ -154,7 +162,7 @@ export function Button({
         {loading ? (
           <TrazoLoader
             width={56}
-            color={variant === 'primary' || variant === 'lime' ? skin.fg : c.primaryText}
+            color={variant === 'primary' || variant === 'lime' || variant === 'nequi' ? skin.fg : c.primaryText}
           />
         ) : (
           <>
@@ -183,7 +191,7 @@ export function Button({
 /** El chip del total se oscurece sobre rellenos claros y se aclara sobre oscuros. */
 function trailingTint(variant: ButtonVariant): string {
   if (variant === 'lime') return 'rgba(13, 17, 32, 0.10)';
-  if (variant === 'primary') return 'rgba(255, 255, 255, 0.18)';
+  if (variant === 'primary' || variant === 'nequi') return 'rgba(255, 255, 255, 0.18)';
   return 'transparent';
 }
 

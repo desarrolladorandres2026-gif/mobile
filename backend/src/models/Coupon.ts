@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { CouponType, CouponFundedBy, CouponScope } from '../types';
+import { cacheInvalidationPlugin, CachePrefix } from '../cache';
 
 export interface ICoupon extends Document {
   code: string;
@@ -194,6 +195,11 @@ couponSchema.pre('validate', function (next) {
 couponSchema.index({ isActive: 1, isPublic: 1, validUntil: 1 });
 couponSchema.index({ businessId: 1, isActive: 1 });
 couponSchema.index({ fundedBy: 1, isActive: 1 });
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+couponSchema.plugin(cacheInvalidationPlugin, {
+  prefixesFor: () => [CachePrefix.OFFERS],
+});
 
 export const Coupon = mongoose.model<ICoupon>('Coupon', couponSchema);
 

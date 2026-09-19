@@ -13,6 +13,18 @@ export const businessesApi = {
   getById: (id: string) =>
     api.get(`/businesses/${id}`).then((r) => r.data.data),
 
+  /**
+   * Ficha, secciones, carta, más pedidos y opinión en una sola petición.
+   * Un backend anterior a este endpoint responde 404: ver `useStorefront`.
+   */
+  getStorefront: (id: string): Promise<{
+    business: any;
+    categories: any[];
+    products: any[];
+    topSellers: any[];
+    sentiment: Record<string, { likes: number; total: number }>;
+  }> => api.get(`/businesses/${id}/storefront`).then((r) => r.data.data),
+
 
   getBySlug: (slug: string) =>
     api.get(`/businesses/slug/${slug}`).then((r) => r.data.data),

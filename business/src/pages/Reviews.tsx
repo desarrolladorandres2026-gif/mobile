@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Star, AlertCircle, MessageSquare, Send, RefreshCw } from 'lucide-react';
 import api from '../services/api';
+import { qk } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 import { dateTime } from '../lib/orderFlow';
@@ -47,27 +49,27 @@ export default function Reviews() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
 
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState('');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [sending, setSending] = useState<string | null>(null);
 
-  const fetchReviews = useCallback(async () => {
-    if (!businessId) return;
-    try {
-      setLoading(true);
-      setError('');
+  const reviewsQuery = useQuery({
+    queryKey: qk.reviews(businessId),
+    enabled: !!businessId,
+    queryFn: async () => {
       const { data } = await api.get(`/reviews/business/${businessId}`);
-      setReviews(data.data.reviews ?? data.data);
-    } catch (err) {
-      setError(apiMessage(err, 'No se pudieron cargar las reseñas.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId]);
+      return (data.data.reviews ?? data.data) as Review[];
+    },
+  });
+  const reviews = useMemo(() => reviewsQuery.data ?? [], [reviewsQuery.data]);
+  const loading = !!businessId && reviewsQuery.isPending;
+  const loadError = reviewsQuery.isError ? apiMessage(reviewsQuery.error, 'No se pudieron cargar las reseñas.') : '';
 
-  useEffect(() => { fetchReviews(); }, [fetchReviews]);
+  const fetchReviews = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: qk.reviews(businessId) }),
+    [queryClient, businessId]
+  );
 
   const sendReply = async (reviewId: string) => {
     const reply = (drafts[reviewId] ?? '').trim();
@@ -131,10 +133,10 @@ export default function Reviews() {
         </div>
       )}
 
-      {error && (
+      {(error || loadError) && (
         <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <p className="flex-1 font-semibold">{error}</p>
+          <p className="flex-1 font-semibold">{error || loadError}</p>
         </div>
       )}
 

@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   RefreshCw, Landmark, AlertCircle, ChevronRight, ArrowLeft, Store, Download,
 } from 'lucide-react';
 import api from '../services/api';
+import { qk } from '../lib/queryKeys';
+import { useTrailingCallback } from '../hooks/useTrailingCallback';
 import { useAuthStore } from '../stores/authStore';
 import { useBusinessEvent } from '../hooks/realtimeContext';
 import { money, signedMoney, dateTime, statusStyle } from '../lib/orderFlow';
@@ -102,54 +105,54 @@ export default function Settlements() {
 
   const businessId = selectedBusiness?._id;
 
-  const [statement, setStatement] = useState<Statement | null>(null);
+  const queryClient = useQueryClient();
   const [focus, setFocus] = useState<Focus>({ kind: 'next' });
-  const [lines, setLines] = useState<Line[] | null>(null);
-  const [lineTotals, setLineTotals] = useState<Totals | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const loadStatement = useCallback(async () => {
-    if (!businessId) return;
-    try {
-      setError('');
-      const { data } = await api.get(`/businesses/${businessId}/statement`);
-      setStatement(data.data);
-    } catch {
-      setError('No pudimos cargar tus liquidaciones. Vuelve a intentarlo.');
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId]);
+  // El extracto es la misma consulta que usa la cocina (misma clave): quien
+  // viene del Dashboard ya lo tiene en pantalla sin esperar.
+  const statementQuery = useQuery({
+    queryKey: qk.statement(businessId),
+    enabled: !!businessId,
+    queryFn: async () => (await api.get(`/businesses/${businessId}/statement`)).data.data as Statement,
+  });
+  const statement = statementQuery.data ?? null;
+  const loading = !!businessId && statementQuery.isPending;
+  const loadError = statementQuery.isError ? 'No pudimos cargar tus liquidaciones. Vuelve a intentarlo.' : '';
 
-  const loadLines = useCallback(async () => {
-    if (!businessId) return;
-    setLines(null);
-    try {
+  const linesQuery = useQuery({
+    queryKey: qk.statementLines(businessId, focus.kind === 'settlement' ? focus.batch._id : 'open'),
+    enabled: !!businessId,
+    queryFn: async () => {
       const params =
         focus.kind === 'settlement'
           ? { settlementId: focus.batch._id, limit: 200 }
           : // Lo que aún no se ha consignado: acumulado + liquidable.
             { status: 'accrued,payable', limit: 200 };
+      try {
+        const { data } = await api.get(`/businesses/${businessId}/statement/lines`, { params });
+        return { lines: data.data as Line[], totals: (data.meta?.totals ?? null) as Totals | null };
+      } catch {
+        return { lines: [] as Line[], totals: null };
+      }
+    },
+  });
+  // `null` mientras carga: la tabla lo distingue de "no hay líneas".
+  const lines = linesQuery.isPending ? null : (linesQuery.data?.lines ?? []);
+  const lineTotals = linesQuery.data?.totals ?? null;
 
-      const { data } = await api.get(`/businesses/${businessId}/statement/lines`, { params });
-      setLines(data.data);
-      setLineTotals(data.meta?.totals ?? null);
-    } catch {
-      setLines([]);
-      setLineTotals(null);
-    }
-  }, [businessId, focus]);
-
-  useEffect(() => { setLoading(true); loadStatement(); }, [loadStatement]);
-  useEffect(() => { loadLines(); }, [loadLines]);
+  const refresh = useCallback(() => {
+    setError('');
+    void queryClient.invalidateQueries({ queryKey: qk.statement(businessId) });
+    void queryClient.invalidateQueries({ queryKey: qk.statementLines(businessId) });
+  }, [queryClient, businessId]);
+  const refreshSoon = useTrailingCallback(refresh, 1000);
 
   // Un pedido entregado cambia lo que ZIPP debe: la próxima liquidación
   // deja de cuadrar en el instante en que se confirma una entrega.
   useBusinessEvent('order:status:changed', (payload) => {
     if (payload?.status === 'delivered' || payload?.status === 'cancelled') {
-      loadStatement();
-      loadLines();
+      refreshSoon();
     }
   });
 
@@ -195,7 +198,7 @@ export default function Settlements() {
           </button>
 
           <button
-            onClick={() => { loadStatement(); loadLines(); }}
+            onClick={refresh}
             className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer flex items-center gap-2"
           >
             <RefreshCw className="w-3.5 h-3.5 text-[var(--color-primary)]" />
@@ -204,10 +207,10 @@ export default function Settlements() {
         </div>
       </div>
 
-      {error && (
+      {(error || loadError) && (
         <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
-          <p className="text-xs font-semibold text-[var(--color-danger)]">{error}</p>
+          <p className="text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
         </div>
       )}
 

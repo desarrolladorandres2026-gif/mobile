@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, RefreshCw, Eye, Store, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useBusinessEvent } from '../hooks/realtimeContext';
 import api from '../services/api';
+import { qk } from '../lib/queryKeys';
+import { useTrailingCallback } from '../hooks/useTrailingCallback';
 import OrderDetailPanel from '../components/OrderDetailPanel';
 import Pagination from '../components/Pagination';
 import {
@@ -35,49 +38,55 @@ export default function Orders() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
 
-  const [orders, setOrders] = useState<BusinessOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<OrderStatus | 'all'>('all');
   const [detailOrder, setDetailOrder] = useState<BusinessOrder | null>(null);
   const [liveTick, setLiveTick] = useState(0);
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
   const PAGE_SIZE = 25;
 
   useEffect(() => { setPage(1); }, [filter]);
 
-  const load = useCallback(async () => {
-    if (!businessId) return;
-    try {
-      setError('');
-      // El estado se filtra en el servidor: traer cien pedidos para
-      // esconder noventa en el navegador desperdicia la consulta y deja
-      // fuera justo los que el filtro debería encontrar.
+  // El estado se filtra en el servidor: traer cien pedidos para
+  // esconder noventa en el navegador desperdicia la consulta y deja
+  // fuera justo los que el filtro debería encontrar.
+  //
+  // `placeholderData` deja la página anterior en pantalla mientras llega la
+  // siguiente, en vez de vaciar la tabla en cada cambio de página o filtro.
+  const ordersQuery = useQuery({
+    queryKey: qk.orders(businessId, 'history', filter, page),
+    enabled: !!businessId,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
       const { data } = await api.get(`/orders/business/${businessId}`, {
         params: { page, limit: PAGE_SIZE, ...(filter === 'all' ? {} : { status: filter }) },
       });
-      setOrders(data.data);
-      if (data.meta) setMeta(data.meta);
-    } catch (err) {
-      console.error(err);
-      setError('No pudimos cargar el historial de pedidos.');
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId, filter, page]);
+      return {
+        orders: data.data as BusinessOrder[],
+        meta: (data.meta ?? { total: 0, totalPages: 1, limit: PAGE_SIZE }) as { total: number; totalPages: number; limit: number },
+      };
+    },
+  });
 
-  useEffect(() => { setLoading(true); load(); }, [load]);
+  const orders = useMemo(() => ordersQuery.data?.orders ?? [], [ordersQuery.data]);
+  const meta = ordersQuery.data?.meta ?? { total: 0, totalPages: 1, limit: PAGE_SIZE };
+  const loading = !!businessId && ordersQuery.isPending;
+  const error = ordersQuery.isError ? 'No pudimos cargar el historial de pedidos.' : '';
+
+  const load = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: qk.orders(businessId) });
+  }, [queryClient, businessId]);
+  const loadSoon = useTrailingCallback(load, 1000);
 
   // Esta pantalla no tenía tiempo real: un pedido que se entregaba
   // mientras estaba abierta seguía apareciendo "en camino" hasta que
   // alguien pulsaba Actualizar.
   useBusinessEvent('order:status:changed', () => {
-    load();
+    loadSoon();
     setLiveTick((tick) => tick + 1);
   });
-  useBusinessEvent('order:driver:assigned', () => load());
+  useBusinessEvent('order:driver:assigned', loadSoon);
   useBusinessEvent('order:driver:arrived', () => setLiveTick((tick) => tick + 1));
 
   // El backend de `/orders/business/:id` no acepta un filtro de texto

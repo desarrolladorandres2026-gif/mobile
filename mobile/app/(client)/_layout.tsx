@@ -6,7 +6,10 @@ import { useFavoritesMigration } from '../../hooks/useFavorites';
 import { useCartAbandonment } from '../../hooks/useCartAbandonment';
 
 export default function ClientLayout() {
-  const { user, isAuthenticated } = useAuthStore();
+  // Selectores y no el store entero: con `useAuthStore()` a secas, cada
+  // refresco del token (cada 15 min) re-renderizaba toda la pila del cliente.
+  const user = useAuthStore((s) => s.user);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const router = useRouter();
   const { c } = useTheme();
 

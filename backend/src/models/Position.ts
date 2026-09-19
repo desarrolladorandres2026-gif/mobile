@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
+import { cacheInvalidationPlugin, CachePrefix } from '../cache';
 
 /**
  * Cargo administrable desde el panel (Seguridad y Acceso → Cargos).
@@ -43,5 +44,10 @@ const positionSchema = new Schema<IPosition>(
 );
 
 positionSchema.index({ isActive: 1 });
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+positionSchema.plugin(cacheInvalidationPlugin, {
+  prefixesFor: () => [CachePrefix.AUTHZ],
+});
 
 export const Position = mongoose.model<IPosition>('Position', positionSchema);

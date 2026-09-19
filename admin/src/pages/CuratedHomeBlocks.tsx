@@ -3,7 +3,9 @@ import {
   LayoutGrid, Plus, Search, X, AlertCircle, Trash2, Pencil,
   ToggleLeft, ToggleRight, Image as ImageIcon, Store, Check,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
+import { fetchBusinessOptions } from '../lib/businessOptions';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
 
@@ -59,7 +61,7 @@ const STATUS_STYLES: Record<BlockStatus, { label: string; bg: string; text: stri
   active: { label: 'Activo', bg: '#FDF7E7', text: '#D69E26' },
   scheduled: { label: 'Programado', bg: '#FDF7E7', text: '#D69E26' },
   expired: { label: 'Vencido', bg: '#FEF3C7', text: '#F59E0B' },
-  inactive: { label: 'Inactivo', bg: '#EDF1F5', text: '#7C8BA1' },
+  inactive: { label: 'Inactivo', bg: '#EDF1F5', text: '#0B0F19' },
 };
 
 const toDatetimeLocal = (iso: string) => {
@@ -91,6 +93,7 @@ const emptyForm = (): BlockForm => ({
 });
 
 export default function CuratedHomeBlocks() {
+  const queryClient = useQueryClient();
   const [blocks, setBlocks] = useState<CuratedBlock[]>([]);
   const [businesses, setBusinesses] = useState<PickerBusiness[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,7 +120,7 @@ export default function CuratedHomeBlocks() {
       setError('');
       const [resBlocks, resBiz] = await Promise.all([
         api.get('/curated-home-blocks?limit=100'),
-        api.get('/businesses?limit=100'),
+        fetchBusinessOptions(queryClient),
       ]);
       setBlocks(resBlocks.data.data);
       setBusinesses(resBiz.data.data);

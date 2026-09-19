@@ -4,6 +4,7 @@ import {
   ToggleLeft, ToggleRight, ImagePlus,
 } from 'lucide-react';
 import api from '../services/api';
+import { sizedImage } from '../lib/cloudinary';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
 import { categoryIllustration } from '../components/illustrations';
@@ -268,7 +269,7 @@ export default function HomeCategories() {
                   <td className="table-body-cell">
                     <div className="w-10 h-10 rounded-lg overflow-hidden bg-[var(--color-bg)] border border-[var(--color-border)] flex items-center justify-center">
                       {c.imageUrl ? (
-                        <img src={c.imageUrl} alt={c.name} className="w-full h-full object-cover" />
+                        <img src={sizedImage(c.imageUrl, 240)} alt={c.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                       ) : (
                         <CategoryArt size={28} />
                       )}

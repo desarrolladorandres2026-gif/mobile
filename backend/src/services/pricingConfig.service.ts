@@ -7,6 +7,7 @@ import {
 import { AppError } from '../middlewares';
 import { config as envConfig } from '../config';
 import { rateToBps } from '../utils';
+import { invalidatePrefixes, CachePrefix } from '../cache';
 
 /** The fields an admin is allowed to change. Everything else is derived. */
 export const EDITABLE_PRICING_FIELDS = [
@@ -240,6 +241,8 @@ export class PricingConfigService {
     });
 
     this.invalidate();
+    // El "Desde $X" de cada ficha sale de esta tarifa.
+    await invalidatePrefixes([CachePrefix.BUSINESS_ALL, CachePrefix.BUSINESS_SLUG]);
     return { config: created, changes };
   }
 

@@ -1,11 +1,15 @@
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import Home from './pages/Home';
-import LegalDocument from './pages/LegalDocument';
-import BusinessShare from './pages/BusinessShare';
-import PaymentReturn from './pages/PaymentReturn';
+import { lazyPage } from './lib/lazyPage';
+
+// La portada va en el archivo principal: es lo que abre casi todo el mundo
+// y no debe esperar una segunda descarga. El resto se baja al entrar.
+const LegalDocument = lazyPage(() => import('./pages/LegalDocument'));
+const BusinessShare = lazyPage(() => import('./pages/BusinessShare'));
+const PaymentReturn = lazyPage(() => import('./pages/PaymentReturn'));
 
 /**
  * React Router no reproduce el scroll nativo del navegador a un `#id`: en una
@@ -57,12 +61,14 @@ function App() {
       <ScrollToHash />
       <Header />
       <main className="flex-1">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/legal/:kind" element={<LegalDocument />} />
-          <Route path="/negocio/:slug" element={<BusinessShare />} />
-          <Route path="/pago/retorno" element={<PaymentReturn />} />
-        </Routes>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/legal/:kind" element={<LegalDocument />} />
+            <Route path="/negocio/:slug" element={<BusinessShare />} />
+            <Route path="/pago/retorno" element={<PaymentReturn />} />
+          </Routes>
+        </Suspense>
       </main>
       <Footer />
     </div>

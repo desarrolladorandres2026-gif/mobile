@@ -3,7 +3,9 @@ import {
   Ticket, Plus, Search, X, AlertCircle, Pencil, Percent, Store,
   ToggleLeft, ToggleRight, Banknote, Truck, History, Building2, Landmark,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
+import { fetchBusinessOptions } from '../lib/businessOptions';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
 import { apiFieldMessage, apiMessage } from '../lib/apiError';
@@ -178,6 +180,7 @@ function exposicionMaxima(f: CouponForm): number | null {
 }
 
 export default function Coupons() {
+  const queryClient = useQueryClient();
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [businesses, setBusinesses] = useState<{ _id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -219,7 +222,7 @@ export default function Coupons() {
       else if (estadoFiltro === 'active' || estadoFiltro === 'expired') params.isActive = 'true';
       const [resCoupons, resBiz] = await Promise.all([
         api.get('/coupons', { params }),
-        api.get('/businesses?limit=100'),
+        fetchBusinessOptions(queryClient),
       ]);
       setCoupons(resCoupons.data.data);
       if (resCoupons.data.meta) setMeta(resCoupons.data.meta);

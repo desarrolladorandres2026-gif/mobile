@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 
@@ -20,11 +21,16 @@ import { useTheme } from '../hooks/useTheme';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useSessionGuard } from '../hooks/useSessionGuard';
 import { useVariantGuard } from '../hooks/useVariantGuard';
-import { IS_DRIVER_APP } from '../constants/variant';
+import { IS_DRIVER_APP, IS_CLIENT_APP } from '../constants/variant';
+import {
+  queryPersister, shouldPersistQuery, persistBuster, PERSIST_MAX_AGE_MS,
+} from '../lib/queryPersistence';
 import { ZippSplashLoader } from '../components/brand/ZippSplashLoader';
 import { registerServiceWorker } from '../lib/pwa';
 import { reportError, installGlobalHandler } from '../lib/crashReporting';
 import { installOnlineManager } from '../hooks/useNetwork';
+import { installAppFocusManager } from '../lib/appFocus';
+import { useRealtimeOwner } from '../hooks/useRealtime';
 import { checkForUpdate } from '../lib/appUpdates';
 import { AppErrorScreen } from '../components/shared/AppErrorScreen';
 import { VersionGate } from '../components/shared/VersionGate';
@@ -88,6 +94,10 @@ const queryClient = new QueryClient({
         return failureCount < 2;
       },
       staleTime: 5 * 60 * 1000,
+      // En la app cliente lo que se guarda entre aperturas tiene que seguir
+      // en memoria el mismo tiempo que en disco, o se descartaría antes de
+      // poder restaurarse (ver lib/queryPersistence).
+      ...(IS_CLIENT_APP ? { gcTime: PERSIST_MAX_AGE_MS } : {}),
       // Al volver a la app, lo primero es saber si el pedido cambió de estado.
       refetchOnWindowFocus: true,
     },
@@ -95,7 +105,13 @@ const queryClient = new QueryClient({
 });
 
 function RootLayoutContent() {
-  const { isLoading, loadStoredAuth } = useAuthStore();
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const loadStoredAuth = useAuthStore((s) => s.loadStoredAuth);
+  // Solo el rol de esta app abre el canal: una sesión de la otra app (que
+  // acabará en `wrong-app`) no tiene nada que escuchar aquí.
+  const realtimeEnabled = useAuthStore(
+    (s) => s.isAuthenticated && s.user?.role === (IS_DRIVER_APP ? 'driver' : 'client')
+  );
   const { c, isDark } = useTheme();
 
   // Notificaciones del sistema: llegan como push normal, con la app cerrada o abierta.
@@ -112,6 +128,9 @@ function RootLayoutContent() {
   // revés), la saca a `wrong-app`. Cubre las entradas que no pasan por el
   // splash: deep links y pushes con la app cerrada.
   useVariantGuard();
+
+  // El socket, una sola vez para toda la app (ver `useRealtimeOwner`).
+  useRealtimeOwner(realtimeEnabled);
 
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
@@ -131,6 +150,10 @@ function RootLayoutContent() {
     // en modo avion y tardaba 45 s en decir que algo fallo. Enterado, pausa
     // al perder la red y reanuda solo al volver.
     installOnlineManager();
+
+    // Y cuándo está en primer plano: sin esto los pedidos se seguían
+    // sondeando con la app en segundo plano.
+    installAppFocusManager();
 
     // Se descarga en segundo plano y se aplica en el proximo arranque en
     // frio. No recarga la app sola: hacerlo a mitad de un checkout le
@@ -194,12 +217,26 @@ function RootLayoutContent() {
   );
 }
 
+/** Solo la app cliente guarda caché entre aperturas; el domiciliario siempre pide fresco. */
+const persistOptions = {
+  persister: queryPersister,
+  maxAge: PERSIST_MAX_AGE_MS,
+  buster: persistBuster,
+  dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
+};
+
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
-      <QueryClientProvider client={queryClient}>
-        <RootLayoutContent />
-      </QueryClientProvider>
+      {IS_CLIENT_APP ? (
+        <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
+          <RootLayoutContent />
+        </PersistQueryClientProvider>
+      ) : (
+        <QueryClientProvider client={queryClient}>
+          <RootLayoutContent />
+        </QueryClientProvider>
+      )}
     </GestureHandlerRootView>
   );
 }

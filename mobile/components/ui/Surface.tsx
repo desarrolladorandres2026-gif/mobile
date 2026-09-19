@@ -137,6 +137,12 @@ export interface SheetProps {
   scroll?: boolean;
   /** Para que quien arma la hoja pueda llevar la vista a un punto concreto. */
   scrollRef?: RefObject<ScrollView | null>;
+  /**
+   * Ocupa toda la pantalla: sin agarradera, sin fondo que cierre al tocarlo
+   * y con el encabezado bajo la barra de estado. Para formularios largos
+   * donde un toque fuera no debe tirar lo escrito.
+   */
+  fullScreen?: boolean;
 }
 
 /**
@@ -147,7 +153,7 @@ export interface SheetProps {
  * eso hace perder el hilo y obliga a volver.
  */
 export function Sheet({
-  visible, onClose, title, children, height = 0.8, footer, scroll = true, scrollRef,
+  visible, onClose, title, children, height = 0.8, footer, scroll = true, scrollRef, fullScreen = false,
 }: SheetProps) {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
@@ -180,20 +186,28 @@ export function Sheet({
     >
       <View style={[styles.sheetOverlay, { backgroundColor: c.overlay }]}>
         {/* Tocar fuera cierra: es lo que la gente intenta primero. */}
-        <Pressable
-          style={styles.sheetBackdrop}
-          onPress={onClose}
-          accessibilityRole="button"
-          accessibilityLabel="Cerrar"
-        />
+        {fullScreen ? null : (
+          <Pressable
+            style={styles.sheetBackdrop}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Cerrar"
+          />
+        )}
         <Frame
           {...(Platform.OS === 'ios' ? { behavior: 'padding' as const } : null)}
           style={[
-            styles.sheet,
-            { backgroundColor: c.background, height: `${height * 100}%` },
+            fullScreen ? styles.sheetFull : styles.sheet,
+            {
+              backgroundColor: c.background,
+              height: fullScreen ? '100%' : `${height * 100}%`,
+              paddingTop: fullScreen ? insets.top : 0,
+            },
           ]}
         >
-          <View style={[styles.sheetHandle, { backgroundColor: c.borderStrong }]} />
+          {fullScreen ? null : (
+            <View style={[styles.sheetHandle, { backgroundColor: c.borderStrong }]} />
+          )}
           <View style={[styles.sheetHeader, { borderBottomColor: c.border }]}>
             <Text v="titleL" style={styles.sheetTitle} numberOfLines={1}>{title}</Text>
             <IconButton icon="cerrar" onPress={onClose} label="Cerrar" size={36} />
@@ -360,6 +374,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: BorderRadius.xxl,
     overflow: 'hidden',
   },
+  sheetFull: { overflow: 'hidden' },
   sheetHandle: {
     width: 40, height: 4, borderRadius: 2,
     alignSelf: 'center', marginTop: Spacing.md,

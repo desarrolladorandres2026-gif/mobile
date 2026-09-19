@@ -20,6 +20,7 @@ import { setIO } from './sockets/emitter';
 import { startDispatchSweeper, stopDispatchSweeper } from './services/dispatch.service';
 import { startCartAbandonmentSweeper, stopCartAbandonmentSweeper } from './services/cartActivity.service';
 import { startLoyaltyExpirySweeper, stopLoyaltyExpirySweeper } from './services/loyalty.service';
+import { initCache, closeCache } from './cache';
 
 const app = express();
 const httpServer = createServer(app);
@@ -173,7 +174,18 @@ app.get('/health', async (_req, res) => {
 // carpeta simplemente no se registra nada, sin romper el arranque.
 const pwaDir = path.join(__dirname, '../public/pwa');
 if (fs.existsSync(pwaDir)) {
-  app.use(express.static(pwaDir, { index: false }));
+  // Lo que Expo exporta con hash en el nombre no cambia nunca: un año de
+  // caché y sin revalidar. Antes cada carga de la PWA preguntaba por cada
+  // archivo a Node. Lo demás (el HTML, el manifiesto) se revalida siempre.
+  app.use(
+    express.static(pwaDir, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        const hashed = /[\\/](_expo[\\/]static|assets)[\\/]/.test(filePath);
+        res.setHeader('Cache-Control', hashed ? 'public, max-age=31536000, immutable' : 'no-cache');
+      },
+    })
+  );
 
   // SPA fallback: cualquier GET que no sea /api ni /health y pida HTML
   // recibe el shell de la PWA; el router de expo-router decide la pantalla
@@ -209,6 +221,15 @@ export default app;
 const start = async () => {
   await connectDB();
 
+  const cacheKind = initCache();
+  console.log(
+    cacheKind === 'redis'
+      ? '🧠 Caché de lecturas: Redis'
+      : cacheKind === 'memory'
+        ? '🧠 Caché de lecturas: en memoria (sin REDIS_URL)'
+        : '🧠 Caché de lecturas: desactivada (CACHE_DISABLED)'
+  );
+
   // Arranca aquí y no al importar el módulo: las pruebas de integración
   // cargan `app` con supertest y un intervalo de reparto suelto las
   // dejaría escribiendo en la base entre casos.
@@ -235,6 +256,7 @@ const shutdown = async (signal: string) => {
   stopCartAbandonmentSweeper();
   stopLoyaltyExpirySweeper();
   httpServer.close(async () => {
+    await closeCache();
     try {
       await mongoose.connection.close();
       console.log('[Shutdown] Conexión MongoDB cerrada.');

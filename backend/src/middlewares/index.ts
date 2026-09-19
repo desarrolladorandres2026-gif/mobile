@@ -8,6 +8,7 @@ export {
   requireFinanceAdmin,
 } from './auth';
 export { validate } from './validate';
+export { cacheHeaders } from './cacheControl';
 export {
   authRateLimiter,
   otpRateLimiter,

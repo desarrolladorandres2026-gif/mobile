@@ -1,28 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { businessService, businessImageService, payoutService, pricingService } from '../services';
-import { AppError, uploadBusinessImage } from '../middlewares';
-import { IBusiness } from '../models';
+import { businessService, businessImageService, payoutService, publicCatalogService } from '../services';
+import { AppError, uploadBusinessImage, cacheHeaders } from '../middlewares';
+import { Business } from '../models';
 import { PayoutStatus } from '../types';
 import { sendResponse, param, query, toCsv, csvFilename, clampLimit } from '../utils';
 import { UserRole } from '../types';
 import { AuditAction, logAudit } from '../security';
-
-/**
- * Añade a la ficha el piso de su domicilio, el "Desde $X" del encabezado.
- *
- * Se calcula aquí y no en el servicio porque es información de
- * presentación: quien pide el negocio para operar con él —el checkout, el
- * reparto— no quiere un número aproximado rondando en el documento, quiere
- * la cotización real de su dirección.
- *
- * Una consulta geoespacial indexada por apertura de ficha, contra la
- * alternativa de guardarlo en el negocio y que quede viejo cada vez que
- * administración toque una zona o la tarifa base.
- */
-async function withDeliveryFloor(business: IBusiness) {
-  const deliveryFeeFrom = await pricingService.minimumDeliveryFee(business);
-  return { ...business.toJSON(), deliveryFeeFrom };
-}
 
 export class BusinessController {
   /**
@@ -289,15 +272,26 @@ export class BusinessController {
 
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      const business = await businessService.getById(param(req, 'id'));
-      sendResponse(res, 200, 'Negocio obtenido', await withDeliveryFloor(business));
+      const business = await publicCatalogService.businessDetail(param(req, 'id'));
+      cacheHeaders(res, 'revalidate');
+      sendResponse(res, 200, 'Negocio obtenido', business);
     } catch (error) { next(error); }
   }
 
   async getBySlug(req: Request, res: Response, next: NextFunction) {
     try {
-      const business = await businessService.getBySlug(param(req, 'slug'));
-      sendResponse(res, 200, 'Negocio obtenido', await withDeliveryFloor(business));
+      const business = await publicCatalogService.businessBySlug(param(req, 'slug'));
+      cacheHeaders(res, 'revalidate');
+      sendResponse(res, 200, 'Negocio obtenido', business);
+    } catch (error) { next(error); }
+  }
+
+  /** Ficha, secciones, carta, más pedidos y opinión: la tienda en una petición. */
+  async storefront(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await publicCatalogService.storefront(param(req, 'id'));
+      cacheHeaders(res, 'revalidate');
+      sendResponse(res, 200, 'Tienda', data);
     } catch (error) { next(error); }
   }
 
@@ -437,13 +431,15 @@ export class BusinessController {
    * comprobación de propiedad es justo el tipo de cosa que se copia mal la
    * tercera vez que se escribe.
    */
-  private async assertCanReadFinance(req: Request, businessId: string) {
-    const business = await businessService.getById(businessId);
+  private async assertCanReadFinance(req: Request, businessId: string): Promise<void> {
+    // Solo el dueño: leer la ficha entera para comparar un id era traer el
+    // documento completo en cada consulta de cuentas.
+    const business = await Business.findById(businessId).select('ownerId').lean();
+    if (!business) throw new AppError('Negocio no encontrado', 404);
     const isAdmin = req.user?.role === 'admin';
-    if (!isAdmin && business.ownerId.toString() !== req.user!._id.toString()) {
+    if (!isAdmin && String(business.ownerId) !== req.user!._id.toString()) {
       throw new AppError('No autorizado', 403);
     }
-    return business;
   }
 
   /**

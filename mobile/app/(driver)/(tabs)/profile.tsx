@@ -39,7 +39,9 @@ export default function DriverProfileScreen() {
   const router = useRouter();
   const { c, isDark, toggleTheme } = useTheme();
   const bottomSpace = useTabContentPadding();
-  const { user, logout, setUser } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+  const setUser = useAuthStore((s) => s.setUser);
   const { data: profile } = useDriverProfile();
   const { data: metrics } = useDriverMetrics();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);

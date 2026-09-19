@@ -1,94 +1,65 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   RefreshCw, ArrowUpRight,
   CheckCircle2, CreditCard, Banknote
 } from 'lucide-react';
-import { io, Socket } from 'socket.io-client';
 import api from '../services/api';
+import { useAdminSocketEvents, useTrailingCallback } from '../hooks/useAdminSocket';
 import {
   PackageIllustration, CashIllustration, StoreIllustration, DeliveryIllustration,
 } from '../components/illustrations';
 import type { DashboardFinancials, DashboardStats, RecentOrder, RevenuePoint } from '../lib/apiTypes';
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [financials, setFinancials] = useState<DashboardFinancials | null>(null);
-  const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
-  const [revenueChartData, setRevenueChartData] = useState<RevenuePoint[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const queryClient = useQueryClient();
   const [period, setPeriod] = useState<'7D' | '14D' | '30D' | '90D'>('14D');
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const days = { '7D': 7, '14D': 14, '30D': 30, '90D': 90 }[period] || 14;
 
-  // `useCallback` con sus dependencias de verdad, y el efecto colgando de
-  // ella. Antes la función se recreaba en cada render y el efecto
-  // dependía de [period] a mano: la lista tenía que mantenerse
-  // sincronizada con lo que la función lee por dentro, y cuando dejaba
-  // de estarlo el panel se quedaba pidiendo datos del filtro anterior.
-  const fetchDashboardData = useCallback(async () => {
-    try {
-      setRefreshing(true);
-      const daysMap = { '7D': 7, '14D': 14, '30D': 30, '90D': 90 };
-      const days = daysMap[period] || 14;
+  // Cada bloque es su propia consulta cacheada: volver al Dashboard desde
+  // otra página lo pinta al instante con lo último que se vio y lo refresca
+  // por detrás, en vez de un spinner de página completa esperando a la
+  // más lenta de cuatro peticiones. Cambiar el rango del gráfico solo
+  // vuelve a pedir el gráfico.
+  const statsQuery = useQuery({
+    queryKey: ['admin', 'dashboard', 'stats'],
+    queryFn: async () => (await api.get('/admin/dashboard')).data.data as DashboardStats,
+  });
+  const financialsQuery = useQuery({
+    queryKey: ['admin', 'dashboard', 'financials'],
+    queryFn: async () => (await api.get('/admin/financials?period=today')).data.data as DashboardFinancials,
+  });
+  const recentQuery = useQuery({
+    queryKey: ['admin', 'dashboard', 'recent'],
+    queryFn: async () => ((await api.get('/admin/orders?limit=6')).data.data || []) as RecentOrder[],
+  });
+  const chartQuery = useQuery({
+    queryKey: ['admin', 'dashboard', 'chart', days],
+    queryFn: async () =>
+      ((await api.get(`/admin/revenue-chart?days=${days}`).catch(() => ({ data: { data: [] } }))).data.data ||
+        []) as RevenuePoint[],
+    placeholderData: (previous) => previous,
+  });
 
-      const [resStats, resFin, resOrders, resChart] = await Promise.all([
-        api.get('/admin/dashboard'),
-        api.get('/admin/financials?period=today'),
-        api.get('/admin/orders?limit=6'),
-        api.get(`/admin/revenue-chart?days=${days}`).catch(() => ({ data: { data: [] } })),
-      ]);
+  const stats = statsQuery.data ?? null;
+  const financials = financialsQuery.data ?? null;
+  const recentOrders = recentQuery.data ?? [];
+  const revenueChartData = chartQuery.data ?? [];
+  const loading = statsQuery.isPending;
+  const refreshing = statsQuery.isFetching || financialsQuery.isFetching || recentQuery.isFetching;
 
-      setStats(resStats.data.data);
-      setFinancials(resFin.data.data);
-      setRecentOrders(resOrders.data.data || []);
-      setRevenueChartData(resChart.data.data || []);
-    } catch (err) {
-      console.error('Error fetching dashboard data:', err);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [period]);
+  const fetchDashboardData = () => {
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+  };
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
-
-  // El socket vive lo que vive la pantalla, no lo que vive el filtro.
-  //
-  // Antes este efecto dependía de `period`, así que cada vez que alguien
-  // cambiaba el rango del gráfico se desconectaba y se volvía a conectar
-  // —handshake, autenticación y re-suscripción incluidos— para acabar
-  // escuchando exactamente los mismos dos eventos. El `ref` guarda la
-  // versión más reciente de la recarga, de modo que los oyentes siempre
-  // llaman a la del filtro actual sin que la conexión tenga que enterarse.
-  const refetch = useRef(fetchDashboardData);
-
-  // La asignación va en su propio efecto y no en el cuerpo del render:
-  // escribir un `ref` mientras React está renderizando es exactamente lo
-  // que rompe el render concurrente, porque el mismo render puede
-  // ejecutarse dos veces o abandonarse a medias.
-  useEffect(() => {
-    refetch.current = fetchDashboardData;
-  }, [fetchDashboardData]);
-
-  useEffect(() => {
-    const token = localStorage.getItem('admin_token');
-    if (!token) return;
-
-    const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
-    const socket: Socket = io(SOCKET_URL, {
-      auth: { token },
-      transports: ['websocket'],
-    });
-
-    socket.on('order:new', () => refetch.current());
-    socket.on('order:status:changed', () => refetch.current());
-
-    return () => {
-      socket.disconnect();
-    };
-  }, []);
+  // En hora pico llegan varios cambios de estado por segundo: se agrupan
+  // y el Dashboard se refresca una vez cuando se calman (1,5 s).
+  const refreshSoon = useTrailingCallback(fetchDashboardData, 1500);
+  useAdminSocketEvents({
+    'order:new': refreshSoon,
+    'order:status:changed': refreshSoon,
+  });
 
   if (loading) {
     return (
@@ -214,7 +185,7 @@ export default function Dashboard() {
       delivered: { label: 'Entregado', bg: 'bg-[var(--color-success-bg)] border-[var(--color-success-bg)]', text: 'text-[#047857]' },
       cancelled: { label: 'Cancelado', bg: 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)]', text: 'text-[var(--color-danger)]' },
     };
-    return map[status] || { label: status, bg: 'bg-gray-50 border-gray-200', text: 'text-gray-600' };
+    return map[status] || { label: status, bg: 'bg-gray-50 border-gray-200', text: 'text-gray-900' };
   };
 
   return (
@@ -354,7 +325,7 @@ export default function Dashboard() {
                 return (
                   <g key={step}>
                     <line x1="30" y1={y} x2={chartW + 30} y2={y} stroke="#EDF1F5" strokeDasharray="3 3" />
-                    <text x="22" y={y + 3.5} textAnchor="end" fontSize="10" fill="#7C8BA1" fontFamily="var(--font-sans)">
+                    <text x="22" y={y + 3.5} textAnchor="end" fontSize="10" fill="#0B0F19" fontFamily="var(--font-sans)">
                       {val}
                     </text>
                   </g>
@@ -385,7 +356,7 @@ export default function Dashboard() {
                       y={chartH + 28}
                       textAnchor="middle"
                       fontSize="10"
-                      fill={isHover ? '#141B2A' : '#7C8BA1'}
+                      fill={isHover ? '#141B2A' : '#0B0F19'}
                       fontWeight={isHover ? 'bold' : 'normal'}
                     >
                       {d.date}
@@ -411,7 +382,7 @@ export default function Dashboard() {
                 <g transform={`translate(${30 + stepX * hoveredIndex + stepX / 2}, ${chartH - (chartData[hoveredIndex].orders / maxOrders) * chartH - 10})`}>
                   <rect x="-48" y="-36" width="96" height="30" rx="6" fill="#141B2A" />
                   <polygon points="0, -6 -5, -1 5, -1" fill="#141B2A" />
-                  <text x="0" y="-22" textAnchor="middle" fontSize="9" fill="#7C8BA1" fontWeight="bold">
+                  <text x="0" y="-22" textAnchor="middle" fontSize="9" fill="#0B0F19" fontWeight="bold">
                     {chartData[hoveredIndex].date}
                   </text>
                   <text x="0" y="-10" textAnchor="middle" fontSize="10" fill="#ffffff" fontWeight="bold">

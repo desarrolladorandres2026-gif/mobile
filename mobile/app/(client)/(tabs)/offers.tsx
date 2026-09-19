@@ -42,8 +42,10 @@ export default function OffersScreen() {
 
   // La distancia se mide desde la dirección de entrega, no desde el GPS,
   // igual que en el inicio: es donde el pedido va a llegar.
-  const { coords } = useDeliveryCoords();
-  const { data, isLoading, isError, refetch, isRefetching } = useOffers(coords);
+  const { coords, ready: coordsReady } = useDeliveryCoords();
+  const { data, isLoading: loadingOffers, isError, refetch, isRefetching } = useOffers(coords, coordsReady);
+  // Mientras llegan las direcciones la consulta espera: eso también es "cargando".
+  const isLoading = loadingOffers || !coordsReady;
 
   const coupons = data?.coupons ?? [];
   const products = data?.products ?? [];

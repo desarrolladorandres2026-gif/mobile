@@ -169,37 +169,6 @@
         "name": "string",
         "ownerId": "string",
         "phone": "string",
-        "products": [
-          {
-            "__v": "number",
-            "_id": "string",
-            "businessId": "string",
-            "categoryId": "string",
-            "createdAt": "string",
-            "description": "string",
-            "discountPrice": "null",
-            "extras": [
-              {
-                "name": "string",
-                "price": "number"
-              }
-            ],
-            "gallery": [],
-            "galleryImages": [],
-            "id": "string",
-            "image": "null",
-            "imageAsset": "null",
-            "images": "null",
-            "isAvailable": "boolean",
-            "isFeatured": "boolean",
-            "lowStockThreshold": "number",
-            "name": "string",
-            "price": "number",
-            "requiresAgeVerification": "boolean",
-            "stock": "null",
-            "updatedAt": "string"
-          }
-        ],
         "rating": "number",
         "schedule": {
           "friday": {

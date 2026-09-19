@@ -54,11 +54,6 @@ const ROLES: Record<RoleTab, {
 
 const ROLE_ORDER: RoleTab[] = ['clientes', 'comercios', 'domiciliarios'];
 
-const fade = {
-  hidden: { opacity: 0, y: 12 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1] as const } },
-};
-
 export default function Home() {
   const [activeTab, setActiveTab] = useState<RoleTab>('clientes');
   const role = ROLES[activeTab];
@@ -67,14 +62,13 @@ export default function Home() {
   return (
     <div className="bg-bg text-text-main selection:bg-primary selection:text-bg">
       {/* ── HERO ── */}
+      {/* El hero se pinta ya, sin fundido: arrancaba invisible y no aparecía
+          hasta que cargaba y corría el JavaScript de la animación, que es
+          justo lo primero que alguien ve al entrar. El resto de secciones
+          conserva sus animaciones. */}
       <section id="inicio" className="px-6 sm:px-10 pt-16 pb-20 sm:pt-24 sm:pb-28">
         <div className="mx-auto max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-14 items-center">
-          <motion.div
-            initial={reduceMotion ? false : 'hidden'}
-            animate="show"
-            variants={fade}
-            className="lg:col-span-7 min-w-0"
-          >
+          <div className="lg:col-span-7 min-w-0">
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.1] text-text-main max-w-xl">
               Pide en tus negocios de siempre. Paga justo por el domicilio.
             </h1>
@@ -92,21 +86,18 @@ export default function Home() {
                 Portal de comercios
               </LinkButton>
             </div>
-          </motion.div>
+          </div>
 
-          <motion.div
-            initial={reduceMotion ? false : 'hidden'}
-            animate="show"
-            variants={fade}
-            transition={{ delay: reduceMotion ? 0 : 0.1 }}
-            className="lg:col-span-5 min-w-0"
-          >
+          <div className="lg:col-span-5 min-w-0">
             <img
-              src="/zipp-phone-mockup.jpg"
+              src="/zipp-phone-mockup.webp"
               alt="La app de Zipp en un teléfono"
+              width={900}
+              height={900}
+              fetchPriority="high"
               className="w-full h-auto rounded-lg"
             />
-          </motion.div>
+          </div>
         </div>
       </section>
 

@@ -406,5 +406,12 @@ orderSchema.index({ status: 1, driverId: 1, 'dispatch.expiresAt': 1 });
 orderSchema.index({ scheduledFor: 1, status: 1 });
 // `orderNumber` already declares `unique: true` on the path.
 orderSchema.index({ createdAt: -1 });
+// Las listas del panel de comercio y de la app del domiciliario ordenan por
+// fecha dentro de cada negocio/domiciliario (y las analíticas filtran por
+// rango). Con solo `{businessId, status}`, Mongo trae el histórico entero
+// del negocio y lo ordena en memoria en cada página.
+orderSchema.index({ businessId: 1, createdAt: -1 });
+orderSchema.index({ businessId: 1, status: 1, createdAt: -1 });
+orderSchema.index({ driverId: 1, createdAt: -1 });
 
 export const Order = mongoose.model<IOrder>('Order', orderSchema);

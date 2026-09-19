@@ -14,7 +14,10 @@ export default function DriverTabsLayout() {
   return (
     <View style={[styles.root, { backgroundColor: c.background }]}>
       <Tabs
-        screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: c.background } }}
+        // `freezeOnBlur`: una pestaña oculta deja de re-renderizarse hasta
+        // que se vuelve a ella. Sin esto, el Inicio seguía reaccionando a cada
+        // cambio de caché mientras se miraba otra pestaña.
+        screenOptions={{ headerShown: false, freezeOnBlur: true, sceneStyle: { backgroundColor: c.background } }}
         tabBar={(props) => <TabBar {...props} />}
       >
         <Tabs.Screen name="dashboard" options={{ title: 'Turno' }} />

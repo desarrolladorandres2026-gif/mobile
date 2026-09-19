@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { productService } from '../services';
+import { productService, publicCatalogService } from '../services';
 import { productImageService } from '../services/productImage.service';
 import { sendResponse, param, query, clampLimit } from '../utils';
-import { AppError } from '../middlewares';
+import { AppError, cacheHeaders } from '../middlewares';
 import { uploadProductImage } from '../middlewares/upload';
 import { UserRole } from '../types';
 import { Business } from '../models';
@@ -17,23 +17,20 @@ export class ProductController {
   /** Cuántos pulgares lleva cada plato del negocio. */
   async sentiment(req: Request, res: Response, next: NextFunction) {
     try {
-      const { reviewService } = await import('../services/review.service');
-      sendResponse(
-        res,
-        200,
-        'Opinión por producto',
-        await reviewService.productSentiment(param(req, 'businessId'))
-      );
+      const sentiment = await publicCatalogService.sentiment(param(req, 'businessId'));
+      cacheHeaders(res, 'revalidate');
+      sendResponse(res, 200, 'Opinión por producto', sentiment);
     } catch (error) { next(error); }
   }
 
   /** Los más pedidos de un negocio, según los pedidos entregados. */
   async topSellers(req: Request, res: Response, next: NextFunction) {
     try {
-      const products = await productService.topSellers(
+      const products = await publicCatalogService.topSellers(
         param(req, 'businessId'),
         clampLimit(query(req, 'limit'), 100, 5)
       );
+      cacheHeaders(res, 'revalidate');
       sendResponse(res, 200, 'Los más pedidos', products);
     } catch (error) { next(error); }
   }
@@ -48,12 +45,13 @@ export class ProductController {
 
   async getByBusiness(req: Request, res: Response, next: NextFunction) {
     try {
+      // Con lo no disponible es la vista del panel del comercio: siempre
+      // fresca y fuera de cualquier caché compartida.
       const includeUnavailable = query(req, 'includeUnavailable') === 'true';
-      const products = await productService.getByBusiness(
-        param(req, 'businessId'),
-        query(req, 'categoryId'),
-        includeUnavailable
-      );
+      const products = includeUnavailable
+        ? await productService.getByBusiness(param(req, 'businessId'), query(req, 'categoryId'), true)
+        : await publicCatalogService.products(param(req, 'businessId'), query(req, 'categoryId'));
+      cacheHeaders(res, includeUnavailable ? 'none' : 'revalidate');
       sendResponse(res, 200, 'Productos obtenidos', products);
     } catch (error) { next(error); }
   }

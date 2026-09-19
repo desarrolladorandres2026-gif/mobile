@@ -17,6 +17,7 @@ import { discountPercent } from '../../lib/catalog';
 import {
   productImageUri, productImagePlaceholder, hasProductImage, type WithProductImage,
 } from '../../lib/productImage';
+import { sizedImageUri, screenWidth } from '../../lib/cloudinaryImage';
 
 /** Lo mínimo que necesita la tira de productos de la tarjeta de negocio. */
 interface PreviewProduct extends WithProductImage {
@@ -94,7 +95,7 @@ export const BusinessTile = memo(function BusinessTile({
   if (business.logo) {
     return (
       <Image
-        source={{ uri: business.logo }}
+        source={{ uri: sizedImageUri(business.logo, size) }}
         style={{ width: size, height: size, borderRadius: radius }}
         contentFit="cover"
         transition={200}
@@ -221,7 +222,7 @@ export const BusinessRow = memo(function BusinessRow({
       <View style={[styles.rowCover, { backgroundColor: accent }]}>
         {business.coverImage ? (
           <Image
-            source={{ uri: business.coverImage }}
+            source={{ uri: sizedImageUri(business.coverImage, screenWidth()) }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={200}
@@ -427,7 +428,7 @@ export const BusinessFeatured = memo(function BusinessFeatured({
       <View style={[styles.cover, { backgroundColor: accent }]}>
         {business.coverImage ? (
           <Image
-            source={{ uri: business.coverImage }}
+            source={{ uri: sizedImageUri(business.coverImage, screenWidth()) }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={200}

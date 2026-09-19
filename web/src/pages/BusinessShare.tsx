@@ -4,6 +4,7 @@ import { Star, MapPin, Phone, Clock, ShoppingBag, Percent } from 'lucide-react';
 import { getSharedBusiness, type SharedBusiness } from '../lib/api';
 import { StoreIllustration } from '../components/illustrations';
 import { LinkButton } from '../components/Button';
+import { sizedImage } from '../lib/cloudinary';
 
 /** Mismas etiquetas que `mobile/constants/config.ts` — BUSINESS_CATEGORIES. */
 const CATEGORY_LABEL: Record<string, string> = {
@@ -82,8 +83,9 @@ export default function BusinessShare() {
       >
         {business.coverImage ? (
           <img
-            src={business.coverImage}
+            src={sizedImage(business.coverImage, 1200)}
             alt=""
+            fetchPriority="high"
             className="absolute inset-0 h-full w-full object-cover"
           />
         ) : null}
@@ -97,7 +99,7 @@ export default function BusinessShare() {
         <div className="relative flex flex-col items-center gap-2 pb-6 px-6 text-center">
           <div className="h-20 w-20 rounded-full border-2 border-white/80 bg-surface overflow-hidden grid place-items-center shadow-lg">
             {business.logo ? (
-              <img src={business.logo} alt="" className="h-full w-full object-cover" />
+              <img src={sizedImage(business.logo, 240)} alt="" width={80} height={80} className="h-full w-full object-cover" />
             ) : (
               <StoreIllustration size={40} />
             )}

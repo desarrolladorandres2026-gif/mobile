@@ -18,6 +18,7 @@ export { orderEvidenceService, EVIDENCE_ERROR, EvidenceView } from './orderEvide
 export { orderChatService, CHAT_ERROR, sanitizeMessage, resetChatRateLimit } from './orderChat.service';
 export { orderCallService, CALL_ERROR, CallView } from './orderCall.service';
 export { productService } from './product.service';
+export { publicCatalogService } from './publicCatalog.service';
 export { driverService } from './driver.service';
 export { categoryService } from './category.service';
 export { adminService } from './admin.service';

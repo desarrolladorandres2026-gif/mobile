@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import {
   View, ScrollView, Pressable, StyleSheet, TextInput,
   KeyboardAvoidingView, Platform,
@@ -9,7 +9,7 @@ import * as Linking from 'expo-linking';
 import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
 import {
   Text, Icon, Button, Chip, DetailRow, Notice, Screen, ScreenFooter, Header,
-  Skeleton, EmptyState, Input,
+  Skeleton, EmptyState, Input, Sheet,
 } from '../../components/ui';
 import { AddressSheet, hasCoordinates, type Address } from '../../components/domain/AddressPicker';
 import { PaymentMethodSheet } from '../../components/domain/PaymentMethodSheet';
@@ -33,6 +33,8 @@ import { scheduleDays, slotLabel, type ScheduleDay } from '../../lib/schedule';
 import type { DaySchedule } from '../../lib/business';
 import { useTheme } from '../../hooks/useTheme';
 import { ContentIcon } from '../../components/illustrations';
+import { WompiLogo } from '../../components/brand/WompiLogo';
+import { CashLogo, DigitalPaymentLogos, MapboxLogo } from '../../components/brand/PaymentMethodLogos';
 import type { IconName } from '../../theme/icons';
 import { Type } from '../../theme/typography';
 import { BorderRadius, Spacing, Motion } from '../../theme/tokens';
@@ -112,6 +114,8 @@ export default function CheckoutScreen() {
    */
   const [instrument, setInstrument] = useState<SelectedInstrument | null>(null);
   const [methodSheet, setMethodSheet] = useState(false);
+  const [deliverySheet, setDeliverySheet] = useState(false);
+  const [discountSheet, setDiscountSheet] = useState(false);
   const putPendingPayment = usePendingPaymentStore((s) => s.put);
 
   // ── Cambio en efectivo ──
@@ -156,6 +160,19 @@ export default function CheckoutScreen() {
   // primera edición.
   const scrollRef = useRef<ScrollView>(null);
   const paymentY = useRef(0);
+
+  // El total final fijo del pie y el del desglose no pueden verse a la vez.
+  // Mientras el del desglose está en pantalla manda ese (queda alineado con
+  // el detalle); en cuanto sale, el del pie toma el relevo. Se mide con
+  // refs y solo se guarda el booleano, para no renderizar en cada scroll.
+  const [totalInView, setTotalInView] = useState(false);
+  const scrollMetrics = useRef({ y: 0, height: 0, breakdownY: 0, totalY: 0, totalH: 0 });
+  const syncTotalInView = () => {
+    const m = scrollMetrics.current;
+    if (m.height === 0 || m.totalH === 0) return;
+    const top = m.breakdownY + m.totalY;
+    setTotalInView(top >= m.y && top + m.totalH <= m.y + m.height);
+  };
   const [highlightPayment, setHighlightPayment] = useState(false);
 
   const scrollToPayment = () => {
@@ -209,6 +226,14 @@ export default function CheckoutScreen() {
     setScheduleDayKey(day.key);
     setScheduledFor(day.slots[0]);
   };
+
+  // Resumen de la fila discreta. Solo dice algo cuando el cliente cambió el
+  // comportamiento por defecto (ahora, para él); si no, invita a explorarlo.
+  const recipientIncomplete = forOther && (!recipientName.trim() || !recipientPhone.trim());
+  const deliverySummary = [
+    scheduledFor ? `${scheduleDay?.label ?? ''} · ${slotLabel(scheduledFor)}` : null,
+    forOther ? (recipientName.trim() ? `Para ${recipientName.trim()}` : 'Para otra persona') : null,
+  ].filter(Boolean).join(' · ');
 
   // Se preselecciona la última dirección usada, luego la principal.
   useEffect(() => {
@@ -318,6 +343,14 @@ export default function CheckoutScreen() {
   // Los de puntos valen en cualquier negocio; uno atado a otro negocio aquí
   // solo produciría un error al cotizar.
   const ownCoupons = myCoupons.filter((own) => !own.businessId || own.businessId === businessId);
+
+  // Cuando el servidor acepta un cupón la hoja ya cumplió: se cierra sola y la
+  // fila muestra el código. Abrirla con uno puesto (para quitarlo) no la cierra,
+  // porque el código no cambia.
+  const appliedCouponCode = quote?.coupon?.code;
+  useEffect(() => {
+    if (appliedCouponCode) setDiscountSheet(false);
+  }, [appliedCouponCode]);
 
   // El servidor es quien acepta o rechaza un cupón. Si la cotización falla
   // con un código puesto, el código es el sospechoso: se retira y se explica.
@@ -621,12 +654,14 @@ export default function CheckoutScreen() {
       >
         <ScrollView
           ref={scrollRef}
+          scrollEventThrottle={16}
+          onScroll={(e) => { scrollMetrics.current.y = e.nativeEvent.contentOffset.y; syncTotalInView(); }}
+          onLayout={(e) => { scrollMetrics.current.height = e.nativeEvent.layout.height; syncTotalInView(); }}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
         >
           {/* ── Dirección ── */}
           <View style={styles.section}>
-            <Text v="titleS">Entregar en</Text>
             <Pressable
               onPress={() => { tap('light'); setAddressSheet(true); }}
               accessibilityRole="button"
@@ -639,23 +674,40 @@ export default function CheckoutScreen() {
               accessibilityHint="Abre la lista de tus direcciones"
             >
               <View style={[styles.pickerIcon, { backgroundColor: c.primarySoft }]}>
-                <ContentIcon name="ubicacion" size={26} />
+                <MapboxLogo size={28} color={c.text} />
               </View>
               <View style={styles.flex}>
                 {address ? (
                   <>
                     <Text v="strongM">{address.label}</Text>
-                    <Text v="bodyS" tone="textSecondary" numberOfLines={1}>
+                    <Text v="bodyS" tone="text" numberOfLines={1}>
                       {address.address}{address.details ? ` · ${address.details}` : ''}
                     </Text>
                   </>
                 ) : (
                   <>
                     <Text v="strongM">Elige dónde te lo dejamos</Text>
-                    <Text v="bodyS" tone="textSecondary">
+                    <Text v="bodyS" tone="text">
                       El envío se calcula con la distancia real.
                     </Text>
                   </>
+                )}
+              </View>
+              {/* Cuándo llega: en la misma fila que la dirección porque es
+                  parte de la misma decisión. Programar o enviar a otra
+                  persona vive más abajo. */}
+              <View style={styles.etaSide}>
+                {scheduledFor ? <Text v="label" tone="textMuted">Programado</Text> : null}
+                {quote ? (
+                  <Text v="strongM" numberOfLines={1}>
+                    {scheduledFor
+                      ? `${scheduleDay?.label ?? ''} · ${slotLabel(scheduledFor)}`
+                      : `${quote.etaMinutesMin}–${quote.etaMinutesMax} min`}
+                  </Text>
+                ) : quoting ? (
+                  <Skeleton width={64} height={18} />
+                ) : (
+                  <Text v="strongM" tone="textMuted">—</Text>
                 )}
               </View>
               <Icon name="siguiente" size="md" color={c.textMuted} />
@@ -671,156 +723,92 @@ export default function CheckoutScreen() {
 
           <View style={[styles.rule, { backgroundColor: c.border }]} />
 
-          {/* ── Cuándo llega ──
-              Hasta ahora el checkout no decía ningún tiempo: se pagaba sin
-              saber cuándo llegaba la comida. Va justo bajo la dirección,
-              arriba de todo — es lo que más pesa en la decisión, así que
-              se ve antes que el pago y el total. */}
-          <View style={styles.eta}>
-            <View style={styles.etaIcon}>
-              <Icon name="minutos" size="md" color={c.primaryText} />
-            </View>
-            <View style={styles.flex}>
-              <Text v="label">
-                {scheduledFor ? 'Programado para' : 'Llega en'}
-              </Text>
-              {quote ? (
-                <Text v="titleM">
-                  {scheduledFor
-                    ? `${scheduleDay?.label ?? ''} · ${slotLabel(scheduledFor)}`
-                    : `${quote.etaMinutesMin}–${quote.etaMinutesMax} min`}
-                </Text>
-              ) : quoting ? (
-                <Skeleton width={96} height={18} />
+          {/* ── Qué estás confirmando ──
+              La pantalla se llama "Confirmar pedido" y hasta ahora no mostraba
+              un solo producto. Va cerrada porque el usuario acaba de verlos en
+              la bolsa; abrirla cuesta un toque y despeja la duda de siempre. */}
+          <View>
+            <Text v="titleS">Resumen del pedido</Text>
+            <Pressable
+              onPress={() => { tap('light'); setShowItems((v) => !v); }}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showItems }}
+              accessibilityLabel={`${itemCount} ${itemCount === 1 ? 'producto' : 'productos'} de ${businessName ?? 'el negocio'}. ${showItems ? 'Ocultar' : 'Ver'} el detalle`}
+              style={({ pressed }) => [styles.summaryHead, pressed && styles.pressed]}
+            >
+              {businessLogo ? (
+                <Image
+                  source={{ uri: businessLogo }}
+                  style={styles.summaryIcon}
+                  contentFit="cover"
+                  transition={150}
+                />
               ) : (
-                <Text v="titleS" tone="textMuted">—</Text>
+                <View style={[styles.summaryIcon, { backgroundColor: c.primarySoft }]}>
+                  <Icon name="bolsa" size="md" color={c.primaryText} />
+                </View>
               )}
-            </View>
-          </View>
+              <View style={styles.flex}>
+                <Text v="strongM" numberOfLines={1}>
+                  {itemCount} {itemCount === 1 ? 'producto' : 'productos'}
+                </Text>
+                <Text v="bodyS" tone="text" numberOfLines={1}>
+                  {businessName ?? 'Tu pedido'}
+                </Text>
+              </View>
+              <Icon name={showItems ? 'plegar' : 'desplegar'} size="md" color={c.textMuted} />
+            </Pressable>
 
-          <View style={[styles.rule, { backgroundColor: c.border }]} />
-
-          {/* ── Para quién y para cuándo ── */}
-          <View style={styles.section}>
-            <Text v="titleS">Para quién y cuándo</Text>
-
-            <View style={styles.optionsCard}>
-              <Pressable
-                onPress={() => { tap('select'); setForOther((v) => !v); }}
-                style={styles.optionRow}
-                accessibilityRole="switch"
-                accessibilityState={{ checked: forOther }}
-                accessibilityLabel="El pedido es para otra persona"
+            {showItems ? (
+              <Animated.View
+                entering={FadeIn.duration(160)}
+                exiting={FadeOut.duration(120)}
+                layout={Layout.springify().damping(18)}
+                style={styles.summaryBody}
               >
-                <View style={styles.flex}>
-                  <Text v="strongS">Es para otra persona</Text>
-                  <Text v="caption" tone="textMuted">
-                    Llamaremos a quien lo recibe, no a ti
-                  </Text>
-                </View>
-                <Icon
-                  name={forOther ? 'checkCirculo' : 'mas'}
-                  size="md"
-                  color={forOther ? c.lime : c.textMuted}
+                {items.map((item) => (
+                  <View key={item.lineId} style={styles.line}>
+                    <View style={styles.lineImageWrap}>
+                      {item.image ? (
+                        <Image
+                          source={{ uri: item.image }}
+                          style={[styles.lineImage, { backgroundColor: c.surfaceLight }]}
+                          contentFit="cover"
+                          transition={150}
+                        />
+                      ) : (
+                        <View style={[styles.lineImage, styles.lineImageFallback, { backgroundColor: c.surfaceLight }]}>
+                          <Icon name="bolsa" size="sm" color={c.textMuted} />
+                        </View>
+                      )}
+                      <View style={[styles.lineQty, { backgroundColor: c.text }]}>
+                        <Text v="captionStrong" color={c.surface}>{item.quantity}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.flex}>
+                      <Text v="strongS" numberOfLines={1}>{item.productName}</Text>
+                      {item.selectedExtras.length > 0 ? (
+                        <Text v="caption" tone="textMuted" numberOfLines={2}>
+                          {describeExtras(item.selectedExtras)}
+                        </Text>
+                      ) : null}
+                      {item.notes ? (
+                        <Text v="caption" tone="textMuted" numberOfLines={1}>“{item.notes}”</Text>
+                      ) : null}
+                    </View>
+                    <Text v="dataS" tone="text">{money(getLineTotal(item))}</Text>
+                  </View>
+                ))}
+
+                <Button
+                  title="Editar la bolsa"
+                  icon="editar"
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => router.push({ pathname: '/(client)/cart', params: { businessId } })}
                 />
-              </Pressable>
-
-              {forOther ? (
-                <Animated.View entering={FadeIn.duration(Motion.fast)} style={styles.optionBody}>
-                  <Input
-                    value={recipientName}
-                    onChangeText={setRecipientName}
-                    placeholder="¿Quién lo recibe?"
-                    maxLength={80}
-                  />
-                  <Input
-                    value={recipientPhone}
-                    onChangeText={setRecipientPhone}
-                    placeholder="Su teléfono"
-                    keyboardType="phone-pad"
-                    maxLength={20}
-                  />
-                  <Input
-                    value={recipientNote}
-                    onChangeText={setRecipientNote}
-                    placeholder="Algo que deba saber (opcional)"
-                    maxLength={200}
-                  />
-                </Animated.View>
-              ) : null}
-            </View>
-
-            <View style={styles.optionsCard}>
-              <View style={styles.optionRow}>
-                <View style={styles.flex}>
-                  <Text v="strongS">
-                    {scheduledFor ? 'Programado' : 'Lo antes posible'}
-                  </Text>
-                  <Text v="caption" tone="textMuted">
-                    {scheduledFor
-                      ? `${scheduleDay?.label ?? ''} · ${slotLabel(scheduledFor)}`
-                      : 'Sale en cuanto el negocio lo prepare'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Chips y no un calendario: casi todo lo que se programa es
-                  para hoy o mañana, y elegir eso con un selector de fecha
-                  cuesta cinco toques. */}
-              <View style={styles.slots}>
-                <Chip
-                  label="Ahora"
-                  bare
-                  active={!scheduledFor}
-                  onPress={() => {
-                    tap('select');
-                    setScheduledFor(null);
-                    setScheduleDayKey(null);
-                  }}
-                />
-                {scheduleOptions.length > 0 ? (
-                  <Chip
-                    label="Programar"
-                    bare
-                    active={!!scheduledFor}
-                    onPress={() => { if (!scheduledFor) pickScheduleDay(scheduleOptions[0]); }}
-                  />
-                ) : null}
-              </View>
-
-              {scheduleDay ? (
-                <Animated.View entering={FadeIn.duration(Motion.fast)} style={styles.optionBody}>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.slotRow}
-                  >
-                    {scheduleOptions.map((day) => (
-                      <Chip
-                        key={day.key}
-                        label={day.label}
-                        active={day.key === scheduleDay.key}
-                        onPress={() => pickScheduleDay(day)}
-                      />
-                    ))}
-                  </ScrollView>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.slotRow}
-                  >
-                    {scheduleDay.slots.map((slot) => (
-                      <Chip
-                        key={slot.getTime()}
-                        label={slotLabel(slot)}
-                        active={scheduledFor?.getTime() === slot.getTime()}
-                        onPress={() => { tap('select'); setScheduledFor(slot); }}
-                      />
-                    ))}
-                  </ScrollView>
-                </Animated.View>
-              ) : null}
-            </View>
+              </Animated.View>
+            ) : null}
           </View>
 
           <View style={[styles.rule, { backgroundColor: c.border }]} />
@@ -835,7 +823,7 @@ export default function CheckoutScreen() {
               {methods?.cashOnDelivery ? (
                 <PaymentOption
                   active={payment === 'cash_on_delivery'}
-                  icon="efectivo"
+                  logo={<CashLogo color={c.text} />}
                   title="Efectivo"
                   subtitle={cashMax > 0 ? `Hasta ${money(cashMax)}` : 'Le pagas al domiciliario'}
                   onPress={() => { tap('select'); setPayment('cash_on_delivery'); }}
@@ -844,7 +832,7 @@ export default function CheckoutScreen() {
               {methods?.online ? (
                 <PaymentOption
                   active={payment === 'online'}
-                  icon="tarjeta"
+                  logo={<DigitalPaymentLogos ink="#1A1F71" />}
                   title="Pago digital"
                   subtitle={nativeCheckout ? 'Tarjeta, Nequi o PSE' : 'Se cobra desde la app'}
                   onPress={() => {
@@ -858,11 +846,28 @@ export default function CheckoutScreen() {
               ) : null}
             </View>
 
+            {/* Pago seguro: siempre a la vista bajo las opciones, aunque el
+                cliente esté en efectivo. Quien duda de pagar en línea lo hace
+                antes de elegir, no después. Solo aparece si hay pago digital. */}
+            {methods?.online ? (
+              <View
+                style={styles.secureRow}
+                accessible
+                accessibilityLabel="Pago seguro con Wompi"
+              >
+                <Icon name="candado" size="sm" color={c.textMuted} />
+                <Text v="caption" tone="textMuted">Pago seguro con</Text>
+                <WompiLogo height={14} color={c.text} />
+              </View>
+            ) : null}
+
             {/* ── Con qué se paga en línea ──
                 La tarjeta, el Nequi o el banco elegido, con un toque para
                 cambiarlo. Es lo que hace que el segundo pedido se sienta de
-                un toque: la tarjeta guardada aparece aquí sola. */}
-            {payment === 'online' && nativeCheckout ? (
+                un toque: la tarjeta guardada aparece aquí sola. Sin nada
+                elegido no se muestra: "Pago digital" ya abre la hoja y el
+                botón principal también, así que sería una fila repetida. */}
+            {payment === 'online' && nativeCheckout && instrument ? (
               <Animated.View entering={FadeIn.duration(Motion.fast)}>
                 <Pressable
                   onPress={() => { tap('light'); setMethodSheet(true); }}
@@ -1007,220 +1012,53 @@ export default function CheckoutScreen() {
 
           <View style={[styles.rule, { backgroundColor: c.border }]} />
 
-          {/* ── Qué estás confirmando ──
-              La pantalla se llama "Confirmar pedido" y hasta ahora no mostraba
-              un solo producto. Va cerrada porque el usuario acaba de verlos en
-              la bolsa; abrirla cuesta un toque y despeja la duda de siempre. */}
-          <View>
-            <Text v="titleS">Resumen del pedido</Text>
+          <View style={styles.section}>
+            {/* ── Descuentos ──
+                Una fila muda: puntos, cupones propios y código viven en una
+                hoja. Un pedido admite un solo descuento (el servidor guarda un
+                solo cupón por pedido) y los puntos se canjean como cupón, así
+                que son tres formas de ocupar el mismo hueco. Con un cupón
+                puesto, la fila lo dice sin abrir nada. */}
             <Pressable
-              onPress={() => { tap('light'); setShowItems((v) => !v); }}
+              onPress={() => { tap('light'); setDiscountSheet(true); }}
               accessibilityRole="button"
-              accessibilityState={{ expanded: showItems }}
-              accessibilityLabel={`${itemCount} ${itemCount === 1 ? 'producto' : 'productos'} de ${businessName ?? 'el negocio'}. ${showItems ? 'Ocultar' : 'Ver'} el detalle`}
-              style={({ pressed }) => [styles.summaryHead, pressed && styles.pressed]}
+              accessibilityLabel={
+                quote?.coupon ? `Descuentos: ${quote.coupon.code} aplicado. Cambiar` : 'Descuentos'
+              }
+              accessibilityHint="Abre la pantalla para escribir un cupón o usar tus puntos"
+              style={({ pressed }) => [styles.secondaryRow, pressed && styles.pressed]}
             >
-              {businessLogo ? (
-                <Image
-                  source={{ uri: businessLogo }}
-                  style={styles.summaryIcon}
-                  contentFit="cover"
-                  transition={150}
-                />
-              ) : (
-                <View style={[styles.summaryIcon, { backgroundColor: c.primarySoft }]}>
-                  <Icon name="bolsa" size="md" color={c.primaryText} />
-                </View>
-              )}
-              <View style={styles.flex}>
-                <Text v="strongM" numberOfLines={1}>
-                  {itemCount} {itemCount === 1 ? 'producto' : 'productos'}
-                </Text>
-                <Text v="bodyS" tone="textSecondary" numberOfLines={1}>
-                  {businessName ?? 'Tu pedido'}
-                </Text>
-              </View>
-              <Text v="dataM" tone="textSecondary">{money(subtotal)}</Text>
-              <Icon name={showItems ? 'plegar' : 'desplegar'} size="md" color={c.textMuted} />
+              <Text v="bodyS" style={styles.flex}>Descuentos</Text>
+              {quote?.coupon ? (
+                <Text v="bodyS" tone="successText" numberOfLines={1}>{quote.coupon.code}</Text>
+              ) : null}
+              <Icon name="siguiente" size="sm" color={c.textMuted} />
             </Pressable>
 
-            {showItems ? (
-              <Animated.View
-                entering={FadeIn.duration(160)}
-                exiting={FadeOut.duration(120)}
-                layout={Layout.springify().damping(18)}
-                style={styles.summaryBody}
+            {/* Programar o enviar a otra persona: opciones de segundo plano.
+                Una línea muda que abre una hoja, sin ocupar pantalla fija. */}
+            <Pressable
+              onPress={() => { tap('light'); setDeliverySheet(true); }}
+              accessibilityRole="button"
+              accessibilityLabel={
+                deliverySummary
+                  ? `Entrega: ${deliverySummary}. Cambiar`
+                  : 'Programar la entrega o enviarlo a otra persona'
+              }
+              style={({ pressed }) => [styles.secondaryRow, pressed && styles.pressed]}
+            >
+              <Text
+                v="bodyS"
+                tone={recipientIncomplete ? 'warningText' : deliverySummary ? 'text' : 'textMuted'}
+                numberOfLines={1}
+                style={styles.flex}
               >
-                {items.map((item) => (
-                  <View key={item.lineId} style={styles.line}>
-                    <View style={styles.lineImageWrap}>
-                      {item.image ? (
-                        <Image
-                          source={{ uri: item.image }}
-                          style={[styles.lineImage, { backgroundColor: c.surfaceLight }]}
-                          contentFit="cover"
-                          transition={150}
-                        />
-                      ) : (
-                        <View style={[styles.lineImage, styles.lineImageFallback, { backgroundColor: c.surfaceLight }]}>
-                          <Icon name="bolsa" size="sm" color={c.textMuted} />
-                        </View>
-                      )}
-                      <View style={[styles.lineQty, { backgroundColor: c.textSecondary }]}>
-                        <Text v="captionStrong" color={c.surface}>{item.quantity}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.flex}>
-                      <Text v="strongS" numberOfLines={1}>{item.productName}</Text>
-                      {item.selectedExtras.length > 0 ? (
-                        <Text v="caption" tone="textMuted" numberOfLines={2}>
-                          {describeExtras(item.selectedExtras)}
-                        </Text>
-                      ) : null}
-                      {item.notes ? (
-                        <Text v="caption" tone="textMuted" numberOfLines={1}>“{item.notes}”</Text>
-                      ) : null}
-                    </View>
-                    <Text v="dataS" tone="textSecondary">{money(getLineTotal(item))}</Text>
-                  </View>
-                ))}
-
-                <Button
-                  title="Editar la bolsa"
-                  icon="editar"
-                  variant="ghost"
-                  size="sm"
-                  onPress={() => router.push({ pathname: '/(client)/cart', params: { businessId } })}
-                />
-              </Animated.View>
-            ) : null}
-          </View>
-
-          <View style={[styles.rule, { backgroundColor: c.border }]} />
-
-          {/* ── Descuentos: puntos, cupones propios y código ──
-              Un pedido admite un solo descuento (el servidor guarda un solo
-              cupón por pedido), y los puntos se canjean como cupón. Por eso
-              viven juntos: son tres formas de ocupar el mismo hueco. */}
-          <View style={styles.section}>
-            <Text v="titleS">Descuentos</Text>
-
-            {quote?.coupon ? (
-              <View style={styles.couponApplied}>
-                <Icon name="checkCirculo" size="md" color={c.successText} />
-                <View style={styles.flex}>
-                  <Text v="strongS" tone="successText">{quote.coupon.code}</Text>
-                  <Text v="bodyS" tone="textSecondary">{quote.coupon.title}</Text>
-                </View>
-                <Button
-                  title="Quitar"
-                  variant="ghost"
-                  size="sm"
-                  onPress={() => {
-                    tap('light');
-                    setAppliedCode(null);
-                    setCouponInput('');
-                    setCouponError('');
-                  }}
-                />
-              </View>
-            ) : (
-              <>
-                {/* Primero lo que ya es del cliente: un cupón de un canje que
-                    no llegó a usarse vale lo mismo que canjear de nuevo, y no
-                    gasta más puntos. */}
-                {ownCoupons.length > 0 ? (
-                  <View style={styles.ownCoupons}>
-                    {ownCoupons.map((own) => (
-                      <Chip
-                        key={own._id}
-                        label={`${own.title} · ${money(own.value)}`}
-                        active={false}
-                        onPress={() => applyCode(own.code)}
-                      />
-                    ))}
-                  </View>
-                ) : null}
-
-                {redeemPlan.kind === 'redeem' ? (
-                  <View style={styles.pointsCard}>
-                    <View style={styles.flex}>
-                      <Text v="strongS">Tienes {groupThousands(loyaltyBalance)} puntos</Text>
-                      <Text v="caption" tone="textMuted">
-                        {redeemPlan.points < loyaltyBalance
-                          ? `Usas ${groupThousands(redeemPlan.points)} aquí y te quedan ${groupThousands(loyaltyBalance - redeemPlan.points)} para otro pedido.`
-                          : 'Cada punto vale un peso.'}
-                      </Text>
-                    </View>
-                    <Button
-                      title={`Usar ${money(redeemPlan.points)}`}
-                      variant="secondary"
-                      size="sm"
-                      loading={redeemPoints.isPending}
-                      onPress={() => {
-                        tap('light');
-                        setCouponError('');
-                        redeemPoints.mutate(redeemPlan.points, {
-                          onSuccess: ({ coupon }) => applyCode(coupon.code),
-                          onError: (error) => {
-                            setCouponError(apiMessage(error, 'No pudimos canjear tus puntos.'));
-                            tap('error');
-                          },
-                        });
-                      }}
-                    />
-                  </View>
-                ) : redeemPlan.kind === 'below-minimum' ? (
-                  <Text v="caption" tone="textMuted">
-                    Tienes {groupThousands(loyaltyBalance)} puntos. Te faltan{' '}
-                    {groupThousands(redeemPlan.missing)} para poder usarlos.
-                  </Text>
-                ) : redeemPlan.kind === 'order-too-small' ? (
-                  <Text v="caption" tone="textMuted">
-                    Tus puntos se usan desde {money(redeemPlan.minRedeem)} y este pedido no
-                    alcanza a absorberlos.
-                  </Text>
-                ) : null}
-
-                <View style={styles.couponRow}>
-                  <View
-                    style={[
-                      styles.couponField,
-                      { backgroundColor: c.surface, borderColor: couponError ? c.error : c.border },
-                    ]}
-                  >
-                    <ContentIcon name="cupon" size={24} />
-                    <TextInput
-                      value={couponInput}
-                      onChangeText={(t) => { setCouponInput(t.toUpperCase()); setCouponError(''); }}
-                      placeholder="BIENVENIDO"
-                      placeholderTextColor={c.textMuted}
-                      autoCapitalize="characters"
-                      autoCorrect={false}
-                      accessibilityLabel="Código del cupón"
-                      style={[styles.couponInput, Type.code, { color: c.text }]}
-                    />
-                  </View>
-                  <Button
-                    title="Aplicar"
-                    variant="secondary"
-                    disabled={!couponInput.trim() || !deliverable}
-                    loading={quoting && !!appliedCode}
-                    onPress={() => {
-                      tap('light');
-                      setCouponError('');
-                      setAppliedCode(couponInput.trim().toUpperCase());
-                    }}
-                  />
-                </View>
-                {couponError ? <Notice tone="error">{couponError}</Notice> : null}
-                {redeemPlan.kind === 'redeem' || ownCoupons.length > 0 ? (
-                  <Text v="caption" tone="textMuted">
-                    Un pedido admite un solo descuento: puntos o cupón.
-                  </Text>
-                ) : null}
-              </>
-            )}
+                {recipientIncomplete
+                  ? 'Para otra persona · faltan sus datos'
+                  : deliverySummary || 'Programar o enviar a otra persona'}
+              </Text>
+              <Icon name="siguiente" size="sm" color={c.textMuted} />
+            </Pressable>
           </View>
 
           <View style={[styles.rule, { backgroundColor: c.border }]} />
@@ -1252,14 +1090,17 @@ export default function CheckoutScreen() {
           <View style={[styles.rule, { backgroundColor: c.border }]} />
 
           {/* ── Desglose del servidor ── */}
-          <View style={styles.breakdown}>
+          <View
+            style={styles.breakdown}
+            onLayout={(e) => { scrollMetrics.current.breakdownY = e.nativeEvent.layout.y; syncTotalInView(); }}
+          >
             <Text v="titleS">El detalle</Text>
 
             <DetailRow label="Productos" value={money(quote?.subtotal ?? subtotal)} />
 
             {!quote ? (
               <View style={styles.pendingRow}>
-                <Text v="bodyM" tone="textSecondary">Envío</Text>
+                <Text v="bodyM" tone="text">Envío</Text>
                 {quoting ? <Skeleton width={64} height={16} /> : <Text v="dataM" tone="textMuted">—</Text>}
               </View>
             ) : (
@@ -1302,7 +1143,14 @@ export default function CheckoutScreen() {
 
             <View style={[styles.divider, { backgroundColor: c.border }]} />
 
-            <View style={styles.totalRow}>
+            <View
+              style={styles.totalRow}
+              onLayout={(e) => {
+                scrollMetrics.current.totalY = e.nativeEvent.layout.y;
+                scrollMetrics.current.totalH = e.nativeEvent.layout.height;
+                syncTotalInView();
+              }}
+            >
               <Text v="titleM">Total final</Text>
               {quote ? (
                 <Text v="dataXL" tone="primaryText">{money(quote.total)}</Text>
@@ -1342,11 +1190,32 @@ export default function CheckoutScreen() {
         </ScrollView>
 
         <ScreenFooter style={styles.footer}>
-          {/* Una línea sola: o lo que falta, o qué va a pasar al confirmar.
-              El total vive en el botón, así que repetirlo aquí sería ruido. */}
+          {/* El total final siempre a la vista: con un bloqueo pendiente el
+              botón no lo muestra. Se oculta solo cuando el desglose ya
+              muestra el suyo, para que nunca aparezca duplicado. */}
+          {!totalInView ? (
+            <Animated.View
+              entering={FadeIn.duration(Motion.fast)}
+              exiting={FadeOut.duration(Motion.fast)}
+              style={styles.totalRow}
+              accessible
+              accessibilityLabel={quote ? `Total final ${money(quote.total)}` : 'Total final'}
+            >
+              <Text v="titleM">Total final</Text>
+              {quote ? (
+                <Text v="dataXL" tone="primaryText">{money(quote.total)}</Text>
+              ) : quoting ? (
+                <Skeleton width={110} height={32} />
+              ) : (
+                <Text v="dataL" tone="textMuted">—</Text>
+              )}
+            </Animated.View>
+          ) : null}
+
+          {/* Una línea sola: o lo que falta, o qué va a pasar al confirmar. */}
           <Text
             v="bodyS"
-            tone={blocker ? 'warningText' : 'textSecondary'}
+            tone={blocker ? 'warningText' : 'text'}
             numberOfLines={2}
             center
           >
@@ -1363,7 +1232,6 @@ export default function CheckoutScreen() {
           <Button
             title={blocker ? blocker.label : 'Confirmar pedido'}
             icon={blocker?.icon}
-            trailing={!blocker && quote ? money(quote.total) : undefined}
             variant={blocker ? 'secondary' : 'primary'}
             size="lg"
             full
@@ -1387,6 +1255,259 @@ export default function CheckoutScreen() {
         selectedId={addressId}
         onSelect={(next) => setAddressId(next._id)}
       />
+      <Sheet
+        visible={deliverySheet}
+        onClose={() => setDeliverySheet(false)}
+        title="Entrega"
+        height={0.75}
+        footer={<Button title="Listo" size="lg" full onPress={() => setDeliverySheet(false)} />}
+      >
+        <View style={styles.sheetStack}>
+        <View style={styles.optionsCard}>
+          <Pressable
+            onPress={() => { tap('select'); setForOther((v) => !v); }}
+            style={styles.optionRow}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: forOther }}
+            accessibilityLabel="El pedido es para otra persona"
+          >
+            <View style={styles.flex}>
+              <Text v="strongS">Es para otra persona</Text>
+              <Text v="caption" tone="textMuted">
+                Llamaremos a quien lo recibe, no a ti
+              </Text>
+            </View>
+            <Icon
+              name={forOther ? 'checkCirculo' : 'mas'}
+              size="md"
+              color={forOther ? c.lime : c.textMuted}
+            />
+          </Pressable>
+
+          {forOther ? (
+            <Animated.View entering={FadeIn.duration(Motion.fast)} style={styles.optionBody}>
+              <Input
+                value={recipientName}
+                onChangeText={setRecipientName}
+                placeholder="¿Quién lo recibe?"
+                maxLength={80}
+              />
+              <Input
+                value={recipientPhone}
+                onChangeText={setRecipientPhone}
+                placeholder="Su teléfono"
+                keyboardType="phone-pad"
+                maxLength={20}
+              />
+              <Input
+                value={recipientNote}
+                onChangeText={setRecipientNote}
+                placeholder="Algo que deba saber (opcional)"
+                maxLength={200}
+              />
+            </Animated.View>
+          ) : null}
+        </View>
+
+        <View style={styles.optionsCard}>
+          <View style={styles.optionRow}>
+            <View style={styles.flex}>
+              <Text v="strongS">
+                {scheduledFor ? 'Programado' : 'Lo antes posible'}
+              </Text>
+              <Text v="caption" tone="textMuted">
+                {scheduledFor
+                  ? `${scheduleDay?.label ?? ''} · ${slotLabel(scheduledFor)}`
+                  : 'Sale en cuanto el negocio lo prepare'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Chips y no un calendario: casi todo lo que se programa es
+              para hoy o mañana, y elegir eso con un selector de fecha
+              cuesta cinco toques. */}
+          <View style={styles.slots}>
+            <Chip
+              label="Ahora"
+              bare
+              active={!scheduledFor}
+              onPress={() => {
+                tap('select');
+                setScheduledFor(null);
+                setScheduleDayKey(null);
+              }}
+            />
+            {scheduleOptions.length > 0 ? (
+              <Chip
+                label="Programar"
+                bare
+                active={!!scheduledFor}
+                onPress={() => { if (!scheduledFor) pickScheduleDay(scheduleOptions[0]); }}
+              />
+            ) : null}
+          </View>
+
+          {scheduleDay ? (
+            <Animated.View entering={FadeIn.duration(Motion.fast)} style={styles.optionBody}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.slotRow}
+              >
+                {scheduleOptions.map((day) => (
+                  <Chip
+                    key={day.key}
+                    label={day.label}
+                    active={day.key === scheduleDay.key}
+                    onPress={() => pickScheduleDay(day)}
+                  />
+                ))}
+              </ScrollView>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.slotRow}
+              >
+                {scheduleDay.slots.map((slot) => (
+                  <Chip
+                    key={slot.getTime()}
+                    label={slotLabel(slot)}
+                    active={scheduledFor?.getTime() === slot.getTime()}
+                    onPress={() => { tap('select'); setScheduledFor(slot); }}
+                  />
+                ))}
+              </ScrollView>
+            </Animated.View>
+          ) : null}
+        </View>
+        </View>
+      </Sheet>
+      <Sheet
+        visible={discountSheet}
+        onClose={() => setDiscountSheet(false)}
+        title="Descuentos"
+        height={0.7}
+        footer={<Button title="Listo" size="lg" full onPress={() => setDiscountSheet(false)} />}
+      >
+        <View style={styles.discountStack}>
+    {quote?.coupon ? (
+      <View style={styles.couponApplied}>
+        <Icon name="checkCirculo" size="md" color={c.successText} />
+        <View style={styles.flex}>
+          <Text v="strongS" tone="successText">{quote.coupon.code}</Text>
+          <Text v="bodyS" tone="text">{quote.coupon.title}</Text>
+        </View>
+        <Button
+          title="Quitar"
+          variant="ghost"
+          size="sm"
+          onPress={() => {
+            tap('light');
+            setAppliedCode(null);
+            setCouponInput('');
+            setCouponError('');
+          }}
+        />
+      </View>
+    ) : (
+      <>
+        {/* Primero lo que ya es del cliente: un cupón de un canje que
+            no llegó a usarse vale lo mismo que canjear de nuevo, y no
+            gasta más puntos. */}
+        {ownCoupons.length > 0 ? (
+          <View style={styles.ownCoupons}>
+            {ownCoupons.map((own) => (
+              <Chip
+                key={own._id}
+                label={`${own.title} · ${money(own.value)}`}
+                active={false}
+                onPress={() => applyCode(own.code)}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {redeemPlan.kind === 'redeem' ? (
+          <View style={styles.pointsCard}>
+            <View style={styles.flex}>
+              <Text v="strongS">Tienes {groupThousands(loyaltyBalance)} puntos</Text>
+              <Text v="caption" tone="textMuted">
+                {redeemPlan.points < loyaltyBalance
+                  ? `Usas ${groupThousands(redeemPlan.points)} aquí y te quedan ${groupThousands(loyaltyBalance - redeemPlan.points)} para otro pedido.`
+                  : 'Cada punto vale un peso.'}
+              </Text>
+            </View>
+            <Button
+              title={`Usar ${money(redeemPlan.points)}`}
+              variant="secondary"
+              size="sm"
+              loading={redeemPoints.isPending}
+              onPress={() => {
+                tap('light');
+                setCouponError('');
+                redeemPoints.mutate(redeemPlan.points, {
+                  onSuccess: ({ coupon }) => applyCode(coupon.code),
+                  onError: (error) => {
+                    setCouponError(apiMessage(error, 'No pudimos canjear tus puntos.'));
+                    tap('error');
+                  },
+                });
+              }}
+            />
+          </View>
+        ) : redeemPlan.kind === 'below-minimum' ? (
+          <Text v="caption" tone="textMuted">
+            Tienes {groupThousands(loyaltyBalance)} puntos. Te faltan{' '}
+            {groupThousands(redeemPlan.missing)} para poder usarlos.
+          </Text>
+        ) : redeemPlan.kind === 'order-too-small' ? (
+          <Text v="caption" tone="textMuted">
+            Tus puntos se usan desde {money(redeemPlan.minRedeem)} y este pedido no
+            alcanza a absorberlos.
+          </Text>
+        ) : null}
+
+        <View style={styles.couponRow}>
+          <View
+            style={[
+              styles.couponField,
+              { backgroundColor: c.surface, borderColor: couponError ? c.error : c.border },
+            ]}
+          >
+            <ContentIcon name="cupon" size={24} />
+            <TextInput
+              value={couponInput}
+              onChangeText={(t) => { setCouponInput(t.toUpperCase()); setCouponError(''); }}
+              placeholder="BIENVENIDO"
+              placeholderTextColor={c.textMuted}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              accessibilityLabel="Código del cupón"
+              style={[styles.couponInput, Type.code, { color: c.text }]}
+            />
+          </View>
+          <Button
+            title="Aplicar"
+            variant="secondary"
+            disabled={!couponInput.trim() || !deliverable}
+            loading={quoting && !!appliedCode}
+            onPress={() => {
+              tap('light');
+              setCouponError('');
+              setAppliedCode(couponInput.trim().toUpperCase());
+            }}
+          />
+        </View>
+        {couponError ? <Notice tone="error">{couponError}</Notice> : null}
+        {redeemPlan.kind === 'redeem' || ownCoupons.length > 0 ? (
+          <Text v="caption" tone="textMuted">
+            Un pedido admite un solo descuento: puntos o cupón.
+          </Text>
+        ) : null}
+      </>
+    )}
+        </View>
+      </Sheet>
       <PaymentMethodSheet
         visible={methodSheet}
         onClose={() => setMethodSheet(false)}
@@ -1401,10 +1522,10 @@ export default function CheckoutScreen() {
 }
 
 function PaymentOption({
-  active, icon, title, subtitle, onPress,
+  active, logo, title, subtitle, onPress,
 }: {
   active: boolean;
-  icon: 'efectivo' | 'tarjeta';
+  logo: ReactNode;
   title: string;
   subtitle: string;
   onPress: () => void;
@@ -1424,19 +1545,21 @@ function PaymentOption({
       <View style={styles.paymentCheck}>
         {active ? <Icon name="checkCirculo" size="sm" color={c.primaryText} /> : null}
       </View>
-      <ContentIcon name={icon} size={32} />
-      <Text v="strongS" tone={active ? 'text' : 'textSecondary'}>{title}</Text>
+      <View style={styles.paymentLogo}>{logo}</View>
+      <Text v="strongS" tone={active ? 'text' : 'text'}>{title}</Text>
       <Text v="caption" tone="textMuted" center>{subtitle}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  eta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  etaIcon: {
-    width: 40, height: 40, borderRadius: BorderRadius.full,
-    alignItems: 'center', justifyContent: 'center',
+  etaSide: { alignItems: 'flex-end', flexShrink: 0 },
+  secondaryRow: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    paddingVertical: Spacing.xs,
   },
+  secureRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  sheetStack: { gap: Spacing.lg },
   optionsCard: { gap: Spacing.md },
   optionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   optionBody: { gap: Spacing.sm },
@@ -1444,7 +1567,7 @@ const styles = StyleSheet.create({
   slotRow: { flexDirection: 'row', gap: Spacing.sm, paddingRight: Spacing.md },
 
   flex: { flex: 1 },
-  content: { padding: Spacing.xl, gap: Spacing.xl, paddingBottom: Spacing.huge },
+  content: { padding: Spacing.lg, gap: Spacing.md, paddingBottom: Spacing.xxl },
   rule: { height: StyleSheet.hairlineWidth },
   section: { gap: Spacing.sm },
   pressed: { opacity: 0.7 },
@@ -1453,15 +1576,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
   },
   summaryIcon: {
     width: 40, height: 40, borderRadius: BorderRadius.sm,
     alignItems: 'center', justifyContent: 'center',
   },
   summaryBody: {
-    paddingBottom: Spacing.md,
-    gap: Spacing.md,
+    paddingBottom: Spacing.sm,
+    gap: Spacing.sm,
   },
   line: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   lineImageWrap: { width: 40, height: 40 },
@@ -1487,19 +1610,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
-    marginTop: Spacing.md,
-    paddingVertical: Spacing.md,
-    minHeight: 60,
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    minHeight: 52,
   },
   instrumentText: { flex: 1, gap: 2 },
-  installments: { gap: Spacing.sm, marginTop: Spacing.md },
+  installments: { gap: Spacing.sm, marginTop: Spacing.sm },
   payment: {
     flex: 1,
     alignItems: 'center',
     gap: Spacing.xs,
-    paddingBottom: Spacing.lg,
+    paddingBottom: Spacing.md,
     paddingHorizontal: Spacing.sm,
   },
+  paymentLogo: { height: 34, alignItems: 'center', justifyContent: 'center' },
   paymentCheck: { height: 20, justifyContent: 'center', marginTop: Spacing.sm },
 
   cashChangeCard: { gap: Spacing.sm },
@@ -1518,6 +1642,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   couponInput: { flex: 1, paddingVertical: 0 },
+  discountStack: { gap: Spacing.sm },
   couponApplied: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   ownCoupons: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   pointsCard: {
@@ -1529,7 +1654,7 @@ const styles = StyleSheet.create({
 
   notesHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   notes: {
-    minHeight: 76,
+    minHeight: 60,
     maxHeight: 130,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
@@ -1538,10 +1663,10 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
 
-  breakdown: { gap: Spacing.md },
+  breakdown: { gap: Spacing.sm },
   pendingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   divider: { height: StyleSheet.hairlineWidth },
   totalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
 
-  footer: { gap: Spacing.md },
+  footer: { gap: Spacing.sm },
 });

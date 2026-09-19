@@ -248,6 +248,8 @@ export default function Evidences() {
                   <img
                     src={row.url}
                     alt={row.type === 'pickup_evidence' ? 'Evidencia de recogida' : 'Evidencia de entrega'}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-28 object-cover group-hover:opacity-90 transition-opacity"
                     onClick={(e) => { e.stopPropagation(); setPreview(row.url); }}
                   />
@@ -347,7 +349,7 @@ export default function Evidences() {
                           onClick={() => setPreview(ev.url)}
                           className="rounded-xl overflow-hidden border border-[var(--color-border-light)] cursor-zoom-in"
                         >
-                          <img src={ev.url} alt="" className="w-full h-32 object-cover" />
+                          <img src={ev.url} alt="" loading="lazy" decoding="async" className="w-full h-32 object-cover" />
                           <div className="px-2 py-1.5 bg-[var(--color-bg)] text-[10px] font-semibold text-[var(--color-text-secondary)]">
                             {ev.type === 'pickup_evidence' ? 'Recogida' : 'Entrega'} ·{' '}
                             {new Date(ev.uploadedAt).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}

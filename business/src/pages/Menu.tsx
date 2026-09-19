@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle,
   UtensilsCrossed, RefreshCw, Store, Info, Clock,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import api from '../services/api';
+import { qk } from '../lib/queryKeys';
 import { apiMessage } from '../lib/apiError';
 import { money } from '../lib/orderFlow';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -42,11 +44,51 @@ export default function Menu() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
 
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [capabilities, setCapabilities] = useState<ImageCapabilities | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState('');
+
+  // La carta del panel incluye lo no disponible: es la vista del comercio,
+  // y el servidor la sirve siempre fresca, fuera de la caché compartida.
+  const menuQuery = useQuery({
+    queryKey: qk.menu(businessId),
+    enabled: !!businessId,
+    queryFn: async () => {
+      const [resCats, resProds] = await Promise.all([
+        api.get(`/categories/business/${businessId}`),
+        api.get(`/products/business/${businessId}?includeUnavailable=true`),
+      ]);
+      return {
+        categories: resCats.data.data as Category[],
+        products: resProds.data.data as Product[],
+      };
+    },
+  });
+  const categories = useMemo(() => menuQuery.data?.categories ?? [], [menuQuery.data]);
+  const products = useMemo(() => menuQuery.data?.products ?? [], [menuQuery.data]);
+  const loading = !!businessId && menuQuery.isPending;
+  const loadError = menuQuery.isError
+    ? apiMessage(menuQuery.error, 'No pudimos cargar la información del menú.')
+    : '';
+
+  /** Cambia la carta en caché sin esperar a volver a pedirla. */
+  const setProducts = useCallback(
+    (update: (previous: Product[]) => Product[]) => {
+      queryClient.setQueryData<{ categories: Category[]; products: Product[] }>(qk.menu(businessId), (old) =>
+        old ? { ...old, products: update(old.products) } : old
+      );
+    },
+    [queryClient, businessId]
+  );
+
+  // Qué sabe hacer este entorno con las imágenes. Se pregunta una vez por
+  // sesión: sin esto el panel pintaría botones —recorte de fondo, por
+  // ejemplo— que el servidor no puede cumplir.
+  const { data: capabilities = null } = useQuery({
+    queryKey: ['product-image-capabilities'],
+    queryFn: async () => (await api.get('/products/image-capabilities')).data.data as ImageCapabilities,
+    staleTime: Infinity,
+    retry: false,
+  });
 
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -71,33 +113,9 @@ export default function Menu() {
   const [confirmDeleteProd, setConfirmDeleteProd] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    if (!businessId) return;
-    try {
-      setError('');
-      const [resCats, resProds] = await Promise.all([
-        api.get(`/categories/business/${businessId}`),
-        api.get(`/products/business/${businessId}?includeUnavailable=true`),
-      ]);
-      setCategories(resCats.data.data);
-      setProducts(resProds.data.data);
-    } catch (err) {
-      setError(apiMessage(err, 'No pudimos cargar la información del menú.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId]);
-
-  useEffect(() => { setLoading(true); fetchData(); }, [fetchData]);
-
-  // Qué sabe hacer este entorno con las imágenes. Se pregunta una vez: sin
-  // esto el panel pintaría botones —recorte de fondo, por ejemplo— que el
-  // servidor no puede cumplir.
-  useEffect(() => {
-    api
-      .get('/products/image-capabilities')
-      .then(({ data }) => setCapabilities(data.data))
-      .catch(() => setCapabilities(null));
-  }, []);
+    setError('');
+    await queryClient.invalidateQueries({ queryKey: qk.menu(businessId) });
+  }, [queryClient, businessId]);
 
   // ── Categorías ──
 
@@ -336,6 +354,184 @@ export default function Menu() {
     );
   };
 
+  /**
+   * La lista del catálogo, memorizada.
+   *
+   * Vive en el mismo componente que el formulario del producto, así que
+   * cada tecla en el formulario re-renderizaba todas las filas con sus
+   * fotos. Ahora la lista solo se recalcula cuando cambian la carta o las
+   * categorías; los botones llaman a las acciones a través de un `ref`,
+   * así que siempre usan la versión vigente sin romper la memoria.
+   */
+  const actions = useRef({
+    toggle: handleProductToggle,
+    edit: openProductModal,
+    deleteProduct: setConfirmDeleteProd,
+    deleteCategory: setConfirmDeleteCat,
+  });
+  // Sin dependencias a propósito: el `ref` tiene que apuntar siempre a las
+  // funciones del último render, que es justo lo que no puede saber una
+  // lista de dependencias de funciones que se recrean en cada render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    actions.current = {
+      toggle: handleProductToggle,
+      edit: openProductModal,
+      deleteProduct: setConfirmDeleteProd,
+      deleteCategory: setConfirmDeleteCat,
+    };
+  });
+
+  const catalogList = useMemo(
+    () => (
+    <div className="space-y-6">
+      {categories.map((category) => {
+        const items = products.filter((product) => product.categoryId === category._id);
+        return (
+          <section key={category._id} className="table-container">
+            <header className="px-5 py-3.5 border-b border-[var(--color-border-light)] bg-[var(--color-bg)] flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <UtensilsCrossed className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
+                <h2 className="text-sm font-bold text-[var(--color-text-main)] truncate">
+                  {category.name}
+                </h2>
+                <button
+                  onClick={() => actions.current.deleteCategory(category._id)}
+                  title="Eliminar categoría"
+                  aria-label={`Eliminar la categoría ${category.name}`}
+                  className="p-1 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors cursor-pointer shrink-0"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)] px-2.5 py-0.5 rounded-md bg-[var(--color-primary-bg)] border border-[var(--color-primary)]/30 shrink-0">
+                {items.length} producto(s)
+              </span>
+            </header>
+
+            <ul className="divide-y divide-[var(--color-border-light)]">
+              {items.map((product) => (
+                <li
+                  key={product._id}
+                  className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:bg-[var(--color-surface-hover)] transition-colors"
+                >
+                  {/*
+                    Tamaño fijo y cuadrado: es lo que impide que una foto
+                    enorme rompa la fila, y el hueco está reservado antes
+                    de que la imagen llegue.
+                  */}
+                  <SmartImage
+                    images={product.images}
+                    alt={product.name}
+                    base="thumb"
+                    sizes="56px"
+                    className="w-14 h-14 rounded-xl shrink-0"
+                  />
+
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <h3 className="text-sm font-bold text-[var(--color-text-main)]">
+                        {product.name}
+                      </h3>
+                      {!product.isAvailable && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger)]/30">
+                          Agotado
+                        </span>
+                      )}
+                      {!product.images && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[var(--color-warning-bg)] text-[var(--color-warning)] border border-[var(--color-warning)]/30">
+                          Sin foto
+                        </span>
+                      )}
+                      {product.prepTimeMinutes ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] border border-[var(--color-border)]">
+                          <Clock className="w-3 h-3" />
+                          {product.prepTimeMinutes} min
+                        </span>
+                      ) : null}
+                      {/* Solo aparece si el negocio lleva la cuenta.
+                          `null` es "no lo cuento" y no se muestra. */}
+                      {typeof product.stock === 'number' && (
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                            product.stock === 0
+                              ? 'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger)]/30'
+                              : product.stock <= (product.lowStockThreshold || 3)
+                                ? 'bg-[var(--color-warning-bg)] text-[var(--color-warning)] border-[var(--color-warning)]/30'
+                                : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] border-[var(--color-border)]'
+                          }`}
+                        >
+                          {product.stock === 0 ? 'Sin unidades' : `Quedan ${product.stock}`}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-[var(--color-text-secondary)] truncate">
+                      {product.description || 'Sin descripción'}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between sm:justify-end gap-5 w-full sm:w-auto shrink-0">
+                    <div className="text-left sm:text-right">
+                      {product.discountPrice ? (
+                        <>
+                          <p className="text-[10px] text-[var(--color-text-muted)] line-through tabular">
+                            {money(product.price)}
+                          </p>
+                          <p className="kpi-value text-sm text-[var(--color-primary)] tabular">
+                            {money(product.discountPrice)}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="kpi-value text-sm tabular">{money(product.price)}</p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => actions.current.toggle(product)}
+                        title={product.isAvailable ? 'Marcar como agotado' : 'Volver a ofrecerlo'}
+                        aria-label={`Cambiar disponibilidad de ${product.name}`}
+                        className="cursor-pointer hover:scale-105 transition-transform"
+                      >
+                        {product.isAvailable ? (
+                          <ToggleRight className="w-7 h-7 text-[var(--color-primary)]" />
+                        ) : (
+                          <ToggleLeft className="w-7 h-7 text-[var(--color-text-muted)]" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => actions.current.edit(product)}
+                        aria-label={`Editar ${product.name}`}
+                        className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => actions.current.deleteProduct(product._id)}
+                        aria-label={`Eliminar ${product.name}`}
+                        className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+
+              {items.length === 0 && (
+                <li className="p-6 text-center text-xs font-medium text-[var(--color-text-muted)]">
+                  No hay productos en esta categoría.
+                </li>
+              )}
+            </ul>
+          </section>
+        );
+      })}
+    </div>
+    ),
+    [categories, products]
+  );
+
   if (!selectedBusiness) {
     return (
       <div className="py-20 text-center space-y-2">
@@ -387,10 +583,10 @@ export default function Menu() {
         </div>
       </div>
 
-      {error && (
+      {(error || loadError) && (
         <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
-          <p className="flex-1 text-xs font-semibold text-[var(--color-danger)]">{error}</p>
+          <p className="flex-1 text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
         </div>
       )}
 
@@ -428,150 +624,7 @@ export default function Menu() {
           </p>
         </div>
       ) : (
-        <div className="space-y-6">
-          {categories.map((category) => {
-            const items = products.filter((product) => product.categoryId === category._id);
-            return (
-              <section key={category._id} className="table-container">
-                <header className="px-5 py-3.5 border-b border-[var(--color-border-light)] bg-[var(--color-bg)] flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <UtensilsCrossed className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
-                    <h2 className="text-sm font-bold text-[var(--color-text-main)] truncate">
-                      {category.name}
-                    </h2>
-                    <button
-                      onClick={() => setConfirmDeleteCat(category._id)}
-                      title="Eliminar categoría"
-                      aria-label={`Eliminar la categoría ${category.name}`}
-                      className="p-1 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors cursor-pointer shrink-0"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)] px-2.5 py-0.5 rounded-md bg-[var(--color-primary-bg)] border border-[var(--color-primary)]/30 shrink-0">
-                    {items.length} producto(s)
-                  </span>
-                </header>
-
-                <ul className="divide-y divide-[var(--color-border-light)]">
-                  {items.map((product) => (
-                    <li
-                      key={product._id}
-                      className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:bg-[var(--color-surface-hover)] transition-colors"
-                    >
-                      {/*
-                        Tamaño fijo y cuadrado: es lo que impide que una foto
-                        enorme rompa la fila, y el hueco está reservado antes
-                        de que la imagen llegue.
-                      */}
-                      <SmartImage
-                        images={product.images}
-                        alt={product.name}
-                        base="thumb"
-                        sizes="56px"
-                        className="w-14 h-14 rounded-xl shrink-0"
-                      />
-
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          <h3 className="text-sm font-bold text-[var(--color-text-main)]">
-                            {product.name}
-                          </h3>
-                          {!product.isAvailable && (
-                            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger)]/30">
-                              Agotado
-                            </span>
-                          )}
-                          {!product.images && (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[var(--color-warning-bg)] text-[var(--color-warning)] border border-[var(--color-warning)]/30">
-                              Sin foto
-                            </span>
-                          )}
-                          {product.prepTimeMinutes ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] border border-[var(--color-border)]">
-                              <Clock className="w-3 h-3" />
-                              {product.prepTimeMinutes} min
-                            </span>
-                          ) : null}
-                          {/* Solo aparece si el negocio lleva la cuenta.
-                              `null` es "no lo cuento" y no se muestra. */}
-                          {typeof product.stock === 'number' && (
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                                product.stock === 0
-                                  ? 'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger)]/30'
-                                  : product.stock <= (product.lowStockThreshold || 3)
-                                    ? 'bg-[var(--color-warning-bg)] text-[var(--color-warning)] border-[var(--color-warning)]/30'
-                                    : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] border-[var(--color-border)]'
-                              }`}
-                            >
-                              {product.stock === 0 ? 'Sin unidades' : `Quedan ${product.stock}`}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-[var(--color-text-secondary)] truncate">
-                          {product.description || 'Sin descripción'}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center justify-between sm:justify-end gap-5 w-full sm:w-auto shrink-0">
-                        <div className="text-left sm:text-right">
-                          {product.discountPrice ? (
-                            <>
-                              <p className="text-[10px] text-[var(--color-text-muted)] line-through tabular">
-                                {money(product.price)}
-                              </p>
-                              <p className="kpi-value text-sm text-[var(--color-primary)] tabular">
-                                {money(product.discountPrice)}
-                              </p>
-                            </>
-                          ) : (
-                            <p className="kpi-value text-sm tabular">{money(product.price)}</p>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleProductToggle(product)}
-                            title={product.isAvailable ? 'Marcar como agotado' : 'Volver a ofrecerlo'}
-                            aria-label={`Cambiar disponibilidad de ${product.name}`}
-                            className="cursor-pointer hover:scale-105 transition-transform"
-                          >
-                            {product.isAvailable ? (
-                              <ToggleRight className="w-7 h-7 text-[var(--color-primary)]" />
-                            ) : (
-                              <ToggleLeft className="w-7 h-7 text-[var(--color-text-muted)]" />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => openProductModal(product)}
-                            aria-label={`Editar ${product.name}`}
-                            className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setConfirmDeleteProd(product._id)}
-                            aria-label={`Eliminar ${product.name}`}
-                            className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-
-                  {items.length === 0 && (
-                    <li className="p-6 text-center text-xs font-medium text-[var(--color-text-muted)]">
-                      No hay productos en esta categoría.
-                    </li>
-                  )}
-                </ul>
-              </section>
-            );
-          })}
-        </div>
+        catalogList
       )}
 
       {confirmDeleteCat && (

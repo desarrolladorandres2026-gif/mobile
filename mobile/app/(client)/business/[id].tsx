@@ -14,8 +14,11 @@ import {
   Text, Icon, IconButton, Button, Badge, CatalogBadge, MetaRow, Notice, Sheet,
   QtyStepper, EmptyState, ErrorState, Skeleton, LoadingScreen, SearchField,
 } from '../../../components/ui';
-import { useBusiness, useBusinessCategories, useBusinessProducts, useTopSellers, useProductSentiment } from '../../../hooks/useApi';
+import {
+  useBusiness, useBusinessCategories, useBusinessProducts, useTopSellers, useProductSentiment, useStorefront,
+} from '../../../hooks/useApi';
 import { useCartStore } from '../../../stores/cartStore';
+import { useProgressiveLimit } from '../../../hooks/useProgressiveLimit';
 import { useFavorites } from '../../../hooks/useFavorites';
 import { useTheme } from '../../../hooks/useTheme';
 import { useBottomInset } from '../../../hooks/useBottomSpace';
@@ -67,6 +70,13 @@ interface Product {
   prepTimeMinutes?: number | null;
 }
 
+/** Referencias estables para "todavía no hay datos": un `[]` nuevo en cada render rompe los `useMemo`. */
+const EMPTY_LIST: any[] = [];
+const EMPTY_SENTIMENT: Record<string, { likes: number; total: number }> = {};
+
+/** Filas de la carta que se montan con la pantalla; el resto, tras la animación. */
+const INITIAL_PRODUCT_ROWS = 10;
+
 /** Espacio que reserva el scroll cuando la barra de "mi coronita" está a la vista. */
 const STORE_CART_CLEARANCE = 92;
 
@@ -78,16 +88,39 @@ export default function BusinessScreen() {
   const router = useRouter();
   const { c } = useTheme();
 
-  const { data: business, isLoading, isError, refetch } = useBusiness(id);
-  const { data: sections = [] } = useBusinessCategories(id);
+  // Una petición para toda la tienda (ver `useStorefront`). Los hooks de
+  // cada parte leen lo que ella siembra; solo piden por su cuenta si el
+  // servidor no tiene todavía ese endpoint. Con caché guardada de otra
+  // visita, todo se pinta al instante mientras se refresca.
+  const storefront = useStorefront(id);
+  const fallback = storefront.isError;
+  const waitingStorefront = storefront.isPending;
+
+  const { data: business, isLoading: loadingBusiness, isError: businessError, refetch: refetchBusiness } =
+    useBusiness(id, fallback);
+  const { data: sectionsData } = useBusinessCategories(id, fallback);
+  const sections: any[] = sectionsData ?? EMPTY_LIST;
 
   // Lo que la gente pide de verdad, no lo que el negocio marcó como
   // destacado. Solo se muestra sin filtro de sección activo: dentro de
   // "Bebidas", una lista de los más pedidos del local entero desorienta.
-  const { data: topSellers = [] } = useTopSellers(id);
-  const { data: sentiment = {} } = useProductSentiment(id);
-  const { data: products = [], isLoading: loadingProducts } =
-    useBusinessProducts(id) as { data: Product[]; isLoading: boolean };
+  const { data: topSellersData } = useTopSellers(id, fallback);
+  const topSellers: Product[] = topSellersData ?? EMPTY_LIST;
+  const { data: sentimentData } = useProductSentiment(id, fallback);
+  const sentiment: Record<string, { likes: number; total: number }> = sentimentData ?? EMPTY_SENTIMENT;
+  const { data: productsData, isLoading: loadingProductsFallback } =
+    useBusinessProducts(id, undefined, fallback) as { data: Product[] | undefined; isLoading: boolean };
+  const products: Product[] = productsData ?? EMPTY_LIST;
+
+  const isLoading = (waitingStorefront && !business) || loadingBusiness;
+  const loadingProducts = (waitingStorefront && !productsData) || loadingProductsFallback;
+  const isError = fallback && businessError;
+  const refetch = () => (fallback ? refetchBusiness() : storefront.refetch());
+
+  // La carta se monta en dos tiempos: las primeras filas ya, el resto
+  // cuando termina la animación de entrada. Montar cuarenta filas con foto
+  // en el mismo instante competía con el deslizamiento de la pantalla.
+  const renderLimit = useProgressiveLimit(INITIAL_PRODUCT_ROWS);
 
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [productQuery, setProductQuery] = useState('');
@@ -449,7 +482,7 @@ export default function BusinessScreen() {
               </View>
             ) : null}
 
-            {visibleProducts.map((product) => (
+            {visibleProducts.slice(0, renderLimit).map((product) => (
               <ProductRow
                 key={product._id}
                 product={product}

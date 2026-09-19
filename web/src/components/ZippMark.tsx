@@ -55,7 +55,7 @@ export function ZippWordmark({
     <div className={`flex items-center gap-2.5 min-w-0 ${className}`}>
       {showMark && <ZippMark size={size} />}
       <img
-        src="/zipp-crown-logo.png"
+        src="/zipp-crown-logo.webp"
         alt="ZIPP"
         style={{ height: size * 1.05 }}
         className="w-auto object-contain select-none drop-shadow-xs"

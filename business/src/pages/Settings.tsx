@@ -1,11 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Check, Clock, Store, Truck, Save, Image as ImageIcon } from 'lucide-react';
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 import { BRAND_COLORS } from '../lib/brandColors';
 import BusinessImageField from '../components/BusinessImageField';
-import BusinessLocationField, { type LatLng } from '../components/BusinessLocationField';
+import type { LatLng } from '../components/BusinessLocationField';
+import { qk } from '../lib/queryKeys';
+
+// Leaflet (el mapa del punto de recogida) solo lo usa esta pantalla y pesa
+// más que el resto del panel junto: se descarga al abrir Ajustes.
+const BusinessLocationField = lazy(() => import('../components/BusinessLocationField'));
 
 /**
  * Ajustes del comercio: cómo se ve su ficha, cuándo abre y cuándo regala el
@@ -50,6 +56,7 @@ export default function Settings() {
   const setSelectedBusiness = useAuthStore((s) => s.setSelectedBusiness);
   const businessId = selectedBusiness?._id;
 
+  const queryClient = useQueryClient();
   const [schedule, setSchedule] = useState<Schedule>({});
   const [threshold, setThreshold] = useState(0);
   const [minOrder, setMinOrder] = useState(0);
@@ -82,8 +89,15 @@ export default function Settings() {
     try {
       setLoading(true);
       setError('');
-      const { data } = await api.get(`/businesses/${businessId}`);
-      const business = data.data;
+      // Pasa por la caché: volver a Ajustes en menos de 30 s no repite la
+      // petición. Es `fetchQuery` y no `useQuery` a propósito: el formulario
+      // se rellena una vez y ya es del comercio; un refresco de fondo no
+      // puede pisarle lo que está escribiendo.
+      const business = await queryClient.fetchQuery({
+        queryKey: qk.settings(businessId),
+        queryFn: async () => (await api.get(`/businesses/${businessId}`)).data.data,
+        staleTime: 30_000,
+      });
 
       setSchedule(business.schedule ?? {});
       setThreshold(business.freeDeliveryThreshold ?? 0);
@@ -112,7 +126,7 @@ export default function Settings() {
     } finally {
       setLoading(false);
     }
-  }, [businessId]);
+  }, [businessId, queryClient]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -151,6 +165,8 @@ export default function Settings() {
       }
 
       setSaved(true);
+      // Lo guardado ya no es lo que había en caché.
+      void queryClient.invalidateQueries({ queryKey: qk.settings(businessId) });
     } catch (err) {
       setError(apiMessage(err, 'No se pudieron guardar los ajustes.'));
     } finally {
@@ -308,11 +324,15 @@ export default function Settings() {
                   desmonta en cada cambio de negocio del selector lateral;
                   esta key deja ese requisito escrito en vez de apoyado en
                   que nadie quite ese `if` más adelante. */}
-              <BusinessLocationField
-                key={businessId}
-                value={location}
-                onChange={(point) => { setSaved(false); setLocation(point); }}
-              />
+              <Suspense
+                fallback={<div className="h-64 rounded-xl bg-[var(--color-bg-alt)] animate-pulse" />}
+              >
+                <BusinessLocationField
+                  key={businessId}
+                  value={location}
+                  onChange={(point) => { setSaved(false); setLocation(point); }}
+                />
+              </Suspense>
             </Field>
 
             <Field label="Color del encabezado">

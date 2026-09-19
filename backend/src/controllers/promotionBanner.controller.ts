@@ -12,6 +12,8 @@ import { sendResponse, param, query, escapeRegex } from '../utils';
 import { AppError } from '../middlewares';
 import { uploadBannerImage } from '../middlewares/upload';
 import { AuditAction, AuditSeverity, logAudit } from '../security';
+import { cache, CachePrefix } from '../cache';
+import { cacheHeaders } from '../middlewares/cacheControl';
 
 export class PromotionBannerController {
   // ── Público: lo consume la app en la pantalla inicial ───────────────
@@ -31,7 +33,11 @@ export class PromotionBannerController {
           ? (raw as BannerPlacement)
           : BannerPlacement.HOME;
 
-      const banners = await promotionBannerService.listForApp(placement);
+      // Un minuto de margen para las fechas de inicio y fin de cada banner.
+      const banners = await cache.wrap(`${CachePrefix.BANNERS}${placement}`, 60, () =>
+        promotionBannerService.listForApp(placement)
+      );
+      cacheHeaders(res, 'shared');
       sendResponse(res, 200, banners.length ? 'Banners activos' : 'Sin banners activos', banners);
     } catch (error) { next(error); }
   }

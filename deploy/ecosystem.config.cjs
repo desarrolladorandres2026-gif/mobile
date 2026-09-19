@@ -42,11 +42,19 @@ module.exports = {
       kill_timeout: 12000,
       shutdown_with_message: false,
 
+      // UV_THREADPOOL_SIZE: Argon2 (login), gzip y parte de crypto corren en
+      // el pool de hilos de libuv, que por defecto tiene 4. Con cuatro
+      // inicios de sesión a la vez (64 MB y ~0,5 s cada uno) el pool se
+      // llena y la compresión de todas las demás respuestas espera en cola.
+      // Tiene que fijarse antes de arrancar el proceso: por eso va aquí y
+      // no en el .env.
       env: {
         NODE_ENV: 'development',
+        UV_THREADPOOL_SIZE: '16',
       },
       env_production: {
         NODE_ENV: 'production',
+        UV_THREADPOOL_SIZE: '16',
       },
 
       // Logs: PM2 los rota si instalas pm2-logrotate (ver runbook).

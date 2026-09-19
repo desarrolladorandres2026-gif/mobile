@@ -9,6 +9,7 @@ import {
   SUPER_ADMIN_ROLE_SLUG,
 } from '../security/rbac';
 import { logSystemAudit, AuditAction, AuditSeverity } from '../security/audit';
+import { cache, CachePrefix } from '../cache';
 
 /**
  * Servicio central de autorización — el único lugar que responde
@@ -69,6 +70,49 @@ export async function getEffectivePermissions(user: IUser): Promise<Permission[]
 export async function getEffectiveRoleSlugs(user: IUser): Promise<string[]> {
   const roles = await getEffectiveRoles(user);
   return roles.map((r) => r.slug);
+}
+
+/** Cuánto se recuerdan los roles resueltos de una combinación cargo/roles. */
+const AUTHZ_CACHE_TTL_SECONDS = 60;
+
+/**
+ * Permisos y slugs de una sola vez, para `authenticate`.
+ *
+ * Antes el middleware llamaba a `getEffectivePermissions` y a
+ * `getEffectiveRoleSlugs` en paralelo, y cada una resolvía los roles por su
+ * cuenta: el mismo Cargo y los mismos Roles se leían dos veces en cada
+ * petición del panel.
+ *
+ * Lo que se cachea son los roles de una COMBINACIÓN (cargo + roles
+ * asignados), no los de un usuario: cambiarle el cargo o los roles a
+ * alguien produce otra clave, así que se refleja en su siguiente petición
+ * sin invalidar nada. Lo que sí invalida es editar un Rol o un Cargo (el
+ * plugin de caché de esos modelos borra `authz:`); una escritura hecha
+ * fuera del proceso, como una migración, tarda como mucho el TTL.
+ *
+ * Las cuentas sin Cargo ni Roles —clientes, domiciliarios, comercios— no
+ * tocan ni la base ni la caché: solo tienen los permisos de su `role`.
+ */
+export async function resolveAuthorization(
+  user: IUser
+): Promise<{ permissions: Permission[]; roleSlugs: string[] }> {
+  const legacy = getPermissionsForRole(mapToExtendedRole(user.role));
+  const roleIds = (user.roleIds || []).map((id) => id.toString()).sort();
+
+  if (!user.positionId && roleIds.length === 0) {
+    return { permissions: Array.from(new Set<Permission>(legacy)), roleSlugs: [] };
+  }
+
+  const key = `${CachePrefix.AUTHZ}${user.positionId ? user.positionId.toString() : '-'}:${roleIds.join(',')}`;
+  const roles = await cache.wrap(key, AUTHZ_CACHE_TTL_SECONDS, async () =>
+    (await getEffectiveRoles(user)).map((r) => ({ slug: r.slug, permissions: r.permissions || [] }))
+  );
+
+  const dynamic = roles.flatMap((r) => r.permissions);
+  return {
+    permissions: Array.from(new Set<Permission>([...legacy, ...dynamic])),
+    roleSlugs: roles.map((r) => r.slug),
+  };
 }
 
 export function hasPermission(permissions: Permission[], permission: Permission): boolean {

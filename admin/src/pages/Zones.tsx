@@ -297,7 +297,7 @@ export default function Zones() {
                   </span>
                   <span
                     className="text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider"
-                    style={z.isActive ? { backgroundColor: '#FDF7E7', color: '#D69E26' } : { backgroundColor: '#EDF1F5', color: '#7C8BA1' }}
+                    style={z.isActive ? { backgroundColor: '#FDF7E7', color: '#D69E26' } : { backgroundColor: '#EDF1F5', color: '#0B0F19' }}
                   >
                     {z.isActive ? 'Activa' : 'Inactiva'}
                   </span>

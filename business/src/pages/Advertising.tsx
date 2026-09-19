@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Megaphone, Plus, X, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import api from '../services/api';
+import { qk } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 
@@ -83,36 +85,36 @@ export default function Advertising() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
 
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [outstanding, setOutstanding] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!businessId) return;
-    try {
-      setLoading(true);
+  const adsQuery = useQuery({
+    queryKey: qk.advertising(businessId),
+    enabled: !!businessId,
+    queryFn: async () => {
       const [list, billing] = await Promise.all([
         api.get(`/advertisements/business/${businessId}`),
         api.get(`/advertisements/business/${businessId}/invoices`),
       ]);
-      setCampaigns(list.data.data ?? []);
-      setInvoices(billing.data.data.invoices ?? []);
-      setOutstanding(billing.data.data.outstanding ?? 0);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId]);
+      return {
+        campaigns: (list.data.data ?? []) as Campaign[],
+        invoices: (billing.data.data.invoices ?? []) as Invoice[],
+        outstanding: (billing.data.data.outstanding ?? 0) as number,
+      };
+    },
+  });
+  const campaigns = useMemo(() => adsQuery.data?.campaigns ?? [], [adsQuery.data]);
+  const invoices = useMemo(() => adsQuery.data?.invoices ?? [], [adsQuery.data]);
+  const outstanding = adsQuery.data?.outstanding ?? 0;
+  const loading = !!businessId && adsQuery.isPending;
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: qk.advertising(businessId) }),
+    [queryClient, businessId]
+  );
 
   /**
    * Cuánto alcance compra ese dinero.

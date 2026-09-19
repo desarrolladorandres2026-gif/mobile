@@ -387,6 +387,21 @@ export const config = {
     uri: mongoUri,
   },
 
+  // ── Caché de lecturas ─────────────────────────────────────────────
+  // Con `REDIS_URL` vive en Redis y sobrevive a reinicios; sin ella, en la
+  // memoria del proceso (desarrollo en Windows y tests). En ambos casos es
+  // un atajo, nunca la fuente de verdad: si Redis no responde se lee de
+  // Mongo como si la caché no existiera.
+  cache: {
+    redisUrl: isTest ? '' : (process.env.REDIS_URL || '').trim(),
+    /** Separa las claves de entornos que compartan instancia de Redis. */
+    keyPrefix: `zipp:${process.env.NODE_ENV || 'production'}:`,
+    /** Techo de entradas del respaldo en memoria. */
+    memoryMaxEntries: parseInt(process.env.CACHE_MEMORY_MAX_ENTRIES || '5000', 10),
+    /** Apagado de emergencia: `CACHE_DISABLED=true` y todo va a Mongo. */
+    disabled: process.env.CACHE_DISABLED === 'true',
+  },
+
   jwt: {
     secret: jwtSecret,
     refreshSecret: jwtRefreshSecret,

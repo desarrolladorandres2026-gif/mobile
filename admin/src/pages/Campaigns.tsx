@@ -4,7 +4,10 @@ import {
   ToggleLeft, ToggleRight, ImagePlus, Store, Ban, MousePointerClick,
   XOctagon, BarChart3, Clock, Wallet,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
+import { sizedImage } from '../lib/cloudinary';
+import { fetchBusinessOptions } from '../lib/businessOptions';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
 
@@ -134,6 +137,7 @@ const STATUS_TABS: { id: 'all' | AdStatus; label: string }[] = [
 ];
 
 export default function Campaigns() {
+  const queryClient = useQueryClient();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [businesses, setBusinesses] = useState<{ _id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,7 +164,7 @@ export default function Campaigns() {
       setError('');
       const [resAds, resBiz, resStats] = await Promise.all([
         api.get('/advertisements?limit=100'),
-        api.get('/businesses?limit=100'),
+        fetchBusinessOptions(queryClient),
         api.get('/advertisements/stats/summary').catch(() => null),
       ]);
       setCampaigns(resAds.data.data);
@@ -463,7 +467,7 @@ export default function Campaigns() {
                     className="w-20 h-14 rounded-lg overflow-hidden bg-[var(--color-bg)] border border-[var(--color-border)] flex-shrink-0 cursor-pointer"
                     title="Vista previa del flyer"
                   >
-                    <img src={c.flyerUrl} alt={c.campaignName} className="w-full h-full object-cover" />
+                    <img src={sizedImage(c.flyerUrl, 640)} alt={c.campaignName} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                   </button>
 
                   <div className="min-w-0 space-y-1.5">

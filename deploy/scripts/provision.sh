@@ -38,6 +38,23 @@ node -v && npm -v
 echo "──> PM2 global"
 npm install -g pm2
 
+echo "──> Redis (caché de lecturas de la API)"
+# Solo en loopback y como caché pura: sin persistencia a disco (si se
+# reinicia, la API la vuelve a llenar desde Mongo) y con techo de memoria
+# que expulsa lo menos usado en vez de fallar al llenarse.
+apt-get install -y redis-server
+sed -i 's/^#\?\s*bind .*/bind 127.0.0.1 -::1/' /etc/redis/redis.conf
+sed -i 's/^#\?\s*maxmemory .*/maxmemory 128mb/' /etc/redis/redis.conf
+grep -q '^maxmemory ' /etc/redis/redis.conf || echo 'maxmemory 128mb' >> /etc/redis/redis.conf
+sed -i 's/^#\?\s*maxmemory-policy .*/maxmemory-policy allkeys-lru/' /etc/redis/redis.conf
+grep -q '^maxmemory-policy ' /etc/redis/redis.conf || echo 'maxmemory-policy allkeys-lru' >> /etc/redis/redis.conf
+sed -i 's/^save .*/# &/' /etc/redis/redis.conf
+grep -q '^save ""' /etc/redis/redis.conf || echo 'save ""' >> /etc/redis/redis.conf
+sed -i 's/^appendonly .*/appendonly no/' /etc/redis/redis.conf
+systemctl enable --now redis-server
+systemctl restart redis-server
+redis-cli ping
+
 echo "──> Usuario de servicio: ${APP_USER}"
 if ! id "$APP_USER" >/dev/null 2>&1; then
   # Sin shell de login ni home real: solo corre procesos.

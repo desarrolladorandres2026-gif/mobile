@@ -19,6 +19,7 @@ import { BorderRadius, Spacing } from '../../../theme/tokens';
 import { money, orderCode, orderDate } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
 import { buildDirectionsUrl, geoPointToLatLng } from '../../../lib/mapNavigation';
+import { useTrailingCallback } from '../../../hooks/useTrailingCallback';
 
 type OrderTab = 'available' | 'my_deliveries';
 
@@ -39,12 +40,14 @@ export default function DriverOrdersScreen() {
   const assignDriverMutation = useAssignDriver();
   const updateStatusMutation = useUpdateOrderStatus();
 
+  // Varios pedidos publicados seguidos se resuelven con una sola recarga.
+  const refetchAvailableSoon = useTrailingCallback(() => { void refetchAvailable(); }, 800);
+
   useEffect(() => {
     socketService.connect();
-    const handleOrderAvailable = () => { refetchAvailable(); };
-    socketService.onOrderAvailable(handleOrderAvailable);
-    return () => { socketService.offOrderAvailable(handleOrderAvailable); };
-  }, [refetchAvailable]);
+    socketService.onOrderAvailable(refetchAvailableSoon);
+    return () => { socketService.offOrderAvailable(refetchAvailableSoon); };
+  }, [refetchAvailableSoon]);
 
   const isRefetching = tab === 'available' ? refetchingAvailable : refetchingMy;
 

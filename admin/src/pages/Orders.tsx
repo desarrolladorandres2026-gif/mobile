@@ -205,7 +205,7 @@ export default function Orders() {
               </thead>
               <tbody className="divide-y divide-[var(--color-border-light)]">
                 {orders.map((o) => {
-                  const sc = statusMap[o.status] || { label: o.status, bg: 'bg-gray-50 border-gray-200', text: 'text-gray-600', dot: 'bg-gray-400' };
+                  const sc = statusMap[o.status] || { label: o.status, bg: 'bg-gray-50 border-gray-200', text: 'text-gray-900', dot: 'bg-gray-400' };
                   return (
                     <tr key={o._id} className="hover:bg-[var(--color-bg)] transition-colors">
                       <td className="table-body-cell font-mono text-[var(--color-primary)] font-bold text-xs">

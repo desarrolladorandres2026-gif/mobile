@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { Permission } from '../security/rbac';
+import { cacheInvalidationPlugin, CachePrefix } from '../cache';
 
 /**
  * Rol administrable desde el panel (Seguridad y Acceso → Roles).
@@ -56,5 +57,10 @@ const roleSchema = new Schema<IRole>(
 );
 
 roleSchema.index({ isActive: 1 });
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+roleSchema.plugin(cacheInvalidationPlugin, {
+  prefixesFor: () => [CachePrefix.AUTHZ],
+});
 
 export const Role = mongoose.model<IRole>('Role', roleSchema);

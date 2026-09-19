@@ -54,7 +54,12 @@ zipp-web   zipp-admin  zipp-business     Node · zipp-api
   máquina y sube solo `dist/`.
 - Acceso **SSH como root** (Hostinger lo da en hPanel → VPS → SSH).
 - Cuentas externas con credenciales a mano:
-  - **MongoDB Atlas** (cluster M0 gratis sirve para empezar).
+  - **MongoDB Atlas** (cluster M0 gratis sirve para empezar). Crea el
+    cluster en la **misma región que el VPS** (o la más cercana): cada
+    consulta es un viaje de ida y vuelta, y una petición autenticada hace
+    varios. Cuando el tráfico crezca, el primer salto de velocidad es pasar
+    a **M10** (dedicado, sin los topes de rendimiento del compartido) en
+    esa misma región; no requiere cambiar código, solo `MONGODB_URI`.
   - **Cloudinary** (imágenes de producto, evidencias de entrega, flyers).
   - **Mapbox** (token público `pk.`) — opcional, degrada con elegancia.
   - **Wompi Colombia** — opcional al inicio; se arranca en `sandbox`.
@@ -101,9 +106,18 @@ git clone <URL_DEL_REPO> /var/www/zipp
 bash /var/www/zipp/deploy/scripts/provision.sh
 ```
 
-Instala Node 22, Nginx, PM2, `certbot`, crea el usuario de servicio
+Instala Node 22, Nginx, PM2, Redis, `certbot`, crea el usuario de servicio
 `zipp`, abre 80/443 en el cortafuegos y copia el `map` de WebSocket a
 `/etc/nginx/conf.d/`.
+
+**Redis** queda escuchando solo en `127.0.0.1:6379`, sin persistencia y con
+128 MB que expulsan lo menos usado (`allkeys-lru`): es una caché, no una
+base de datos. La API lo usa si el `.env` trae
+`REDIS_URL=redis://127.0.0.1:6379`; sin esa variable cachea en su propia
+memoria, que funciona igual pero se vacía en cada `pm2 reload`. Si Redis se
+cae, la API sigue respondiendo desde Mongo (más lento, nunca con error).
+Para vaciarlo a mano tras un cambio de datos hecho fuera de la app:
+`redis-cli --scan --pattern 'zipp:production:*' | xargs -r redis-cli unlink`.
 
 ### 3.4 · MongoDB Atlas
 
@@ -207,6 +221,13 @@ sudo certbot --nginx -d tudominio.com -d www.tudominio.com
 `certbot` inyecta el bloque `:443` y la redirección `80→443`, y deja
 programada la renovación (`systemctl list-timers | grep certbot`).
 
+**Después de certbot, activa HTTP/2** en cada bloque `:443` que generó
+(`/etc/nginx/sites-available/<dominio>`): con nginx ≥ 1.25.1 añade la línea
+`http2 on;` dentro del `server {}` de 443; en versiones anteriores cambia
+`listen 443 ssl;` por `listen 443 ssl http2;`. Luego
+`sudo nginx -t && sudo systemctl reload nginx`. Sin HTTP/2 el navegador
+encola las peticiones del panel de seis en seis.
+
 ### 3.9 · Verificación
 
 ```bash
@@ -276,7 +297,12 @@ Son un paso **manual y consciente**, nunca dentro de `deploy.sh`:
 cd /var/www/zipp/backend
 sudo -u zipp -E npm run migrate:monetisation   # según toque
 sudo -u zipp -E npm run migrate:rbac
+sudo -u zipp -E npm run migrate:perf-indexes   # 006: índices de pedidos y negocios
 ```
+
+La 006 solo añade índices (`createIndexes`, no borra nada) y se puede
+repetir sin riesgo. Conviene correrla **antes** de desplegar el backend que
+los usa: así no se construyen al arrancar con tráfico entrando.
 
 > **Nunca** ejecutes `npm run seed` en producción: reinicializa datos.
 

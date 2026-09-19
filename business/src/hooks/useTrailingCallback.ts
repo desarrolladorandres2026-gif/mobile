@@ -1,0 +1,27 @@
+import { useCallback, useEffect, useRef } from 'react';
+
+/**
+ * Una función que, llamada varias veces seguidas, se ejecuta una sola vez
+ * cuando pasan `waitMs` sin llamadas.
+ *
+ * Para las recargas que dispara el socket: en hora pico llegan varios
+ * cambios de estado por segundo, y cada uno volvía a pedir la cola entera
+ * (hasta 500 pedidos) más el extracto.
+ */
+export function useTrailingCallback(fn: () => void, waitMs: number): () => void {
+  const latest = useRef(fn);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    latest.current = fn;
+  });
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  return useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      latest.current();
+    }, waitMs);
+  }, [waitMs]);
+}

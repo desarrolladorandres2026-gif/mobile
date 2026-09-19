@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { trackingApi } from '../services/endpoints';
 import { socketService } from '../services/socket';
+import { pollInterval } from '../stores/realtimeStore';
 import type { MapMarker, MapPoint, MapRoute } from '../lib/mapbox';
 
 /** Estados en los que hay algo que seguir en el mapa. */
@@ -45,7 +46,10 @@ export function useOrderTracking(order: { _id?: string; status?: string; driverI
     // que caducan con el movimiento. 45 s es el punto donde el ETA sigue
     // siendo creíble sin convertir cada pantalla abierta en una petición
     // a Mapbox cada pocos segundos.
-    refetchInterval: trackable ? 45_000 : false,
+    //
+    // Con el socket conectado la posición llega en vivo y la ruta solo
+    // necesita refrescarse de vez en cuando: 90 s.
+    refetchInterval: trackable ? () => pollInterval(90_000, 45_000) : false,
   });
 
   // Al cambiar de pedido, la posición en vivo del anterior deja de tener

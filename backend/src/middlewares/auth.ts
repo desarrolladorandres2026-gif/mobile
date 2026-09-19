@@ -5,7 +5,7 @@ import { AppError } from './errorHandler';
 import { UserRole } from '../types';
 import { Permission, logAudit, AuditAction, AuditSeverity, sessionManager } from '../security';
 import { verifyAccessToken, isLegacyTokenAcceptable } from '../utils/token';
-import { getEffectivePermissions, getEffectiveRoleSlugs } from '../services/authorization.service';
+import { resolveAuthorization } from '../services/authorization.service';
 
 // Extend Express Request. `declare global { namespace Express {...} } ` is
 // the idiomatic — and only — way to augment a third-party module's ambient
@@ -69,16 +69,23 @@ export const authenticate = async (
     // viva: cerrar sesión, revocarla desde "mis dispositivos", un cambio de
     // contraseña o un bloqueo cortan también el access token vigente, en vez
     // de dejarlo útil hasta que caduque.
-    if (decoded.sid) {
-      const active = await sessionManager.isSessionActive(decoded.sid, decoded.id);
-      if (!active) throw new AppError('Tu sesión se cerró. Inicia sesión nuevamente.', 401, 'SESSION_REVOKED');
-    } else if (!isLegacyTokenAcceptable(decoded)) {
+    if (!decoded.sid && !isLegacyTokenAcceptable(decoded)) {
       // Sin `sid` solo se aceptan tokens emitidos antes de este despliegue,
       // hasta que caduquen solos. Ver `LEGACY_ACCESS_TOKEN_CUTOFF`.
       throw new AppError('Token inválido o expirado', 401);
     }
 
-    const user = await User.findById(decoded.id);
+    // La sesión y el usuario se piden a la vez: son independientes, y en
+    // serie cada petición autenticada pagaba dos viajes a la base antes de
+    // llegar al controlador. Los resultados se comprueban en el mismo orden
+    // de antes (sesión primero), así que los códigos de error no cambian.
+    const [active, user] = await Promise.all([
+      decoded.sid ? sessionManager.isSessionActive(decoded.sid, decoded.id) : Promise.resolve(true),
+      User.findById(decoded.id).catch(() => null),
+    ]);
+    if (!active) {
+      throw new AppError('Tu sesión se cerró. Inicia sesión nuevamente.', 401, 'SESSION_REVOKED');
+    }
     if (!user) {
       throw new AppError('Usuario no encontrado o desactivado', 401);
     }
@@ -127,10 +134,7 @@ export const authenticate = async (
 
     // Resueltos una vez por request; ver el comentario en la declaración
     // de tipos más arriba.
-    const [permissions, roleSlugs] = await Promise.all([
-      getEffectivePermissions(user),
-      getEffectiveRoleSlugs(user),
-    ]);
+    const { permissions, roleSlugs } = await resolveAuthorization(user);
     req.permissions = permissions;
     req.roleSlugs = roleSlugs;
 

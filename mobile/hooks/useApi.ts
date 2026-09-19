@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import { paymentPollInterval } from '../lib/paymentPolling';
+import { pollInterval } from '../stores/realtimeStore';
 import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi, referralsApi, homeSectionsApi } from '../services/endpoints';
 import type {
   PromoBanner, HomeCategory, SearchSort, CancellationCode,
@@ -46,19 +47,54 @@ export const useBusinesses = (params?: Record<string, any>, ready = true) =>
  */
 export const useDeliveryCoords = () => {
   const { data: addresses = [], isPending } = useAddresses();
-  const preferred = addresses.find((a: any) => a.isDefault) ?? addresses[0];
-  const coords = preferred?.location?.coordinates;
-
-  const value =
-    Array.isArray(coords) && coords.length === 2
-      ? { lng: coords[0] as number, lat: coords[1] as number }
-      : undefined;
-
-  return { coords: value, ready: !isPending };
+  return { coords: coordsFromAddresses(addresses), ready: !isPending };
 };
 
-export const useBusiness = (id: string) =>
-  useQuery({ queryKey: ['business', id], queryFn: () => businessesApi.getById(id), enabled: !!id });
+/**
+ * Las coordenadas de la dirección preferida (la predeterminada, o la
+ * primera). Aparte del hook para que el splash calcule **la misma** clave
+ * de `home-sections` al precargar: una clave distinta sería trabajo tirado.
+ */
+export function coordsFromAddresses(addresses: any[] | undefined): { lng: number; lat: number } | undefined {
+  const list = addresses ?? [];
+  const preferred = list.find((a: any) => a.isDefault) ?? list[0];
+  const coords = preferred?.location?.coordinates;
+  return Array.isArray(coords) && coords.length === 2
+    ? { lng: coords[0] as number, lat: coords[1] as number }
+    : undefined;
+}
+
+export const useBusiness = (id: string, enabled = true) =>
+  useQuery({ queryKey: ['business', id], queryFn: () => businessesApi.getById(id), enabled: !!id && enabled });
+
+/**
+ * La tienda entera en una petición, repartida en las claves de siempre.
+ *
+ * La pantalla de un negocio hacía cinco llamadas al abrirse (ficha,
+ * secciones, carta, más pedidos, opinión). Esta hace una y siembra las
+ * cinco claves que ya usaban los hooks de cada parte, así que el resto de
+ * la app —y la caché guardada entre aperturas— sigue funcionando igual.
+ *
+ * Si el servidor todavía no tiene `/storefront` (un backend anterior),
+ * falla con 404 y la pantalla vuelve a pedir cada parte por separado.
+ */
+export const useStorefront = (id: string) => {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ['storefront', id],
+    enabled: !!id,
+    retry: false,
+    queryFn: async () => {
+      const data = await businessesApi.getStorefront(id);
+      qc.setQueryData(['business', id], data.business);
+      qc.setQueryData(['categories', id], data.categories);
+      qc.setQueryData(['products', id, undefined], data.products);
+      qc.setQueryData(['products', 'top', id], data.topSellers);
+      qc.setQueryData(['products', 'sentiment', id], data.sentiment);
+      return true;
+    },
+  });
+};
 
 /**
  * Negocios ordenados por cercanía real.
@@ -214,11 +250,11 @@ export const useDriverReviews = (driverId: string | undefined) =>
  * Distinto de `isFeatured`: aquello es lo que el negocio quiere vender,
  * esto es lo que la gente compra.
  */
-export const useTopSellers = (businessId: string) =>
+export const useTopSellers = (businessId: string, enabled = true) =>
   useQuery({
     queryKey: ['products', 'top', businessId],
     queryFn: () => topSellersApi.forBusiness(businessId),
-    enabled: !!businessId,
+    enabled: !!businessId && enabled,
     staleTime: 10 * 60_000,
   });
 
@@ -266,20 +302,20 @@ export const useMyCoupons = () =>
   });
 
 /** Pulgares por plato de un negocio, para pintarlos en la carta. */
-export const useProductSentiment = (businessId: string) =>
+export const useProductSentiment = (businessId: string, enabled = true) =>
   useQuery({
     queryKey: ['products', 'sentiment', businessId],
     queryFn: () => productSentimentApi.forBusiness(businessId),
-    enabled: !!businessId,
+    enabled: !!businessId && enabled,
     staleTime: 10 * 60_000,
   });
 
 /** Secciones del menú de un negocio: Entradas, Hamburguesas, Bebidas… */
-export const useBusinessCategories = (businessId: string) =>
+export const useBusinessCategories = (businessId: string, enabled = true) =>
   useQuery({
     queryKey: ['categories', businessId],
     queryFn: () => categoriesApi.getByBusiness(businessId),
-    enabled: !!businessId,
+    enabled: !!businessId && enabled,
   });
 
 // ── Products ──
@@ -372,12 +408,19 @@ export const useCancelOrder = () => {
  * a 20s, un código bloqueado por intentos fallidos tardaría hasta 20
  * segundos en reflejarse. Juntos, el uno cubre el hueco del otro.
  */
-export const useOrderFlow = (orderId: string | undefined) =>
+export const useOrderFlow = (orderId: string | undefined, options: { poll?: boolean } = {}) =>
   useQuery({
     queryKey: ['orderFlow', orderId],
     queryFn: () => orderFlowApi.getState(orderId!),
     enabled: !!orderId,
-    refetchInterval: 20_000,
+    // Con el socket arriba los cambios llegan solos y el sondeo solo cubre
+    // eventos perdidos: basta cada minuto. Sin socket vuelve a 20 s. Y con
+    // la app en segundo plano no se sondea (ver `lib/appFocus`).
+    //
+    // `poll: false` para un segundo observador de la misma clave (el chat,
+    // montado dentro del seguimiento): cada observador con intervalo lleva
+    // su propio temporizador, y dos temporizadores eran dos peticiones.
+    refetchInterval: options.poll === false ? false : () => pollInterval(60_000, 20_000),
   });
 
 /** La cronología completa, solo cuando la pantalla que la enseña está abierta. */
@@ -874,10 +917,13 @@ export const usePublicCoupons = (params?: { city?: string; businessId?: string }
  * —los cupones públicos no la necesitan— así que la consulta sale igual,
  * solo que sin filtrar por radio.
  */
-export const useOffers = (coords?: { lat: number; lng: number } | null) =>
+export const useOffers = (coords?: { lat: number; lng: number } | null, ready = true) =>
   useQuery({
     queryKey: ['offers', coords],
     queryFn: () => offersApi.get(coords ?? undefined),
+    // Igual que el catálogo: sin esperar a las direcciones, la consulta
+    // salía una vez sin coordenadas y otra con ellas — dos descargas.
+    enabled: ready,
     staleTime: 5 * 60_000,
   });
 

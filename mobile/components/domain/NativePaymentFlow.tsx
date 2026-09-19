@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { View, StyleSheet, BackHandler } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import Animated, {
+  FadeIn, FadeInDown, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing,
+} from 'react-native-reanimated';
+import { StatusBar } from 'expo-status-bar';
 import { Text, Icon, Button, Screen, Header, EmptyState, SuccessCheck } from '../ui';
 import { TrazoLoader } from '../brand/Trazo';
 import { PaymentMethodSheet } from './PaymentMethodSheet';
@@ -27,6 +30,8 @@ import { orderCode, money } from '../../lib/format';
 import { apiMessage } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
 import { BorderRadius, Spacing } from '../../theme/tokens';
+import { NequiLogo, NEQUI } from '../brand/NequiLogo';
+import { WompiLogo } from '../brand/WompiLogo';
 
 /**
  * El cobro dentro de la app, de principio a fin.
@@ -310,7 +315,7 @@ export function NativePaymentFlow({ orderId, code }: Props) {
           </Animated.View>
           <Animated.View entering={FadeInDown.delay(320).duration(420)} style={styles.copy}>
             <Text v="displayL" center>¡Pago aprobado!</Text>
-            <Text v="bodyL" tone="textSecondary" center>
+            <Text v="bodyL" tone="text" center>
               Ya confirmamos tu pedido {reference} con el negocio.
             </Text>
           </Animated.View>
@@ -341,7 +346,7 @@ export function NativePaymentFlow({ orderId, code }: Props) {
             <Icon name={declined ? 'tarjeta' : 'sinConexion'} size={28} color={c.errorText} />
           </View>
           <Text v="titleL" center>{declined ? 'No se pudo cobrar' : 'No pudimos procesar el pago'}</Text>
-          <Text v="bodyM" tone="textSecondary" center style={styles.stateMessage}>
+          <Text v="bodyM" tone="text" center style={styles.stateMessage}>
             {message || (declined
               ? 'No se hizo ningún cobro. Puedes intentarlo con otro método.'
               : 'Revisa tu conexión e inténtalo de nuevo.')}
@@ -368,7 +373,7 @@ export function NativePaymentFlow({ orderId, code }: Props) {
             <Icon name="billetera" size={28} color={c.primaryText} />
           </View>
           <Text v="titleL" center>Elige cómo pagar</Text>
-          <Text v="bodyM" tone="textSecondary" center style={styles.stateMessage}>
+          <Text v="bodyM" tone="text" center style={styles.stateMessage}>
             Tu pedido {reference} está listo; falta el pago para enviarlo al negocio.
           </Text>
         </View>
@@ -390,7 +395,7 @@ export function NativePaymentFlow({ orderId, code }: Props) {
             <Icon name="reloj" size={28} color={c.warningText} />
           </View>
           <Text v="titleL" center>Tu pago está en proceso</Text>
-          <Text v="bodyM" tone="textSecondary" center style={styles.stateMessage}>
+          <Text v="bodyM" tone="text" center style={styles.stateMessage}>
             {message ||
               `Tu banco aún no confirma el pago del pedido ${reference}. Te avisamos apenas lo haga; si cerraste sin pagar, el intento se cancela solo en unos minutos.`}
           </Text>
@@ -420,22 +425,50 @@ export function NativePaymentFlow({ orderId, code }: Props) {
       ? `Te enviamos una notificación para aprobar el pago${amount ? ` de ${amount}` : ''}. Apruébala y vuelve: aquí verás el resultado.`
       : 'No cierres la aplicación. Esto solo toma un momento.';
 
+  // Con Nequi, mientras se cobra y se espera, la pantalla se viste de
+  // Nequi: quien va y vuelve de su app reconoce el mismo entorno.
+  if (kind === 'nequi' && (phase === 'charging' || phase === 'waiting')) {
+    return (
+      <Screen edges={['top', 'bottom']} style={{ backgroundColor: NEQUI.plum }}>
+        <StatusBar style="light" />
+        <View style={styles.loading}>
+          <NequiHalo>
+            <NequiLogo height={34} onDark />
+          </NequiHalo>
+          <Text v="titleM" center color="#FFFFFF">{title}</Text>
+          <Text v="bodyS" center color="rgba(255,255,255,0.78)" style={styles.stateMessage}>{body}</Text>
+          {selected ? (
+            <View style={[styles.chip, { backgroundColor: NEQUI.plumRaised }]}>
+              <Icon name={selected.icon} size="sm" color={NEQUI.magenta} />
+              <Text v="caption" color="#FFFFFF">{selected.label}</Text>
+            </View>
+          ) : null}
+          {phase === 'waiting' ? (
+            <Text v="dataM" color={NEQUI.magenta} accessibilityLabel={`Esperando hace ${seconds} segundos`}>
+              {clock}
+            </Text>
+          ) : null}
+        </View>
+
+        <View style={styles.secure} accessible accessibilityLabel="Pago protegido por Wompi">
+          <Icon name="candado" size="sm" color="rgba(255,255,255,0.7)" />
+          <Text v="caption" color="rgba(255,255,255,0.7)">Pago protegido por</Text>
+          <WompiLogo height={14} color="#FFFFFF" />
+        </View>
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
       <View style={styles.loading}>
-        {phase === 'waiting' && kind === 'nequi' ? (
-          <View style={[styles.stateIcon, { backgroundColor: c.primarySoft }]}>
-            <Icon name="celular" size={28} color={c.primaryText} />
-          </View>
-        ) : (
-          <TrazoLoader width={120} />
-        )}
+        <TrazoLoader width={120} />
         <Text v="titleM" center>{title}</Text>
         <Text v="bodyS" tone="textMuted" center style={styles.stateMessage}>{body}</Text>
         {selected && phase !== 'preparing' ? (
           <View style={[styles.chip, { backgroundColor: c.surfaceLight }]}>
-            <Icon name={selected.icon} size="sm" color={c.textSecondary} />
-            <Text v="caption" tone="textSecondary">{selected.label}</Text>
+            <Icon name={selected.icon} size="sm" color={c.text} />
+            <Text v="caption" tone="text">{selected.label}</Text>
           </View>
         ) : null}
         {phase === 'waiting' ? (
@@ -458,6 +491,17 @@ export function NativePaymentFlow({ orderId, code }: Props) {
             }}
           />
         ) : null}
+      </View>
+
+      {/* Quien espera con dinero en juego mira aquí de quién es el cobro. */}
+      <View
+        style={styles.secure}
+        accessible
+        accessibilityLabel="Pago protegido por Wompi"
+      >
+        <Icon name="candado" size="sm" color={c.textMuted} />
+        <Text v="caption" tone="textMuted">Pago protegido por</Text>
+        <WompiLogo height={14} color={c.text} />
       </View>
 
       <PaymentWebView
@@ -498,6 +542,22 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm,
   },
   stateMessage: { maxWidth: 320 },
+  nequiHalo: {
+    width: 188, height: 188, alignItems: 'center', justifyContent: 'center',
+    marginBottom: Spacing.sm,
+  },
+  nequiRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 94, borderWidth: 2, borderColor: NEQUI.magenta,
+  },
+  nequiCore: {
+    width: 150, height: 150, borderRadius: 75,
+    backgroundColor: NEQUI.plumRaised, alignItems: 'center', justifyContent: 'center',
+  },
+  secure: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.xs, paddingVertical: Spacing.xl,
+  },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -507,3 +567,24 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
   },
 });
+
+/**
+ * El logo sobre un círculo ciruela con un anillo magenta que late: dice
+ * "estamos esperando a Nequi" sin un spinner genérico.
+ */
+function NequiHalo({ children }: { children: ReactNode }) {
+  const pulse = useSharedValue(0);
+  useEffect(() => {
+    pulse.value = withRepeat(withTiming(1, { duration: 1600, easing: Easing.out(Easing.quad) }), -1, false);
+  }, [pulse]);
+  const ring = useAnimatedStyle(() => ({
+    opacity: 0.9 * (1 - pulse.value),
+    transform: [{ scale: 0.8 + pulse.value * 0.25 }],
+  }));
+  return (
+    <View style={styles.nequiHalo}>
+      <Animated.View style={[styles.nequiRing, ring]} />
+      <View style={styles.nequiCore}>{children}</View>
+    </View>
+  );
+}

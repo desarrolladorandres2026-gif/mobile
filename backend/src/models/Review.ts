@@ -4,6 +4,7 @@ import {
   ReviewReasonDriverToBusiness, ReviewReasonDriverToClient,
   ReviewReasonBusinessToDriver, ReviewReasonBusinessToClient,
 } from '../types';
+import { cacheInvalidationPlugin, CachePrefix, fieldFrom } from '../cache';
 
 export interface IReview extends Document {
   orderId: Types.ObjectId;
@@ -137,5 +138,13 @@ reviewSchema.index({ businessId: 1, createdAt: -1 });
 reviewSchema.index({ driverId: 1 });
 // La cola de moderación pregunta por lo oculto y lo reciente.
 reviewSchema.index({ isHidden: 1, createdAt: -1 });
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+reviewSchema.plugin(cacheInvalidationPlugin, {
+  prefixesFor: (ctx) => {
+    const businessId = fieldFrom(ctx, 'businessId');
+    return [businessId ? CachePrefix.business(businessId) : CachePrefix.BUSINESS_ALL];
+  },
+});
 
 export const Review = mongoose.model<IReview>('Review', reviewSchema);

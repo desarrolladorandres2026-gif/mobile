@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
+import { cacheInvalidationPlugin, CachePrefix, fieldFrom } from '../cache';
 
 export interface ICategory extends Document {
   businessId: Types.ObjectId;
@@ -35,5 +36,13 @@ const categorySchema = new Schema<ICategory>(
 );
 
 categorySchema.index({ businessId: 1, sortOrder: 1 });
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+categorySchema.plugin(cacheInvalidationPlugin, {
+  prefixesFor: (ctx) => {
+    const businessId = fieldFrom(ctx, 'businessId');
+    return [businessId ? CachePrefix.business(businessId) : CachePrefix.BUSINESS_ALL];
+  },
+});
 
 export const Category = mongoose.model<ICategory>('Category', categorySchema);

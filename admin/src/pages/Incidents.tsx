@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { io, Socket } from 'socket.io-client';
 import {
   AlertTriangle, ShieldAlert, Banknote, MessageSquareWarning, Clock,
   RotateCw, ArrowRight, ShieldCheck,
@@ -8,6 +7,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import api from '../services/api';
 import SosPanel from '../components/SosPanel';
+import { useAdminSocketEvents } from '../hooks/useAdminSocket';
 
 /**
  * Aviso sonoro de una emergencia nueva.
@@ -127,11 +127,12 @@ export default function Incidents() {
   const [filter, setFilter] = useState<'all' | IncidentKind>('all');
   const [openAlertId, setOpenAlertId] = useState<string | null>(null);
   const [justArrived, setJustArrived] = useState<{ id: string; detail: string } | null>(null);
-  const socketRef = useRef<Socket | null>(null);
 
+  // El spinner solo cubre la primera carga (`loading` arranca en true): en
+  // los refrescos de fondo la lista ya está en pantalla y parpadearla cada
+  // medio minuto solo distrae.
   const load = useCallback(async () => {
     try {
-      setLoading(true);
       const [list, totals] = await Promise.all([
         api.get('/security/incidents'),
         api.get('/security/incidents/summary'),
@@ -150,37 +151,31 @@ export default function Incidents() {
     // Un centro de incidentes que hay que refrescar a mano deja de ser un
     // centro de incidentes en cuanto alguien se distrae. Medio minuto es
     // suficiente: son consultas de conteo, no de listado pesado.
-    const timer = setInterval(load, 30_000);
-    return () => clearInterval(timer);
+    // Con la pestaña oculta no se pide nada; al volver se refresca de una.
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') load();
+    }, 30_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [load]);
 
   // Una emergencia no puede depender del refresco de 30 segundos: llega por
   // socket a la sala `admin` (el backend mete ahí a todo administrador al
   // conectar) y refresca la lista al instante, con tono y aviso propios.
-  useEffect(() => {
-    const token = localStorage.getItem('admin_token');
-    if (!token) return;
-
-    const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
-    const socket: Socket = io(SOCKET_URL, { auth: { token }, transports: ['websocket'] });
-    socketRef.current = socket;
-
-    const onTriggered = (payload: { alertId: string; driverId: string }) => {
+  useAdminSocketEvents({
+    'sos:triggered': (payload: { alertId: string; driverId: string }) => {
       playSosBeep();
       setJustArrived({ id: payload.alertId, detail: 'Nueva emergencia' });
       load();
-    };
-    const onUpdated = () => load();
-
-    socket.on('sos:triggered', onTriggered);
-    socket.on('sos:updated', onUpdated);
-
-    return () => {
-      socket.off('sos:triggered', onTriggered);
-      socket.off('sos:updated', onUpdated);
-      socket.disconnect();
-    };
-  }, [load]);
+    },
+    'sos:updated': () => load(),
+  });
 
   const shown = filter === 'all' ? incidents : incidents.filter((i) => i.kind === filter);
 

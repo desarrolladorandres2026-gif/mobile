@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import { BusinessCategory } from '../types';
+import { cacheInvalidationPlugin, CachePrefix } from '../cache';
 
 /** Qué hace la app cuando el cliente toca la tarjeta. */
 export enum BannerActionType {
@@ -214,6 +215,11 @@ promotionBannerSchema.index({
   placement: 1,
   displayOrder: 1,
   priority: -1,
+});
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+promotionBannerSchema.plugin(cacheInvalidationPlugin, {
+  prefixesFor: () => [CachePrefix.BANNERS, CachePrefix.HOME],
 });
 
 export const PromotionBanner = mongoose.model<IPromotionBanner>(

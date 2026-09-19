@@ -4,7 +4,10 @@ import {
   ToggleLeft, ToggleRight, ImagePlus, Link2, Store, Ban, LayoutGrid,
   MonitorSmartphone, Timer, ArrowRight,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
+import { sizedImage } from '../lib/cloudinary';
+import { fetchBusinessOptions } from '../lib/businessOptions';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
 import CuratedHomeBlocks from './CuratedHomeBlocks';
@@ -83,7 +86,7 @@ const STATUS_STYLES: Record<BannerStatus, { label: string; bg: string; text: str
   active: { label: 'Activo', bg: '#FDF7E7', text: '#D69E26' },
   scheduled: { label: 'Programado', bg: '#FDF7E7', text: '#D69E26' },
   expired: { label: 'Vencido', bg: '#FEF3C7', text: '#F59E0B' },
-  inactive: { label: 'Inactivo', bg: '#EDF1F5', text: '#7C8BA1' },
+  inactive: { label: 'Inactivo', bg: '#EDF1F5', text: '#0B0F19' },
 };
 
 const STATUS_TABS: { id: 'all' | BannerStatus; label: string }[] = [
@@ -147,6 +150,7 @@ export default function HomeBanners() {
 }
 
 function PromotionBannersPanel() {
+  const queryClient = useQueryClient();
   const [banners, setBanners] = useState<Banner[]>([]);
   const [options, setOptions] = useState<BannerOptions | null>(null);
   const [businesses, setBusinesses] = useState<{ _id: string; name: string }[]>([]);
@@ -171,7 +175,7 @@ function PromotionBannersPanel() {
       const [resBanners, resOptions, resBiz] = await Promise.all([
         api.get('/promotion-banners?limit=100'),
         api.get('/promotion-banners/options'),
-        api.get('/businesses?limit=100'),
+        fetchBusinessOptions(queryClient),
       ]);
       setBanners(resBanners.data.data);
       setOptions(resOptions.data.data);
@@ -449,7 +453,7 @@ function PromotionBannersPanel() {
                     </td>
                     <td className="table-body-cell">
                       <div className="w-16 h-10 rounded-lg overflow-hidden bg-[var(--color-bg)] border border-[var(--color-border)]">
-                        <img src={b.imageUrl} alt={b.title || 'Banner'} className="w-full h-full object-cover" />
+                        <img src={sizedImage(b.imageUrl, 640)} alt={b.title || 'Banner'} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                       </div>
                     </td>
                     <td className="table-body-cell max-w-[240px]">
@@ -898,7 +902,7 @@ function MobilePreview({ banners }: { banners: Banner[] }) {
                   : '0 2px 8px rgba(8, 11, 17,0.10)',
               }}
             >
-              <img src={b.imageUrl} alt={b.title || 'Banner'} className="w-full h-full object-cover" />
+              <img src={sizedImage(b.imageUrl, 640)} alt={b.title || 'Banner'} loading="lazy" decoding="async" className="w-full h-full object-cover" />
               {(b.title || b.description || b.buttonText) && (
                 <div
                   className="absolute inset-x-0 bottom-0 p-2.5"

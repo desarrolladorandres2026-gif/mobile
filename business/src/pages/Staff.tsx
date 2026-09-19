@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, UserPlus, Users, ShieldCheck, X } from 'lucide-react';
 import api from '../services/api';
+import { qk } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 
@@ -38,28 +40,25 @@ export default function Staff() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
 
-  const [staff, setStaff] = useState<StaffMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<Role>('staff');
   const [adding, setAdding] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!businessId) return;
-    try {
-      setLoading(true);
-      setError('');
-      const { data } = await api.get(`/businesses/${businessId}/staff`);
-      setStaff(data.data);
-    } catch (err) {
-      setError(apiMessage(err, 'No se pudo cargar el equipo.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId]);
+  const staffQuery = useQuery({
+    queryKey: qk.staff(businessId),
+    enabled: !!businessId,
+    queryFn: async () => (await api.get(`/businesses/${businessId}/staff`)).data.data as StaffMember[],
+  });
+  const staff = useMemo(() => staffQuery.data ?? [], [staffQuery.data]);
+  const loading = !!businessId && staffQuery.isPending;
+  const loadError = staffQuery.isError ? apiMessage(staffQuery.error, 'No se pudo cargar el equipo.') : '';
 
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: qk.staff(businessId) }),
+    [queryClient, businessId]
+  );
 
   const add = async () => {
     if (!businessId) return;
@@ -107,10 +106,10 @@ export default function Staff() {
         </div>
       </div>
 
-      {error && (
+      {(error || loadError) && (
         <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <p className="flex-1 font-semibold">{error}</p>
+          <p className="flex-1 font-semibold">{error || loadError}</p>
         </div>
       )}
 

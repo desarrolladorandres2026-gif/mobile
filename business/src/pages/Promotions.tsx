@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState, type ComponentType } from 'react';
+import { useCallback, useMemo, useState, type ComponentType } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Plus, Tag, Power, X } from 'lucide-react';
 import api from '../services/api';
+import { qk } from '../lib/queryKeys';
 import { CouponIllustration, DeliveryIllustration } from '../components/illustrations';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
@@ -73,28 +75,25 @@ export default function Promotions() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
 
-  const [coupons, setCoupons] = useState<Coupon[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!businessId) return;
-    try {
-      setLoading(true);
-      setError('');
-      const { data } = await api.get(`/coupons/business/${businessId}`);
-      setCoupons(data.data);
-    } catch (err) {
-      setError(apiMessage(err, 'No se pudieron cargar tus promociones.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId]);
+  const couponsQuery = useQuery({
+    queryKey: qk.promotions(businessId),
+    enabled: !!businessId,
+    queryFn: async () => (await api.get(`/coupons/business/${businessId}`)).data.data as Coupon[],
+  });
+  const coupons = useMemo(() => couponsQuery.data ?? [], [couponsQuery.data]);
+  const loading = !!businessId && couponsQuery.isPending;
+  const loadError = couponsQuery.isError ? apiMessage(couponsQuery.error, 'No se pudieron cargar tus promociones.') : '';
 
-  useEffect(() => { load(); }, [load]);
+  const load = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: qk.promotions(businessId) }),
+    [queryClient, businessId]
+  );
 
   const create = async () => {
     if (!businessId) return;
@@ -149,10 +148,10 @@ export default function Promotions() {
         </button>
       </div>
 
-      {error && (
+      {(error || loadError) && (
         <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <p className="flex-1 font-semibold">{error}</p>
+          <p className="flex-1 font-semibold">{error || loadError}</p>
         </div>
       )}
 

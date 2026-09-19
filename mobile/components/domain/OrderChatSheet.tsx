@@ -31,7 +31,8 @@ export function OrderChatSheet({
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
 
-  const { data: flow } = useOrderFlow(orderId);
+  // La pantalla que monta el chat ya sondea este mismo estado.
+  const { data: flow } = useOrderFlow(orderId, { poll: false });
   const { data: messages, isLoading } = useOrderChat(visible ? orderId : undefined);
   const send = useSendOrderMessage(orderId);
   const markRead = useMarkOrderChatRead(orderId);

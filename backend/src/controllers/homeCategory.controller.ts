@@ -4,13 +4,20 @@ import { sendResponse, param } from '../utils';
 import { AppError } from '../middlewares';
 import { uploadHomeCategoryImage } from '../middlewares/upload';
 import { AuditAction, AuditSeverity, logAudit } from '../security';
+import { cache, CachePrefix } from '../cache';
+import { cacheHeaders } from '../middlewares/cacheControl';
 
 export class HomeCategoryController {
   // ── Público: lo consume la app en la pantalla inicial ───────────────
 
   async getForApp(_req: Request, res: Response, next: NextFunction) {
     try {
-      const categories = await homeCategoryService.listActive();
+      // Cambian cuando administración las edita, no solas: diez minutos, y
+      // cualquier escritura en `HomeCategory` limpia la entrada al instante.
+      const categories = await cache.wrap(`${CachePrefix.HOME_CATEGORIES}active`, 600, () =>
+        homeCategoryService.listActive()
+      );
+      cacheHeaders(res, 'shared');
       sendResponse(res, 200, 'Categorías de inicio', categories);
     } catch (error) { next(error); }
   }

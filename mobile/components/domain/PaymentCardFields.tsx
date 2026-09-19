@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Input } from '../ui';
+import { CardPreview, type CardField } from './CardPreview';
 import {
   BRAND_LABEL,
   cvcLengthFor,
@@ -14,7 +16,7 @@ import {
 import { Spacing } from '../../theme/tokens';
 
 /**
- * Los cuatro campos de una tarjeta nueva.
+ * Los cuatro campos de una tarjeta nueva, con la tarjeta armándose encima.
  *
  * Solo presentación: el estado vive en `PaymentMethodSheet`, que es quien
  * tiene el botón y decide cuándo tokenizar. Nada de lo escrito aquí sale
@@ -33,13 +35,23 @@ interface Props {
 
 export function PaymentCardFields({ values, errors, onChange }: Props) {
   const brand = detectBrand(values.number);
+  const [focused, setFocused] = useState<CardField | null>(null);
   const set = (patch: Partial<CardFormValues>) => onChange({ ...values, ...patch });
+
+  // Solo se suelta si el que sale es el que tenía el foco: al saltar de un
+  // campo a otro el blur del viejo puede llegar después del focus del nuevo.
+  const focusProps = (field: CardField) => ({
+    onFocus: () => setFocused(field),
+    onBlur: () => setFocused((current) => (current === field ? null : current)),
+  });
 
   // Un espacio por cada grupo, además de los dígitos.
   const numberMaxLength = maxLengthFor(brand) + 4;
 
   return (
     <View style={styles.wrap}>
+      <CardPreview values={values} focused={focused} />
+
       <Input
         label="Número de la tarjeta"
         icon="tarjeta"
@@ -52,6 +64,7 @@ export function PaymentCardFields({ values, errors, onChange }: Props) {
         autoComplete="cc-number"
         textContentType="creditCardNumber"
         error={errors.number}
+        {...focusProps('number')}
         hint={brand !== 'UNKNOWN' ? BRAND_LABEL[brand] : undefined}
       />
 
@@ -66,6 +79,7 @@ export function PaymentCardFields({ values, errors, onChange }: Props) {
           maxLength={5}
           autoComplete="cc-exp"
           error={errors.expiry}
+        {...focusProps('expiry')}
           containerStyle={styles.half}
         />
         <Input
@@ -79,6 +93,7 @@ export function PaymentCardFields({ values, errors, onChange }: Props) {
           secureTextEntry
           autoComplete="cc-csc"
           error={errors.cvc}
+        {...focusProps('cvc')}
           hint={brand === 'AMEX' ? 'Al frente, 4 dígitos' : 'Al reverso, 3 dígitos'}
           containerStyle={styles.half}
         />
@@ -94,6 +109,7 @@ export function PaymentCardFields({ values, errors, onChange }: Props) {
         textContentType="name"
         maxLength={60}
         error={errors.holder}
+        {...focusProps('holder')}
       />
     </View>
   );

@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
 import { BusinessCategory, GeoPoint, WeekSchedule } from '../types';
 import { normalize } from '../utils/text';
 import { BUSINESS_BRAND_COLORS } from '../utils/businessBrand';
+import { cacheInvalidationPlugin, CachePrefix, fieldFrom } from '../cache';
 
 export interface IBusiness extends Document {
   ownerId: Types.ObjectId;
@@ -313,6 +314,10 @@ businessSchema.index({ city: 1, isActive: 1 });
 businessSchema.index({ isApproved: 1, isActive: 1 });
 // `slug` already declares `unique: true` on the path, which creates the index.
 businessSchema.index({ isFeatured: 1 });
+// "Mis negocios", la sala de socket del dueño y cada comprobación de
+// propiedad preguntan por `ownerId`; sin índice, cada una recorre la
+// colección entera.
+businessSchema.index({ ownerId: 1, createdAt: -1 });
 // Anclado (`^termino`) es la única forma de `$regex` que aprovecha un
 // índice; sin él cada pulsación recorrería la colección entera.
 businessSchema.index({ searchName: 1 });
@@ -337,6 +342,19 @@ businessSchema.virtual('products', {
   ref: 'Product',
   localField: '_id',
   foreignField: 'businessId',
+});
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+businessSchema.plugin(cacheInvalidationPlugin, {
+  prefixesFor: (ctx) => {
+    const id = fieldFrom(ctx, '_id');
+    return [
+      id ? CachePrefix.business(id) : CachePrefix.BUSINESS_ALL,
+      CachePrefix.BUSINESS_SLUG,
+      CachePrefix.HOME,
+      CachePrefix.OFFERS,
+    ];
+  },
 });
 
 export const Business = mongoose.model<IBusiness>('Business', businessSchema);

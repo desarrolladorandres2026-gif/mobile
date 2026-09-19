@@ -28,6 +28,8 @@ function applyThemeToDOM(resolvedTheme: 'light' | 'dark') {
   }
 }
 
+let systemListenerInstalled = false;
+
 export const useThemeStore = create<ThemeState>((set, get) => ({
   theme: 'auto',
   resolvedTheme: 'light',
@@ -46,18 +48,19 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     set({ theme: saved, resolvedTheme });
 
     // Listener para cambios de tema en el sistema operativo
-    if (typeof window !== 'undefined') {
+    // Una sola vez por pestaña. Antes se quitaba con `removeEventListener`
+    // pasándole una función recién creada —que nunca era la registrada—,
+    // así que cada llamada a `initTheme` sumaba otro listener.
+    if (typeof window !== 'undefined' && !systemListenerInstalled) {
+      systemListenerInstalled = true;
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const handleChange = () => {
+      mediaQuery.addEventListener('change', () => {
         if (get().theme === 'auto') {
           const newResolved = mediaQuery.matches ? 'dark' : 'light';
           applyThemeToDOM(newResolved);
           set({ resolvedTheme: newResolved });
         }
-      };
-
-      mediaQuery.removeEventListener('change', handleChange);
-      mediaQuery.addEventListener('change', handleChange);
+      });
     }
   },
 }));

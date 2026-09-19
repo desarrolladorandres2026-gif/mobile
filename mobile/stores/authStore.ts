@@ -3,6 +3,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { secureGet, secureSet, secureDelete } from '../lib/secureStorage';
 import { API_URL } from '../constants';
+import { clearPersistedQueries } from '../lib/queryPersistence';
 
 export interface User {
   _id: string;
@@ -79,6 +80,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: true,
 
   setAuth: async (user, accessToken, refreshToken) => {
+    // Otra persona en el mismo teléfono: lo guardado (direcciones incluidas)
+    // era de la anterior.
+    const previous = useAuthStore.getState().user;
+    if (previous && previous._id !== user._id) await clearPersistedQueries();
     await persistTokens(accessToken, refreshToken);
     await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
     set({ user, accessToken, refreshToken, isAuthenticated: true });
@@ -135,6 +140,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       secureDelete(ACCESS_KEY),
       secureDelete(REFRESH_KEY),
       AsyncStorage.removeItem(USER_KEY),
+      // Direcciones y catálogo guardados entre aperturas son de esta sesión.
+      clearPersistedQueries(),
       // Por si quedaba algo del almacén viejo en un dispositivo que nunca
       // llegó a migrar.
       AsyncStorage.multiRemove([ACCESS_KEY, REFRESH_KEY]),
@@ -145,9 +152,12 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   loadStoredAuth: async () => {
     try {
-      let [accessToken, refreshToken] = await Promise.all([
+      // Las tres lecturas a la vez: el arranque espera a esto antes de
+      // pintar nada, y en serie eran tres viajes al almacenamiento.
+      let [accessToken, refreshToken, userStr] = await Promise.all([
         secureGet(ACCESS_KEY),
         secureGet(REFRESH_KEY),
+        AsyncStorage.getItem(USER_KEY),
       ]);
 
       if (!accessToken || !refreshToken) {
@@ -155,8 +165,6 @@ export const useAuthStore = create<AuthState>((set) => ({
         accessToken = migrated.access;
         refreshToken = migrated.refresh;
       }
-
-      const userStr = await AsyncStorage.getItem(USER_KEY);
 
       if (accessToken && refreshToken && userStr) {
         set({

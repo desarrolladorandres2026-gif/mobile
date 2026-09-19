@@ -33,6 +33,7 @@ router.get('/slug/:slug', (req, res, next) => businessController.getBySlug(req, 
 /** Tarjeta pública para el enlace del botón "Compartir". Ver el controlador. */
 router.get('/slug/:slug/share', (req, res, next) => businessController.sharePreview(req, res, next));
 router.get('/:id', (req, res, next) => businessController.getById(req, res, next));
+router.get('/:id/storefront', (req, res, next) => businessController.storefront(req, res, next));
 
 // Protected – owner/admin
 router.post('/', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(createBusinessSchema), (req, res, next) => businessController.create(req, res, next));

@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { AlertCircle, TrendingUp, TrendingDown, Clock, ShoppingBag, XCircle } from 'lucide-react';
 import api from '../services/api';
+import { qk } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 
@@ -50,28 +52,21 @@ export default function Analytics() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
 
-  const [data, setData] = useState<Analytics | null>(null);
   const [days, setDays] = useState(30);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
-    if (!businessId) return;
-    try {
-      setLoading(true);
-      setError('');
-      const response = await api.get(`/businesses/${businessId}/analytics`, {
-        params: { days },
-      });
-      setData(response.data.data);
-    } catch (err) {
-      setError(apiMessage(err, 'No se pudieron cargar las analíticas.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId, days]);
-
-  useEffect(() => { load(); }, [load]);
+  // Cada rango es su propia entrada: volver a 30 días tras mirar 7 no
+  // vuelve a pedir nada, y mientras llega un rango nuevo se sigue viendo
+  // el anterior en vez de un hueco.
+  const analyticsQuery = useQuery({
+    queryKey: qk.analytics(businessId, days),
+    enabled: !!businessId,
+    placeholderData: keepPreviousData,
+    queryFn: async () =>
+      (await api.get(`/businesses/${businessId}/analytics`, { params: { days } })).data.data as Analytics,
+  });
+  const data = analyticsQuery.data ?? null;
+  const loading = !!businessId && analyticsQuery.isPending;
+  const loadError = analyticsQuery.isError ? apiMessage(analyticsQuery.error, 'No se pudieron cargar las analíticas.') : '';
 
   const revenueDelta = data ? delta(data.totals.revenue, data.previous.revenue) : null;
   const ordersDelta = data ? delta(data.totals.orders, data.previous.orders) : null;
@@ -106,10 +101,10 @@ export default function Analytics() {
         </div>
       </div>
 
-      {error && (
+      {loadError && (
         <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <p className="flex-1 font-semibold">{error}</p>
+          <p className="flex-1 font-semibold">{loadError}</p>
         </div>
       )}
 

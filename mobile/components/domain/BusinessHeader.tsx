@@ -6,6 +6,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { categoryIllustration } from '../illustrations';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
 import { money, minutes } from '../../lib/format';
+import { sizedImageUri, screenWidth } from '../../lib/cloudinaryImage';
 
 /**
  * La portada, la identidad y la promesa de entrega de un negocio.
@@ -74,7 +75,7 @@ export function BusinessHeader({ business, fallbackAccent, distanceLabel, status
       <View style={[styles.cover, { backgroundColor: backdrop }]}>
         {hasCover ? (
           <Image
-            source={{ uri: business.coverImage! }}
+            source={{ uri: sizedImageUri(business.coverImage, screenWidth()) }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={220}
@@ -92,7 +93,7 @@ export function BusinessHeader({ business, fallbackAccent, distanceLabel, status
           <View style={[styles.logo, { backgroundColor: c.surface, borderColor: c.white }]}>
             {business.logo ? (
               <Image
-                source={{ uri: business.logo }}
+                source={{ uri: sizedImageUri(business.logo, 96) }}
                 style={styles.logoImage}
                 contentFit="cover"
                 transition={200}

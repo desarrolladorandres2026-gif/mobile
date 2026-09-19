@@ -59,7 +59,7 @@ export function PaymentConsent({ checked, onToggle, lead, linkText, url, error }
         >
           {checked ? <Icon name="check" size="sm" color={c.textOnPrimary} /> : null}
         </View>
-        <Text v="bodyS" tone="textSecondary" style={styles.flex}>
+        <Text v="bodyS" tone="text" style={styles.flex}>
           {lead}{' '}
           <Text
             v="bodyS"
@@ -76,6 +76,36 @@ export function PaymentConsent({ checked, onToggle, lead, linkText, url, error }
         <Text v="caption" tone="errorText" style={styles.error}>{error}</Text>
       ) : null}
     </View>
+  );
+}
+
+/**
+ * Los términos de Wompi como aviso, sin casilla.
+ *
+ * Wompi pide que quien paga vea los términos antes de cobrar. Una frase
+ * junto al botón, con el enlace al documento, lo cumple sin un paso más:
+ * pulsar el botón es la aceptación.
+ */
+export function PaymentTermsNotice({ url }: { url?: string }) {
+  const openDocument = () => {
+    if (!url) return;
+    tap('light');
+    WebBrowser.openBrowserAsync(url).catch(() => {});
+  };
+
+  return (
+    <Text v="caption" tone="textMuted" center>
+      Al continuar aceptas los{' '}
+      <Text
+        v="caption"
+        tone="primaryText"
+        onPress={url ? openDocument : undefined}
+        accessibilityRole="link"
+        style={url ? styles.link : undefined}
+      >
+        términos de Wompi
+      </Text>
+    </Text>
   );
 }
 

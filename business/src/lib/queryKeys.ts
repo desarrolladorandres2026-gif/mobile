@@ -1,0 +1,21 @@
+/**
+ * Las claves de react-query del panel, todas colgando del negocio.
+ *
+ * Todo lo de un negocio empieza por `['business', id]`: cambiar de
+ * establecimiento o invalidar "lo de este negocio" es un solo prefijo, y
+ * nada de un negocio puede quedarse pintado en la pantalla de otro.
+ */
+export const qk = {
+  business: (id: string | undefined) => ['business', id] as const,
+  activeOrders: (id: string | undefined) => ['business', id, 'orders', 'active'] as const,
+  orders: (id: string | undefined, ...params: unknown[]) => ['business', id, 'orders', ...params] as const,
+  statement: (id: string | undefined) => ['business', id, 'statement'] as const,
+  statementLines: (id: string | undefined, ...params: unknown[]) => ['business', id, 'statement-lines', ...params] as const,
+  menu: (id: string | undefined) => ['business', id, 'menu'] as const,
+  reviews: (id: string | undefined, ...params: unknown[]) => ['business', id, 'reviews', ...params] as const,
+  analytics: (id: string | undefined, ...params: unknown[]) => ['business', id, 'analytics', ...params] as const,
+  promotions: (id: string | undefined) => ['business', id, 'promotions'] as const,
+  advertising: (id: string | undefined) => ['business', id, 'advertising'] as const,
+  staff: (id: string | undefined) => ['business', id, 'staff'] as const,
+  settings: (id: string | undefined) => ['business', id, 'settings'] as const,
+};

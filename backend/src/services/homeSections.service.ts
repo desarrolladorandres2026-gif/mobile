@@ -5,17 +5,23 @@ import { LatLng } from '../utils/geo';
 import { VISIBLE_BUSINESS, withinRadius, withDistance } from '../utils/catalogQuery';
 import { productImageUrls } from '../utils/productImageUrls';
 import { businessService } from './business.service';
+import { cache, CachePrefix } from '../cache';
 
 /**
  * Las colecciones dinámicas del inicio — "Los más pedidos", "Descuentos
  * locos", "Cerca de ti"…, mezclando productos de varios comercios.
  *
- * La restricción real no es de reglas sino de presupuesto: el rate limit
- * global es 100 peticiones cada 15 minutos por IP (`app.ts`), así que veinte
- * secciones no pueden ser veinte consultas. Son dos: una a `orders` (para lo
- * que depende de ventas: más pedidos, recompra, tendencia) y una a
- * `products` con un único `$facet` que resuelve las demás diecisiete de un
- * tirón, reutilizando el mismo `$lookup` a `businesses` para todas.
+ * Veinte secciones no pueden ser veinte peticiones —cada viaje a Atlas se
+ * paga en latencia— ni veinte consultas. El trabajo va en dos tandas:
+ *
+ * 1. En paralelo: los negocios visibles (por el índice 2dsphere, sin tocar
+ *    productos), el ranking de ventas, los bloques curados y los banners
+ *    posicionados. Los tres últimos son iguales para todo el mundo y salen
+ *    de caché casi siempre.
+ * 2. Una única consulta a `products`, ya acotada a esos negocios, con un
+ *    `$facet` que resuelve las diecisiete secciones restantes de un tirón.
+ *
+ * Y la respuesta entera se cachea un minuto por zona (ver el controlador).
  *
  * Las secciones que dependen de ventas primero recortan por `Order` (sin
  * mirar el catálogo) y luego piden esos mismos ids como facets adicionales
@@ -509,16 +515,63 @@ function pickForSection(
   return chosen;
 }
 
+/** El ranking de ventas es igual para todo el mundo: se recalcula cada diez minutos. */
+const SALES_CACHE_TTL_SECONDS = 600;
+/** Bloques curados y banners tienen fecha de inicio/fin: un minuto de margen. */
+const BLOCKS_CACHE_TTL_SECONDS = 60;
+
+/**
+ * `rankBySales` desde caché. Lo cacheado es JSON, así que los ids vuelven
+ * como texto y hay que devolverles su tipo: `aggregate()` no convierte, y
+ * un `$in` de strings contra `_id` no encontraría nada.
+ */
+async function cachedSalesRanking(): ReturnType<typeof rankBySales> {
+  const ranked = await cache.wrap(`${CachePrefix.SALES}home`, SALES_CACHE_TTL_SECONDS, rankBySales);
+  const revive = (list: OrderRanked[]) => list.map((r) => ({ ...r, _id: new Types.ObjectId(String(r._id)) }));
+  return {
+    mostOrdered: revive(ranked.mostOrdered),
+    repeatPurchase: revive(ranked.repeatPurchase),
+    trending: revive(ranked.trending),
+  };
+}
+
+/**
+ * Los negocios que el cliente puede ver desde donde está.
+ *
+ * Primero los negocios y después sus productos, no al revés: antes se
+ * recorría el catálogo entero, se unía cada producto a su negocio y solo
+ * entonces se descartaba lo que quedaba fuera del radio — el índice
+ * geoespacial no servía de nada porque el filtro llegaba después del join.
+ */
+async function visibleBusinessIds(
+  coords: LatLng | null,
+  maxDistance: number,
+  city: string | undefined
+): Promise<Types.ObjectId[]> {
+  return Business.find({
+    ...VISIBLE_BUSINESS,
+    ...withinRadius(coords, maxDistance),
+    ...(city ? { city } : {}),
+  }).distinct('_id');
+}
+
 export async function getHomeSections(options: HomeSectionsOptions = {}) {
   const coords = readCoords(options);
   const maxDistance = options.maxDistance ?? DEFAULT_MAX_DISTANCE;
   const { city } = options;
 
+  // Se conserva tal cual aunque el primer `$match` ya acote por negocio: es
+  // la garantía de que el resultado es idéntico al de antes del cambio.
   const businessMatch = joinedBusinessMatch();
   if (coords) businessMatch['business.location'] = withinRadius(coords, maxDistance).location;
   if (city) businessMatch['business.city'] = city;
 
-  const sales = await rankBySales();
+  const [businessIds, sales, curatedBlocks, promoBlocks] = await Promise.all([
+    visibleBusinessIds(coords, maxDistance, city),
+    cachedSalesRanking(),
+    cache.wrap(`${CachePrefix.HOME}curated`, BLOCKS_CACHE_TTL_SECONDS, getCuratedBlocks),
+    cache.wrap(`${CachePrefix.HOME}promo`, BLOCKS_CACHE_TTL_SECONDS, getPositionedPromoBlocks),
+  ]);
 
   const facets: Record<string, PipelineStage.FacetPipelineStage[]> = {
     // 💸 Descuentos locos
@@ -664,7 +717,14 @@ export async function getHomeSections(options: HomeSectionsOptions = {}) {
   }
 
   const pipeline: PipelineStage[] = [
-    { $match: { isAvailable: true, $or: [{ stock: null }, { stock: { $gt: 0 } }] } },
+    // `{businessId, isAvailable}` ya está indexado en `Product`.
+    {
+      $match: {
+        businessId: { $in: businessIds },
+        isAvailable: true,
+        $or: [{ stock: null }, { stock: { $gt: 0 } }],
+      },
+    },
     { $lookup: { from: 'businesses', localField: 'businessId', foreignField: '_id', as: 'business' } },
     { $unwind: '$business' },
     { $match: businessMatch },
@@ -690,7 +750,9 @@ export async function getHomeSections(options: HomeSectionsOptions = {}) {
     { $facet: facets },
   ];
 
-  const [raw] = await Product.aggregate(pipeline);
+  // Sin negocios a la vista no hay productos que buscar; los bloques
+  // curados y los banners se muestran igual.
+  const [raw] = businessIds.length ? await Product.aggregate(pipeline) : [undefined];
 
   const clean = (key: string): SectionProduct[] => filterOpenNow((raw?.[key] ?? []) as SectionProduct[]);
 
@@ -764,8 +826,6 @@ export async function getHomeSections(options: HomeSectionsOptions = {}) {
       ),
     }))
     .filter((section) => section.products.length >= MIN_SECTION_SIZE);
-
-  const [curatedBlocks, promoBlocks] = await Promise.all([getCuratedBlocks(), getPositionedPromoBlocks()]);
 
   // Todo fusionado y ordenado por `order` ascendente: así un admin puede
   // intercalar un bloque curado o un banner entre dos colecciones

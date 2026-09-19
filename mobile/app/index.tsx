@@ -5,13 +5,23 @@ import { Image as ExpoImage } from 'expo-image';
 import { ZippSplashLoader } from '../components/brand/ZippSplashLoader';
 import { AdSplash } from '../components/domain/AdSplash';
 import { useAuthStore } from '../stores/authStore';
-import { adsApi, addressApi, homeCategoriesApi, type ActiveAd } from '../services/endpoints';
+import {
+  adsApi, addressApi, bannersApi, homeCategoriesApi, homeSectionsApi, ordersApi, type ActiveAd,
+} from '../services/endpoints';
+import { ensureFreshAccessToken } from '../services/api';
+import { coordsFromAddresses } from '../hooks/useApi';
 import { withTimeout } from '../lib/withTimeout';
 import { decideAtStart, hrefFor } from '../lib/routing';
 import { IS_CLIENT_APP } from '../constants/variant';
 
-/** Tiempo de bienvenida para apreciar la marca y el efecto de reflejo metálico. */
-const HOLD_MS = 2200;
+/**
+ * Tiempo de bienvenida para apreciar la marca y el efecto de reflejo metálico.
+ *
+ * Eran 2,2 s. Se bajó a 1,2 s (decisión del 2026-09-18): el reflejo se
+ * alcanza a ver completo una vez, y el Inicio ya llega lleno porque se
+ * precarga durante este mismo tiempo (ver `warmCache`).
+ */
+const HOLD_MS = 1200;
 /** Tope para pedir la campaña activa: publicidad lenta nunca puede demorar el arranque. */
 const AD_FETCH_TIMEOUT_MS = 2500;
 /** Tope para precargar el flyer antes de decidir si se muestra. */
@@ -42,45 +52,61 @@ async function prepareAd(): Promise<ActiveAd | null> {
 /**
  * Calienta la caché mientras se ve la marca.
  *
- * Los 2,2 segundos de bienvenida eran tiempo regalado: no se precargaba
- * absolutamente nada, así que el Inicio empezaba sus siete peticiones
- * **después**, con el usuario ya mirando esqueletos. Aquí se solapan con una
- * espera que iba a ocurrir de todos modos.
+ * El tiempo de bienvenida era tiempo regalado: no se precargaba nada, así
+ * que el Inicio empezaba sus peticiones **después**, con el usuario ya
+ * mirando esqueletos. Aquí se solapan con una espera que iba a ocurrir de
+ * todos modos.
+ *
+ * Primero el token: si venció (lo normal tras 15 minutos), se refresca
+ * antes de pedir nada, en vez de que cada petición falle con 401 y se
+ * repita. Después, en paralelo:
+ *
+ * - las direcciones, y con ellas las coordenadas → las colecciones del
+ *   Inicio (`home-sections`), con **la misma clave** que usará el hook;
+ * - las categorías del Inicio;
+ * - la primera página de pedidos (la usan el Dock y "lo de siempre");
+ * - los banners del Inicio.
  *
  * `prefetchQuery` y no `fetchQuery`: prefetch no lanza si algo falla, que es
  * justo lo que se quiere en el arranque. Un fallo aquí no debe impedir
  * entrar a la app — el Inicio volverá a pedirlo y enseñará su propio error.
  *
  * Las claves tienen que coincidir **exactamente** con las de los hooks o el
- * trabajo se descarta en silencio y se hace dos veces.
- *
- * Por eso **no** se precarga el catálogo: Inicio lo pide como
- * `['businesses', { lng, lat }]`, con unas coordenadas que aquí todavía no
- * se conocen. Pedirlo sin ellas crearía una segunda clave y descargaría el
- * catálogo entero dos veces — exactamente el problema que `useBusinesses`
- * acaba de resolver esperando a las direcciones.
- *
- * Se precargan las direcciones, que son las que traen esas coordenadas y por
- * tanto lo que desbloquea todo lo demás, y las categorías del Inicio, que no
- * dependen de nada.
+ * trabajo se descarta en silencio y se hace dos veces. Por eso **no** se
+ * precarga el catálogo `['businesses', …]`, que depende de parámetros de la
+ * pantalla.
  */
-function warmCache(queryClient: ReturnType<typeof useQueryClient>): void {
-  void queryClient.prefetchQuery({
-    queryKey: ['addresses'],
-    queryFn: addressApi.getAll,
-  });
-  void queryClient.prefetchQuery({
+async function warmCache(queryClient: ReturnType<typeof useQueryClient>): Promise<void> {
+  await ensureFreshAccessToken();
+  if (!useAuthStore.getState().isAuthenticated) return;
+
+  const homeSections = (async () => {
+    const addresses = await queryClient
+      .fetchQuery({ queryKey: ['addresses'], queryFn: addressApi.getAll })
+      .catch(() => undefined);
+    const coords = coordsFromAddresses(addresses);
+    await queryClient.prefetchQuery({
+      queryKey: ['home-sections', coords],
+      queryFn: () => homeSectionsApi.get(coords),
+      staleTime: 5 * 60_000,
+    });
+  })();
+
+  await Promise.all([
+    homeSections,
     // La clave es `homeCategories`, no `home-categories`: con la clave mal
     // el prefetch se descarta en silencio y el trabajo se hace dos veces.
-    queryKey: ['homeCategories'],
-    queryFn: homeCategoriesApi.getAll,
-  });
+    queryClient.prefetchQuery({ queryKey: ['homeCategories'], queryFn: homeCategoriesApi.getAll }),
+    queryClient.prefetchQuery({ queryKey: ['orders', 'my', 1], queryFn: () => ordersApi.getMyOrders(1) }),
+    queryClient.prefetchQuery({ queryKey: ['banners', 'home'], queryFn: () => bannersApi.getActive('home') }),
+  ]);
 }
 
 export default function SplashScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { isAuthenticated, user } = useAuthStore();
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const user = useAuthStore((s) => s.user);
   const [ad, setAd] = useState<ActiveAd | null>(null);
   // Se cumple cuando TANTO el tiempo de marca COMO la comprobación de
   // publicidad terminaron — lo que tarde más, no la suma de los dos. La
@@ -109,7 +135,13 @@ export default function SplashScreen() {
 
     // Solo tiene sentido para un cliente con sesión: sin sesión estas
     // peticiones darían 401, y en la app de domiciliarios no hay catálogo.
-    if (IS_CLIENT_APP && isAuthenticated && user?.role === 'client') warmCache(queryClient);
+    if (IS_CLIENT_APP && isAuthenticated && user?.role === 'client') {
+      void warmCache(queryClient);
+    } else if (isAuthenticated) {
+      // El domiciliario no tiene catálogo que precargar, pero su tablero
+      // también empieza con peticiones autenticadas: mejor con token vigente.
+      void ensureFreshAccessToken();
+    }
 
     const holdTimer = setTimeout(() => {
       brandHoldDone = true;

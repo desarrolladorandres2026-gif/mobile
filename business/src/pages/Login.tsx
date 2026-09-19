@@ -4,7 +4,7 @@ import { AlertCircle, Phone, Lock, Store, ArrowRight, Eye, EyeOff, Activity } fr
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { ZippMark } from '../components/ZippMark';
-import heroImage from '../assets/hero.png';
+import heroImage from '../assets/hero.webp';
 import { apiMessage } from '../lib/apiError';
 
 export default function Login() {
@@ -73,7 +73,7 @@ export default function Login() {
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
               Bienvenido de nuevo
             </h1>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-sm text-slate-900 mt-1">
               Ingresa tus credenciales para gestionar tu negocio.
             </p>
           </div>
@@ -87,9 +87,9 @@ export default function Login() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-slate-400">
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-slate-900">
                 <Phone className="w-4 h-4" />
-                <span className="text-xs font-semibold text-slate-400 border-r border-slate-200 pr-2">+57</span>
+                <span className="text-xs font-semibold text-slate-900 border-r border-slate-200 pr-2">+57</span>
               </div>
               <input
                 type="tel"
@@ -103,7 +103,7 @@ export default function Login() {
             </div>
 
             <div className="relative">
-              <Lock className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+              <Lock className="w-4 h-4 text-slate-900 absolute left-4 top-1/2 -translate-y-1/2" />
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
@@ -116,7 +116,7 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-900 hover:text-slate-900 transition-colors cursor-pointer"
                 title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -124,7 +124,7 @@ export default function Login() {
             </div>
 
             <div className="flex items-center justify-between text-xs pt-1">
-              <label className="flex items-center gap-2 text-slate-500 cursor-pointer select-none">
+              <label className="flex items-center gap-2 text-slate-900 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={remember}
@@ -157,7 +157,7 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="flex items-center justify-center gap-2 mt-8 text-[11px] text-slate-400">
+          <div className="flex items-center justify-center gap-2 mt-8 text-[11px] text-slate-900">
             <Store className="w-3.5 h-3.5" />
             <span>Conexión encriptada</span>
           </div>
@@ -169,6 +169,9 @@ export default function Login() {
             <img
               src={heroImage}
               alt="ZIPP"
+              width={1024}
+              height={1024}
+              decoding="async"
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />

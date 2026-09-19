@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Text, Icon, Button, Sheet, Input, Notice, Skeleton } from '../ui';
-import { PaymentConsent } from './PaymentConsent';
+import { PaymentConsent, PaymentTermsNotice } from './PaymentConsent';
+import { WompiLogo } from '../brand/WompiLogo';
+import { NequiLogo, NEQUI } from '../brand/NequiLogo';
+import { CardBrandLogo } from '../brand/CardBrandLogo';
+import { Image } from 'expo-image';
 import { PaymentCardFields } from './PaymentCardFields';
 import {
   PaymentPseFields,
@@ -59,8 +63,11 @@ const TITLES: Record<Step, string> = {
   pse: 'PSE',
 };
 
+/** Azul del logotipo de PSE, para el icono de su fila. */
+const PSE_BLUE = '#1F5FA8';
+
 const EMPTY_CARD: CardFormValues = { number: '', expiry: '', cvc: '', holder: '' };
-const EMPTY_PSE: PseFormValues = { bankCode: '', bankName: '', userType: 0, docType: 'CC', docNumber: '' };
+const EMPTY_PSE: PseFormValues = { bankCode: '', bankName: '', userType: null, docType: '', docNumber: '' };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -75,8 +82,6 @@ interface Props {
 export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }: Props) {
   const { c } = useTheme();
   const user = useAuthStore((s) => s.user);
-  const acceptedTerms = usePrefsStore((s) => s.acceptedPaymentTerms);
-  const setAcceptedTerms = usePrefsStore((s) => s.setAcceptedPaymentTerms);
   const savedEmail = usePrefsStore((s) => s.receiptEmail);
   const setSavedEmail = usePrefsStore((s) => s.setReceiptEmail);
 
@@ -100,10 +105,6 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
   const [pse, setPse] = useState<PseFormValues>(EMPTY_PSE);
   const [pseErrors, setPseErrors] = useState<PseFormErrors>({});
 
-  const termsUrl = config.data?.permalinks.termsAndConditions;
-  const [terms, setTerms] = useState(false);
-  const [termsError, setTermsError] = useState<string | undefined>();
-
   // Sin correo en la cuenta (registro por teléfono) hay que pedirlo: Wompi
   // lo exige para mandar el comprobante.
   const needsEmail = !user?.email;
@@ -113,14 +114,12 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Al abrir: los términos vienen marcados solo si esta persona ya aceptó
-  // exactamente este documento; el teléfono y el correo, precargados.
+  // Al abrir: el teléfono y el correo, precargados.
   useEffect(() => {
     if (!visible) return;
-    setTerms(Boolean(termsUrl) && acceptedTerms === termsUrl);
     setPhone((current) => current || (user?.phone ?? '').replace(/\D/g, '').slice(-10));
     setEmail((current) => current || savedEmail || '');
-  }, [visible, termsUrl, acceptedTerms, user?.phone, savedEmail]);
+  }, [visible, user?.phone, savedEmail]);
 
   /**
    * Cierra y **olvida** lo escrito. El número y el código de la tarjeta no
@@ -136,30 +135,23 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
     setPseErrors({});
     setPickedCardId(null);
     setConfirmDeleteId(null);
-    setTermsError(undefined);
     setEmailError(undefined);
     setSubmitError(null);
     setBusy(false);
     onClose();
   };
 
-  /** Lo que todos los métodos piden: términos aceptados y un correo. */
+  /** Lo que todos los métodos piden: un correo para el comprobante. */
   const commonReady = (): boolean => {
-    let ok = true;
-    if (!terms) {
-      setTermsError('Acepta los términos para continuar');
-      ok = false;
-    }
     if (needsEmail && !EMAIL_RE.test(email.trim())) {
       setEmailError('Escribe un correo válido para el comprobante');
-      ok = false;
+      tap('error');
+      return false;
     }
-    if (!ok) tap('error');
-    return ok;
+    return true;
   };
 
   const finish = (selected: Omit<SelectedInstrument, 'customerEmail'>) => {
-    if (termsUrl) setAcceptedTerms(termsUrl);
     const customerEmail = needsEmail ? email.trim().toLowerCase() : undefined;
     if (customerEmail) setSavedEmail(customerEmail);
     tap('success');
@@ -250,7 +242,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
     const errors = validatePseForm(pse);
     setPseErrors(errors);
     const common = commonReady();
-    if (Object.keys(errors).length || !common) return;
+    if (Object.keys(errors).length || !common || pse.userType === null) return;
     finish({
       instrument: {
         kind: 'pse',
@@ -278,11 +270,15 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
     }
   };
 
-  // ── Pie: consentimiento + acción del paso ──
+  // ── Pie: aviso de términos + acción del paso ──
 
   const pickedCard = cards.data?.find((saved) => saved.id === pickedCardId);
+  // En PSE, hasta elegir banco solo se ve la lista: ni correo, ni términos,
+  // ni botón. Elegir el banco es el paso; lo demás llega después.
+  const choosingBank = step === 'pse' && !pse.bankCode;
   const action: { title: string; onPress: () => void } | null =
-    step === 'card' ? { title: 'Usar esta tarjeta', onPress: submitCard }
+    choosingBank ? null
+    : step === 'card' ? { title: 'Usar esta tarjeta', onPress: submitCard }
     : step === 'nequi' ? { title: 'Usar Nequi', onPress: submitNequi }
     : step === 'pse' ? { title: 'Usar PSE', onPress: submitPse }
     : pickedCard ? { title: `Usar ${cardLabel(pickedCard.brand, pickedCard.lastFour)}`, onPress: () => pickSavedCard(pickedCard) }
@@ -290,19 +286,13 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
 
   const footer = action ? (
     <View style={styles.footer}>
-      <PaymentConsent
-        checked={terms}
-        onToggle={(next) => { setTerms(next); setTermsError(undefined); }}
-        lead="Acepto los"
-        linkText="términos de Wompi para este pago"
-        url={termsUrl}
-        error={termsError}
-      />
+      <PaymentTermsNotice url={config.data?.permalinks.termsAndConditions} />
       <Button
         title={busy ? 'Validando tarjeta…' : action.title}
         full
         size="lg"
         loading={busy}
+        variant={step === 'nequi' ? 'nequi' : 'primary'}
         onPress={action.onPress}
       />
     </View>
@@ -323,7 +313,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
   ) : null;
 
   return (
-    <Sheet visible={visible} onClose={close} title={TITLES[step]} height={0.86} footer={footer}>
+    <Sheet visible={visible} onClose={close} title={TITLES[step]} height={0.86} footer={footer} fullScreen={step !== 'list'}>
       <View style={styles.body}>
         {step !== 'list' ? (
           <Pressable
@@ -333,8 +323,8 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
             style={styles.back}
             hitSlop={8}
           >
-            <Icon name="atras" size="sm" color={c.textSecondary} />
-            <Text v="bodyS" tone="textSecondary">Otros métodos</Text>
+            <Icon name="atras" size="sm" color={c.text} />
+            <Text v="bodyS" tone="text">Otros métodos</Text>
           </Pressable>
         ) : null}
 
@@ -367,6 +357,15 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
         ) : null}
         {step === 'nequi' ? (
           <>
+            {/* La franja de Nequi: quien paga reconoce su app antes de
+                escribir el número. */}
+            <View style={[styles.nequiBand, { backgroundColor: NEQUI.plum }]}>
+              <NequiLogo height={26} onDark />
+              <View style={[styles.nequiPill, { backgroundColor: NEQUI.magenta }]}>
+                <Icon name="celular" size="sm" color="#FFFFFF" />
+                <Text v="caption" color="#FFFFFF">Apruebas en tu app</Text>
+              </View>
+            </View>
             <Input
               label="Celular de tu cuenta Nequi"
               icon="celular"
@@ -378,7 +377,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
               autoComplete="tel"
               error={phoneError}
             />
-            <Text v="bodyS" tone="textSecondary">
+            <Text v="bodyS" tone="text">
               Al confirmar el pedido te llega una notificación de Nequi. Ábrela y aprueba el pago; aquí
               verás el resultado sin salir de Zipp.
             </Text>
@@ -395,7 +394,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
           />
         ) : null}
 
-        {step !== 'list' || pickedCard ? emailField : null}
+        {(step !== 'list' && !choosingBank) || pickedCard ? emailField : null}
         {submitError ? <Notice tone="error">{submitError}</Notice> : null}
       </View>
     </Sheet>
@@ -430,11 +429,10 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
                 onPress={() => {
                   tap('select');
                   setConfirmDeleteId(null);
-                  // El segundo pedido es de un toque: si ya aceptó estos
-                  // términos y no falta correo, tocar la tarjeta basta. Si
-                  // no, solo se marca y el pie pide lo que falta, sin
-                  // regañar antes de que la casilla se haya visto.
-                  const ready = terms && (!needsEmail || EMAIL_RE.test(email.trim()));
+                  // El segundo pedido es de un toque: si no falta correo,
+                  // tocar la tarjeta basta. Si falta, solo se marca y el
+                  // pie lo pide, sin regañar antes de que el campo se vea.
+                  const ready = !needsEmail || EMAIL_RE.test(email.trim());
                   if (ready) pickSavedCard(savedCard);
                   else setPickedCardId(savedCard.id);
                 }}
@@ -443,7 +441,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
                 accessibilityLabel={`${cardLabel(savedCard.brand, savedCard.lastFour)}, vence ${savedCard.expMonth}/${savedCard.expYear}`}
                 style={styles.rowMain}
               >
-                <Icon name="tarjeta" size="md" color={picked ? c.primaryText : c.textSecondary} />
+                <Icon name="tarjeta" size="md" color={picked ? c.primaryText : c.text} />
                 <View style={styles.flex}>
                   <Text v="strongS">{cardLabel(savedCard.brand, savedCard.lastFour)}</Text>
                   <Text v="caption" tone="textMuted">Vence {savedCard.expMonth}/{savedCard.expYear}</Text>
@@ -452,7 +450,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
               {confirming ? (
                 <View style={styles.confirm}>
                   <Pressable onPress={() => setConfirmDeleteId(null)} hitSlop={8} accessibilityRole="button">
-                    <Text v="caption" tone="textSecondary">No</Text>
+                    <Text v="caption" tone="text">No</Text>
                   </Pressable>
                   <Pressable onPress={() => removeCard(savedCard.id)} hitSlop={8} accessibilityRole="button">
                     <Text v="strongS" tone="errorText">Eliminar</Text>
@@ -474,19 +472,72 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
         })}
 
         {saved.length ? <Text v="label" tone="textMuted" style={styles.gapTop}>Otro método</Text> : null}
-        <MethodRow icon="tarjeta" title="Tarjeta de crédito o débito" subtitle="Visa, Mastercard, American Express" onPress={() => setStep('card')} />
-        <MethodRow icon="celular" title="Nequi" subtitle="Apruebas desde tu app de Nequi" onPress={() => setStep('nequi')} />
+        <MethodRow
+          icon="tarjeta"
+          title="Tarjeta de crédito o débito"
+          subtitle="Crédito o débito"
+          brand={
+            <View style={styles.brandRow}>
+              <CardBrandLogo brand="VISA" height={12} ink={c.text} />
+              <CardBrandLogo brand="MASTERCARD" height={16} />
+              <CardBrandLogo brand="AMEX" height={16} ink={c.text} />
+            </View>
+          }
+          accent={c.primaryText}
+          onPress={() => setStep('card')}
+        />
+        <MethodRow
+          icon="celular"
+          title="Nequi"
+          subtitle="Apruebas desde tu app de Nequi"
+          brand={<NequiLogo height={17} />}
+          accent={NEQUI.magenta}
+          onPress={() => setStep('nequi')}
+        />
         {capabilities.pse ? (
-          <MethodRow icon="edificio" title="PSE" subtitle="Débito desde tu cuenta de ahorros o corriente" onPress={() => setStep('pse')} />
+          <MethodRow
+            icon="edificio"
+            title="PSE"
+            subtitle="Débito desde tu cuenta de ahorros o corriente"
+            brand={
+              <Image
+                source={require('../../assets/banks/pse.png')}
+                style={styles.pseLogo}
+                contentFit="contain"
+                accessibilityLabel="PSE"
+              />
+            }
+            accent={PSE_BLUE}
+            onPress={() => setStep('pse')}
+          />
         ) : null}
+
+        <View
+          style={[styles.protected, styles.gapTop]}
+          accessible
+          accessibilityLabel="Compra protegida con Wompi"
+        >
+          <Icon name="candado" size="sm" color={c.textMuted} />
+          <Text v="caption" tone="textMuted">Compra protegida con</Text>
+          <WompiLogo height={14} color={c.text} />
+        </View>
       </>
     );
   }
 }
 
 function MethodRow({
-  icon, title, subtitle, onPress,
-}: { icon: IconName; title: string; subtitle: string; onPress: () => void }) {
+  icon, title, subtitle, brand, accent, onPress,
+}: {
+  icon: IconName;
+  title: string;
+  subtitle: string;
+  /** El logotipo del método, en lugar del título escrito. */
+  brand?: ReactNode;
+  /** Color de marca del método para el icono. */
+  accent?: string;
+  onPress: () => void;
+}) {
   const { c } = useTheme();
   return (
     <Pressable
@@ -495,9 +546,9 @@ function MethodRow({
       accessibilityLabel={`${title}. ${subtitle}`}
       style={[styles.row, styles.rowMain, { backgroundColor: c.surface, borderColor: c.border, borderWidth: 1 }]}
     >
-      <Icon name={icon} size="md" color={c.textSecondary} />
+      <Icon name={icon} size="md" color={accent ?? c.text} />
       <View style={styles.flex}>
-        <Text v="strongS">{title}</Text>
+        {brand ?? <Text v="strongS">{title}</Text>}
         <Text v="caption" tone="textMuted">{subtitle}</Text>
       </View>
       <Icon name="siguiente" size="sm" color={c.textMuted} />
@@ -535,4 +586,29 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
   },
   gapTop: { marginTop: Spacing.sm },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  pseLogo: { width: 30, height: 30 },
+  nequiBand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+  },
+  nequiPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
+  },
+  protected: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+  },
 });

@@ -7,6 +7,7 @@ import {
   isExpired,
   validateCardForm,
   cvcLengthFor,
+  cardNumberSlots,
 } from '../lib/card';
 
 describe('card · marca por BIN', () => {
@@ -83,5 +84,27 @@ describe('card · validación', () => {
   it('en American Express el mensaje del código habla de 4 dígitos', () => {
     const errors = validateCardForm({ number: '378282246310005', expiry: '12/29', cvc: '123', holder: 'Ana' }, now);
     expect(errors.cvc).toMatch(/4 dígitos/);
+  });
+});
+
+describe('card · número en la tarjeta de vista previa', () => {
+  const text = (n: string) =>
+    cardNumberSlots(n).map((g) => g.map((s) => s.char).join('')).join(' ');
+
+  it('vacío: cuatro grupos de puntos', () => {
+    expect(text('')).toBe('•••• •••• •••• ••••');
+  });
+
+  it('rellena lo escrito y deja puntos en lo que falta', () => {
+    expect(text('4242 42')).toBe('4242 42•• •••• ••••');
+  });
+
+  it('American Express se agrupa 4-6-5', () => {
+    expect(text('3782')).toBe('3782 •••••• •••••');
+    expect(cardNumberSlots('378282246310005').flat().every((s) => s.filled)).toBe(true);
+  });
+
+  it('un Visa de más de 16 dígitos abre un quinto grupo', () => {
+    expect(cardNumberSlots('42424242424242424').length).toBe(5);
   });
 });

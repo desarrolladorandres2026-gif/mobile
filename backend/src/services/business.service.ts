@@ -329,16 +329,23 @@ export class BusinessService {
     };
   }
 
+  /**
+   * La ficha, sin la carta.
+   *
+   * Antes poblaba `products`: la carta entera (con sus variantes de imagen
+   * calculadas) viajaba en cada apertura de la ficha y en cada comprobación
+   * de propiedad del panel, y ningún cliente la leía de aquí — la app y el
+   * panel la piden a `/products/business/:id`, que además filtra lo no
+   * disponible.
+   */
   async getById(id: string): Promise<IBusiness> {
-    const business = await Business.findById(id)
-      .populate('products');
+    const business = await Business.findById(id);
     if (!business) throw new AppError('Negocio no encontrado', 404);
     return business;
   }
 
   async getBySlug(slug: string): Promise<IBusiness> {
-    const business = await Business.findOne({ slug })
-      .populate('products');
+    const business = await Business.findOne({ slug });
     if (!business) throw new AppError('Negocio no encontrado', 404);
     return business;
   }

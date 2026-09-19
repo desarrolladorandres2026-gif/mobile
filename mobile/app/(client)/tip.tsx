@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { Image } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Text, Icon, Button, Screen, ScreenFooter, Header } from '../../components/ui';
+import { Text, Button, Screen, ScreenFooter, Header } from '../../components/ui';
 import { TipPicker } from '../../components/domain/TipPicker';
 import { BorderRadius, Size, Spacing } from '../../theme/tokens';
 import { money } from '../../lib/format';
@@ -26,6 +28,9 @@ export default function TipScreen() {
   const router = useRouter();
   const { businessId } = useLocalSearchParams<{ businessId?: string }>();
   const [amount, setAmount] = useState<number | null>(null);
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const heroHeight = Math.round(height / 2);
 
   const goToCheckout = (tip: number | null) => {
     router.push({
@@ -35,19 +40,27 @@ export default function TipScreen() {
   };
 
   return (
-    <Screen>
-      <Header title="Propina" fallback="/(client)/cart" />
+    <Screen edges={[]}>
+      {/* Fija: la imagen ocupa la mitad superior y solo se desplaza lo de abajo. */}
+      <View style={{ height: heroHeight }}>
+        <Image
+          source={require('../../assets/tip-hero.jpg')}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          accessible={false}
+        />
+        <View style={{ paddingTop: insets.top }}>
+          <Header fallback="/(client)/cart" bare />
+        </View>
+      </View>
 
       <ScrollView
         contentContainerStyle={styles.body}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.badge, { backgroundColor: TIP_ACCENT }]}>
-          <Icon name="domiciliario" size={28} color="#FFFFFF" />
-        </View>
-
         <View style={styles.copy}>
+          <Text v="displayS">Propina</Text>
           <Text v="titleL">¿Le dejas propina a quien te lo lleva?</Text>
           <Text v="bodyM" tone="textSecondary">
             Es opcional. Le llega completa y sale de tu bolsillo, no del pedido.
@@ -91,13 +104,6 @@ export default function TipScreen() {
 
 const styles = StyleSheet.create({
   body: { padding: Spacing.xl, gap: Spacing.xl },
-  badge: {
-    width: 56,
-    height: 56,
-    borderRadius: BorderRadius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   cta: {
     height: Size.buttonLg,
     borderRadius: BorderRadius.lg,

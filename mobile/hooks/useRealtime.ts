@@ -1,51 +1,70 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { socketService } from '../services/socket';
-import { useAuthStore } from '../stores/authStore';
+import { useRealtimeStore } from '../stores/realtimeStore';
 import { useMyOrders } from './useApi';
 import { ACTIVE_ORDER_STATUSES } from '../constants/config';
 
-/**
- * Conexión en vivo con el servidor.
- *
- * Mantiene el socket abierto mientras la sesión esté activa y refresca los
- * pedidos cuando el servidor avisa de un cambio. Devuelve si hay conexión,
- * que es lo que alimenta la banda de "sin conexión": en una app donde el
- * pedido cambia solo, saber que dejaste de recibir novedades importa tanto
- * como las novedades.
- */
 /** Margen antes de declarar la conexión caída, en milisegundos. */
 const OFFLINE_GRACE = 4000;
+/** Cambios de estado que llegan juntos se resuelven con una sola recarga. */
+const REFRESH_DEBOUNCE_MS = 300;
+/** Tras una reconexión, se espera a que se asiente antes de recargar. */
+const RECONNECT_REFRESH_MS = 1000;
 
-export function useOrderRealtime() {
+/**
+ * Dueño único de la conexión en vivo. Se monta **una sola vez**, en la raíz.
+ *
+ * Mantiene el socket abierto mientras la sesión esté activa y refresca los
+ * pedidos cuando el servidor avisa de un cambio.
+ *
+ * Antes esto vivía en `useOrderRealtime`, que llamaban cinco pantallas a la
+ * vez (las dos barras de pestañas, Pedidos, Seguimiento y el pedido del
+ * domiciliario): cada una registraba sus propios oyentes, así que un solo
+ * cambio de estado disparaba dos o tres recargas de la misma lista. Y en
+ * cada conexión —también la primera, al abrir la app— se tiraba la lista de
+ * pedidos que el Inicio acababa de descargar.
+ *
+ * Ahora la primera conexión no recarga nada (lo que hay es de hace un
+ * segundo); solo una **re**conexión, que sí puede haber dejado eventos por
+ * el camino.
+ */
+export function useRealtimeOwner(enabled: boolean) {
   const queryClient = useQueryClient();
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const [connected, setConnected] = useState(true);
-  const graceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setConnected = useRealtimeStore((s) => s.setConnected);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!enabled) return;
 
     socketService.connect();
     const socket = socketService.getSocket();
     if (!socket) return;
 
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let connectedOnce = socket.connected;
+
     const clearGrace = () => {
-      if (graceTimer.current) {
-        clearTimeout(graceTimer.current);
-        graceTimer.current = null;
+      if (graceTimer) {
+        clearTimeout(graceTimer);
+        graceTimer = null;
       }
     };
 
-    const refresh = () => {
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
-      queryClient.invalidateQueries({ queryKey: ['order'] });
+    const refreshSoon = (delay: number) => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        queryClient.invalidateQueries({ queryKey: ['orders'] });
+        queryClient.invalidateQueries({ queryKey: ['order'] });
+      }, delay);
     };
 
     const onConnect = () => {
       clearGrace();
       setConnected(true);
-      refresh();
+      if (connectedOnce) refreshSoon(RECONNECT_REFRESH_MS);
+      connectedOnce = true;
     };
 
     // Abrir la app siempre implica unos segundos de negociación, y una
@@ -54,15 +73,17 @@ export function useOrderRealtime() {
     // gente deje de creerle al aviso.
     const onDisconnect = () => {
       clearGrace();
-      graceTimer.current = setTimeout(() => setConnected(false), OFFLINE_GRACE);
+      graceTimer = setTimeout(() => setConnected(false), OFFLINE_GRACE);
     };
+
+    const onStatusChanged = () => refreshSoon(REFRESH_DEBOUNCE_MS);
 
     if (!socket.connected) onDisconnect();
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('connect_error', onDisconnect);
-    socket.on('order:status:changed', refresh);
+    socket.on('order:status:changed', onStatusChanged);
 
     /**
      * Antes esto se perdía: el usuario abría un PQRS, soporte respondía, y
@@ -78,14 +99,23 @@ export function useOrderRealtime() {
 
     return () => {
       clearGrace();
+      if (refreshTimer) clearTimeout(refreshTimer);
       socketService.offSupportReplied(refreshPqrs);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onDisconnect);
-      socket.off('order:status:changed', refresh);
+      socket.off('order:status:changed', onStatusChanged);
     };
-  }, [isAuthenticated]);
+  }, [enabled]);
+}
 
+/**
+ * Si hay canal en vivo. Lo que antes devolvía este hook, sin el trabajo:
+ * la conexión la mantiene `useRealtimeOwner` en la raíz, y aquí solo se lee.
+ * Así las cinco pantallas que lo usan no cambian.
+ */
+export function useOrderRealtime() {
+  const connected = useRealtimeStore((s) => s.connected);
   return { connected };
 }
 

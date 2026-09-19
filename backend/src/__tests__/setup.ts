@@ -5,6 +5,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 // instance the auth service uses.
 import { resetBruteForce } from '../security';
 import { pricingConfigService } from '../services/pricingConfig.service';
+import { cache } from '../cache';
 
 // Must be set before src/config/env is imported by anything under test, so
 // the config layer takes its test branch (ephemeral secrets, no fail-fast).
@@ -48,6 +49,11 @@ afterEach(async () => {
   // process, so a wiped database would otherwise leave every later test
   // pricing against a config document that no longer exists.
   pricingConfigService.invalidate();
+
+  // El borrado de arriba va directo a las colecciones, sin pasar por los
+  // hooks de Mongoose que invalidan la caché de lecturas: sin esto, una
+  // prueba vería el inicio o la carta que dejó cacheados la anterior.
+  await cache.flush();
 });
 
 afterAll(async () => {

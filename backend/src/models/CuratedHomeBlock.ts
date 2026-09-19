@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
+import { cacheInvalidationPlugin, CachePrefix } from '../cache';
 
 /**
  * Bloques curados a mano por un administrador, intercalados entre las veinte
@@ -108,6 +109,11 @@ curatedHomeBlockSchema.pre('validate', function (next) {
 // La consulta que hace `homeSections.service.ts` en cada carga del inicio:
 // activos y ordenados. Las fechas se filtran en JS porque son opcionales.
 curatedHomeBlockSchema.index({ isActive: 1, order: 1 });
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+curatedHomeBlockSchema.plugin(cacheInvalidationPlugin, {
+  prefixesFor: () => [CachePrefix.HOME],
+});
 
 export const CuratedHomeBlock = mongoose.model<ICuratedHomeBlock>(
   'CuratedHomeBlock',

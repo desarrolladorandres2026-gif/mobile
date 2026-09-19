@@ -30,7 +30,7 @@ export function ThemeToggle() {
       <button
         onClick={() => setOpen(!open)}
         title={`Tema: ${theme === 'auto' ? 'Automático' : theme === 'dark' ? 'Oscuro' : 'Claro'}`}
-        className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-slate-200 dark:hover:border-slate-700/60"
+        className="p-2 rounded-xl text-slate-900 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-slate-200 dark:hover:border-slate-700/60"
         aria-label="Cambiar tema"
       >
         <CurrentIcon className="w-4 h-4 transition-transform hover:scale-110" />
@@ -39,7 +39,7 @@ export function ThemeToggle() {
       {open && (
         <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-white dark:bg-[#1B2437] p-1.5 shadow-xl border border-slate-200 dark:border-slate-800 z-50 animate-fade-in">
           <div className="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800/80 mb-1">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+            <span className="text-[10px] font-bold text-slate-900 dark:text-slate-500 uppercase tracking-wider">
               Apariencia del Comercio
             </span>
           </div>
@@ -67,14 +67,14 @@ export function ThemeToggle() {
                       className={`w-6 h-6 rounded-lg flex items-center justify-center ${
                         isSelected
                           ? 'bg-[#D69E26] text-white'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-400'
                       }`}
                     >
                       <Icon className="w-3.5 h-3.5" />
                     </div>
                     <div>
                       <p className="leading-none text-xs">{opt.label}</p>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-normal">
+                      <p className="text-[10px] text-slate-900 dark:text-slate-500 mt-0.5 font-normal">
                         {opt.description}
                       </p>
                     </div>

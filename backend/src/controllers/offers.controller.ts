@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { offersService } from '../services';
 import { sendResponse, query } from '../utils';
+import { cache, CachePrefix } from '../cache';
+import { cacheHeaders } from '../middlewares/cacheControl';
 
 /** Un número de la query, o `undefined` si no vino o no era un número. */
 function num(req: Request, key: string): number | undefined {
@@ -32,17 +34,21 @@ export class OffersController {
       const limit = num(req, 'limit');
       const maxDistance = num(req, 'maxDistance');
 
-      const offers = await offersService.getOffers({
-        lat: num(req, 'lat'),
-        lng: num(req, 'lng'),
-        maxDistance: maxDistance ? Math.min(maxDistance, MAX_DISTANCE) : undefined,
+      const round3 = (n: number | undefined) => (n === undefined ? undefined : Math.round(n * 1000) / 1000);
+      const params = {
+        lat: round3(num(req, 'lat')),
+        lng: round3(num(req, 'lng')),
+        maxDistance: maxDistance ? Math.round(Math.min(maxDistance, MAX_DISTANCE)) : undefined,
         city: query(req, 'city'),
-        limit: limit ? Math.min(Math.max(limit, 1), MAX_LIMIT) : undefined,
-      });
+        limit: limit ? Math.round(Math.min(Math.max(limit, 1), MAX_LIMIT)) : undefined,
+      };
+      const key = `${CachePrefix.OFFERS}${encodeURIComponent(params.city ?? '-').slice(0, 80)}:${params.lat ?? '-'}:${params.lng ?? '-'}:${params.maxDistance ?? '-'}:${params.limit ?? '-'}`;
+      const offers = await cache.wrap(key, 60, () => offersService.getOffers(params));
 
       const total =
         offers.coupons.length + offers.products.length + offers.businesses.length;
 
+      cacheHeaders(res, 'shared');
       sendResponse(
         res,
         200,

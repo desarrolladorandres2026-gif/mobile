@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import { cacheInvalidationPlugin, CachePrefix } from '../cache';
 
 /**
  * A delivery coverage zone.
@@ -75,5 +76,11 @@ const zoneSchema = new Schema<IZone>(
 
 zoneSchema.index({ area: '2dsphere' });
 zoneSchema.index({ city: 1, isActive: 1 });
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+zoneSchema.plugin(cacheInvalidationPlugin, {
+  // El "Desde $X" de cada ficha sale de las zonas.
+  prefixesFor: () => [CachePrefix.ZONES, CachePrefix.BUSINESS_ALL, CachePrefix.BUSINESS_SLUG, CachePrefix.HOME],
+});
 
 export const Zone = mongoose.model<IZone>('Zone', zoneSchema);

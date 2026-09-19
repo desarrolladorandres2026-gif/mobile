@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { categoryService } from '../services';
+import { categoryService, publicCatalogService } from '../services';
 import { sendResponse, param, query } from '../utils';
-import { AppError } from '../middlewares';
+import { AppError, cacheHeaders } from '../middlewares';
 import { UserRole } from '../types';
 import { Business } from '../models';
 
@@ -24,7 +24,8 @@ export class CategoryController {
 
   async getByBusiness(req: Request, res: Response, next: NextFunction) {
     try {
-      const categories = await categoryService.getByBusiness(param(req, 'businessId'));
+      const categories = await publicCatalogService.categories(param(req, 'businessId'));
+      cacheHeaders(res, 'revalidate');
       sendResponse(res, 200, 'Categorías obtenidas', categories);
     } catch (error) {
       next(error);

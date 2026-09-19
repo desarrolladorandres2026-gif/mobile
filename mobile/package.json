@@ -30,11 +30,14 @@
     "@react-native-community/netinfo": "11.5.2",
     "@react-native-google-signin/google-signin": "^16.1.5",
     "@shopify/flash-list": "2.0.2",
+    "@tanstack/query-async-storage-persister": "^5.100.11",
     "@tanstack/react-query": "^5.100.11",
+    "@tanstack/react-query-persist-client": "^5.100.11",
     "axios": "^1.16.1",
     "expo": "~55.0.0",
     "expo-auth-session": "~55.0.18",
     "expo-battery": "~55.0.17",
+    "expo-build-properties": "~55.0.18",
     "expo-constants": "~55.0.0",
     "expo-crypto": "~55.0.19",
     "expo-device": "~55.0.21",
@@ -86,6 +89,9 @@
     "setupFilesAfterEnv": [
       "<rootDir>/jest.setup.js"
     ],
+    "moduleNameMapper": {
+      "^lucide-react-native/icons/.+$": "<rootDir>/__mocks__/lucideIcon.js"
+    },
     "transformIgnorePatterns": [
       "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|lucide-react-native|react-native-svg|react-native-reanimated|react-native-gesture-handler|@shopify/flash-list)"
     ],

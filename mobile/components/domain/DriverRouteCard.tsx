@@ -3,7 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Text, Icon, Button, Card, Badge } from '../ui';
 import { ZippMap } from './ZippMap';
 import { useTheme } from '../../hooks/useTheme';
-import { useDriverTrackingContext } from '../../hooks/useDriverTracking';
+import { useDriverPosition } from '../../hooks/useDriverTracking';
 import { formatEta } from '../../hooks/useOrderTracking';
 import { socketService } from '../../services/socket';
 import { trackingApi } from '../../services/endpoints';
@@ -62,7 +62,7 @@ interface RouteData {
  */
 export function DriverRouteCard({ orderId, status }: DriverRouteCardProps) {
   const { c } = useTheme();
-  const { position } = useDriverTrackingContext();
+  const position = useDriverPosition();
 
   const [data, setData] = useState<RouteData | null>(null);
   const [loading, setLoading] = useState(false);

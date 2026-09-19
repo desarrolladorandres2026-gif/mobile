@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../services';
 import type { AuthOutcome } from '../services/auth.service';
-import { getEffectivePermissions, getEffectiveRoleSlugs } from '../services/authorization.service';
+import { resolveAuthorization } from '../services/authorization.service';
 import { sendResponse } from '../utils';
 import { AppError } from '../middlewares';
 import { uploadAvatarImage } from '../middlewares/upload';
@@ -29,10 +29,7 @@ async function sendAuthOutcome(
     });
   }
 
-  const [permissions, roleSlugs] = await Promise.all([
-    getEffectivePermissions(outcome.user),
-    getEffectiveRoleSlugs(outcome.user),
-  ]);
+  const { permissions, roleSlugs } = await resolveAuthorization(outcome.user);
 
   return sendResponse(res, status, message, {
     user: outcome.user,

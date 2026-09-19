@@ -11,6 +11,7 @@ import { SpotlightCarousel, type SpotlightRenderOpts } from './SpotlightCarousel
 import { tap } from '../../lib/haptics';
 import { Spacing } from '../../theme/tokens';
 import type { BusinessBannerEntry, CuratedHomeBusiness } from '../../services/endpoints';
+import { sizedImageUri, screenWidth } from '../../lib/cloudinaryImage';
 
 /**
  * `businessBanner`: mismo carrusel apilado que `ProductBannerBlock`, pero
@@ -63,7 +64,7 @@ function BusinessCardContent({
       <View style={[styles.image, { backgroundColor: accent }]}>
         {business.coverImage ? (
           <Image
-            source={{ uri: business.coverImage }}
+            source={{ uri: sizedImageUri(business.coverImage, screenWidth()) }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             transition={180}

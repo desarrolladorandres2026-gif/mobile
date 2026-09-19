@@ -106,6 +106,23 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     'expo-secure-store',
+    // Builds de tienda más livianos y rápidos de cargar: R8 minimiza y
+    // optimiza el código nativo y descarta los recursos que nadie usa. Va
+    // aquí y no a mano en android/gradle.properties para que sobreviva a
+    // `expo prebuild` (sin --clean: ver la nota del keystore).
+    //
+    // OJO antes de publicar: R8 puede quitar clases que alguna librería
+    // busque por reflexión. Probar SIEMPRE un build release en un teléfono
+    // real (login, pago, mapa, notificaciones, cámara) antes de subirlo.
+    [
+      'expo-build-properties',
+      {
+        android: {
+          enableMinifyInReleaseBuilds: true,
+          enableShrinkResourcesInReleaseBuilds: true,
+        },
+      },
+    ],
     // Deja la variante en ios/.xcode.env.local para que Xcode empaquete el
     // JavaScript correcto también en un Archive. Ver el plugin.
     ['./plugins/withXcodeEnvVariant', { variant }],

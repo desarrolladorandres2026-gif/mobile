@@ -3,7 +3,7 @@ import {
   AlertCircle, LogOut, Store, Menu, X,
   Volume2, VolumeX, ChevronDown, ChevronRight
 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
@@ -332,7 +332,17 @@ export default function Layout() {
                 </button>
               </div>
             )}
-            <Outlet />
+            {/* La barra lateral sigue en pantalla mientras llega el archivo
+                de la página (las páginas se cargan bajo demanda, ver App). */}
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center py-24">
+                  <div className="w-6 h-6 rounded-full border-2 border-[var(--color-primary)] border-t-transparent animate-spin" />
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </div>
         </div>
       </main>

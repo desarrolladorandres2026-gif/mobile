@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
 import { ProductExtra, ModifierGroup } from '../types';
 import { productImageUrls } from '../utils/productImageUrls';
 import { normalize } from '../utils/text';
+import { cacheInvalidationPlugin, CachePrefix, fieldFrom } from '../cache';
 
 /**
  * Lo que hace falta para volver a generar la imagen de un producto.
@@ -367,5 +368,17 @@ productSchema.index(
   { name: 'text', description: 'text' },
   { weights: { name: 10, description: 1 }, default_language: 'spanish', name: 'product_search' }
 );
+
+// Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
+productSchema.plugin(cacheInvalidationPlugin, {
+  prefixesFor: (ctx) => {
+    const businessId = fieldFrom(ctx, 'businessId');
+    return [
+      businessId ? CachePrefix.business(businessId) : CachePrefix.BUSINESS_ALL,
+      CachePrefix.HOME,
+      CachePrefix.OFFERS,
+    ];
+  },
+});
 
 export const Product = mongoose.model<IProduct>('Product', productSchema);

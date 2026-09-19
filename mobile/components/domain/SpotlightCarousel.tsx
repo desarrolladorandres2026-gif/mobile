@@ -8,6 +8,7 @@ import Animated, {
 import { useTheme } from '../../hooks/useTheme';
 import { tap } from '../../lib/haptics';
 import { BorderRadius, Motion, Shadow, Spacing } from '../../theme/tokens';
+import { useIsFocused } from 'expo-router';
 
 // ──────────────────────────────────────────────────────────────
 // Geometría
@@ -123,11 +124,15 @@ export function SpotlightCarousel<T>({
   const seconds = typeof durationSeconds === 'function'
     ? durationSeconds(items[index])
     : durationSeconds;
+  //
+  // Solo con la pantalla a la vista: antes seguía rotando (y re-renderizando)
+  // mientras el usuario estaba en otra pestaña o dentro de una tienda.
+  const focused = useIsFocused();
   useEffect(() => {
-    if (items.length < 2) return;
+    if (items.length < 2 || !focused) return;
     const timer = setTimeout(() => go(1), seconds * 1000);
     return () => clearTimeout(timer);
-  }, [index, items.length, go, seconds]);
+  }, [index, items.length, go, seconds, focused]);
 
   const swipe = useMemo(
     () =>

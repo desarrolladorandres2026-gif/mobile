@@ -275,7 +275,7 @@ export const LightColors: ColorScheme = {
   card: palette.paper0,
 
   text: palette.paper600,
-  textSecondary: palette.paper500,
+  textSecondary: palette.paper600,
   textMuted: palette.paper600,
   textOnPrimary: palette.ink900,
   textOnLime: palette.ink900,

@@ -44,7 +44,7 @@ export interface InputProps extends Omit<TextInputProps, 'style'> {
 export function Input({
   label, icon, error, hint, password, prefix, containerStyle, numeric,
   labelTone = 'textSecondary', placeholderTone = 'textMuted', iconTone = 'textMuted',
-  hintTone = 'muted',
+  hintTone = 'muted', onFocus, onBlur,
   ...rest
 }: InputProps) {
   const { c } = useTheme();
@@ -90,10 +90,11 @@ export function Input({
           ]}
           placeholderTextColor={c[placeholderTone] as string}
           secureTextEntry={password && !revealed}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
           accessibilityLabel={label}
           {...rest}
+          // Después de `rest`: un `onFocus` de fuera se suma, no apaga el borde.
+          onFocus={(e) => { setFocused(true); onFocus?.(e); }}
+          onBlur={(e) => { setFocused(false); onBlur?.(e); }}
         />
 
         {password ? (

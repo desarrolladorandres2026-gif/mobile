@@ -409,7 +409,11 @@ export function useDriverTracking(options: {
 
 // ── Un solo GPS para toda la sesión del repartidor ────────────────────
 
-interface DriverTrackingContextValue extends DriverTrackingState {
+/**
+ * Todo lo del seguimiento **menos la posición**, que va en su propio
+ * contexto (ver `useDriverPosition`).
+ */
+interface DriverTrackingContextValue extends Omit<DriverTrackingState, 'position'> {
   /** Lo llama el panel al conectarse o desconectarse. */
   setOnDuty: (value: boolean) => void;
   /** Lo llama la pantalla de un pedido al montarse y al salir. */
@@ -418,6 +422,17 @@ interface DriverTrackingContextValue extends DriverTrackingState {
 }
 
 const DriverTrackingContext = createContext<DriverTrackingContextValue | null>(null);
+
+/**
+ * La posición, aparte.
+ *
+ * Cambia con cada fix del GPS —cada 5 a 8 s con un pedido encima— y antes
+ * viajaba en el mismo valor que el permiso o el estado: como además ese
+ * valor se recreaba en cada render, el tablero y la pantalla del pedido
+ * (casi 800 líneas) se re-renderizaban enteros en cada fix sin usar la
+ * posición para nada. Ahora solo se entera quien la pide.
+ */
+const DriverPositionContext = createContext<DriverTrackingState['position']>(null);
 
 /**
  * El seguimiento GPS del repartidor, una sola vez para toda la sesión.
@@ -437,14 +452,19 @@ export function DriverTrackingProvider({ children }: { children: ReactNode }) {
   const [onDuty, setOnDuty] = useState(false);
   const [activeOrderId, setActiveOrder] = useState<string | null>(null);
 
-  const state = useDriverTracking({ onDuty, hasActiveOrder: !!activeOrderId });
+  const { permission, active, position, problem, openSettings, requestPermission } =
+    useDriverTracking({ onDuty, hasActiveOrder: !!activeOrderId });
 
   const value = useMemo<DriverTrackingContextValue>(
-    () => ({ ...state, setOnDuty, setActiveOrder, activeOrderId }),
-    [state, activeOrderId]
+    () => ({ permission, active, problem, openSettings, requestPermission, setOnDuty, setActiveOrder, activeOrderId }),
+    [permission, active, problem, openSettings, requestPermission, activeOrderId]
   );
 
-  return createElement(DriverTrackingContext.Provider, { value }, children);
+  return createElement(
+    DriverTrackingContext.Provider,
+    { value },
+    createElement(DriverPositionContext.Provider, { value: position }, children)
+  );
 }
 
 /**
@@ -461,4 +481,9 @@ export function useDriverTrackingContext(): DriverTrackingContextValue {
     throw new Error('useDriverTrackingContext debe usarse dentro de <DriverTrackingProvider>');
   }
   return context;
+}
+
+/** La última posición del repartidor. Solo para quien la pinta (el mapa de la ruta). */
+export function useDriverPosition(): DriverTrackingState['position'] {
+  return useContext(DriverPositionContext);
 }

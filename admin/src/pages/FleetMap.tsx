@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { io, Socket } from 'socket.io-client';
 import { useQuery } from '@tanstack/react-query';
 import { Bike, Motorbike, Clock, MapPin, Package, RefreshCw, WifiOff } from 'lucide-react';
 import api from '../services/api';
 import { useThemeStore } from '../stores/themeStore';
+import { useAdminSocketEvents } from '../hooks/useAdminSocket';
 import type { DriverLocationUpdate } from '../lib/apiTypes';
 
 interface FleetDriver {
@@ -106,6 +106,14 @@ export default function FleetMap() {
   const [selected, setSelected] = useState<string | null>(null);
   const [live, setLive] = useState<Record<string, { lat: number; lng: number; heading: number | null; at: number }>>({});
   const [mapError, setMapError] = useState<string | null>(null);
+  /**
+   * Sube cada vez que un mapa nuevo termina de cargar. Los marcadores
+   * dependen de él: si la flota llegaba antes que la configuración del
+   * mapa (lo normal, porque son dos peticiones en paralelo), el efecto de
+   * marcadores corría sin mapa, no pintaba nada, y la flota no aparecía
+   * hasta la siguiente posición por socket. Lo mismo al cambiar de tema.
+   */
+  const [mapVersion, setMapVersion] = useState(0);
 
   const { data: config } = useQuery({
     queryKey: ['tracking', 'config'],
@@ -136,6 +144,7 @@ export default function FleetMap() {
 
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
     map.on('error', (e) => setMapError(e.error?.message ?? 'Error del mapa'));
+    map.on('load', () => setMapVersion((v) => v + 1));
 
     mapRef.current = map;
 
@@ -147,42 +156,38 @@ export default function FleetMap() {
   }, [config, theme]);
 
   // ── Socket: posiciones según llegan ──
-  useEffect(() => {
-    const token = localStorage.getItem('admin_token');
-    if (!token) return;
+  //
+  // Con la flota entera moviéndose, llegan varias posiciones por segundo y
+  // cada una re-renderizaba la página completa. Se juntan las de un mismo
+  // fotograma y se aplican de una vez.
+  const pendingRef = useRef<Record<string, { lat: number; lng: number; heading: number | null; at: number }>>({});
+  const frameRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+  }, []);
 
-    const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
-    const socket: Socket = io(SOCKET_URL, {
-      auth: { token },
-      transports: ['websocket'],
-    });
-
-    // El backend mete a los administradores en la sala `admin` al conectar,
-    // así que no hay que suscribirse a nada: la flota entera llega sola.
-    socket.on('driver:location:update', (payload: DriverLocationUpdate) => {
-      // Se saca a variables antes del `setLive`: dentro del callback,
-      // TypeScript ya no puede probar que la guarda de arriba siga siendo
-      // cierta —el closure podría ejecutarse más tarde— y esa duda es
-      // legítima, no una molestia del compilador.
+  // El backend mete a los administradores en la sala `admin` al conectar,
+  // así que no hay que suscribirse a nada: la flota entera llega sola.
+  useAdminSocketEvents({
+    'driver:location:update': (payload: DriverLocationUpdate) => {
       const { driverId, location } = payload;
       if (!driverId || !location) return;
-      setLive((current) => ({
-        ...current,
-        [driverId]: {
-          lat: location.lat,
-          lng: location.lng,
-          heading: payload.heading ?? null,
-          at: Date.now(),
-        },
-      }));
-    });
-
-    socket.on('driver:status:update', () => refetch());
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [refetch]);
+      pendingRef.current[driverId] = {
+        lat: location.lat,
+        lng: location.lng,
+        heading: payload.heading ?? null,
+        at: Date.now(),
+      };
+      if (frameRef.current !== null) return;
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null;
+        const batch = pendingRef.current;
+        pendingRef.current = {};
+        setLive((current) => ({ ...current, ...batch }));
+      });
+    },
+    'driver:status:update': () => refetch(),
+  });
 
   /** La flota con la posición más reciente de las dos fuentes aplicada. */
   const drivers = useMemo(
@@ -305,7 +310,7 @@ export default function FleetMap() {
         delete markersRef.current[id];
       }
     }
-  }, [drivers]);
+  }, [drivers, mapVersion]);
 
   const focus = (driver: FleetDriver) => {
     setSelected(driver.id);

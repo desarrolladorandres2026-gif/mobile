@@ -72,6 +72,32 @@ export function formatCardNumber(rawNumber: string): string {
   return n.replace(/(.{4})/g, '$1 ').trim();
 }
 
+export interface CardSlot {
+  char: string;
+  filled: boolean;
+}
+
+/**
+ * El número tal como se pinta en la tarjeta de vista previa: los grupos
+ * impresos de la marca (4-6-5 en American Express, de a cuatro en el resto)
+ * con lo ya escrito y `•` en lo que falta. Un Visa de 19 dígitos abre un
+ * quinto grupo solo cuando se pasa de 16.
+ */
+export function cardNumberSlots(rawNumber: string): CardSlot[][] {
+  const brand = detectBrand(rawNumber);
+  const n = onlyDigits(rawNumber).slice(0, maxLengthFor(brand));
+  const sizes = brand === 'AMEX' ? [4, 6, 5] : n.length > 16 ? [4, 4, 4, 4, 3] : [4, 4, 4, 4];
+
+  let i = 0;
+  return sizes.map((size) =>
+    Array.from({ length: size }, () => {
+      const char = n[i];
+      i += 1;
+      return char ? { char, filled: true } : { char: '•', filled: false };
+    }),
+  );
+}
+
 /** Algoritmo de Luhn: atrapa un dígito mal copiado antes de llamar a nadie. */
 export function passesLuhn(rawNumber: string): boolean {
   const n = onlyDigits(rawNumber);

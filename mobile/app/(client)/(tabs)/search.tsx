@@ -228,11 +228,13 @@ export default function SearchScreen() {
    * escribiste" manda al usuario a corregir un término que está bien.
    *
    * La señal no puede ser `data`: un término que no existe o una categoría
-   * sin locales también lo dejan vacío. Se mira el catálogo entero, sin
-   * categoría ni término — la misma consulta que hace Inicio, así que
-   * React Query la sirve de caché y no cuesta otra descarga.
+   * sin locales también lo dejan vacío. Se pregunta si hay **algún**
+   * negocio en el radio, sin categoría ni término — con `limit: 1`, porque
+   * para saber si la lista está vacía basta con un elemento. Antes se
+   * descargaba el catálogo entero solo para contarlo (Inicio ya no lo pide,
+   * así que tampoco salía de caché).
    */
-  const whole = useBusinesses(coords, coordsReady) as { data?: Business[] };
+  const whole = useBusinesses(coords ? { ...coords, limit: 1 } : undefined, coordsReady) as { data?: Business[] };
   const outOfCoverage = !!coords && whole.data !== undefined && whole.data.length === 0;
 
   const selectTerm = useCallback((next: string) => {

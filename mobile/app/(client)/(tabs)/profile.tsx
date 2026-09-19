@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -10,6 +10,7 @@ import {
   ContentIcon,
   type ContentIllustrationName,
 } from '../../../components/illustrations';
+import { MapboxLogo, WhatsAppLogo } from '../../../components/brand/PaymentMethodLogos';
 import { Avatar } from '../../../components/domain/Avatar';
 import { useAuthStore } from '../../../stores/authStore';
 import { useCartStore } from '../../../stores/cartStore';
@@ -34,6 +35,8 @@ import { OTHER_APP, OTHER_APP_STORE_URL } from '../../../constants/variant';
 
 
 interface MenuLink {
+  /** Logo de marca (Mapbox, WhatsApp...). Tiene prioridad sobre la ilustración. */
+  logo?: ReactNode;
   /** Ilustración de contenido (categorías, beneficios, módulos). */
   illustration?: ContentIllustrationName;
   /** Icono funcional lucide, para acciones simples como ajustes. */
@@ -71,7 +74,8 @@ export default function ProfileScreen() {
   // Sin reserva mínima "por si acaso": esta pantalla no invita a agregar al
   // carrito, así que basta con el alto real del dock cuando está visible.
   const bottomSpace = useTabContentPadding();
-  const { user, logout } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
 
   const { data: addresses = [] } = useAddresses();
   const { businessIds: favorites } = useFavorites();
@@ -101,19 +105,19 @@ export default function ProfileScreen() {
 
   const accountLinks: MenuLink[] = [
     {
-      illustration: 'paquete',
+      icon: 'pedidos',
       label: 'Mis pedidos',
       detail: `${stats.orderCount} ${stats.orderCount === 1 ? 'pedido' : 'pedidos'}`,
       route: '/(client)/orders',
     },
     {
-      illustration: 'ubicacion',
+      logo: <MapboxLogo size={28} color={c.text} />,
       label: 'Mis direcciones',
       detail: `${addresses.length} guardada${addresses.length === 1 ? '' : 's'}`,
       route: '/(client)/addresses',
     },
     {
-      illustration: 'favorito',
+      icon: 'favorito',
       label: 'Negocios favoritos',
       detail: `${favorites.length} guardado${favorites.length === 1 ? '' : 's'}`,
       route: '/(client)/favorites',
@@ -122,7 +126,7 @@ export default function ProfileScreen() {
 
   const zippLinks: MenuLink[] = [
     {
-      illustration: 'trofeo',
+      icon: 'trofeo',
       label: 'Tus puntos Zipp y cupones',
       detail: `${points.toLocaleString('es-CO')} puntos acumulados`,
       badge: `${points.toLocaleString('es-CO')} pts`,
@@ -132,13 +136,13 @@ export default function ProfileScreen() {
 
   const joinLinks: MenuLink[] = [
     {
-      illustration: 'negocio',
+      logo: <WhatsAppLogo size={28} />,
       label: 'Aliar mi negocio a Zipp',
       detail: 'Escríbenos para registrar tu comercio',
       action: () => writeToZipp('Hola, quiero aliar mi negocio a Zipp.'),
     },
     {
-      illustration: 'domiciliario',
+      logo: <WhatsAppLogo size={28} />,
       label: 'Empezar a repartir con Zipp',
       detail: 'Postúlate por WhatsApp; luego entras con Zipp Domiciliarios',
       action: () => writeToZipp('Hola, quiero empezar a repartir con Zipp.'),
@@ -147,7 +151,7 @@ export default function ProfileScreen() {
       // Los domiciliarios tienen su propia app. La postulación se queda
       // aquí porque es donde llega la gente que ya conoce Zipp; el enlace
       // evita que busquen en la tienda y acaben reinstalando esta.
-      illustration: 'paquete',
+      icon: 'domiciliario',
       label: `Descargar ${OTHER_APP.name}`,
       detail: 'La app para repartir, en la tienda',
       action: () => {
@@ -162,19 +166,19 @@ export default function ProfileScreen() {
 
   const helpLinks: MenuLink[] = [
     {
-      illustration: 'ayuda',
+      icon: 'ayuda',
       label: 'Centro de ayuda',
       detail: 'Preguntas y soporte técnico',
       route: '/(client)/help',
     },
     {
-      illustration: 'seguridad',
+      icon: 'seguridad',
       label: 'Centro legal, datos y SIC',
       detail: 'Políticas de privacidad y términos del servicio',
       route: '/(client)/legal',
     },
     {
-      illustration: 'soporte',
+      icon: 'soporte',
       label: 'PQRS y solicitudes de datos',
       detail: 'Radica consultas, quejas o reclamos',
       route: '/(client)/requests',
@@ -184,19 +188,19 @@ export default function ProfileScreen() {
   // Cada fila abre el mismo lector y le dice qué documento buscar.
   const legalLinks: MenuLink[] = [
     {
-      illustration: 'documento',
+      icon: 'documento',
       label: 'Términos y condiciones',
       route: '/(client)/legal-document',
       params: { kind: 'terms', title: 'Términos y condiciones' },
     },
     {
-      illustration: 'documento',
+      icon: 'privacidad',
       label: 'Políticas de privacidad',
       route: '/(client)/legal-document',
       params: { kind: 'privacy', title: 'Políticas de privacidad' },
     },
     {
-      illustration: 'documento',
+      icon: 'consentimiento',
       label: 'Autorización de tratamiento de datos personales',
       route: '/(client)/legal-document',
       params: { kind: 'habeas_data', title: 'Autorización de datos' },
@@ -205,13 +209,13 @@ export default function ProfileScreen() {
 
   const systemLinks: MenuLink[] = [
     {
-      illustration: 'ubicacion',
+      logo: <MapboxLogo size={28} color={c.text} />,
       label: 'Ubicación y GPS',
       detail: 'Permiso para calcular tiempos y rutas de entrega',
       action: () => Linking.openSettings().catch(() => {}),
     },
     {
-      illustration: 'notificaciones',
+      icon: 'notificaciones',
       label: 'Notificaciones del sistema',
       // Antes ponia siempre lo mismo, tuviera o no permiso. Denegar los
       // avisos dejaba al usuario sin saber por que su pedido "no le avisaba
@@ -465,10 +469,12 @@ function MenuGroup({ title, links, last }: { title: string; links: MenuLink[]; l
           ]}
         >
           <View style={styles.linkIconSlot}>
-            {link.illustration ? (
+            {link.logo ? (
+              link.logo
+            ) : link.illustration ? (
               <ContentIcon name={link.illustration} size={30} />
             ) : (
-              <Icon name={link.icon ?? 'ajustes'} size="md" color={c.textMuted} />
+              <Icon name={link.icon ?? 'ajustes'} size={28} color={c.text} />
             )}
           </View>
 
@@ -596,7 +602,8 @@ function ThemePreviewCard({
 function EditProfileSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const router = useRouter();
   const { c } = useTheme();
-  const { user, setUser } = useAuthStore();
+  const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
 
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');

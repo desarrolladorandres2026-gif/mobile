@@ -43,6 +43,25 @@ let inFlight: Promise<MapConfig | null> | null = null;
  */
 export async function getMapConfig(force = false): Promise<MapConfig | null> {
   if (!force && memoryCache) return memoryCache;
+
+  // Disco antes que red: el mapa sale ya con el último valor conocido y la
+  // red lo actualiza por detrás. Antes se esperaba a la red en cada
+  // arranque en frío —con el mapa girando— aunque el token guardado sirviera
+  // exactamente igual (los tokens de Mapbox no caducan solos, se revocan).
+  if (!force) {
+    const stored = await readStoredConfig();
+    if (stored) {
+      memoryCache = stored;
+      void fetchAndStore();
+      return stored;
+    }
+  }
+
+  return fetchAndStore();
+}
+
+/** Pide la config al servidor y la guarda. Una sola petición en vuelo. */
+function fetchAndStore(): Promise<MapConfig | null> {
   if (inFlight) return inFlight;
 
   inFlight = (async () => {
@@ -54,24 +73,24 @@ export async function getMapConfig(force = false): Promise<MapConfig | null> {
       }
       return config;
     } catch {
-      // La red falló. El último token conocido sigue siendo válido: los
-      // tokens de Mapbox no caducan solos, se revocan.
-      try {
-        const cached = await AsyncStorage.getItem(CACHE_KEY);
-        if (cached) {
-          memoryCache = JSON.parse(cached) as MapConfig;
-          return memoryCache;
-        }
-      } catch {
-        // Almacenamiento no disponible. Sin mapa, pero la app sigue.
-      }
-      return null;
+      // La red falló. El último token conocido sigue siendo válido.
+      return memoryCache ?? (await readStoredConfig());
     } finally {
       inFlight = null;
     }
   })();
 
   return inFlight;
+}
+
+async function readStoredConfig(): Promise<MapConfig | null> {
+  try {
+    const cached = await AsyncStorage.getItem(CACHE_KEY);
+    return cached ? (JSON.parse(cached) as MapConfig) : null;
+  } catch {
+    // Almacenamiento no disponible. Sin mapa, pero la app sigue.
+    return null;
+  }
 }
 
 /** Olvida la config cacheada. Se llama al cerrar sesión. */

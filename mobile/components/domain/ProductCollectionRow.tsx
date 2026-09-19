@@ -147,7 +147,9 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
       removeClippedSubviews
       maxToRenderPerBatch={10}
       windowSize={9}
-      initialNumToRender={6}
+      // En pantalla caben dos tarjetas y media: montar seis por fila, con
+      // veinte filas, eran 120 tarjetas con foto al abrir el Inicio.
+      initialNumToRender={3}
       renderItem={({ item, index }) => (
         <CardComponent
           product={item}

@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Store, RefreshCw, Play, Check, Eye, ArrowUpRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
+import { qk } from '../lib/queryKeys';
+import { useTrailingCallback } from '../hooks/useTrailingCallback';
 import { useAuthStore } from '../stores/authStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { useBusinessEvent, useRealtime } from '../hooks/realtimeContext';
@@ -56,9 +59,7 @@ export default function Dashboard() {
   const { connected } = useRealtime();
   const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
 
-  const [orders, setOrders] = useState<BusinessOrder[]>([]);
-  const [statement, setStatement] = useState<Statement | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState('');
   const [detailOrder, setDetailOrder] = useState<BusinessOrder | null>(null);
   const [rejecting, setRejecting] = useState<BusinessOrder | null>(null);
@@ -71,36 +72,51 @@ export default function Dashboard() {
    */
   const [handoffTick, setHandoffTick] = useState(0);
 
-  const load = useCallback(async () => {
-    if (!businessId) return;
-    try {
-      setError('');
-      // Antes se traían los últimos 100 pedidos de CUALQUIER estado
-      // (entregados, cancelados, activos, todo mezclado) y se filtraba
-      // aquí con `isActive`. Un negocio muy movido podía acumular más de
-      // 100 pedidos recientes de cualquier estado, y un pedido activo
-      // antiguo quedaba fuera de esos 100 sin que nadie lo notara: el
-      // domiciliario nunca llegaba a verlo como pendiente. Ahora el
-      // filtro de estado va en el servidor — se pide la lista de
-      // estados activos tal cual, no "los últimos N para adivinar
-      // cuáles siguen abiertos". El límite sigue siendo generoso, pero
-      // ya es solo defensivo: la corrección real es el filtro, no el
-      // tamaño de la página.
-      const [ordersRes, statementRes] = await Promise.all([
-        api.get(`/orders/business/${businessId}`, { params: { status: ACTIVE_STATUSES.join(','), limit: 500 } }),
-        api.get(`/businesses/${businessId}/statement`),
-      ]);
-      setOrders(ordersRes.data.data);
-      setStatement(statementRes.data.data);
-    } catch (err) {
-      console.error(err);
-      setError('No pudimos cargar los pedidos del negocio.');
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId]);
+  // Antes se traían los últimos 100 pedidos de CUALQUIER estado
+  // (entregados, cancelados, activos, todo mezclado) y se filtraba
+  // aquí con `isActive`. Un negocio muy movido podía acumular más de
+  // 100 pedidos recientes de cualquier estado, y un pedido activo
+  // antiguo quedaba fuera de esos 100 sin que nadie lo notara: el
+  // domiciliario nunca llegaba a verlo como pendiente. Ahora el
+  // filtro de estado va en el servidor — se pide la lista de
+  // estados activos tal cual, no "los últimos N para adivinar
+  // cuáles siguen abiertos". El límite sigue siendo generoso, pero
+  // ya es solo defensivo: la corrección real es el filtro, no el
+  // tamaño de la página.
+  //
+  // Con react-query, volver a esta pantalla desde otra pinta al instante
+  // la última cola conocida y la refresca por detrás.
+  const ordersQuery = useQuery({
+    queryKey: qk.activeOrders(businessId),
+    enabled: !!businessId,
+    queryFn: async () =>
+      (await api.get(`/orders/business/${businessId}`, { params: { status: ACTIVE_STATUSES.join(','), limit: 500 } }))
+        .data.data as BusinessOrder[],
+  });
+  const statementQuery = useQuery({
+    queryKey: qk.statement(businessId),
+    enabled: !!businessId,
+    queryFn: async () => (await api.get(`/businesses/${businessId}/statement`)).data.data as Statement,
+  });
 
-  useEffect(() => { setLoading(true); load(); }, [load]);
+  const orders = ordersQuery.data ?? [];
+  const statement = statementQuery.data ?? null;
+  const loading = !!businessId && ordersQuery.isPending;
+  const loadError = ordersQuery.isError || statementQuery.isError
+    ? 'No pudimos cargar los pedidos del negocio.'
+    : '';
+
+  const load = useCallback(async () => {
+    setError('');
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: qk.activeOrders(businessId) }),
+      queryClient.invalidateQueries({ queryKey: qk.statement(businessId) }),
+    ]);
+  }, [queryClient, businessId]);
+
+  // Varios cambios de estado seguidos (hora pico) se resuelven con una
+  // sola recarga cuando se calman.
+  const loadSoon = useTrailingCallback(() => { void load(); }, 1000);
 
   // ── Tiempo real ──
   //
@@ -117,7 +133,7 @@ export default function Dashboard() {
     // El interruptor del menú lateral silencia esto de verdad; antes solo
     // cambiaba su propio icono.
     if (soundEnabled) playChime();
-    setOrders((previous) =>
+    queryClient.setQueryData<BusinessOrder[]>(qk.activeOrders(businessId), (previous = []) =>
       // Un pedido puede llegar dos veces si el socket reconecta justo
       // después de crearse; insertarlo sin comprobar duplicaría la fila.
       previous.some((order) => order._id === incoming._id)
@@ -126,8 +142,8 @@ export default function Dashboard() {
     );
   });
 
-  useBusinessEvent('order:status:changed', () => load());
-  useBusinessEvent('order:driver:assigned', () => load());
+  useBusinessEvent('order:status:changed', loadSoon);
+  useBusinessEvent('order:driver:assigned', loadSoon);
   useBusinessEvent('order:driver:arrived', () => setHandoffTick((tick) => tick + 1));
 
   const updateStatus = async (orderId: string, status: string, cancellationReason?: string) => {
@@ -221,10 +237,10 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {error && (
+      {(error || loadError) && (
         <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
-          <p className="flex-1 text-xs font-semibold text-[var(--color-danger)]">{error}</p>
+          <p className="flex-1 text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
         </div>
       )}
 
