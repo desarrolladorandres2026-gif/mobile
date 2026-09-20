@@ -16,6 +16,7 @@ interface HomeCategoryItem {
   key: string;
   name: string;
   imageUrl: string;
+  color: string;
   status: CategoryStatus;
   order: number;
 }
@@ -24,10 +25,11 @@ interface CategoryForm {
   key: string;
   name: string;
   imageUrl: string;
+  color: string;
   status: CategoryStatus;
 }
 
-const emptyForm = (): CategoryForm => ({ key: '', name: '', imageUrl: '', status: 'active' });
+const emptyForm = (): CategoryForm => ({ key: '', name: '', imageUrl: '', color: '', status: 'active' });
 
 export default function HomeCategories() {
   const [categories, setCategories] = useState<HomeCategoryItem[]>([]);
@@ -70,7 +72,7 @@ export default function HomeCategories() {
 
   const openEdit = (c: HomeCategoryItem) => {
     setEditingId(c._id);
-    setForm({ key: c.key, name: c.name, imageUrl: c.imageUrl || '', status: c.status });
+    setForm({ key: c.key, name: c.name, imageUrl: c.imageUrl || '', color: c.color || '', status: c.status });
     setShowModal(true);
   };
 
@@ -106,6 +108,7 @@ export default function HomeCategories() {
         await api.put(`/home-categories/${editingId}`, {
           name: form.name,
           imageUrl: form.imageUrl,
+          color: form.color,
           status: form.status,
         });
       } else {
@@ -113,6 +116,7 @@ export default function HomeCategories() {
           key: form.key.trim().toLowerCase(),
           name: form.name,
           imageUrl: form.imageUrl,
+          color: form.color,
           status: form.status,
         });
       }
@@ -267,7 +271,10 @@ export default function HomeCategories() {
                     />
                   </td>
                   <td className="table-body-cell">
-                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-[var(--color-bg)] border border-[var(--color-border)] flex items-center justify-center">
+                    <div
+                      className="w-10 h-10 rounded-lg overflow-hidden bg-[var(--color-bg)] border border-[var(--color-border)] flex items-center justify-center"
+                      style={c.imageUrl || !c.color ? undefined : { backgroundColor: c.color }}
+                    >
                       {c.imageUrl ? (
                         <img src={sizedImage(c.imageUrl, 240)} alt={c.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                       ) : (
@@ -405,6 +412,39 @@ export default function HomeCategories() {
                 <input type="text" required maxLength={40} value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className={inputClass} placeholder="Ej. Restaurantes" />
+              </div>
+
+              <div>
+                <label className={labelClass}>Color de respaldo (opcional)</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={form.color || '#D69E26'}
+                    onChange={(e) => setForm({ ...form, color: e.target.value })}
+                    className="h-10 w-14 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] cursor-pointer"
+                    aria-label="Color de respaldo de la categoría"
+                  />
+                  <input
+                    type="text" maxLength={7} value={form.color}
+                    onChange={(e) => setForm({ ...form, color: e.target.value })}
+                    className={inputClass + ' flex-1 font-mono'}
+                    placeholder="#D69E26"
+                  />
+                  {form.color ? (
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, color: '' })}
+                      className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-danger)] border border-[var(--color-border)] cursor-pointer"
+                      title="Quitar el color"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  ) : null}
+                </div>
+                <p className="mt-1.5 text-[11px] text-[var(--color-text-muted)]">
+                  Solo se ve cuando no hay imagen: tiñe el cuadro detrás del icono de
+                  respaldo, para que una categoría nueva no quede en gris.
+                </p>
               </div>
 
               <div>

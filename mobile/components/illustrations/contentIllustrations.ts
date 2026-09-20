@@ -22,6 +22,7 @@ import { PriceTagIllustration } from './PriceTagIllustration';
 import { CrownIllustration } from './CrownIllustration';
 import { TrendingIllustration } from './TrendingIllustration';
 import { IceCubeIllustration } from './IceCubeIllustration';
+import { ExploreIllustration } from './ExploreIllustration';
 import type { IllustrationProps } from './types';
 import type { IconName } from '../../theme/icons';
 
@@ -87,6 +88,11 @@ export const ContentIllustrationRegistry = {
   corona: CrownIllustration,
   tendencia: TrendingIllustration,
   hielo: IceCubeIllustration,
+  // La brújula ya existía dibujada para la barra de pestañas, que volvió a
+  // iconos: entra aquí porque "buscar" también es un vacío de la app, y el
+  // de Explorar era el único que seguía mostrando un glifo dentro de un
+  // cuadro gris.
+  explorar: ExploreIllustration,
 } as const;
 
 export type ContentIllustrationName = keyof typeof ContentIllustrationRegistry;
@@ -132,6 +138,7 @@ export const IconToIllustration: Partial<Record<IconName, ContentIllustrationNam
   tarjeta: 'tarjeta',
   billetera: 'billetera',
   negocio: 'negocio',
+  explorar: 'explorar',
 };
 
 /** Ilustración equivalente a un icono, si el concepto la tiene. */

@@ -266,7 +266,9 @@ export class PaymentController {
           status,
           amount: payment.amount,
           currency: payment.currency,
-          orderId: payment.orderId.toString(),
+          // Nulo en el cobro de la membresía, que no cuelga de ningún
+          // pedido. La app lo usa para saber a qué espera cada pantalla.
+          orderId: payment.orderId?.toString() ?? null,
           declineReason: payment.statusMessage,
         });
       }
@@ -285,7 +287,7 @@ export class PaymentController {
         status: intent.status,
         amount: intent.amount,
         currency: intent.currency,
-        orderId: payment.orderId.toString(),
+        orderId: payment.orderId?.toString() ?? null,
         declineReason: intent.declineReason,
         paymentMethodType: intent.paymentMethodType,
         // El reto 3D Secure no llega al crear la transacción: Wompi lo

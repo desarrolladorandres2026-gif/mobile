@@ -17,6 +17,9 @@ import { tap } from '../../lib/haptics';
 const TABS: Record<string, { icon: IconName; label: string }> = {
   home: { icon: 'inicio', label: 'Inicio' },
   search: { icon: 'explorar', label: 'Explorar' },
+  // La membresía. Va en el centro exacto de las cinco pestañas y se pinta
+  // distinta —ver `TabDome`—: es la única que vende algo.
+  pro: { icon: 'corona', label: 'Zipp Pro' },
   dashboard: { icon: 'rayo', label: 'Turno' },
   // Pedidos ya no vive en la barra del cliente —se movió a la pila, con
   // puerta desde Perfil— pero la entrada sigue sirviendo a la barra del
@@ -112,16 +115,21 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       ]}
     >
       <Sheen trackWidth={width} />
-      <Animated.View style={[styles.indicator, indicator]} />
+      {/* El trazo no firma la pestaña del centro: ahí manda la corona, y
+          dos marcas de "estás aquí" a la vez se estorban. */}
+      {state.routes[state.index]?.name === 'pro' ? null : (
+        <Animated.View style={[styles.indicator, indicator]} />
+      )}
 
       {state.routes.map((route, index) => {
         const config = TABS[route.name];
         if (!config) return null;
 
         const focused = state.index === index;
+        const Item = route.name === 'pro' ? TabDome : TabItem;
 
         return (
-          <TabItem
+          <Item
             key={route.key}
             icon={config.icon}
             label={config.label}
@@ -183,9 +191,76 @@ function TabItem({
           color={focused ? ON_GOLD : inactiveColor}
           strong={focused}
         />
-        <Text v="caption" color={focused ? ON_GOLD : inactiveColor}>
+        {/* Con cinco pestañas cada una mide ~78 px: "Descuentos" cabe
+            justo, y una segunda línea rompería el alto de la barra. */}
+        <Text v="caption" color={focused ? ON_GOLD : inactiveColor} numberOfLines={1}>
           {label}
         </Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+/**
+ * La pestaña del centro: Zipp Pro.
+ *
+ * Un disco dorado con la corona, no un icono más. Es la única entrada de la
+ * barra que no lleva a mirar sino a contratar, y tratarla igual que a las
+ * otras cuatro la escondería justo en el sitio donde más se mira.
+ *
+ * El disco vive **dentro** del alto de la barra a propósito, en vez de
+ * sobresalir por arriba como el botón central de otras apps: la barra
+ * recorta a sus bordes para que el reflejo no se salga, y un disco que
+ * asomara aparecería cortado. El anillo del color del fondo hace el resto
+ * del trabajo —separa el disco de la barra y da la sensación de relieve—
+ * sin depender de que nada se dibuje fuera.
+ */
+function TabDome({
+  icon, label, focused, width, onPress,
+}: {
+  icon: IconName;
+  label: string;
+  focused: boolean;
+  inactiveColor: string;
+  width: number;
+  onPress: () => void;
+}) {
+  const { c } = useTheme();
+  const lift = useSharedValue(focused ? 1 : 0);
+
+  useEffect(() => {
+    lift.value = withSpring(focused ? 1 : 0, { damping: 14, stiffness: 240 });
+  }, [focused]);
+
+  // Al entrar, el disco crece un pelo y sube: el mismo gesto de las otras
+  // pestañas, con más cuerpo porque el elemento es más grande.
+  const animated = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: -3 * lift.value },
+      { scale: 1 + 0.06 * lift.value },
+    ],
+  }));
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.tab, { width }]}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: focused }}
+      accessibilityLabel={label}
+    >
+      <Animated.View style={[styles.domeInner, animated]}>
+        <View style={[styles.domeRing, { borderColor: c.background }]}>
+          <LinearGradient
+            colors={[palette.gold300, palette.gold500]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.domeFill}
+          >
+            <Icon name={icon} size="md" color={palette.ink900} strong />
+          </LinearGradient>
+        </View>
+        <Text v="caption" color={ON_GOLD} numberOfLines={1}>{label}</Text>
       </Animated.View>
     </Pressable>
   );
@@ -215,4 +290,15 @@ const styles = StyleSheet.create({
   },
   tab: { alignItems: 'center', justifyContent: 'center' },
   tabInner: { alignItems: 'center', gap: 3, paddingTop: Spacing.md },
+  // Sin relleno arriba: el disco ya es alto, y la barra mide 64. Lo que
+  // sobrepase se recorta, así que aquí se cuenta al píxel.
+  domeInner: { alignItems: 'center', gap: 2 },
+  domeRing: {
+    width: 42,
+    height: 42,
+    borderRadius: BorderRadius.full,
+    borderWidth: 3,
+    overflow: 'hidden',
+  },
+  domeFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

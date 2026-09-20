@@ -96,33 +96,35 @@ export class CouponController {
         query(req, 'businessId')
       );
 
-      // Never expose internal counters to customers.
-      const safe = coupons.map((c) => ({
-        _id: c._id,
-        code: c.code,
-        title: c.title,
-        description: c.description,
-        type: c.type,
-        value: c.value,
-        maxDiscount: c.maxDiscount,
-        minOrderAmount: c.minOrderAmount,
-        validUntil: c.validUntil,
-        businessId: c.businessId,
-        firstOrderOnly: c.firstOrderOnly,
-        usageLimit: c.usageLimit,
-        perUserLimit: c.perUserLimit,
-        validDays: c.validDays,
-        validFromTime: c.validFromTime,
-        validUntilTime: c.validUntilTime,
-        conditions: {
-          minOrderAmount: c.minOrderAmount,
-          fundedBy: c.fundedBy,
-          zoneRestricted: c.zoneIds.length > 0,
-          firstOrderOnly: c.firstOrderOnly,
-        },
-      }));
+      // La lista blanca vive en el servicio, no aquí: `/offers` devuelve los
+      // mismos cupones y las dos rutas tienen que esconder exactamente lo
+      // mismo. Mientras cada una tenía su copia, por una se escapaban el
+      // presupuesto y el margen de cada campaña.
+      const now = new Date();
+      sendResponse(
+        res,
+        200,
+        'Promociones disponibles',
+        coupons.map((c) => couponService.publicView(c, now))
+      );
+    } catch (error) { next(error); }
+  }
 
-      sendResponse(res, 200, 'Promociones disponibles', safe);
+  /**
+   * Authenticated: which public coupons this customer can actually use.
+   *
+   * Deliberadamente sin cifras. Solo dice "sí", o "no, y por qué", para que
+   * la pantalla de Descuentos pueda ofrecer una salida en vez de un botón
+   * gris; el descuento en pesos lo sigue calculando la cotización.
+   */
+  async eligibility(req: Request, res: Response, next: NextFunction) {
+    try {
+      const rows = await couponService.eligibility(
+        req.user!._id.toString(),
+        req.user!.role,
+        query(req, 'city')
+      );
+      sendResponse(res, 200, 'Elegibilidad de cupones', rows);
     } catch (error) { next(error); }
   }
 

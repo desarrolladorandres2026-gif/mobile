@@ -37,6 +37,10 @@ export default function ClientTabsLayout() {
         >
           <Tabs.Screen name="home" options={{ title: 'Inicio' }} />
           <Tabs.Screen name="search" options={{ title: 'Explorar' }} />
+          {/* El orden de estas líneas es el orden de la barra, y Zipp Pro
+              va en el centro exacto de las cinco: es la posición que el
+              pulgar alcanza sin mirar. */}
+          <Tabs.Screen name="pro" options={{ title: 'Zipp Pro' }} />
           <Tabs.Screen name="offers" options={{ title: 'Descuentos' }} />
           <Tabs.Screen name="profile" options={{ title: 'Perfil' }} />
         </Tabs>

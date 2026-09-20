@@ -64,6 +64,7 @@ export default function HomeScreen() {
       key: cat.key,
       label: cat.label,
       imageUrl: cat.imageUrl,
+      color: cat.color,
       onPress: () =>
         router.push({
           pathname: '/(client)/(tabs)/search',

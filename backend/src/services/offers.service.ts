@@ -1,8 +1,9 @@
 import { PipelineStage } from 'mongoose';
 import { Product, Business, ICoupon } from '../models';
+import { CouponFundedBy } from '../types';
 import { LatLng } from '../utils/geo';
 import { VISIBLE_BUSINESS, withDistance, withinRadius } from '../utils/catalogQuery';
-import { couponService } from './coupon.service';
+import { couponService, PublicCoupon } from './coupon.service';
 
 /**
  * Todo lo que está en oferta, en una sola respuesta.
@@ -30,9 +31,49 @@ export interface BusinessOffer {
 }
 
 export interface OffersResult {
-  coupons: ICoupon[];
+  coupons: PublicCoupon[];
   products: Record<string, unknown>[];
   businesses: Record<string, unknown>[];
+}
+
+/** Cuánto falta para que un cupón caduque. Los ya vencidos van al final. */
+function msUntilExpiry(coupon: ICoupon, now: Date): number {
+  const ms = coupon.validUntil.getTime() - now.getTime();
+  return ms > 0 ? ms : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * En qué orden se ofrecen los cupones.
+ *
+ * Primero lo que de verdad se acaba —esa es la promesa que le hacemos a
+ * quien abre la pestaña— y solo a igualdad de urgencia se adelanta lo que
+ * financia el comercio.
+ *
+ * Ese desempate no es un detalle: un cupón del aliado le cuesta cero a Zipp
+ * y trae el mismo pedido, mientras uno de plataforma sale de la caja. Hasta
+ * ahora el orden no miraba quién pagaba, así que empujábamos nuestro propio
+ * gasto tan fuerte como el suyo. Quién financia sigue sin salir en la
+ * respuesta: se nota en el orden, no en un campo.
+ *
+ * Los negocios no necesitan este desempate: entran a la lista por
+ * `discountPrice` o por `freeDeliveryThreshold`, que los paga el comercio
+ * por definición.
+ */
+const EXPIRING_SOON_MS = 24 * 60 * 60 * 1000;
+
+function rankCoupons(coupons: ICoupon[], now: Date): ICoupon[] {
+  return [...coupons].sort((a, b) => {
+    const urgentA = msUntilExpiry(a, now) <= EXPIRING_SOON_MS;
+    const urgentB = msUntilExpiry(b, now) <= EXPIRING_SOON_MS;
+    if (urgentA !== urgentB) return urgentA ? -1 : 1;
+    if (urgentA) return msUntilExpiry(a, now) - msUntilExpiry(b, now);
+
+    const merchantA = a.fundedBy === CouponFundedBy.BUSINESS;
+    const merchantB = b.fundedBy === CouponFundedBy.BUSINESS;
+    if (merchantA !== merchantB) return merchantA ? -1 : 1;
+
+    return b.createdAt.getTime() - a.createdAt.getTime();
+  });
 }
 
 /**
@@ -232,10 +273,16 @@ export class OffersService {
     // Los cupones no dependen de las otras dos consultas, pero los negocios
     // sí de los productos: el descuento de un negocio sale de su mejor
     // producto rebajado, así que se resuelven en dos tiempos.
-    const [coupons, products] = await Promise.all([
+    const now = new Date();
+    const [rawCoupons, products] = await Promise.all([
       couponService.getPublic(city),
       this.discountedProducts(coords, maxDistance, city, limit),
     ]);
+
+    // Saneados aquí y no en el controlador, porque lo que se guarda en la
+    // caché de 60 s es esto: si se filtrara después, el documento entero
+    // —presupuesto y margen incluidos— seguiría viviendo en Redis.
+    const coupons = rankCoupons(rawCoupons, now).map((c) => couponService.publicView(c, now));
 
     const businesses = await this.offerBusinesses(
       products,

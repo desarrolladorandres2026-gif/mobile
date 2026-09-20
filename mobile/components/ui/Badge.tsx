@@ -271,6 +271,36 @@ export function MetaRow({ items }: { items: MetaItem[] }) {
   );
 }
 
+/**
+ * Un filtro puesto, con su salida.
+ *
+ * Hermano de `Chip` pero al revés: `Chip` sirve para elegir, esto sirve para
+ * deshacer, y por eso nunca va en dorado — el dorado es "esto está
+ * seleccionado", no "toca aquí para quitarlo".
+ *
+ * Existe porque el resumen de filtros de Explorar era un `Badge` metido en un
+ * `Pressable`: tenía la forma de una etiqueta y el comportamiento de un
+ * botón, y además lo quitaba todo de golpe sin decir qué había puesto.
+ */
+export function DismissChip({
+  label, onDismiss,
+}: { label: string; onDismiss: () => void }) {
+  const { c } = useTheme();
+
+  return (
+    <Pressable
+      onPress={() => { tap('light'); onDismiss(); }}
+      accessibilityRole="button"
+      accessibilityLabel={`Quitar filtro ${label}`}
+      hitSlop={6}
+      style={[styles.dismissChip, { backgroundColor: c.surface, borderColor: c.border }]}
+    >
+      <Text v="strongS" color={c.textSecondary}>{label}</Text>
+      <Icon name="cerrar" size={13} color={c.textMuted} />
+    </Pressable>
+  );
+}
+
 /** Contador sobre un icono: artículos en la bolsa, avisos sin leer. */
 export function CountBadge({ count, tone = 'lime' }: { count: number; tone?: 'lime' | 'error' }) {
   const { c } = useTheme();
@@ -309,6 +339,16 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: BorderRadius.full,
     borderWidth: 1.5,
+  },
+  dismissChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingLeft: Spacing.md,
+    paddingRight: Spacing.sm + 2,
+    height: 32,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
   },
   chipBare: { paddingVertical: Spacing.sm, paddingRight: Spacing.lg },
   chipBareActive: { textDecorationLine: 'underline' },

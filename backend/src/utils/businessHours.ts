@@ -20,7 +20,7 @@ function toMinutes(hhmm: string | undefined): number | null {
  * de Colombia: con `getHours()` a secas, un local que abre a las 8 de la
  * mañana aparecería abierto a las 3 de la madrugada.
  */
-function localClock(when: Date, timeZone: string): { day: number; minutes: number } {
+export function localClock(when: Date, timeZone: string): { day: number; minutes: number } {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     weekday: 'short',
@@ -71,4 +71,51 @@ export function isOpenAt(
 
   const y = window(yesterday);
   return !!y && y.crosses && minutes < y.close;
+}
+
+/**
+ * El instante exacto en el que un reloj de pared marca cierta hora.
+ *
+ * Es el camino de vuelta de `localClock`: esa dice qué hora es allí, y esta
+ * dice cuándo van a ser allí las 11:00. Hace falta para poder anunciar
+ * "abre a las 6 p. m." con una fecha real que el móvil pueda poner en una
+ * cuenta atrás, en vez de una cadena suelta que cada dispositivo
+ * interpretaría en su propia zona.
+ *
+ * El desfase se mide en `reference` en lugar de darlo por hecho: Colombia
+ * no cambia de hora, pero la zona horaria es configurable
+ * (`SETTLEMENT_TIMEZONE`) y en una que sí cambiara, restar cinco horas fijas
+ * fallaría dos veces al año.
+ */
+export function localInstant(
+  reference: Date,
+  timeZone: string,
+  daysAhead: number,
+  minutesOfDay: number
+): Date {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(reference);
+
+  const value = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+
+  // `Date.UTC` no lleva milisegundos, así que la referencia se redondea al
+  // segundo antes de restar o el desfase saldría desviado por debajo de un
+  // segundo en cada llamada.
+  const wallAsUTC = Date.UTC(
+    value('year'), value('month') - 1, value('day'),
+    value('hour'), value('minute'), value('second')
+  );
+  const offsetMs = wallAsUTC - Math.floor(reference.getTime() / 1000) * 1000;
+
+  const midnight = Date.UTC(value('year'), value('month') - 1, value('day') + daysAhead);
+
+  return new Date(midnight + minutesOfDay * 60_000 - offsetMs);
 }

@@ -19,6 +19,8 @@ import {
   normalizePhone,
 } from '../utils';
 import { maskEmail, maskPhone } from '../utils/mask';
+import { parseBirthDate, birthDateProblem } from '../utils/age';
+import type { DocumentType } from '../models/User';
 import {
   Session,
   sessionManager,
@@ -140,6 +142,9 @@ export interface IdentityPayload {
   email?: string;
   email_verified?: boolean | string;
   name?: string;
+  /** Google los da por separado; Apple no los pone en el token (ver `appleCallback`). */
+  given_name?: string;
+  family_name?: string;
   picture?: string;
   nonce?: string;
   exp?: number;
@@ -180,6 +185,113 @@ export const identityVerifiers = {
       issuer: APPLE_ISSUER,
       audience,
     }) as IdentityPayload;
+  },
+};
+
+// ── Identidades de Google, Apple y Facebook ───────────────────────────
+
+export type OAuthProvider = 'google' | 'apple' | 'facebook';
+
+const OAUTH_ID_FIELD: Record<OAuthProvider, 'googleId' | 'appleId' | 'facebookId'> = {
+  google: 'googleId',
+  apple: 'appleId',
+  facebook: 'facebookId',
+};
+
+const OAUTH_PROVIDER_NAME: Record<OAuthProvider, string> = {
+  google: 'Google',
+  apple: 'Apple',
+  facebook: 'Facebook',
+};
+
+/** El `name` que ponemos cuando el proveedor no da ninguno. */
+const oauthPlaceholderName = (provider: OAuthProvider) => `Usuario ${OAUTH_PROVIDER_NAME[provider]}`;
+
+/** Lo que un proveedor dice de la persona, ya verificado por su firma o por Graph. */
+export interface OAuthIdentity {
+  sub: string;
+  email?: string;
+  /**
+   * El proveedor garantiza que el correo es de quien entra. Solo así se
+   * vincula una cuenta existente por correo o se marca verificado.
+   */
+  emailTrusted: boolean;
+  /** Nombre completo, cuando el proveedor no lo da partido. */
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  /** URL de la foto de perfil. */
+  avatar?: string;
+  /** La foto se sube a Cloudinary en vez de guardar la URL (las de Facebook caducan). */
+  importAvatar?: boolean;
+}
+
+/** Nombre y apellido recortados al largo del modelo; vacíos como `undefined`. */
+function oauthNames(identity: OAuthIdentity): { firstName?: string; lastName?: string } {
+  const clean = (v?: string) => {
+    const t = v?.trim().replace(/\s+/g, ' ').slice(0, 60);
+    return t && t.length >= 2 ? t : undefined;
+  };
+  return { firstName: clean(identity.firstName), lastName: clean(identity.lastName) };
+}
+
+// ── Graph API de Meta ("Continuar con Facebook") ──────────────────────
+
+export interface FacebookProfile {
+  id: string;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  name?: string;
+  picture?: { data?: { url?: string; is_silhouette?: boolean } };
+}
+
+/**
+ * `appsecret_proof`: Meta rechaza una llamada con un token robado si no viene
+ * firmada con el secreto de la app, que solo tiene este servidor.
+ */
+const appSecretProof = (accessToken: string) =>
+  crypto.createHmac('sha256', config.facebook.appSecret).update(accessToken).digest('hex');
+
+/**
+ * Las dos llamadas a Meta, detrás de un objeto para que las pruebas las
+ * sustituyan sin red (igual que `identityVerifiers`).
+ */
+export const facebookGraph = {
+  /**
+   * Canjea el `code` del diálogo por un token de acceso. Va con el secreto
+   * de la app **y** el `code_verifier` (PKCE) que solo conoce la app que
+   * abrió el diálogo: quien intercepte el deep link tiene el código, pero
+   * no puede canjearlo.
+   */
+  async exchangeCode(code: string, codeVerifier: string): Promise<string> {
+    const { appId, appSecret, graphVersion, redirectUri } = config.facebook;
+    const url = new URL(`https://graph.facebook.com/${graphVersion}/oauth/access_token`);
+    url.search = new URLSearchParams({
+      client_id: appId,
+      client_secret: appSecret,
+      redirect_uri: redirectUri,
+      code,
+      code_verifier: codeVerifier,
+    }).toString();
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const body = (await res.json().catch(() => ({}))) as { access_token?: string };
+    if (!res.ok || !body.access_token) throw new Error(`Meta rechazó el código (HTTP ${res.status})`);
+    return body.access_token;
+  },
+
+  async profile(accessToken: string): Promise<FacebookProfile> {
+    const { graphVersion } = config.facebook;
+    const url = new URL(`https://graph.facebook.com/${graphVersion}/me`);
+    url.search = new URLSearchParams({
+      fields: 'id,first_name,last_name,name,email,picture.width(512).height(512)',
+      access_token: accessToken,
+      appsecret_proof: appSecretProof(accessToken),
+    }).toString();
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const body = (await res.json().catch(() => ({}))) as FacebookProfile;
+    if (!res.ok || !body.id) throw new Error(`Meta no devolvió el perfil (HTTP ${res.status})`);
+    return body;
   },
 };
 
@@ -313,10 +425,11 @@ export class AuthService {
     return { requiresTOTP: false, user, method, ...session };
   }
 
-  // ── Google y Apple ───────────────────────────────────────────────────
+  // ── Google, Apple y Facebook ─────────────────────────────────────────
 
   /**
-   * Encuentra o crea la cuenta de una identidad de Google/Apple ya verificada.
+   * Encuentra o crea la cuenta de una identidad de Google/Apple/Facebook ya
+   * verificada, y rellena lo que le falte al perfil (ver `fillMissingProfile`).
    *
    * Nunca vincula por un correo que ZIPP no haya verificado. Antes bastaba con
    * que coincidiera: un atacante registraba una cuenta con el correo de la
@@ -329,21 +442,22 @@ export class AuthService {
    * - Correo NO verificado en ZIPP → no se vincula. El proveedor sí demostró
    *   la titularidad del correo, así que se libera de la cuenta que solo lo
    *   declaraba y la cuenta nueva lo recibe verificado. Queda auditado.
+   *
+   * Todo lo anterior exige `emailTrusted`: que el proveedor garantice que el
+   * correo es de quien entra. Google y Apple lo dicen en el token; Facebook
+   * no, así que su correo nunca vincula ni libera nada — solo se guarda, sin
+   * verificar, en una cuenta que no lo tenga y si nadie más lo usa.
    */
-  private async resolveOAuthUser(
-    provider: 'google' | 'apple',
-    identity: { sub: string; email?: string; name?: string; avatar?: string },
-    req?: Request
-  ): Promise<IUser> {
-    const idField = provider === 'google' ? 'googleId' : 'appleId';
-    const providerName = provider === 'google' ? 'Google' : 'Apple';
+  private async resolveOAuthUser(provider: OAuthProvider, identity: OAuthIdentity, req?: Request): Promise<IUser> {
+    const idField = OAUTH_ID_FIELD[provider];
+    const providerName = OAUTH_PROVIDER_NAME[provider];
 
     const linked = await User.findOne({ [idField]: identity.sub }).select(`+${idField}`);
-    if (linked) return linked;
+    if (linked) return this.fillMissingProfile(linked, provider, identity, req);
 
     const email = identity.email?.trim().toLowerCase();
 
-    if (email) {
+    if (email && identity.emailTrusted) {
       const byEmail = await User.findOne({ email }).select(`+${idField}`);
 
       if (byEmail && byEmail.emailVerified === true) {
@@ -376,7 +490,7 @@ export class AuthService {
             metadata: { provider, updatedFields: [idField] },
           });
         }
-        return (await User.findById(byEmail._id))!;
+        return this.fillMissingProfile((await User.findById(byEmail._id))!, provider, identity, req);
       }
 
       if (byEmail) {
@@ -397,12 +511,21 @@ export class AuthService {
       }
     }
 
+    // Un correo no garantizado (Facebook) solo entra si nadie más lo usa. Si
+    // otra cuenta lo tiene se omite en silencio: decirlo revelaría que existe.
+    const emailForNew = email && (identity.emailTrusted || !(await User.exists({ email }))) ? email : undefined;
+    const { firstName, lastName } = oauthNames(identity);
+
+    let created: IUser;
     try {
-      return await User.create({
-        name: identity.name || (email ? email.split('@')[0] : `Usuario ${providerName}`),
-        email,
-        emailVerified: !!email,
-        avatar: identity.avatar,
+      created = await User.create({
+        name: [firstName, lastName].filter(Boolean).join(' ') || identity.name?.trim()
+          || (emailForNew ? emailForNew.split('@')[0] : oauthPlaceholderName(provider)),
+        firstName,
+        lastName,
+        email: emailForNew,
+        emailVerified: !!emailForNew && identity.emailTrusted,
+        avatar: identity.importAvatar ? undefined : identity.avatar,
         [idField]: identity.sub,
         role: UserRole.CLIENT,
         // Sin celular todavía: la app lo pide y lo verifica por OTP justo
@@ -414,6 +537,113 @@ export class AuthService {
         throw new AppError('No pudimos completar el inicio de sesión. Intenta de nuevo.', 409, 'OAUTH_ACCOUNT_CONFLICT');
       }
       throw error;
+    }
+
+    if (identity.importAvatar && identity.avatar) {
+      return (await this.importRemoteAvatar(created, identity.avatar)) ?? created;
+    }
+    return created;
+  }
+
+  /**
+   * Rellena con lo del proveedor lo que la cuenta todavía no tiene. **Nunca
+   * pisa** lo que el cliente escribió o editó en Mi cuenta.
+   *
+   * - Nombre y apellido: solo si los dos están vacíos y el `name` actual es
+   *   uno que pusimos nosotros (el comodín, el prefijo del correo o el que ya
+   *   había dado este mismo proveedor). Si la persona escribió su nombre al
+   *   registrarse con el celular, se respeta y Mi cuenta le pide el apellido.
+   * - Correo: solo si no tiene, y si ninguna otra cuenta lo usa. Uno no
+   *   garantizado (Facebook) entra sin verificar.
+   * - Foto: solo si no tiene.
+   */
+  private async fillMissingProfile(
+    user: IUser,
+    provider: OAuthProvider,
+    identity: OAuthIdentity,
+    req?: Request
+  ): Promise<IUser> {
+    const set: Record<string, unknown> = {};
+    const { firstName, lastName } = oauthNames(identity);
+    const providerFullName = [firstName, lastName].filter(Boolean).join(' ') || identity.name?.trim() || '';
+
+    if (!user.firstName && !user.lastName && (firstName || lastName)) {
+      const norm = (v: string) => v.trim().toLocaleLowerCase('es');
+      const current = norm(user.name ?? '');
+      const ours =
+        current === norm(oauthPlaceholderName(provider)) ||
+        (!!user.email && current === norm(user.email.split('@')[0])) ||
+        (!!providerFullName && current === norm(providerFullName));
+      if (ours) {
+        if (firstName) set.firstName = firstName;
+        if (lastName) set.lastName = lastName;
+        set.name = [firstName, lastName].filter(Boolean).join(' ');
+      }
+    }
+
+    const email = identity.email?.trim().toLowerCase();
+    if (!user.email && email && !(await User.exists({ email, _id: { $ne: user._id } }))) {
+      set.email = email;
+      set.emailVerified = identity.emailTrusted;
+    }
+
+    const wantsAvatar = !user.avatar && !!identity.avatar;
+    if (wantsAvatar && !identity.importAvatar) set.avatar = identity.avatar;
+
+    const updatedFields = Object.keys(set);
+    if (updatedFields.length > 0) {
+      // Condicionado a que sigan vacíos: si el cliente guardó algo desde Mi
+      // cuenta entre la lectura y esta escritura, gana lo suyo.
+      const empty = { $in: [null, ''] };
+      const guard: Record<string, unknown> = { _id: user._id };
+      if (set.firstName !== undefined || set.lastName !== undefined) {
+        guard.firstName = empty;
+        guard.lastName = empty;
+      }
+      if (set.email !== undefined) guard.email = empty;
+      if (set.avatar !== undefined) guard.avatar = empty;
+
+      try {
+        await User.updateOne(guard, { $set: set });
+      } catch (error) {
+        // Otra cuenta tomó el correo en ese mismo instante: no vale la pena
+        // romper el login por eso.
+        if ((error as { code?: number }).code !== 11000) throw error;
+      }
+
+      if (req) {
+        await logAudit(req, {
+          action: AuditAction.PROFILE_UPDATED,
+          entity: 'user',
+          entityId: user._id.toString(),
+          description: `Perfil completado con datos de ${OAUTH_PROVIDER_NAME[provider]}`,
+          metadata: { provider, updatedFields },
+        });
+      }
+    }
+
+    let fresh: IUser = (await User.findById(user._id))!;
+    if (wantsAvatar && identity.importAvatar && identity.avatar && !fresh.avatar) {
+      fresh = (await this.importRemoteAvatar(fresh, identity.avatar)) ?? fresh;
+    }
+    return fresh;
+  }
+
+  /**
+   * Trae una foto de un proveedor y la sube como avatar propio. Las URLs de
+   * Facebook están firmadas y caducan: guardarlas tal cual dejaría la foto
+   * rota en unos días. Si algo falla, el login sigue sin foto.
+   */
+  private async importRemoteAvatar(user: IUser, url: string): Promise<IUser | null> {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const type = res.headers.get('content-type') ?? '';
+      if (!res.ok || !type.startsWith('image/')) return null;
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length === 0 || buffer.length > 5 * 1024 * 1024) return null;
+      return await this.uploadAvatar(user._id.toString(), buffer);
+    } catch {
+      return null;
     }
   }
 
@@ -458,9 +688,18 @@ export class AuthService {
 
     await consumeIdentityToken('google', idToken, payload.exp);
 
+    // Arriba ya se exigió `email_verified`: el correo de Google es de quien entra.
     const user = await this.resolveOAuthUser(
       'google',
-      { sub: payload.sub, email: payload.email, name: payload.name, avatar: payload.picture },
+      {
+        sub: payload.sub,
+        email: payload.email,
+        emailTrusted: true,
+        name: payload.name,
+        firstName: payload.given_name,
+        lastName: payload.family_name,
+        avatar: payload.picture,
+      },
       req
     );
 
@@ -483,12 +722,19 @@ export class AuthService {
    * para que el deep link de vuelta a la app no lleve el `id_token`. Ver
    * `models/OAuthReplay.ts`.
    */
-  async createAppleAuthCode(idToken: string, fullName?: string): Promise<string> {
+  async createAppleAuthCode(
+    idToken: string,
+    fullName?: string,
+    parts: { firstName?: string; lastName?: string } = {}
+  ): Promise<string> {
     const code = crypto.randomBytes(32).toString('base64url');
+    const cut = (v?: string) => (v?.trim() ? v.trim().slice(0, 60) : undefined);
     await AppleAuthCode.create({
       codeHash: sha256(code),
       idToken,
       fullName: fullName ? fullName.slice(0, 100) : undefined,
+      firstName: cut(parts.firstName),
+      lastName: cut(parts.lastName),
       expiresAt: new Date(Date.now() + APPLE_CODE_TTL_MS),
     });
     return code;
@@ -530,9 +776,19 @@ export class AuthService {
     const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
     const email = payload.email && emailVerified ? payload.email.toLowerCase() : undefined;
 
+    // El correo puede ser el privado de Apple (`@privaterelay.appleid.com`):
+    // reenvía al real, así que se guarda verificado igual (decisión del
+    // 2026-09-19). Mi cuenta lo rotula como tal.
     const user = await this.resolveOAuthUser(
       'apple',
-      { sub: payload.sub, email, name: pending.fullName || input.fullName },
+      {
+        sub: payload.sub,
+        email,
+        emailTrusted: !!email,
+        name: pending.fullName || input.fullName,
+        firstName: pending.firstName,
+        lastName: pending.lastName,
+      },
       req
     );
 
@@ -544,6 +800,62 @@ export class AuthService {
         entityId: user._id.toString(),
         description: 'Login con Apple exitoso',
         metadata: { provider: 'apple' },
+      });
+    }
+
+    return { ...outcome, needsPhone: this.oauthNeedsPhone(outcome.user) };
+  }
+
+  /**
+   * "Continuar con Facebook", sin SDK nativo: la app abre el diálogo de Meta
+   * en el navegador, Meta vuelve a `/auth/facebook/callback` y de ahí al deep
+   * link con el `code`. Aquí se canjea con PKCE y se lee el perfil.
+   *
+   * El correo de Facebook no trae una marca de verificado como la de Google:
+   * se guarda sin verificar y nunca vincula una cuenta existente por correo
+   * (ver `resolveOAuthUser`). La foto se importa porque su URL caduca.
+   */
+  async loginWithFacebook(
+    input: { code: string; codeVerifier: string },
+    req?: Request
+  ): Promise<AuthOutcome & { needsPhone: boolean }> {
+    if (!config.facebook.appId || !config.facebook.appSecret) {
+      throw new AppError('Inicio de sesión con Facebook no está disponible todavía.', 503, 'FACEBOOK_NOT_CONFIGURED');
+    }
+
+    let profile: FacebookProfile;
+    try {
+      const accessToken = await facebookGraph.exchangeCode(input.code, input.codeVerifier);
+      profile = await facebookGraph.profile(accessToken);
+    } catch {
+      throw new AppError('No pudimos confirmar tu cuenta de Facebook. Vuelve a intentarlo.', 401, 'FACEBOOK_CODE_INVALID');
+    }
+
+    const picture = profile.picture?.data;
+    const user = await this.resolveOAuthUser(
+      'facebook',
+      {
+        sub: profile.id,
+        email: profile.email,
+        emailTrusted: false,
+        name: profile.name,
+        firstName: profile.first_name,
+        lastName: profile.last_name,
+        // La silueta gris por defecto no es una foto: mejor las iniciales.
+        avatar: picture?.url && !picture.is_silhouette ? picture.url : undefined,
+        importAvatar: true,
+      },
+      req
+    );
+
+    const outcome = await this.completeLogin(user, req, { method: 'facebook' });
+    if (req && !outcome.requiresTOTP) {
+      await logAudit(req, {
+        action: AuditAction.LOGIN_SUCCESS,
+        entity: 'user',
+        entityId: user._id.toString(),
+        description: 'Login con Facebook exitoso',
+        metadata: { provider: 'facebook' },
       });
     }
 
@@ -1106,7 +1418,16 @@ export class AuthService {
    */
   async updateProfile(
     userId: string,
-    data: { name?: string; email?: string; phone?: string },
+    data: {
+      name?: string;
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      phone?: string;
+      documentType?: DocumentType | null;
+      documentNumber?: string | null;
+      birthDate?: string;
+    },
     req?: Request
   ): Promise<{ user: IUser; phoneVerificationSent: boolean }> {
     const user = await User.findById(userId).select('+pendingPhoneOtpExpires');
@@ -1152,6 +1473,47 @@ export class AuthService {
 
     if (data.name) {
       user.name = data.name;
+    }
+
+    // Nombre y apellido por separado. `name` sigue siendo el nombre visible
+    // en paneles, domiciliario y pedidos, así que se recalcula con ellos en
+    // vez de obligar a cada consumidor a juntarlos.
+    if (data.firstName !== undefined || data.lastName !== undefined) {
+      if (data.firstName !== undefined) user.firstName = data.firstName;
+      if (data.lastName !== undefined) user.lastName = data.lastName;
+      const full = [user.firstName ?? user.name, user.lastName].filter(Boolean).join(' ').trim();
+      if (full.length >= 2) user.name = full.slice(0, 100);
+    }
+
+    if (data.documentType !== undefined) {
+      if (data.documentType === null) {
+        user.documentType = undefined;
+        user.documentNumber = undefined;
+      } else {
+        user.documentType = data.documentType;
+        user.documentNumber = data.documentNumber ?? undefined;
+      }
+    }
+
+    // Una sola vez: decide si puede pedir productos +18, así que dejarla
+    // editable haría el bloqueo inútil. Después solo la corrige soporte
+    // (`adminService.correctBirthDate`).
+    if (data.birthDate !== undefined) {
+      const birthDate = parseBirthDate(data.birthDate);
+      if (!birthDate) throw new AppError('Fecha de nacimiento inválida', 400);
+      if (user.birthDate) {
+        if (user.birthDate.getTime() !== birthDate.getTime()) {
+          throw new AppError(
+            'Tu fecha de nacimiento ya está guardada. Para corregirla, escríbenos.',
+            403,
+            'BIRTHDATE_LOCKED'
+          );
+        }
+      } else {
+        const problem = birthDateProblem(birthDate);
+        if (problem) throw new AppError(problem, 400, 'BIRTHDATE_INVALID');
+        user.birthDate = birthDate;
+      }
     }
 
     await user.save();
@@ -1243,6 +1605,58 @@ export class AuthService {
   }
 
   /**
+   * Manda un código al correo de la cuenta para verificarlo.
+   *
+   * A diferencia de `sendEmailOTP` —que es el login por correo y termina
+   * abriendo una sesión nueva—, esto es para alguien que ya está dentro y
+   * solo quiere confirmar su correo desde Mi cuenta.
+   */
+  async sendAccountEmailOtp(userId: string): Promise<{ sent: boolean }> {
+    if (!emailService.isEnabled) {
+      throw new AppError('La verificación por correo no está disponible todavía.', 503, 'EMAIL_OTP_DISABLED');
+    }
+    const user = await User.findById(userId).select('+emailOtpExpires');
+    if (!user) throw new AppError('Usuario no encontrado', 404);
+    if (!user.email) throw new AppError('Primero agrega un correo a tu cuenta.', 400, 'NO_EMAIL');
+    if (user.emailVerified) throw new AppError('Tu correo ya está verificado.', 400, 'EMAIL_ALREADY_VERIFIED');
+    if (!resendAllowed(user.emailOtpExpires)) return { sent: false };
+
+    const code = generateOtpCode();
+    await User.updateOne({ _id: user._id }, { $set: otpSetFields(OTP_SLOTS.email, code) });
+    await emailService.sendOTP(user.email, code);
+    return { sent: true };
+  }
+
+  /** Confirma el correo de la cuenta con el código de `sendAccountEmailOtp`. */
+  async verifyAccountEmail(userId: string, otpCode: string, req?: Request): Promise<IUser> {
+    if (!emailService.isEnabled) {
+      throw new AppError('La verificación por correo no está disponible todavía.', 503, 'EMAIL_OTP_DISABLED');
+    }
+    const user = await User.findById(userId);
+    if (!user) throw new AppError('Usuario no encontrado', 404);
+    if (!user.email) throw new AppError('Primero agrega un correo a tu cuenta.', 400, 'NO_EMAIL');
+
+    // El filtro lleva el correo: si lo cambió entre pedir el código y
+    // usarlo, el código del correo anterior ya no sirve.
+    const result = await checkOtp(User, { _id: user._id, email: user.email }, OTP_SLOTS.email, otpCode);
+    if (result !== 'ok') throw otpError(result);
+
+    await User.updateOne({ _id: user._id, email: user.email }, { $set: { emailVerified: true } });
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.PROFILE_UPDATED,
+        entity: 'user',
+        entityId: userId,
+        description: `Correo verificado: ${maskEmail(user.email)}`,
+        metadata: { updatedFields: ['emailVerified'] },
+      });
+    }
+
+    return (await User.findById(userId))!;
+  }
+
+  /**
    * Sube la foto de perfil a Cloudinary y guarda la URL en el usuario.
    *
    * La transformación es de entrada: Cloudinary recorta a un cuadrado
@@ -1298,6 +1712,12 @@ export class AuthService {
 
   async setup2FA(userId: string, req?: Request): Promise<{
     secret: string;
+    /**
+     * En el móvil el QR no sirve: no se puede escanear la pantalla del mismo
+     * teléfono. El enlace `otpauth://` abre la app autenticadora con la
+     * cuenta ya cargada.
+     */
+    otpauthUrl: string;
     qrCodeDataUrl: string;
     recoveryCodes: string[];
   }> {
@@ -1328,6 +1748,7 @@ export class AuthService {
 
     return {
       secret: result.secret,
+      otpauthUrl: result.otpauthUrl,
       qrCodeDataUrl: result.qrCodeDataUrl,
       recoveryCodes: result.recoveryCodes,
     };
@@ -1402,6 +1823,11 @@ export class AuthService {
   }
 
   // ── Sesiones ─────────────────────────────────────────────────────────
+
+  /** Si la cuenta tiene contraseña (las creadas con Google/Apple no). */
+  async hasPassword(userId: string): Promise<boolean> {
+    return !!(await User.exists({ _id: userId, password: { $exists: true, $nin: [null, ''] } }));
+  }
 
   async getActiveSessions(userId: string, currentSessionId?: string) {
     const sessions = await sessionManager.getActiveSessions(userId);

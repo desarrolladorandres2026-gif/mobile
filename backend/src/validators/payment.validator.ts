@@ -112,7 +112,7 @@ const PROHIBITED_CARD_FIELDS = [
   'exp_year',
 ];
 
-const noRawCardData = (value: unknown, ctx: z.RefinementCtx) => {
+export const noRawCardData = (value: unknown, ctx: z.RefinementCtx) => {
   if (!value || typeof value !== 'object') return;
   for (const field of PROHIBITED_CARD_FIELDS) {
     if (field in (value as Record<string, unknown>)) {
@@ -157,7 +157,7 @@ const cardDisplay = z
 
 const installments = z.number().int().min(1).max(36);
 
-const paymentInstrument = z.discriminatedUnion('kind', [
+export const paymentInstrument = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('card_token'),

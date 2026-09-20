@@ -1,23 +1,26 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { View, FlatList, StyleSheet, Pressable } from 'react-native';
+import { View, FlatList, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
   Text, Icon, SearchField, CategoryChip, EmptyState, ErrorState,
-  BusinessCardSkeleton, Badge, Card,
+  BusinessResultRowSkeleton, DiscoveryHubSkeleton, DismissChip, Card, Chip,
 } from '../../../components/ui';
-import { BusinessRow, type Business } from '../../../components/domain/BusinessCard';
+import { BusinessResultRow, type Business } from '../../../components/domain/BusinessCard';
 import { CategoryTile } from '../../../components/domain/CategoryTile';
+import { ExploreCollections } from '../../../components/domain/ExploreCollections';
 import { categoryIllustration, ContentIcon } from '../../../components/illustrations';
 import {
-  SearchFiltersSheet, NO_FILTERS, countActiveFilters,
+  SearchFiltersSheet, NO_FILTERS, countActiveFilters, describeFilters,
   type SearchFilters,
 } from '../../../components/domain/SearchFiltersSheet';
 import {
   useBusinesses, useSearch, useSearchSuggestions, usePopularSearches, useDeliveryCoords,
 } from '../../../hooks/useApi';
-import { searchApi, type ProductSearchHit, type SearchSuggestion } from '../../../services/endpoints';
+import {
+  searchApi, type ProductSearchHit, type SearchSuggestion, type PopularTerm,
+} from '../../../services/endpoints';
 import { productImageUri, productImagePlaceholder } from '../../../lib/productImage';
 import { minutes } from '../../../lib/format';
 import { Image } from 'expo-image';
@@ -25,18 +28,44 @@ import { useHomeCategories, type DisplayCategory } from '../../../hooks/useHomeC
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
 import { usePrefsStore } from '../../../stores/prefsStore';
-import { BorderRadius, Spacing } from '../../../theme/tokens';
+import { BorderRadius, Spacing, palette } from '../../../theme/tokens';
 import { openState } from '../../../lib/business';
 import { tap } from '../../../lib/haptics';
 
+/**
+ * Explorar.
+ *
+ * La pantalla hace dos trabajos distintos y hasta ahora los hacía con la
+ * misma ropa. Con algo escrito —o una categoría puesta— esto es una lista
+ * para **comparar**: filas compactas, tres columnas siempre a la misma
+ * altura, el plato y el negocio con la misma silueta para que se puedan
+ * medir entre sí. Sin nada escrito es una portada para **descubrir**:
+ * recientes, el ranking de lo que busca la gente y las categorías a tamaño
+ * de baldosa.
+ *
+ * Antes las dos usaban la tarjeta del Inicio, con portada de 140 px: dos
+ * resultados por pantalla justo donde hay que comparar veinte. Y una
+ * categoría se dibujaba de dos formas a la vez, chip arriba y fila abajo.
+ * Ahora el chip filtra y la baldosa navega, y son las dos únicas formas que
+ * tiene una categoría aquí.
+ *
+ * La obsidiana aparece una sola vez, arriba, igual que en Descuentos: es lo
+ * que ancla la pantalla y el único fondo donde el oro de la marca contrasta.
+ * El resto es papel.
+ */
 
-// Red de seguridad: el servidor ya devuelve las categorías reales del
-// catálogo en `/search/popular`, pero si esa consulta falla, una lista vacía
-// dejaría la pantalla de descubrimiento en blanco.
-const FALLBACK_SEARCHES = [
+/**
+ * Red de seguridad: el servidor ya devuelve el ranking real de búsquedas y,
+ * mientras no haya volumen, las categorías del catálogo por su nombre. Si esa
+ * consulta falla, una lista vacía dejaría la portada en blanco.
+ *
+ * Van con `count: 0` porque no son el conteo de nada: la pantalla solo
+ * imprime el número cuando es real.
+ */
+const FALLBACK_SEARCHES: PopularTerm[] = [
   'Hamburguesas', 'Pizza', 'Salchipapas', 'Café',
   'Pollo Broaster', 'Droguería', 'Desayunos', 'Helados',
-];
+].map((term) => ({ term, count: 0 }));
 
 /**
  * Cuántos resultados hacen falta para que la lista llene la pantalla.
@@ -48,6 +77,29 @@ const FALLBACK_SEARCHES = [
 const MIN_VISIBLE = 6;
 /** Ver el comentario del efecto de relleno automático. */
 const MAX_AUTO_PAGES = 3;
+
+/** Cuántos fantasmas de fila caben antes de que haya que deslizar. */
+const SKELETON_ROWS = 7;
+
+/**
+ * Las intenciones de un toque.
+ *
+ * Los filtros viven dentro de una hoja, y nadie abre una hoja mientras
+ * explora: se abre cuando ya se está buscando algo concreto. Esto los saca
+ * al feed, que es donde sí se usan.
+ *
+ * Solo hay aquí lo que se puede filtrar de verdad con el dato que ya existe
+ * en el catálogo. Un chip que no filtra nada es peor que no tener el chip:
+ * el usuario lo pulsa, no pasa nada visible, y deja de confiar en la fila
+ * entera. "Envío gratis" y "Menos de $X" necesitan que el listado los
+ * entienda en el servidor, y llegan con ese trabajo, no antes.
+ */
+const INTENTS: { key: string; label: string; icon: string; patch: Partial<SearchFilters> }[] = [
+  { key: 'open', label: 'Abierto ahora', icon: 'minutos', patch: { openOnly: true } },
+  { key: 'fast', label: 'Llega en 20 min', icon: 'destello', patch: { maxDeliveryTime: 20 } },
+  { key: 'top', label: 'Mejor calificados', icon: 'calificacion', patch: { minRating: 4.5 } },
+  { key: 'near', label: 'Más cerca', icon: 'navegar', patch: { sort: 'distance' } },
+];
 
 /** Espera a que el usuario deje de escribir antes de consultar al servidor. */
 function useDebounced<T>(value: T, delay = 320): T {
@@ -70,13 +122,21 @@ export default function SearchScreen() {
   const removeRecentSearch = usePrefsStore((s) => s.removeRecentSearch);
   const clearRecentSearches = usePrefsStore((s) => s.clearRecentSearches);
 
-  const { categories } = useHomeCategories();
+  const { categories, isLoading: categoriesLoading } = useHomeCategories();
 
   const [query, setQuery] = useState(params.q ?? '');
   const [category, setCategory] = useState<string | null>(params.category ?? null);
   const [filters, setFilters] = useState<SearchFilters>(NO_FILTERS);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  /**
+   * Una intención activa pasa al modo listado sin categoría ni término.
+   *
+   * Sin esto, pulsar "Abierto ahora" cambiaría los filtros y no pasaría nada
+   * visible: el modo listado solo se enciende con una categoría o con algo
+   * escrito, y un chip que no hace nada visible es peor que no estar.
+   */
+  const [intent, setIntent] = useState(false);
 
   // Al llegar desde una categoría de Inicio, el filtro ya viene puesto y no
   // se abre el teclado: el usuario venía a mirar, no a escribir.
@@ -96,6 +156,26 @@ export default function SearchScreen() {
 
   const term = debouncedQuery.trim();
   const hasTerm = term.length >= 2;
+
+  /**
+   * Los dos modos de la pantalla.
+   *
+   * `browsing` es "hay algo que comparar": un término escrito o una categoría
+   * puesta. Sin ninguna de las dos no se pide ninguna lista — antes sí, y era
+   * el catálogo entero del pueblo en cada apertura de la pestaña, para
+   * enseñar lo mismo que el Inicio ya enseña con sus colecciones. La portada
+   * de descubrimiento existía en el código pero solo aparecía si esa lista
+   * volvía vacía, o sea casi nunca.
+   *
+   * `settling` es el hueco entre las dos: hay algo escrito pero el servidor
+   * todavía no lo ha visto. Sin distinguirlo, los 320 ms del debounce
+   * enseñaban el vacío de "nada con esa búsqueda" antes de haber buscado —
+   * y llegando desde un banner con la búsqueda hecha, la portada de
+   * descubrimiento aparecía y desaparecía sola.
+   */
+  const typing = query.trim().length >= 2;
+  const browsing = typing || !!category || intent;
+  const settling = typing && !hasTerm;
 
   const { coords, ready: coordsReady } = useDeliveryCoords();
 
@@ -118,9 +198,11 @@ export default function SearchScreen() {
       ...(coords ?? {}),
     },
     // Igual que en Inicio: sin esperar a las direcciones, la lista se
-    // descargaba una vez sin coordenadas y otra con ellas.
-    coordsReady
-  ) as { data: Business[]; isLoading: boolean; isError: boolean; refetch: () => void };
+    // descargaba una vez sin coordenadas y otra con ellas. Y solo cuando hay
+    // categoría: sin ella esta consulta era el catálogo completo, y nadie lo
+    // miraba.
+    coordsReady && (!!category || intent)
+  ) as { data?: Business[]; isLoading: boolean; isError: boolean; refetch: () => void };
 
   const pages = catalog.data?.pages ?? [];
   const found = useMemo(() => pages.flatMap((p) => p.businesses as Business[]), [pages]);
@@ -135,7 +217,7 @@ export default function SearchScreen() {
     : [];
   const suggestedTerm = hasTerm ? pages[0]?.suggestedTerm : undefined;
 
-  const data: Business[] = hasTerm ? found : listing.data;
+  const data: Business[] = hasTerm ? found : (listing.data ?? []);
   const isLoading = hasTerm ? catalog.isLoading : listing.isLoading;
   const isError = hasTerm ? catalog.isError : listing.isError;
   const refetch = hasTerm ? catalog.refetch : listing.refetch;
@@ -215,9 +297,16 @@ export default function SearchScreen() {
     });
   }, [term, catalog.isLoading, catalog.isFetching, found.length, products.length, suggestedTerm]);
 
-  const searching = query.trim().length > 0 || !!category;
   const activeCategory = categories.find((cat) => cat.key === category);
   const activeFilters = countActiveFilters(filters);
+  const filterChips = useMemo(() => describeFilters(filters), [filters]);
+
+  /** El nombre que administración le puso a cada categoría, para las filas. */
+  const categoryNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const cat of categories) map[cat.key] = cat.label;
+    return map;
+  }, [categories]);
 
   /**
    * Nada que buscar porque nadie reparte ahí.
@@ -230,12 +319,31 @@ export default function SearchScreen() {
    * La señal no puede ser `data`: un término que no existe o una categoría
    * sin locales también lo dejan vacío. Se pregunta si hay **algún**
    * negocio en el radio, sin categoría ni término — con `limit: 1`, porque
-   * para saber si la lista está vacía basta con un elemento. Antes se
-   * descargaba el catálogo entero solo para contarlo (Inicio ya no lo pide,
-   * así que tampoco salía de caché).
+   * para saber si la lista está vacía basta con un elemento.
    */
   const whole = useBusinesses(coords ? { ...coords, limit: 1 } : undefined, coordsReady) as { data?: Business[] };
   const outOfCoverage = !!coords && whole.data !== undefined && whole.data.length === 0;
+
+  /**
+   * Aplica —o retira— una intención.
+   *
+   * Vuelve a tocarla y se quita, como el chip de categoría: sin eso, la
+   * única forma de deshacer "Llega en 20 min" sería abrir la hoja de
+   * filtros, que es justo lo que estos chips existen para evitar.
+   */
+  const applyIntent = useCallback((patch: Partial<SearchFilters>) => {
+    tap('select');
+    setFilters((current) => {
+      const already = Object.entries(patch).every(
+        ([field, value]) => (current as never as Record<string, unknown>)[field] === value
+      );
+      const undo = Object.fromEntries(
+        Object.keys(patch).map((field) => [field, (NO_FILTERS as never as Record<string, unknown>)[field]])
+      );
+      return { ...current, ...(already ? undo : patch) } as SearchFilters;
+    });
+    setIntent(true);
+  }, []);
 
   const selectTerm = useCallback((next: string) => {
     tap('select');
@@ -303,69 +411,79 @@ export default function SearchScreen() {
     suggestOpen && suggestTerm.trim().length >= 2 && suggestions.data !== undefined;
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
-      <View style={styles.top}>
-        <Text v="displayM">Explorar</Text>
+    <View style={[styles.screen, { backgroundColor: c.background }]}>
+      {/* ── La banda: título y buscador sobre obsidiana ──
+          El área segura va dentro de la banda y no fuera, para que el color
+          suba hasta la barra de estado. Que la hora se pinte en claro lo
+          decide `DARK_HEADER_ROUTES` en el layout raíz: dentro de la
+          pestaña no serviría, porque `freezeOnBlur` la congela al perder el
+          foco y podría quedarse sin devolver el estilo. */}
+      <SafeAreaView edges={['top']} style={styles.band}>
+        <View style={styles.bandInner}>
+          <Text v="displayM" color={palette.paper0}>Explorar</Text>
 
-        <SearchField
-          value={query}
-          onChange={(next) => { setQuery(next); setSuggestOpen(true); }}
-          placeholder="Hamburguesa, droguería, café…"
-          onSubmit={() => { setSuggestOpen(false); commitSearch(query); }}
-          onFocus={() => setSuggestOpen(true)}
-          onFilters={() => { tap('select'); setFiltersOpen(true); }}
-          filtersActive={activeFilters > 0}
-          filterCount={activeFilters}
-        />
-
-        {!showSuggestions ? (
-          <FlatList
-            horizontal
-            data={categories}
-            keyExtractor={(item) => item.key}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chips}
-            removeClippedSubviews
-            maxToRenderPerBatch={10}
-            windowSize={9}
-            initialNumToRender={6}
-            renderItem={({ item }) => (
-              <CategoryChip
-                label={item.label}
-                categoryKey={item.key}
-                active={category === item.key}
-                onPress={() => {
-                  tap('select');
-                  setCategory(category === item.key ? null : item.key);
-                }}
-              />
-            )}
+          <SearchField
+            value={query}
+            onChange={(next) => { setQuery(next); setSuggestOpen(true); }}
+            placeholder="Hamburguesa, droguería, café…"
+            onSubmit={() => { setSuggestOpen(false); commitSearch(query); }}
+            onFocus={() => setSuggestOpen(true)}
+            onFilters={() => { tap('select'); setFiltersOpen(true); }}
+            filtersActive={activeFilters > 0}
+            filterCount={activeFilters}
           />
-        ) : null}
+        </View>
+      </SafeAreaView>
 
-        {/* Resumen de lo que está filtrado, con salida rápida. */}
-        {(activeFilters > 0 || category) && !isLoading && !showSuggestions ? (
-          <View style={styles.summary}>
-            <Text v="bodyS" tone="textMuted">
-              {results.length} {results.length === 1 ? 'resultado' : 'resultados'}
-              {activeCategory ? ` en ${activeCategory.label.toLowerCase()}` : ''}
-            </Text>
-            {activeFilters > 0 ? (
-              <Pressable
-                onPress={() => { tap('light'); setFilters(NO_FILTERS); }}
-                accessibilityRole="button"
-                accessibilityLabel="Quitar todos los filtros"
-              >
-                <Badge
-                  label={activeFilters === 1 ? '1 filtro' : `${activeFilters} filtros`}
-                  tone="primary"
-                  icon="cerrar"
+      {/* Los chips quedan sobre el papel, justo debajo del borde de la banda:
+          así el chip activo es lo único dorado de esta mitad de la pantalla. */}
+      {!showSuggestions ? (
+        <FlatList
+          horizontal
+          data={categories}
+          keyExtractor={(item) => item.key}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chips}
+          style={styles.chipsRow}
+          removeClippedSubviews
+          maxToRenderPerBatch={10}
+          windowSize={9}
+          initialNumToRender={6}
+          renderItem={({ item }) => (
+            <CategoryChip
+              label={item.label}
+              categoryKey={item.key}
+              active={category === item.key}
+              onPress={() => {
+                tap('select');
+                setCategory(category === item.key ? null : item.key);
+              }}
+            />
+          )}
+        />
+      ) : null}
+
+      {/* Lo que está filtrado, con una salida por filtro en vez de una sola
+          que lo borra todo a ciegas. */}
+      {browsing && (filterChips.length > 0 || category) && !isLoading && !settling && !showSuggestions ? (
+        <View style={styles.summary}>
+          <Text v="bodyS" tone="textMuted">
+            {results.length} {results.length === 1 ? 'resultado' : 'resultados'}
+            {activeCategory ? ` en ${activeCategory.label.toLowerCase()}` : ''}
+          </Text>
+          {filterChips.length > 0 ? (
+            <View style={styles.summaryChips}>
+              {filterChips.map((chip) => (
+                <DismissChip
+                  key={chip.key}
+                  label={chip.label}
+                  onDismiss={() => setFilters({ ...filters, ...chip.patch })}
                 />
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
-      </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {showSuggestions ? (
         <SuggestionList
@@ -377,12 +495,36 @@ export default function SearchScreen() {
         />
       ) : isError ? (
         <ErrorState onRetry={refetch} />
-      ) : isLoading ? (
+      ) : !browsing ? (
+        <ScrollView
+          contentContainerStyle={[styles.list, { paddingBottom: bottomSpace }]}
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
+        >
+          {categoriesLoading ? (
+            <DiscoveryHubSkeleton />
+          ) : (
+            <DiscoveryHub
+              popularTerms={popularTerms}
+              recentSearches={recentSearches}
+              categories={categories}
+              coords={coords}
+              coordsReady={coordsReady}
+              filters={filters}
+              onSelectSearch={selectTerm}
+              onRemoveRecent={(value) => { tap('light'); removeRecentSearch(value); }}
+              onClearRecents={() => { tap('light'); clearRecentSearches(); }}
+              onPickCategory={(key) => { tap('select'); setCategory(key); }}
+              onIntent={applyIntent}
+              onErrand={() => { tap('select'); router.push('/(client)/errand'); }}
+            />
+          )}
+        </ScrollView>
+      ) : settling || isLoading ? (
         <View style={styles.skeletons}>
-          <BusinessCardSkeleton />
-          <BusinessCardSkeleton />
-          <BusinessCardSkeleton />
-          <BusinessCardSkeleton />
+          {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+            <BusinessResultRowSkeleton key={i} />
+          ))}
         </View>
       ) : (
         <FlatList
@@ -399,54 +541,53 @@ export default function SearchScreen() {
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
           renderItem={({ item }) => (
-            <BusinessRow business={item} onPress={openBusiness} />
+            <BusinessResultRow
+              business={item}
+              onPress={openBusiness}
+              categoryName={categoryNames[item.category]}
+            />
           )}
           ListHeaderComponent={
-            <View style={styles.header}>
-              {suggestedTerm ? (
-                <CorrectionNotice used={suggestedTerm} typed={term} />
-              ) : null}
+            suggestedTerm || products.length ? (
+              <View style={styles.header}>
+                {suggestedTerm ? (
+                  <CorrectionNotice used={suggestedTerm} typed={term} />
+                ) : null}
 
-              {products.length ? (
-                <View style={styles.productsBlock}>
-                  <View style={styles.sectionTitleRow}>
-                    <Icon name="bolsa" size="sm" color={c.primary} />
-                    <Text v="strongS">Platos y productos</Text>
+                {products.length ? (
+                  <View style={styles.productsBlock}>
+                    <SectionTitle icon="bolsa" title="Platos y productos" />
+
+                    {products.map((product) => (
+                      <ProductHit
+                        key={product._id}
+                        product={product}
+                        // Se navega al negocio, no a una ficha suelta: para
+                        // pedir un plato hay que entrar en su carta de todas
+                        // formas, y saltarse ese paso deja el carrito sin
+                        // saber a qué local pertenece.
+                        onPress={() => openBusiness(product.businessId)}
+                      />
+                    ))}
+
+                    {results.length ? (
+                      <SectionTitle icon="negocio" title="Negocios" />
+                    ) : null}
                   </View>
-
-                  {products.map((product) => (
-                    <ProductHit
-                      key={product._id}
-                      product={product}
-                      // Se navega al negocio, no a una ficha suelta: para
-                      // pedir un plato hay que entrar en su carta de todas
-                      // formas, y saltarse ese paso deja el carrito sin
-                      // saber a qué local pertenece.
-                      onPress={() => openBusiness(product.businessId)}
-                    />
-                  ))}
-
-                  {results.length ? (
-                    <View style={styles.sectionTitleRow}>
-                      <Icon name="negocio" size="sm" color={c.primary} />
-                      <Text v="strongS">Negocios</Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-            </View>
+                ) : null}
+              </View>
+            ) : null
           }
           ListEmptyComponent={
-            products.length ? null : searching ? (
-              outOfCoverage ? (
-                <EmptyState
-                  icon="ubicacion"
-                  title="Todavía no llegamos a tu dirección"
-                  message="Ningún negocio reparte en esa zona, así que ninguna búsqueda va a encontrar nada. Prueba con otra dirección de entrega."
-                  actionLabel="Cambiar dirección"
-                  onAction={() => router.push('/(client)/addresses')}
-                />
-              ) : (
+            products.length ? null : outOfCoverage ? (
+              <EmptyState
+                icon="ubicacion"
+                title="Todavía no llegamos a tu dirección"
+                message="Ningún negocio reparte en esa zona, así que ninguna búsqueda va a encontrar nada. Prueba con otra dirección de entrega."
+                actionLabel="Cambiar dirección"
+                onAction={() => router.push('/(client)/addresses')}
+              />
+            ) : (
               <EmptyState
                 icon="explorar"
                 title="Nada con esa búsqueda"
@@ -455,20 +596,8 @@ export default function SearchScreen() {
                     ? 'Prueba quitando algún filtro o busca otra cosa.'
                     : 'Revisa cómo lo escribiste o explora alguna de las categorías disponibles.'
                 }
-                actionLabel="Limpiar filtros"
+                actionLabel={activeFilters > 0 ? 'Limpiar filtros' : 'Volver a explorar'}
                 onAction={() => { setQuery(''); setCategory(null); setFilters(NO_FILTERS); }}
-              />
-              )
-            ) : (
-              <DiscoveryHub
-                popularTerms={popularTerms}
-                recentSearches={recentSearches}
-                categories={categories}
-                onSelectSearch={selectTerm}
-                onRemoveRecent={(value) => { tap('light'); removeRecentSearch(value); }}
-                onClearRecents={() => { tap('light'); clearRecentSearches(); }}
-                onPickCategory={(key) => { tap('select'); setCategory(key); }}
-                onErrand={() => { tap('select'); router.push('/(client)/errand'); }}
               />
             )
           }
@@ -487,7 +616,46 @@ export default function SearchScreen() {
           router.push('/(client)/addresses');
         }}
       />
-    </SafeAreaView>
+    </View>
+  );
+}
+
+// ── Piezas de la propia pantalla ──
+
+/**
+ * El encabezado de una sección, uno solo para toda la pantalla.
+ *
+ * Había tres tratamientos conviviendo —icono apagado + `strongS`, icono
+ * dorado + `strongS`, y un `titleM` a secas— para decir lo mismo. A la
+ * derecha va solo lo que de verdad se puede hacer ahí.
+ */
+function SectionTitle({
+  icon, title, action, onAction,
+}: {
+  icon?: 'bolsa' | 'negocio' | 'racha' | 'reintentar';
+  title: string;
+  action?: string;
+  onAction?: () => void;
+}) {
+  const { c } = useTheme();
+
+  return (
+    <View style={styles.sectionTitle}>
+      <View style={styles.sectionTitleRow}>
+        {icon ? <Icon name={icon} size="sm" color={c.textMuted} /> : null}
+        <Text v="titleM">{title}</Text>
+      </View>
+      {action && onAction ? (
+        <Pressable
+          onPress={onAction}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={action}
+        >
+          <Text v="strongS" tone="primaryText">{action}</Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -583,6 +751,12 @@ function SuggestionList({
  * Lleva el nombre del negocio debajo porque, sin él, encontrar "hamburguesa
  * doble" no dice dónde pedirla: el plato solo es útil junto al sitio que lo
  * hace.
+ *
+ * Misma silueta que `BusinessResultRow` —distintivo de 64 px, dos líneas de
+ * texto, columna de datos a la derecha— y a propósito: en esta lista
+ * conviven platos y negocios, y con dos siluetas distintas parecían dos
+ * listas pegadas en vez de resultados comparables entre sí. Lo que sí es
+ * suyo y de nadie más es la píldora dorada del precio.
  */
 function ProductHit({
   product,
@@ -616,158 +790,200 @@ function ProductHit({
         />
       ) : (
         <View style={[styles.hitImage, styles.hitFallback, { backgroundColor: c.surfaceLight }]}>
-          <Illustration size={34} />
+          <Illustration size={40} />
         </View>
       )}
 
       <View style={styles.hitBody}>
-        <Text v="strongS" numberOfLines={1}>{product.name}</Text>
-        <View style={styles.hitBusinessRow}>
-          <Text v="caption" tone="textMuted" numberOfLines={1} style={styles.flex}>{product.businessName}</Text>
-          <View style={styles.rating}>
-            <Icon name="calificacion" size={11} color={c.warning} />
-            <Text v="caption" tone="textMuted">{(product.businessRating ?? 0).toFixed(1)}</Text>
+        <Text v="titleM" numberOfLines={1}>{product.name}</Text>
+        <Text v="bodyS" tone="textMuted" numberOfLines={1}>{product.businessName}</Text>
+
+        <View style={styles.hitPriceRow}>
+          <View style={[styles.pricePill, { backgroundColor: c.gold }]}>
+            <Text v="dataM" color={c.black}>
+              ${price.toLocaleString('es-CO')}
+            </Text>
           </View>
-          {product.businessDeliveryTime ? (
-            <View style={styles.rating}>
-              <Icon name="domiciliario" size={11} color={c.text} />
-              <Text v="captionStrong" tone="text">{minutes(product.businessDeliveryTime)}</Text>
-            </View>
+          {hasDiscount ? (
+            <Text v="caption" tone="textMuted" style={styles.strike}>
+              ${product.price.toLocaleString('es-CO')}
+            </Text>
           ) : null}
         </View>
       </View>
 
-      <View style={styles.hitPrice}>
-        <View style={[styles.pricePill, { backgroundColor: c.gold }]}>
-          <Text v="dataM" color={c.black}>
-            ${price.toLocaleString('es-CO')}
-          </Text>
+      <View style={styles.hitData}>
+        <View style={styles.rating}>
+          <Icon name="calificacion" size={13} color={c.warning} fill={c.warning} />
+          <Text v="dataM">{(product.businessRating ?? 0).toFixed(1)}</Text>
         </View>
-        {hasDiscount ? (
-          <Text v="caption" tone="textMuted" style={styles.strike}>
-            ${product.price.toLocaleString('es-CO')}
-          </Text>
+        {product.businessDeliveryTime ? (
+          <Text v="dataS" tone="textMuted">{minutes(product.businessDeliveryTime)}</Text>
         ) : null}
       </View>
     </Pressable>
   );
 }
 
-/** Descubrimiento inicial: Búsquedas recientes, Tendencias y Categorías */
+/**
+ * Descubrimiento inicial.
+ *
+ * Se lee en tres bandas, y ese orden no es decorativo: arriba el control
+ * —lo que ya buscaste, qué te provoca, qué tipo de negocio—, que resuelve a
+ * quien entró sabiendo qué quiere; en medio las colecciones, que son lo
+ * único que responde a quien entró sin saberlo; y abajo la salida, para lo
+ * que no está en ninguna carta.
+ */
 function DiscoveryHub({
   popularTerms,
   recentSearches,
   categories,
+  coords,
+  coordsReady,
+  filters,
   onSelectSearch,
   onRemoveRecent,
   onClearRecents,
   onPickCategory,
+  onIntent,
   onErrand,
 }: {
-  popularTerms: string[];
+  popularTerms: PopularTerm[];
   recentSearches: string[];
   categories: DisplayCategory[];
+  coords?: { lat: number; lng: number } | null;
+  coordsReady: boolean;
+  filters: SearchFilters;
   onSelectSearch: (term: string) => void;
   onRemoveRecent: (term: string) => void;
   onClearRecents: () => void;
   onPickCategory: (key: string) => void;
+  onIntent: (patch: Partial<SearchFilters>) => void;
   onErrand: () => void;
 }) {
   const { c } = useTheme();
 
   return (
     <Animated.View entering={FadeIn.duration(250)} style={styles.discovery}>
-      {/* ── Recientes ── */}
+      {/* ── Recientes ──
+          Filas y no píldoras: esto es historial, una lista de cosas que ya
+          pasaron. Como píldoras se mezclaba con el ranking y con los chips
+          de categoría —tres nubes de etiquetas idénticas diciendo tres cosas
+          distintas— y además metía la X dentro de otra área tocable, que es
+          el peor caso para acertar con el dedo. */}
       {recentSearches.length > 0 ? (
         <View style={styles.discoverySection}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionTitleRow}>
-              <Icon name="reintentar" size="sm" color={c.textMuted} />
-              <Text v="strongS">Búsquedas recientes</Text>
-            </View>
-            <Pressable
-              onPress={onClearRecents}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Borrar todas las búsquedas recientes"
-            >
-              <Text v="caption" tone="primaryText">Borrar todo</Text>
-            </Pressable>
-          </View>
-          <View style={styles.tagsWrap}>
+          <SectionTitle
+            icon="reintentar"
+            title="Búsquedas recientes"
+            action="Borrar todo"
+            onAction={onClearRecents}
+          />
+          <View style={styles.rows}>
             {recentSearches.map((term) => (
-              <Pressable
-                key={term}
-                onPress={() => onSelectSearch(term)}
-                accessibilityRole="button"
-                accessibilityLabel={`Buscar "${term}" otra vez`}
-                style={[styles.recentTag, { backgroundColor: c.surface, borderColor: c.border }]}
-              >
-                <Text v="bodyS">{term}</Text>
+              <View key={term} style={[styles.recentRow, { borderColor: c.border }]}>
+                <Pressable
+                  onPress={() => onSelectSearch(term)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Buscar "${term}" otra vez`}
+                  style={styles.recentMain}
+                >
+                  <Icon name="reintentar" size="sm" color={c.textMuted} />
+                  <Text v="bodyM" numberOfLines={1} style={styles.flex}>{term}</Text>
+                </Pressable>
                 <Pressable
                   onPress={() => onRemoveRecent(term)}
-                  // El icono mide 12px; sin hitSlop real el area tocable
-                  // quedaba por debajo del minimo de 44pt del propio token
-                  // del proyecto, anidada ademas dentro de otro Pressable
-                  // -- el peor caso para acertar con el dedo.
-                  hitSlop={16}
+                  hitSlop={14}
                   accessibilityRole="button"
                   accessibilityLabel={`Quitar "${term}" de recientes`}
-                  style={styles.tagClose}
+                  style={styles.recentClose}
                 >
-                  <Icon name="cerrar" size={12} color={c.textMuted} />
+                  <Icon name="cerrar" size={15} color={c.textMuted} />
                 </Pressable>
-              </Pressable>
+              </View>
             ))}
           </View>
         </View>
       ) : null}
 
-      {/* ── Populares / Tendencias ── */}
+      {/* ── El ranking ──
+          Con número de puesto, que es lo que convierte una nube de etiquetas
+          en un dato. El conteo solo se imprime cuando viene de búsquedas
+          reales: el respaldo por categorías cuenta negocios, no búsquedas. */}
       <View style={styles.discoverySection}>
-        <View style={styles.sectionTitleRow}>
-          <Icon name="racha" size="sm" color={c.primary} />
-          <Text v="strongS">Lo más buscado</Text>
-        </View>
-        <View style={styles.tagsWrap}>
-          {popularTerms.map((term) => (
+        <SectionTitle icon="racha" title="Lo más buscado" />
+        <View style={styles.rows}>
+          {popularTerms.map((row, index) => (
             <Pressable
-              key={term}
-              onPress={() => onSelectSearch(term)}
+              key={row.term}
+              onPress={() => onSelectSearch(row.term)}
               accessibilityRole="button"
-              accessibilityLabel={`Buscar "${term}"`}
-              style={[styles.popularTag, { backgroundColor: c.primarySoft, borderColor: 'transparent' }]}
+              accessibilityLabel={`Buscar "${row.term}"`}
+              style={styles.rankRow}
             >
-              <Text v="bodyS" color={c.primaryText}>{term}</Text>
+              <Text v="dataM" color={c.primaryText} style={styles.rankNumber}>
+                {index + 1}
+              </Text>
+              <Text v="bodyM" numberOfLines={1} style={styles.flex}>{row.term}</Text>
+              {row.count > 0 ? (
+                <Text v="caption" tone="textMuted">
+                  {row.count} {row.count === 1 ? 'búsqueda' : 'búsquedas'}
+                </Text>
+              ) : null}
             </Pressable>
           ))}
         </View>
       </View>
 
-      {/* ── Categorías principales ── */}
+      {/* ── Intenciones ──
+          Entre el historial y las categorías a propósito: lo de arriba es
+          "lo que ya buscaste", lo de abajo "qué tipo de negocio", y esto es
+          la tercera pregunta que la gente se hace de verdad — cuánto tarda,
+          cuánto cuesta, si está abierto. */}
       <View style={styles.discoverySection}>
-        <Text v="titleM">Explorar por categoría</Text>
-        <View style={styles.suggestionGrid}>
+        <SectionTitle title="¿Qué te provoca?" />
+        <View style={styles.intentRow}>
+          {INTENTS.map((option) => (
+            <Chip
+              key={option.key}
+              label={option.label}
+              icon={option.icon as never}
+              active={Object.entries(option.patch).every(
+                ([field, value]) => (filters as never as Record<string, unknown>)[field] === value
+              )}
+              onPress={() => onIntent(option.patch)}
+            />
+          ))}
+        </View>
+      </View>
+
+      {/* ── Categorías ──
+          La misma baldosa del Inicio, a su tamaño real. Antes eran filas
+          anchas con la ilustración reducida a un icono de 44 px, así que la
+          misma categoría se dibujaba de dos formas en esta misma pantalla:
+          chip arriba, fila abajo. Aquí la baldosa navega y el chip filtra. */}
+      <View style={styles.discoverySection}>
+        <SectionTitle title="Explorar por categoría" />
+        <View style={styles.tileGrid}>
           {categories.map((cat) => (
-            <Pressable
-              key={cat.key}
-              onPress={() => onPickCategory(cat.key)}
-              accessibilityRole="button"
-              accessibilityLabel={cat.label}
-              style={[styles.suggestion, { backgroundColor: c.surface, borderColor: c.border }]}
-            >
+            <View key={cat.key} style={styles.tileCell}>
               <CategoryTile
                 categoryKey={cat.key}
                 label={cat.label}
                 imageUrl={cat.imageUrl}
-                layout="icon"
+                color={cat.color}
+                onPress={() => onPickCategory(cat.key)}
               />
-              <Text v="strongS" style={styles.flex}>{cat.label}</Text>
-              <Icon name="siguiente" size="sm" color={c.textMuted} />
-            </Pressable>
+            </View>
           ))}
         </View>
       </View>
+
+      {/* ── Las colecciones ──
+          Aquí deja de ser un índice y pasa a ser un feed: hasta arriba todo
+          servía a quien ya sabe qué quiere; esto es lo único que responde a
+          quien entró sin saberlo. */}
+      <ExploreCollections coords={coords} ready={coordsReady} />
 
       {/* ── Mandados ── */}
       {/* Cierra la lista a propósito: si ninguna categoría es lo que buscas,
@@ -796,6 +1012,37 @@ function DiscoveryHub({
 }
 
 const styles = StyleSheet.create({
+  intentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  screen: { flex: 1 },
+  flex: { flex: 1 },
+
+  /**
+   * La banda de obsidiana.
+   *
+   * Color crudo de la paleta y no un token de tema, igual que la franja de
+   * Descuentos: es una decisión de marca, no una superficie que deba seguir
+   * al modo claro u oscuro.
+   */
+  band: { backgroundColor: palette.ink900 },
+  bandInner: {
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.lg,
+    gap: Spacing.lg,
+  },
+
+  // `flexGrow: 0` porque una `FlatList` horizontal dentro de una columna se
+  // estira y se come el alto de la lista de abajo.
+  chipsRow: { marginTop: Spacing.lg, flexGrow: 0 },
+  chips: { gap: Spacing.sm, paddingHorizontal: Spacing.xl },
+
+  summary: {
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.md,
+    gap: Spacing.sm,
+  },
+  summaryChips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+
   header: { gap: Spacing.md },
   correction: {
     flexDirection: 'row',
@@ -803,20 +1050,35 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   productsBlock: { gap: Spacing.sm, marginBottom: Spacing.md },
+
+  sectionTitle: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs + 2,
+  },
+
+  // Misma caja que `BusinessResultRow`: un plato y un negocio tienen que
+  // medir lo mismo para poder compararse en la misma lista.
   hit: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
-    padding: Spacing.sm,
+    padding: Spacing.md,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
   },
-  hitImage: { width: 52, height: 52, borderRadius: BorderRadius.md },
+  hitImage: { width: 64, height: 64, borderRadius: BorderRadius.md },
   hitFallback: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   hitBody: { flex: 1, gap: 2 },
-  hitBusinessRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  hitPriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: Spacing.xs, marginTop: 2 },
+  hitData: { alignItems: 'flex-end', gap: 2 },
   rating: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  hitPrice: { alignItems: 'flex-end', gap: 1 },
   strike: { textDecorationLine: 'line-through' },
   pricePill: {
     borderRadius: BorderRadius.full,
@@ -832,69 +1094,46 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
 
-  screen: { flex: 1 },
-  flex: { flex: 1 },
-  top: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.xl, gap: Spacing.lg },
-  chips: { gap: Spacing.sm, paddingRight: Spacing.xl },
-  summary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
   list: {
     padding: Spacing.xl,
     paddingTop: Spacing.lg,
     gap: Spacing.md,
   },
-  skeletons: { padding: Spacing.xl, gap: Spacing.md },
+  skeletons: { padding: Spacing.xl, paddingTop: Spacing.lg, gap: Spacing.md },
 
-  discovery: { gap: Spacing.xxl, paddingTop: Spacing.md },
+  discovery: { gap: Spacing.xxl },
   discoverySection: { gap: Spacing.md },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  sectionTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  tagsWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  recentTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs + 2,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-  },
-  tagClose: {
-    padding: 2,
-    marginLeft: 2,
-  },
-  popularTag: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs + 2,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-  },
+  rows: { gap: Spacing.xs },
 
-  suggestionGrid: { gap: Spacing.sm },
-  suggestion: {
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  // El área de "buscar otra vez" ocupa toda la fila menos la X, y la X es
+  // hermana suya y no su hija: anidadas, el primer toque casi siempre
+  // acertaba con la de fuera.
+  recentMain: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
-    padding: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
+    paddingVertical: Spacing.md,
   },
+  recentClose: { padding: Spacing.sm },
+
+  rankRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+  },
+  // Ancho fijo: así los números del uno al ocho no desalinean los términos.
+  rankNumber: { width: 18, textAlign: 'center' },
+
+  tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
+  // Tres columnas contando los dos huecos del `gap`.
+  tileCell: { width: '30%' },
 
   errand: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   errandIcon: {

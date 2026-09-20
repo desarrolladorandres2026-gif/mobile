@@ -69,6 +69,7 @@ import Trophy from 'lucide-react-native/icons/trophy';
 import Flame from 'lucide-react-native/icons/flame';
 import Award from 'lucide-react-native/icons/award';
 import Sparkles from 'lucide-react-native/icons/sparkles';
+import Crown from 'lucide-react-native/icons/crown';
 import PartyPopper from 'lucide-react-native/icons/party-popper';
 import Bell from 'lucide-react-native/icons/bell';
 import Settings from 'lucide-react-native/icons/settings';
@@ -86,6 +87,7 @@ import Sun from 'lucide-react-native/icons/sun';
 import FileText from 'lucide-react-native/icons/file-text';
 import FileLock from 'lucide-react-native/icons/file-lock';
 import FileCheck from 'lucide-react-native/icons/file-check';
+import IdCard from 'lucide-react-native/icons/id-card';
 
 /**
  * Vocabulario de iconos de Zipp.
@@ -183,6 +185,9 @@ export const IconRegistry = {
   racha: Flame,
   medalla: Award,
   destello: Sparkles,
+  // Zipp Pro. La corona es la marca de la membresía en toda la app: barra
+  // de pestañas, carnet y el renglón del ahorro en el checkout.
+  corona: Crown,
   celebracion: PartyPopper,
   amigos: Users,
 
@@ -203,6 +208,7 @@ export const IconRegistry = {
 
   // Documentos legales
   documento: FileText,
+  identificacion: IdCard,
   privacidad: FileLock,
   consentimiento: FileCheck,
 } as const;

@@ -25,7 +25,15 @@ export type { CardProps, SheetProps, ConfirmDialogProps } from './Surface';
 export { Input, OtpInput, SearchField } from './Input';
 export type { InputProps, OtpInputProps } from './Input';
 
-export { Badge, PulseDot, StatusPill, Chip, MetaRow, CountBadge, CatalogBadge, CatalogBadges } from './Badge';
+export { PlainField } from './PlainField';
+export type { PlainFieldProps } from './PlainField';
+
+export { PlainSelect } from './PlainSelect';
+export type { PlainSelectProps, PlainSelectOption } from './PlainSelect';
+
+export {
+  Badge, PulseDot, StatusPill, Chip, DismissChip, MetaRow, CountBadge, CatalogBadge, CatalogBadges,
+} from './Badge';
 export type { BadgeProps, BadgeTone, ChipProps, MetaItem } from './Badge';
 
 export { CategoryChip } from './CategoryChip';
@@ -33,7 +41,8 @@ export type { CategoryChipProps } from './CategoryChip';
 
 export {
   EmptyState, ErrorState, Notice,
-  Skeleton, BusinessCardSkeleton, LoadingScreen,
+  Skeleton, BusinessCardSkeleton, BusinessResultRowSkeleton, DiscoveryHubSkeleton,
+  CouponCardSkeleton, LoadingScreen,
   OfflineBanner, SuccessCheck,
 } from './Feedback';
 export type { EmptyStateProps } from './Feedback';

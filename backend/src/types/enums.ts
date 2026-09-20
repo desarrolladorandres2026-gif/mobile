@@ -13,6 +13,25 @@ export enum BusinessCategory {
   SUPERMARKET = 'supermarket',
 }
 
+/**
+ * Cómo se escribe cada categoría cuando la lee una persona.
+ *
+ * La clave es dato interno (`fast_food`); esto es lo que se puede imprimir
+ * en pantalla. Antes solo existía en `mobile/constants/config.ts` y en el
+ * sembrado de categorías del Home, así que cualquier respuesta del servidor
+ * que tuviera que nombrar una categoría mandaba la clave cruda.
+ *
+ * La vitrina real es `HomeCategory` —administración puede renombrarla— y
+ * esto es el respaldo de cuando esa fila no existe todavía.
+ */
+export const BUSINESS_CATEGORY_LABELS: Record<string, string> = {
+  [BusinessCategory.RESTAURANT]: 'Restaurantes',
+  [BusinessCategory.FAST_FOOD]: 'Comidas rápidas',
+  [BusinessCategory.PHARMACY]: 'Droguerías',
+  [BusinessCategory.CAFE]: 'Cafeterías',
+  [BusinessCategory.SUPERMARKET]: 'Mercados',
+};
+
 export enum OrderStatus {
   PENDING = 'pending',
   ACCEPTED = 'accepted',
@@ -138,6 +157,12 @@ export enum PaymentType {
   BUSINESS_PAYOUT = 'business_payout',
   DRIVER_PAYOUT = 'driver_payout',
   COMMISSION_PAYMENT = 'commission_payment',
+  /**
+   * Cobro de la membresía Zipp Pro. Es el único cobro a un cliente que no
+   * cuelga de un pedido, y por eso `Payment.orderId` deja de ser
+   * obligatorio justo para este tipo —y solo para este—.
+   */
+  PRO_SUBSCRIPTION = 'pro_subscription',
 }
 
 export enum DriverStatus {

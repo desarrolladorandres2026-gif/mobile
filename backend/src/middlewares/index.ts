@@ -9,6 +9,7 @@ export {
 } from './auth';
 export { validate } from './validate';
 export { cacheHeaders } from './cacheControl';
+export { identifyIfPossible, viewerId, IdentifiedRequest } from './identify';
 export {
   authRateLimiter,
   otpRateLimiter,

@@ -77,9 +77,19 @@ interface Props {
   onSelect: (selected: SelectedInstrument) => void;
   /** Lo que el backend deja ofrecer, de `GET /payments/methods`. */
   capabilities: { pse: boolean; savedCards: boolean };
+  /**
+   * El cobro se va a repetir solo (hoy, la membresía Zipp Pro).
+   *
+   * Cambia qué se puede elegir, y no por gusto: Nequi y PSE aprueban **un**
+   * cobro, no autorizan los siguientes, así que ofrecerlos aquí sería
+   * vender una suscripción que el mes que viene no puede cobrarse. Queda
+   * la tarjeta, y guardada — el token de una tarjeta nueva es de un solo
+   * uso.
+   */
+  recurring?: boolean;
 }
 
-export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }: Props) {
+export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, recurring }: Props) {
   const { c } = useTheme();
   const user = useAuthStore((s) => s.user);
   const savedEmail = usePrefsStore((s) => s.receiptEmail);
@@ -181,6 +191,16 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
     const common = commonReady();
     if (Object.keys(errors).length || !common || !config.data) {
       if (Object.keys(errors).length) tap('error');
+      return;
+    }
+
+    // El consentimiento sigue siendo suyo: no se marca la casilla por
+    // detrás, se explica por qué hace falta y se espera.
+    if (recurring && !saveCard) {
+      tap('error');
+      setSubmitError(
+        'Marca la casilla para guardar la tarjeta: es con la que se renueva tu membresía cada mes.'
+      );
       return;
     }
 
@@ -342,7 +362,9 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
               <PaymentConsent
                 checked={saveCard}
                 onToggle={setSaveCard}
-                lead="Guardar para mi próxima compra. Autorizo el"
+                lead={recurring
+                  ? 'Guardar para renovar mi membresía cada mes. Autorizo el'
+                  : 'Guardar para mi próxima compra. Autorizo el'}
                 linkText="tratamiento de mis datos"
                 url={config.data?.permalinks.personalDataAuth}
               />
@@ -486,15 +508,19 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities }:
           accent={c.primaryText}
           onPress={() => setStep('card')}
         />
-        <MethodRow
-          icon="celular"
-          title="Nequi"
-          subtitle="Apruebas desde tu app de Nequi"
-          brand={<NequiLogo height={17} />}
-          accent={NEQUI.magenta}
-          onPress={() => setStep('nequi')}
-        />
-        {capabilities.pse ? (
+        {/* Ver `recurring` en Props: los dos carriles de abajo no pueden
+            autorizar el cobro del mes siguiente. */}
+        {recurring ? null : (
+          <MethodRow
+            icon="celular"
+            title="Nequi"
+            subtitle="Apruebas desde tu app de Nequi"
+            brand={<NequiLogo height={17} />}
+            accent={NEQUI.magenta}
+            onPress={() => setStep('nequi')}
+          />
+        )}
+        {capabilities.pse && !recurring ? (
           <MethodRow
             icon="edificio"
             title="PSE"

@@ -6,7 +6,7 @@ import {
 } from '../middlewares';
 import {
   phoneStatusSchema, registerSendOtpSchema, registerVerifyOtpSchema, registerCompleteSchema, loginSchema,
-  mfaChallengeSchema, googleLoginSchema, appleLoginSchema, sendOtpSchema, verifyOtpSchema, sendEmailOtpSchema,
+  mfaChallengeSchema, googleLoginSchema, appleLoginSchema, facebookLoginSchema, sendOtpSchema, verifyOtpSchema, sendEmailOtpSchema,
   verifyEmailOtpSchema, refreshTokenSchema, logoutSchema, resetPasswordSchema, updateProfileSchema,
   verifyPhoneSchema, changePasswordSchema, twoFactorTokenSchema, revokeAllSessionsSchema, deleteAccountSchema,
 } from '../validators';
@@ -34,6 +34,10 @@ router.post('/apple', authRateLimiter, validate(appleLoginSchema), (req, res, ne
 // credenciales ni devuelve tokens: guarda el `id_token` tras un código de un
 // solo uso que solo se canjea con el nonce de la app.
 router.post('/apple/callback', (req, res) => authController.appleCallback(req, res));
+router.post('/facebook', authRateLimiter, validate(facebookLoginSchema), (req, res, next) => authController.facebookLogin(req, res, next));
+// Redirect público registrado en Meta. No canjea nada: rebota `code` y
+// `state` al deep link; el canje necesita el `code_verifier` de la app.
+router.get('/facebook/callback', (req, res) => authController.facebookCallback(req, res));
 router.post('/refresh-token', refreshRateLimiter, validate(refreshTokenSchema), (req, res, next) => authController.refreshToken(req, res, next));
 router.post('/send-otp', otpRateLimiter, validate(sendOtpSchema), (req, res, next) => authController.sendOTP(req, res, next));
 router.post('/verify-otp', authRateLimiter, validate(verifyOtpSchema), (req, res, next) => authController.verifyOTP(req, res, next));
@@ -47,6 +51,10 @@ router.patch('/profile', authenticate, validate(updateProfileSchema), (req, res,
 router.post('/phone/send-otp', authenticate, otpRateLimiter, (req, res, next) => authController.resendPhoneOtp(req, res, next));
 router.post('/phone/verify', authenticate, authRateLimiter, validate(verifyPhoneSchema), (req, res, next) => authController.verifyPhone(req, res, next));
 router.post('/profile/avatar', authenticate, (req, res, next) => authController.uploadAvatar(req, res, next));
+// Verificar el correo desde Mi cuenta. No confundir con `/send-email-otp`,
+// que es el login por correo y abre una sesión.
+router.post('/email/send-otp', authenticate, otpRateLimiter, (req, res, next) => authController.sendAccountEmailOtp(req, res, next));
+router.post('/email/verify', authenticate, authRateLimiter, validate(verifyPhoneSchema), (req, res, next) => authController.verifyAccountEmail(req, res, next));
 router.post('/logout', authenticate, validate(logoutSchema), (req, res, next) => authController.logout(req, res, next));
 router.get('/me', authenticate, (req, res, next) => authController.getMe(req, res, next));
 router.patch('/marketing-preferences', authenticate, validate(z.object({ body: z.object({ consent: z.boolean(), channels: z.array(z.enum(['sms','email','whatsapp','phone'])).max(4).default([]) }) })), (req, res, next) => authController.updateMarketingPreferences(req, res, next));

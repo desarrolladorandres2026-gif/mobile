@@ -40,6 +40,8 @@ router.post('/users', requirePermission(Permission.USERS_CREATE), (req, res, nex
 router.patch('/users/:id/toggle', requirePermission(Permission.USERS_UPDATE), (req, res, next) => adminController.toggleUser(req, res, next));
 router.patch('/users/:id/role', requirePermission(Permission.USERS_ROLE_CHANGE), (req, res, next) => adminController.updateUserRole(req, res, next));
 router.patch('/users/:id/contact', requirePermission(Permission.USERS_UPDATE), (req, res, next) => adminController.overrideUserContact(req, res, next));
+// La fecha de nacimiento el cliente la guarda una sola vez; esta es la vía de soporte.
+router.patch('/users/:id/birth-date', requirePermission(Permission.USERS_UPDATE), (req, res, next) => adminController.correctBirthDate(req, res, next));
 
 // ── Seguridad y Acceso: Cargo, Roles, estado, credenciales ──
 router.patch('/users/:id/position', requirePermission(Permission.USERS_UPDATE), (req, res, next) => adminController.assignPosition(req, res, next));

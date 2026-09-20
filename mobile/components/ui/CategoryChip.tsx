@@ -60,18 +60,19 @@ export function CategoryChip({ categoryKey, label, active, onPress }: CategoryCh
 /**
  * Tratamiento de la mini-ilustración cuando el chip está seleccionado.
  *
- * TODO(diseño): decidir cómo se lee la ilustración sobre el fondo dorado del
- * chip activo. La ilustración trae su propio blob de color pálido, que sobre
- * `c.surface` contrasta bien pero sobre `c.primary` puede lavarse. Opciones:
- *   a) devolver `{}` — la ilustración se apoya directamente en el dorado.
- *   b) fondo `c.surface` + `borderRadius: BorderRadius.full` → disco claro
- *      detrás del glifo, que lo aísla del dorado (unos 26–28 px).
- *   c) `opacity` reducida cuando `!active` para que el color "encienda" al
- *      seleccionar.
- * Son ~5–8 líneas y definen el carácter del filtro seleccionado.
+ * La ilustración trae su propio blob de color pálido. Sobre `c.surface`
+ * contrasta bien, pero sobre el dorado del chip activo se lava: dos tonos
+ * claros pegados, sin borde entre ellos.
+ *
+ * Se resuelve con un disco claro detrás del glifo, y solo cuando está
+ * activo. Es lo mismo que hace la portada de la tarjeta de negocio con su
+ * `coverBadgeCircle`: aislar el dibujo del fondo en vez de repintarlo. Y
+ * tiene un efecto útil de paso — el disco aparece al seleccionar, así que el
+ * chip activo no solo cambia de color: cambia de forma.
  */
-function glyphSurface(_active: boolean | undefined, _c: ReturnType<typeof useTheme>['c']): ViewStyle {
-  return {};
+function glyphSurface(active: boolean | undefined, c: ReturnType<typeof useTheme>['c']): ViewStyle {
+  if (!active) return {};
+  return { backgroundColor: c.surface, borderRadius: BorderRadius.full };
 }
 
 const styles = StyleSheet.create({

@@ -10,7 +10,7 @@ import { categoryIllustration } from '../illustrations';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
 import { useBusinessProducts } from '../../hooks/useApi';
-import { businessAccent, openState } from '../../lib/business';
+import { businessAccent, categoryLabel, openState } from '../../lib/business';
 import { minutes, money } from '../../lib/format';
 import { tap } from '../../lib/haptics';
 import { discountPercent } from '../../lib/catalog';
@@ -403,6 +403,99 @@ const MenuPreviewItem = memo(function MenuPreviewItem({
   );
 });
 
+// ────────────────────────────────────────────
+// Fila de resultado
+// ────────────────────────────────────────────
+
+/**
+ * El negocio dentro de una lista de resultados.
+ *
+ * `BusinessRow` —portada de 140 px, logo montado sobre el borde— es la
+ * tarjeta de Inicio, y ahí está bien: Inicio es pasear, y una foto grande es
+ * una invitación. Buscar es comparar, y comparar con dos resultados por
+ * pantalla no se puede. Por eso esta fila existe aparte en vez de ser un
+ * `prop` de la otra: no es la misma tarjeta más apretada, es otra pieza.
+ *
+ * Tres columnas fijas —distintivo, nombre, datos— para que la calificación y
+ * los minutos caigan a la misma altura en todas las filas: así se leen como
+ * una tabla y no hay que buscarlos dentro de cada tarjeta.
+ *
+ * El mismo `onPress(id)` que `BusinessRow`, y por la misma razón: con la
+ * función ya cerrada sobre el id, el `memo` no sirve para nada.
+ */
+export const BusinessResultRow = memo(function BusinessResultRow({
+  business, onPress, categoryName,
+}: {
+  business: Business;
+  onPress: (id: string) => void;
+  /**
+   * El nombre de la categoría tal como lo puso administración.
+   *
+   * La pantalla ya tiene esa lista cargada; pasárselo evita que la fila
+   * repita la consulta sesenta veces. Sin él se usa la etiqueta local.
+   */
+  categoryName?: string;
+}) {
+  const { c } = useTheme();
+  const status = openState(business.schedule);
+  const closed = !status.open;
+  const offer = rowOffer(business);
+  const distance = formatDistance(business.distanceMeters);
+  const label = categoryName ?? categoryLabel(business.category);
+
+  // La segunda línea contesta "¿qué es y a qué distancia?", que es lo que
+  // separa dos resultados parecidos. Con punto medio solo cuando hay ambas.
+  const subtitle = [label, distance].filter(Boolean).join(' · ');
+
+  return (
+    <Card
+      onPress={() => onPress(business._id)}
+      padded={false}
+      accessibilityLabel={`${business.name}. ${subtitle}. Calificación ${business.rating.toFixed(1)}. ${minutes(business.deliveryTime)}.${offer && !closed ? ` ${offer.label}.` : ''}${closed ? ` ${status.label}.` : ''}`}
+      accessibilityHint="Abre el menú del negocio"
+    >
+      <View style={styles.resultRow}>
+        {/* Cerrado sin velo: aquí no hay portada que velar, así que lo dice el
+            distintivo apagado y la insignia de abajo. Un velo sobre un
+            cuadro de 64 px solo lo dejaría ilegible. */}
+        <View style={closed ? styles.resultTileClosed : undefined}>
+          <BusinessTile business={business} size={64} radius={BorderRadius.md} />
+        </View>
+
+        <View style={styles.resultBody}>
+          <Text v="titleM" numberOfLines={1}>{business.name}</Text>
+          {subtitle ? (
+            <Text v="bodyS" tone="textMuted" numberOfLines={1}>{subtitle}</Text>
+          ) : null}
+
+          {closed || offer || status.label.startsWith('Cierra') ? (
+            <View style={styles.resultBadges}>
+              {closed ? (
+                <Badge label={status.label} tone="neutral" icon="reloj" />
+              ) : status.label.startsWith('Cierra') ? (
+                <Badge label={status.label} tone="warning" icon="reloj" />
+              ) : null}
+              {/* Un negocio cerrado no está tomando pedidos con descuento
+                  ahora mismo: el cintillo se calla. */}
+              {offer && !closed ? (
+                <Badge label={offer.label} tone="lime" icon="descuento" />
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.resultData}>
+          <View style={styles.resultRating}>
+            <Icon name="calificacion" size={13} color={c.warning} fill={c.warning} />
+            <Text v="dataM">{business.rating.toFixed(1)}</Text>
+          </View>
+          <Text v="dataS" tone="textMuted">{minutes(business.deliveryTime)}</Text>
+        </View>
+      </View>
+    </Card>
+  );
+});
+
 // ──────────────────────────────────────────────────────────────
 // Tarjeta destacada
 // ──────────────────────────────────────────────────────────────
@@ -522,6 +615,25 @@ const styles = StyleSheet.create({
   menuItemName: { marginTop: 2, minHeight: 34 },
   menuItemPriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
   menuItemStrike: { textDecorationLine: 'line-through' },
+
+  resultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.md,
+  },
+  // No se apaga del todo: aún tiene que servir para reconocer el sitio de un
+  // vistazo, que es justo el trabajo del distintivo.
+  resultTileClosed: { opacity: 0.55 },
+  resultBody: { flex: 1, gap: 2 },
+  resultBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginTop: 2,
+  },
+  resultData: { alignItems: 'flex-end', gap: 2 },
+  resultRating: { flexDirection: 'row', alignItems: 'center', gap: 3 },
 
   cover: {
     height: 116,

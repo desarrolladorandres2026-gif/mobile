@@ -22,6 +22,10 @@ export default function AuthLayout() {
           su archivo ni siquiera va en el bundle del driver. */}
       {IS_CLIENT_APP ? <Stack.Screen name="complete-profile" /> : null}
       <Stack.Screen name="otp" />
+      {/* Celular nuevo en `pendingPhone`: completar perfil o Mi cuenta. */}
+      <Stack.Screen name="verify-phone" />
+      {/* Segundo paso de cualquier login con 2FA. */}
+      <Stack.Screen name="two-factor" />
       <Stack.Screen name="forgot-password" />
       {/* Cuenta de la otra app: explica cuál es la suya y la enlaza. */}
       <Stack.Screen name="wrong-app" options={{ animation: 'fade', gestureEnabled: false }} />

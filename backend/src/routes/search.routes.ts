@@ -1,8 +1,8 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request } from 'express';
 import { searchService, SortKey } from '../services/search.service';
-import { authenticate, authorize } from '../middlewares';
+import { authenticate, authorize, identifyIfPossible, viewerId } from '../middlewares';
 import { UserRole } from '../types';
-import { sendResponse, sendError, query, verifyAccessToken } from '../utils';
+import { sendResponse, sendError, query } from '../utils';
 
 const router = Router();
 
@@ -19,29 +19,6 @@ function num(req: Request, key: string): number | undefined {
 function readSort(req: Request): SortKey {
   const raw = query(req, 'sort');
   return SORTS.includes(raw as SortKey) ? (raw as SortKey) : 'relevance';
-}
-
-/**
- * Identifica al usuario si trae sesión, y sigue adelante si no.
- *
- * Local a este archivo y no un middleware compartido porque solo tiene
- * sentido aquí: buscar es público, así que rechazar a quien no ha entrado
- * sería cerrar la puerta justo a quien todavía está decidiendo si se
- * registra. Pero cuando sí hay sesión conviene saber de quién era la
- * búsqueda. Nunca falla: un token vencido o corrupto se trata igual que no
- * haber traído ninguno.
- */
-function identifyIfPossible(req: Request, _res: Response, next: NextFunction) {
-  const header = req.headers.authorization;
-  if (header?.startsWith('Bearer ')) {
-    try {
-      const payload = verifyAccessToken(header.slice(7));
-      (req as Request & { searchUserId?: string }).searchUserId = payload.id;
-    } catch {
-      // Sin sesión utilizable. Es un caso normal, no un error.
-    }
-  }
-  next();
 }
 
 /**
@@ -96,7 +73,7 @@ router.post('/log', identifyIfPossible, async (req, res, next) => {
 
     await searchService.logSearch({
       term,
-      userId: (req as Request & { searchUserId?: string }).searchUserId ?? null,
+      userId: viewerId(req),
       resultCount,
       suggestedTerm: typeof suggestedTerm === 'string' ? suggestedTerm : null,
     });

@@ -45,13 +45,14 @@ export class HomeCategoryController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { key, name, imageUrl, status } = req.body;
+      const { key, name, imageUrl, color, status } = req.body;
       if (!key || !name) throw new AppError('La clave y el nombre son requeridos', 400);
 
       const category = await homeCategoryService.create({
         key,
         name,
         imageUrl: imageUrl ?? '',
+        color: color ?? '',
         status: status ?? 'active',
         order: req.body.order ?? (await homeCategoryService.nextOrder()),
       });
@@ -69,14 +70,32 @@ export class HomeCategoryController {
     } catch (error) { next(error); }
   }
 
+  /**
+   * Campos que el panel puede cambiar. `key` no está: es la que enlaza la
+   * categoría con lo que guarda cada negocio, y renombrarla dejaría la
+   * vitrina apuntando a nada.
+   */
+  private static readonly EDITABLE = ['name', 'imageUrl', 'color', 'status', 'order'] as const;
+
   async update(req: Request, res: Response, next: NextFunction) {
     try {
-      const category = await homeCategoryService.update(param(req, 'id'), {
-        name: req.body.name,
-        imageUrl: req.body.imageUrl,
-        status: req.body.status,
-        order: req.body.order,
-      });
+      /**
+       * Solo lo que de verdad vino en la petición.
+       *
+       * El panel manda PUT parciales —`{ status }` al activar, `{ order }` al
+       * reordenar arrastrando— y antes se armaba el parche leyendo los cinco
+       * campos de `req.body`: los ausentes viajaban como `undefined` hasta un
+       * `Object.assign` sobre el documento, que en Mongoose no es "no
+       * cambiar", es "borrar el campo". Con un solo campo opcional más
+       * (`color`), arrastrar una categoría para reordenarla le habría
+       * borrado el color.
+       */
+      const patch: Record<string, unknown> = {};
+      for (const field of HomeCategoryController.EDITABLE) {
+        if (req.body[field] !== undefined) patch[field] = req.body[field];
+      }
+
+      const category = await homeCategoryService.update(param(req, 'id'), patch);
 
       void logAudit(req, {
         action: AuditAction.PROMO_BANNER_UPDATED,

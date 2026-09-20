@@ -3,6 +3,7 @@ import { ProductExtra, ModifierGroup } from '../types';
 import { productImageUrls } from '../utils/productImageUrls';
 import { normalize } from '../utils/text';
 import { cacheInvalidationPlugin, CachePrefix, fieldFrom } from '../cache';
+import { PRODUCT_TAGS, MAX_TAGS_PER_PRODUCT } from '../constants/productTags';
 
 /**
  * Lo que hace falta para volver a generar la imagen de un producto.
@@ -117,6 +118,22 @@ export interface IProduct extends Document {
   /** Aviso al negocio cuando queda poco. Cero lo desactiva. */
   lowStockThreshold: number;
   isFeatured: boolean;
+
+  /**
+   * Qué es este producto, en el vocabulario cerrado de `constants/productTags`.
+   *
+   * Es lo que permite que una colección del inicio se exprese como "los
+   * productos con la etiqueta `desayuno`" en vez de como una regex sobre el
+   * nombre. La diferencia no es de estilo: un `$in` sobre un array indexado
+   * usa el índice, y `{ $regex: 'cafe|pan|huevo' }` sin ancla recorre todo
+   * lo que le llegue.
+   *
+   * Lo rellena una pasada única (`scripts/backfillProductTags.ts`) y desde
+   * ahí manda lo que el comercio corrija en su panel: la máquina propone,
+   * quien tiene la carta delante decide.
+   */
+  tags: string[];
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -275,6 +292,21 @@ const productSchema = new Schema<IProduct>(
       type: Boolean,
       default: false,
     },
+    tags: {
+      type: [String],
+      default: [],
+      // `enum` sobre el array valida cada elemento, no el array entero: un
+      // término inventado desde el panel se rechaza aquí y no llega a
+      // ensuciar las colecciones, que es donde costaría descubrirlo.
+      enum: {
+        values: PRODUCT_TAGS as unknown as string[],
+        message: 'La etiqueta "{VALUE}" no existe en el vocabulario',
+      },
+      validate: {
+        validator: (value: string[]) => value.length <= MAX_TAGS_PER_PRODUCT,
+        message: `Máximo ${MAX_TAGS_PER_PRODUCT} etiquetas por producto`,
+      },
+    },
   },
   { timestamps: true }
 );
@@ -343,6 +375,20 @@ productSchema.index({ isFeatured: 1 });
 // colección entera por cada tecla.
 productSchema.index({ searchName: 1 });
 
+/**
+ * El índice que sostiene las colecciones por etiqueta.
+ *
+ * Multiclave (Mongo indexa cada elemento del array por separado), y con
+ * `isAvailable` detrás porque ninguna colección quiere productos apagados:
+ * poner el filtro dentro del índice evita que el motor tenga que ir al
+ * documento para descartarlo.
+ *
+ * El orden importa: `tags` primero porque es el campo selectivo. Al revés
+ * —`isAvailable` delante— la primera clave solo tendría dos valores y el
+ * índice serviría para poco.
+ */
+productSchema.index({ tags: 1, isAvailable: 1 });
+
 // Lo que necesita la pantalla de Descuentos: productos rebajados y
 // disponibles. Parcial y no completo porque `discountPrice` es `null` en
 // la inmensa mayoría de la carta —solo entra al índice quien de verdad
@@ -376,6 +422,7 @@ productSchema.plugin(cacheInvalidationPlugin, {
     return [
       businessId ? CachePrefix.business(businessId) : CachePrefix.BUSINESS_ALL,
       CachePrefix.HOME,
+      CachePrefix.EXPLORE,
       CachePrefix.OFFERS,
     ];
   },

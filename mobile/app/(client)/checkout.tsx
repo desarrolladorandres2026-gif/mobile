@@ -13,9 +13,13 @@ import {
 } from '../../components/ui';
 import { AddressSheet, hasCoordinates, type Address } from '../../components/domain/AddressPicker';
 import { PaymentMethodSheet } from '../../components/domain/PaymentMethodSheet';
+import { BirthDateSheet } from '../../components/domain/BirthDateSheet';
+import { useAuthStore } from '../../stores/authStore';
+import { ageInBogota, ADULT_AGE } from '../../lib/birthDate';
 import { useCartStore } from '../../stores/cartStore';
 import { usePrefsStore } from '../../stores/prefsStore';
 import { usePendingPaymentStore } from '../../stores/pendingPaymentStore';
+import { useCouponStore } from '../../stores/couponStore';
 import {
   isExpiredSelection,
   acceptsInstallments,
@@ -114,6 +118,9 @@ export default function CheckoutScreen() {
    */
   const [instrument, setInstrument] = useState<SelectedInstrument | null>(null);
   const [methodSheet, setMethodSheet] = useState(false);
+  /** Productos +18 sin fecha de nacimiento: se pide aquí, sin salir del pedido. */
+  const [birthSheet, setBirthSheet] = useState(false);
+  const user = useAuthStore((s) => s.user);
   const [deliverySheet, setDeliverySheet] = useState(false);
   const [discountSheet, setDiscountSheet] = useState(false);
   const putPendingPayment = usePendingPaymentStore((s) => s.put);
@@ -137,7 +144,13 @@ export default function CheckoutScreen() {
   const [showItems, setShowItems] = useState(false);
 
   const [couponInput, setCouponInput] = useState('');
-  const [appliedCode, setAppliedCode] = useState<string | null>(null);
+  // El cupón que se eligió en Descuentos llega puesto. Es solo el código:
+  // el descuento lo sigue decidiendo la cotización, que es quien conoce el
+  // carrito. Antes había que acordarse de ocho caracteres entre una
+  // pantalla y otra.
+  const savedCouponCode = useCouponStore((st) => (businessId ? st.codeFor(businessId) : null));
+  const clearSavedCoupon = useCouponStore((st) => st.clear);
+  const [appliedCode, setAppliedCode] = useState<string | null>(savedCouponCode);
   const [couponError, setCouponError] = useState('');
 
   const { data: loyalty } = useLoyalty();
@@ -349,7 +362,11 @@ export default function CheckoutScreen() {
   // porque el código no cambia.
   const appliedCouponCode = quote?.coupon?.code;
   useEffect(() => {
-    if (appliedCouponCode) setDiscountSheet(false);
+    if (!appliedCouponCode) return;
+    setDiscountSheet(false);
+    // Ya cumplió su función: si se quedara guardado, volvería a ponerse
+    // solo en el pedido siguiente, donde a lo mejor ni aplica.
+    if (appliedCouponCode === savedCouponCode) clearSavedCoupon();
   }, [appliedCouponCode]);
 
   // El servidor es quien acepta o rechaza un cupón. Si la cotización falla
@@ -358,6 +375,9 @@ export default function CheckoutScreen() {
     if (quoteError && appliedCode) {
       setCouponError(quoteMessage);
       setAppliedCode(null);
+      // Y se olvida: un código guardado que el servidor rechaza volvería a
+      // ponerse solo en el siguiente intento, con el mismo resultado.
+      if (appliedCode === savedCouponCode) clearSavedCoupon();
       tap('error');
     }
   }, [quoteError]);
@@ -395,6 +415,12 @@ export default function CheckoutScreen() {
     payment === 'cash_on_delivery' && needsChange === true && !!quote && payingWithAmount > quote.total
       ? payingWithAmount - quote.total
       : 0;
+
+  // Productos +18. `ageInBogota` devuelve null si no sabe calcularla: en ese
+  // caso decide el servidor al crear el pedido (responde AGE_RESTRICTED).
+  const ageRestricted = !!quote?.requiresAgeVerification;
+  const userAge = user?.birthDate ? ageInBogota(user.birthDate) : null;
+  const isMinor = userAge !== null && userAge < ADULT_AGE;
 
   const blocker: Blocker | null = missingForMin > 0
     ? {
@@ -491,6 +517,22 @@ export default function CheckoutScreen() {
         icon: 'reintentar',
         hint: 'No pudimos calcular el total.',
         onPress: () => { refetchQuote(); },
+      }
+    : ageRestricted && !user?.birthDate
+    ? {
+        // Sin fecha el servidor no crea el pedido: se pide aquí mismo y,
+        // al guardarla, el pedido sigue solo.
+        label: 'Agregar fecha de nacimiento',
+        icon: 'celebracion',
+        hint: 'Tu pedido tiene productos para mayores de 18.',
+        onPress: () => setBirthSheet(true),
+      }
+    : ageRestricted && isMinor
+    ? {
+        label: 'Revisar la bolsa',
+        icon: 'bolsa',
+        hint: 'Hay productos solo para mayores de 18 en tu bolsa.',
+        onPress: () => router.push({ pathname: '/(client)/cart', params: { businessId } }),
       }
     : null;
 
@@ -617,6 +659,13 @@ export default function CheckoutScreen() {
         },
         onError: (error) => {
           setSubmitting(false);
+          // El perfil guardado en el teléfono pudo quedar viejo: si el
+          // servidor dice que falta la fecha, se pide en vez de solo avisar.
+          if ((error as any)?.response?.data?.code === 'BIRTHDATE_REQUIRED') {
+            setBirthSheet(true);
+            tap('warning');
+            return;
+          }
           setSubmitError(apiMessage(error, 'No pudimos crear tu pedido.'));
           tap('error');
         },
@@ -1123,6 +1172,16 @@ export default function CheckoutScreen() {
                     tone="successText"
                   />
                 ) : null}
+                {/* El ahorro de la membresía va con su nombre: es lo que
+                    justifica la cuota del mes, y un "−$4.000" anónimo no lo
+                    haría. */}
+                {quote.proDeliveryDiscount ? (
+                  <DetailRow
+                    label="Envío gratis con Zipp Pro"
+                    value={`−${money(quote.proDeliveryDiscount)}`}
+                    tone="successText"
+                  />
+                ) : null}
               </>
             )}
 
@@ -1136,6 +1195,14 @@ export default function CheckoutScreen() {
 
             {quote?.customerServiceFee ? (
               <DetailRow label="Tarifa de servicio" value={money(quote.customerServiceFee)} />
+            ) : null}
+
+            {quote?.proServiceFeeDiscount ? (
+              <DetailRow
+                label="Sin tarifa de servicio con Zipp Pro"
+                value={`−${money(quote.proServiceFeeDiscount)}`}
+                tone="successText"
+              />
             ) : null}
 
             {quote?.tax ? <DetailRow label="Impuestos" value={money(quote.tax)} /> : null}
@@ -1185,6 +1252,11 @@ export default function CheckoutScreen() {
               faltante exacto, así que aquí sobra repetirlo. */}
           {quoteMessage && deliverable && missingForMin === 0 ? (
             <Notice tone="error">{quoteMessage}</Notice>
+          ) : null}
+          {ageRestricted ? (
+            <Notice tone="info" icon="info">
+              Tu pedido tiene productos para mayores de 18. Al entregarlo, el domiciliario te pedirá la cédula.
+            </Notice>
           ) : null}
           {submitError ? <Notice tone="error">{submitError}</Notice> : null}
         </ScrollView>
@@ -1411,6 +1483,30 @@ export default function CheckoutScreen() {
       </View>
     ) : (
       <>
+        {/* El mejor cupón para este carrito, ya calculado por el servidor.
+            Es el camino corto: no hay que saberse ningún código ni haber
+            pasado por la pestaña de Descuentos. El monto es el de verdad
+            —sale de la misma aritmética con la que se va a cobrar— y no se
+            ofrece nada que el suelo de margen vaya a rechazar después. */}
+        {quote?.suggestedCoupon ? (
+          <View style={styles.pointsCard}>
+            <View style={styles.flex}>
+              <Text v="strongS">
+                Ahorras {money(quote.suggestedCoupon.discount)} con{' '}
+                {quote.suggestedCoupon.code}
+              </Text>
+              <Text v="caption" tone="textMuted" numberOfLines={2}>
+                {quote.suggestedCoupon.title}
+              </Text>
+            </View>
+            <Button
+              title="Aplicar"
+              size="sm"
+              onPress={() => applyCode(quote.suggestedCoupon!.code)}
+            />
+          </View>
+        ) : null}
+
         {/* Primero lo que ya es del cliente: un cupón de un canje que
             no llegó a usarse vale lo mismo que canjear de nuevo, y no
             gasta más puntos. */}
@@ -1508,6 +1604,18 @@ export default function CheckoutScreen() {
     )}
         </View>
       </Sheet>
+      <BirthDateSheet
+        visible={birthSheet}
+        onClose={() => setBirthSheet(false)}
+        reason="Tu pedido tiene productos para mayores de 18. Necesitamos tu fecha de nacimiento para continuar."
+        confirmLabel={(date) => `Guardar ${date} y confirmar`}
+        onSaved={(saved) => {
+          const age = saved.birthDate ? ageInBogota(saved.birthDate) : null;
+          // Menor: no se confirma; el pie ya lleva a revisar la bolsa.
+          if (age !== null && age < ADULT_AGE) return;
+          placeOrder();
+        }}
+      />
       <PaymentMethodSheet
         visible={methodSheet}
         onClose={() => setMethodSheet(false)}

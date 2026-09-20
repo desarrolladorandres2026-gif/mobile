@@ -16,6 +16,7 @@ import {
 } from './authorization.service';
 import { normalizePhone } from '../utils/phone';
 import { maskPhone } from '../utils/mask';
+import { parseBirthDate, birthDateProblem } from '../utils/age';
 
 export class AdminService {
   // ── Dashboard Stats ──
@@ -510,6 +511,46 @@ export class AdminService {
    * - y en una cuenta con 2FA el número nuevo no basta para entrar: el login
    *   por OTP sigue pidiendo el segundo factor (ver `AuthService.completeLogin`).
    */
+  /**
+   * Corrige (o borra, con `null`) la fecha de nacimiento de un cliente.
+   *
+   * El propio usuario la guarda una sola vez (ver `authService.updateProfile`)
+   * porque decide si puede pedir productos +18; esta es la vía de soporte
+   * para un error de digitación. No da acceso a la cuenta, así que no pide
+   * lo que `overrideUserContact`, pero queda auditada con el valor anterior.
+   */
+  async correctBirthDate(userId: string, value: string | null, actor: IUser, req?: Request) {
+    const user = await User.findById(userId);
+    if (!user) throw new AppError('Usuario no encontrado', 404);
+
+    let birthDate: Date | undefined;
+    if (value !== null) {
+      const parsed = parseBirthDate(value);
+      if (!parsed) throw new AppError('Fecha de nacimiento inválida (AAAA-MM-DD)', 400);
+      const problem = birthDateProblem(parsed);
+      if (problem) throw new AppError(problem, 400);
+      birthDate = parsed;
+    }
+
+    const previous = user.birthDate ? user.birthDate.toISOString().slice(0, 10) : null;
+    user.birthDate = birthDate;
+    user.updatedBy = actor._id;
+    await user.save();
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.PROFILE_UPDATED,
+        entity: 'user',
+        entityId: userId,
+        severity: AuditSeverity.HIGH,
+        description: `Admin ${actor._id.toString()} corrigió la fecha de nacimiento del usuario ${userId}`,
+        metadata: { updatedFields: ['birthDate'], previous, next: value },
+      });
+    }
+
+    return user;
+  }
+
   async overrideUserContact(
     userId: string,
     data: { phone?: string; email?: string },

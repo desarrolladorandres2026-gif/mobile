@@ -78,6 +78,31 @@ export {
   CuratedHomeBlockKind,
   CURATED_HOME_BLOCK_KINDS,
 } from './CuratedHomeBlock';
+export {
+  DiscoveryCollection,
+  IDiscoveryCollection,
+  Rule,
+  RuleDSL,
+  RuleSource,
+  RULE_SOURCES,
+  SortBy,
+  SORT_OPTIONS,
+  SalesWindow,
+  PersonalKind,
+  DisplayVariant,
+  DISPLAY_VARIANTS,
+  CollectionFeed,
+  COLLECTION_FEEDS,
+  Daypart,
+  DAYPARTS,
+  DAYPART_RANGES,
+  daypartAt,
+  RotationMode,
+  ROTATION_MODES,
+  DISCOVERY_OPTIONS,
+  MAX_RULES_PER_COLLECTION,
+  MAX_ACTIVE_COLLECTIONS_PER_FEED,
+} from './DiscoveryCollection';
 
 export { FeatureFlag, IFeatureFlag, FeatureAudience } from './FeatureFlag';
 
@@ -108,3 +133,10 @@ export { LoyaltyBalance, ILoyaltyBalance } from './LoyaltyBalance';
 export { SosAlert, ISosAlert, SosStatus } from './SosAlert';
 export { SearchLog, ISearchLog } from './SearchLog';
 export { ClientError, IClientError } from './ClientError';
+
+export {
+  ProSubscription,
+  IProSubscription,
+  ProSubscriptionStatus,
+  isProActive,
+} from './ProSubscription';

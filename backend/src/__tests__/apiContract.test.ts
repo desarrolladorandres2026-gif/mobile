@@ -46,6 +46,38 @@ const ALLOWED_NEW_KEYS = new Set([
   'showPromoBanner',
   /** Solo en la ficha individual, nunca en el listado. Puede venir `null`. */
   'deliveryFeeFrom',
+
+  // ── Tiempo de preparación por producto ──
+  // Opcional y aditivo (`null` hereda el del negocio). Estaba en uso desde
+  // antes del 2026-09-15 sin declararse aquí; se autorizó el 2026-09-19.
+  'prepTimeMinutes',
+
+  // ── Mi cuenta y productos +18 (2026-09-19) ──
+  // Aditivo en la cotización: un cliente viejo lo ignora y el servidor sigue
+  // rechazando el pedido si falta la fecha de nacimiento.
+  'requiresAgeVerification',
+
+  // ── El mejor cupón para el carrito (2026-09-19) ──
+  // Aditivo y siempre `null` cuando el pedido ya trae cupón. Un cliente
+  // compilado que no lo conozca sigue pidiendo el código a mano, que es
+  // exactamente lo que hacía antes.
+  'suggestedCoupon',
+
+  // ── Zipp Pro (2026-09-20) ──
+  // Aditivos en la cotización y siempre 0 sin membresía, así que un cliente
+  // compilado que no los conozca ve exactamente lo de antes. El ahorro ya
+  // está dentro de `total`: estos dos solo explican de dónde viene.
+  'proDeliveryDiscount',
+  'proServiceFeeDiscount',
+
+  // ── Etiquetas de producto (2026-09-20) ──
+  // Aditivo y siempre presente, aunque sea como array vacío mientras el
+  // relleno (`scripts/backfillProductTags.ts`) no haya corrido. Un cliente
+  // compilado que no lo conozca lo ignora y pinta la carta igual: nada de
+  // lo que ya se pintaba depende de este campo. Existe para que las
+  // colecciones de descubrimiento consulten un array indexado en vez de una
+  // regex sin ancla sobre el nombre del plato.
+  'tags',
 ]);
 
 type Shape = string | Shape[] | { [key: string]: Shape };

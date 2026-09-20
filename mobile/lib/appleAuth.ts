@@ -3,6 +3,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 import Constants from 'expo-constants';
 import { API_URL } from '../constants';
+import { readOAuthCallback, bytesToHex } from './oauthCallback';
 
 const appleAuth = (Constants.expoConfig?.extra?.appleAuth ?? {}) as {
   servicesId?: string;
@@ -29,8 +30,7 @@ const APPLE_APP_DEEP_LINK = 'zipp://apple-callback';
  * `Math.random()`/`Date.now()`, que no son generadores criptográficos.
  */
 async function randomState(): Promise<string> {
-  const bytes = await Crypto.getRandomBytesAsync(16);
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return bytesToHex(await Crypto.getRandomBytesAsync(16));
 }
 
 /**
@@ -40,12 +40,24 @@ async function randomState(): Promise<string> {
  * al terminar hace un `form_post` a nuestro backend, y el backend rebota al
  * deep link de la app. Por eso corre igual en Expo Go que en un dev build,
  * sin el `require` condicional que sí necesita `googleAuth.ts`.
+ *
+ * El deep link trae un `code` de un solo uso, no el `id_token`. Canjearlo
+ * exige el `nonce` en claro que se genera aquí: a Apple se le manda solo su
+ * SHA-256, que queda firmado dentro del token. Antes esta función buscaba
+ * `idToken` en el deep link (que el backend ya no manda) y nunca generaba
+ * el nonce, así que todo intento terminaba como "canceló".
+ *
+ * Devuelve `null` si la persona cerró el navegador, y lanza si Apple o el
+ * backend fallaron, para que eso sí se le diga.
  */
 export function useAppleAuth() {
-  const signIn = useCallback(async (): Promise<{ idToken: string; fullName?: string } | null> => {
+  const signIn = useCallback(async (): Promise<{ code: string; nonce: string } | null> => {
     if (!isAppleConfigured) return null;
 
     const state = await randomState();
+    const nonce = bytesToHex(await Crypto.getRandomBytesAsync(32));
+    const nonceHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, nonce);
+
     const authorizeUrl =
       'https://appleid.apple.com/auth/authorize?' +
       new URLSearchParams({
@@ -55,21 +67,16 @@ export function useAppleAuth() {
         response_mode: 'form_post',
         scope: 'name email',
         state,
+        nonce: nonceHash,
       }).toString();
 
     const result = await WebBrowser.openAuthSessionAsync(authorizeUrl, APPLE_APP_DEEP_LINK);
+    if (result.type !== 'success') return null;
 
-    // El usuario cerró el navegador o negó el permiso: no es un error.
-    if (result.type !== 'success' || !result.url) return null;
-
-    const returned = new URL(result.url);
-    const idToken = returned.searchParams.get('idToken');
-    const returnedState = returned.searchParams.get('state');
-    const fullName = returned.searchParams.get('fullName');
-
-    if (!idToken || returnedState !== state) return null;
-
-    return { idToken, fullName: fullName || undefined };
+    const back = readOAuthCallback(result.url, state);
+    if (back.ok) return { code: back.code, nonce };
+    if (back.reason === 'cancelled') return null;
+    throw new Error('Apple no confirmó el inicio de sesión');
   }, []);
 
   return { signIn, isConfigured: isAppleConfigured };

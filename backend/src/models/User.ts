@@ -4,13 +4,32 @@ import { UserRole } from '../types';
 import { hashPassword, verifyPassword } from '../security';
 import { phoneSetter } from '../utils/phone';
 
+export type DocumentType = 'CC' | 'CE' | 'PPT' | 'PASAPORTE';
+export const DOCUMENT_TYPES: readonly DocumentType[] = ['CC', 'CE', 'PPT', 'PASAPORTE'];
+
 export interface IUser extends Document {
+  /**
+   * El nombre que se muestra en todas partes (paneles, domiciliario,
+   * pedidos). Si llegan `firstName`/`lastName`, se recalcula con ellos; las
+   * cuentas anteriores a Mi cuenta solo tienen este.
+   */
   name: string;
+  firstName?: string;
+  lastName?: string;
+  /** Para facturar a nombre del cliente. Opcional. */
+  documentType?: DocumentType;
+  documentNumber?: string;
+  /**
+   * Medianoche UTC del día de nacimiento. Se guarda una sola vez: decide si
+   * puede pedir productos +18, así que después solo la corrige soporte.
+   */
+  birthDate?: Date;
   phone?: string;
   email?: string;
   password?: string;
   googleId?: string;
   appleId?: string;
+  facebookId?: string;
   role: UserRole;
   /**
    * Grants the right to edit pricing, verify cash remittances and run
@@ -144,11 +163,16 @@ const userSchema = new Schema<IUser>(
       minlength: [2, 'El nombre debe tener al menos 2 caracteres'],
       maxlength: [100, 'El nombre no puede exceder 100 caracteres'],
     },
+    firstName: { type: String, trim: true, maxlength: 60 },
+    lastName: { type: String, trim: true, maxlength: 60 },
+    documentType: { type: String, enum: [...DOCUMENT_TYPES] },
+    documentNumber: { type: String, trim: true, maxlength: 20 },
+    birthDate: { type: Date },
     phone: {
       type: String,
       // Opcional solo para cuentas creadas con Google o Apple: quedan sin
       // celular hasta que completan la pantalla de verificación obligatoria.
-      required: [function (this: IUser) { return !this.googleId && !this.appleId; }, 'El número de celular es requerido'],
+      required: [function (this: IUser) { return !this.googleId && !this.appleId && !this.facebookId; }, 'El número de celular es requerido'],
       unique: true,
       sparse: true,
       trim: true,
@@ -170,7 +194,7 @@ const userSchema = new Schema<IUser>(
     },
     password: {
       type: String,
-      required: [function (this: IUser) { return !this.googleId && !this.appleId; }, 'La contraseña es requerida'],
+      required: [function (this: IUser) { return !this.googleId && !this.appleId && !this.facebookId; }, 'La contraseña es requerida'],
       minlength: [6, 'La contraseña debe tener al menos 6 caracteres'],
       select: false,
     },
@@ -181,6 +205,12 @@ const userSchema = new Schema<IUser>(
       select: false,
     },
     appleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      select: false,
+    },
+    facebookId: {
       type: String,
       unique: true,
       sparse: true,
@@ -338,6 +368,7 @@ const userSchema = new Schema<IUser>(
         delete ret.password;
         delete ret.googleId;
         delete ret.appleId;
+        delete ret.facebookId;
         delete ret.otpCode;
         delete ret.otpExpires;
         delete ret.otpAttempts;

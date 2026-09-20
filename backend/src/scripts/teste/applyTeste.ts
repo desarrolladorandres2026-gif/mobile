@@ -302,6 +302,10 @@ async function ensureImages(
 async function ensureClients(report: ApplyReport, log: (s: string) => void) {
   for (const spec of TESTE_CLIENTS) {
     const user = await ensureUser(spec, UserRole.CLIENT, report, log);
+    // También a un cliente que ya existía: sin fecha, A-01 (+18) no se puede pedir.
+    if (!user.birthDate) {
+      await User.updateOne({ _id: user._id }, { $set: { birthDate: new Date(`${spec.birthDate}T00:00:00.000Z`) } });
+    }
     const existing = await Address.findOne({ userId: user._id, label: spec.address.label });
     if (existing) { report.addresses.existing += 1; continue; }
     const point = offsetPoint(spec.address.offsetKm);

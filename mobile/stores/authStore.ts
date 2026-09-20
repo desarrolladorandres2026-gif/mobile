@@ -15,7 +15,22 @@ export interface User {
   isVerified: boolean;
   phoneVerified?: boolean;
   emailVerified?: boolean;
+  /** Celular nuevo que espera su código; aún no es `phone`. */
+  pendingPhone?: string;
+  twoFactorEnabled?: boolean;
+  marketingConsent?: boolean;
+  marketingChannels?: MarketingChannel[];
+  /** Ausentes en cuentas anteriores a Mi cuenta: ahí `name` hace de nombre. */
+  firstName?: string;
+  lastName?: string;
+  documentType?: DocumentType;
+  documentNumber?: string;
+  /** ISO. Se guarda una sola vez; después solo la cambia soporte. */
+  birthDate?: string;
 }
+
+export type MarketingChannel = 'whatsapp' | 'sms' | 'email' | 'phone';
+export type DocumentType = 'CC' | 'CE' | 'PPT' | 'PASAPORTE';
 
 interface AuthState {
   user: User | null;

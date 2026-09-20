@@ -16,6 +16,13 @@ router.get('/mine', authenticate, authorize(UserRole.CLIENT), (req, res, next) =
   couponController.getForUser(req, res, next)
 );
 
+// Cuáles de los cupones públicos puede usar quien pregunta. Separado de
+// `/public` porque eso se sirve desde caché compartida y esto depende de
+// quién es: mezclarlos serviría la respuesta de una persona a otra.
+router.get('/eligibility', authenticate, authorize(UserRole.CLIENT), (req, res, next) =>
+  couponController.eligibility(req, res, next)
+);
+
 // Authenticated — preview a coupon against a cart (does not consume it)
 router.post(
   '/validate',

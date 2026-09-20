@@ -1,21 +1,24 @@
 import mongoose from 'mongoose';
 import { config } from '../config';
 import { HomeCategory } from '../models';
+import { BusinessCategory, BUSINESS_CATEGORY_LABELS } from '../types/enums';
 
 /**
- * Categorías de negocio del Home, en el mismo orden y con las mismas
- * claves/labels que `BUSINESS_CATEGORIES` en `mobile/constants/config.ts`.
+ * Categorías de negocio del Home, en el mismo orden que
+ * `BUSINESS_CATEGORIES` en `mobile/constants/config.ts`.
  *
- * Si esa lista cambia en mobile, actualiza esta también — no hay una fuente
- * única compartida porque mobile no depende del backend para arrancar.
+ * Las etiquetas ya no se escriben aquí: salen de `BUSINESS_CATEGORY_LABELS`,
+ * que es la misma lista que usa el servidor cuando tiene que nombrar una
+ * categoría en una respuesta. Antes había dos copias y nada que avisara al
+ * renombrar solo una.
  */
 const HOME_CATEGORIES = [
-  { key: 'restaurant', name: 'Restaurantes' },
-  { key: 'fast_food', name: 'Comidas rápidas' },
-  { key: 'pharmacy', name: 'Droguerías' },
-  { key: 'cafe', name: 'Cafeterías' },
-  { key: 'supermarket', name: 'Mercados' },
-] as const;
+  BusinessCategory.RESTAURANT,
+  BusinessCategory.FAST_FOOD,
+  BusinessCategory.PHARMACY,
+  BusinessCategory.CAFE,
+  BusinessCategory.SUPERMARKET,
+].map((key) => ({ key: key as string, name: BUSINESS_CATEGORY_LABELS[key] }));
 
 /**
  * Idempotente: upsert por `key`. Correrlo de nuevo tras editar nombres o

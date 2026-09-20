@@ -32,6 +32,8 @@ export enum BannerPlacement {
   HOME = 'home',
   /** Únicamente en la pestaña de Descuentos. */
   OFFERS = 'offers',
+  /** Únicamente en el feed de Explorar. */
+  EXPLORE = 'explore',
   /** Cualquier superficie que pida banners. */
   ALL = 'all',
 }
@@ -219,7 +221,7 @@ promotionBannerSchema.index({
 
 // Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
 promotionBannerSchema.plugin(cacheInvalidationPlugin, {
-  prefixesFor: () => [CachePrefix.BANNERS, CachePrefix.HOME],
+  prefixesFor: () => [CachePrefix.BANNERS, CachePrefix.HOME, CachePrefix.EXPLORE],
 });
 
 export const PromotionBanner = mongoose.model<IPromotionBanner>(

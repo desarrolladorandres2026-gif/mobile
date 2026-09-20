@@ -80,7 +80,7 @@ zoneSchema.index({ city: 1, isActive: 1 });
 // Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
 zoneSchema.plugin(cacheInvalidationPlugin, {
   // El "Desde $X" de cada ficha sale de las zonas.
-  prefixesFor: () => [CachePrefix.ZONES, CachePrefix.BUSINESS_ALL, CachePrefix.BUSINESS_SLUG, CachePrefix.HOME],
+  prefixesFor: () => [CachePrefix.ZONES, CachePrefix.BUSINESS_ALL, CachePrefix.BUSINESS_SLUG, CachePrefix.HOME, CachePrefix.EXPLORE],
 });
 
 export const Zone = mongoose.model<IZone>('Zone', zoneSchema);

@@ -2,7 +2,9 @@ import mongoose from 'mongoose';
 import { Coupon, ICoupon, CouponRedemption, Order, IPlatformPricingConfig } from '../models';
 import { AppError } from '../middlewares';
 import { CouponType, CouponFundedBy, CouponScope, OrderStatus } from '../types';
-import { applyBps, assertMoney } from '../utils';
+import { applyBps, assertMoney, couponAvailability } from '../utils';
+import type { CouponAvailability } from '../utils';
+import { config as envConfig } from '../config';
 
 export interface CouponContext {
   userId: string;
@@ -40,6 +42,40 @@ export interface AppliedCoupon {
   /** Effective floor this coupon requires on contribution margin. */
   minimumContributionMargin: number;
   campaignApproved: boolean;
+}
+
+/** Por qué un cupón no es para ti. */
+export type CouponIneligibility = 'already_used' | 'not_first_order' | 'role' | 'not_yours';
+
+export interface CouponEligibility {
+  couponId: string;
+  usable: boolean;
+  reason?: CouponIneligibility;
+}
+
+/** La forma en la que un cupón sale de la API hacia un cliente. */
+export interface PublicCoupon {
+  _id: string;
+  code: string;
+  title: string;
+  description?: string;
+  type: CouponType;
+  scope: CouponScope;
+  value: number;
+  maxDiscount: number;
+  minOrderAmount: number;
+  validUntil: Date;
+  businessId: string | null;
+  firstOrderOnly: boolean;
+  usageLimit: number;
+  usedCount: number;
+  perUserLimit: number;
+  availability: CouponAvailability;
+  conditions: {
+    minOrderAmount: number;
+    zoneRestricted: boolean;
+    firstOrderOnly: boolean;
+  };
 }
 
 export class CouponService {
@@ -116,13 +152,23 @@ export class CouponService {
     if (coupon.zoneIds.length && (!ctx.zoneId || !coupon.zoneIds.some((id) => id.toString() === ctx.zoneId))) {
       throw new AppError('Esta promoción no aplica para esta zona de entrega', 400);
     }
-    const day = now.getDay();
-    if (coupon.validDays.length && !coupon.validDays.includes(day)) {
-      throw new AppError('Esta promoción no está disponible hoy', 400);
+    // Día y franja los decide `couponAvailability`, la misma función con la
+    // que la pestaña de Descuentos pinta el horario. Cuando cada lado lo
+    // resolvía por su cuenta, la pantalla anunciaba a las 3 de la mañana un
+    // cupón que el cobro rechazaba; y el día se leía con `getDay()`, en la
+    // zona del servidor, así que en UTC el cupón de los viernes se apagaba
+    // a las siete de la tarde del viernes.
+    const availability = couponAvailability(coupon, now, envConfig.settlement.timezone);
+    if (availability.state === 'scheduled') {
+      throw new AppError(
+        availability.window
+          ? `Esta promoción solo aplica de ${availability.window.from} a ${availability.window.to}`
+          : 'Esta promoción no está disponible en este momento',
+        400
+      );
     }
-    const clock = now.toLocaleTimeString('en-GB', { hour12: false, timeZone: 'America/Bogota' }).slice(0, 5);
-    if (coupon.validFromTime && coupon.validUntilTime && (clock < coupon.validFromTime || clock > coupon.validUntilTime)) {
-      throw new AppError('Esta promoción no está disponible en este horario', 400);
+    if (availability.state === 'exhausted') {
+      throw new AppError('Este cupón ya no está disponible', 400);
     }
 
     const applied = this.computeDiscount(coupon, ctx, config);
@@ -137,7 +183,53 @@ export class CouponService {
       }
     }
 
+    await this.assertWithinGlobalBudget(applied, config);
+
     return applied;
+  }
+
+  /**
+   * Cuánto lleva gastado la plataforma en promociones, sumando todos los
+   * cupones que financia.
+   *
+   * `budgetSpent` se incrementa en cada canje aunque el cupón no tenga
+   * presupuesto propio (ver `redeem`), así que esta suma es el gasto real y
+   * no hace falta recorrer los canjes uno a uno.
+   */
+  private async platformPromotionSpend(): Promise<number> {
+    const [row] = await Coupon.aggregate<{ total: number }>([
+      { $match: { fundedBy: CouponFundedBy.PLATFORM } },
+      { $group: { _id: null, total: { $sum: '$budgetSpent' } } },
+    ]);
+    return row?.total ?? 0;
+  }
+
+  /**
+   * El techo global de gasto en promociones.
+   *
+   * `campaignBudgetTotal` llevaba desde el principio en la configuración de
+   * finanzas —modelo, validador y panel— sin que ninguna decisión de precio
+   * lo consultara: solo se hacían cumplir los presupuestos de cada cupón.
+   * Con veinte campañas de dos millones, el tope real eran cuarenta, no el
+   * número que finanzas creía haber puesto.
+   *
+   * No lo salta ni `campaignApproved`: esa bandera permite bajar del margen
+   * mínimo en una campaña concreta, no gastar plata que ya no hay.
+   *
+   * Solo consulta la base cuando el tope está encendido, que no es el valor
+   * de fábrica: con `campaignBudgetTotal` en 0 esta guarda no cuesta nada.
+   */
+  private async assertWithinGlobalBudget(
+    applied: AppliedCoupon,
+    config: IPlatformPricingConfig
+  ): Promise<void> {
+    if (config.campaignBudgetTotal <= 0) return;
+    if (applied.platformFunded <= 0) return;
+
+    const spent = await this.platformPromotionSpend();
+    if (spent + applied.platformFunded > config.campaignBudgetTotal) {
+      throw new AppError('Las promociones se agotaron por ahora', 400);
+    }
   }
 
   /**
@@ -434,6 +526,31 @@ export class CouponService {
     return coupons.filter((c) => c.usageLimit === 0 || c.usedCount < c.usageLimit);
   }
 
+  /**
+   * Todos los cupones que esta persona podría llegar a usar en este negocio.
+   *
+   * Los públicos que aplican aquí, más los suyos propios —los de canjear
+   * puntos, que no salen en ninguna lista pública—. Es la materia prima del
+   * sugeridor del checkout: sin los nominales, alguien con un canje de
+   * $5.000 sin estrenar pagaría el pedido entero porque nadie se lo
+   * recordó.
+   *
+   * Se deduplica por id: un cupón nominal tiene `isPublic: false`, pero
+   * confiar en eso aquí sería atarse a cómo se crean hoy.
+   */
+  async candidatesFor(userId: string, city?: string, businessId?: string): Promise<ICoupon[]> {
+    const [publicOnes, ownOnes] = await Promise.all([
+      this.getPublic(city, businessId),
+      this.getForUser(userId),
+    ]);
+
+    const byId = new Map<string, ICoupon>();
+    for (const coupon of [...publicOnes, ...ownOnes]) {
+      byId.set(coupon._id.toString(), coupon);
+    }
+    return [...byId.values()];
+  }
+
   async getPublic(city?: string, businessId?: string): Promise<ICoupon[]> {
     const now = new Date();
     const filter: Record<string, unknown> = {
@@ -448,11 +565,105 @@ export class CouponService {
 
     const coupons = await Coupon.find(filter).sort({ createdAt: -1 }).limit(20);
 
+    // Se van los agotados y se quedan los que todavía no abrieron. Un cupón
+    // de 11 a 13 h antes desaparecía de la lista el resto del día —o peor,
+    // aparecía sin decir su horario y fallaba al pagar—; ahora se anuncia
+    // con la hora a la que vuelve, que es justo lo que lo hace apetecible.
     return coupons.filter(
-      (c) =>
-        (c.usageLimit === 0 || c.usedCount < c.usageLimit) &&
-        (c.budgetLimit === 0 || c.budgetSpent < c.budgetLimit)
+      (c) => couponAvailability(c, now, envConfig.settlement.timezone).state !== 'exhausted'
     );
+  }
+
+  /**
+   * Un cupón tal y como puede verlo un cliente.
+   *
+   * La lista es blanca, no negra: lo que no esté aquí no sale. `/offers`
+   * reenviaba el documento de Mongo tal cual mientras `/coupons/public` sí
+   * filtraba, así que la misma entidad se exponía con dos criterios
+   * distintos y por el flojo se escapaban `budgetSpent`,
+   * `minimumContributionMargin` y `fundedBy`: cuánto subsidia Zipp cada
+   * campaña y con qué margen. Ahora las dos rutas pasan por aquí.
+   *
+   * `usedCount` y `usageLimit` sí salen: son el cupo, y esa escasez es del
+   * cliente —"queda el 20%"— no de la contabilidad.
+   */
+  publicView(coupon: ICoupon, now = new Date()): PublicCoupon {
+    return {
+      _id: coupon._id.toString(),
+      code: coupon.code,
+      title: coupon.title,
+      description: coupon.description,
+      type: coupon.type,
+      scope: coupon.scope,
+      value: coupon.value,
+      maxDiscount: coupon.maxDiscount,
+      minOrderAmount: coupon.minOrderAmount,
+      validUntil: coupon.validUntil,
+      businessId: coupon.businessId ? coupon.businessId.toString() : null,
+      firstOrderOnly: coupon.firstOrderOnly,
+      usageLimit: coupon.usageLimit,
+      usedCount: coupon.usedCount,
+      perUserLimit: coupon.perUserLimit,
+      availability: couponAvailability(coupon, now, envConfig.settlement.timezone),
+      conditions: {
+        minOrderAmount: coupon.minOrderAmount,
+        zoneRestricted: coupon.zoneIds.length > 0,
+        firstOrderOnly: coupon.firstOrderOnly,
+      },
+    };
+  }
+
+  /**
+   * Cuáles de los cupones públicos puede usar esta persona.
+   *
+   * Vive aparte de `getPublic()` porque `/offers` se sirve desde una caché
+   * compartida de 60 s: mezclar ahí algo que depende de quién pregunta
+   * significaría servirle a alguien la respuesta de otro. La app pide las
+   * dos cosas y las junta.
+   *
+   * No devuelve ni un peso. `/coupons/validate` se desactivó justo por
+   * aceptar cifras del teléfono, y la cantidad sigue saliendo solo de
+   * `/orders/quote`, que carga productos, zona y envío de la base.
+   */
+  async eligibility(userId: string, userRole = 'client', city?: string): Promise<CouponEligibility[]> {
+    const coupons = await this.getPublic(city);
+    if (!coupons.length) return [];
+
+    // Dos consultas para toda la lista, no dos por cupón: cuántas veces ha
+    // canjeado cada uno, y si ya ha pedido alguna vez.
+    const [redemptions, previousOrders] = await Promise.all([
+      CouponRedemption.aggregate<{ _id: mongoose.Types.ObjectId; count: number }>([
+        {
+          $match: {
+            userId: new mongoose.Types.ObjectId(userId),
+            couponId: { $in: coupons.map((c) => c._id) },
+          },
+        },
+        { $group: { _id: '$couponId', count: { $sum: 1 } } },
+      ]),
+      Order.countDocuments({ clientId: userId, status: { $ne: OrderStatus.CANCELLED } }),
+    ]);
+
+    const used = new Map(redemptions.map((r) => [r._id.toString(), r.count]));
+
+    return coupons.map((coupon) => {
+      const id = coupon._id.toString();
+
+      if (coupon.restrictedToUserId && coupon.restrictedToUserId.toString() !== userId) {
+        return { couponId: id, usable: false, reason: 'not_yours' as const };
+      }
+      if (coupon.eligibleRoles.length && !coupon.eligibleRoles.includes(userRole)) {
+        return { couponId: id, usable: false, reason: 'role' as const };
+      }
+      if (coupon.perUserLimit > 0 && (used.get(id) ?? 0) >= coupon.perUserLimit) {
+        return { couponId: id, usable: false, reason: 'already_used' as const };
+      }
+      if (coupon.firstOrderOnly && previousOrders > 0) {
+        return { couponId: id, usable: false, reason: 'not_first_order' as const };
+      }
+
+      return { couponId: id, usable: true };
+    });
   }
 }
 

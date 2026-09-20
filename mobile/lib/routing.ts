@@ -104,6 +104,17 @@ export const ROUTES = {
   help: `${ROUTE_GROUP}/help`,
   legal: `${ROUTE_GROUP}/legal`,
   requests: `${ROUTE_GROUP}/requests`,
+  /** Mi cuenta y sus subpantallas de seguridad (screens/shared/account). */
+  account: `${ROUTE_GROUP}/account`,
+  accountPassword: `${ROUTE_GROUP}/account-password`,
+  accountSessions: `${ROUTE_GROUP}/account-sessions`,
+  accountTwoFactor: `${ROUTE_GROUP}/account-2fa`,
+  accountDelete: `${ROUTE_GROUP}/account-delete`,
+  /** Fuera del grupo de la app: la misma pantalla sirve al completar perfil. */
+  verifyPhone: (codeAlreadySent: boolean) => ({
+    pathname: '/(auth)/verify-phone',
+    params: codeAlreadySent ? { from: 'account', sent: '1' } : { from: 'account' },
+  }),
   /** Listado de pedidos: el cliente lo tiene como pantalla suelta, el domiciliario como pestaña. */
   orders: IS_DRIVER_APP ? '/(driver)/(tabs)/orders' : '/(client)/orders',
   legalDocument: (kind: string, title?: string) => ({

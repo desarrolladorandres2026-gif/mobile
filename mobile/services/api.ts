@@ -1,8 +1,26 @@
 import axios from 'axios';
+import { Platform } from 'react-native';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { API_URL } from '../constants';
 import { useAuthStore } from '../stores/authStore';
 import { singleFlight } from '../lib/singleFlight';
 import { tokenExpiresAt } from '../lib/jwt';
+
+/**
+ * Cómo se presenta la app ante el backend.
+ *
+ * Sin esto viaja el de la librería de red (`okhttp/4.x` en Android), y en
+ * "Sesiones activas" todas las sesiones salían como "dispositivo
+ * desconocido": imposible reconocer cuál cerrar. El backend saca el sistema
+ * de las palabras Android/iPhone; el modelo va entre paréntesis para que la
+ * app lo muestre. Solo afecta a las sesiones que se abran desde ahora.
+ */
+const DEVICE_USER_AGENT = (() => {
+  const os = Platform.OS === 'ios' ? 'iPhone; iOS' : Platform.OS === 'android' ? 'Android' : Platform.OS;
+  const model = Device.modelName ?? 'Dispositivo';
+  return `Zipp/${Constants.expoConfig?.version ?? '0'} (${os} ${Device.osVersion ?? ''}; ${model})`;
+})();
 
 const api = axios.create({
   baseURL: API_URL,
@@ -16,7 +34,10 @@ const api = axios.create({
    * fingiendo que carga.
    */
   timeout: 12000,
-  headers: { 'Content-Type': 'application/json' },
+  // En web el navegador prohíbe fijar User-Agent; allí no se toca.
+  headers: Platform.OS === 'web'
+    ? { 'Content-Type': 'application/json' }
+    : { 'Content-Type': 'application/json', 'User-Agent': DEVICE_USER_AGENT },
 });
 
 // Request interceptor - add token

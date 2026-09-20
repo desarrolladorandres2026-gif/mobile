@@ -2,10 +2,11 @@ import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import { paymentPollInterval } from '../lib/paymentPolling';
 import { pollInterval } from '../stores/realtimeStore';
-import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi, referralsApi, homeSectionsApi } from '../services/endpoints';
+import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi, referralsApi, homeSectionsApi, exploreApi, authApi, proApi } from '../services/endpoints';
 import type {
   PromoBanner, HomeCategory, SearchSort, CancellationCode,
-  ReviewReasonDriverToClient, ReviewReasonDriverToBusiness, OwnCoupon,
+  ReviewReasonDriverToClient, ReviewReasonDriverToBusiness, OwnCoupon, ActiveSession,
+  ProStatus,
 } from '../services/endpoints';
 
 // ── Businesses ──
@@ -298,6 +299,25 @@ export const useMyCoupons = () =>
   useQuery({
     queryKey: ['coupons', 'mine'],
     queryFn: () => couponsApi.mine(),
+    staleTime: 60_000,
+  });
+
+/**
+ * Cuáles de los cupones públicos puede usar de verdad quien está mirando.
+ *
+ * La lista de cupones viene de una caché que comparte todo el mundo, así
+ * que no puede saber si tú ya gastaste alguno. Esta consulta es la mitad
+ * personal: se pide aparte y la pantalla las junta. Sin ella, la única
+ * forma de enterarse de que un cupón ya no era tuyo era llegar al pago.
+ *
+ * `enabled` porque quien no ha entrado no tiene elegibilidad que consultar,
+ * y pedirla devolvería 401 en cada apertura de la pestaña.
+ */
+export const useCouponEligibility = (enabled = true) =>
+  useQuery({
+    queryKey: ['coupons', 'eligibility'],
+    queryFn: () => couponsApi.eligibility(),
+    enabled,
     staleTime: 60_000,
   });
 
@@ -705,6 +725,14 @@ export interface OrderQuote {
   deliveryPayable: number;
   freeDeliveryApplied: boolean;
   /**
+   * Lo que la membresía Zipp Pro descontó de este pedido, ya dentro de
+   * `total`. Viaja partido en dos porque el desglose los enseña en
+   * renglones distintos, junto a la línea que cada uno rebaja. Opcionales
+   * porque un backend anterior no los manda.
+   */
+  proDeliveryDiscount?: number;
+  proServiceFeeDiscount?: number;
+  /**
    * La ventana de entrega, en minutos desde ahora. El extremo alto es el
    * que se le promete al cliente y el que el pedido guarda como
    * `estimatedDelivery`: prometer el optimista sería incumplir a propósito.
@@ -713,6 +741,12 @@ export interface OrderQuote {
   etaMinutesMax: number;
   deliveryDistanceKm: number;
   zoneName: string | null;
+  /**
+   * Hay productos +18 en el carrito: el servidor no crea el pedido sin
+   * fecha de nacimiento, ni para un menor. Opcional porque un backend
+   * anterior no lo manda.
+   */
+  requiresAgeVerification?: boolean;
   discount: number;
   coupon: {
     code: string;
@@ -725,6 +759,14 @@ export interface OrderQuote {
     serviceFeeDiscount: number;
     totalDiscount: number;
   } | null;
+  /**
+   * El cupón que más ahorraría en este carrito, si no se aplicó ninguno.
+   *
+   * Lo elige el servidor cotizando cada candidato con la misma aritmética
+   * del cobro, así que `discount` es el ahorro real y no una estimación.
+   * Opcional porque un backend anterior no lo manda.
+   */
+  suggestedCoupon?: { code: string; title: string; discount: number } | null;
   tip: number;
   tax: number;
   total: number;
@@ -882,6 +924,97 @@ export const useDeleteSavedCard = () => {
   });
 };
 
+// ── Zipp Pro ────────────────────────────────────────────────────────
+
+/**
+ * Estado de la membresía y plan vigente.
+ *
+ * Fuera de la caché persistida: "soy Pro" es una respuesta que no puede
+ * llegar vieja —de ella dependen los precios que se le prometen a la
+ * persona—, así que se vuelve a preguntar al abrir la pestaña.
+ */
+export const useProStatus = () =>
+  useQuery<ProStatus>({
+    queryKey: ['pro'],
+    queryFn: proApi.mine,
+    staleTime: 30_000,
+  });
+
+/**
+ * Arranca el cobro de la membresía.
+ *
+ * No invalida nada al terminar a propósito: aquí todavía no hay membresía,
+ * solo un cobro en marcha. Quien refresca es la pantalla de espera, cuando
+ * la pasarela confirma.
+ */
+export const useSubscribePro = () =>
+  useMutation<NativePaymentResult, unknown, Record<string, unknown>>({
+    mutationFn: (body) => proApi.subscribe(body),
+  });
+
+export const useCancelPro = () => {
+  const queryClient = useQueryClient();
+  return useMutation<ProStatus>({
+    mutationFn: proApi.cancel,
+    onSuccess: (status) => {
+      queryClient.setQueryData(['pro'], status);
+      // Los precios del carrito dependen de la membresía.
+      queryClient.invalidateQueries({ queryKey: ['orders', 'quote'] });
+    },
+  });
+};
+
+export const useResumePro = () => {
+  const queryClient = useQueryClient();
+  return useMutation<ProStatus>({
+    mutationFn: proApi.resume,
+    onSuccess: (status) => {
+      queryClient.setQueryData(['pro'], status);
+      queryClient.invalidateQueries({ queryKey: ['orders', 'quote'] });
+    },
+  });
+};
+
+// ── Mi cuenta ──
+//
+// Nada de esto entra en la caché persistida (`lib/queryPersistence.ts` solo
+// guarda catálogo y direcciones): el estado de seguridad de una cuenta
+// tiene que ser siempre el de ahora.
+
+/**
+ * Perfil fresco del servidor. El `user` del authStore es el que quedó al
+ * iniciar sesión, y no sabe si la cuenta tiene contraseña ni si el 2FA o
+ * las preferencias cambiaron desde otro dispositivo.
+ */
+export const useAccount = () =>
+  useQuery({
+    queryKey: ['auth', 'me'],
+    queryFn: authApi.me,
+    staleTime: 30_000,
+  });
+
+export const useActiveSessions = () =>
+  useQuery<ActiveSession[]>({
+    queryKey: ['auth', 'sessions'],
+    queryFn: () => authApi.sessions().then((r) => r.sessions),
+  });
+
+export const useRevokeSession = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) => authApi.revokeSession(sessionId),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['auth', 'sessions'] }); },
+  });
+};
+
+export const useRevokeOtherSessions = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (currentRefreshToken?: string) => authApi.revokeOtherSessions(currentRefreshToken),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['auth', 'sessions'] }); },
+  });
+};
+
 /**
  * Live price breakdown for the cart. Every input that can change the total
  * is part of the query key, so the displayed total is always the server's
@@ -902,13 +1035,6 @@ export const useOrderQuote = (
   });
 
 // ── Coupons & coverage ──
-export const usePublicCoupons = (params?: { city?: string; businessId?: string }) =>
-  useQuery({
-    queryKey: ['coupons', 'public', params],
-    queryFn: () => couponsApi.getPublic(params),
-    staleTime: 5 * 60_000,
-  });
-
 /**
  * Todo lo que está en oferta cerca de la dirección de entrega.
  *
@@ -917,10 +1043,17 @@ export const usePublicCoupons = (params?: { city?: string; businessId?: string }
  * —los cupones públicos no la necesitan— así que la consulta sale igual,
  * solo que sin filtrar por radio.
  */
-export const useOffers = (coords?: { lat: number; lng: number } | null, ready = true) =>
+export const useOffers = (
+  coords?: { lat: number; lng: number } | null,
+  ready = true,
+  limit?: number
+) =>
   useQuery({
-    queryKey: ['offers', coords],
-    queryFn: () => offersApi.get(coords ?? undefined),
+    // `limit` entra en la clave: la pestaña y "Ver todo" piden cantidades
+    // distintas y compartir caché haría que la lista larga se rellenara con
+    // la corta, o al revés.
+    queryKey: ['offers', coords, limit ?? null],
+    queryFn: () => offersApi.get({ ...(coords ?? {}), limit }),
     // Igual que el catálogo: sin esperar a las direcciones, la consulta
     // salía una vez sin coordenadas y otra con ellas — dos descargas.
     enabled: ready,
@@ -943,6 +1076,27 @@ export const useHomeSections = (coords?: { lat: number; lng: number } | null, re
     enabled: ready,
     retry: false,
     staleTime: 5 * 60_000,
+  });
+
+/**
+ * El feed de Explorar, entero, en una sola consulta.
+ *
+ * `staleTime` más corto que el del inicio (2 min contra 5) porque este feed
+ * rota por franja horaria: mantenerlo fresco cinco minutos haría que el
+ * cambio de "Hora de almorzar" a "Algo para la tarde" llegara tarde.
+ *
+ * `retry: false`, igual que el inicio: si el servidor no responde, la
+ * pantalla tiene que poder decirlo. Reintentar deja al usuario mirando un
+ * esqueleto sin saber que algo falló — y este proyecto ya sabe cómo se ve
+ * un 429 cuando se confunde con "no hay datos".
+ */
+export const useExplore = (coords?: { lat: number; lng: number } | null, ready = true) =>
+  useQuery({
+    queryKey: ['explore', coords],
+    queryFn: () => exploreApi.get(coords ?? undefined),
+    enabled: ready,
+    retry: false,
+    staleTime: 2 * 60_000,
   });
 
 /**

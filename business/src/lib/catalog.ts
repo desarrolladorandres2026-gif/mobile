@@ -24,6 +24,11 @@ export interface Product {
   discountPrice?: number;
   /** Minutos de cocina propios. `null`/`undefined` hereda el del negocio. */
   prepTimeMinutes?: number | null;
+  /**
+   * Solo mayores de 18 (licor, cigarrillos). El cliente necesita una fecha
+   * de nacimiento de adulto para pedirlo, y el domiciliario le pide la cédula.
+   */
+  requiresAgeVerification?: boolean;
   isAvailable: boolean;
   categoryId: string;
   extras?: ExtraOption[];

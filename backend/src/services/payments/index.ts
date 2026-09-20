@@ -30,6 +30,11 @@ import {
   deleteSavedCard,
 } from './savedCards';
 import { WompiPaymentProvider } from './wompi.provider';
+// Ciclo deliberado: `pro.service` cobra a través de este módulo y este
+// módulo le devuelve el resultado. Ninguno de los dos toca al otro
+// mientras se carga —solo dentro de sus métodos—, que es la condición
+// para que un ciclo de CommonJS sea inofensivo.
+import { proService } from '../pro.service';
 
 export * from './provider';
 export { SandboxPaymentProvider, WompiPaymentProvider };
@@ -175,6 +180,17 @@ function cashPaymentReference(orderId: string): string {
   return `ZIPP-CASH-${orderId}`.toUpperCase();
 }
 
+/**
+ * Referencia de un cobro de membresía. Como la de un pedido en línea —una
+ * por intento—, pero colgada de la persona: Zipp Pro no tiene pedido del
+ * que colgar. El prefijo `PRO` es lo que permite reconocer de un vistazo,
+ * en el panel de Wompi, un cobro que no corresponde a ninguna entrega.
+ */
+function proPaymentReference(userId: string): string {
+  const suffix = crypto.randomBytes(4).toString('hex');
+  return `ZIPP-PRO-${userId}-${Date.now().toString(36)}-${suffix}`.toUpperCase();
+}
+
 interface InitiateInput {
   orderId: string;
   userId: string;
@@ -225,6 +241,27 @@ interface InitiateNativeInput extends InitiateInput {
   /** Solo si va a guardarse la tarjeta. */
   personalDataAuthToken?: string;
   browserInfo?: Record<string, string>;
+}
+
+/**
+ * Un cobro que no cuelga de ningún pedido: hoy, la membresía Zipp Pro.
+ *
+ * El importe lo pone quien llama —y quien llama lo saca del plan, nunca de
+ * la app—, igual que el total de un pedido sale del pedido. Aquí no hay
+ * `redirectUrl` ni métodos asíncronos: la membresía se cobra con tarjeta
+ * porque la renovación mensual necesita algo que se pueda volver a cobrar,
+ * y ni Nequi ni PSE lo son.
+ */
+interface InitiateProInput {
+  userId: string;
+  amount: number;
+  description: string;
+  customer: { name: string; phone?: string; email?: string };
+  instrument: Extract<ClientInstrument, { kind: 'card_token' } | { kind: 'saved_card' }>;
+  acceptanceToken: string;
+  personalDataAuthToken?: string;
+  browserInfo?: Record<string, string>;
+  metadata?: Record<string, unknown>;
 }
 
 interface GatewayStatusMeta {
@@ -564,6 +601,170 @@ export class PaymentService {
   }
 
   /**
+   * Cobra la membresía Zipp Pro.
+   *
+   * Hermano de `initiateNative` y no un parámetro suyo: comparten la
+   * mecánica (una fila PENDING antes de tocar la pasarela, el instrumento
+   * resuelto contra el dueño, el estado que solo mueve `applyGatewayStatus`)
+   * pero no comparten ni una sola guarda. Las de un pedido —que exista, que
+   * sea en línea, que no esté cancelado, que el importe cuadre con el
+   * total— no significan nada aquí, y mezclarlas en un método con un `if`
+   * por medio es la forma segura de que un día una guarda de pedidos deje
+   * pasar un cobro de membresía, o al revés.
+   *
+   * Devuelve además `savedCardId` porque la suscripción tiene que
+   * recordarlo: sin tarjeta guardada no hay renovación posible, y eso se
+   * decide aquí, no en la pantalla.
+   */
+  async initiateProNative(input: InitiateProInput): Promise<{
+    intent: PaymentIntent;
+    paymentId: string;
+    reference: string;
+    savedCardId?: string;
+  }> {
+    const provider = getPaymentProvider();
+
+    if (!provider.createNativePayment) {
+      throw new AppError(
+        `El proveedor de pagos "${provider.name}" no admite cobro dentro de la aplicación`,
+        501
+      );
+    }
+
+    await this.clearOpenProAttempt(input.userId);
+
+    const { instrument, savedCardId } = await this.resolveInstrument(provider, input);
+
+    const reference = proPaymentReference(input.userId);
+
+    const payment = new Payment({
+      // Sin `orderId`: no hay pedido. El esquema lo permite solo para este
+      // tipo, y el índice de "un intento abierto por persona" es lo que
+      // impide que un doble toque abra dos cobros.
+      userId: input.userId,
+      type: PaymentType.PRO_SUBSCRIPTION,
+      method: PaymentMethod.ONLINE,
+      status: PaymentStatus.PENDING,
+      amount: input.amount,
+      currency: config.payments.currency,
+      reference,
+      transactionId: reference,
+      metadata: { ...(input.metadata ?? {}), instrumentKind: input.instrument.kind },
+    });
+    payment.statusHistory.push({
+      status: PaymentStatus.PENDING,
+      source: 'create',
+      at: new Date(),
+    });
+
+    try {
+      await payment.save();
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        throw new AppError(
+          'Ya hay un cobro de tu membresía en curso. Espera a que termine.',
+          409,
+          'PAYMENT_IN_PROGRESS'
+        );
+      }
+      throw error;
+    }
+
+    let intent: PaymentIntent;
+    try {
+      intent = await provider.createNativePayment({
+        orderId: '',
+        userId: input.userId,
+        amount: input.amount,
+        currency: config.payments.currency,
+        description: input.description,
+        customer: input.customer,
+        reference,
+        instrument,
+        acceptanceToken: input.acceptanceToken,
+        personalDataAuthToken: input.personalDataAuthToken,
+        browserInfo: input.browserInfo,
+      });
+    } catch (error) {
+      const reason = ((error as Error).message || 'La pasarela rechazó el cobro').slice(0, 300);
+      await this.retireAttempt(payment, reason);
+      throw new AppError(reason, 502, 'GATEWAY_REJECTED');
+    }
+
+    await Payment.updateOne(
+      { _id: payment._id },
+      {
+        $set: {
+          transactionId: intent.id,
+          ...(intent.paymentMethodType ? { paymentMethodType: intent.paymentMethodType } : {}),
+          ...(intent.rawStatus ? { gatewayStatus: intent.rawStatus } : {}),
+        },
+      }
+    );
+
+    if (savedCardId) await touchSavedCard(savedCardId);
+
+    await this.applyIfTerminal(intent);
+    return { intent, paymentId: payment._id.toString(), reference, savedCardId };
+  }
+
+  /**
+   * Retira el intento de membresía anterior, si lo hay.
+   *
+   * Mismo criterio que con un pedido: antes de retirar nada se le pregunta
+   * a la pasarela, porque una fila PENDING puede ser una transacción ya
+   * aprobada cuyo webhook no ha llegado. La diferencia es qué se hace con
+   * un cobro ya aprobado — en un pedido es un caso para soporte; aquí
+   * significa sencillamente que la persona ya es Pro.
+   */
+  private async clearOpenProAttempt(userId: string): Promise<void> {
+    const existing = await Payment.findOne({
+      userId,
+      type: PaymentType.PRO_SUBSCRIPTION,
+      status: PaymentStatus.PENDING,
+    }).sort({ createdAt: -1 });
+
+    if (!existing) return;
+
+    const hasGatewayRecord = Boolean(
+      existing.transactionId && existing.transactionId !== existing.reference
+    );
+
+    if (!hasGatewayRecord) {
+      await this.retireAttempt(
+        existing,
+        'Intento de membresía que no llegó a la pasarela; sustituido por uno nuevo',
+        { supersededAmount: existing.amount, supersededAt: new Date().toISOString() }
+      );
+      return;
+    }
+
+    let asked = false;
+    try {
+      await this.sync(existing.transactionId!);
+      asked = true;
+    } catch {
+      // Sin respuesta de la pasarela se decide con la fila local.
+    }
+
+    const refreshed = await Payment.findById(existing._id);
+
+    if (refreshed?.status === PaymentStatus.PAID) {
+      throw new AppError('Tu membresía ya está pagada.', 409, 'PAYMENT_ALREADY_PAID');
+    }
+
+    if (refreshed?.status === PaymentStatus.PENDING) {
+      throw new AppError(
+        asked
+          ? 'Ya hay un cobro de tu membresía en curso. Espera a que termine.'
+          : 'No pudimos verificar el cobro anterior. Espera un momento y vuelve a intentarlo.',
+        409,
+        'PAYMENT_IN_PROGRESS'
+      );
+    }
+  }
+
+  /**
    * Del instrumento de la app al de la pasarela.
    *
    * "Pagar y guardar" crea primero la fuente de pago y cobra contra ella:
@@ -572,7 +773,16 @@ export class PaymentService {
    */
   private async resolveInstrument(
     provider: PaymentProvider,
-    input: InitiateNativeInput
+    // Solo lo que de verdad se mira: quién cobra, con qué y con qué
+    // consentimientos. Pedir el molde entero de un pedido obligaba a
+    // inventarse un `orderId` vacío para cobrar una membresía.
+    input: {
+      userId: string;
+      instrument: ClientInstrument;
+      customer: { email?: string };
+      acceptanceToken: string;
+      personalDataAuthToken?: string;
+    }
   ): Promise<{ instrument: PaymentInstrument; savedCardId?: string }> {
     const client = input.instrument;
 
@@ -786,6 +996,19 @@ export class PaymentService {
   }
 
   /**
+   * El pedido de un cobro, o `null` si ese cobro no es de ningún pedido.
+   *
+   * No es azúcar: `Order.findById(undefined)` no devuelve "nada", devuelve
+   * lo que Mongo entienda por un filtro sin `_id`. Desde que existen cobros
+   * sin pedido —la membresía Zipp Pro— cada consulta tiene que preguntarse
+   * antes si hay pedido, y tenerlo en un solo sitio es lo que impide que a
+   * la sexta se le olvide a alguien.
+   */
+  private orderOf(payment: IPayment): Promise<IOrder | null> {
+    return payment.orderId ? Order.findById(payment.orderId) : Promise.resolve(null);
+  }
+
+  /**
    * The single authority that moves an order's payment state.
    *
    * Called only with something the gateway told us — a verified webhook or
@@ -814,14 +1037,14 @@ export class PaymentService {
         key,
         paymentId: payment._id.toString(),
       });
-      const order = await Order.findById(payment.orderId);
+      const order = await this.orderOf(payment);
       return { order, changed: false };
     }
 
     const nextStatus = toPaymentStatus(status);
 
     if (payment.status === nextStatus) {
-      const order = await Order.findById(payment.orderId);
+      const order = await this.orderOf(payment);
       return { order, changed: false };
     }
 
@@ -836,7 +1059,7 @@ export class PaymentService {
         from: payment.status,
         to: nextStatus,
       });
-      const order = await Order.findById(payment.orderId);
+      const order = await this.orderOf(payment);
       return { order, changed: false };
     }
 
@@ -913,7 +1136,7 @@ export class PaymentService {
 
     if (!claimed) {
       // Otra entrega del mismo hecho ganó la carrera y ya aplicó todo.
-      const order = await Order.findById(payment.orderId);
+      const order = await this.orderOf(payment);
       return { order, changed: false };
     }
 
@@ -922,13 +1145,26 @@ export class PaymentService {
     // el webhook como `sync` y solo quien gana la carrera llega: un cambio,
     // un aviso. El polling de la app queda de respaldo, no de mecanismo.
     emitToUser(claimed.userId.toString(), 'payment:updated', {
-      orderId: claimed.orderId.toString(),
+      orderId: claimed.orderId?.toString() ?? null,
       reference: claimed.reference,
       status: toClientStatus(nextStatus),
       declineReason: nextStatus === PaymentStatus.FAILED ? meta?.message : undefined,
     });
 
-    const order = await Order.findById(claimed.orderId);
+    // ── Cobros que no son de un pedido ──
+    //
+    // La membresía se desvía aquí, después del reclamo atómico y antes de
+    // todo lo que da por supuesto que hay un pedido detrás. Pasa por el
+    // mismo embudo a propósito: la tabla de transiciones, la comprobación
+    // de importe y moneda, la idempotencia frente a un webhook repetido y
+    // la carrera con `sync()` son exactamente las mismas preguntas, y
+    // resolverlas por segunda vez en otro archivo sería resolverlas peor.
+    if (claimed.type === PaymentType.PRO_SUBSCRIPTION) {
+      await proService.settlePayment(claimed, nextStatus);
+      return { order: null, changed: true };
+    }
+
+    const order = await this.orderOf(claimed);
     if (!order) {
       console.error('[PAYMENTS] Pago sin pedido asociado', {
         key,

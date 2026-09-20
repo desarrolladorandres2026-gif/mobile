@@ -132,8 +132,14 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
   if (section.products.length === 0) return null;
 
   const variant = section.displayVariant ?? 'compact';
-  const Illustration = SECTION_ILLUSTRATION[section.key] ?? DefaultIllustration;
-  const CardComponent = CARD_BY_VARIANT[variant];
+  // La ilustración que manda el servidor tiene prioridad: una colección
+  // creada desde el panel no puede estar en un mapa escrito antes de que
+  // existiera.
+  const Illustration =
+    SECTION_ILLUSTRATION[section.illustration ?? ''] ??
+    SECTION_ILLUSTRATION[section.key] ??
+    DefaultIllustration;
+  const CardComponent = CARD_BY_VARIANT[variant] ?? CompactCard;
   const headerVariant = HEADER_VARIANT[section.key] ?? 'minimal';
   const subtitle = section.subtitle ?? FALLBACK_SUBTITLE[section.key];
 
@@ -635,7 +641,16 @@ const PriceFocusCard = memo(function PriceFocusCard({ product, onPress }: CardPr
 /** `banner`: misma tarjeta que `large`, sin panel propio alrededor del carrusel. */
 const BannerCard = LargeCard;
 
-const CARD_BY_VARIANT: Record<HomeSectionDisplayVariant, ComponentType<CardProps>> = {
+/**
+ * Las variantes que pintan **productos**.
+ *
+ * Parcial a propósito: `business_row` y `spotlight` devuelven negocios, no
+ * productos, y los pintan `BusinessCollectionRow` y `SpotlightCarousel`. Una
+ * colección con esa variante que llegara aquí cae a `compact`, que es feo
+ * pero se ve — mejor que una pantalla en blanco porque un admin eligió una
+ * variante que no corresponde.
+ */
+const CARD_BY_VARIANT: Partial<Record<HomeSectionDisplayVariant, ComponentType<CardProps>>> = {
   compact: CompactCard,
   large: LargeCard,
   horizontal: HorizontalCard,

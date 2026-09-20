@@ -217,6 +217,20 @@ export default function DriverProfileScreen() {
           </View>
         ) : null}
 
+        {/* ── Cuenta: datos, contraseña, sesiones, 2FA y eliminar cuenta ── */}
+        <View style={styles.section}>
+          <SectionHeader title="Cuenta" />
+          <Card style={styles.menuCard}>
+            <MenuRow
+              illustration="seguridad"
+              label="Mi cuenta"
+              detail="Datos personales, contraseña, sesiones y privacidad"
+              onPress={() => { tap('light'); router.push(ROUTES.account as never); }}
+              last
+            />
+          </Card>
+        </View>
+
         {/* ── Preferencias y Tema ── */}
         <View style={styles.section}>
           <SectionHeader title="Preferencias de la aplicación" />

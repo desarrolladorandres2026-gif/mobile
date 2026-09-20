@@ -7,16 +7,15 @@ import Animated, {
 import {
   Text, Input, Button, Notice, OtpInput, Screen, Header,
 } from '../../components/ui';
-import { SocialSignIn, type SocialAuthResult } from '../../components/domain/SocialSignIn';
+import { SocialSignIn } from '../../components/domain/SocialSignIn';
 import { useBottomInset } from '../../hooks/useBottomSpace';
-import { useAuthStore } from '../../stores/authStore';
+import { useFinishAuth } from '../../hooks/useFinishAuth';
 import { authApi } from '../../services/endpoints';
 import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { apiMessage, validateName, validatePhone, validatePassword } from '../../lib/errors';
 import { scorePasswordStrength, PASSWORD_STRENGTH_LABEL } from '../../lib/passwordStrength';
 import { tap } from '../../lib/haptics';
-import { decideAfterAuth, hrefFor } from '../../lib/routing';
 import { IS_DRIVER_APP, IS_CLIENT_APP, ACCEPTED_ROLE } from '../../constants/variant';
 
 type Step = 'chooser' | 'phone-input' | 'login-password' | 'otp' | 'name' | 'create-password';
@@ -63,7 +62,6 @@ const PREVIOUS_STEP: Partial<Record<Step, Step>> = {
 export default function LoginScreen() {
   const router = useRouter();
   const bottomInset = useBottomInset();
-  const setAuth = useAuthStore((s) => s.setAuth);
 
   const [step, setStep] = useState<Step>('chooser');
   const [direction, setDirection] = useState<'forward' | 'back'>('forward');
@@ -106,38 +104,8 @@ export default function LoginScreen() {
     if (prev) goToStep(prev, 'back');
   };
 
-  /**
-   * Cierra cualquier forma de entrar (contraseña, Google, Apple, registro).
-   *
-   * Decide a dónde ir ANTES de guardar la sesión: una cuenta de la otra app
-   * o de un panel web no debe quedar persistida en este teléfono ni un
-   * instante, o el próximo arranque la encontraría y tendría que volver a
-   * rechazarla.
-   */
-  const finishAuth = async ({ user, accessToken, refreshToken, needsPhone }: SocialAuthResult) => {
-    const decision = decideAfterAuth(user, { needsPhone });
-
-    if (decision.kind === 'web-only') {
-      setFormError(
-        decision.role === 'admin'
-          ? 'Las cuentas de administrador entran por la consola web.'
-          : 'Las cuentas de comercio entran por el portal de negocios.'
-      );
-      tap('warning');
-      return;
-    }
-
-    if (decision.kind === 'wrong-app') {
-      // La pantalla explica cuál es su app y la enlaza; no hay sesión que cerrar.
-      tap('warning');
-      router.replace(hrefFor(decision) as never);
-      return;
-    }
-
-    await setAuth(user, accessToken, refreshToken);
-    tap('success');
-    router.replace(hrefFor(decision) as never);
-  };
+  /** Cierra cualquier forma de entrar (contraseña, Google, Apple, registro), 2FA incluido. */
+  const finishAuth = useFinishAuth(setFormError);
 
   /**
    * Entrada directa con la cuenta fija del seed, sin pedir contraseña.

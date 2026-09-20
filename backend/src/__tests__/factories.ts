@@ -245,6 +245,7 @@ export async function makeCoupon(overrides: Partial<{
   validFrom: Date;
   validUntil: Date;
   usageLimit: number;
+  usedCount: number;
   perUserLimit: number;
   businessId: any;
   city: string;
@@ -257,6 +258,10 @@ export async function makeCoupon(overrides: Partial<{
   budgetSpent: number;
   minimumContributionMargin: number;
   campaignApproved: boolean;
+  validDays: number[];
+  validFromTime: string;
+  validUntilTime: string;
+  restrictedToUserId: any;
 }> = {}) {
   const type = overrides.type ?? CouponType.PERCENTAGE;
 
@@ -278,6 +283,7 @@ export async function makeCoupon(overrides: Partial<{
     validFrom: overrides.validFrom ?? new Date(Date.now() - 60_000),
     validUntil: overrides.validUntil ?? new Date(Date.now() + 7 * 24 * 3600_000),
     usageLimit: overrides.usageLimit ?? 0,
+    usedCount: overrides.usedCount ?? 0,
     perUserLimit: overrides.perUserLimit ?? 0,
     businessId: overrides.businessId ?? null,
     city: overrides.city ?? '',
@@ -290,6 +296,10 @@ export async function makeCoupon(overrides: Partial<{
     budgetSpent: overrides.budgetSpent ?? 0,
     minimumContributionMargin: overrides.minimumContributionMargin ?? -1,
     campaignApproved: overrides.campaignApproved ?? true,
+    validDays: overrides.validDays ?? [],
+    validFromTime: overrides.validFromTime ?? '',
+    validUntilTime: overrides.validUntilTime ?? '',
+    restrictedToUserId: overrides.restrictedToUserId ?? null,
   });
 }
 
@@ -429,4 +439,23 @@ export async function runDelivery(orderId: string, driverUser: any) {
     UserRole.DRIVER
   );
   return deliverToCustomer(orderId, driverUser);
+}
+
+/**
+ * Siembra las colecciones de descubrimiento.
+ *
+ * Desde que las veinte dejaron de vivir en un array dentro del servicio,
+ * `/home-sections` y `/explore` no devuelven nada si la base está vacía — y
+ * el `afterEach` global borra todas las colecciones entre pruebas. Cualquier
+ * caso que mire un feed tiene que llamar a esto en su `beforeEach`.
+ *
+ * Usa las mismas definiciones que el script de producción
+ * (`constants/discoverySeeds.ts`): si cada uno tuviera su copia, el día que
+ * alguien cambiara una regla los tests seguirían pasando contra una
+ * definición que ya no existe.
+ */
+export async function makeDiscoveryCollections() {
+  const { DiscoveryCollection } = await import('../models');
+  const { ALL_SEEDS, seedToDocument } = await import('../constants/discoverySeeds');
+  return DiscoveryCollection.insertMany(ALL_SEEDS.map(seedToDocument));
 }

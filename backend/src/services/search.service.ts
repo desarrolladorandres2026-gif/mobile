@@ -1,5 +1,6 @@
 import { PipelineStage, Types } from 'mongoose';
-import { Product, Business, SearchLog } from '../models';
+import { Product, Business, SearchLog, HomeCategory } from '../models';
+import { BUSINESS_CATEGORY_LABELS } from '../types/enums';
 import { normalize, escapeRegex } from '../utils/text';
 import { LatLng } from '../utils/geo';
 import {
@@ -364,6 +365,20 @@ function since(days: number): Date {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
 
+export interface PopularTerm {
+  term: string;
+  /**
+   * Cuánta gente lo buscó en la ventana de informes.
+   *
+   * Cero significa "esto no sale de búsquedas reales": es el respaldo por
+   * categorías del catálogo. La app solo imprime el número cuando es mayor
+   * que cero, porque el conteo del respaldo mide cuántos negocios hay en esa
+   * categoría y no cuánta gente la buscó — publicarlo sería mentir con un
+   * dato que existe.
+   */
+  count: number;
+}
+
 /**
  * Lo que más busca la gente, de verdad.
  *
@@ -371,27 +386,68 @@ function since(days: number): Date {
  * suficiente se cae a las categorías reales del catálogo, que es lo que
  * había antes y sigue siendo mejor que una lista escrita a mano: al menos
  * existe lo que anuncia.
+ *
+ * Viaja con el conteo porque la pantalla lo pinta como un ranking, y un
+ * ranking sin número es una nube de etiquetas ordenada por nada visible.
  */
-export async function popularTerms(limit = 8): Promise<string[]> {
-  const logged = await SearchLog.aggregate<{ _id: string; count: number }>([
+export async function popularTerms(limit = 8): Promise<PopularTerm[]> {
+  const logged = await SearchLog.aggregate<{ _id: string; count: number; label?: string }>([
     { $match: { createdAt: { $gte: since(INSIGHT_DAYS) }, resultCount: { $gt: 0 } } },
-    { $group: { _id: '$term', count: { $sum: 1 } } },
+    // Se agrupa por el normalizado —si no, "Café" y "cafe" salen como dos
+    // filas distintas en una lista de ocho— pero lo que se devuelve es una
+    // escritura real de la gente: `term` va sin tildes ni mayúsculas y esto
+    // se pinta a tamaño de lectura, donde "cafe" se nota.
+    { $sort: { createdAt: -1 } },
+    { $group: { _id: '$term', count: { $sum: 1 }, label: { $first: '$termRaw' } } },
     { $sort: { count: -1 } },
     { $limit: limit },
   ]);
 
   if (logged.length >= limit) {
-    return logged.map((row) => row._id).filter(Boolean);
+    return logged
+      .map((row) => ({ term: row.label || row._id, count: row.count }))
+      .filter((row) => !!row.term);
   }
 
-  const rows = await Business.aggregate([
+  const rows = await Business.aggregate<{ _id: string; count: number }>([
     { $match: VISIBLE_BUSINESS },
     { $group: { _id: '$category', count: { $sum: 1 } } },
     { $sort: { count: -1 } },
     { $limit: limit },
   ]);
 
-  return rows.map((r) => r._id).filter(Boolean);
+  const keys = rows.map((r) => r._id).filter(Boolean);
+  const labels = await categoryLabels(keys);
+
+  return keys.map((key) => ({ term: labels[key] ?? key, count: 0 }));
+}
+
+/**
+ * Cómo se llama cada categoría para un humano.
+ *
+ * El respaldo de arriba agrupa por el campo `category` de los negocios, que
+ * guarda claves (`fast_food`). Sin este paso la pantalla anunciaba
+ * literalmente "fast_food" como lo más buscado — y como el camino de
+ * respaldo es el normal mientras no haya volumen, era el caso habitual.
+ *
+ * Manda el nombre que administración le puso a la categoría en la vitrina;
+ * si esa fila no existe, la etiqueta de siempre.
+ */
+async function categoryLabels(keys: string[]): Promise<Record<string, string>> {
+  const labels: Record<string, string> = {};
+  if (keys.length === 0) return labels;
+
+  const rows = await HomeCategory.find({ key: { $in: keys } })
+    .select('key name')
+    .lean();
+
+  for (const key of keys) {
+    const row = rows.find((r) => r.key === key);
+    const label = row?.name || BUSINESS_CATEGORY_LABELS[key];
+    if (label) labels[key] = label;
+  }
+
+  return labels;
 }
 
 export interface SearchInsights {

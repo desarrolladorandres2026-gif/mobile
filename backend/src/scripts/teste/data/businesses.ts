@@ -894,14 +894,20 @@ export const TESTE_BUSINESSES: TesteBusiness[] = [
   },
 ];
 
-/** Los dos clientes de prueba, con sus direcciones dentro de cobertura. */
+/**
+ * Los dos clientes de prueba, con sus direcciones dentro de cobertura.
+ *
+ * Los dos son adultos con fecha de nacimiento: sin ella el servidor no deja
+ * pedir productos +18 (caso A-01, el six pack), desde que la edad se valida
+ * al crear el pedido (2026-09-19).
+ */
 export const TESTE_CLIENTS = [
   {
-    name: 'Camila Andrade', phone: '3009990011', email: 'cliente1@teste.zipp.co',
+    name: 'Camila Andrade', phone: '3009990011', email: 'cliente1@teste.zipp.co', birthDate: '1994-05-12',
     address: { label: 'Casa', address: 'Carrera 6 # 14-20, apto 301', details: 'Edificio Mirador, portería', offsetKm: { north: 0.4, east: 0.1 } },
   },
   {
-    name: 'Andrés Felipe Rojas', phone: '3009990012', email: 'cliente2@teste.zipp.co',
+    name: 'Andrés Felipe Rojas', phone: '3009990012', email: 'cliente2@teste.zipp.co', birthDate: '1989-11-03',
     address: { label: 'Oficina', address: 'Calle 19 # 7-55, local 2', details: 'Frente al parque', offsetKm: { north: -0.5, east: -0.3 } },
   },
 ];

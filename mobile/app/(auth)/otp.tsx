@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Text, Button, Notice, OtpInput, Screen, Header, SuccessCheck } from '../../components/ui';
 import { useBottomInset } from '../../hooks/useBottomSpace';
+import { useFinishAuth, needsSecondFactor, type AuthResponse } from '../../hooks/useFinishAuth';
 import { useAuthStore } from '../../stores/authStore';
 import { authApi } from '../../services/endpoints';
 import { Spacing } from '../../theme/tokens';
@@ -25,6 +26,7 @@ export default function OtpScreen() {
   const [verified, setVerified] = useState(false);
   const [resending, setResending] = useState(false);
   const [countdown, setCountdown] = useState(RESEND_SECONDS);
+  const finishAuth = useFinishAuth(setError);
 
   // Sin esto, el código se dispara dos veces en el arranque doble de React 19.
   const sentOnce = useRef(false);
@@ -50,7 +52,15 @@ export default function OtpScreen() {
     setError('');
 
     try {
-      const data = await authApi.verifyOtp(phone, value);
+      const data: AuthResponse = await authApi.verifyOtp(phone, value);
+
+      // Con 2FA el código de WhatsApp no basta: falta el de la app autenticadora.
+      if (needsSecondFactor(data)) {
+        setVerifying(false);
+        await finishAuth(data);
+        return;
+      }
+
       const { user: verifiedUser, accessToken, refreshToken } = data;
       await setAuth(verifiedUser, accessToken, refreshToken);
 

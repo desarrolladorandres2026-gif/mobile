@@ -38,10 +38,19 @@ export default function CompleteProfileScreen() {
     setLoading(true);
 
     try {
-      const updated = await authApi.updateProfile({ phone: phone.replace(/\D/g, '') });
+      // La respuesta es `{ user, phoneVerificationSent }`: antes se guardaba
+      // el sobre entero como si fuera el usuario. Y el número no pasa a ser
+      // `phone` hasta confirmarlo: queda en `pendingPhone`, que es lo que
+      // verifica `verify-phone` (`otp.tsx` es el OTP del login).
+      const { user: updated, phoneVerificationSent } = await authApi.updateProfile({
+        phone: phone.replace(/\D/g, ''),
+      });
       setUser(updated);
       tap('success');
-      router.replace('/(auth)/otp');
+      router.push({
+        pathname: '/(auth)/verify-phone',
+        params: phoneVerificationSent ? { sent: '1' } : {},
+      } as never);
     } catch (err) {
       setFormError(apiMessage(err, 'No pudimos guardar tu celular.'));
       tap('error');

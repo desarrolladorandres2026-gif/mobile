@@ -5,21 +5,16 @@ import { authApi } from '../../services/endpoints';
 import { apiMessage } from '../../lib/errors';
 import { useGoogleAuth } from '../../lib/googleAuth';
 import { useAppleAuth } from '../../lib/appleAuth';
+import { useFacebookAuth } from '../../lib/facebookAuth';
 import { Spacing } from '../../theme/tokens';
-import type { User } from '../../stores/authStore';
-
-/** Lo que devuelven `/auth/google` y `/auth/apple` (y también el login normal). */
-export interface SocialAuthResult {
-  user: User;
-  accessToken: string;
-  refreshToken: string;
-  /** Google/Apple no dan celular: la cuenta queda a medias hasta que lo escriba. */
-  needsPhone?: boolean;
-}
+import type { AuthResponse } from '../../hooks/useFinishAuth';
 
 interface Props {
-  /** Se llama con la sesión ya emitida por el backend; quien lo recibe decide si la guarda. */
-  onAuth: (result: SocialAuthResult) => Promise<unknown>;
+  /**
+   * Se llama con lo que respondió el backend: la sesión, o el reto de 2FA si
+   * la cuenta lo tiene. Quien lo recibe decide si la guarda.
+   */
+  onAuth: (result: AuthResponse) => Promise<unknown>;
   onError: (message: string) => void;
 }
 
@@ -35,8 +30,10 @@ interface Props {
 export function SocialSignIn({ onAuth, onError }: Props) {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [appleLoading, setAppleLoading] = useState(false);
+  const [facebookLoading, setFacebookLoading] = useState(false);
   const { signIn: googleSignIn, isConfigured: googleConfigured } = useGoogleAuth();
   const { signIn: appleSignIn, isConfigured: appleConfigured } = useAppleAuth();
+  const { signIn: facebookSignIn, isConfigured: facebookConfigured } = useFacebookAuth();
 
   const handleGoogle = async () => {
     setGoogleLoading(true);
@@ -58,11 +55,25 @@ export function SocialSignIn({ onAuth, onError }: Props) {
     try {
       const result = await appleSignIn();
       if (!result) return; // el usuario cerró el navegador
-      await onAuth(await authApi.apple(result.idToken, result.fullName));
+      await onAuth(await authApi.apple(result.code, result.nonce));
     } catch (error) {
       onError(apiMessage(error, 'No pudimos iniciar sesión con Apple.'));
     } finally {
       setAppleLoading(false);
+    }
+  };
+
+  const handleFacebook = async () => {
+    setFacebookLoading(true);
+    onError('');
+    try {
+      const result = await facebookSignIn();
+      if (!result) return; // cerró el diálogo o negó el permiso
+      await onAuth(await authApi.facebook(result.code, result.codeVerifier));
+    } catch (error) {
+      onError(apiMessage(error, 'No pudimos iniciar sesión con Facebook.'));
+    } finally {
+      setFacebookLoading(false);
     }
   };
 
@@ -75,7 +86,10 @@ export function SocialSignIn({ onAuth, onError }: Props) {
         disabled={!googleConfigured}
         onPress={handleGoogle}
       />
-      <FacebookButton full pill />
+      {/* Sin app en Meta no se muestra: ver lib/facebookAuth.ts. */}
+      {facebookConfigured ? (
+        <FacebookButton full pill loading={facebookLoading} onPress={handleFacebook} />
+      ) : null}
       <AppleButton
         full
         pill

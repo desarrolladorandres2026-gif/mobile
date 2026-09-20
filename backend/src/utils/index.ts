@@ -28,5 +28,7 @@ export type { ProductImageUrls, ProductImageAssetLike } from './productImageUrls
 export { toCsv, csvFilename } from './csv';
 export type { CsvColumn } from './csv';
 export { BUSINESS_BRAND_COLORS, isBusinessBrandColor } from './businessBrand';
-export { isOpenAt } from './businessHours';
+export { isOpenAt, localClock, localInstant } from './businessHours';
+export { couponAvailability } from './couponWindow';
+export type { CouponAvailability, CouponState, CouponWindow, CouponTiming } from './couponWindow';
 export type { BusinessBrandColor } from './businessBrand';

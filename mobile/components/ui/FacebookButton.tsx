@@ -1,7 +1,8 @@
-import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, ActivityIndicator, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Text } from './Text';
 import { BorderRadius, Size } from '../../theme/tokens';
+import { tap } from '../../lib/haptics';
 
 function FacebookF({ size = 20 }: { size?: number }) {
   return (
@@ -15,19 +16,21 @@ function FacebookF({ size = 20 }: { size?: number }) {
 }
 
 /**
- * Placeholder de "Continuar con Facebook".
+ * "Continuar con Facebook".
  *
- * A diferencia de Google, no hay SDK, App ID ni endpoint en el backend
- * todavía — deshabilitado a propósito: una opción que truena al tocarla es
- * peor que no mostrarla. Se activa cuando haya credenciales reales de
- * Facebook y un `authApi.facebook` que las verifique, siguiendo el mismo
- * patrón que `GoogleButton`.
+ * Solo se monta cuando hay App ID de Meta (ver `lib/facebookAuth.ts`): un
+ * botón que no lleva a ninguna parte es peor que no tenerlo. Mientras
+ * carga, el texto se cambia por un indicador y no admite otro toque.
  */
 export function FacebookButton({
+  onPress,
+  loading,
   full,
   pill,
   style,
 }: {
+  onPress: () => void;
+  loading?: boolean;
   full?: boolean;
   /** Esquinas redondeadas al máximo (forma de píldora) en vez del radio estándar. */
   pill?: boolean;
@@ -35,19 +38,31 @@ export function FacebookButton({
 }) {
   return (
     <Pressable
-      disabled
+      onPress={() => {
+        if (loading) return;
+        tap('light');
+        onPress();
+      }}
+      disabled={loading}
       accessibilityRole="button"
-      accessibilityLabel="Continuar con Facebook, próximamente"
-      accessibilityState={{ disabled: true }}
-      style={[
+      accessibilityLabel="Continuar con Facebook"
+      accessibilityState={{ busy: !!loading }}
+      style={({ pressed }) => [
         full && styles.full,
         styles.base,
         pill && { borderRadius: Size.buttonLg / 2 },
+        pressed && !loading && { opacity: 0.85 },
         style,
       ]}
     >
-      <FacebookF size={20} />
-      <Text v="buttonLg" color="#FFFFFF">Continuar con Facebook</Text>
+      {loading ? (
+        <ActivityIndicator color="#FFFFFF" />
+      ) : (
+        <>
+          <FacebookF size={20} />
+          <Text v="buttonLg" color="#FFFFFF">Continuar con Facebook</Text>
+        </>
+      )}
     </Pressable>
   );
 }
@@ -60,8 +75,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#0569ebff',
-    opacity: 0.9,
+    // El azul de marca de Facebook.
+    backgroundColor: '#1877F2',
   },
   full: { width: '100%' },
 });

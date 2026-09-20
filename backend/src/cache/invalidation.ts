@@ -8,6 +8,25 @@ import { delByPrefix } from './core';
 export const CachePrefix = {
   /** Colecciones del inicio, bloques curados y banners posicionados. */
   HOME: 'home:',
+  /**
+   * El feed de descubrimiento (`/explore`).
+   *
+   * Prefijo propio y no una rama de `home:` porque los dos feeds se
+   * invalidan por las mismas escrituras pero se **leen** con claves muy
+   * distintas: el de explorar lleva franja horaria y, en su capa personal,
+   * usuario. Mezclarlos haría que un cambio de banner borrara también las
+   * claves por usuario, que son las caras de reconstruir.
+   */
+  EXPLORE: 'explore:',
+  /**
+   * Perfil de gustos por usuario, derivado de sus pedidos entregados.
+   *
+   * No lo toca el plugin de invalidación de ningún modelo: se borra a mano
+   * cuando un pedido pasa a entregado. `Order` no lleva el plugin, y
+   * ponérselo invalidaría el catálogo entero en cada cambio de estado de
+   * cada pedido.
+   */
+  TASTE: 'taste:',
   OFFERS: 'offers:',
   HOME_CATEGORIES: 'homecat:',
   BANNERS: 'banners:',
@@ -36,6 +55,7 @@ export function invalidateBusiness(businessId?: string | Types.ObjectId | null):
     businessId ? CachePrefix.business(businessId) : CachePrefix.BUSINESS_ALL,
     CachePrefix.BUSINESS_SLUG,
     CachePrefix.HOME,
+    CachePrefix.EXPLORE,
     CachePrefix.OFFERS,
   ]);
 }

@@ -2,10 +2,7 @@ import { useState, useEffect, type ReactNode } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import * as ImagePicker from 'expo-image-picker';
-import {
-  Text, Icon, Button, Input, Sheet, Notice, ConfirmDialog,
-} from '../../../components/ui';
+import { Text, Icon, ConfirmDialog } from '../../../components/ui';
 import {
   ContentIcon,
   type ContentIllustrationName,
@@ -21,14 +18,12 @@ import { useAddresses } from '../../../hooks/useApi';
 import { useZippStats } from '../../../hooks/useUsual';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding } from '../../../hooks/useBottomSpace';
-import { authApi } from '../../../services/endpoints';
 import { socketService } from '../../../services/socket';
 import { unregisterPush } from '../../../hooks/usePushNotifications';
 import type { IconName } from '../../../theme/icons';
-import { Spacing, FontSize, BorderRadius } from '../../../theme/tokens';
-import { prepareAvatarForUpload } from '../../../lib/avatarImage';
-import { apiMessage, validateName, validatePhone } from '../../../lib/errors';
+import { Spacing, FontSize } from '../../../theme/tokens';
 import { tap } from '../../../lib/haptics';
+import { ROUTES } from '../../../lib/routing';
 import { pushPermissionGranted } from '../../../lib/push';
 import { SUPPORT_PHONE, supportWhatsAppUrl } from '../../../constants/config';
 import { OTHER_APP, OTHER_APP_STORE_URL } from '../../../constants/variant';
@@ -88,8 +83,6 @@ export default function ProfileScreen() {
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
-  const [editing, setEditing] = useState(false);
-
   /**
    * Abre WhatsApp con el mensaje ya escrito. Todavía no existe un registro de
    * aliados ni de domiciliarios dentro de la app, así que la postulación se
@@ -121,6 +114,18 @@ export default function ProfileScreen() {
       label: 'Negocios favoritos',
       detail: `${favorites.length} guardado${favorites.length === 1 ? '' : 's'}`,
       route: '/(client)/favorites',
+    },
+    {
+      icon: 'tarjeta',
+      label: 'Métodos de pago',
+      detail: 'Tus tarjetas guardadas',
+      route: '/(client)/payment-methods',
+    },
+    {
+      icon: 'seguridad',
+      label: 'Mi cuenta',
+      detail: 'Datos personales, seguridad y privacidad',
+      route: ROUTES.account,
     },
   ];
 
@@ -265,7 +270,14 @@ export default function ProfileScreen() {
 
         {/* ── Cuenta: sin card, integrada al fondo de la pantalla ── */}
         <View style={styles.heroRow}>
-          <Avatar uri={user?.avatar} name={user?.name} size={56} />
+          <Pressable
+            onPress={() => { tap('light'); router.push(ROUTES.account as never); }}
+            accessibilityRole="button"
+            accessibilityLabel="Mi cuenta"
+            hitSlop={4}
+          >
+            <Avatar uri={user?.avatar} name={user?.name} size={56} />
+          </Pressable>
 
           <View style={styles.heroInfo}>
             <Text v="strongL" numberOfLines={1} style={styles.userName}>
@@ -279,7 +291,7 @@ export default function ProfileScreen() {
           <Pressable
             onPress={() => {
               tap('light');
-              setEditing(true);
+              router.push(ROUTES.account as never);
             }}
             accessibilityRole="button"
             accessibilityLabel="Editar perfil"
@@ -304,19 +316,19 @@ export default function ProfileScreen() {
           style={({ pressed }) => [styles.statsRow, pressed && { opacity: 0.7 }]}
         >
           <View style={styles.statCol}>
-            <ContentIcon name="trofeo" size={30} />
+            <Icon name="trofeo" size={28} color={c.text} />
             <Text v="titleL" tone="primaryText">{points.toLocaleString('es-CO')}</Text>
             <Text v="caption" tone="textMuted">Puntos</Text>
           </View>
 
           <View style={styles.statCol}>
-            <ContentIcon name="paquete" size={30} />
+            <Icon name="pedidos" size={28} color={c.text} />
             <Text v="titleL" color={c.text}>{stats.orderCount}</Text>
             <Text v="caption" tone="textMuted">Pedidos</Text>
           </View>
 
           <View style={styles.statCol}>
-            <ContentIcon name="racha" size={30} />
+            <Icon name="racha" size={28} color={c.text} />
             <Text v="titleL" color={c.text}>{stats.streak}</Text>
             <Text v="caption" tone="textMuted">Semanas</Text>
           </View>
@@ -375,25 +387,11 @@ export default function ProfileScreen() {
           accessibilityHint="Cierra tu sesión en este dispositivo"
           style={({ pressed }) => [
             styles.logoutButton,
-            {
-              backgroundColor: isDark ? 'rgba(239, 68, 68, 0.08)' : 'rgba(239, 68, 68, 0.05)',
-              borderColor: isDark ? 'rgba(239, 68, 68, 0.22)' : 'rgba(239, 68, 68, 0.16)',
-            },
-            pressed && {
-              backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.10)',
-              transform: [{ scale: 0.985 }],
-            },
+            pressed && { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)' },
           ]}
         >
-          <View
-            style={[
-              styles.logoutIconBadge,
-              {
-                backgroundColor: isDark ? 'rgba(239, 68, 68, 0.18)' : 'rgba(239, 68, 68, 0.12)',
-              },
-            ]}
-          >
-            <Icon name="salir" size="md" color={c.error} />
+          <View style={styles.linkIconSlot}>
+            <Icon name="salir" size={28} color={c.error} />
           </View>
 
           <View style={styles.logoutTextBody}>
@@ -410,9 +408,6 @@ export default function ProfileScreen() {
           </View>
         </Pressable>
       </ScrollView>
-
-      {/* ── Edit Profile Sheet ── */}
-      <EditProfileSheet visible={editing} onClose={() => setEditing(false)} />
 
       {/* ── Confirmar cierre de sesión ── */}
       <ConfirmDialog
@@ -596,186 +591,6 @@ function ThemePreviewCard({
 }
 
 // ──────────────────────────────────────────────────────────────
-// Hoja para Editar Perfil
-// ──────────────────────────────────────────────────────────────
-
-function EditProfileSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const router = useRouter();
-  const { c } = useTheme();
-  const user = useAuthStore((s) => s.user);
-  const setUser = useAuthStore((s) => s.setUser);
-
-  const [name, setName] = useState(user?.name ?? '');
-  const [email, setEmail] = useState(user?.email ?? '');
-  const [phone, setPhone] = useState(user?.phone ?? '');
-  const [errors, setErrors] = useState<{ name?: string; phone?: string }>({});
-  const [formError, setFormError] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
-
-  const pickAvatar = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      setFormError('Necesitamos permiso para acceder a tus fotos.');
-      tap('error');
-      return;
-    }
-
-    const picked = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 1,
-    });
-    if (picked.canceled) return;
-
-    setFormError('');
-    setUploadingAvatar(true);
-    try {
-      const ready = await prepareAvatarForUpload(picked.assets[0].uri);
-      const data = await authApi.uploadAvatar(ready);
-      setUser(data.user);
-      tap('success');
-    } catch (error) {
-      setFormError(apiMessage(error, 'No pudimos actualizar tu foto de perfil.'));
-      tap('error');
-    } finally {
-      setUploadingAvatar(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!user) return;
-    setName(user.name);
-    setEmail(user.email ?? '');
-    setPhone(user.phone ?? '');
-  }, [user, visible]);
-
-  const phoneChanged = phone.replace(/\D/g, '') !== user?.phone;
-
-  const save = async () => {
-    const nameError = validateName(name);
-    const phoneError = validatePhone(phone);
-
-    if (nameError || phoneError) {
-      setErrors({ name: nameError ?? undefined, phone: phoneError ?? undefined });
-      tap('error');
-      return;
-    }
-
-    setErrors({});
-    setFormError('');
-    setSaving(true);
-
-    try {
-      const data = await authApi.updateProfile({
-        name: name.trim(),
-        email: email.trim() || undefined,
-        phone: phone.replace(/\D/g, ''),
-      });
-      setUser(data.user);
-      tap('success');
-      onClose();
-
-      if (!data.user.isVerified) router.replace('/(auth)/otp');
-    } catch (error) {
-      setFormError(apiMessage(error, 'No pudimos guardar los cambios.'));
-      tap('error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Sheet
-      visible={visible}
-      onClose={onClose}
-      title="Editar perfil"
-      height={0.8}
-      footer={
-        <Button
-          title="Guardar cambios"
-          size="lg"
-          full
-          loading={saving}
-          onPress={save}
-          haptic="medium"
-        />
-      }
-    >
-      <View style={styles.avatarEditRow}>
-        <Avatar uri={user?.avatar} name={name} size={72} fontVariant="titleL" />
-        <Pressable
-          onPress={pickAvatar}
-          disabled={uploadingAvatar}
-          accessibilityRole="button"
-          accessibilityLabel="Cambiar foto de perfil"
-          style={({ pressed }) => [
-            styles.avatarEditBtn,
-            { borderColor: c.borderStrong },
-            pressed && { opacity: 0.6 },
-          ]}
-        >
-          <Icon name="editar" size="sm" color={c.primaryText} />
-          <Text v="strongS" tone="primaryText">
-            {uploadingAvatar ? 'Subiendo…' : 'Cambiar foto'}
-          </Text>
-        </Pressable>
-      </View>
-
-      <Input
-        label="Nombre completo"
-        icon="perfil"
-        value={name}
-        onChangeText={(t) => {
-          setName(t);
-          setErrors((e) => ({ ...e, name: undefined }));
-        }}
-        error={errors.name}
-        autoCapitalize="words"
-      />
-
-      <Input
-        label="Correo electrónico (opcional)"
-        icon="correo"
-        placeholder="tucorreo@ejemplo.com"
-        value={email}
-        onChangeText={setEmail}
-        keyboardType="email-address"
-        autoCapitalize="none"
-        editable={!user?.emailVerified}
-        hint={user?.emailVerified ? 'Correo verificado. Solo soporte puede cambiarlo.' : undefined}
-      />
-
-      <Input
-        label="Número de celular"
-        icon="celular"
-        prefix="+57"
-        value={phone}
-        onChangeText={(t) => {
-          setPhone(t);
-          setErrors((e) => ({ ...e, phone: undefined }));
-        }}
-        error={errors.phone}
-        keyboardType="phone-pad"
-        maxLength={10}
-        numeric
-        editable={!user?.phoneVerified}
-        hint={user?.phoneVerified ? 'Celular verificado. Solo soporte puede cambiarlo.' : undefined}
-      />
-
-      {phoneChanged ? (
-        <Notice tone="warning">
-          Si cambias tu número de celular deberás verificarlo nuevamente con un código de WhatsApp.
-        </Notice>
-      ) : null}
-
-      {formError ? <Notice tone="error">{formError}</Notice> : null}
-    </Sheet>
-  );
-}
-
-// ──────────────────────────────────────────────────────────────
 // Estilos
 // ──────────────────────────────────────────────────────────────
 
@@ -813,22 +628,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Editar foto de perfil (dentro de la hoja)
-  avatarEditRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  avatarEditBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
   heroInfo: {
     flex: 1,
     gap: 2,
@@ -974,19 +773,9 @@ const styles = StyleSheet.create({
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
+    paddingVertical: 12,
     gap: Spacing.md,
     marginTop: Spacing.xs,
-  },
-  logoutIconBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   logoutTextBody: {
     flex: 1,

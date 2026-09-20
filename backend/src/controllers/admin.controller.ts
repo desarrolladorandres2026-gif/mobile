@@ -307,6 +307,17 @@ export class AdminController {
     } catch (error) { next(error); }
   }
 
+  async correctBirthDate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { birthDate } = req.body ?? {};
+      if (birthDate !== null && typeof birthDate !== 'string') {
+        return sendResponse(res, 400, 'Envía birthDate como AAAA-MM-DD, o null para borrarla');
+      }
+      const user = await adminService.correctBirthDate(param(req, 'id'), birthDate, req.user!, req);
+      sendResponse(res, 200, 'Fecha de nacimiento actualizada', user);
+    } catch (error) { next(error); }
+  }
+
   // ── Businesses ──
 
   async getBusinesses(req: Request, res: Response, next: NextFunction) {

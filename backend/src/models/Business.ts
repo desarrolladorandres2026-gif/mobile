@@ -352,6 +352,7 @@ businessSchema.plugin(cacheInvalidationPlugin, {
       id ? CachePrefix.business(id) : CachePrefix.BUSINESS_ALL,
       CachePrefix.BUSINESS_SLUG,
       CachePrefix.HOME,
+      CachePrefix.EXPLORE,
       CachePrefix.OFFERS,
     ];
   },

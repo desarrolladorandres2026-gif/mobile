@@ -1,6 +1,6 @@
 import { Pressable, View, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Text, Icon } from '../ui';
+import { Text, Icon, Skeleton, Notice } from '../ui';
 import { ContentIcon } from '../illustrations';
 import { useLoyalty } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
@@ -19,7 +19,29 @@ import { BorderRadius, Spacing } from '../../theme/tokens';
 export function LoyaltyProgressBanner() {
   const router = useRouter();
   const { c } = useTheme();
-  const { data } = useLoyalty();
+  const { data, isPending, isError } = useLoyalty();
+
+  // `data?.balance ?? 0` hacía que un fallo de red se leyera igual que
+  // "tienes cero puntos": lo primero se arregla reintentando y lo segundo
+  // pidiendo comida, y la franja decía lo mismo en los dos casos.
+  if (isError) {
+    return <Notice tone="warning">No pudimos cargar tus puntos. Desliza para reintentar.</Notice>;
+  }
+
+  if (isPending) {
+    return (
+      <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
+        <View style={styles.top}>
+          <ContentIcon name="trofeo" size={30} />
+          <View style={styles.flex}>
+            <Skeleton width="40%" height={16} />
+            <Skeleton width="75%" height={13} style={styles.skeletonLine} />
+          </View>
+        </View>
+        <Skeleton width="100%" height={6} radius={BorderRadius.full} />
+      </View>
+    );
+  }
 
   const balance = data?.balance ?? 0;
   const minRedeem = data?.minRedeem ?? 0;
@@ -38,7 +60,7 @@ export function LoyaltyProgressBanner() {
       style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}
       accessibilityRole="button"
       accessibilityLabel="Tus puntos ZIPP"
-      accessibilityHint="Abre la pantalla de puntos y canjes"
+      accessibilityHint="Abre tu historial de puntos"
     >
       <View style={styles.top}>
         <ContentIcon name="trofeo" size={30} />
@@ -65,6 +87,7 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   top: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  skeletonLine: { marginTop: 6 },
   track: {
     height: 6,
     borderRadius: BorderRadius.full,

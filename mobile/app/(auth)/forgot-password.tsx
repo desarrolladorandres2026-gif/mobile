@@ -4,12 +4,11 @@ import { useRouter } from 'expo-router';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { Text, Input, Button, Notice, OtpInput, Screen, Header } from '../../components/ui';
 import { useBottomInset } from '../../hooks/useBottomSpace';
-import { useAuthStore } from '../../stores/authStore';
+import { useFinishAuth } from '../../hooks/useFinishAuth';
 import { authApi } from '../../services/endpoints';
 import { Spacing } from '../../theme/tokens';
 import { apiMessage, validatePhone, validatePassword } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
-import { decideAfterAuth, hrefFor } from '../../lib/routing';
 
 const RESEND_SECONDS = 60;
 
@@ -23,7 +22,6 @@ const RESEND_SECONDS = 60;
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const bottomInset = useBottomInset();
-  const setAuth = useAuthStore((s) => s.setAuth);
 
   const [step, setStep] = useState<1 | 2>(1);
   const [phone, setPhone] = useState('');
@@ -35,6 +33,7 @@ export default function ForgotPasswordScreen() {
   const [formError, setFormError] = useState('');
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const finishAuth = useFinishAuth(setFormError);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -87,16 +86,15 @@ export default function ForgotPasswordScreen() {
     setLoading(true);
 
     try {
-      const data = await authApi.resetPassword({
-        phone: phone.replace(/\D/g, ''),
-        otpCode: code,
-        password,
-      });
-      const { user, accessToken, refreshToken } = data;
-      await setAuth(user, accessToken, refreshToken);
-      tap('success');
-
-      router.replace(hrefFor(decideAfterAuth(user)) as never);
+      // Con 2FA la contraseña nueva no basta para entrar: `finishAuth` lleva
+      // al paso del código de la app autenticadora.
+      await finishAuth(
+        await authApi.resetPassword({
+          phone: phone.replace(/\D/g, ''),
+          otpCode: code,
+          password,
+        })
+      );
     } catch (err) {
       setFormError(apiMessage(err, 'No pudimos cambiar tu contraseña.'));
       tap('error');

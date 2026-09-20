@@ -21,7 +21,12 @@ export interface OrderOffer {
  * una vez por cambio real, venga de donde venga.
  */
 export interface PaymentUpdate {
-  orderId: string;
+  /**
+   * Nulo en el cobro de la membresía, que no cuelga de ningún pedido. Las
+   * pantallas que esperan el pago de un pedido comparan contra el suyo, así
+   * que un aviso sin pedido sencillamente no es para ellas.
+   */
+  orderId: string | null;
   reference?: string;
   status: 'approved' | 'declined' | 'refunded' | 'pending';
   declineReason?: string;

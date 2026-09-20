@@ -35,6 +35,7 @@ const EMPTY_FORM = {
   price: '',
   discountPrice: '',
   prepTimeMinutes: '',
+  requiresAgeVerification: false,
   categoryId: '',
   extras: [] as ExtraOption[],
   modifierGroups: [] as GroupDraft[],
@@ -206,6 +207,7 @@ export default function Menu() {
         price: String(product.price),
         discountPrice: product.discountPrice ? String(product.discountPrice) : '',
         prepTimeMinutes: product.prepTimeMinutes ? String(product.prepTimeMinutes) : '',
+        requiresAgeVerification: !!product.requiresAgeVerification,
         categoryId: product.categoryId,
         extras: product.extras || [],
         modifierGroups: toDrafts(product.modifierGroups),
@@ -286,6 +288,7 @@ export default function Menu() {
       price,
       discountPrice: discount,
       prepTimeMinutes,
+      requiresAgeVerification: productForm.requiresAgeVerification,
       extras: productForm.extras,
       modifierGroups: converted.groups,
     };
@@ -443,6 +446,11 @@ export default function Menu() {
                           Sin foto
                         </span>
                       )}
+                      {product.requiresAgeVerification ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[var(--color-bg-alt)] text-[var(--color-text-main)] border border-[var(--color-border)]">
+                          +18
+                        </span>
+                      ) : null}
                       {product.prepTimeMinutes ? (
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] border border-[var(--color-border)]">
                           <Clock className="w-3 h-3" />
@@ -845,6 +853,30 @@ export default function Menu() {
                   del negocio (en Ajustes).
                 </p>
               </Field>
+
+              {/* Sin esta casilla el comercio no tenía cómo marcar sus
+                  licores: el campo existía en el servidor y solo se podía
+                  poner por API, así que la validación de edad nunca se
+                  activaba. */}
+              <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors">
+                <input
+                  type="checkbox"
+                  checked={productForm.requiresAgeVerification}
+                  onChange={(event) =>
+                    setProductForm({ ...productForm, requiresAgeVerification: event.target.checked })
+                  }
+                  className="mt-0.5 accent-[var(--color-primary)]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-bold text-[var(--color-text-main)]">
+                    Solo mayores de 18
+                  </span>
+                  <span className="block text-[11px] text-[var(--color-text-muted)] mt-0.5 leading-relaxed">
+                    Licor o cigarrillos. Solo lo puede pedir quien tenga 18 años según su fecha de
+                    nacimiento, y el domiciliario le pide la cédula al entregar.
+                  </span>
+                </span>
+              </label>
 
               <div className="border-t border-[var(--color-border-light)] pt-4 space-y-2">
                 <span className="block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">

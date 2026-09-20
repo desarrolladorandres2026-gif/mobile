@@ -51,6 +51,12 @@ export interface IAppleAuthCode extends Document {
   codeHash: string;
   idToken: string;
   fullName?: string;
+  /**
+   * Apple manda nombre y apellido por separado, y solo la primera vez que la
+   * persona autoriza la app. Se guardan partidos para llenar Mi cuenta.
+   */
+  firstName?: string;
+  lastName?: string;
   expiresAt: Date;
 }
 
@@ -59,6 +65,8 @@ const appleAuthCodeSchema = new Schema<IAppleAuthCode>(
     codeHash: { type: String, required: true, unique: true },
     idToken: { type: String, required: true },
     fullName: { type: String, maxlength: 100 },
+    firstName: { type: String, maxlength: 60 },
+    lastName: { type: String, maxlength: 60 },
     expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } },
   },
   { timestamps: { createdAt: true, updatedAt: false } }

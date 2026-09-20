@@ -23,7 +23,12 @@ export interface IPaymentStatusEvent {
 }
 
 export interface IPayment extends Document {
-  orderId: Types.ObjectId;
+  /**
+   * El pedido que se cobra. Ausente solo en los cobros que no son de un
+   * pedido —hoy, la membresía Zipp Pro—; ver el `required` condicional del
+   * esquema.
+   */
+  orderId?: Types.ObjectId;
   userId: Types.ObjectId;
   type: PaymentType;
   /**
@@ -115,7 +120,18 @@ export function canTransitionPayment(current: PaymentStatus, next: PaymentStatus
 
 const paymentSchema = new Schema<IPayment>(
   {
-    orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true },
+    // Obligatorio salvo en los cobros que no cuelgan de un pedido (la
+    // membresía Zipp Pro). Se expresa como condición y no como
+    // `required: false`, porque un cobro de pedido sin pedido es un
+    // documento roto y el esquema es el único sitio donde se puede impedir
+    // que exista.
+    orderId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Order',
+      required: function (this: { type?: PaymentType }) {
+        return this.type !== PaymentType.PRO_SUBSCRIPTION;
+      },
+    },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     type: { type: String, enum: Object.values(PaymentType), required: true },
     // Acotado al enum: es lo que impide que una pasarela —o un campo
@@ -166,6 +182,27 @@ paymentSchema.index(
       status: PaymentStatus.PENDING,
       method: PaymentMethod.ONLINE,
       type: PaymentType.ORDER_PAYMENT,
+    },
+  }
+);
+
+/**
+ * Un solo cobro de membresía abierto por persona.
+ *
+ * El mismo razonamiento que el índice de arriba, sobre el otro eje: la
+ * membresía no tiene pedido del que colgar, así que lo que no puede
+ * duplicarse es el usuario. Sin esto, un doble toque en "Hazte Pro" —o el
+ * reintento de una petición que se quedó sin red— abría dos transacciones
+ * en Wompi, y las dos podían cobrarse.
+ */
+paymentSchema.index(
+  { userId: 1 },
+  {
+    unique: true,
+    name: 'one_open_pro_subscription_payment_per_user',
+    partialFilterExpression: {
+      status: PaymentStatus.PENDING,
+      type: PaymentType.PRO_SUBSCRIPTION,
     },
   }
 );

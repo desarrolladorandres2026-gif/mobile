@@ -5,9 +5,28 @@ import { Business, Order, Product } from '../models';
 import { UserRole, OrderStatus, PaymentMethod } from '../types';
 import { orderService } from '../services/order.service';
 import { applyTeste, ImageUploader } from '../scripts/teste/applyTeste';
-import { GARZON, makeUser, makeBusiness, makeProduct, makePricingConfig, offsetKm } from './factories';
+import { GARZON, makeUser, makeBusiness, makeProduct, makePricingConfig, makeDiscoveryCollections, offsetKm } from './factories';
 
 const API = '/api/v1/home-sections';
+const EXPLORE_API = '/api/v1/explore';
+
+/**
+ * Las colecciones del producto, vengan del feed que vengan.
+ *
+ * Desde que el descubrimiento se repartió en dos pantallas, una colección
+ * concreta vive en `/home-sections` o en `/explore`, pero no en las dos. Lo
+ * que estas pruebas comprueban —que una sección mezcla comercios, respeta el
+ * stock y el horario, y que ningún producto acapara el feed— no depende de
+ * en cuál de las dos cayó, así que se miran juntas. El reparto en sí tiene
+ * su propia prueba, más abajo.
+ */
+async function feed(params: Record<string, string | number> = {}) {
+  const [home, explore] = await Promise.all([
+    request(app).get(API).query(params).expect(200),
+    request(app).get(EXPLORE_API).query(params).expect(200),
+  ]);
+  return [...home.body.data, ...explore.body.data.entries];
+}
 
 /** Abre el negocio las 24 horas, para que la hora a la que corra la prueba no importe. */
 async function openAllDay(businessId: any) {
@@ -55,6 +74,7 @@ describe('GET /api/home-sections', () => {
 
   beforeEach(async () => {
     await makePricingConfig();
+    await makeDiscoveryCollections();
     owner = await makeUser({ role: UserRole.BUSINESS });
   });
 
@@ -70,7 +90,7 @@ describe('GET /api/home-sections', () => {
     await makeProduct(a._id, { name: 'Perro Rebajado', price: 10000, discountPrice: 7000 });
     await makeProduct(b._id, { name: 'Postre Rebajado', price: 12000, discountPrice: 8000 });
 
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     const section = res.body.data.find((s: any) => s.key === 'descuentosLocos');
 
     expect(section).toBeTruthy();
@@ -85,7 +105,7 @@ describe('GET /api/home-sections', () => {
     await makeProduct(a._id, { name: 'Único Rebajado 1', price: 20000, discountPrice: 14000 });
     await makeProduct(a._id, { name: 'Único Rebajado 2', price: 20000, discountPrice: 14000 });
 
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     expect(res.body.data.find((s: any) => s.key === 'descuentosLocos')).toBeUndefined();
   });
 
@@ -100,7 +120,7 @@ describe('GET /api/home-sections', () => {
     await makeProduct(a._id, { name: 'Relleno 3', price: 20000, discountPrice: 14000 });
     await makeProduct(a._id, { name: 'Relleno 4', price: 20000, discountPrice: 14000 });
 
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     const section = res.body.data.find((s: any) => s.key === 'descuentosLocos');
     expect(section.products.some((p: any) => p._id === agotado._id.toString())).toBe(false);
   });
@@ -116,7 +136,7 @@ describe('GET /api/home-sections', () => {
       await makeProduct(approved._id, { name: `Relleno ${i}`, price: 20000, discountPrice: 14000 });
     }
 
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     const section = res.body.data.find((s: any) => s.key === 'descuentosLocos');
     expect(section.products.every((p: any) => p.businessId !== rejected._id.toString())).toBe(true);
   });
@@ -138,7 +158,7 @@ describe('GET /api/home-sections', () => {
     }
     await Product.updateOne({ businessId: closed._id }, { isFeatured: true });
 
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     const section = res.body.data.find((s: any) => s.key === 'favoritosZipp');
     expect(section).toBeTruthy();
     expect(section.products.every((p: any) => p.businessId !== closed._id.toString())).toBe(true);
@@ -161,7 +181,7 @@ describe('GET /api/home-sections', () => {
     await deliver(a._id.toString(), client._id.toString(), tercero._id.toString(), 1, daysAgo(2));
     await deliver(b._id.toString(), client._id.toString(), cuarto._id.toString(), 1, daysAgo(2));
 
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     const section = res.body.data.find((s: any) => s.key === 'losMasPedidos');
 
     expect(section).toBeTruthy();
@@ -208,7 +228,7 @@ describe('GET /api/home-sections', () => {
     await deliver(a._id.toString(), clientA._id.toString(), estable._id.toString(), 4, daysAgo(10));
     await deliver(a._id.toString(), clientB._id.toString(), estable._id.toString(), 1, daysAgo(2));
 
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     const section = res.body.data.find((s: any) => s.key === 'estaEnTendencia');
     const names = section?.products.map((p: any) => p.name) ?? [];
 
@@ -235,7 +255,7 @@ describe('GET /api/home-sections', () => {
       await makeProduct(a._id, { name: `Hamburguesa Relleno ${i}`, price: 9000, discountPrice: 6000 });
     }
 
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     const appearances = res.body.data.reduce(
       (count: number, section: any) =>
         count + section.products.filter((p: any) => p._id === estrella._id.toString()).length,
@@ -250,7 +270,7 @@ describe('GET /api/home-sections', () => {
     await openAllDay(a._id);
     for (let i = 0; i < 4; i++) await makeProduct(a._id, { name: `Genérico ${i}` });
 
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     expect(res.body.data.find((s: any) => s.key === 'cercaDeTi')).toBeUndefined();
   });
 
@@ -267,10 +287,7 @@ describe('GET /api/home-sections', () => {
     await openAllDay(lejos._id);
     await makeProduct(lejos._id, { name: 'Lejano' });
 
-    const res = await request(app)
-      .get(API)
-      .query({ lat: GARZON.lat, lng: GARZON.lng, maxDistance: 5000 })
-      .expect(200);
+    const res = { body: { data: await feed({ lat: GARZON.lat, lng: GARZON.lng, maxDistance: 5000 }) } };
 
     const section = res.body.data.find((s: any) => s.key === 'cercaDeTi');
     expect(section).toBeTruthy();
@@ -299,12 +316,13 @@ const fakeFetch = async (url: string) => Buffer.from(url);
 describe('GET /api/home-sections — con el catálogo de TESTE', () => {
   beforeEach(async () => {
     await makePricingConfig();
+    await makeDiscoveryCollections();
     const admin = await makeUser({ role: UserRole.ADMIN, name: 'Admin' });
     await applyTeste({ adminId: admin._id.toString(), fetchImage: fakeFetch, uploader: fakeUploader });
   });
 
   it('arma secciones reales, mezclando los cinco comercios sembrados', async () => {
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     const sections: any[] = res.body.data;
 
     expect(sections.length).toBeGreaterThan(0);
@@ -325,7 +343,7 @@ describe('GET /api/home-sections — con el catálogo de TESTE', () => {
   });
 
   it('"El antojo del día" encuentra los perros y salchipapas de Callejón 21', async () => {
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     const section = res.body.data.find((s: any) => s.key === 'antojoDelDia');
 
     expect(section).toBeTruthy();
@@ -334,7 +352,7 @@ describe('GET /api/home-sections — con el catálogo de TESTE', () => {
   });
 
   it('"Por menos de $10.000" solo trae precios efectivos por debajo del umbral', async () => {
-    const res = await request(app).get(API).expect(200);
+    const res = { body: { data: await feed() } };
     const section = res.body.data.find((s: any) => s.key === 'porMenosDe10000');
 
     expect(section).toBeTruthy();

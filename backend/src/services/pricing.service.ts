@@ -17,6 +17,7 @@ import {
 import { estimateRoute } from './mapbox.service';
 import { couponService, AppliedCoupon } from './coupon.service';
 import { pricingConfigService } from './pricingConfig.service';
+import { proService, type ProBenefitsSnapshot } from './pro.service';
 
 /** Cocina, cuando el comercio no declaró tiempo. */
 const DEFAULT_PREP_MINUTES = 25;
@@ -49,6 +50,15 @@ export interface QuoteInput {
   paymentMethod: PaymentMethod;
   couponCode?: string;
   tip?: number;
+  /**
+   * Buscar el mejor cupón para este carrito si no trae ninguno.
+   *
+   * Encendido por defecto porque la cotización se pide mientras alguien
+   * mira el checkout, que es cuando la sugerencia sirve. La creación del
+   * pedido lo apaga: ahí ya se decidió, y buscar un cupón que nadie va a
+   * leer solo añade consultas en el momento de más prisa.
+   */
+  suggest?: boolean;
 }
 
 export interface PricedItem {
@@ -74,6 +84,17 @@ export interface DeliveryQuote {
   zoneName: string | null;
 }
 
+/**
+ * El cupón que más ahorraría en este carrito, si hay alguno y el cliente no
+ * trajo ninguno puesto.
+ */
+export interface SuggestedCoupon {
+  code: string;
+  title: string;
+  /** Lo que descontaría, ya calculado contra este carrito. */
+  discount: number;
+}
+
 /** The complete, auditable money breakdown for a cart. */
 export interface Quote {
   items: PricedItem[];
@@ -93,6 +114,13 @@ export interface Quote {
   deliveryPayable: number;
   /** El comercio regaló el domicilio por haber alcanzado su compra mínima. */
   freeDeliveryApplied: boolean;
+  /**
+   * Lo que la membresía Zipp Pro le quitó a este pedido. Lo financia ZIPP,
+   * así que ya está contado dentro de `platformFundedDiscount`; viaja
+   * aparte solo para que el checkout pueda decir de dónde viene el ahorro.
+   */
+  proDeliveryDiscount: number;
+  proServiceFeeDiscount: number;
   driverDeliveryPayout: number;
   deliveryMargin: number;
   tip: number;
@@ -118,9 +146,21 @@ export interface Quote {
   zoneId: Types.ObjectId | null;
   zoneName: string | null;
   coupon: AppliedCoupon | null;
+  /**
+   * Solo cuando el carrito no trae cupón: el mejor que podría llevar. Se
+   * ofrece, no se aplica — quien decide gastar un cupón de un solo uso es
+   * el cliente, no nosotros.
+   */
+  suggestedCoupon: SuggestedCoupon | null;
   minOrder: number;
   /** Cash a driver would have to remit. 0 for digital orders. */
   cashToRemit: number;
+  /**
+   * Hay productos +18 en el carrito. El pedido exige fecha de nacimiento y
+   * mayoría de edad (ver `orderService.create`), y el domiciliario pide la
+   * cédula en la puerta.
+   */
+  requiresAgeVerification: boolean;
 
   // ── Legacy aliases, kept so existing clients keep working ──
   subtotal: number;
@@ -223,6 +263,8 @@ export class PricingService {
      * 40 minutos y una gaseosa no sale en el tiempo de la gaseosa.
      */
     maxPrepMinutes: number | null;
+    /** Algún producto es solo para mayores de 18 (licor, cigarrillos). */
+    requiresAgeVerification: boolean;
   }> {
     if (!items || items.length === 0) {
       throw new AppError('El pedido debe tener al menos un producto', 400);
@@ -308,7 +350,11 @@ export class PricingService {
       });
     }
 
-    return { pricedItems, subtotal: assertMoney(subtotal, 'subtotal'), maxPrepMinutes };
+    // Sale de los productos ya cargados: la cotización lo avisa sin otra
+    // consulta, y el checkout pide la fecha de nacimiento antes de confirmar.
+    const requiresAgeVerification = products.some((p) => p.requiresAgeVerification === true);
+
+    return { pricedItems, subtotal: assertMoney(subtotal, 'subtotal'), maxPrepMinutes, requiresAgeVerification };
   }
 
   /**
@@ -544,7 +590,7 @@ export class PricingService {
       lng: input.deliveryLongitude,
     };
 
-    const { pricedItems, subtotal: productSubtotal, maxPrepMinutes } = await this.priceItems(
+    const { pricedItems, subtotal: productSubtotal, maxPrepMinutes, requiresAgeVerification } = await this.priceItems(
       input.businessId,
       input.items
     );
@@ -587,57 +633,45 @@ export class PricingService {
       );
     }
 
-    const couponMerchantFunded = coupon?.merchantFunded ?? 0;
-    const platformFundedDiscount = coupon?.platformFunded ?? 0;
-
     const productDiscount = coupon?.productDiscount ?? 0;
     const deliveryDiscount = coupon?.deliveryDiscount ?? 0;
     const serviceFeeDiscount = coupon?.serviceFeeDiscount ?? 0;
 
     const payableSubtotal = productSubtotal - productDiscount;
-    const deliveryAfterCoupon = delivery.customerFee - deliveryDiscount;
-    const payableServiceFee = customerServiceFee - serviceFeeDiscount;
 
-    // ── Envío gratis por compra mínima ──
-    //
-    // No es un mecanismo nuevo: es exactamente un descuento de entrega
-    // financiado por el comercio, igual que un cupón suyo. Modelarlo así y
-    // no como un caso aparte importa, porque toda la contabilidad —la
-    // comisión, la liquidación, el efectivo a rendir— ya sabe tratar un
-    // descuento del comercio, y una vía paralela sería una vía por la que
-    // se escapa dinero sin que nadie lo cuadre.
-    //
-    // Se aplica sobre lo que quede del envío tras el cupón, nunca sobre el
-    // importe original: si el cliente ya trae un cupón de envío gratis, el
-    // negocio no tiene por qué pagar dos veces lo mismo.
-    const qualifiesForFreeDelivery =
-      business.freeDeliveryThreshold > 0 && productSubtotal >= business.freeDeliveryThreshold;
-
-    const freeDeliveryDiscount = qualifiesForFreeDelivery
-      ? Math.max(0, deliveryAfterCoupon)
-      : 0;
-
-    const payableDelivery = deliveryAfterCoupon - freeDeliveryDiscount;
-
-    // Lo que el comercio termina financiando: su cupón más el envío que
-    // regaló. Sale entero de su liquidación.
-    const merchantFundedDiscount = couponMerchantFunded + freeDeliveryDiscount;
-
-    // ── Commission ──
-    // A platform-funded discount never shrinks the commission base: the
-    // merchant sold at full price and ZIPP paid for the promotion, so ZIPP
-    // still earns on the full sale. Only a merchant-funded discount reduces
-    // it, and only when finance has configured it that way.
     const appliedCommissionBps = this.resolveCommissionBps(business, cfg);
-    // Solo el descuento sobre PRODUCTO puede reducir la base: ahí el
-    // comercio vendió más barato. El envío que regala lo paga aparte, con
-    // los productos vendidos a precio completo, así que descontarlo aquí le
-    // rebajaría también la comisión y ZIPP acabaría pagando parte de una
-    // promoción que no decidió.
-    const commissionBase = cfg.commissionAfterMerchantDiscount
-      ? productSubtotal - couponMerchantFunded
-      : productSubtotal;
-    const merchantCommission = applyBps(Math.max(0, commissionBase), appliedCommissionBps);
+
+    // ── Zipp Pro ──
+    // Una consulta por cotización, contra un documento por persona. Lo que
+    // devuelve no es "si pagó", es "qué tiene derecho a descontar hoy": la
+    // membresía caducada no llega hasta aquí.
+    const pro = await proService.benefitsFor(input.userId);
+
+    const {
+      freeDeliveryDiscount,
+      payableDelivery,
+      proDeliveryDiscount,
+      proServiceFeeDiscount,
+      merchantFundedDiscount,
+      merchantCommission,
+      platformFundedDiscount,
+      platformGrossRevenue,
+      platformNetRevenueBeforeOperatingCosts,
+    } = this.settleDiscounts({
+      coupon,
+      productSubtotal,
+      deliveryCustomerFee: delivery.customerFee,
+      deliveryMargin: delivery.margin,
+      customerServiceFee,
+      freeDeliveryThreshold: business.freeDeliveryThreshold,
+      appliedCommissionBps,
+      cfg,
+      pro,
+    });
+
+    // Después del reparto: la tarifa de servicio que la membresía perdona
+    // se decide ahí dentro, junto al resto del dinero.
+    const payableServiceFee = customerServiceFee - serviceFeeDiscount - proServiceFeeDiscount;
 
     // ── Tip ──
     const tip = this.normalizeTip(input.tip, productSubtotal, cfg);
@@ -658,21 +692,12 @@ export class PricingService {
     );
     const driverPayout = delivery.driverPayout + tip;
 
-    const platformGrossRevenue =
-      merchantCommission + customerServiceFee + delivery.margin;
     const platformPromotionExpense = platformFundedDiscount;
-    const platformNetRevenueBeforeOperatingCosts =
-      platformGrossRevenue - platformPromotionExpense;
 
     // ── Contribution-margin guard ──
     // A platform campaign that costs more than the order earns is only
     // allowed when finance explicitly approved that campaign's budget.
-    if (
-      coupon &&
-      coupon.fundedBy === CouponFundedBy.PLATFORM &&
-      platformNetRevenueBeforeOperatingCosts < coupon.minimumContributionMargin &&
-      !coupon.campaignApproved
-    ) {
+    if (this.breaksMarginFloor(coupon, platformNetRevenueBeforeOperatingCosts)) {
       throw new AppError(
         'Este cupón no puede aplicarse a este pedido: el margen resultante ' +
           'queda por debajo del mínimo permitido.',
@@ -699,6 +724,28 @@ export class PricingService {
       taxPayable,
     });
 
+    // ── El mejor cupón para este carrito ──
+    //
+    // Solo si no trajo ninguno: si ya eligió, sugerirle otro sería discutir
+    // con él. Va después de las guardas para no gastar consultas en un
+    // pedido que ni siquiera se va a poder cobrar.
+    const suggestedCoupon = coupon || input.suggest === false
+      ? null
+      : await this.suggestCoupon({
+          userId: input.userId,
+          businessId: input.businessId,
+          city: business.city,
+          productSubtotal,
+          deliveryCustomerFee: delivery.customerFee,
+          deliveryMargin: delivery.margin,
+          customerServiceFee,
+          zoneId: delivery.zoneId?.toString() ?? null,
+          freeDeliveryThreshold: business.freeDeliveryThreshold,
+          appliedCommissionBps,
+          cfg,
+          pro,
+        });
+
     return {
       items: pricedItems,
 
@@ -713,6 +760,13 @@ export class PricingService {
        */
       deliveryPayable: payableDelivery,
       freeDeliveryApplied: freeDeliveryDiscount > 0,
+      /**
+       * Lo que la membresía le quitó a este pedido, partido en dos porque
+       * el checkout los enseña en renglones distintos: uno va junto al
+       * envío y el otro junto a la tarifa de servicio.
+       */
+      proDeliveryDiscount,
+      proServiceFeeDiscount,
       driverDeliveryPayout: delivery.driverPayout,
       deliveryMargin: delivery.margin,
       tip,
@@ -735,8 +789,10 @@ export class PricingService {
       zoneId: delivery.zoneId,
       zoneName: delivery.zoneName,
       coupon,
+      suggestedCoupon,
       minOrder,
       cashToRemit,
+      requiresAgeVerification,
 
       // Legacy aliases so existing consumers keep working unchanged.
       subtotal: productSubtotal,
@@ -746,11 +802,238 @@ export class PricingService {
       total: customerTotal,
       platformCommission: merchantCommission,
       precioOriginal: productSubtotal + delivery.customerFee + customerServiceFee + taxPayable + tip,
-      descuentoEnvio: deliveryDiscount + freeDeliveryDiscount,
+      descuentoEnvio: deliveryDiscount + freeDeliveryDiscount + proDeliveryDiscount,
       totalUsuario: customerTotal,
       subsidioPlataforma: platformFundedDiscount,
       subsidioComercio: merchantFundedDiscount,
     };
+  }
+
+  /**
+   * El cupón que más ahorraría en este carrito.
+   *
+   * Es la pieza que quita de en medio el paso de memorizar un código: la
+   * pantalla de Descuentos enseña el cupón, el checkout lo encuentra solo.
+   *
+   * El orden importa para que salga barato. `computeDiscount` es pura y es
+   * exactamente la misma aritmética con la que `validate` termina, así que
+   * ordenar por ella no es una aproximación: el primero que pase todas las
+   * comprobaciones es, con certeza, el que más descuenta. Por eso se valida
+   * de mayor a menor y se para en el primero bueno, en vez de validar los
+   * veinte contra la base para después comparar.
+   *
+   * Un cupón que no aplica no es un error que haya que propagar: es
+   * simplemente uno que no era, y el siguiente de la lista sigue teniendo
+   * su oportunidad.
+   */
+  private async suggestCoupon(parts: {
+    userId: string;
+    businessId: string;
+    city?: string;
+    productSubtotal: number;
+    deliveryCustomerFee: number;
+    deliveryMargin: number;
+    customerServiceFee: number;
+    zoneId: string | null;
+    freeDeliveryThreshold: number;
+    appliedCommissionBps: number;
+    cfg: IPlatformPricingConfig;
+    pro: ProBenefitsSnapshot | null;
+  }): Promise<SuggestedCoupon | null> {
+    const { cfg } = parts;
+
+    const ctx = {
+      userId: parts.userId,
+      businessId: parts.businessId,
+      city: parts.city,
+      subtotal: parts.productSubtotal,
+      deliveryFee: parts.deliveryCustomerFee,
+      serviceFee: parts.customerServiceFee,
+      zoneId: parts.zoneId,
+      userRole: 'client',
+    };
+
+    const candidates = await couponService.candidatesFor(
+      parts.userId,
+      parts.city,
+      parts.businessId
+    );
+
+    const ranked = candidates
+      .map((coupon) => ({ coupon, applied: couponService.computeDiscount(coupon, ctx, cfg) }))
+      .filter(({ coupon, applied }) =>
+        applied.totalDiscount > 0 && parts.productSubtotal >= coupon.minOrderAmount)
+      .sort((a, b) => b.applied.totalDiscount - a.applied.totalDiscount);
+
+    for (const { coupon } of ranked) {
+      let applied: AppliedCoupon;
+      try {
+        applied = await couponService.validate(coupon.code, ctx, cfg);
+      } catch {
+        continue;
+      }
+
+      const outcome = this.settleDiscounts({
+        coupon: applied,
+        productSubtotal: parts.productSubtotal,
+        deliveryCustomerFee: parts.deliveryCustomerFee,
+        deliveryMargin: parts.deliveryMargin,
+        customerServiceFee: parts.customerServiceFee,
+        freeDeliveryThreshold: parts.freeDeliveryThreshold,
+        appliedCommissionBps: parts.appliedCommissionBps,
+        cfg,
+        // El mismo trato que va a aplicarse al cobrar: sin él, el sugeridor
+        // juzgaría el margen de un pedido que no es el que se va a hacer.
+        pro: parts.pro,
+      });
+
+      // Nunca se ofrece lo que después se va a rechazar: el mismo suelo de
+      // margen que aplica la cotización decide aquí, con la misma función.
+      if (this.breaksMarginFloor(applied, outcome.platformNetRevenueBeforeOperatingCosts)) {
+        continue;
+      }
+
+      return { code: applied.code, title: applied.title, discount: applied.totalDiscount };
+    }
+
+    return null;
+  }
+
+  /**
+   * Qué queda de la promoción una vez repartida.
+   *
+   * Vivía suelto dentro de `quote()`. Se sacó para que el sugeridor de
+   * cupones pueda preguntar "¿y si aplicara este?" con exactamente la misma
+   * aritmética con la que después se va a cobrar: si fueran dos copias, el
+   * día que una cambiara la app ofrecería un ahorro que el cobro no da, que
+   * es la clase de diferencia que nadie ve hasta que un cliente la reclama.
+   *
+   * Es pura: no toca la base ni lanza. Decidir si el resultado es aceptable
+   * es trabajo de `breaksMarginFloor`.
+   */
+  private settleDiscounts(parts: {
+    coupon: AppliedCoupon | null;
+    productSubtotal: number;
+    deliveryCustomerFee: number;
+    deliveryMargin: number;
+    customerServiceFee: number;
+    freeDeliveryThreshold: number;
+    appliedCommissionBps: number;
+    cfg: IPlatformPricingConfig;
+    /** El trato de Zipp Pro, si esta persona lo tiene pagado hoy. */
+    pro: ProBenefitsSnapshot | null;
+  }): {
+    freeDeliveryDiscount: number;
+    payableDelivery: number;
+    /** Lo que Zipp Pro le quitó al envío. Sale del bolsillo de ZIPP. */
+    proDeliveryDiscount: number;
+    /** Lo que Zipp Pro le quitó a la tarifa de servicio. Íd. */
+    proServiceFeeDiscount: number;
+    merchantFundedDiscount: number;
+    merchantCommission: number;
+    platformFundedDiscount: number;
+    platformGrossRevenue: number;
+    platformNetRevenueBeforeOperatingCosts: number;
+  } {
+    const { coupon, productSubtotal, cfg } = parts;
+
+    const couponMerchantFunded = coupon?.merchantFunded ?? 0;
+    const couponPlatformFunded = coupon?.platformFunded ?? 0;
+    const deliveryAfterCoupon = parts.deliveryCustomerFee - (coupon?.deliveryDiscount ?? 0);
+
+    // ── Envío gratis por compra mínima ──
+    //
+    // No es un mecanismo nuevo: es exactamente un descuento de entrega
+    // financiado por el comercio, igual que un cupón suyo. Modelarlo así y
+    // no como un caso aparte importa, porque toda la contabilidad —la
+    // comisión, la liquidación, el efectivo a rendir— ya sabe tratar un
+    // descuento del comercio, y una vía paralela sería una vía por la que
+    // se escapa dinero sin que nadie lo cuadre.
+    //
+    // Se aplica sobre lo que quede del envío tras el cupón, nunca sobre el
+    // importe original: si el cliente ya trae un cupón de envío gratis, el
+    // negocio no tiene por qué pagar dos veces lo mismo.
+    const qualifiesForFreeDelivery =
+      parts.freeDeliveryThreshold > 0 && productSubtotal >= parts.freeDeliveryThreshold;
+
+    const freeDeliveryDiscount = qualifiesForFreeDelivery
+      ? Math.max(0, deliveryAfterCoupon)
+      : 0;
+
+    // Lo que el comercio termina financiando: su cupón más el envío que
+    // regaló. Sale entero de su liquidación.
+    const merchantFundedDiscount = couponMerchantFunded + freeDeliveryDiscount;
+
+    // ── El trato de Zipp Pro ──
+    //
+    // Lo paga ZIPP, no el comercio: la persona nos pagó a nosotros una
+    // cuota mensual, así que el envío que se le regala es gasto nuestro y
+    // se suma al subsidio de plataforma. Modelarlo como descuento del
+    // comercio le cobraría a un tercero una promoción que no contrató.
+    //
+    // Va después del envío gratis por compra mínima y sobre lo que quede:
+    // si el comercio ya lo regaló, la membresía no tiene nada que pagar
+    // encima. El domiciliario cobra lo mismo en los dos casos —su parte
+    // nunca se toca—, y por eso esto reduce margen y no salario.
+    const deliveryAfterFree = deliveryAfterCoupon - freeDeliveryDiscount;
+    const proDeliveryDiscount =
+      parts.pro?.freeDelivery && productSubtotal >= parts.pro.freeDeliveryMinSubtotal
+        ? Math.max(0, deliveryAfterFree)
+        : 0;
+
+    const proServiceFeeDiscount = parts.pro?.serviceFeeWaived
+      ? Math.max(0, parts.customerServiceFee - (coupon?.serviceFeeDiscount ?? 0))
+      : 0;
+
+    const platformFundedDiscount =
+      couponPlatformFunded + proDeliveryDiscount + proServiceFeeDiscount;
+
+    // ── Commission ──
+    // A platform-funded discount never shrinks the commission base: the
+    // merchant sold at full price and ZIPP paid for the promotion, so ZIPP
+    // still earns on the full sale. Only a merchant-funded discount reduces
+    // it, and only when finance has configured it that way.
+    //
+    // Solo el descuento sobre PRODUCTO puede reducir la base: ahí el
+    // comercio vendió más barato. El envío que regala lo paga aparte, con
+    // los productos vendidos a precio completo, así que descontarlo aquí le
+    // rebajaría también la comisión y ZIPP acabaría pagando parte de una
+    // promoción que no decidió.
+    const commissionBase = cfg.commissionAfterMerchantDiscount
+      ? productSubtotal - couponMerchantFunded
+      : productSubtotal;
+    const merchantCommission = applyBps(Math.max(0, commissionBase), parts.appliedCommissionBps);
+
+    const platformGrossRevenue =
+      merchantCommission + parts.customerServiceFee + parts.deliveryMargin;
+
+    return {
+      freeDeliveryDiscount,
+      payableDelivery: deliveryAfterFree - proDeliveryDiscount,
+      proDeliveryDiscount,
+      proServiceFeeDiscount,
+      merchantFundedDiscount,
+      merchantCommission,
+      platformFundedDiscount,
+      platformGrossRevenue,
+      platformNetRevenueBeforeOperatingCosts: platformGrossRevenue - platformFundedDiscount,
+    };
+  }
+
+  /**
+   * Si una campaña de plataforma deja el pedido por debajo del margen que
+   * finanzas fijó.
+   *
+   * Un cupón del comercio nunca entra: lo paga él, así que no hay margen
+   * nuestro que proteger.
+   */
+  private breaksMarginFloor(coupon: AppliedCoupon | null, netRevenue: number): boolean {
+    return (
+      !!coupon &&
+      coupon.fundedBy === CouponFundedBy.PLATFORM &&
+      netRevenue < coupon.minimumContributionMargin &&
+      !coupon.campaignApproved
+    );
   }
 
   /**

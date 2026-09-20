@@ -10,6 +10,13 @@ export interface DisplayCategory {
   key: string;
   label: string;
   imageUrl?: string;
+  /**
+   * Color con el que se tiñe el cuadro cuando no hay imagen ni arte propio.
+   *
+   * La app solo trae ilustración para las cinco categorías de siempre, así
+   * que una categoría nueva creada en el panel caía en un cuadro gris.
+   */
+  color?: string;
 }
 
 const FALLBACK: DisplayCategory[] = BUSINESS_CATEGORIES.map((c) => ({
@@ -35,6 +42,7 @@ export function useHomeCategories() {
       key: c.key,
       label: c.name,
       imageUrl: c.imageUrl,
+      color: c.color || undefined,
     }));
   }, [data]);
 

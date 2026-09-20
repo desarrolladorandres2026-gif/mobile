@@ -205,6 +205,84 @@ export function BusinessCardSkeleton() {
   );
 }
 
+/**
+ * Fantasma de una fila de resultado.
+ *
+ * Copia la silueta de `BusinessResultRow` —distintivo cuadrado, dos líneas de
+ * texto, la columna de datos a la derecha— y no la tarjeta de Inicio. Buscar
+ * enseñaba cuatro fantasmas con portada de 140 px para una lista de filas de
+ * 88: al llegar los datos, lo que se ve es un salto.
+ */
+export function BusinessResultRowSkeleton() {
+  const { c } = useTheme();
+  return (
+    <View style={[styles.skelResult, { backgroundColor: c.surface, borderColor: c.border }]}>
+      <Skeleton width={64} height={64} radius={BorderRadius.md} />
+      <View style={styles.skelResultBody}>
+        <Skeleton width="58%" height={17} />
+        <Skeleton width="34%" height={13} />
+      </View>
+      <View style={styles.skelResultData}>
+        <Skeleton width={34} height={14} />
+        <Skeleton width={46} height={12} />
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Fantasma del descubrimiento inicial de Explorar.
+ *
+ * La rama de descubrimiento no tenía ninguno: mientras llegaban las
+ * categorías del panel se pintaba la lista local de respaldo, así que la
+ * pantalla enseñaba cinco cuadros y luego los cambiaba por otros. Un
+ * parpadeo que parecía un error de datos.
+ */
+export function DiscoveryHubSkeleton({ tiles = 6 }: { tiles?: number }) {
+  return (
+    <View style={styles.skelDiscovery}>
+      <Skeleton width="45%" height={17} />
+      <View style={styles.skelChips}>
+        {Array.from({ length: 3 }, (_, i) => (
+          <Skeleton key={i} width={104} height={32} radius={BorderRadius.full} />
+        ))}
+      </View>
+
+      <Skeleton width="38%" height={17} style={styles.skelDiscoveryGap} />
+      <View style={styles.skelTiles}>
+        {Array.from({ length: tiles }, (_, i) => (
+          <View key={i} style={styles.skelTile}>
+            <Skeleton width="100%" height={84} radius={BorderRadius.lg} />
+            <Skeleton width="70%" height={11} />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Fantasma de un tiquete de cupón.
+ *
+ * Copia la silueta real de `TicketCard` —magnitud grande arriba, corte a la
+ * mitad, código en el talón— y no una tarjeta genérica. Un esqueleto que no
+ * se parece a lo que viene no reserva sitio, solo entretiene: la pestaña de
+ * Descuentos enseñaba tres fantasmas de negocio en vertical para un feed
+ * que empieza con tiquetes en horizontal, y al llegar los datos se
+ * reorganizaba entera.
+ */
+export function CouponCardSkeleton({ width = 244 }: { width?: DimensionValue }) {
+  const { c } = useTheme();
+  return (
+    <View style={[styles.skelCoupon, { width, backgroundColor: c.surface }]}>
+      <Skeleton width="55%" height={34} />
+      <Skeleton width="80%" height={15} style={styles.skelCouponGap} />
+      <View style={[styles.skelCouponCut, { borderColor: c.border }]} />
+      <Skeleton width="45%" height={16} />
+    </View>
+  );
+}
+
 /** Carga a pantalla completa. Solo cuando no hay forma que anticipar. */
 export function LoadingScreen({ message }: { message?: string }) {
   const { c } = useTheme();
@@ -321,6 +399,13 @@ const styles = StyleSheet.create({
   },
   noticeBody: { flex: 1 },
 
+  skelCoupon: {
+    gap: Spacing.sm,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.sm,
+  },
+  skelCouponGap: { marginBottom: Spacing.xs },
+  skelCouponCut: { borderTopWidth: 1, borderStyle: 'dashed', marginVertical: Spacing.xs },
   skelCard: {
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
@@ -334,6 +419,24 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   skelBody: { gap: Spacing.sm, padding: Spacing.md, paddingTop: Spacing.sm },
+
+  skelResult: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+  },
+  skelResultBody: { flex: 1, gap: Spacing.sm },
+  skelResultData: { alignItems: 'flex-end', gap: Spacing.sm },
+
+  skelDiscovery: { gap: Spacing.md, paddingTop: Spacing.md },
+  skelDiscoveryGap: { marginTop: Spacing.lg },
+  skelChips: { flexDirection: 'row', gap: Spacing.sm },
+  skelTiles: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
+  // Tres columnas contando los dos huecos del `gap`.
+  skelTile: { width: '30%', gap: Spacing.sm },
 
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.lg },
 

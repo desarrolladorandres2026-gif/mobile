@@ -1,4 +1,4 @@
-import { Order, IOrder, IOrderFinance, Business, Commission, Driver, Product } from '../models';
+import { Order, IOrder, IOrderFinance, Business, Commission, Driver, Product, User } from '../models';
 import { AppError } from '../middlewares';
 import {
   OrderStatus,
@@ -29,6 +29,7 @@ import { refundService, allocateRefund } from './refund.service';
 import { orderSecurityService } from './orderSecurity.service';
 import { orderTimelineService, TimelineContext } from './orderTimeline.service';
 import { isOpenAt } from '../utils/businessHours';
+import { ageOn, ADULT_AGE } from '../utils/age';
 import { config } from '../config';
 
 // Estado → transiciones válidas
@@ -302,6 +303,10 @@ export class OrderService {
       paymentMethod: input.paymentMethod as PaymentMethod,
       couponCode: input.couponCode,
       tip: input.tip,
+      // Sin sugerencia: el cliente ya decidió y nadie va a leer la
+      // respuesta. Buscarla aquí serían consultas de más justo en el
+      // momento en que el pedido tiene que salir rápido.
+      suggest: false,
     });
 
     const finance = toFinanceSnapshot(quote);
@@ -372,14 +377,35 @@ export class OrderService {
 
     // ── Productos con restricción de edad ──
     //
-    // No se bloquea la compra: comprobar la edad de verdad exige ver un
-    // documento, y eso ocurre en la puerta. Lo que hace la plataforma es
-    // marcar el pedido para que el domiciliario sepa que tiene que pedir la
-    // cédula, y que quede constancia de que se le avisó.
+    // Dos barreras, no una:
+    // - Aquí, la fecha de nacimiento declarada: sin ella no se crea el
+    //   pedido, y con ella de un menor de 18 tampoco. Se guarda una sola
+    //   vez (ver `authService.updateProfile`), así que no basta con
+    //   cambiarla para pasar.
+    // - En la puerta, la cédula: lo declarado no prueba nada. El pedido
+    //   queda marcado para que el domiciliario la pida, y que conste que
+    //   se le avisó.
     const restricted = await Product.exists({
       _id: { $in: quote.items.map((i) => i.productId) },
       requiresAgeVerification: true,
     });
+    if (restricted) {
+      const client = await User.findById(input.clientId).select('birthDate');
+      if (!client?.birthDate) {
+        throw new AppError(
+          'Tu pedido tiene productos para mayores de 18. Agrega tu fecha de nacimiento para continuar.',
+          400,
+          'BIRTHDATE_REQUIRED'
+        );
+      }
+      if (ageOn(client.birthDate) < ADULT_AGE) {
+        throw new AppError(
+          'Tu pedido tiene productos solo para mayores de 18. Quítalos para poder pedir.',
+          403,
+          'AGE_RESTRICTED'
+        );
+      }
+    }
 
     // Se aparta el inventario antes de crear el pedido: si algo se agotó
     // mientras el cliente decidía, es mejor decírselo ahora que dejarle

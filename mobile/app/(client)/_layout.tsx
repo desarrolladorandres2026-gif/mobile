@@ -56,6 +56,12 @@ export default function ClientLayout() {
         name="payment-result"
         options={{ animation: 'fade', gestureEnabled: false }}
       />
+      {/* El cobro de la membresía, con la misma regla que el de un pedido:
+          nada de gesto para volver mientras hay dinero en vuelo. */}
+      <Stack.Screen
+        name="pro-checkout"
+        options={{ animation: 'fade', gestureEnabled: false }}
+      />
       <Stack.Screen name="order-tracking" />
 
       {/* Cuenta */}
@@ -63,10 +69,20 @@ export default function ClientLayout() {
       <Stack.Screen name="addresses" />
       <Stack.Screen name="favorites" />
       <Stack.Screen name="rewards" />
+      {/* Una sección de Descuentos, completa y en vertical. */}
+      <Stack.Screen name="offers-all" />
       <Stack.Screen name="help" />
       <Stack.Screen name="legal" />
       <Stack.Screen name="legal-document" />
       <Stack.Screen name="requests" />
+      <Stack.Screen name="payment-methods" />
+
+      {/* Mi cuenta (screens/shared): datos, seguridad y privacidad. */}
+      <Stack.Screen name="account" />
+      <Stack.Screen name="account-password" />
+      <Stack.Screen name="account-sessions" />
+      <Stack.Screen name="account-2fa" />
+      <Stack.Screen name="account-delete" />
     </Stack>
   );
 }

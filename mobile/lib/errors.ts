@@ -29,6 +29,20 @@ export function apiMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+/**
+ * Como `apiMessage`, pero prefiere el motivo del primer campo de un 400 del
+ * validador ("La cédula tiene entre 5 y 10 dígitos") sobre el genérico
+ * "Error de validación".
+ *
+ * No se hace en `apiMessage` para todo: no todos los esquemas del backend
+ * traen mensajes propios, y los de Zod por defecto están en inglés. Úsalo
+ * solo donde el esquema los escribe en español (p. ej. `updateProfileSchema`).
+ */
+export function fieldMessage(error: unknown, fallback: string): string {
+  const first = (error as any)?.response?.data?.errors?.[0]?.message;
+  return typeof first === 'string' && first.trim() ? first : apiMessage(error, fallback);
+}
+
 /** Valida un celular colombiano: diez dígitos que empiezan por 3. */
 export function validatePhone(phone: string): string | null {
   const clean = phone.replace(/\D/g, '');

@@ -249,16 +249,21 @@ describe('registro de búsquedas', () => {
 });
 
 describe('lo más buscado', () => {
-  it('cae a las categorías del catálogo mientras no haya volumen', async () => {
+  it('cae a las categorías del catálogo mientras no haya volumen, con su nombre y sin conteo', async () => {
     await seedCatalog();
 
     const terms = await searchService.popularTerms();
     expect(terms.length).toBeGreaterThan(0);
-    // Sin registro suficiente devuelve categorías, no términos escritos.
-    expect(terms).toContain('fast_food');
+    // Sin registro suficiente devuelve categorías, no términos escritos — y
+    // las devuelve como se llaman, no con la clave cruda que guarda el
+    // negocio, que es lo que la pantalla acababa anunciando.
+    expect(terms.map((t) => t.term)).toContain('Comidas rápidas');
+    expect(terms.map((t) => t.term)).not.toContain('fast_food');
+    // Cero: ese conteo mediría negocios por categoría, no búsquedas.
+    expect(terms.every((t) => t.count === 0)).toBe(true);
   });
 
-  it('usa las búsquedas reales en cuanto las hay', async () => {
+  it('usa las búsquedas reales en cuanto las hay, con cuántas fueron', async () => {
     await seedCatalog();
 
     // Dos términos distintos repetidos, y un límite que ya se llena con ellos.
@@ -268,7 +273,22 @@ describe('lo más buscado', () => {
     }
 
     const terms = await searchService.popularTerms(2);
-    expect(terms).toEqual(expect.arrayContaining(['hamburguesa', 'pizza']));
+    expect(terms.map((t) => t.term)).toEqual(expect.arrayContaining(['hamburguesa', 'pizza']));
+    expect(terms.every((t) => t.count === 3)).toBe(true);
+  });
+
+  it('no parte el mismo término por cómo se escribió, y devuelve una escritura real', async () => {
+    await seedCatalog();
+
+    // El mismo término con y sin tilde: es una sola búsqueda para la gente.
+    await searchService.logSearch({ term: 'Café', resultCount: 3 });
+    await searchService.logSearch({ term: 'cafe', resultCount: 3 });
+
+    const terms = await searchService.popularTerms(1);
+    expect(terms).toHaveLength(1);
+    expect(terms[0].count).toBe(2);
+    // Lo que se pinta es lo que alguien escribió, no el normalizado interno.
+    expect(['Café', 'cafe']).toContain(terms[0].term);
   });
 });
 

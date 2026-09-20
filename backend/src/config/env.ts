@@ -518,6 +518,21 @@ export const config = {
     servicesId: process.env.APPLE_SERVICES_ID || '',
   },
 
+  /**
+   * "Continuar con Facebook". Sin App ID y secreto el login responde 503 y la
+   * app ni muestra el botón (ver mobile/lib/facebookAuth.ts).
+   *
+   * `redirectUri` tiene que ser **exactamente** el registrado en Meta ("URI
+   * de redireccionamiento de OAuth válidos") y el que arma la app con su
+   * `API_URL`: Meta rechaza el canje del código si no coinciden.
+   */
+  facebook: {
+    appId: process.env.FACEBOOK_APP_ID || '',
+    appSecret: process.env.FACEBOOK_APP_SECRET || '',
+    graphVersion: process.env.FACEBOOK_GRAPH_VERSION || 'v21.0',
+    redirectUri: process.env.FACEBOOK_REDIRECT_URI || `${WEB_URL}/api/v1/auth/facebook/callback`,
+  },
+
   // ── Payments ──────────────────────────────────────────────────────
   // The platform talks to payments through the PaymentProvider interface
   // (src/services/payments). "sandbox" is a fully functional in-process

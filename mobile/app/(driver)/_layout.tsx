@@ -28,6 +28,11 @@ export default function DriverLayout() {
         <Stack.Screen name="legal" />
         <Stack.Screen name="legal-document" />
         <Stack.Screen name="requests" />
+        <Stack.Screen name="account" />
+        <Stack.Screen name="account-password" />
+        <Stack.Screen name="account-sessions" />
+        <Stack.Screen name="account-2fa" />
+        <Stack.Screen name="account-delete" />
       </Stack>
 
       {/*

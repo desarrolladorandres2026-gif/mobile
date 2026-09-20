@@ -1,5 +1,36 @@
 import api from './api';
 import type { ProductImages } from '../lib/productImage';
+import type { User, MarketingChannel, DocumentType } from '../stores/authStore';
+
+export interface ProfileUpdate {
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  /** `null` borra el documento guardado. */
+  documentType?: DocumentType | null;
+  documentNumber?: string | null;
+  /** AAAA-MM-DD. */
+  birthDate?: string;
+}
+
+export interface ActiveSession {
+  _id: string;
+  deviceInfo?: { platform?: string; os?: string; browser?: string };
+  userAgent?: string;
+  ip?: string;
+  lastActivity?: string;
+  createdAt?: string;
+  current: boolean;
+}
+
+export interface TwoFactorSetup {
+  secret: string;
+  otpauthUrl?: string;
+  qrCodeDataUrl: string;
+  recoveryCodes: string[];
+}
 
 export const categoriesApi = {
   getByBusiness: (businessId: string) =>
@@ -78,17 +109,36 @@ export interface HomeSectionProduct {
   distanceMeters?: number;
 }
 
-/** Qué tarjeta usa el cliente para pintar la colección — la decide el servidor. */
+/** Qué tarjeta usa el cliente para pintar la colección — la decide el servidor.
+ *
+ * Las dos últimas son de negocio, no de producto: la colección que las use
+ * devuelve `businesses`, no `products`. */
 export type HomeSectionDisplayVariant =
-  | 'compact' | 'large' | 'horizontal' | 'featured' | 'price_focus' | 'banner';
+  | 'compact' | 'large' | 'horizontal' | 'featured' | 'price_focus' | 'banner'
+  | 'business_row' | 'spotlight';
 
 export interface HomeSection {
   kind: 'collection';
   order: number;
   key: string;
+  /**
+   * @deprecated Siempre vacío desde que las colecciones viven en la base.
+   *
+   * Nunca se pintó —la app usa sus propias mini-ilustraciones, ver la nota
+   * de `ProductCollectionRow.tsx`— pero el campo sigue llegando para no
+   * romper las versiones ya instaladas.
+   */
   emoji: string;
   title: string;
   subtitle?: string;
+  /**
+   * Nombre de la mini-ilustración que manda el servidor.
+   *
+   * Tiene prioridad sobre el mapa local `SECTION_ILLUSTRATION`: una
+   * colección creada desde el panel no puede estar en un mapa que se
+   * escribió antes de que existiera.
+   */
+  illustration?: string;
   displayVariant: HomeSectionDisplayVariant;
   products: HomeSectionProduct[];
 }
@@ -177,6 +227,31 @@ export const homeSectionsApi = {
    */
   get: (params?: { lat?: number; lng?: number; maxDistance?: number; city?: string }): Promise<HomeFeedEntry[]> =>
     api.get('/home-sections', { params }).then((r) => r.data.data),
+};
+
+/** En qué franja del día se armó el feed. La decide el servidor, en hora de Bogotá. */
+export type Daypart = 'madrugada' | 'manana' | 'tarde' | 'noche';
+
+export type ExploreEntry = HomeSection | PromoFeedEntry;
+
+export interface ExploreFeed {
+  entries: ExploreEntry[];
+  daypart: Daypart;
+  /** Si el feed trae algo derivado de quien mira. */
+  personalized: boolean;
+}
+
+export const exploreApi = {
+  /**
+   * El feed de Explorar, entero, en **una sola petición**.
+   *
+   * Una llamada por sección sería la forma más rápida de que el limitador
+   * de peticiones devuelva un 429, que desde el teléfono se lee exactamente
+   * igual que "no tienes datos". El servidor manda la secuencia ya ordenada
+   * y decide qué esconder.
+   */
+  get: (params?: { lat?: number; lng?: number; maxDistance?: number; city?: string }): Promise<ExploreFeed> =>
+    api.get('/explore', { params }).then((r) => r.data.data),
 };
 
 export const topSellersApi = {
@@ -529,6 +604,20 @@ export interface SearchSuggestion {
   image?: string | null;
 }
 
+/** Una fila del ranking de "lo más buscado". */
+export interface PopularTerm {
+  term: string;
+  /**
+   * Cuánta gente lo buscó en los últimos 30 días.
+   *
+   * Cero significa que la fila no sale de búsquedas reales, sino del
+   * respaldo por categorías del catálogo. La pantalla solo imprime el
+   * número cuando es mayor que cero: el conteo del respaldo cuenta
+   * negocios, no búsquedas.
+   */
+  count: number;
+}
+
 export const searchApi = {
   /**
    * Busca negocios y productos a la vez.
@@ -552,8 +641,8 @@ export const searchApi = {
     api.get('/search/suggest', { params: { q }, signal }).then((r) => r.data.data),
 
   /** Términos reales del catálogo, en vez de una lista escrita a mano. */
-  popular: (): Promise<string[]> =>
-    api.get('/search/popular').then((r) => r.data.data),
+  popular: (): Promise<PopularTerm[]> =>
+    api.get('/search/popular').then((r) => r.data.data ?? []),
 
   /**
    * Registra una búsqueda que el usuario confirmó.
@@ -1021,8 +1110,17 @@ export const authApi = {
   google: (idToken: string) =>
     api.post('/auth/google', { idToken }).then((r) => r.data.data),
 
-  apple: (idToken: string, fullName?: string) =>
-    api.post('/auth/apple', { idToken, fullName }).then((r) => r.data.data),
+  /**
+   * El `code` de un solo uso que dejó `/auth/apple/callback` y el `nonce` en
+   * claro cuyo hash firmó Apple. Antes mandaba `{ idToken, fullName }`, que
+   * el backend ya no acepta: el nombre lo guarda el propio callback.
+   */
+  apple: (code: string, nonce: string) =>
+    api.post('/auth/apple', { code, nonce }).then((r) => r.data.data),
+
+  /** El `code` del diálogo de Meta y el `code_verifier` de PKCE (ver lib/facebookAuth.ts). */
+  facebook: (code: string, codeVerifier: string) =>
+    api.post('/auth/facebook', { code, codeVerifier }).then((r) => r.data.data),
 
   /**
    * Entrada única: el celular decide entre login y registro. Una llamada
@@ -1059,8 +1157,68 @@ export const authApi = {
   resetPassword: (data: { phone: string; otpCode: string; password: string }) =>
     api.post('/auth/reset-password', data).then((r) => r.data.data),
 
-  updateProfile: (data: { name?: string; email?: string; phone?: string }) =>
+  /**
+   * Un celular nuevo no reemplaza al actual: queda en `pendingPhone` y el
+   * backend manda un código (`phoneVerificationSent`). Solo `verifyPhone`
+   * lo convierte en el celular de la cuenta.
+   */
+  updateProfile: (data: ProfileUpdate): Promise<{ user: User; phoneVerificationSent: boolean }> =>
     api.patch('/auth/profile', data).then((r) => r.data.data),
+
+  /** Perfil fresco, más lo que el `user` guardado no sabe (si tiene contraseña). */
+  me: (): Promise<{ user: User; hasPassword: boolean }> =>
+    api.get('/auth/me').then((r) => r.data.data),
+
+  resendPhoneOtp: (): Promise<{ sent: boolean }> =>
+    api.post('/auth/phone/send-otp').then((r) => r.data.data),
+
+  verifyPhone: (otpCode: string): Promise<{ user: User }> =>
+    api.post('/auth/phone/verify', { otpCode }).then((r) => r.data.data),
+
+  /** Correo de la cuenta: a diferencia de `/auth/send-email-otp`, no abre sesión. */
+  sendEmailVerification: (): Promise<{ sent: boolean }> =>
+    api.post('/auth/email/send-otp').then((r) => r.data.data),
+
+  verifyEmail: (otpCode: string): Promise<{ user: User }> =>
+    api.post('/auth/email/verify', { otpCode }).then((r) => r.data.data),
+
+  /** Segundo paso de cualquier login con 2FA: código de la app o de recuperación. */
+  mfaChallenge: (challengeToken: string, code: string) =>
+    api.post('/auth/2fa/challenge', { challengeToken, code }).then((r) => r.data.data),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post('/auth/change-password', { currentPassword, newPassword }).then((r) => r.data),
+
+  sessions: (): Promise<{ sessions: ActiveSession[] }> =>
+    api.get('/auth/sessions').then((r) => r.data.data),
+
+  revokeSession: (sessionId: string) =>
+    api.delete(`/auth/sessions/${sessionId}`).then((r) => r.data),
+
+  revokeOtherSessions: (currentRefreshToken?: string): Promise<{ revokedCount: number }> =>
+    api.post('/auth/sessions/revoke-all', { currentRefreshToken }).then((r) => r.data.data),
+
+  setup2FA: (): Promise<TwoFactorSetup> =>
+    api.post('/auth/2fa/setup').then((r) => r.data.data),
+
+  verify2FA: (token: string) =>
+    api.post('/auth/2fa/verify', { token }).then((r) => r.data),
+
+  disable2FA: (token: string) =>
+    api.post('/auth/2fa/disable', { token }).then((r) => r.data),
+
+  updateMarketingPreferences: (
+    consent: boolean,
+    channels: MarketingChannel[],
+  ): Promise<{ marketingConsent: boolean; marketingChannels: MarketingChannel[] }> =>
+    api.patch('/auth/marketing-preferences', { consent, channels }).then((r) => r.data.data),
+
+  /** Solo para cuentas sin contraseña: el código llega por WhatsApp. */
+  requestDeletionOtp: () =>
+    api.post('/auth/account/delete/request-otp').then((r) => r.data.data),
+
+  deleteAccount: (proof: { password?: string; otpCode?: string }) =>
+    api.delete('/auth/account', { data: proof }).then((r) => r.data),
 
   /**
    * Sube una foto de perfil ya comprimida en el dispositivo. `uri` es la
@@ -1095,18 +1253,41 @@ export interface OwnCoupon {
 }
 
 export const couponsApi = {
-  /** Promotions shown in the home carousel. */
-  getPublic: (params?: { city?: string; businessId?: string }) =>
-    api.get('/coupons/public', { params }).then((r) => r.data.data),
+  // `/coupons/public` ya no se llama desde la app: `/offers` devuelve los
+  // mismos cupones —con la misma lista blanca— junto a los platos y los
+  // negocios, en una sola petición. Tener las dos vías vivas era lo que
+  // hacía que Descuentos y Recompensas pintaran lo mismo de dos maneras.
 
   /** Los cupones nominales del cliente: los de canjear puntos. */
   mine: (): Promise<OwnCoupon[]> => api.get('/coupons/mine').then((r) => r.data.data),
+
+  /**
+   * Cuáles de los cupones públicos puede usar de verdad esta persona.
+   *
+   * Va por separado de `/offers` porque eso se sirve desde caché
+   * compartida: la lista de cupones es la misma para todo el barrio, y esto
+   * no. La pantalla pide las dos cosas y las junta.
+   *
+   * No trae cifras a propósito — solo "sí" o "no, y por qué"—, así que no
+   * reabre el agujero por el que se desactivó `validate`.
+   */
+  eligibility: (): Promise<CouponEligibility[]> =>
+    api.get('/coupons/eligibility').then((r) => r.data.data),
 
   validate: (data: { code: string; businessId: string; subtotal: number; deliveryFee?: number }) =>
     // The authoritative validation is ordersApi.quote; never send prices to
     // a coupon endpoint as a source of truth.
     Promise.reject(new Error('Usa ordersApi.quote para validar promociones')),
 };
+
+/** Por qué un cupón no es para ti. */
+export type CouponIneligibility = 'already_used' | 'not_first_order' | 'role' | 'not_yours';
+
+export interface CouponEligibility {
+  couponId: string;
+  usable: boolean;
+  reason?: CouponIneligibility;
+}
 
 /** Por qué un negocio aparece en la pestaña de Descuentos. */
 export interface OfferBusiness {
@@ -1122,9 +1303,40 @@ export interface OfferBusiness {
   distanceMeters?: number;
   freeDeliveryThreshold?: number;
   offer: { kind: 'discount' | 'free_delivery'; label: string };
+  /**
+   * El mejor descuento de su carta, en porcentaje.
+   *
+   * El servidor lo calcula para ordenar la lista y lo venía mandando sin
+   * que nadie lo declarara. Sirve para pintar el número en grande en vez de
+   * la frase entera: en "Hasta -40%" el porcentaje y la palabra "hasta"
+   * pesaban lo mismo.
+   */
+  bestDiscountPercent?: number;
 }
 
-/** Un cupón público tal como lo devuelve `/offers`: el documento entero, no un resumen. */
+/** Cuándo sirve un cupón, resuelto por el servidor. */
+export interface CouponAvailability {
+  /**
+   * `scheduled` no es "se acabó": es un cupón con franja horaria que ahora
+   * está cerrada y vuelve a abrir en `nextOpensAt`.
+   */
+  state: 'active' | 'scheduled' | 'exhausted';
+  /** Solo en los cupones con horario. `days` vacío significa todos. */
+  window?: { from: string; to: string; days: number[] };
+  /** ISO. Cuándo vuelve a abrir, si está `scheduled`. */
+  nextOpensAt?: string;
+  /** ISO. Cuándo cierra la franja de hoy, si está `active`. */
+  closesAt?: string;
+}
+
+/**
+ * Un cupón público, tal como lo devuelven `/offers` y `/coupons/public`.
+ *
+ * Es una lista blanca del servidor, no el documento entero: el presupuesto
+ * de la campaña y el margen mínimo se quedan allá. `usedCount` y
+ * `usageLimit` sí vienen, porque el cupo agotándose es información del
+ * cliente.
+ */
 export interface OfferCoupon {
   _id: string;
   code: string;
@@ -1140,6 +1352,8 @@ export interface OfferCoupon {
   usageLimit?: number;
   usedCount?: number;
   firstOrderOnly?: boolean;
+  businessId?: string | null;
+  availability?: CouponAvailability;
 }
 
 export interface OffersResult {
@@ -1175,8 +1389,16 @@ export const referralsApi = {
 };
 
 export const offersApi = {
-  /** Todo lo que está en oferta cerca de un punto: cupones, platos y negocios. */
-  get: (params?: { lat?: number; lng?: number; maxDistance?: number; city?: string }): Promise<OffersResult> =>
+  /**
+   * Todo lo que está en oferta cerca de un punto: cupones, platos y negocios.
+   *
+   * `limit` lo usa la pantalla de "Ver todo" para pedir más de lo que cabe
+   * en un riel. El servidor lo recorta a 50, así que pedir más no sirve de
+   * nada — y por eso esa pantalla no necesita scroll infinito.
+   */
+  get: (params?: {
+    lat?: number; lng?: number; maxDistance?: number; city?: string; limit?: number;
+  }): Promise<OffersResult> =>
     api.get('/offers', { params }).then((r) => r.data.data),
 };
 
@@ -1346,6 +1568,8 @@ export interface HomeCategory {
   key: string;
   name: string;
   imageUrl?: string;
+  /** Hex del color de respaldo. Solo pinta cuando no hay `imageUrl`. */
+  color?: string;
   status: 'active' | 'inactive';
   order: number;
 }
@@ -1354,4 +1578,55 @@ export const homeCategoriesApi = {
   /** Ya viene ordenada por `order` y filtrada a `status: 'active'`. */
   getAll: (): Promise<HomeCategory[]> =>
     api.get('/home-categories').then((r) => r.data.data ?? []),
+};
+
+// ── Zipp Pro ────────────────────────────────────────────────────────
+
+/**
+ * El plan tal como lo publica el servidor.
+ *
+ * Nada de esto está escrito en la app: precio, duración y beneficios
+ * viajan en cada respuesta. Un cambio de precio no necesita una versión
+ * nueva en la tienda, y —más importante— la pantalla no puede prometer un
+ * trato distinto al que el cobro va a aplicar.
+ */
+export interface ProPlan {
+  id: string;
+  name: string;
+  price: number;
+  currency: string;
+  periodDays: number;
+  benefits: {
+    freeDelivery: { enabled: boolean; minSubtotal: number };
+    serviceFeeWaived: { enabled: boolean };
+  };
+}
+
+export interface ProStatus {
+  /** Si hoy tiene beneficios. Es lo único que decide qué pinta la pantalla. */
+  member: boolean;
+  status: 'none' | 'pending' | 'active' | 'cancelled' | 'expired';
+  plan: ProPlan;
+  since: string | null;
+  /** Hasta cuándo está pagado; con `autoRenew`, cuándo se vuelve a cobrar. */
+  currentPeriodEnd: string | null;
+  autoRenew: boolean;
+  card: { brand: string; lastFour: string } | null;
+}
+
+export const proApi = {
+  /** Estado y plan en una sola respuesta. */
+  mine: (): Promise<ProStatus> => api.get('/pro').then((r) => r.data.data),
+
+  /**
+   * Arranca el cobro de la membresía. Devuelve el intento de la pasarela,
+   * igual que el cobro de un pedido: que haya membresía lo dirá el webhook.
+   */
+  subscribe: (body: Record<string, unknown>) =>
+    api.post('/pro/subscribe', body).then((r) => r.data.data),
+
+  /** Deja de renovar. El acceso sigue hasta el final del periodo pagado. */
+  cancel: (): Promise<ProStatus> => api.post('/pro/cancel').then((r) => r.data.data),
+
+  resume: (): Promise<ProStatus> => api.post('/pro/resume').then((r) => r.data.data),
 };

@@ -60,6 +60,38 @@ const TIMES = [
   { value: 45, label: '45 min' },
 ];
 
+/**
+ * Qué está filtrado ahora mismo, en palabras, y cómo se quita cada cosa.
+ *
+ * Vive aquí y no en la pantalla porque las etiquetas ya están escritas arriba
+ * —"Más cerca", "4.5+", "30 min"— y tenerlas dos veces es garantizar que un
+ * día digan cosas distintas. Antes el resumen era un solo "2 filtros" que no
+ * decía cuáles y solo sabía borrarlos todos.
+ */
+export function describeFilters(f: SearchFilters): { key: string; label: string; patch: Partial<SearchFilters> }[] {
+  const rows: { key: string; label: string; patch: Partial<SearchFilters> }[] = [];
+
+  if (f.sort !== 'relevance') {
+    const sort = SORTS.find((option) => option.key === f.sort);
+    if (sort) rows.push({ key: 'sort', label: sort.label, patch: { sort: 'relevance' } });
+  }
+  if (f.openOnly) {
+    rows.push({ key: 'openOnly', label: 'Abiertos ahora', patch: { openOnly: false } });
+  }
+  if (f.minRating > 0) {
+    rows.push({ key: 'minRating', label: `${f.minRating}+`, patch: { minRating: 0 } });
+  }
+  if (f.maxDeliveryTime > 0) {
+    rows.push({
+      key: 'maxDeliveryTime',
+      label: `Hasta ${f.maxDeliveryTime} min`,
+      patch: { maxDeliveryTime: 0 },
+    });
+  }
+
+  return rows;
+}
+
 export function SearchFiltersSheet({
   visible,
   onClose,

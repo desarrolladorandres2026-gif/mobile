@@ -183,7 +183,7 @@ const matrix: Array<[string, string, string, string, string]> = [
   ['O-03', 'Rechazo del comercio', 'Motivo `business_out_of_stock`', 'Queda registrado el código, no solo el texto', '✅ auto'],
   ['O-04', 'Doble envío', 'Misma `idempotencyKey` dos veces', 'Un solo pedido y un solo aviso a la cocina', '✅ auto'],
   ['O-05', 'Reintento por timeout', 'Cuatro peticiones simultáneas con la misma clave', 'Un pedido; el stock baja una sola vez', '✅ auto'],
-  ['A-01', 'Mayor de edad', 'Cerveza Nacional six pack', 'El pedido nace con `requiresAgeVerification`', '✅ auto'],
+  ['A-01', 'Mayor de edad', 'Cerveza Nacional six pack', 'El pedido nace con `requiresAgeVerification` (el cliente necesita fecha de nacimiento de adulto; los dos de TESTE la traen)', '✅ auto'],
   ['P-01', 'Pedido mínimo', 'Punto Fresco con $5.000 en agua', 'Rechazado por no llegar a $15.000', '✅ auto'],
   ['P-02', 'Envío gratis', 'Callejón 21 con más de $45.000', 'El envío queda en cero', '✋'],
   ['R-01', '"Lo de siempre"', 'Repetir el capuchino con leche de almendras', 'Mismo carrito, mismos `optionId`, mismo total', '✅ auto'],

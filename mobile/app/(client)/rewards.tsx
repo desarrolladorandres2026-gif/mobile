@@ -1,24 +1,18 @@
-import { useState } from 'react';
-import { View, ScrollView, StyleSheet, Share, Alert } from 'react-native';
+import { View, ScrollView, StyleSheet, Share } from 'react-native';
+import { useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import {
-  Text, Button, Badge, Chip, Notice, Screen, Header, EmptyState,
-} from '../../components/ui';
+import { Text, Button, Notice, Screen, Header } from '../../components/ui';
 import { ContentIcon } from '../../components/illustrations';
-import { couponBenefit } from '../../components/domain/CouponCard';
 import { useZippStats } from '../../hooks/useUsual';
-import {
-  usePublicCoupons, useLoyalty, useRedeemPoints, useReferrals, useMyCoupons,
-} from '../../hooks/useApi';
+import { useLoyalty, useReferrals } from '../../hooks/useApi';
 import { useAuthStore } from '../../stores/authStore';
 import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing, FontSize } from '../../theme/tokens';
 import { money, firstName } from '../../lib/format';
-import { redeemOptions } from '../../lib/loyalty';
-import { apiMessage } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
 
 export default function RewardsScreen() {
+  const router = useRouter();
   const { c, isDark } = useTheme();
   const user = useAuthStore((s) => s.user);
   const stats = useZippStats();
@@ -27,21 +21,7 @@ export default function RewardsScreen() {
   // el conteo de pedidos, que sí son del historial local y no son deuda de
   // nadie.
   const { data: loyalty } = useLoyalty();
-  const redeem = useRedeemPoints();
   const points = loyalty?.balance ?? 0;
-  const minRedeem = loyalty?.minRedeem ?? 0;
-  // Antes se ofrecía canjear con cualquier saldo > 0, así que un cliente con
-  // menos puntos que el mínimo del backend tocaba "Canjear" y recibía un
-  // error que no tenía forma de anticipar.
-  const canRedeem = minRedeem > 0 ? points >= minRedeem : points > 0;
-  const options = redeemOptions(points, minRedeem);
-  // Por defecto el más pequeño: es el que menos riesgo tiene de ser mayor
-  // que el pedido donde se use.
-  const [amount, setAmount] = useState<number | null>(null);
-  const selectedAmount = amount !== null && options.includes(amount) ? amount : options[0];
-
-  const { data: coupons = [] } = usePublicCoupons();
-  const { data: ownCoupons = [] } = useMyCoupons();
 
   const referrals = useReferrals();
 
@@ -102,52 +82,21 @@ export default function RewardsScreen() {
             {/* Un punto vale un peso: la equivalencia se dice en voz alta.
                 Los programas donde "1000 puntos son 12.500 pesos" existen
                 para que el cliente no sepa cuánto tiene. */}
-            {canRedeem && selectedAmount ? (
-              <>
-                {/* Canjear todo de golpe era la única opción, y el cupón es de
-                    un solo uso: en un pedido más pequeño que el cupón, la
-                    diferencia se perdía. */}
-                <View style={styles.amounts}>
-                  {options.map((option) => (
-                    <Chip
-                      key={option}
-                      label={option === points ? `Todo · ${money(option)}` : money(option)}
-                      active={option === selectedAmount}
-                      onPress={() => { tap('select'); setAmount(option); }}
-                    />
-                  ))}
-                </View>
-                <Button
-                  title={`Canjear ${selectedAmount.toLocaleString('es-CO')} puntos`}
-                  icon="cupon"
-                  loading={redeem.isPending}
-                  style={styles.redeemBtn}
-                  onPress={() => {
-                    tap('medium');
-                    redeem.mutate(selectedAmount, {
-                      onSuccess: (result) => {
-                        tap('success');
-                        setAmount(null);
-                        Alert.alert(
-                          '¡Cupón listo!',
-                          `Te descuenta ${money(result.value)}. Queda guardado en "Tus cupones" ` +
-                            'y al pagar se aplica con un toque.'
-                        );
-                      },
-                      onError: (err) => {
-                        Alert.alert('No pudimos canjear', apiMessage(err, 'Inténtalo de nuevo.'));
-                      },
-                    });
-                  }}
-                />
-                <Text v="caption" tone="textMuted" center>
-                  También puedes usarlos al pagar: ahí se canjea justo lo que el pedido necesita.
-                </Text>
-              </>
-            ) : points > 0 && minRedeem > 0 ? (
-              <Text v="caption" tone="textMuted" center style={styles.redeemBtn}>
-                Te faltan {(minRedeem - points).toLocaleString('es-CO')} puntos para tu primer canje
-              </Text>
+            {/* El canje se mudó a la billetera de Descuentos, que es donde
+                la gente entra a buscar con qué ahorrar. Aquí se quedó el
+                saldo y su historia; tener el mismo botón en dos pantallas
+                era la forma segura de que un día dijeran cosas distintas. */}
+            {points > 0 ? (
+              <Button
+                title="Canjear mis puntos"
+                icon="cupon"
+                variant="secondary"
+                style={styles.redeemBtn}
+                onPress={() => {
+                  tap('light');
+                  router.push('/(client)/(tabs)/offers');
+                }}
+              />
             ) : null}
 
             <View style={[styles.cardDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }]} />
@@ -209,112 +158,10 @@ export default function RewardsScreen() {
           </View>
         ) : null}
 
-        {/* ── Tus cupones ──
-            Los de canjear puntos. Antes el código solo aparecía en el aviso
-            del canje y, cerrado el aviso, no había forma de volver a verlo
-            aunque el cupón siguiera vivo un mes. */}
-        {ownCoupons.length > 0 ? (
-          <View style={styles.sectionBlock}>
-            <Text v="captionStrong" tone="textMuted" style={styles.sectionTitle}>
-              TUS CUPONES
-            </Text>
-            {ownCoupons.map((own) => (
-              <View
-                key={own._id}
-                style={[
-                  styles.couponCard,
-                  {
-                    backgroundColor: c.surface,
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-                  },
-                ]}
-              >
-                <View style={styles.couponTop}>
-                  <View style={styles.cleanIcon}>
-                    <ContentIcon name="cupon" size={30} />
-                  </View>
-                  <View style={styles.flex}>
-                    <Text v="strongL" numberOfLines={1}>{money(own.value)} de descuento</Text>
-                    <Text v="bodyS" tone="textSecondary">
-                      {own.title} · vence el{' '}
-                      {new Date(own.validUntil).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
-                    </Text>
-                  </View>
-                </View>
-                <Text v="caption" tone="textMuted">
-                  Aparece al pagar para aplicarlo con un toque.
-                </Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
-
-        {/* ── Cupones Disponibles ── */}
-        <View style={styles.sectionBlock}>
-          <Text v="captionStrong" tone="textMuted" style={styles.sectionTitle}>
-            CUPONES Y BENEFICIOS
-          </Text>
-
-          {coupons.length === 0 ? (
-            <View
-              style={[
-                styles.emptyCard,
-                {
-                  backgroundColor: c.surface,
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-                },
-              ]}
-            >
-              <EmptyState
-                icon="cupon"
-                title="Sin cupones activos"
-                message="Cuando haya promociones nuevas te avisaremos de inmediato."
-                compact
-              />
-            </View>
-          ) : (
-            coupons.map((coupon: any) => (
-              <View
-                key={coupon._id}
-                style={[
-                  styles.couponCard,
-                  {
-                    backgroundColor: c.surface,
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-                  },
-                ]}
-              >
-                <View style={styles.couponTop}>
-                  <View style={styles.cleanIcon}>
-                    <ContentIcon name="cupon" size={30} />
-                  </View>
-                  <View style={styles.flex}>
-                    <Text v="strongL" numberOfLines={1}>{coupon.title}</Text>
-                    <Text v="bodyS" tone="textSecondary">{couponBenefit(coupon)}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.couponBottomRow}>
-                  <View
-                    style={[
-                      styles.couponCodePill,
-                      {
-                        backgroundColor: isDark ? 'rgba(98, 104, 160, 0.16)' : 'rgba(98, 104, 160, 0.10)',
-                        borderColor: isDark ? 'rgba(98, 104, 160, 0.30)' : 'rgba(98, 104, 160, 0.20)',
-                      },
-                    ]}
-                  >
-                    <Text v="code" color="#6268A0">{coupon.code}</Text>
-                  </View>
-
-                  {coupon.minOrder ? (
-                    <Badge label={`Desde ${money(coupon.minOrder)}`} tone="neutral" icon="bolsa" />
-                  ) : null}
-                </View>
-              </View>
-            ))
-          )}
-        </View>
+        {/* Los cupones —los propios y los públicos— viven en la pestaña
+            de Descuentos. Esta pantalla los pintaba otra vez, con otro
+            endpoint y otro diseño: dos sitios contando lo mismo con
+            distintas palabras. */}
 
         {/* ── Invitar a un amigo ── */}
         <View style={styles.sectionBlock}>
@@ -395,13 +242,6 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
   redeemBtn: { marginTop: Spacing.md, alignSelf: 'stretch' },
-  amounts: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
-  },
   flex: { flex: 1 },
   content: {
     paddingHorizontal: Spacing.lg,
@@ -486,28 +326,6 @@ const styles = StyleSheet.create({
   },
 
   // Coupon Card
-  couponCard: {
-    borderRadius: 22,
-    padding: Spacing.lg,
-    borderWidth: 1,
-    gap: Spacing.md,
-  },
-  couponTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  couponBottomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  couponCodePill: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-  },
 
   // Invite Card
   inviteCard: {
@@ -522,10 +340,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.xs,
-  },
-  emptyCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    overflow: 'hidden',
   },
 });

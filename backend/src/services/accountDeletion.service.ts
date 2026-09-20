@@ -117,9 +117,16 @@ export async function anonymizeAccount(userId: Types.ObjectId | string): Promise
         email: 1,
         avatar: 1,
         password: 1,
+        // Datos de Mi cuenta: el nombre visible ya queda como ANONYMIZED_NAME.
+        firstName: 1,
+        lastName: 1,
+        documentType: 1,
+        documentNumber: 1,
+        birthDate: 1,
         // Sin esto, entrar otra vez con Google/Apple recuperaba la cuenta.
         googleId: 1,
         appleId: 1,
+        facebookId: 1,
         otpCode: 1, otpExpires: 1, otpAttempts: 1,
         emailOtpCode: 1, emailOtpExpires: 1, emailOtpAttempts: 1,
         pendingPhone: 1, pendingPhoneOtpCode: 1, pendingPhoneOtpExpires: 1, pendingPhoneOtpAttempts: 1,

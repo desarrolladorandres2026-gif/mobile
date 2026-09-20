@@ -39,6 +39,10 @@
       },
       "appleAuth": {
         "servicesId": "YOUR_APPLE_SERVICES_ID"
+      },
+      "facebookAuth": {
+        "appId": "YOUR_FACEBOOK_APP_ID",
+        "graphVersion": "v21.0"
       }
     },
     "runtimeVersion": "1.0.0",

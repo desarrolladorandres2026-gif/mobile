@@ -112,7 +112,7 @@ curatedHomeBlockSchema.index({ isActive: 1, order: 1 });
 
 // Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
 curatedHomeBlockSchema.plugin(cacheInvalidationPlugin, {
-  prefixesFor: () => [CachePrefix.HOME],
+  prefixesFor: () => [CachePrefix.HOME, CachePrefix.EXPLORE],
 });
 
 export const CuratedHomeBlock = mongoose.model<ICuratedHomeBlock>(

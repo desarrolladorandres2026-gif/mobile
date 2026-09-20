@@ -1,4 +1,5 @@
 import { palette } from '../theme/tokens';
+import { BUSINESS_CATEGORIES } from '../constants/config';
 
 /**
  * Colores de identidad para los negocios.
@@ -36,6 +37,20 @@ export function businessAccent(id: string | undefined, brandColor?: string | nul
     hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   }
   return ACCENTS[hash % ACCENTS.length];
+}
+
+/**
+ * Cómo se llama una categoría cuando la lee una persona.
+ *
+ * El negocio guarda la clave (`fast_food`), que es dato interno. La vitrina
+ * de verdad la configura administración en `HomeCategory`, así que las
+ * pantallas que ya tienen esa lista a mano deben pasar su nombre; esto es el
+ * respaldo de cuando no la tienen, y evita que una clave cruda acabe
+ * impresa en una tarjeta.
+ */
+export function categoryLabel(key: string | undefined): string {
+  if (!key) return '';
+  return BUSINESS_CATEGORIES.find((cat) => cat.key === key)?.label ?? '';
 }
 
 // ──────────────────────────────────────────────────────────────

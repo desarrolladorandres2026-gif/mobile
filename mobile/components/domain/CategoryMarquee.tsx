@@ -13,6 +13,8 @@ export interface MarqueeCategory {
   label: string;
   /** Imagen configurada por el admin; si falta, `CategoryTile` cae en la ilustración local. */
   imageUrl?: string;
+  /** Color de respaldo del panel; solo pinta cuando no hay imagen. */
+  color?: string;
   onPress: () => void;
 }
 
@@ -174,6 +176,7 @@ export function CategoryMarquee({ categories }: { categories: MarqueeCategory[] 
                     categoryKey={cat.key}
                     label={cat.label}
                     imageUrl={cat.imageUrl}
+                    color={cat.color}
                     onPress={cat.onPress}
                   />
                 </View>

@@ -97,7 +97,7 @@ export class AuthController {
   async mfaChallenge(req: Request, res: Response, next: NextFunction) {
     try {
       const outcome = await authService.completeMfaChallenge(req.body.challengeToken, req.body.code, req);
-      const needsPhone = outcome.method === 'google' || outcome.method === 'apple'
+      const needsPhone = outcome.method === 'google' || outcome.method === 'apple' || outcome.method === 'facebook'
         ? !outcome.user.phone || !outcome.user.phoneVerified
         : undefined;
       await sendAuthOutcome(res, 200, 'Login exitoso', outcome, needsPhone === undefined ? {} : { needsPhone });
@@ -139,10 +139,14 @@ export class AuthController {
     // El campo `user` solo viaja en el primer `form_post` de siempre, como
     // JSON de texto: `{"name":{"firstName":"...","lastName":"..."}}`.
     let fullName = '';
+    let firstName: string | undefined;
+    let lastName: string | undefined;
     if (typeof req.body?.user === 'string') {
       try {
         const parsed = JSON.parse(req.body.user);
-        fullName = [parsed?.name?.firstName, parsed?.name?.lastName].filter(Boolean).join(' ').trim();
+        firstName = typeof parsed?.name?.firstName === 'string' ? parsed.name.firstName : undefined;
+        lastName = typeof parsed?.name?.lastName === 'string' ? parsed.name.lastName : undefined;
+        fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
       } catch {
         // `user` con formato inesperado: se sigue sin nombre, no es fatal.
       }
@@ -157,11 +161,42 @@ export class AuthController {
     }
 
     try {
-      const code = await authService.createAppleAuthCode(idToken, fullName || undefined);
+      const code = await authService.createAppleAuthCode(idToken, fullName || undefined, { firstName, lastName });
       redirect.searchParams.set('code', code);
     } catch {
       redirect.searchParams.set('error', '1');
     }
+
+    res.redirect(302, redirect.toString());
+  }
+
+  async facebookLogin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { needsPhone, ...outcome } = await authService.loginWithFacebook(
+        { code: req.body.code, codeVerifier: req.body.codeVerifier },
+        req
+      );
+      await sendAuthOutcome(res, 200, 'Login con Facebook exitoso', outcome as AuthOutcome, { needsPhone });
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * El `redirect_uri` registrado en Meta: tiene que ser HTTPS, así que el
+   * diálogo vuelve aquí y de aquí al deep link de la app, igual que Apple.
+   *
+   * Solo reenvía `code` y `state`: el canje exige el `code_verifier` que se
+   * quedó en la app, así que el código solo no sirve para nada.
+   */
+  async facebookCallback(req: Request, res: Response) {
+    const pick = (value: unknown, max: number) => (typeof value === 'string' ? value.slice(0, max) : '');
+    const code = pick(req.query.code, 2048);
+    const state = pick(req.query.state, 128);
+
+    const redirect = new URL(`${config.deepLinkScheme}://facebook-callback`);
+    if (state) redirect.searchParams.set('state', state);
+    if (code) redirect.searchParams.set('code', code);
+    // Canceló o negó el permiso: Meta manda `error` en vez de `code`.
+    else redirect.searchParams.set('error', '1');
 
     res.redirect(302, redirect.toString());
   }
@@ -245,6 +280,20 @@ export class AuthController {
     } catch (error) { next(error); }
   }
 
+  async sendAccountEmailOtp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await authService.sendAccountEmailOtp(req.user!._id.toString());
+      sendResponse(res, 200, result.sent ? 'Te enviamos un código a tu correo' : 'Espera unos segundos antes de pedir otro código', result);
+    } catch (error) { next(error); }
+  }
+
+  async verifyAccountEmail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = await authService.verifyAccountEmail(req.user!._id.toString(), req.body.otpCode, req);
+      sendResponse(res, 200, 'Correo verificado', { user });
+    } catch (error) { next(error); }
+  }
+
   async uploadAvatar(req: Request, res: Response, next: NextFunction) {
     uploadAvatarImage(req, res, async (err: unknown) => {
       try {
@@ -267,6 +316,10 @@ export class AuthController {
         permissions: req.permissions || [],
         roleSlugs: req.roleSlugs || [],
         twoFactorSetupRequired: req.twoFactorSetupRequired === true,
+        // La app decide con esto entre "cambiar contraseña" y "entras con
+        // Google/Apple", y qué prueba pedir para eliminar la cuenta. El hash
+        // nunca sale; solo si existe.
+        hasPassword: await authService.hasPassword(req.user!._id.toString()),
       });
     } catch (error) { next(error); }
   }
