@@ -49,7 +49,6 @@ export enum BannerPlacement {
  */
 export const BANNER_SCREENS = [
   { key: 'search', label: 'Buscar negocios' },
-  { key: 'rewards', label: 'Recompensas' },
   { key: 'favorites', label: 'Favoritos' },
   { key: 'orders', label: 'Mis pedidos' },
   { key: 'offers', label: 'Descuentos' },

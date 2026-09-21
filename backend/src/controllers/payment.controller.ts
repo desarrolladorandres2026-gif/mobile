@@ -130,6 +130,46 @@ export class PaymentController {
         paymentMethodType: result.intent.paymentMethodType,
         asyncPaymentUrl: result.intent.asyncPaymentUrl,
         threeDsChallengeHtml: result.intent.threeDsChallengeHtml,
+        // DaviPlata: la pasarela ya le mandó un código a quien paga y espera
+        // a que lo escriba. Es un booleano, no la dirección del servicio.
+        otpRequired: result.intent.otpRequired,
+      });
+    } catch (error) { next(error); }
+  }
+
+  // ── Código de un solo uso (DaviPlata) ──
+  //
+  // Dos endpoints muy pequeños que solo hacen de puente: la dirección del
+  // servicio de código y el `Bearer` que la autoriza se quedan en el
+  // servidor. Si viajaran al teléfono, cualquiera que leyese el tráfico de
+  // la app podría confirmar ese cobro por su cuenta.
+
+  async resendOtp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await paymentService.resendOtp({
+        userId: req.user!._id.toString(),
+        transactionId: param(req, 'transactionId'),
+      });
+
+      sendResponse(res, 200, 'Te reenviamos el código', result);
+    } catch (error) { next(error); }
+  }
+
+  async validateOtp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await paymentService.validateOtp({
+        userId: req.user!._id.toString(),
+        transactionId: param(req, 'transactionId'),
+        code: req.body.code,
+      });
+
+      // Forma propia, nunca el `PaymentIntent` entero: `raw` arrastra la
+      // transacción de Wompi con datos del medio de pago.
+      sendResponse(res, 200, result.accepted ? 'Código verificado' : 'Código incorrecto', {
+        accepted: result.accepted,
+        attempts: result.attempts,
+        status: result.intent.status,
+        declineReason: result.intent.declineReason,
       });
     } catch (error) { next(error); }
   }
@@ -296,6 +336,7 @@ export class PaymentController {
         // la tarjeta y la app solo lo pinta dentro de su WebView acotado.
         ...(intent.threeDsChallengeHtml ? { threeDsChallengeHtml: intent.threeDsChallengeHtml } : {}),
         ...(intent.asyncPaymentUrl ? { asyncPaymentUrl: intent.asyncPaymentUrl } : {}),
+        ...(intent.otpRequired ? { otpRequired: true } : {}),
       });
     } catch (error) { next(error); }
   }

@@ -311,7 +311,7 @@ export class PayoutService {
     // serio y evita convertir una compra de publicidad en una deuda.
     const { AdInvoice } = await import('../models');
     let adSpendAmount = 0;
-    let adInvoiceIds: Types.ObjectId[] = [];
+    const adInvoiceIds: Types.ObjectId[] = [];
 
     if (params.beneficiary === PayoutBeneficiary.BUSINESS && params.businessId) {
       const pending = await AdInvoice.find({

@@ -48,20 +48,6 @@ export interface IPlatformPricingConfig extends Document {
   deliveryRoundingStep: number;
 
   // ── Service fee charged to the customer ──
-  /**
-   * Puntos que gana el cliente por cada compra, en puntos básicos del
-   * subtotal. 200 = 2%. Cero apaga el programa entero.
-   *
-   * Vive con los precios y no en un archivo de configuración porque es
-   * exactamente eso: un coste por pedido que sale del margen, y cambiarlo
-   * tiene el mismo peso que cambiar una comisión.
-   */
-  loyaltyEarnBps: number;
-  /** Días que duran los puntos sin usarse. Cero: no caducan. */
-  loyaltyExpiryDays: number;
-  /** Mínimo de puntos que se pueden canjear de una vez. */
-  loyaltyMinRedeem: number;
-
   serviceFeeFixed: number;
   serviceFeeBps: number;
   serviceFeeMin: number;
@@ -140,12 +126,6 @@ const platformPricingConfigSchema = new Schema<IPlatformPricingConfig>(
     deliveryMinFee: { ...money, default: 3000 },
     deliveryMaxFee: { ...money, default: 20000 },
     deliveryRoundingStep: { ...money, default: 100 },
-
-    // Apagado de fábrica: encender un programa de puntos es una decisión
-    // de negocio con coste por pedido, no un valor por defecto razonable.
-    loyaltyEarnBps: { type: Number, default: 0, min: 0, max: 2000 },
-    loyaltyExpiryDays: { type: Number, default: 180, min: 0 },
-    loyaltyMinRedeem: { type: Number, default: 1000, min: 0 },
 
     serviceFeeFixed: { ...money, default: 0 },
     serviceFeeBps: { ...bps, default: 0 },

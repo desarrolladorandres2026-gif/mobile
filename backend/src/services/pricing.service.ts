@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { Business, Product, Zone, IBusiness, IPlatformPricingConfig } from '../models';
+import { Business, Product, Zone, IBusiness, ICoupon, IPlatformPricingConfig } from '../models';
 import { resolveModifierSelection } from '../utils/modifierSelection';
 import { AppError } from '../middlewares';
 import { PaymentMethod, CouponFundedBy, SelectedExtra } from '../types';
@@ -29,6 +29,17 @@ const HANDOFF_MINUTES = 5;
 const SPREAD_RATIO = 0.35;
 /** Ancho mínimo del rango: nadie entrega puntual al minuto. */
 const SPREAD_FLOOR_MINUTES = 10;
+
+/**
+ * Cuánto ahorro extra del cliente (COP enteros) se cede para no gastar de la
+ * caja de ZIPP: dentro de esta banda, un cupón que paga el comercio le gana
+ * a uno de plataforma aunque descuente algo menos.
+ *
+ * TODO(negocio): 2000 es un valor conservador, no una decisión. Con 0 el
+ * sugeridor vuelve a ser "el que más ahorra, sin más"; más alto, cede más
+ * ahorro del cliente a cambio de subsidiar menos.
+ */
+export const COUPON_FUNDING_TIE_BAND = 2000;
 
 export interface QuoteItemInput {
   productId: string;
@@ -815,12 +826,20 @@ export class PricingService {
    * Es la pieza que quita de en medio el paso de memorizar un código: la
    * pantalla de Descuentos enseña el cupón, el checkout lo encuentra solo.
    *
-   * El orden importa para que salga barato. `computeDiscount` es pura y es
-   * exactamente la misma aritmética con la que `validate` termina, así que
-   * ordenar por ella no es una aproximación: el primero que pase todas las
-   * comprobaciones es, con certeza, el que más descuenta. Por eso se valida
-   * de mayor a menor y se para en el primero bueno, en vez de validar los
-   * veinte contra la base para después comparar.
+   * "Ahorra más" se mide contra el total real del cliente, no contra el
+   * descuento bruto del cupón. `computeDiscount` y `settleDiscounts` son
+   * puras y son la misma aritmética con la que se cobra, así que se compara
+   * lo que pagaría con y sin el cupón: con Zipp Pro (envío gratis o tarifa
+   * perdonada) un cupón que solo descuenta el envío o la tarifa no baja el
+   * total, ahorra 0 y se descarta —si no, gastaría cupo y presupuesto de
+   * plataforma para regalarle al socio lo que ya tenía.
+   *
+   * Se ordena de mayor a menor ahorro y se valida contra la base en ese
+   * orden, parando en el primero bueno en vez de validar los veinte. Ese
+   * primero ya no es siempre el ganador: si lo paga la plataforma, todavía
+   * puede haber un cupón del comercio que ahorre casi lo mismo (dentro de
+   * `COUPON_FUNDING_TIE_BAND`) y que a ZIPP le cuesta cero; se busca solo
+   * entre los que caen en esa banda.
    *
    * Un cupón que no aplica no es un error que haya que propagar: es
    * simplemente uno que no era, y el siguiente de la lista sigue teniendo
@@ -859,22 +878,9 @@ export class PricingService {
       parts.businessId
     );
 
-    const ranked = candidates
-      .map((coupon) => ({ coupon, applied: couponService.computeDiscount(coupon, ctx, cfg) }))
-      .filter(({ coupon, applied }) =>
-        applied.totalDiscount > 0 && parts.productSubtotal >= coupon.minOrderAmount)
-      .sort((a, b) => b.applied.totalDiscount - a.applied.totalDiscount);
-
-    for (const { coupon } of ranked) {
-      let applied: AppliedCoupon;
-      try {
-        applied = await couponService.validate(coupon.code, ctx, cfg);
-      } catch {
-        continue;
-      }
-
-      const outcome = this.settleDiscounts({
-        coupon: applied,
+    const settle = (coupon: AppliedCoupon | null) =>
+      this.settleDiscounts({
+        coupon,
         productSubtotal: parts.productSubtotal,
         deliveryCustomerFee: parts.deliveryCustomerFee,
         deliveryMargin: parts.deliveryMargin,
@@ -887,16 +893,78 @@ export class PricingService {
         pro: parts.pro,
       });
 
+    // Lo que paga el cliente antes de impuestos y propina —que no dependen
+    // del cupón salvo por el redondeo—, con la misma composición que `quote`.
+    const payableBeforeTax = (
+      applied: AppliedCoupon | null,
+      outcome: ReturnType<typeof settle>
+    ) =>
+      parts.productSubtotal - (applied?.productDiscount ?? 0) +
+      outcome.payableDelivery +
+      parts.customerServiceFee - (applied?.serviceFeeDiscount ?? 0) -
+      outcome.proServiceFeeDiscount;
+
+    const baseline = payableBeforeTax(null, settle(null));
+    const savingOf = (applied: AppliedCoupon) =>
+      baseline - payableBeforeTax(applied, settle(applied));
+
+    const ranked = candidates
+      .filter((coupon) => parts.productSubtotal >= coupon.minOrderAmount)
+      .map((coupon) => {
+        const computed = couponService.computeDiscount(coupon, ctx, cfg);
+        return { coupon, saving: computed.totalDiscount > 0 ? savingOf(computed) : 0 };
+      })
+      .filter(({ saving }) => saving > 0)
+      .sort((a, b) => b.saving - a.saving);
+
+    const evaluate = async (
+      coupon: ICoupon
+    ): Promise<{ applied: AppliedCoupon; saving: number } | null> => {
+      let applied: AppliedCoupon;
+      try {
+        applied = await couponService.validate(coupon.code, ctx, cfg);
+      } catch {
+        return null;
+      }
+
+      const outcome = settle(applied);
+
       // Nunca se ofrece lo que después se va a rechazar: el mismo suelo de
       // margen que aplica la cotización decide aquí, con la misma función.
       if (this.breaksMarginFloor(applied, outcome.platformNetRevenueBeforeOperatingCosts)) {
-        continue;
+        return null;
       }
 
-      return { code: applied.code, title: applied.title, discount: applied.totalDiscount };
+      const saving = baseline - payableBeforeTax(applied, outcome);
+      return saving > 0 ? { applied, saving } : null;
+    };
+
+    let best: { applied: AppliedCoupon; saving: number } | null = null;
+
+    for (const [index, { coupon }] of ranked.entries()) {
+      const first = await evaluate(coupon);
+      if (!first) continue;
+      best = first;
+
+      // Desempate por financiador: si el mejor sale de la caja de ZIPP, un
+      // cupón del comercio que ahorre casi igual lo reemplaza.
+      if (best.applied.fundedBy !== CouponFundedBy.BUSINESS) {
+        for (const other of ranked.slice(index + 1)) {
+          if (other.saving < first.saving - COUPON_FUNDING_TIE_BAND) break;
+          if (other.coupon.fundedBy !== CouponFundedBy.BUSINESS) continue;
+
+          const alt = await evaluate(other.coupon);
+          if (alt) {
+            best = alt;
+            break;
+          }
+        }
+      }
+      break;
     }
 
-    return null;
+    if (!best) return null;
+    return { code: best.applied.code, title: best.applied.title, discount: best.saving };
   }
 
   /**

@@ -46,30 +46,15 @@ export function usageProgress(coupon: OfferCoupon): number | null {
 }
 
 /**
- * Puntaje comparable entre tipos de cupón distintos, solo para ordenar cuál
- * merece el spotlight. Un fijo se escala a un equivalente aproximado de
- * porcentaje y el envío gratis se trata como un descuento medio: ninguno de
- * los tres se puede comparar en sus propias unidades.
- */
-function couponScore(coupon: OfferCoupon): number {
-  if (coupon.type === 'percentage') return coupon.value;
-  if (coupon.type === 'fixed') return Math.min(80, coupon.value / 500);
-  return 40;
-}
-
-/**
- * El cupón que merece el spotlight de arriba: el que vence antes si hay
- * alguno por vencer, o si no el de mayor puntaje.
+ * El cupón que merece el spotlight de arriba: el primero que manda el servidor.
+ *
+ * `rankCoupons()` del backend ya ordena ponderando quién financia cada cupón
+ * (dato que `publicView` oculta a propósito) y pone primero lo urgente. Volver
+ * a ordenar aquí por valor nominal deshacía eso y elegía siempre el cupón que
+ * más le cuesta a ZIPP. Quien llama debe pasar la lista sin reordenar.
  */
 export function pickSpotlightCoupon(coupons: OfferCoupon[]): OfferCoupon | null {
-  if (!coupons.length) return null;
-
-  const expiring = coupons
-    .filter(isExpiringSoon)
-    .sort((a, b) => msUntil(a.validUntil) - msUntil(b.validUntil));
-  if (expiring.length) return expiring[0];
-
-  return [...coupons].sort((a, b) => couponScore(b) - couponScore(a))[0];
+  return coupons[0] ?? null;
 }
 
 /**
@@ -187,6 +172,19 @@ export function windowLabel(window: CouponAvailability['window']): string {
   return `${window.days.map((d) => DAY_INITIALS[d]).join(' ')} · ${hours}`;
 }
 
+/**
+ * Quita el envío gratis a quien ya lo tiene por ser Zipp Pro: el cupón no le
+ * ahorra nada y destacarlo sería prometer un ahorro que no existe. Se filtra
+ * en el cliente porque `/offers` se sirve de una caché compartida por zona.
+ * Conserva el orden del servidor.
+ */
+export function withoutRedundantFreeDelivery(
+  coupons: OfferCoupon[],
+  hasProFreeDelivery: boolean
+): OfferCoupon[] {
+  return hasProFreeDelivery ? coupons.filter((c) => c.type !== 'free_delivery') : coupons;
+}
+
 /** Los cupones con horario, que son los que se anuncian como "Horas Zipp". */
 export function scheduledCoupons(coupons: OfferCoupon[]): OfferCoupon[] {
   return coupons.filter((c) => !!c.availability?.window);
@@ -232,7 +230,11 @@ export function couponMagnitude(coupon: {
     };
   }
 
-  return { value: money(coupon.value), qualifier: '' };
+  // El servidor ya manda el techo efectivo: un monto fijo nunca paga más que él.
+  const capped = coupon.maxDiscount && coupon.maxDiscount > 0
+    ? Math.min(coupon.value, coupon.maxDiscount)
+    : coupon.value;
+  return { value: money(capped), qualifier: '' };
 }
 
 /**

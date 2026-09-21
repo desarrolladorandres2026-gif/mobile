@@ -170,6 +170,12 @@ describe('Banners de inicio — validación del destino', () => {
       .post(BASE)
       .set(await authHeader(admin))
       .send(bannerBody({ actionType: 'screen', actionValue: 'rewards' }))
+      .expect(400);
+
+    await request(app)
+      .post(BASE)
+      .set(await authHeader(admin))
+      .send(bannerBody({ actionType: 'screen', actionValue: 'offers' }))
       .expect(201);
   });
 
@@ -277,7 +283,9 @@ describe('Banners de inicio — administración', () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     const res = await request(app).get(`${BASE}/options`).set(await authHeader(admin)).expect(200);
 
-    expect(res.body.data.screens.map((s: { key: string }) => s.key)).toContain('rewards');
+    const screenKeys = res.body.data.screens.map((s: { key: string }) => s.key);
+    expect(screenKeys).toContain('offers');
+    expect(screenKeys).not.toContain('rewards');
     expect(res.body.data.categories).toContain('restaurant');
     expect(res.body.data.duration.max).toBeGreaterThan(res.body.data.duration.min);
   });

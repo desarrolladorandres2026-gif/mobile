@@ -1,10 +1,16 @@
 import { View, StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { TabBar } from '../../../components/nav/TabBar';
 import { OfflineBanner } from '../../../components/ui';
 import { useNetworkStatus } from '../../../hooks/useNetwork';
 import { useOrderRealtime } from '../../../hooks/useRealtime';
 import { useTheme } from '../../../hooks/useTheme';
+
+// Una función nueva en cada render volvía a montar la barra cada vez que el
+// layout se re-renderizaba (el estado del socket, la red). Definida aquí, es
+// siempre la misma.
+const renderTabBar = (props: BottomTabBarProps) => <TabBar {...props} />;
 
 export default function DriverTabsLayout() {
   const { c } = useTheme();
@@ -18,7 +24,7 @@ export default function DriverTabsLayout() {
         // que se vuelve a ella. Sin esto, el Inicio seguía reaccionando a cada
         // cambio de caché mientras se miraba otra pestaña.
         screenOptions={{ headerShown: false, freezeOnBlur: true, sceneStyle: { backgroundColor: c.background } }}
-        tabBar={(props) => <TabBar {...props} />}
+        tabBar={renderTabBar}
       >
         <Tabs.Screen name="dashboard" options={{ title: 'Turno' }} />
         <Tabs.Screen name="orders" options={{ title: 'Pedidos' }} />

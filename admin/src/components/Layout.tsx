@@ -8,6 +8,7 @@ import { ThemeToggle } from './ThemeToggle';
 import ConfirmDialog from './ConfirmDialog';
 import { useAuthStore } from '../stores/authStore';
 import { Permission } from '../lib/permissions';
+import { preloadOn } from '../lib/lazyPage';
 import {
   DashboardIllustration, PackageIllustration, DeliveryIllustration, StoreIllustration,
   PeopleIllustration, PricingIllustration, CouponIllustration, LocationIllustration,
@@ -57,6 +58,7 @@ const navGroups: Array<{
       { path: '/zones', Illustration: LocationIllustration, label: 'Zonas' },
       { path: '/home-banners', Illustration: BannerIllustration, label: 'Banners de Inicio' },
       { path: '/home-categories', Illustration: CategoriesIllustration, label: 'Categorías de Inicio' },
+      { path: '/curated-home-blocks', Illustration: BannerIllustration, label: 'Bloques Curados de Inicio' },
       { path: '/campaigns', Illustration: MegaphoneIllustration, label: 'Publicidad' },
       { path: '/search-insights', Illustration: CategoriesIllustration, label: 'Búsquedas' },
     ],
@@ -164,6 +166,10 @@ export default function Layout() {
                       to={item.path}
                       end={item.path === '/'}
                       onClick={() => setSidebarOpen(false)}
+                      // El archivo de la pagina se pide al apuntar, no al
+                      // pulsar: para cuando llega el clic ya esta descargado
+                      // y no hay spinner. Ver `preloadOn`.
+                      {...preloadOn(item.path)}
                       className={`relative flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 ${isActive
                           ? 'bg-[#1B2437] text-white font-semibold shadow-sm'
                           : 'text-[var(--color-text-muted)] hover:text-white hover:bg-[#1B2437]/60'

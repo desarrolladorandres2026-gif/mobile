@@ -364,15 +364,6 @@ export enum LedgerAccount {
    */
   CASH_SHORTAGE_EXPENSE = 'cash_shortage_expense',
   /**
-   * Pasivo: puntos emitidos que el cliente todavía puede canjear.
-   *
-   * Un punto no es un contador en el perfil de nadie: es una promesa de
-   * descuento futuro, y por tanto dinero que ZIPP debe. Tenerlo en el libro
-   * es lo que permite responder cuánto vale el programa de fidelización
-   * antes de que la factura llegue sola.
-   */
-  LOYALTY_PAYABLE = 'loyalty_payable',
-  /**
    * Pasivo: dinero de compras de mandados que ZIPP ya cobró y todavía debe.
    *
    * En un mandado el cliente paga por adelantado algo que aún no ha
@@ -387,6 +378,16 @@ export enum LedgerAccount {
    * invisible dentro de un saldo que sube y baja por otros motivos.
    */
   ERRAND_ADVANCE_PAYABLE = 'errand_advance_payable',
+  /**
+   * @deprecated Programa de puntos retirado (migración 007). No nacen
+   * asientos nuevos contra esta cuenta.
+   *
+   * Se conserva en el catálogo porque el libro es append-only: los asientos
+   * ya emitidos siguen ahí. Sin este valor el pasivo desaparece de
+   * `ledgerSummary` mientras su contrapartida en `PROMOTION_EXPENSE` se
+   * queda, y no hay forma de escribir el asiento que lo dé de baja.
+   */
+  LOYALTY_PAYABLE = 'loyalty_payable',
   /** Contra-revenue: money returned to the customer. */
   REFUND = 'refund',
   /** Contra-revenue: forced reversal by the gateway. */
@@ -410,18 +411,21 @@ export enum LedgerEventType {
   PAYOUT_SETTLED = 'payout_settled',
   /** Finanzas resolvió un faltante a favor del domiciliario: se da de baja. */
   CASH_SHORTAGE_WRITTEN_OFF = 'cash_shortage_written_off',
-  /** Se emitieron puntos por una compra: nace el pasivo. */
-  LOYALTY_EARNED = 'loyalty_earned',
-  /** El cliente cambió sus puntos por un cupón: se extingue el pasivo. */
-  LOYALTY_REDEEMED = 'loyalty_redeemed',
-  /** Los puntos caducaron sin canjearse: se libera la provisión. */
-  LOYALTY_EXPIRED = 'loyalty_expired',
-  /** La compra que los generó se reembolsó: se deshace la provisión. */
-  LOYALTY_REVERSED = 'loyalty_reversed',
   /** El domiciliario declaró lo que costó de verdad la compra del mandado. */
   ERRAND_COST_ADJUSTED = 'errand_cost_adjusted',
   /** Se le devolvió al domiciliario el dinero que adelantó. */
   ERRAND_ADVANCE_REIMBURSED = 'errand_advance_reimbursed',
+  /** @deprecated Programa de puntos retirado. Solo para asientos ya emitidos. */
+  LOYALTY_EARNED = 'loyalty_earned',
+  /** @deprecated Programa de puntos retirado. Solo para asientos ya emitidos. */
+  LOYALTY_REDEEMED = 'loyalty_redeemed',
+  /** @deprecated Programa de puntos retirado. Solo para asientos ya emitidos. */
+  LOYALTY_EXPIRED = 'loyalty_expired',
+  /**
+   * @deprecated Programa de puntos retirado. Usado también por la migración
+   * 007 para cerrar en cero cualquier pasivo `LOYALTY_PAYABLE` sobrante.
+   */
+  LOYALTY_REVERSED = 'loyalty_reversed',
 }
 
 /** Lifecycle of an amount the platform owes a merchant or a driver. */

@@ -1380,23 +1380,6 @@ describe('9 · Configuración editable y aislamiento histórico', () => {
     expect(trail[0].toVersion).toBe(2);
   });
 
-  it('el programa de puntos se enciende por la vía auditada, no editando la base', async () => {
-    await makePricingConfig();
-    const admin = await makeUser({ role: UserRole.ADMIN, isFinanceAdmin: true });
-
-    const { config } = await pricingConfigService.update(
-      { loyaltyEarnBps: 200, loyaltyMinRedeem: 2000, loyaltyExpiryDays: 90 },
-      { userId: admin._id.toString(), reason: 'Lanzamiento del programa de puntos' }
-    );
-
-    expect(config.loyaltyEarnBps).toBe(200);
-    expect(config.loyaltyMinRedeem).toBe(2000);
-    expect(config.loyaltyExpiryDays).toBe(90);
-
-    const trail = await pricingConfigService.getAuditTrail(10);
-    expect(trail[0].changes.loyaltyEarnBps).toEqual({ before: 0, after: 200 });
-  });
-
   it('exige un motivo para cambiar la configuración', async () => {
     await makePricingConfig();
     const admin = await makeUser({ role: UserRole.ADMIN, isFinanceAdmin: true });

@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { User, Order } from '../models';
 import { OrderStatus, UserRole, PaymentMethod } from '../types';
 import { referralService } from '../services/referral.service';
-import { loyaltyService } from '../services/loyalty.service';
 import { antiFraudService, FraudAlert, FraudAlertType } from '../security';
 import { orderService } from '../services/order.service';
 import { pricingConfigService } from '../services/pricingConfig.service';
@@ -51,7 +50,7 @@ describe('Invitaciones', () => {
   };
 
   beforeEach(async () => {
-    await makePricingConfig({ loyaltyEarnBps: 200, loyaltyMinRedeem: 100 });
+    await makePricingConfig();
     pricingConfigService.invalidate();
 
     const owner = await makeUser({ role: UserRole.BUSINESS });
@@ -127,7 +126,7 @@ describe('Invitaciones', () => {
 
   // ── Cuándo se paga ──
 
-  it('paga a los dos cuando el invitado completa su primera compra', async () => {
+  it('marca resuelta la invitación cuando el invitado completa su primera compra', async () => {
     const padrino = await makeVeteran();
     const invitado = await makeUser({ role: UserRole.CLIENT });
     await referralService.attribute(
@@ -138,8 +137,8 @@ describe('Invitaciones', () => {
     const order = await deliveredOrderFor(invitado._id.toString());
     expect(await referralService.rewardIfFirstOrder(order)).toBe(true);
 
-    expect(await loyaltyService.balanceOf(padrino._id.toString())).toBeGreaterThan(0);
-    expect(await loyaltyService.balanceOf(invitado._id.toString())).toBeGreaterThan(0);
+    const saved = await User.findById(invitado._id);
+    expect(saved!.referralRewardedAt).not.toBeNull();
   });
 
   it('no paga dos veces aunque llegue el evento repetido', async () => {
@@ -153,9 +152,7 @@ describe('Invitaciones', () => {
     const order = await deliveredOrderFor(invitado._id.toString());
     await referralService.rewardIfFirstOrder(order);
 
-    const before = await loyaltyService.balanceOf(padrino._id.toString());
     expect(await referralService.rewardIfFirstOrder(order)).toBe(false);
-    expect(await loyaltyService.balanceOf(padrino._id.toString())).toBe(before);
   });
 
   it('no paga en la segunda compra del invitado', async () => {
@@ -193,7 +190,6 @@ describe('Invitaciones', () => {
 
     const order = await deliveredOrderFor(invitado._id.toString());
     expect(await referralService.rewardIfFirstOrder(order)).toBe(false);
-    expect(await loyaltyService.balanceOf(padrino._id.toString())).toBe(0);
   });
 
   it('no paga si los dos usan el mismo dispositivo', async () => {

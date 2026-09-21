@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Text, Icon, Button, Sheet, Input, Notice, Skeleton } from '../ui';
 import { PaymentConsent, PaymentTermsNotice } from './PaymentConsent';
 import { WompiLogo } from '../brand/WompiLogo';
+import { BankLogo } from '../brand/BankLogo';
 import { NequiLogo, NEQUI } from '../brand/NequiLogo';
 import { CardBrandLogo } from '../brand/CardBrandLogo';
 import { Image } from 'expo-image';
@@ -65,6 +66,10 @@ const TITLES: Record<Step, string> = {
 
 /** Azul del logotipo de PSE, para el icono de su fila. */
 const PSE_BLUE = '#1F5FA8';
+/** Amarillo de marca de Bancolombia, para el icono de su fila. */
+const BANCOLOMBIA_YELLOW = '#FFCD00';
+/** Rojo de marca de DaviPlata, para el icono de su fila. */
+const DAVIPLATA_RED = '#EB0029';
 
 const EMPTY_CARD: CardFormValues = { number: '', expiry: '', cvc: '', holder: '' };
 const EMPTY_PSE: PseFormValues = { bankCode: '', bankName: '', userType: null, docType: '', docNumber: '' };
@@ -100,7 +105,11 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
   const deleteCard = useDeleteSavedCard();
 
   const [step, setStep] = useState<Step>('list');
-  const banks = usePseBanks(visible && step === 'pse');
+  // Se pide desde la lista (no solo al entrar a PSE): la fila de Bancolombia
+  // necesita su código antes de que la persona toque nada.
+  const banks = usePseBanks(visible && capabilities.pse && !recurring);
+  const bancolombia = banks.data?.find((bank) => /BANCOLOMBIA/.test(bank.name.toUpperCase()));
+  const daviplata = banks.data?.find((bank) => /DAVIPLATA/.test(bank.name.toUpperCase()));
 
   const [pickedCardId, setPickedCardId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -440,11 +449,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
               key={savedCard.id}
               style={[
                 styles.row,
-                {
-                  backgroundColor: picked ? c.primarySoft : c.surface,
-                  borderColor: picked ? c.primary : c.border,
-                  borderWidth: picked ? 2 : 1,
-                },
+                { borderBottomColor: c.border },
               ]}
             >
               <Pressable
@@ -465,7 +470,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
               >
                 <Icon name="tarjeta" size="md" color={picked ? c.primaryText : c.text} />
                 <View style={styles.flex}>
-                  <Text v="strongS">{cardLabel(savedCard.brand, savedCard.lastFour)}</Text>
+                  <Text v="strongS" tone={picked ? 'primaryText' : undefined}>{cardLabel(savedCard.brand, savedCard.lastFour)}</Text>
                   <Text v="caption" tone="textMuted">Vence {savedCard.expMonth}/{savedCard.expYear}</Text>
                 </View>
               </Pressable>
@@ -495,7 +500,6 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
 
         {saved.length ? <Text v="label" tone="textMuted" style={styles.gapTop}>Otro método</Text> : null}
         <MethodRow
-          icon="tarjeta"
           title="Tarjeta de crédito o débito"
           subtitle="Crédito o débito"
           brand={
@@ -512,7 +516,6 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
             autorizar el cobro del mes siguiente. */}
         {recurring ? null : (
           <MethodRow
-            icon="celular"
             title="Nequi"
             subtitle="Apruebas desde tu app de Nequi"
             brand={<NequiLogo height={17} />}
@@ -520,9 +523,49 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
             onPress={() => setStep('nequi')}
           />
         )}
+        {capabilities.pse && !recurring && bancolombia ? (
+          <MethodRow
+            icon={
+              <Image
+                source={require('../../assets/banks/bancolombia.png')}
+                style={styles.bancolombiaIcon}
+                contentFit="contain"
+                accessibilityLabel="Bancolombia"
+              />
+            }
+            title="Bancolombia"
+            subtitle="Débito PSE desde tu cuenta Bancolombia"
+            accent={BANCOLOMBIA_YELLOW}
+            stacked
+            onPress={() => {
+              setPse({ ...EMPTY_PSE, bankCode: bancolombia.code, bankName: bancolombia.name });
+              setStep('pse');
+            }}
+          />
+        ) : null}
+        {capabilities.pse && !recurring && daviplata ? (
+          <MethodRow
+            icon={
+              <Image
+                source={require('../../assets/banks/daviplata.png')}
+                style={styles.daviplataIcon}
+                contentFit="contain"
+                accessibilityLabel="DaviPlata"
+              />
+            }
+            title="DaviPlata"
+            subtitle="Débito PSE desde tu cuenta DaviPlata"
+            accent={DAVIPLATA_RED}
+            stacked
+            stackedTitleColor={DAVIPLATA_RED}
+            onPress={() => {
+              setPse({ ...EMPTY_PSE, bankCode: daviplata.code, bankName: daviplata.name });
+              setStep('pse');
+            }}
+          />
+        ) : null}
         {capabilities.pse && !recurring ? (
           <MethodRow
-            icon="edificio"
             title="PSE"
             subtitle="Débito desde tu cuenta de ahorros o corriente"
             brand={
@@ -534,6 +577,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
               />
             }
             accent={PSE_BLUE}
+            inline
             onPress={() => setStep('pse')}
           />
         ) : null}
@@ -553,29 +597,64 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
 }
 
 function MethodRow({
-  icon, title, subtitle, brand, accent, onPress,
+  icon, title, subtitle, brand, accent, onPress, stacked, stackedTitleColor, inline,
 }: {
-  icon: IconName;
+  /** Un icono de lucide, o el logotipo real de la entidad ya armado. Sin icono, solo queda el logo de marca. */
+  icon?: IconName | ReactElement;
   title: string;
   subtitle: string;
   /** El logotipo del método, en lugar del título escrito. */
   brand?: ReactNode;
-  /** Color de marca del método para el icono. */
+  /** Color de marca del método para el icono. Ignorado si `icon` es un logotipo. */
   accent?: string;
   onPress: () => void;
+  /**
+   * Logo arriba y la info debajo, en vez de lado a lado.
+   *
+   * El wordmark de Bancolombia es ancho (4.258:1): puesto junto al texto lo
+   * apretaba contra el borde. Apilado, el logo respira solo en su fila.
+   */
+  stacked?: boolean;
+  /** En modo apilado, escribe el título junto al logo (por si el logo solo no se lee como marca). */
+  stackedTitleColor?: string;
+  /** El logo y la info en la misma línea, en vez de la info debajo del logo. */
+  inline?: boolean;
 }) {
   const { c } = useTheme();
+  const iconEl = typeof icon === 'string' ? <Icon name={icon} size="md" color={accent ?? c.text} /> : icon ?? null;
+
+  if (stacked) {
+    return (
+      <Pressable
+        onPress={() => { tap('select'); onPress(); }}
+        accessibilityRole="button"
+        accessibilityLabel={`${title}. ${subtitle}`}
+        style={[styles.row, styles.rowStacked, { borderBottomColor: c.border }]}
+      >
+        <View style={styles.stackedTop}>
+          <View style={styles.stackedBrand}>
+            {iconEl}
+            {stackedTitleColor ? <Text v="titleL" color={stackedTitleColor}>{title}</Text> : null}
+          </View>
+          <Icon name="siguiente" size="sm" color={c.textMuted} />
+        </View>
+        {brand}
+        <Text v="caption" tone="textMuted">{subtitle}</Text>
+      </Pressable>
+    );
+  }
+
   return (
     <Pressable
       onPress={() => { tap('select'); onPress(); }}
       accessibilityRole="button"
       accessibilityLabel={`${title}. ${subtitle}`}
-      style={[styles.row, styles.rowMain, { backgroundColor: c.surface, borderColor: c.border, borderWidth: 1 }]}
+      style={[styles.row, styles.rowMain, { borderBottomColor: c.border }]}
     >
-      <Icon name={icon} size="md" color={accent ?? c.text} />
-      <View style={styles.flex}>
+      {iconEl}
+      <View style={inline ? styles.inlineInfo : styles.flex}>
         {brand ?? <Text v="strongS">{title}</Text>}
-        <Text v="caption" tone="textMuted">{subtitle}</Text>
+        <Text v="caption" tone="textMuted" style={inline ? styles.flex : undefined}>{subtitle}</Text>
       </View>
       <Icon name="siguiente" size="sm" color={c.textMuted} />
     </Pressable>
@@ -590,7 +669,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: BorderRadius.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     minHeight: 60,
     paddingRight: Spacing.sm,
   },
@@ -601,6 +680,29 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     paddingVertical: Spacing.md,
     paddingLeft: Spacing.md,
+  },
+  rowStacked: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    minHeight: 0,
+    gap: Spacing.sm,
+    padding: Spacing.md,
+  },
+  stackedTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  stackedBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  inlineInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
   },
   trash: { padding: Spacing.sm },
   confirm: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, paddingHorizontal: Spacing.sm },
@@ -614,6 +716,13 @@ const styles = StyleSheet.create({
   gapTop: { marginTop: Spacing.sm },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   pseLogo: { width: 30, height: 30 },
+  // Wordmark real de Bancolombia (assets/banks/bancolombia.png), no un
+  // símbolo cuadrado: se respeta su relación de aspecto (4.258:1) en vez de
+  // forzarlo a un hueco cuadrado como el resto de los iconos de la fila.
+  bancolombiaIcon: { width: 24 * 4.258, height: 24 },
+  // Logo real de DaviPlata (assets/banks/daviplata.png), casi cuadrado
+  // (1.214:1) a diferencia del wordmark ancho de Bancolombia.
+  daviplataIcon: { width: 24 * 1.214, height: 24 },
   nequiBand: {
     flexDirection: 'row',
     alignItems: 'center',

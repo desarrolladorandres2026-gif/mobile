@@ -27,23 +27,21 @@ export interface Seed {
 }
 
 /**
- * El reparto entre los dos feeds.
- *
- * Inicio se queda con tres colecciones y nada más: con "Lo de siempre", los
- * banners y las categorías ya son seis bloques, que es todo lo que cabe en
- * una pantalla a la que se llega con la decisión medio tomada. El resto se
- * muda a Explorar, que es donde entra quien no sabe qué quiere.
- */
-export const HOME_KEYS = new Set(['losMasPedidos', 'pideYRepite', 'descuentosLocos']);
-
-const feedFor = (key: string): CollectionFeed => (HOME_KEYS.has(key) ? 'home' : 'explore');
-
-/**
  * Las veinte, en el mismo orden en el que se declaraban.
  *
  * El `order` conserva el espacio numérico de antes (10, 20, 30…) para que
  * los bloques curados y los banners anclados que ya tienen su número sigan
  * cayendo donde su administrador quiso.
+ *
+ * Las veinte van a **los dos** feeds. Hubo un intento de dejar el Inicio con
+ * solo tres ("Los más pedidos", "Pide y repite", "Descuentos locos") y mudar
+ * el resto a Explorar: el Inicio se quedó sin un solo producto, porque esas
+ * tres dependen de ventas —y sin pedidos entregados no hay ranking— o de un
+ * 15% de descuento que el catálogo no siempre junta. Peor aún, rompía la
+ * intercalación: los bloques curados están numerados 15, 35, 65, 95… justo
+ * para caer **entre** estas colecciones, y sin ellas se apilaban todos
+ * seguidos al final. Si alguien vuelve a repartirlos, que sea midiendo antes
+ * cuántas colecciones rinden de verdad en el catálogo.
  */
 export const SEEDS: Seed[] = [
   {
@@ -54,7 +52,7 @@ export const SEEDS: Seed[] = [
     displayVariant: 'large',
     rule: { all: [{ source: 'sales', window: 'mostOrdered' }], sortBy: 'sales' },
     order: 10,
-    feed: feedFor('losMasPedidos'),
+    feed: 'both',
   },
   {
     key: 'pideYRepite',
@@ -63,7 +61,7 @@ export const SEEDS: Seed[] = [
     displayVariant: 'compact',
     rule: { all: [{ source: 'sales', window: 'repeat' }], sortBy: 'sales' },
     order: 20,
-    feed: feedFor('pideYRepite'),
+    feed: 'both',
   },
   {
     key: 'descuentosLocos',
@@ -72,7 +70,7 @@ export const SEEDS: Seed[] = [
     displayVariant: 'price_focus',
     rule: { all: [{ source: 'discount', minPercent: 15 }], sortBy: 'discount' },
     order: 30,
-    feed: feedFor('descuentosLocos'),
+    feed: 'both',
   },
   {
     key: 'antojoDelDia',
@@ -84,7 +82,7 @@ export const SEEDS: Seed[] = [
     },
     order: 40,
     rotation: 'daily',
-    feed: feedFor('antojoDelDia'),
+    feed: 'both',
   },
   {
     key: 'paraCompartir',
@@ -94,7 +92,7 @@ export const SEEDS: Seed[] = [
     rule: { all: [{ source: 'tags', any: ['para_compartir', 'combo'] }], sortBy: 'discount' },
     order: 50,
     rotation: 'daily',
-    feed: feedFor('paraCompartir'),
+    feed: 'both',
   },
   {
     key: 'algoDulce',
@@ -107,7 +105,7 @@ export const SEEDS: Seed[] = [
     },
     order: 60,
     rotation: 'daily',
-    feed: feedFor('algoDulce'),
+    feed: 'both',
   },
   {
     key: 'paraEmpezarElDia',
@@ -122,7 +120,7 @@ export const SEEDS: Seed[] = [
     // La razón de ser de las franjas: hasta ahora esta colección salía a las
     // tres de la mañana con el mismo título.
     dayparts: ['manana'],
-    feed: feedFor('paraEmpezarElDia'),
+    feed: 'both',
   },
   {
     key: 'paraLaNoche',
@@ -134,7 +132,7 @@ export const SEEDS: Seed[] = [
     },
     order: 80,
     dayparts: ['noche'],
-    feed: feedFor('paraLaNoche'),
+    feed: 'both',
   },
   {
     key: 'algoParaTomar',
@@ -149,7 +147,7 @@ export const SEEDS: Seed[] = [
     },
     order: 90,
     rotation: 'daily',
-    feed: feedFor('algoParaTomar'),
+    feed: 'both',
   },
   {
     key: 'buenoYBarato',
@@ -162,7 +160,7 @@ export const SEEDS: Seed[] = [
     },
     order: 100,
     rotation: 'daily',
-    feed: feedFor('buenoYBarato'),
+    feed: 'both',
   },
   {
     key: 'listoParaPedir',
@@ -172,7 +170,7 @@ export const SEEDS: Seed[] = [
     rule: { all: [{ source: 'prepTime', maxMinutes: 20 }], sortBy: 'prep' },
     order: 110,
     rotation: 'daily',
-    feed: feedFor('listoParaPedir'),
+    feed: 'both',
   },
   {
     key: 'recienLlegados',
@@ -182,7 +180,7 @@ export const SEEDS: Seed[] = [
     displayVariant: 'compact',
     rule: { all: [{ source: 'new', withinDays: 21, of: 'product' }], sortBy: 'newest' },
     order: 120,
-    feed: feedFor('recienLlegados'),
+    feed: 'both',
   },
   {
     key: 'favoritosZipp',
@@ -191,7 +189,7 @@ export const SEEDS: Seed[] = [
     displayVariant: 'featured',
     rule: { all: [{ source: 'featured' }], sortBy: 'newest' },
     order: 130,
-    feed: feedFor('favoritosZipp'),
+    feed: 'both',
   },
   {
     key: 'estaEnTendencia',
@@ -201,7 +199,7 @@ export const SEEDS: Seed[] = [
     displayVariant: 'compact',
     rule: { all: [{ source: 'sales', window: 'trending' }], sortBy: 'sales' },
     order: 140,
-    feed: feedFor('estaEnTendencia'),
+    feed: 'both',
   },
   {
     key: 'favoritosCiudad',
@@ -212,7 +210,7 @@ export const SEEDS: Seed[] = [
       sortBy: 'rating',
     },
     order: 150,
-    feed: feedFor('favoritosCiudad'),
+    feed: 'both',
   },
   {
     key: 'cercaDeTi',
@@ -221,7 +219,7 @@ export const SEEDS: Seed[] = [
     displayVariant: 'compact',
     rule: { all: [{ source: 'nearby' }], sortBy: 'distance' },
     order: 160,
-    feed: feedFor('cercaDeTi'),
+    feed: 'both',
   },
   {
     key: 'combosQueValenLaPena',
@@ -233,7 +231,7 @@ export const SEEDS: Seed[] = [
     },
     order: 170,
     rotation: 'daily',
-    feed: feedFor('combosQueValenLaPena'),
+    feed: 'both',
   },
   {
     key: 'porMenosDe10000',
@@ -242,7 +240,7 @@ export const SEEDS: Seed[] = [
     rule: { all: [{ source: 'price', max: 10000 }], sortBy: 'price_asc' },
     order: 180,
     rotation: 'daily',
-    feed: feedFor('porMenosDe10000'),
+    feed: 'both',
   },
   {
     key: 'dateUnGusto',
@@ -251,7 +249,7 @@ export const SEEDS: Seed[] = [
     rule: { all: [{ source: 'price', min: 35000 }], sortBy: 'price_desc' },
     order: 190,
     rotation: 'daily',
-    feed: feedFor('dateUnGusto'),
+    feed: 'both',
   },
   {
     key: 'refrescaElDia',
@@ -266,7 +264,7 @@ export const SEEDS: Seed[] = [
     },
     order: 200,
     dayparts: ['tarde'],
-    feed: feedFor('refrescaElDia'),
+    feed: 'both',
   },
 ];
 

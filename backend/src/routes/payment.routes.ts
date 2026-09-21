@@ -8,6 +8,7 @@ import {
   paymentInitiateRateLimiter,
   paymentStatusRateLimiter,
   paymentWebhookRateLimiter,
+  paymentOtpRateLimiter,
 } from '../middlewares';
 import { refundSchema } from '../validators/finance.validator';
 import {
@@ -16,6 +17,8 @@ import {
   saveCardSchema,
   savedCardParamsSchema,
   paymentStatusSchema,
+  otpResendSchema,
+  otpValidateSchema,
   orderPaymentsSchema,
   chargebackSchema,
 } from '../validators/payment.validator';
@@ -99,6 +102,27 @@ router.get(
   validate(paymentStatusSchema),
   (req, res, next) => paymentController.status(req, res, next)
 );
+
+// DaviPlata confirma el cobro con un código que la pasarela le manda por SMS
+// a quien paga. Con su propio limitador —no el de consultas—: cada llamada
+// gasta un SMS o un intento de los pocos que da Wompi.
+router.post(
+  '/status/:transactionId/otp/resend',
+  authenticate,
+  authorize(UserRole.CLIENT),
+  paymentOtpRateLimiter,
+  validate(otpResendSchema),
+  (req, res, next) => paymentController.resendOtp(req, res, next)
+);
+router.post(
+  '/status/:transactionId/otp/validate',
+  authenticate,
+  authorize(UserRole.CLIENT),
+  paymentOtpRateLimiter,
+  validate(otpValidateSchema),
+  (req, res, next) => paymentController.validateOtp(req, res, next)
+);
+
 router.get('/orders/:orderId', authenticate, validate(orderPaymentsSchema), (req, res, next) =>
   paymentController.forOrder(req, res, next)
 );

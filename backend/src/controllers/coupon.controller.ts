@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { couponService } from '../services';
+import { couponService, pricingConfigService } from '../services';
 import { Coupon, CouponRedemption } from '../models';
 import { sendResponse, param, query, escapeRegex } from '../utils';
 import { AppError } from '../middlewares';
@@ -101,11 +101,12 @@ export class CouponController {
       // mismo. Mientras cada una tenía su copia, por una se escapaban el
       // presupuesto y el margen de cada campaña.
       const now = new Date();
+      const pricing = await pricingConfigService.getCurrent();
       sendResponse(
         res,
         200,
         'Promociones disponibles',
-        coupons.map((c) => couponService.publicView(c, now))
+        coupons.map((c) => couponService.publicView(c, pricing, now))
       );
     } catch (error) { next(error); }
   }

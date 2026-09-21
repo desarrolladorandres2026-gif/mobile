@@ -63,11 +63,6 @@ const CLIENT_FAQS: Faq[] = [
       'Por la distancia real hasta tu dirección, no por zonas ni por un valor fijo. Ves el desglose antes de confirmar y nunca cobramos algo distinto a lo que te mostramos.',
   },
   {
-    question: '¿Qué son los puntos y cuánto valen?',
-    answer:
-      'Ganas puntos con cada pedido entregado, y un punto vale un peso. Sin equivalencias raras: los canjeas por un cupón desde la pantalla de recompensas.',
-  },
-  {
     question: 'Necesito algo que no está en ninguna carta. ¿Qué hago?',
     answer:
       'Pide un mandado. En el Inicio, al final de las categorías, está "No está en carta": escribes qué necesitas y de dónde, y un domiciliario lo compra por ti y te lo lleva.',

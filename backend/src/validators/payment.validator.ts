@@ -184,6 +184,16 @@ export const paymentInstrument = z.discriminatedUnion('kind', [
       phone: z.string().regex(/^3\d{9}$/, 'Número de Nequi inválido'),
     })
     .strict(),
+  // Botón Bancolombia. Sin campos: `user_type` lo fija el servidor, porque
+  // quien compra en Zipp es una persona y preguntarlo no cambia nada.
+  z.object({ kind: z.literal('bancolombia_transfer') }).strict(),
+  z
+    .object({
+      kind: z.literal('daviplata'),
+      userLegalIdType: z.enum(['CC', 'CE', 'NIT', 'TI', 'PP', 'DNI', 'RG', 'OTHER']),
+      userLegalId: z.string().min(4).max(20).regex(/^[A-Za-z0-9]+$/),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('pse'),
@@ -282,6 +292,28 @@ export const paymentStatusSchema = z.object({
       .max(120)
       .regex(/^[A-Za-z0-9_-]+$/, 'Referencia de pago inválida'),
   }),
+});
+
+/**
+ * POST /payments/status/:transactionId/otp/validate
+ *
+ * El código va como texto y no como número aunque Wompi lo espere numérico:
+ * un `z.number()` aceptaría `0123456` como `123456` y perdería el cero de
+ * la izquierda antes de que nadie pueda notarlo. La conversión se hace en el
+ * proveedor, que es quien conoce el formato de la pasarela.
+ */
+export const otpValidateSchema = z.object({
+  params: paymentStatusSchema.shape.params,
+  body: z
+    .object({
+      code: z.string().regex(/^\d{4,8}$/, 'El código tiene entre 4 y 8 dígitos'),
+    })
+    .strict(),
+});
+
+/** POST /payments/status/:transactionId/otp/resend */
+export const otpResendSchema = z.object({
+  params: paymentStatusSchema.shape.params,
 });
 
 /** Any payment route keyed only by the order it belongs to. */

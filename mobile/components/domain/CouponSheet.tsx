@@ -3,6 +3,7 @@ import { Text, Button, Sheet, Notice } from '../ui';
 import { LiveCountdown } from './LiveCountdown';
 import { BorderRadius, Spacing, palette } from '../../theme/tokens';
 import { useTheme } from '../../hooks/useTheme';
+import { useCouponStore } from '../../stores/couponStore';
 import { money } from '../../lib/format';
 import {
   couponMagnitude, couponBenefit, usageProgress, windowLabel, type CouponStatus,
@@ -33,6 +34,7 @@ export function CouponSheet({
   onUse: (coupon: OfferCoupon) => void;
 }) {
   const { c } = useTheme();
+  const savedCode = useCouponStore((s) => s.code);
   if (!coupon) return null;
 
   const { value, qualifier } = couponMagnitude(coupon);
@@ -42,6 +44,9 @@ export function CouponSheet({
     : null;
 
   const action = primaryAction(status);
+  // Guardar reemplaza al cupón que ya se lleva al pago: se avisa antes.
+  const replacing =
+    action.use && !!savedCode && savedCode !== coupon.code.trim().toUpperCase();
 
   return (
     <Sheet
@@ -170,8 +175,14 @@ export function CouponSheet({
         {/* El descuento exacto no se promete aquí a propósito: depende del
             carrito y lo calcula el servidor al cotizar. Escribir una cifra
             en esta hoja sería adelantarse a un número que puede no salir. */}
+        {replacing ? (
+          <Text v="bodyS" tone="textSecondary">
+            {`Vas a cambiar ${savedCode} por ${coupon.code.trim().toUpperCase()}. Solo puedes llevar un cupón al pago.`}
+          </Text>
+        ) : null}
+
         <Text v="caption" tone="textMuted">
-          {`Descuento de ${couponBenefit(coupon)}. El ahorro exacto se calcula con tu pedido, al pagar.`}
+          {`Descuento de ${couponBenefit(coupon)}. El ahorro exacto se calcula con tu pedido, al pagar. Un pedido admite un solo código de cupón.`}
         </Text>
       </View>
     </Sheet>

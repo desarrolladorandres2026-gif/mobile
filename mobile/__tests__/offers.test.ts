@@ -1,7 +1,8 @@
 import {
   pickSpotlightCoupon, isExpiringSoon, usageProgress, formatCountdown,
-  bigDiscountProducts, splitBusinessOffers,
+  bigDiscountProducts, splitBusinessOffers, withoutRedundantFreeDelivery,
   couponStatus, indexEligibility, isUsable, scheduledCoupons, windowLabel,
+  couponMagnitude, couponBenefit,
 } from '../lib/offers';
 import type { OfferCoupon, OfferBusiness, ProductSearchHit } from '../services/endpoints';
 
@@ -58,29 +59,80 @@ describe('pickSpotlightCoupon', () => {
     expect(pickSpotlightCoupon([])).toBeNull();
   });
 
-  it('lo que vence antes gana al descuento más grande', () => {
+  it('respeta el orden del servidor aunque otro cupón venza antes', () => {
+    // El backend ya ponderó urgencia y quién financia cada cupón; aquí no se
+    // reordena.
+    const primero = coupon({ _id: 'primero', value: 5 });
     const urgente = coupon({
       _id: 'urgente', value: 5, validUntil: new Date(Date.now() + HOUR).toISOString(),
     });
-    const goloso = coupon({ _id: 'goloso', value: 60 });
 
-    expect(pickSpotlightCoupon([goloso, urgente])?._id).toBe('urgente');
+    expect(pickSpotlightCoupon([primero, urgente])?._id).toBe('primero');
   });
 
-  it('sin nada por vencer, manda el descuento más alto', () => {
+  it('respeta el orden del servidor aunque otro cupón tenga mayor valor', () => {
     const flojo = coupon({ _id: 'flojo', value: 10 });
     const fuerte = coupon({ _id: 'fuerte', value: 40 });
 
-    expect(pickSpotlightCoupon([flojo, fuerte])?._id).toBe('fuerte');
+    expect(pickSpotlightCoupon([flojo, fuerte])?._id).toBe('flojo');
+    expect(pickSpotlightCoupon([fuerte, flojo])?._id).toBe('fuerte');
   });
 
-  it('compara tipos distintos sin que el fijo aplaste al porcentual', () => {
-    // $2.000 no puede valer más que un 50%: un fijo se escala a un
-    // equivalente aproximado justo para poder ordenarlos.
+  it('no compara tipos distintos: el primero de la lista es el destacado', () => {
     const fijoPequeno = coupon({ _id: 'fijo', type: 'fixed', value: 2000 });
     const medioPorciento = coupon({ _id: 'pct', type: 'percentage', value: 50 });
 
-    expect(pickSpotlightCoupon([fijoPequeno, medioPorciento])?._id).toBe('pct');
+    expect(pickSpotlightCoupon([fijoPequeno, medioPorciento])?._id).toBe('fijo');
+  });
+});
+
+describe('withoutRedundantFreeDelivery', () => {
+  const rows = [
+    coupon({ _id: 'envio', type: 'free_delivery' }),
+    coupon({ _id: 'pct' }),
+  ];
+
+  it('a un socio Pro con envío gratis no se le ofrece el cupón de envío', () => {
+    expect(withoutRedundantFreeDelivery(rows, true).map((c) => c._id)).toEqual(['pct']);
+  });
+
+  it('a quien no lo es se le deja la lista intacta y en orden', () => {
+    expect(withoutRedundantFreeDelivery(rows, false)).toBe(rows);
+  });
+});
+
+describe('couponMagnitude — lo anunciado es lo que se cobra', () => {
+  it('monto fijo con techo menor al valor: anuncia el techo', () => {
+    expect(couponMagnitude({ type: 'fixed', value: 15000, maxDiscount: 10000 }))
+      .toEqual({ value: '$10.000', qualifier: '' });
+  });
+
+  it('monto fijo con techo mayor al valor: anuncia el valor', () => {
+    expect(couponMagnitude({ type: 'fixed', value: 5000, maxDiscount: 10000 }).value)
+      .toBe('$5.000');
+  });
+
+  it('monto fijo sin techo (0 o ausente): anuncia el valor', () => {
+    expect(couponMagnitude({ type: 'fixed', value: 15000, maxDiscount: 0 }).value).toBe('$15.000');
+    expect(couponMagnitude({ type: 'fixed', value: 15000 }).value).toBe('$15.000');
+  });
+
+  it('porcentaje con techo: "hasta $X"; sin techo, sin letra pequeña', () => {
+    expect(couponMagnitude({ type: 'percentage', value: 20, maxDiscount: 8000 }))
+      .toEqual({ value: '20%', qualifier: 'hasta $8.000' });
+    expect(couponMagnitude({ type: 'percentage', value: 20, maxDiscount: 0 }))
+      .toEqual({ value: '20%', qualifier: '' });
+  });
+
+  it('envío gratis no lleva monto', () => {
+    expect(couponMagnitude({ type: 'free_delivery', value: 0 }).value).toBe('Envío $0');
+  });
+
+  it('la frase corrida dice lo mismo que la magnitud', () => {
+    expect(couponBenefit({ type: 'fixed', value: 15000, maxDiscount: 10000 }))
+      .toBe('$10.000 de descuento');
+    expect(couponBenefit({ type: 'percentage', value: 20, maxDiscount: 8000 }))
+      .toBe('20% hasta $8.000');
   });
 });
 

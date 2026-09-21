@@ -2,7 +2,7 @@ import Svg, { Circle, Ellipse, Path, Defs, LinearGradient, Stop } from 'react-na
 import { palette } from '../../theme/tokens';
 import type { IllustrationProps } from './types';
 
-/** Racha semanal: mini llama de fuego real, mismo blob y luz del set. */
+/** Mini llama de fuego real, mismo blob y luz del set; usada para "los más pedidos". */
 export function StreakIllustration({ size = 48 }: IllustrationProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 64 64" fill="none">

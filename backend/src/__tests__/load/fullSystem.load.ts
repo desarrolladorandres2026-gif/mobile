@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import mongoose from 'mongoose';
 import {
   User, Business, Product, Category, Driver, Order, Payout, Coupon,
-  CouponRedemption, LedgerEntry, LoyaltyMovement, LoyaltyBalance,
+  CouponRedemption, LedgerEntry,
 } from '../../models';
 import {
   OrderStatus, UserRole, PaymentMethod, PaymentStatus,
@@ -10,7 +10,6 @@ import {
 } from '../../types';
 import { orderService } from '../../services/order.service';
 import { ledgerService } from '../../services/ledger.service';
-import { loyaltyService } from '../../services/loyalty.service';
 import { payoutService } from '../../services/payout.service';
 import { pricingConfigService } from '../../services/pricingConfig.service';
 import { hashPassword } from '../../security';
@@ -161,9 +160,6 @@ describe('Sistema completo bajo carga: 7.000 usuarios de todos los roles', () =>
       // la ecuación, que es la mitad de lo que se está probando.
       cashOnDeliveryEnabled: true,
       cashOnDeliveryMaxAmount: 200_000,
-      // Lo mismo con los puntos: apagados por defecto, así que sin esto
-      // se entregaban seiscientos pedidos y no nacía ni un solo saldo.
-      loyaltyEarnBps: 500,
     });
     pricingConfigService.invalidate();
 
@@ -603,53 +599,6 @@ describe('Sistema completo bajo carga: 7.000 usuarios de todos los roles', () =>
 
     expect(await ledgerService.isBalanced()).toBe(true);
   }, 900_000);
-
-  it('los puntos emitidos coinciden con el saldo de cada cliente', async () => {
-    const balances = await LoyaltyBalance.find({}).limit(200).lean();
-    expect(balances.length).toBeGreaterThan(0);
-
-    for (const balance of balances) {
-      const [row] = await LoyaltyMovement.aggregate([
-        { $match: { userId: balance.userId } },
-        { $group: { _id: null, points: { $sum: '$points' } } },
-      ]);
-
-      // El saldo es una cifra materializada para poder debitar de forma
-      // atómica. Si se separa del libro de movimientos, deja de ser un
-      // atajo y pasa a ser una segunda verdad.
-      expect(balance.balance).toBe(row?.points ?? 0);
-    }
-  }, 300_000);
-
-  it('cientos de canjes simultáneos no crean puntos de la nada', async () => {
-    const rich = await LoyaltyBalance.find({ balance: { $gte: 1 } }).limit(200).lean();
-    if (rich.length === 0) return;
-
-    // Cada cliente intenta canjear tres veces a la vez lo que sólo alcanza
-    // una. Es la carrera que se corrigió con el débito atómico.
-    const attempts: Array<() => Promise<unknown>> = [];
-    for (const row of rich) {
-      for (let k = 0; k < 3; k += 1) {
-        attempts.push(() =>
-          loyaltyService.redeem(row.userId.toString(), Math.max(1, row.balance))
-        );
-      }
-    }
-
-    reportReasons('canjes', await inBatches(attempts, BATCH));
-
-    const negatives = await LoyaltyBalance.countDocuments({ balance: { $lt: 0 } });
-    expect(negatives).toBe(0);
-
-    for (const row of rich.slice(0, 40)) {
-      const balance = await LoyaltyBalance.findOne({ userId: row.userId }).lean();
-      const [movements] = await LoyaltyMovement.aggregate([
-        { $match: { userId: row.userId } },
-        { $group: { _id: null, points: { $sum: '$points' } } },
-      ]);
-      expect(balance!.balance).toBe(movements?.points ?? 0);
-    }
-  }, 600_000);
 
   it('liquidar en masa no paga dos veces ni deja el libro torcido', async () => {
     const admin = await User.findOne({ role: UserRole.ADMIN }).select('_id').lean();

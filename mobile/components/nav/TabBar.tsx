@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { View, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { View, Pressable, StyleSheet, useWindowDimensions, InteractionManager } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import Animated, {
@@ -32,6 +32,29 @@ const TABS: Record<string, { icon: IconName; label: string }> = {
 
 const INDICATOR_W = 22;
 const SHEEN_W = 180;
+
+/**
+ * Montar por detrás las pestañas que todavía no se han abierto.
+ *
+ * Una pestaña de `expo-router` es perezosa: no existe hasta que se toca por
+ * primera vez, así que ese primer toque paga el montaje de la pantalla
+ * entera *y* la primera vuelta de sus consultas. El dedo ya recibió su
+ * respuesta —el trazo dorado se mueve en el hilo de UI— pero el contenido
+ * llega tarde, y lo que se recuerda es el esqueleto.
+ *
+ * `navigation.preload` monta la pantalla fuera de la vista, con sus datos,
+ * para que el toque no tenga nada que hacer salvo enseñarla. Se hace cuando
+ * la app ya está quieta y de una en una: montar cuatro pantallas de golpe
+ * durante el arranque cambiaría un retraso por otro, y este sí se nota en la
+ * primera impresión.
+ *
+ * La pestaña inicial nunca entra aquí —ya está montada— y una pestaña que se
+ * visite antes de que le toque el turno se salta: en cuanto se navega a ella,
+ * el router la saca de la lista de precargadas y vuelve a congelarse al
+ * salir, que es justo lo que `freezeOnBlur` busca.
+ */
+const PRELOAD_AFTER_MS = 1200;
+const PRELOAD_GAP_MS = 350;
 
 // El dorado de marca marca qué pestaña está activa (icono, label e
 // indicador) y no cambia con el tema. El fondo de la barra sí sigue el
@@ -101,6 +124,8 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   }, [state.index, tabWidth]);
 
   const indicator = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }] }));
+
+  usePreloadSiblings(state, navigation);
 
   return (
     <View
@@ -264,6 +289,46 @@ function TabDome({
       </Animated.View>
     </Pressable>
   );
+}
+
+/** Ver `PRELOAD_AFTER_MS`. */
+function usePreloadSiblings(
+  state: BottomTabBarProps['state'],
+  navigation: BottomTabBarProps['navigation'],
+) {
+  // Lo ya visitado no se precarga: sería devolverlo a "precargado" y, con
+  // eso, dejarlo sin congelar el resto de la sesión.
+  const visited = useRef(new Set<string>());
+  const currentKey = state.routes[state.index]?.key;
+  if (currentKey) visited.current.add(currentKey);
+
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+
+    const pending = state.routes.filter((_, i) => i !== state.index);
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      pending.forEach((route, i) => {
+        timers.push(
+          setTimeout(() => {
+            if (visited.current.has(route.key)) return;
+            navigation.preload(route.name);
+          }, PRELOAD_AFTER_MS + i * PRELOAD_GAP_MS),
+        );
+      });
+    });
+
+    return () => {
+      task.cancel();
+      timers.forEach(clearTimeout);
+    };
+    // Una sola vez por montaje del navegador: la lista de pestañas no cambia.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
 
 const styles = StyleSheet.create({

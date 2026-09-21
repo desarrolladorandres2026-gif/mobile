@@ -506,7 +506,7 @@ export class CouponService {
   /**
    * Los cupones que son de un cliente y de nadie más, todavía usables.
    *
-   * Hoy son los que salen de canjear puntos. Son privados (`isPublic:
+   * Son privados (`isPublic:
    * false`), así que `getPublic` no los devuelve nunca: sin esto, el código
    * solo se veía una vez, en el aviso del canje, y un canje abandonado a
    * medio checkout eran puntos que el cliente ya no podía encontrar aunque el
@@ -575,6 +575,22 @@ export class CouponService {
   }
 
   /**
+   * El techo con el que `computeDiscount` corta este cupón: el menor de los
+   * topes que apliquen, o 0 si ninguno. Espeja sus tres cortes —`maxDiscount`
+   * (solo porcentajes), `maxDiscountAmount` y `couponSubsidyLimit` (solo si
+   * paga la plataforma)—; si cambia uno, cambia el otro.
+   */
+  private effectiveCeiling(coupon: ICoupon, config: IPlatformPricingConfig): number {
+    const caps: number[] = [];
+    if (coupon.type === CouponType.PERCENTAGE) caps.push(coupon.maxDiscount);
+    caps.push(coupon.maxDiscountAmount);
+    if (coupon.fundedBy === CouponFundedBy.PLATFORM) caps.push(config.couponSubsidyLimit);
+
+    const active = caps.filter((cap) => cap > 0);
+    return active.length ? Math.min(...active) : 0;
+  }
+
+  /**
    * Un cupón tal y como puede verlo un cliente.
    *
    * La lista es blanca, no negra: lo que no esté aquí no sale. `/offers`
@@ -586,8 +602,15 @@ export class CouponService {
    *
    * `usedCount` y `usageLimit` sí salen: son el cupo, y esa escasez es del
    * cliente —"queda el 20%"— no de la contabilidad.
+   *
+   * `maxDiscount` sale ya resuelto: el techo real con el que cobra
+   * `computeDiscount`, no el campo crudo del documento. Los cupones
+   * sembrados llevan `maxDiscount: 0` y aun así el cobro corta en
+   * `couponSubsidyLimit`, de modo que la app anunciaba "20%" sin techo y el
+   * cliente pagaba menos de lo prometido. Sin exponer `fundedBy` ni el límite
+   * de subsidio sueltos: solo llega el número que ya los combina.
    */
-  publicView(coupon: ICoupon, now = new Date()): PublicCoupon {
+  publicView(coupon: ICoupon, config: IPlatformPricingConfig, now = new Date()): PublicCoupon {
     return {
       _id: coupon._id.toString(),
       code: coupon.code,
@@ -596,7 +619,7 @@ export class CouponService {
       type: coupon.type,
       scope: coupon.scope,
       value: coupon.value,
-      maxDiscount: coupon.maxDiscount,
+      maxDiscount: this.effectiveCeiling(coupon, config),
       minOrderAmount: coupon.minOrderAmount,
       validUntil: coupon.validUntil,
       businessId: coupon.businessId ? coupon.businessId.toString() : null,

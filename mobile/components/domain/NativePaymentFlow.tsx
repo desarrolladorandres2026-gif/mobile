@@ -96,6 +96,8 @@ export function NativePaymentFlow({ orderId, code }: Props) {
    * quien acaba de cerrarlo.
    */
   const shownChallenge = useRef<string | null>(null);
+  /** La última URL de banco (PSE) que se abrió; mismo motivo que `shownChallenge`. */
+  const shownAsyncUrl = useRef<string | null>(null);
   const reference = code || orderCode(orderId ?? '');
   const capabilities = { pse: !!methods?.inApp?.pse, savedCards: !!methods?.inApp?.savedCards };
 
@@ -221,9 +223,16 @@ export function NativePaymentFlow({ orderId, code }: Props) {
       shownChallenge.current = status.threeDsChallengeHtml;
       setWeb({ html: status.threeDsChallengeHtml });
       setPhase('challenge');
+    } else if (status.asyncPaymentUrl && status.asyncPaymentUrl !== shownAsyncUrl.current) {
+      // PSE tampoco trae la URL del banco al crear la transacción: Wompi la
+      // resuelve segundos después. Sin esta rama, la pantalla se quedaba en
+      // "esperando" hasta el timeout de 5 minutos sin abrir nunca el banco.
+      shownAsyncUrl.current = status.asyncPaymentUrl;
+      setWeb({ uri: status.asyncPaymentUrl });
+      setPhase('challenge');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.status, status?.threeDsChallengeHtml]);
+  }, [status?.status, status?.threeDsChallengeHtml, status?.asyncPaymentUrl]);
 
   // ── Aviso principal: el socket ──
   useEffect(() => {
@@ -479,14 +488,15 @@ export function NativePaymentFlow({ orderId, code }: Props) {
         {/* Quien cerró la verificación del banco sin terminarla necesita
             una forma de volver a ella: el reto sigue pendiente y no se
             reabre solo. */}
-        {phase === 'waiting' && status?.threeDsChallengeHtml ? (
+        {phase === 'waiting' && (status?.threeDsChallengeHtml || status?.asyncPaymentUrl) ? (
           <Button
             title="Volver a la verificación del banco"
             icon="seguridad"
             variant="secondary"
             onPress={() => {
               tap('light');
-              setWeb({ html: status.threeDsChallengeHtml });
+              if (status.threeDsChallengeHtml) setWeb({ html: status.threeDsChallengeHtml });
+              else setWeb({ uri: status.asyncPaymentUrl });
               setPhase('challenge');
             }}
           />

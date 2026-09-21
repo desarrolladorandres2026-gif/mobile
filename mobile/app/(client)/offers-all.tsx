@@ -8,12 +8,12 @@ import { OfferBusinessRow } from '../../components/domain/OfferBusinessRow';
 import { TicketCard } from '../../components/domain/TicketCard';
 import { OfferTile } from '../../components/domain/OfferTile';
 import { CouponSheet } from '../../components/domain/CouponSheet';
-import { useOffers, useDeliveryCoords, useCouponEligibility } from '../../hooks/useApi';
+import { useOffers, useDeliveryCoords, useCouponEligibility, useProStatus } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
 import { useAuthStore } from '../../stores/authStore';
 import { useCouponStore } from '../../stores/couponStore';
 import {
-  couponStatus, indexEligibility, splitBusinessOffers, type CouponStatus,
+  couponStatus, indexEligibility, splitBusinessOffers, withoutRedundantFreeDelivery, type CouponStatus,
 } from '../../lib/offers';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import type { OfferCoupon, ProductSearchHit } from '../../services/endpoints';
@@ -69,6 +69,15 @@ export default function OffersAllScreen() {
     else router.push('/(client)/(tabs)/search');
   };
 
+  // Un socio Pro con envío gratis no ve cupones de envío gratis: no le ahorran nada.
+  const { data: pro } = useProStatus(isAuthenticated);
+  const proFreeDelivery = !!pro?.member && !!pro.plan.benefits.freeDelivery.enabled;
+  const allCoupons = data?.coupons;
+  const coupons = useMemo(
+    () => withoutRedundantFreeDelivery(allCoupons ?? [], proFreeDelivery),
+    [allCoupons, proFreeDelivery]
+  );
+
   const businesses = useMemo(
     () => splitBusinessOffers(data?.businesses ?? []).discounted,
     [data]
@@ -104,7 +113,6 @@ export default function OffersAllScreen() {
     }
 
     if (listKind === 'coupons') {
-      const coupons = data?.coupons ?? [];
       if (!coupons.length) return (
         <EmptyState
           icon="cupon"

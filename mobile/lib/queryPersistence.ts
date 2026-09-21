@@ -11,7 +11,7 @@ import type { Query } from '@tanstack/react-query';
  * minutos. Ahora se pinta lo último conocido y se refresca por detrás.
  *
  * **Solo catálogo y direcciones** (decisión del 2026-09-18). Nunca pedidos,
- * pagos, tarjetas, saldos, billetera, puntos ni nada del domiciliario: ver
+ * pagos, tarjetas, saldos, billetera ni nada del domiciliario: ver
  * un estado de pedido o un saldo de ayer sería peor que ver un esqueleto.
  * Por eso la regla es una lista de lo permitido, no de lo prohibido: una
  * clave nueva no se guarda hasta que alguien la añade aquí a propósito.

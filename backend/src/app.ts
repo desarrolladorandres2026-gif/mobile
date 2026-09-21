@@ -20,7 +20,6 @@ import { setIO } from './sockets/emitter';
 import { startDispatchSweeper, stopDispatchSweeper } from './services/dispatch.service';
 import { startCartAbandonmentSweeper, stopCartAbandonmentSweeper } from './services/cartActivity.service';
 import { startProRenewalSweeper, stopProRenewalSweeper } from './services/pro.service';
-import { startLoyaltyExpirySweeper, stopLoyaltyExpirySweeper } from './services/loyalty.service';
 import { initCache, closeCache } from './cache';
 
 const app = express();
@@ -236,7 +235,6 @@ const start = async () => {
   // dejaría escribiendo en la base entre casos.
   startDispatchSweeper();
   startCartAbandonmentSweeper();
-  startLoyaltyExpirySweeper();
   startProRenewalSweeper();
 
   httpServer.listen(config.port, '0.0.0.0', () => {
@@ -256,7 +254,6 @@ const shutdown = async (signal: string) => {
   console.log(`\n[${signal}] Cerrando servidor...`);
   stopDispatchSweeper();
   stopCartAbandonmentSweeper();
-  stopLoyaltyExpirySweeper();
   stopProRenewalSweeper();
   httpServer.close(async () => {
     await closeCache();

@@ -68,7 +68,6 @@ export default function ClientLayout() {
       <Stack.Screen name="orders" />
       <Stack.Screen name="addresses" />
       <Stack.Screen name="favorites" />
-      <Stack.Screen name="rewards" />
       {/* Una sección de Descuentos, completa y en vertical. */}
       <Stack.Screen name="offers-all" />
       <Stack.Screen name="help" />

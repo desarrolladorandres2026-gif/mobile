@@ -894,13 +894,6 @@ export class OrderService {
     }
 
     if (status === OrderStatus.DELIVERED) {
-      // Los puntos se otorgan al entregar, no al pagar: premiar un pedido
-      // que aún puede cancelarse obliga a quitárselos después, y quitarle
-      // puntos a alguien se recuerda mucho más que dárselos.
-      import('./loyalty.service')
-        .then(({ loyaltyService }) => loyaltyService.earnForOrder(claimed))
-        .catch((err) => console.error('[Loyalty] No se pudieron otorgar los puntos:', err));
-
       // La invitación se paga cuando el invitado compra de verdad, no al
       // registrarse: pagar por un registro convierte el programa en una
       // máquina de crear cuentas vacías.

@@ -84,6 +84,16 @@ export interface PaymentIntent {
   asyncPaymentUrl?: string;
   /** Identificador de la fuente de pago creada, cuando se guardó la tarjeta. */
   paymentSourceId?: number;
+  /**
+   * El carril espera un código de un solo uso que la pasarela acaba de
+   * mandarle al cliente por SMS (DaviPlata).
+   *
+   * Es un booleano y no la dirección del servicio de OTP a propósito: esa
+   * dirección viaja con un `Bearer` que autoriza a confirmar el cobro, y no
+   * tiene por qué salir del servidor. El cliente solo necesita saber que
+   * toca pedirle seis dígitos a la persona.
+   */
+  otpRequired?: boolean;
 }
 
 export interface WebhookEvent {
@@ -170,6 +180,18 @@ export type PaymentInstrument =
       installments: number;
     }
   | { kind: 'nequi'; phone: string }
+  /**
+   * Botón Bancolombia. No lleva campos: Wompi solo pide `user_type`, y
+   * quien compra en Zipp es una persona. Preguntárselo sería una pantalla
+   * más para una respuesta que ya sabemos.
+   */
+  | { kind: 'bancolombia_transfer' }
+  /**
+   * DaviPlata. Wompi busca la billetera por documento y manda un código al
+   * teléfono asociado; no se pide número de celular porque el que vale es el
+   * que DaviPlata tiene registrado, no el que escriba quien paga.
+   */
+  | { kind: 'daviplata'; userLegalIdType: string; userLegalId: string }
   | {
       kind: 'pse';
       financialInstitutionCode: string;
@@ -225,6 +247,32 @@ export interface CreatePaymentSourceInput {
 export interface PseFinancialInstitution {
   code: string;
   name: string;
+}
+
+/**
+ * Cuántas veces se ha pedido y se ha probado el código, y cuántas quedan.
+ *
+ * Se devuelve al cliente porque "te queda un intento" y "código incorrecto"
+ * son dos mensajes distintos, y el segundo a secas hace que la gente gaste
+ * el último intento sin saberlo.
+ */
+export interface OtpAttempts {
+  sent: number;
+  maxSends: number;
+  validated: number;
+  maxValidations: number;
+}
+
+/** Resultado de entregarle a la pasarela el código que escribió el cliente. */
+export interface OtpOutcome {
+  /**
+   * La pasarela dio el código por bueno. No significa que el cobro esté
+   * aprobado: la transacción puede seguir `pending` y resolverse después.
+   */
+  accepted: boolean;
+  attempts?: OtpAttempts;
+  /** La transacción releída de la pasarela justo después del intento. */
+  intent: PaymentIntent;
 }
 
 export interface PaymentProvider {
@@ -294,4 +342,23 @@ export interface PaymentProvider {
 
   /** Convierte un token de tarjeta en una fuente de pago reutilizable. */
   createPaymentSource?(input: CreatePaymentSourceInput): Promise<{ id: number }>;
+
+  // ── Código de un solo uso (DaviPlata) ──
+  //
+  // Opcionales por la misma razón que el resto del cobro nativo: un
+  // proveedor puede no tener ningún carril que pida OTP. `PaymentService`
+  // comprueba su presencia y responde 501 en vez de romperse.
+
+  /** Vuelve a mandarle el código al cliente. */
+  resendOtp?(gatewayTransactionId: string): Promise<OtpAttempts | undefined>;
+
+  /**
+   * Entrega el código que escribió el cliente y devuelve la transacción tal
+   * como queda después.
+   *
+   * Lo que vuelve **no** es la última palabra: la pasarela puede seguir en
+   * `pending` tras aceptar el código. Quien llama lo pasa por el mismo
+   * camino que el webhook en vez de darlo por bueno.
+   */
+  validateOtp?(gatewayTransactionId: string, code: string): Promise<OtpOutcome>;
 }

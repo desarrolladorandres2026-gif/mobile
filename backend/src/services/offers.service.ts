@@ -4,6 +4,7 @@ import { CouponFundedBy } from '../types';
 import { LatLng } from '../utils/geo';
 import { VISIBLE_BUSINESS, withDistance, withinRadius } from '../utils/catalogQuery';
 import { couponService, PublicCoupon } from './coupon.service';
+import { pricingConfigService } from './pricingConfig.service';
 
 /**
  * Todo lo que está en oferta, en una sola respuesta.
@@ -274,15 +275,16 @@ export class OffersService {
     // sí de los productos: el descuento de un negocio sale de su mejor
     // producto rebajado, así que se resuelven en dos tiempos.
     const now = new Date();
-    const [rawCoupons, products] = await Promise.all([
+    const [rawCoupons, products, pricing] = await Promise.all([
       couponService.getPublic(city),
       this.discountedProducts(coords, maxDistance, city, limit),
+      pricingConfigService.getCurrent(),
     ]);
 
     // Saneados aquí y no en el controlador, porque lo que se guarda en la
     // caché de 60 s es esto: si se filtrara después, el documento entero
     // —presupuesto y margen incluidos— seguiría viviendo en Redis.
-    const coupons = rankCoupons(rawCoupons, now).map((c) => couponService.publicView(c, now));
+    const coupons = rankCoupons(rawCoupons, now).map((c) => couponService.publicView(c, pricing, now));
 
     const businesses = await this.offerBusinesses(
       products,

@@ -8,8 +8,6 @@ import {
   IdentityLink,
 } from '../security';
 import { AppError } from '../middlewares/errorHandler';
-import { loyaltyService } from './loyalty.service';
-import { pricingConfigService } from './pricingConfig.service';
 
 /**
  * Invitaciones.
@@ -23,11 +21,6 @@ import { pricingConfigService } from './pricingConfig.service';
  * comprobaciones, y por eso el premio se paga cuando el invitado *compra* y
  * no cuando se registra.
  */
-
-/** Puntos para quien invita. Cero desactiva el programa. */
-const REFERRER_POINTS = 5000;
-/** Puntos para quien llega invitado, al completar su primera compra. */
-const INVITEE_POINTS = 3000;
 
 /**
  * Cuántas invitaciones puede cobrar una persona.
@@ -140,10 +133,13 @@ export class ReferralService {
   }
 
   /**
-   * Paga la recompensa cuando el invitado completa su primera compra.
+   * Marca la invitación como resuelta cuando el invitado completa su
+   * primera compra.
    *
    * Es el único momento en que la invitación vale algo de verdad: hay un
    * pedido entregado y cobrado detrás. Idempotente por `referralRewardedAt`.
+   * No paga nada por sí mismo: el programa ya no tiene recompensa en
+   * puntos, solo deja constancia de a quién trajo quién.
    */
   async rewardIfFirstOrder(order: { clientId: unknown; _id: unknown }): Promise<boolean> {
     const invitee = (await User.findById(order.clientId).select(
@@ -187,22 +183,6 @@ export class ReferralService {
     );
     if (!claimed) return false;
 
-    const cfg = await pricingConfigService.getCurrent();
-    if (!cfg.loyaltyEarnBps && !REFERRER_POINTS) return false;
-
-    await Promise.all([
-      loyaltyService.grantPoints(
-        referrerId,
-        REFERRER_POINTS,
-        'Recompensa por invitar a un amigo'
-      ),
-      loyaltyService.grantPoints(
-        String(order.clientId),
-        INVITEE_POINTS,
-        'Bienvenida por venir invitado'
-      ),
-    ]);
-
     return true;
   }
 
@@ -214,7 +194,7 @@ export class ReferralService {
       this.codeFor(userId),
     ]);
 
-    return { code, invited: total, rewarded, pointsPerReferral: REFERRER_POINTS };
+    return { code, invited: total, rewarded };
   }
 }
 

@@ -5,7 +5,6 @@ import {
   Review,
   Pqrs,
   Payment,
-  LoyaltyMovement,
 } from '../models';
 import { OrderStatus } from '../types';
 import { FraudAlert, UserRiskProfile, AuditLog, Session } from '../security';
@@ -33,7 +32,6 @@ export interface UserProfile360 {
     spent: number;
     /** Cuánto de lo que pidió acabó cancelándose. Señal de fricción o abuso. */
     cancellationRate: number;
-    loyaltyPoints: number;
   };
   recentOrders: unknown[];
   payments: unknown[];
@@ -61,7 +59,6 @@ export async function profile360(userId: string): Promise<UserProfile360> {
   // tiene al cliente al teléfono.
   const [
     totalsRow,
-    loyaltyRow,
     recentOrders,
     payments,
     reviews,
@@ -90,11 +87,6 @@ export async function profile360(userId: string): Promise<UserProfile360> {
           },
         },
       },
-    ]),
-
-    LoyaltyMovement.aggregate([
-      { $match: { userId: objectId } },
-      { $group: { _id: null, points: { $sum: '$points' } } },
     ]),
 
     Order.find({ clientId: objectId })
@@ -138,7 +130,6 @@ export async function profile360(userId: string): Promise<UserProfile360> {
       cancellationRate: totals.orders
         ? Math.round((totals.cancelled / totals.orders) * 100)
         : 0,
-      loyaltyPoints: Math.max(0, loyaltyRow[0]?.points ?? 0),
     },
     recentOrders,
     payments,

@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { View, ScrollView, Pressable, StyleSheet, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -12,21 +12,18 @@ import { Avatar } from '../../../components/domain/Avatar';
 import { useAuthStore } from '../../../stores/authStore';
 import { useCartStore } from '../../../stores/cartStore';
 import { useFavorites } from '../../../hooks/useFavorites';
-import { useLoyalty } from '../../../hooks/useApi';
 import { useThemeStore } from '../../../stores/themeStore';
 import { useAddresses } from '../../../hooks/useApi';
-import { useZippStats } from '../../../hooks/useUsual';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding } from '../../../hooks/useBottomSpace';
 import { socketService } from '../../../services/socket';
 import { unregisterPush } from '../../../hooks/usePushNotifications';
 import type { IconName } from '../../../theme/icons';
 import { Spacing, FontSize } from '../../../theme/tokens';
+import { FontFamily } from '../../../theme/typography';
 import { tap } from '../../../lib/haptics';
 import { ROUTES } from '../../../lib/routing';
-import { pushPermissionGranted } from '../../../lib/push';
 import { SUPPORT_PHONE, supportWhatsAppUrl } from '../../../constants/config';
-import { OTHER_APP, OTHER_APP_STORE_URL } from '../../../constants/variant';
 
 
 interface MenuLink {
@@ -37,7 +34,6 @@ interface MenuLink {
   /** Icono funcional lucide, para acciones simples como ajustes. */
   icon?: IconName;
   label: string;
-  detail?: string;
   badge?: string;
   /** Navega a esta ruta al tocar la fila. */
   route?: string;
@@ -47,22 +43,13 @@ interface MenuLink {
   action?: () => void;
 }
 
-export default function ProfileScreen() {
-  /**
-   * `null` mientras se comprueba, o donde la pregunta no aplica (web,
-   * emulador). Solo `false` significa "denegado", que es lo unico que hay
-   * que decirle al usuario.
-   */
-  const [pushGranted, setPushGranted] = useState<boolean | null>(null);
-  const [logoutDialogVisible, setLogoutDialogVisible] = useState(false);
+/** Perfil va sin negrillas: fuerza Medium sobre cualquier variante de Text. */
+const PText = (props: React.ComponentProps<typeof Text>) => (
+  <Text {...props} style={[props.style, { fontFamily: FontFamily.medium, fontWeight: '500', fontSize: props.v==='titleL'?16:props.v==='displayM'?24:props.v==='strongL'?19:props.v==='strongM'||props.v==='bodyM'?13:props.v==='strongS'||props.v==='bodyS'?12:undefined }]} />
+);
 
-  useEffect(() => {
-    let alive = true;
-    void pushPermissionGranted().then((granted) => {
-      if (alive) setPushGranted(granted);
-    });
-    return () => { alive = false; };
-  }, []);
+export default function ProfileScreen() {
+  const [logoutDialogVisible, setLogoutDialogVisible] = useState(false);
 
   const router = useRouter();
   const { c, isDark } = useTheme();
@@ -75,11 +62,6 @@ export default function ProfileScreen() {
   const { data: addresses = [] } = useAddresses();
   const { businessIds: favorites } = useFavorites();
   const clearCart = useCartStore((s) => s.clearCart);
-  const stats = useZippStats();
-  // El saldo viene del servidor; `stats` solo aporta racha y pedidos.
-  const { data: loyalty } = useLoyalty();
-  const points = loyalty?.balance ?? 0;
-
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
@@ -100,72 +82,40 @@ export default function ProfileScreen() {
     {
       icon: 'pedidos',
       label: 'Mis pedidos',
-      detail: `${stats.orderCount} ${stats.orderCount === 1 ? 'pedido' : 'pedidos'}`,
       route: '/(client)/orders',
     },
     {
-      logo: <MapboxLogo size={28} color={c.text} />,
+      logo: <MapboxLogo size={20} color={c.text} />,
       label: 'Mis direcciones',
-      detail: `${addresses.length} guardada${addresses.length === 1 ? '' : 's'}`,
       route: '/(client)/addresses',
     },
     {
       icon: 'favorito',
       label: 'Negocios favoritos',
-      detail: `${favorites.length} guardado${favorites.length === 1 ? '' : 's'}`,
       route: '/(client)/favorites',
     },
     {
       icon: 'tarjeta',
       label: 'Métodos de pago',
-      detail: 'Tus tarjetas guardadas',
       route: '/(client)/payment-methods',
     },
     {
       icon: 'seguridad',
       label: 'Mi cuenta',
-      detail: 'Datos personales, seguridad y privacidad',
       route: ROUTES.account,
-    },
-  ];
-
-  const zippLinks: MenuLink[] = [
-    {
-      icon: 'trofeo',
-      label: 'Tus puntos Zipp y cupones',
-      detail: `${points.toLocaleString('es-CO')} puntos acumulados`,
-      badge: `${points.toLocaleString('es-CO')} pts`,
-      route: '/(client)/rewards',
     },
   ];
 
   const joinLinks: MenuLink[] = [
     {
-      logo: <WhatsAppLogo size={28} />,
+      logo: <WhatsAppLogo size={20} />,
       label: 'Aliar mi negocio a Zipp',
-      detail: 'Escríbenos para registrar tu comercio',
       action: () => writeToZipp('Hola, quiero aliar mi negocio a Zipp.'),
     },
     {
-      logo: <WhatsAppLogo size={28} />,
+      logo: <WhatsAppLogo size={20} />,
       label: 'Empezar a repartir con Zipp',
-      detail: 'Postúlate por WhatsApp; luego entras con Zipp Domiciliarios',
       action: () => writeToZipp('Hola, quiero empezar a repartir con Zipp.'),
-    },
-    {
-      // Los domiciliarios tienen su propia app. La postulación se queda
-      // aquí porque es donde llega la gente que ya conoce Zipp; el enlace
-      // evita que busquen en la tienda y acaben reinstalando esta.
-      icon: 'domiciliario',
-      label: `Descargar ${OTHER_APP.name}`,
-      detail: 'La app para repartir, en la tienda',
-      action: () => {
-        // TODO(tienda): la ficha existe cuando se publique; hasta entonces
-        // Play mostrará "no encontrado".
-        Linking.openURL(OTHER_APP.marketUrl).catch(() => {
-          Linking.openURL(OTHER_APP_STORE_URL).catch(() => {});
-        });
-      },
     },
   ];
 
@@ -173,19 +123,16 @@ export default function ProfileScreen() {
     {
       icon: 'ayuda',
       label: 'Centro de ayuda',
-      detail: 'Preguntas y soporte técnico',
       route: '/(client)/help',
     },
     {
       icon: 'seguridad',
       label: 'Centro legal, datos y SIC',
-      detail: 'Políticas de privacidad y términos del servicio',
       route: '/(client)/legal',
     },
     {
       icon: 'soporte',
       label: 'PQRS y solicitudes de datos',
-      detail: 'Radica consultas, quejas o reclamos',
       route: '/(client)/requests',
     },
   ];
@@ -214,21 +161,13 @@ export default function ProfileScreen() {
 
   const systemLinks: MenuLink[] = [
     {
-      logo: <MapboxLogo size={28} color={c.text} />,
+      logo: <MapboxLogo size={20} color={c.text} />,
       label: 'Ubicación y GPS',
-      detail: 'Permiso para calcular tiempos y rutas de entrega',
       action: () => Linking.openSettings().catch(() => {}),
     },
     {
       icon: 'notificaciones',
       label: 'Notificaciones del sistema',
-      // Antes ponia siempre lo mismo, tuviera o no permiso. Denegar los
-      // avisos dejaba al usuario sin saber por que su pedido "no le avisaba
-      // nada" -- y este era justo el sitio donde mirarlo.
-      detail:
-        pushGranted === false
-          ? 'Desactivadas: no te avisaremos del estado de tus pedidos'
-          : 'Avisos en vivo del estado de tus pedidos',
       action: () => Linking.openSettings().catch(() => {}),
     },
   ];
@@ -260,12 +199,12 @@ export default function ProfileScreen() {
       >
         {/* ── Encabezado ── */}
         <View style={styles.headerArea}>
-          <Text v="displayM" style={styles.headerTitle}>
+          <PText v="displayM" style={styles.headerTitle}>
             Perfil
-          </Text>
-          <Text v="bodyS" tone="textMuted">
+          </PText>
+          <PText v="bodyS" tone="textMuted">
             Gestiona tu cuenta, direcciones y beneficios
-          </Text>
+          </PText>
         </View>
 
         {/* ── Cuenta: sin card, integrada al fondo de la pantalla ── */}
@@ -276,93 +215,57 @@ export default function ProfileScreen() {
             accessibilityLabel="Mi cuenta"
             hitSlop={4}
           >
-            <Avatar uri={user?.avatar} name={user?.name} size={56} />
+            <Avatar uri={user?.avatar} name={user?.name} size={44} />
           </Pressable>
 
           <View style={styles.heroInfo}>
-            <Text v="strongL" numberOfLines={1} style={styles.userName}>
+            <PText v="strongL" numberOfLines={1} style={styles.userName}>
               {user?.name ?? 'Tu cuenta Zipp'}
-            </Text>
-            <Text v="dataS" tone="textMuted">
-              {user?.phone ? `+57 ${user.phone}` : 'Usuario Zipp'}
-            </Text>
+            </PText>
+            <Pressable
+              onPress={() => {
+                tap('light');
+                router.push(ROUTES.account as never);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Editar perfil"
+              hitSlop={8}
+              style={styles.editTouch}
+            >
+              <PText v="strongS" tone="textMuted">Editar perfil</PText>
+              <Icon name="siguiente" size="sm" color={c.textMuted} />
+            </Pressable>
           </View>
-
-          <Pressable
-            onPress={() => {
-              tap('light');
-              router.push(ROUTES.account as never);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Editar perfil"
-            hitSlop={8}
-            style={styles.editTouch}
-          >
-            <Icon name="editar" size="sm" color={c.textMuted} />
-            <Text v="strongS" tone="textMuted">Editar</Text>
-          </Pressable>
         </View>
 
         <View style={[styles.hairline, { backgroundColor: c.borderLight }]} />
 
-        {/* ── Resumen de actividad Zipp: fila simple, sin caja pesada ── */}
-        <Pressable
-          onPress={() => {
-            tap('light');
-            router.push('/(client)/rewards');
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={`Tus puntos Zipp: ${points} puntos, ${stats.orderCount} pedidos, racha de ${stats.streak} semanas`}
-          style={({ pressed }) => [styles.statsRow, pressed && { opacity: 0.7 }]}
-        >
-          <View style={styles.statCol}>
-            <Icon name="trofeo" size={28} color={c.text} />
-            <Text v="titleL" tone="primaryText">{points.toLocaleString('es-CO')}</Text>
-            <Text v="caption" tone="textMuted">Puntos</Text>
-          </View>
-
-          <View style={styles.statCol}>
-            <Icon name="pedidos" size={28} color={c.text} />
-            <Text v="titleL" color={c.text}>{stats.orderCount}</Text>
-            <Text v="caption" tone="textMuted">Pedidos</Text>
-          </View>
-
-          <View style={styles.statCol}>
-            <Icon name="racha" size={28} color={c.text} />
-            <Text v="titleL" color={c.text}>{stats.streak}</Text>
-            <Text v="caption" tone="textMuted">Semanas</Text>
-          </View>
-        </Pressable>
-
         {/* ── Grupo 1: Mi Cuenta ── */}
         <MenuGroup title="MI CUENTA" links={accountLinks} />
-
-        {/* ── Grupo 2: Beneficios Zipp ── */}
-        <MenuGroup title="BENEFICIOS Y PUNTOS" links={zippLinks} />
 
         {/* ── Grupo 3: Trabajar con Zipp ── */}
         <MenuGroup title="TRABAJA CON ZIPP" links={joinLinks} />
 
         {/* ── Pantalla y apariencia: mockups, sin caja alrededor ── */}
         <View style={styles.groupContainer}>
-          <Text v="captionStrong" tone="textMuted" style={styles.groupTitle}>
+          <PText v="captionStrong" tone="textMuted" style={styles.groupTitle}>
             PANTALLA Y APARIENCIA
-          </Text>
-          <View style={styles.themeCardsRow}>
-            <ThemePreviewCard
-              mode="light"
+          </PText>
+          <View style={styles.themeOptionsRow}>
+            <ThemeOption
+              icon="temaClaro"
               label="Claro"
               isSelected={theme === 'light'}
               onSelect={() => { tap('select'); setTheme('light'); }}
             />
-            <ThemePreviewCard
-              mode="dark"
+            <ThemeOption
+              icon="temaOscuro"
               label="Oscuro"
               isSelected={theme === 'dark'}
               onSelect={() => { tap('select'); setTheme('dark'); }}
             />
-            <ThemePreviewCard
-              mode="auto"
+            <ThemeOption
+              icon="celular"
               label="Sistema"
               isSelected={theme === 'auto'}
               onSelect={() => { tap('select'); setTheme('auto'); }}
@@ -391,16 +294,16 @@ export default function ProfileScreen() {
           ]}
         >
           <View style={styles.linkIconSlot}>
-            <Icon name="salir" size={28} color={c.error} />
+            <Icon name="salir" size={20} color={c.error} />
           </View>
 
           <View style={styles.logoutTextBody}>
-            <Text v="strongM" color={c.error}>
+            <PText v="strongM" color={c.error}>
               Cerrar sesión
-            </Text>
-            <Text v="caption" tone="textMuted">
+            </PText>
+            <PText v="caption" tone="textMuted">
               Desconectar tu cuenta de este dispositivo
-            </Text>
+            </PText>
           </View>
 
           <View style={styles.logoutArrow}>
@@ -435,9 +338,9 @@ function MenuGroup({ title, links, last }: { title: string; links: MenuLink[]; l
 
   return (
     <View style={styles.groupContainer}>
-      <Text v="captionStrong" tone="textMuted" style={styles.groupTitle}>
+      <PText v="captionStrong" tone="textMuted" style={styles.groupTitle}>
         {title}
-      </Text>
+      </PText>
 
       {links.map((link, idx) => (
         <Pressable
@@ -454,7 +357,7 @@ function MenuGroup({ title, links, last }: { title: string; links: MenuLink[]; l
             }
           }}
           accessibilityRole="button"
-          accessibilityLabel={link.detail ? `${link.label}. ${link.detail}` : link.label}
+          accessibilityLabel={link.label}
           style={({ pressed }) => [
             styles.linkPressable,
             idx < links.length - 1 || !last
@@ -467,27 +370,22 @@ function MenuGroup({ title, links, last }: { title: string; links: MenuLink[]; l
             {link.logo ? (
               link.logo
             ) : link.illustration ? (
-              <ContentIcon name={link.illustration} size={30} />
+              <ContentIcon name={link.illustration} size={22} />
             ) : (
-              <Icon name={link.icon ?? 'ajustes'} size={28} color={c.text} />
+              <Icon name={link.icon ?? 'ajustes'} size={20} color={c.text} />
             )}
           </View>
 
           <View style={styles.linkTextBody}>
             {/* Dos líneas: los nombres de los documentos legales son largos. */}
-            <Text v="strongM" numberOfLines={2}>
+            <PText v="strongM" numberOfLines={2}>
               {link.label}
-            </Text>
-            {link.detail ? (
-              <Text v="caption" tone="textMuted" numberOfLines={1}>
-                {link.detail}
-              </Text>
-            ) : null}
+            </PText>
           </View>
 
           {link.badge ? (
             <View style={[styles.badgePill, { backgroundColor: c.primarySoft }]}>
-              <Text v="captionStrong" tone="primaryText">{link.badge}</Text>
+              <PText v="captionStrong" tone="primaryText">{link.badge}</PText>
             </View>
           ) : null}
 
@@ -502,18 +400,18 @@ function MenuGroup({ title, links, last }: { title: string; links: MenuLink[]; l
 // Miniatura de teléfono para elegir tema (claro / oscuro / sistema)
 // ──────────────────────────────────────────────────────────────
 
-function ThemePreviewCard({
-  mode,
+function ThemeOption({
+  icon,
   label,
   isSelected,
   onSelect,
 }: {
-  mode: 'light' | 'dark' | 'auto';
+  icon: IconName;
   label: string;
   isSelected: boolean;
   onSelect: () => void;
 }) {
-  const { c, isDark } = useTheme();
+  const { c } = useTheme();
 
   return (
     <Pressable
@@ -521,71 +419,12 @@ function ThemePreviewCard({
       accessibilityRole="radio"
       accessibilityState={{ selected: isSelected }}
       accessibilityLabel={`Seleccionar tema ${label}`}
-      style={[styles.themeCardWrapper, isSelected && { transform: [{ scale: 1.02 }] }]}
+      style={styles.themeOption}
     >
-      <View
-        style={[
-          styles.phoneMockup,
-          mode === 'light' && styles.phoneMockupLight,
-          mode === 'dark' && styles.phoneMockupDark,
-          mode === 'auto' && styles.phoneMockupAuto,
-          {
-            borderColor: isSelected ? c.primary : isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.10)',
-            borderWidth: isSelected ? 2.5 : 1.5,
-          },
-        ]}
-      >
-        <View style={[styles.mockupNotch, { backgroundColor: mode === 'light' ? '#D1D5DB' : '#374151' }]} />
-
-        {mode === 'auto' ? (
-          <View style={styles.splitMockupContent}>
-            <View style={styles.splitLightHalf}>
-              <View style={[styles.mockupCardLine, { backgroundColor: '#4B3BFF', width: '70%' }]} />
-              <View style={[styles.mockupContentBlock, { backgroundColor: '#E5E7EB' }]} />
-            </View>
-            <View style={styles.splitDarkHalf}>
-              <View style={[styles.mockupCardLine, { backgroundColor: '#7D72FF', width: '70%' }]} />
-              <View style={[styles.mockupContentBlock, { backgroundColor: '#262C40' }]} />
-            </View>
-          </View>
-        ) : (
-          <View style={styles.mockupContent}>
-            <View
-              style={[
-                styles.mockupCardLine,
-                { backgroundColor: mode === 'light' ? '#4B3BFF' : '#7D72FF', width: '60%', marginTop: 2 },
-              ]}
-            />
-            <View style={[styles.mockupContentBlock, { backgroundColor: mode === 'light' ? '#E5E7EB' : '#262C40' }]}>
-              <View
-                style={[styles.mockupMiniLine, { backgroundColor: mode === 'light' ? '#9CA3AF' : '#4B5563', width: '40%' }]}
-              />
-            </View>
-            <View style={[styles.mockupContentBlock, { backgroundColor: mode === 'light' ? '#E5E7EB' : '#262C40' }]}>
-              <View
-                style={[styles.mockupMiniLine, { backgroundColor: mode === 'light' ? '#9CA3AF' : '#4B5563', width: '55%' }]}
-              />
-            </View>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.themeLabelContainer}>
-        <View
-          style={[
-            styles.radioIndicator,
-            {
-              borderColor: isSelected ? c.primary : c.borderStrong,
-              backgroundColor: isSelected ? c.primary : 'transparent',
-            },
-          ]}
-        >
-          {isSelected ? <View style={styles.radioIndicatorDot} /> : null}
-        </View>
-        <Text v={isSelected ? 'strongS' : 'bodyS'} color={isSelected ? c.primaryText : c.textSecondary}>
-          {label}
-        </Text>
-      </View>
+      <Icon name={icon} size={22} color={isSelected ? c.primary : c.textMuted} />
+      <PText v={isSelected ? 'strongS' : 'bodyS'} color={isSelected ? c.primary : c.textSecondary}>
+        {label}
+      </PText>
     </Pressable>
   );
 }
@@ -609,9 +448,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   headerTitle: {
-    fontSize: 34,
-    fontWeight: '800',
-    letterSpacing: -0.8,
+    fontSize: 24,
+    letterSpacing: -0.5,
   },
 
   // Cuenta (sin card)
@@ -633,7 +471,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   userName: {
-    fontSize: FontSize.lg,
+    fontSize: 19,
   },
   editTouch: {
     flexDirection: 'row',
@@ -645,19 +483,6 @@ const styles = StyleSheet.create({
   hairline: {
     height: StyleSheet.hairlineWidth,
     marginTop: -Spacing.md,
-  },
-
-  // Resumen de actividad (fila simple)
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: -Spacing.md,
-  },
-  statCol: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 2,
   },
 
   // Grupos de menú
@@ -672,12 +497,12 @@ const styles = StyleSheet.create({
   linkPressable: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 7,
     gap: Spacing.md,
   },
   linkIconSlot: {
-    width: 34,
-    height: 34,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -692,88 +517,21 @@ const styles = StyleSheet.create({
   },
 
   // Selector de tema (miniaturas de teléfono)
-  themeCardsRow: {
+  themeOptionsRow: {
     flexDirection: 'row',
-    gap: Spacing.sm,
     justifyContent: 'space-between',
   },
-  themeCardWrapper: {
+  themeOption: {
     flex: 1,
     alignItems: 'center',
-    gap: Spacing.xs + 1,
+    paddingVertical: Spacing.sm,
+    gap: Spacing.xs,
   },
-  phoneMockup: {
-    width: '100%',
-    height: 70,
-    borderRadius: 13,
-    alignItems: 'center',
-    paddingTop: 5,
-    paddingHorizontal: 6,
-    overflow: 'hidden',
-  },
-  phoneMockupLight: { backgroundColor: '#FFFFFF' },
-  phoneMockupDark: { backgroundColor: '#121727' },
-  phoneMockupAuto: { backgroundColor: '#F3F4F6' },
-  mockupNotch: {
-    width: 18,
-    height: 2.5,
-    borderRadius: 1.25,
-    marginBottom: 5,
-  },
-  mockupContent: { width: '100%', gap: 3 },
-  mockupCardLine: { height: 4, borderRadius: 2 },
-  mockupContentBlock: {
-    height: 13,
-    borderRadius: 5,
-    padding: 2.5,
-    justifyContent: 'center',
-  },
-  mockupMiniLine: { height: 2.5, borderRadius: 1.25 },
-  splitMockupContent: {
-    flexDirection: 'row',
-    width: '100%',
-    height: '100%',
-    gap: 2,
-  },
-  splitLightHalf: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 4,
-    padding: 2.5,
-    gap: 2.5,
-  },
-  splitDarkHalf: {
-    flex: 1,
-    backgroundColor: '#121727',
-    borderRadius: 4,
-    padding: 2.5,
-    gap: 2.5,
-  },
-  themeLabelContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  radioIndicator: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioIndicatorDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#FFFFFF',
-  },
-
   // Cerrar sesión
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 7,
     gap: Spacing.md,
     marginTop: Spacing.xs,
   },

@@ -30,9 +30,8 @@ import {
 } from '../../lib/paymentInstrument';
 import {
   useAddresses, useOrderQuote, useCreateOrder, usePaymentMethods, usePayOrder, useBusiness,
-  useLoyalty, useMyCoupons, useRedeemPoints,
+  useMyCoupons,
 } from '../../hooks/useApi';
-import { planRedemption } from '../../lib/loyalty';
 import { scheduleDays, slotLabel, type ScheduleDay } from '../../lib/schedule';
 import type { DaySchedule } from '../../lib/business';
 import { useTheme } from '../../hooks/useTheme';
@@ -153,9 +152,7 @@ export default function CheckoutScreen() {
   const [appliedCode, setAppliedCode] = useState<string | null>(savedCouponCode);
   const [couponError, setCouponError] = useState('');
 
-  const { data: loyalty } = useLoyalty();
   const { data: myCoupons = [] } = useMyCoupons();
-  const redeemPoints = useRedeemPoints();
 
   const applyCode = (code: string) => {
     tap('light');
@@ -345,15 +342,7 @@ export default function CheckoutScreen() {
     ? quote.deliveryFee - (quote.coupon?.deliveryDiscount ?? 0) - quote.deliveryPayable
     : 0;
 
-  const loyaltyBalance = loyalty?.balance ?? 0;
-  const redeemPlan = planRedemption({
-    balance: loyaltyBalance,
-    minRedeem: loyalty?.minRedeem ?? 0,
-    maxPerOrder: loyalty?.maxPerOrder ?? 0,
-    subtotal: quote?.subtotal ?? subtotal,
-  });
-
-  // Los de puntos valen en cualquier negocio; uno atado a otro negocio aquí
+  // Los cupones propios valen en cualquier negocio; uno atado a otro negocio aquí
   // solo produciría un error al cotizar.
   const ownCoupons = myCoupons.filter((own) => !own.businessId || own.businessId === businessId);
 
@@ -1063,10 +1052,8 @@ export default function CheckoutScreen() {
 
           <View style={styles.section}>
             {/* ── Descuentos ──
-                Una fila muda: puntos, cupones propios y código viven en una
-                hoja. Un pedido admite un solo descuento (el servidor guarda un
-                solo cupón por pedido) y los puntos se canjean como cupón, así
-                que son tres formas de ocupar el mismo hueco. Con un cupón
+                Una fila muda: cupones propios y código viven en una
+                hoja. Un pedido admite un solo descuento. Con un cupón
                 puesto, la fila lo dice sin abrir nada. */}
             <Pressable
               onPress={() => { tap('light'); setDiscountSheet(true); }}
@@ -1074,7 +1061,7 @@ export default function CheckoutScreen() {
               accessibilityLabel={
                 quote?.coupon ? `Descuentos: ${quote.coupon.code} aplicado. Cambiar` : 'Descuentos'
               }
-              accessibilityHint="Abre la pantalla para escribir un cupón o usar tus puntos"
+              accessibilityHint="Abre la pantalla para escribir un cupón"
               style={({ pressed }) => [styles.secondaryRow, pressed && styles.pressed]}
             >
               <Text v="bodyS" style={styles.flex}>Descuentos</Text>
@@ -1489,7 +1476,7 @@ export default function CheckoutScreen() {
             —sale de la misma aritmética con la que se va a cobrar— y no se
             ofrece nada que el suelo de margen vaya a rechazar después. */}
         {quote?.suggestedCoupon ? (
-          <View style={styles.pointsCard}>
+          <View style={styles.suggestedCouponRow}>
             <View style={styles.flex}>
               <Text v="strongS">
                 Ahorras {money(quote.suggestedCoupon.discount)} con{' '}
@@ -1507,9 +1494,7 @@ export default function CheckoutScreen() {
           </View>
         ) : null}
 
-        {/* Primero lo que ya es del cliente: un cupón de un canje que
-            no llegó a usarse vale lo mismo que canjear de nuevo, y no
-            gasta más puntos. */}
+        {/* Primero lo que ya es del cliente. */}
         {ownCoupons.length > 0 ? (
           <View style={styles.ownCoupons}>
             {ownCoupons.map((own) => (
@@ -1521,46 +1506,6 @@ export default function CheckoutScreen() {
               />
             ))}
           </View>
-        ) : null}
-
-        {redeemPlan.kind === 'redeem' ? (
-          <View style={styles.pointsCard}>
-            <View style={styles.flex}>
-              <Text v="strongS">Tienes {groupThousands(loyaltyBalance)} puntos</Text>
-              <Text v="caption" tone="textMuted">
-                {redeemPlan.points < loyaltyBalance
-                  ? `Usas ${groupThousands(redeemPlan.points)} aquí y te quedan ${groupThousands(loyaltyBalance - redeemPlan.points)} para otro pedido.`
-                  : 'Cada punto vale un peso.'}
-              </Text>
-            </View>
-            <Button
-              title={`Usar ${money(redeemPlan.points)}`}
-              variant="secondary"
-              size="sm"
-              loading={redeemPoints.isPending}
-              onPress={() => {
-                tap('light');
-                setCouponError('');
-                redeemPoints.mutate(redeemPlan.points, {
-                  onSuccess: ({ coupon }) => applyCode(coupon.code),
-                  onError: (error) => {
-                    setCouponError(apiMessage(error, 'No pudimos canjear tus puntos.'));
-                    tap('error');
-                  },
-                });
-              }}
-            />
-          </View>
-        ) : redeemPlan.kind === 'below-minimum' ? (
-          <Text v="caption" tone="textMuted">
-            Tienes {groupThousands(loyaltyBalance)} puntos. Te faltan{' '}
-            {groupThousands(redeemPlan.missing)} para poder usarlos.
-          </Text>
-        ) : redeemPlan.kind === 'order-too-small' ? (
-          <Text v="caption" tone="textMuted">
-            Tus puntos se usan desde {money(redeemPlan.minRedeem)} y este pedido no
-            alcanza a absorberlos.
-          </Text>
         ) : null}
 
         <View style={styles.couponRow}>
@@ -1595,11 +1540,6 @@ export default function CheckoutScreen() {
           />
         </View>
         {couponError ? <Notice tone="error">{couponError}</Notice> : null}
-        {redeemPlan.kind === 'redeem' || ownCoupons.length > 0 ? (
-          <Text v="caption" tone="textMuted">
-            Un pedido admite un solo descuento: puntos o cupón.
-          </Text>
-        ) : null}
       </>
     )}
         </View>
@@ -1753,7 +1693,7 @@ const styles = StyleSheet.create({
   discountStack: { gap: Spacing.sm },
   couponApplied: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   ownCoupons: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  pointsCard: {
+  suggestedCouponRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,

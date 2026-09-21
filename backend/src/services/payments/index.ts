@@ -19,6 +19,7 @@ import {
   CheckoutConfig,
   PaymentInstrument,
   PseFinancialInstitution,
+  OtpAttempts,
 } from './provider';
 import { SandboxPaymentProvider } from './sandbox.provider';
 import {
@@ -98,7 +99,13 @@ export function isOnlinePaymentAvailable(): boolean {
  * pasa con el sandbox de desarrollo y con cualquier proveedor futuro que
  * solo sepa redirigir.
  */
-export function nativeCapabilities(): { native: boolean; pse: boolean; savedCards: boolean } {
+export function nativeCapabilities(): {
+  native: boolean;
+  pse: boolean;
+  savedCards: boolean;
+  bancolombiaTransfer: boolean;
+  daviplata: boolean;
+} {
   try {
     const provider = getPaymentProvider();
     const native = Boolean(provider.createNativePayment && provider.getCheckoutConfig);
@@ -106,9 +113,21 @@ export function nativeCapabilities(): { native: boolean; pse: boolean; savedCard
       native,
       pse: native && Boolean(provider.listPseBanks),
       savedCards: native && Boolean(provider.createPaymentSource),
+      // El Botón Bancolombia no necesita nada más del proveedor que crear la
+      // transacción: la dirección del banco llega dentro de la respuesta.
+      bancolombiaTransfer: native,
+      // DaviPlata sí: sin los servicios de código no hay forma de confirmar
+      // el cobro desde la app, y ofrecer el carril sería un callejón.
+      daviplata: native && Boolean(provider.validateOtp),
     };
   } catch {
-    return { native: false, pse: false, savedCards: false };
+    return {
+      native: false,
+      pse: false,
+      savedCards: false,
+      bancolombiaTransfer: false,
+      daviplata: false,
+    };
   }
 }
 
@@ -231,7 +250,9 @@ export type ClientInstrument =
     }
   | { kind: 'saved_card'; savedCardId: string; installments?: number }
   | Extract<PaymentInstrument, { kind: 'nequi' }>
-  | Extract<PaymentInstrument, { kind: 'pse' }>;
+  | Extract<PaymentInstrument, { kind: 'pse' }>
+  | Extract<PaymentInstrument, { kind: 'bancolombia_transfer' }>
+  | Extract<PaymentInstrument, { kind: 'daviplata' }>;
 
 interface InitiateNativeInput extends InitiateInput {
   /** Con qué se cobra. Nunca contiene número de tarjeta: ya está tokenizada. */
@@ -831,6 +852,10 @@ export class PaymentService {
 
       case 'nequi':
       case 'pse':
+      case 'bancolombia_transfer':
+      case 'daviplata':
+        // Pasan tal cual: ninguno lleva nada que haya que traducir ni que
+        // dependa de comprobar a quién pertenece algo guardado.
         return { instrument: client };
     }
   }
@@ -1477,6 +1502,97 @@ export class PaymentService {
     return Payment.find({ orderId }).sort({ createdAt: -1 });
   }
 
+  // ── Código de un solo uso (DaviPlata) ───────────────────────────────
+
+  /**
+   * El cobro sobre el que se puede pedir o validar un código.
+   *
+   * Un pago ajeno y uno inexistente responden lo mismo, igual que en
+   * `PaymentController.status`: distinguirlos convierte el endpoint en un
+   * oráculo con el que sondear referencias que no se tienen.
+   */
+  private async otpPayment(userId: string, key: string): Promise<IPayment> {
+    const notFound = new AppError('Pago no encontrado', 404);
+
+    const payment = await Payment.findOne({ $or: [{ transactionId: key }, { reference: key }] });
+    if (!payment) throw notFound;
+    if (payment.userId.toString() !== userId) throw notFound;
+    if (payment.method !== PaymentMethod.ONLINE) throw notFound;
+
+    // Un cobro ya resuelto no admite otro código. Sin esto, alguien con la
+    // referencia de un pago fallido podría seguir pidiéndole códigos a
+    // DaviPlata indefinidamente, a costa del comercio.
+    if (payment.status !== PaymentStatus.PENDING) {
+      throw new AppError('Este cobro ya se resolvió', 409, 'PAYMENT_NOT_PENDING');
+    }
+
+    if (payment.paymentMethodType !== 'DAVIPLATA') {
+      throw new AppError('Este cobro no se confirma con un código', 409, 'OTP_NOT_APPLICABLE');
+    }
+
+    // La referencia es nuestra; el servicio de código es de la pasarela y
+    // solo existe cuando ella ya abrió la transacción.
+    if (!payment.transactionId || payment.transactionId === payment.reference) {
+      throw new AppError('El cobro todavía no está listo', 409, 'PAYMENT_NOT_READY');
+    }
+
+    return payment;
+  }
+
+  /** Vuelve a pedirle a la pasarela que le mande el código a quien paga. */
+  async resendOtp(input: { userId: string; transactionId: string }): Promise<{
+    attempts?: OtpAttempts;
+  }> {
+    const provider = getPaymentProvider();
+    if (!provider.resendOtp) {
+      throw new AppError('Esta pasarela no reenvía códigos', 501, 'NOT_IMPLEMENTED');
+    }
+
+    const payment = await this.otpPayment(input.userId, input.transactionId);
+    const attempts = await provider.resendOtp(payment.transactionId!);
+
+    return { attempts };
+  }
+
+  /**
+   * Entrega el código que escribió quien paga.
+   *
+   * El resultado **no** se escribe aquí: se pasa por `applyGatewayStatus`,
+   * el mismo camino del webhook y del polling, con su reclamo atómico. Un
+   * código validado no puede ser una segunda puerta para marcar un pedido
+   * como pagado; si lo fuera, habría dos sitios que mueven dinero y solo uno
+   * comprueba el importe.
+   */
+  async validateOtp(input: { userId: string; transactionId: string; code: string }): Promise<{
+    accepted: boolean;
+    attempts?: OtpAttempts;
+    intent: PaymentIntent;
+  }> {
+    const provider = getPaymentProvider();
+    if (!provider.validateOtp) {
+      throw new AppError('Esta pasarela no valida códigos', 501, 'NOT_IMPLEMENTED');
+    }
+
+    const payment = await this.otpPayment(input.userId, input.transactionId);
+    const outcome = await provider.validateOtp(payment.transactionId!, input.code);
+
+    await this.applyGatewayStatus(
+      payment.transactionId!,
+      outcome.intent.status,
+      outcome.intent.amount,
+      {
+        gatewayTransactionId: outcome.intent.id,
+        currency: outcome.intent.currency,
+        message: outcome.intent.declineReason,
+        paymentMethodType: outcome.intent.paymentMethodType,
+        rawStatus: outcome.intent.rawStatus,
+        source: 'sync',
+      }
+    );
+
+    return { accepted: outcome.accepted, attempts: outcome.attempts, intent: outcome.intent };
+  }
+
   // ── Efectivo ───────────────────────────────────────────────────────
   //
   // El efectivo no lo recibe ZIPP: lo recibe una persona en una puerta.
@@ -1856,3 +1972,87 @@ export class PaymentService {
 }
 
 export const paymentService = new PaymentService();
+
+// ── Barrido de cobros en el aire ──────────────────────────────────────
+//
+// Un cobro asíncrono —Bancolombia, DaviPlata, PSE, Nequi— puede quedarse
+// `PENDING` para siempre: basta que el webhook no llegue y que quien paga
+// cierre la app antes de que el polling vea el desenlace. El dinero está en
+// la pasarela y el pedido sigue sin aceptarse.
+//
+// Esto lo cierra preguntando. **Solo consulta**: nunca inventa un estado
+// terminal. Inventarlo sería peor que el problema — un cobro real marcado
+// como fallido deja dinero cobrado sin pedido detrás.
+
+/** Cuánto se le da a un cobro antes de preguntar por él. */
+const PENDING_SWEEP_MIN_AGE_MS = 2 * 60_000;
+
+/**
+ * A partir de aquí se deja de preguntar.
+ *
+ * Sin este tope, una fila que la pasarela ya no reconoce se consultaría cada
+ * cinco minutos hasta el fin de los tiempos.
+ */
+const PENDING_SWEEP_MAX_AGE_MS = 24 * 60 * 60_000;
+
+/** Cuántas filas por pasada. Acotado: cada una es una llamada a la pasarela. */
+const PENDING_SWEEP_BATCH = 100;
+
+let pendingSweepTimer: ReturnType<typeof setInterval> | null = null;
+
+export async function sweepPendingPayments(now = new Date()): Promise<{
+  checked: number;
+  failed: number;
+}> {
+  const rows = await Payment.find({
+    status: PaymentStatus.PENDING,
+    method: PaymentMethod.ONLINE,
+    updatedAt: {
+      $lt: new Date(now.getTime() - PENDING_SWEEP_MIN_AGE_MS),
+      $gt: new Date(now.getTime() - PENDING_SWEEP_MAX_AGE_MS),
+    },
+    transactionId: { $exists: true, $ne: null },
+    // La referencia es nuestra; mientras `transactionId` siga siendo la
+    // referencia, la pasarela no tiene ninguna transacción que consultar.
+    $expr: { $ne: ['$transactionId', '$reference'] },
+  })
+    .sort({ updatedAt: 1 })
+    .limit(PENDING_SWEEP_BATCH);
+
+  let checked = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    try {
+      await paymentService.sync(row.transactionId!);
+      checked += 1;
+    } catch (error) {
+      // Una pasarela caída no debe tumbar el barrido entero: la fila se
+      // vuelve a mirar en la pasada siguiente.
+      failed += 1;
+      console.error('[PAYMENTS] El barrido no pudo consultar un cobro', {
+        paymentId: row._id.toString(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return { checked, failed };
+}
+
+export function startPendingPaymentSweeper(intervalMs = 5 * 60_000): void {
+  if (pendingSweepTimer) return;
+  pendingSweepTimer = setInterval(() => {
+    sweepPendingPayments().catch((err) =>
+      console.error('[PAYMENTS] Falló el barrido de cobros pendientes:', err)
+    );
+  }, intervalMs);
+  // Que un temporizador de fondo no impida cerrar el proceso.
+  pendingSweepTimer.unref?.();
+}
+
+export function stopPendingPaymentSweeper(): void {
+  if (!pendingSweepTimer) return;
+  clearInterval(pendingSweepTimer);
+  pendingSweepTimer = null;
+}

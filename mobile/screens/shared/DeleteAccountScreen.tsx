@@ -21,7 +21,7 @@ import { IS_DRIVER_APP } from '../../constants/variant';
 const WHAT_HAPPENS = [
   'Borramos tu nombre, celular, correo, foto, documento y fecha de nacimiento.',
   'Borramos tus direcciones y tus negocios favoritos.',
-  'Pierdes tus puntos, cupones y códigos de invitación.',
+  'Pierdes tus cupones y códigos de invitación.',
   'Se cierra tu sesión en todos tus dispositivos y no podrás volver a entrar con esta cuenta.',
   'Tus pedidos pasados se conservan sin tus datos ni tu dirección exacta: la ley nos obliga a guardar el registro contable.',
 ];

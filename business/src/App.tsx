@@ -16,17 +16,17 @@ import { lazyPage } from './lib/lazyPage';
  * único archivo de 670 KB que había que bajar y evaluar antes de ver la
  * cocina. Ahora el primer pintado solo lleva el Layout y la página abierta.
  */
-const Login = lazyPage(() => import('./pages/Login'));
-const Dashboard = lazyPage(() => import('./pages/Dashboard'));
-const OrdersPage = lazyPage(() => import('./pages/Orders'));
-const MenuPage = lazyPage(() => import('./pages/Menu'));
-const ReviewsPage = lazyPage(() => import('./pages/Reviews'));
-const SettingsPage = lazyPage(() => import('./pages/Settings'));
-const PromotionsPage = lazyPage(() => import('./pages/Promotions'));
-const AdvertisingPage = lazyPage(() => import('./pages/Advertising'));
-const AnalyticsPage = lazyPage(() => import('./pages/Analytics'));
-const StaffPage = lazyPage(() => import('./pages/Staff'));
-const SettlementsPage = lazyPage(() => import('./pages/Settlements'));
+const Login = lazyPage(() => import('./pages/Login'), '/login');
+const Dashboard = lazyPage(() => import('./pages/Dashboard'), '/');
+const OrdersPage = lazyPage(() => import('./pages/Orders'), '/orders');
+const MenuPage = lazyPage(() => import('./pages/Menu'), '/menu');
+const ReviewsPage = lazyPage(() => import('./pages/Reviews'), '/reviews');
+const SettingsPage = lazyPage(() => import('./pages/Settings'), '/settings');
+const PromotionsPage = lazyPage(() => import('./pages/Promotions'), '/promotions');
+const AdvertisingPage = lazyPage(() => import('./pages/Advertising'), '/advertising');
+const AnalyticsPage = lazyPage(() => import('./pages/Analytics'), '/analytics');
+const StaffPage = lazyPage(() => import('./pages/Staff'), '/staff');
+const SettlementsPage = lazyPage(() => import('./pages/Settlements'), '/settlements');
 
 /**
  * Caché de lecturas del panel. 30 s de frescura: ir de Pedidos a la cocina

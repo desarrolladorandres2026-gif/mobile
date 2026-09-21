@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
   X, ShoppingBag, CreditCard, Star, MessageSquareWarning, ShieldAlert,
-  Smartphone, ScrollText, AlertTriangle, Gift,
+  Smartphone, ScrollText, AlertTriangle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import api from '../services/api';
-import { apiMessage } from '../lib/apiError';
 
 /**
  * Historial completo de una persona.
@@ -28,7 +27,6 @@ interface Profile360 {
     cancelled: number;
     spent: number;
     cancellationRate: number;
-    loyaltyPoints: number;
   };
   recentOrders: Array<{
     _id: string;
@@ -69,97 +67,6 @@ function Section({
         <Icon className="h-3 w-3 text-[var(--color-primary)]" /> {title}
       </span>
       {empty ? <p className="text-[var(--color-text-muted)]">Nada por aquí.</p> : children}
-    </div>
-  );
-}
-
-/**
- * Corregir el saldo de puntos de un cliente a mano.
- *
- * Existe para resolver un reclamo ("el pedido llegó tarde", "no me dieron
- * los puntos") sin tocar la base de datos. Los puntos son un pasivo de ZIPP,
- * así que el servidor exige permiso de finanzas y un motivo, y deja el
- * ajuste firmado con quien lo hizo.
- */
-function LoyaltyAdjust({
-  userId,
-  onAdjusted,
-}: {
-  userId: string;
-  onAdjusted: (balance: number) => void;
-}) {
-  const [points, setPoints] = useState('');
-  const [reason, setReason] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
-
-  const submit = async () => {
-    const amount = Math.trunc(Number(points));
-    if (!amount) {
-      setMessage({ tone: 'error', text: 'Escribe cuántos puntos sumar (o restar, con signo menos).' });
-      return;
-    }
-    if (reason.trim().length < 5) {
-      setMessage({ tone: 'error', text: 'Escribe el motivo (mínimo 5 caracteres). Queda en el historial del cliente.' });
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setMessage(null);
-      const res = await api.post(`/admin/users/${userId}/loyalty-adjustment`, {
-        points: amount,
-        reason: reason.trim(),
-      });
-      onAdjusted(res.data.data.balance);
-      setPoints('');
-      setReason('');
-      setMessage({
-        tone: 'ok',
-        text: `${amount > 0 ? 'Sumados' : 'Restados'} ${Math.abs(amount)} puntos. Saldo: ${res.data.data.balance}.`,
-      });
-    } catch (err) {
-      setMessage({ tone: 'error', text: apiMessage(err, 'No se pudo ajustar el saldo.') });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="mt-4 space-y-2 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg)] p-3">
-      <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
-        <Gift className="h-3 w-3 text-[var(--color-primary)]" /> Ajustar puntos
-      </span>
-      <div className="flex gap-2">
-        <input
-          type="number"
-          step={1}
-          value={points}
-          onChange={(e) => setPoints(e.target.value)}
-          placeholder="+500 o -200"
-          aria-label="Puntos a sumar o restar"
-          className="h-9 w-28 shrink-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 font-mono text-xs font-bold text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
-        />
-        <input
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Motivo: pedido llegó 40 min tarde"
-          aria-label="Motivo del ajuste"
-          className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 text-xs text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
-        />
-        <button
-          onClick={submit}
-          disabled={saving}
-          className="h-9 shrink-0 cursor-pointer rounded-lg bg-[var(--color-primary)] px-3 text-xs font-bold text-white disabled:opacity-50"
-        >
-          {saving ? 'Guardando…' : 'Aplicar'}
-        </button>
-      </div>
-      {message ? (
-        <p className={message.tone === 'ok' ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}>
-          {message.text}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -232,7 +139,6 @@ export default function UserProfile360({
                 { label: '% cancelación', value: `${data.totals.cancellationRate}%` },
                 { label: 'Entregados', value: String(data.totals.delivered) },
                 { label: 'Cancelados', value: String(data.totals.cancelled) },
-                { label: 'Puntos', value: String(data.totals.loyaltyPoints) },
               ].map((kpi) => (
                 <div
                   key={kpi.label}
@@ -245,17 +151,6 @@ export default function UserProfile360({
                 </div>
               ))}
             </div>
-
-            {data.user.role === 'client' ? (
-              <LoyaltyAdjust
-                userId={userId}
-                onAdjusted={(balance) =>
-                  setData((prev) =>
-                    prev ? { ...prev, totals: { ...prev.totals, loyaltyPoints: balance } } : prev
-                  )
-                }
-              />
-            ) : null}
 
             <Section icon={ShieldAlert} title="Alertas abiertas" empty={!data.risk.openAlerts.length}>
               <ul className="space-y-1">

@@ -105,11 +105,9 @@ export function reorder(usual: UsualOrder) {
 }
 
 /**
- * Racha y puntos, calculados del historial real.
+ * Pedidos, calculados del historial real.
  *
- * No hay tabla de fidelización en el servidor todavía, así que esto se deriva
- * de los pedidos que ya existen. Es honesto: muestra lo que de verdad has
- * pedido, sin prometer un canje que el backend aún no puede cumplir.
+ * Se deriva de los pedidos que ya existen.
  */
 export function useZippStats() {
   const { data } = useMyOrders(1);
@@ -119,38 +117,6 @@ export function useZippStats() {
     const delivered = orders.filter((o) => o.status === 'delivered');
 
     const totalSpent = delivered.reduce((sum, o) => sum + (o.total ?? 0), 0);
-    // Un punto por cada mil pesos entregados.
-    /**
-     * OBSOLETO: los puntos viven ahora en el servidor.
-     *
-     * Este cálculo salía del historial local, así que cambiaba de teléfono
-     * a teléfono y desaparecía al reinstalar. Se conserva solo porque
-     * pantallas viejas podrían leerlo mientras se migran; el saldo bueno
-     * es `useLoyalty().balance`. No lo uses en nada nuevo.
-     */
-    const points = Math.floor(totalSpent / 1000);
-
-    // Semanas seguidas con al menos un pedido, contando hacia atrás.
-    const weeks = new Set(
-      delivered.map((o) => {
-        const d = new Date(o.createdAt);
-        const firstJan = new Date(d.getFullYear(), 0, 1);
-        const week = Math.floor((d.getTime() - firstJan.getTime()) / (7 * 86_400_000));
-        return `${d.getFullYear()}-${week}`;
-      })
-    );
-
-    const now = new Date();
-    const firstJan = new Date(now.getFullYear(), 0, 1);
-    const currentWeek = Math.floor((now.getTime() - firstJan.getTime()) / (7 * 86_400_000));
-
-    let streak = 0;
-    for (let back = 0; back < 52; back++) {
-      const w = currentWeek - back;
-      const key = w >= 0 ? `${now.getFullYear()}-${w}` : `${now.getFullYear() - 1}-${52 + w}`;
-      if (weeks.has(key)) streak++;
-      else if (back > 0) break;
-    }
 
     const favoriteBusiness = mostFrequent(
       delivered.map((o) => o.businessId?.name).filter(Boolean)
@@ -159,8 +125,6 @@ export function useZippStats() {
     return {
       orderCount: delivered.length,
       totalSpent,
-      points,
-      streak,
       favoriteBusiness,
     };
   }, [data]);

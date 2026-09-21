@@ -776,36 +776,6 @@ export const cartApi = {
   clear: () => api.delete('/cart'),
 };
 
-export interface LoyaltyMovement {
-  _id: string;
-  kind: 'earned' | 'redeemed' | 'expired' | 'reversed' | 'adjusted';
-  points: number;
-  description: string;
-  createdAt: string;
-  expiresAt?: string | null;
-}
-
-export const loyaltyApi = {
-  /**
-   * Saldo y movimientos.
-   *
-   * Los puntos ya no se derivan del historial local: viven en el servidor,
-   * así que sobreviven a cambiar de teléfono y son los mismos que ZIPP
-   * tiene anotados como deuda.
-   */
-  mine: (): Promise<{
-    balance: number;
-    minRedeem: number;
-    /** Lo máximo que un canje puede descontar en un pedido. 0 = sin tope. */
-    maxPerOrder: number;
-    history: LoyaltyMovement[];
-  }> => api.get('/loyalty').then((r) => r.data.data),
-
-  /** Cambia puntos por un cupón nominal. Devuelve el cupón entero. */
-  redeem: (points: number) =>
-    api.post('/loyalty/redeem', { points }).then((r) => r.data.data),
-};
-
 export const errandsApi = {
   /**
    * Crea un mandado: un pedido sin comercio detrás.
@@ -1369,7 +1339,6 @@ export interface ReferralStats {
   invited: number;
   /** De esa gente, cuántos ya compraron — que es cuando se paga el premio. */
   rewarded: number;
-  pointsPerReferral: number;
 }
 
 /**

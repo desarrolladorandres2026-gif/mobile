@@ -120,6 +120,26 @@ export const paymentStatusRateLimiter = rateLimit({
 });
 
 /**
+ * Código de un solo uso de DaviPlata — 10 por 15 minutos.
+ *
+ * Nada que ver con el limitador de consultas: aquí cada llamada le pide a la
+ * pasarela que mande un SMS o comprueba un código de seis dígitos. Wompi ya
+ * corta a dos intentos por sesión, pero nada le impide a alguien abrir
+ * sesiones nuevas; esto es lo que hace que barrer el espacio de códigos
+ * cueste tiempo en vez de nada.
+ */
+export const paymentOtpRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: limitFor(10),
+  message: {
+    success: false,
+    message: 'Demasiados intentos con el código. Espera unos minutos.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
  * The gateway callback — 300 per minute per IP.
  *
  * High on purpose. This endpoint is unauthenticated by necessity and the

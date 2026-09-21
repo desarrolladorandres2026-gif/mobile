@@ -33,13 +33,6 @@ export const EDITABLE_PRICING_FIELDS = [
   'couponSubsidyLimit',
   'campaignBudgetTotal',
   'defaultMinimumContributionMargin',
-  // Un programa de puntos es un coste por pedido que sale del margen, igual
-  // que una comisión: se decide aquí, con motivo y versión, y no editando la
-  // base de datos a mano. El modelo lo deja apagado de fábrica a propósito;
-  // esto es lo que permite encenderlo sin tocar código.
-  'loyaltyEarnBps',
-  'loyaltyExpiryDays',
-  'loyaltyMinRedeem',
   'cashOnDeliveryEnabled',
   'cashOnDeliveryMaxAmount',
   'maxDriverCashDebt',

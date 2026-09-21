@@ -17,32 +17,33 @@ import { lazyPage } from './lib/lazyPage';
  * mapbox-gl (~800 KB) sigue siendo lo más pesado y sigue en su propio
  * archivo, dentro de FleetMap.
  */
-const Login = lazyPage(() => import('./pages/Login'));
-const Dashboard = lazyPage(() => import('./pages/Dashboard'));
-const DailySummary = lazyPage(() => import('./pages/DailySummary'));
-const Orders = lazyPage(() => import('./pages/Orders'));
-const Evidences = lazyPage(() => import('./pages/Evidences'));
-const Businesses = lazyPage(() => import('./pages/Businesses'));
-const BusinessApprovals = lazyPage(() => import('./pages/BusinessApprovals'));
-const ReviewModeration = lazyPage(() => import('./pages/ReviewModeration'));
-const Incidents = lazyPage(() => import('./pages/Incidents'));
-const Support = lazyPage(() => import('./pages/Support'));
-const Drivers = lazyPage(() => import('./pages/Drivers'));
-const DriverDocuments = lazyPage(() => import('./pages/DriverDocuments'));
-const FleetMap = lazyPage(() => import('./pages/FleetMap'));
-const Users = lazyPage(() => import('./pages/Users'));
-const Positions = lazyPage(() => import('./pages/Positions'));
-const Roles = lazyPage(() => import('./pages/Roles'));
-const Financials = lazyPage(() => import('./pages/Financials'));
-const Pricing = lazyPage(() => import('./pages/Pricing'));
-const Security = lazyPage(() => import('./pages/Security'));
-const LegalOps = lazyPage(() => import('./pages/LegalOps'));
-const Campaigns = lazyPage(() => import('./pages/Campaigns'));
-const Coupons = lazyPage(() => import('./pages/Coupons'));
-const Zones = lazyPage(() => import('./pages/Zones'));
-const HomeBanners = lazyPage(() => import('./pages/HomeBanners'));
-const HomeCategories = lazyPage(() => import('./pages/HomeCategories'));
-const SearchInsights = lazyPage(() => import('./pages/SearchInsights'));
+const Login = lazyPage(() => import('./pages/Login'), '/login');
+const Dashboard = lazyPage(() => import('./pages/Dashboard'), '/');
+const DailySummary = lazyPage(() => import('./pages/DailySummary'), '/daily-summary');
+const Orders = lazyPage(() => import('./pages/Orders'), '/orders');
+const Evidences = lazyPage(() => import('./pages/Evidences'), '/evidences');
+const Businesses = lazyPage(() => import('./pages/Businesses'), '/businesses');
+const BusinessApprovals = lazyPage(() => import('./pages/BusinessApprovals'), '/business-approvals');
+const ReviewModeration = lazyPage(() => import('./pages/ReviewModeration'), '/reviews');
+const Incidents = lazyPage(() => import('./pages/Incidents'), '/incidents');
+const Support = lazyPage(() => import('./pages/Support'), '/support');
+const Drivers = lazyPage(() => import('./pages/Drivers'), '/drivers');
+const DriverDocuments = lazyPage(() => import('./pages/DriverDocuments'), '/driver-documents');
+const FleetMap = lazyPage(() => import('./pages/FleetMap'), '/fleet');
+const Users = lazyPage(() => import('./pages/Users'), '/users');
+const Positions = lazyPage(() => import('./pages/Positions'), '/positions');
+const Roles = lazyPage(() => import('./pages/Roles'), '/roles');
+const Financials = lazyPage(() => import('./pages/Financials'), '/financials');
+const Pricing = lazyPage(() => import('./pages/Pricing'), '/pricing');
+const Security = lazyPage(() => import('./pages/Security'), '/security');
+const LegalOps = lazyPage(() => import('./pages/LegalOps'), '/legal');
+const Campaigns = lazyPage(() => import('./pages/Campaigns'), '/campaigns');
+const Coupons = lazyPage(() => import('./pages/Coupons'), '/coupons');
+const Zones = lazyPage(() => import('./pages/Zones'), '/zones');
+const HomeBanners = lazyPage(() => import('./pages/HomeBanners'), '/home-banners');
+const HomeCategories = lazyPage(() => import('./pages/HomeCategories'), '/home-categories');
+const CuratedHomeBlocks = lazyPage(() => import('./pages/CuratedHomeBlocks'), '/curated-home-blocks');
+const SearchInsights = lazyPage(() => import('./pages/SearchInsights'), '/search-insights');
 
 // 30 s de frescura por defecto: navegar entre páginas y volver no repite
 // peticiones que acaban de hacerse, y cada pantalla sigue pudiendo pedir
@@ -98,6 +99,7 @@ function App() {
             <Route path="zones" element={<Zones />} />
             <Route path="home-banners" element={<HomeBanners />} />
             <Route path="home-categories" element={<HomeCategories />} />
+            <Route path="curated-home-blocks" element={<CuratedHomeBlocks />} />
             <Route path="search-insights" element={<SearchInsights />} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />

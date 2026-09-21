@@ -11,6 +11,8 @@ import {
   PaymentInstrument,
   PseFinancialInstitution,
   CreatePaymentSourceInput,
+  OtpAttempts,
+  OtpOutcome,
 } from './provider';
 
 /**
@@ -121,7 +123,65 @@ interface WompiTransaction {
         current_step_status?: string;
         three_ds_method_data?: string;
       };
+      /**
+       * DaviPlata. Las tres direcciones con las que el comercio puede pintar
+       * su propia pantalla de código en vez de mandar a la persona a la de
+       * Wompi. El `token` autoriza a confirmar el cobro: no sale de aquí.
+       */
+      url_services?: {
+        token?: string;
+        code_otp_send?: string;
+        code_otp_validate?: string;
+      };
     };
+  };
+}
+
+/** Lo que Wompi contesta en los dos servicios de código de DaviPlata. */
+interface WompiOtpResponse {
+  status?: number;
+  code?: string;
+  message?: string;
+  data?: {
+    transaction?: {
+      status?: string;
+      steps?: { ConfirmIntention?: unknown[] };
+    };
+    attempts?: {
+      currentSendCode?: number;
+      limitSendCode?: number;
+      currentValidateCode?: number;
+      limitValidateCode?: number;
+    };
+  };
+}
+
+/**
+ * Las direcciones de `url_services` llegan dentro de una respuesta remota, y
+ * se llaman con el `Bearer` que autoriza a confirmar un cobro. Sin esta
+ * comprobación, una respuesta manipulada convierte al servidor en el
+ * mensajero que le entrega esa credencial a quien la haya puesto ahí.
+ */
+function isWompiUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && (url.hostname === 'wompi.co' || url.hostname.endsWith('.wompi.co'));
+  } catch {
+    return false;
+  }
+}
+
+function readAttempts(payload: WompiOtpResponse | null): OtpAttempts | undefined {
+  const a = payload?.data?.attempts;
+  if (!a) return undefined;
+  const n = (v: unknown, fallback: number) =>
+    typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
+  return {
+    sent: n(a.currentSendCode, 0),
+    maxSends: n(a.limitSendCode, 0),
+    validated: n(a.currentValidateCode, 0),
+    maxValidations: n(a.limitValidateCode, 0),
   };
 }
 
@@ -155,6 +215,17 @@ const CHECKOUT_CONFIG_TTL_MS = 5 * 60_000;
 const PSE_BANKS_TTL_MS = 30 * 60_000;
 
 /**
+ * Carriles que no se resuelven en la respuesta de Wompi y mandan a la
+ * persona a autenticarse fuera. Los tres necesitan una dirección de regreso,
+ * que pone el servidor.
+ */
+const ASYNC_INSTRUMENT_KINDS = new Set<PaymentInstrument['kind']>([
+  'pse',
+  'bancolombia_transfer',
+  'daviplata',
+]);
+
+/**
  * Lo que todavía le falta hacer al cliente, si algo le falta.
  *
  * Dos carriles no terminan en la respuesta de Wompi: PSE devuelve la URL de
@@ -168,11 +239,23 @@ const PSE_BANKS_TTL_MS = 30 * 60_000;
 function extractPendingAction(tx: WompiTransaction): {
   asyncPaymentUrl?: string;
   threeDsChallengeHtml?: string;
+  otpRequired?: boolean;
 } {
   const extra = tx.payment_method?.extra;
   if (!extra) return {};
 
-  const result: { asyncPaymentUrl?: string; threeDsChallengeHtml?: string } = {};
+  const result: {
+    asyncPaymentUrl?: string;
+    threeDsChallengeHtml?: string;
+    otpRequired?: boolean;
+  } = {};
+
+  // DaviPlata: si hay servicio de validación, el cobro está esperando un
+  // código. La dirección se comprueba aquí y no se guarda: quien la vuelve a
+  // necesitar relee la transacción.
+  if (isWompiUrl(extra.url_services?.code_otp_validate) && extra.url_services?.token) {
+    result.otpRequired = true;
+  }
 
   // Solo https: un `javascript:` o un `data:` colocado aquí se ejecutaría
   // dentro del WebView de la app, con su origen.
@@ -657,6 +740,32 @@ export class WompiPaymentProvider implements PaymentProvider {
       case 'nequi':
         return { type: 'NEQUI', phone_number: instrument.phone };
 
+      case 'bancolombia_transfer': {
+        const method: Record<string, unknown> = {
+          type: 'BANCOLOMBIA_TRANSFER',
+          // Wompi lo espera como texto, no como el 0/1 de PSE. Quien compra
+          // en Zipp es una persona; un comercio pagándose a sí mismo no es
+          // un caso que exista aquí.
+          user_type: 'PERSON',
+          payment_description: description.slice(0, 30),
+          // A dónde manda Bancolombia al terminar. La misma de siempre: el
+          // WebView de la app la intercepta antes de cargarla.
+          ecommerce_url: config.payments.wompi.returnUrl,
+        };
+        // Solo en sandbox: es como se elige el desenlace de la prueba. En
+        // producción Wompi lo ignora y aquí ni se envía.
+        if (!this.isProduction) method.sandbox_status = config.payments.wompi.sandboxAsyncStatus;
+        return method;
+      }
+
+      case 'daviplata':
+        return {
+          type: 'DAVIPLATA',
+          user_legal_id_type: instrument.userLegalIdType,
+          user_legal_id: instrument.userLegalId,
+          payment_description: description.slice(0, 30),
+        };
+
       case 'pse':
         return {
           type: 'PSE',
@@ -715,10 +824,13 @@ export class WompiPaymentProvider implements PaymentProvider {
 
     if (input.personalDataAuthToken) body.accept_personal_auth = input.personalDataAuthToken;
 
-    // PSE devuelve a la persona a esta dirección cuando su banco termina. La
-    // pone el servidor, nunca la app: https y en un dominio nuestro. El
-    // WebView de la app la intercepta antes de cargarla.
-    if (input.instrument.kind === 'pse') body.redirect_url = config.payments.wompi.returnUrl;
+    // PSE, Bancolombia y DaviPlata devuelven a la persona a esta dirección
+    // cuando su banco termina. La pone el servidor, nunca la app: https y en
+    // un dominio nuestro. El WebView de la app la intercepta antes de
+    // cargarla.
+    if (ASYNC_INSTRUMENT_KINDS.has(input.instrument.kind)) {
+      body.redirect_url = config.payments.wompi.returnUrl;
+    }
 
     const customerData: Record<string, unknown> = {};
     if (input.customer.name) customerData.full_name = input.customer.name;
@@ -861,5 +973,119 @@ export class WompiPaymentProvider implements PaymentProvider {
     }
 
     return { id };
+  }
+
+  // ── Código de un solo uso (DaviPlata) ──
+
+  /**
+   * Las direcciones del servicio de código, releídas de la pasarela.
+   *
+   * Se piden en cada uso en vez de guardarse con el cobro a propósito: el
+   * `token` que viaja dentro autoriza a confirmar esa transacción, y una
+   * credencial que no se guarda no se puede filtrar desde la base de datos
+   * ni caducar sin que nadie se entere.
+   */
+  private async otpServices(gatewayTransactionId: string): Promise<{
+    token: string;
+    send?: string;
+    validate?: string;
+  }> {
+    const intent = await this.getPayment(gatewayTransactionId);
+    const extra = (intent.raw as WompiTransaction | undefined)?.payment_method?.extra;
+    const services = extra?.url_services;
+
+    if (!services?.token) {
+      throw new Error('Esta transacción de Wompi ya no admite código de verificación');
+    }
+
+    return {
+      token: services.token,
+      send: isWompiUrl(services.code_otp_send) ? services.code_otp_send : undefined,
+      validate: isWompiUrl(services.code_otp_validate) ? services.code_otp_validate : undefined,
+    };
+  }
+
+  private async callOtpService(
+    url: string,
+    token: string,
+    body?: Record<string, unknown>
+  ): Promise<{ ok: boolean; httpStatus: number; payload: WompiOtpResponse | null }> {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      // `code_otp_send` no lleva cuerpo; `code_otp_validate` lleva el código.
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    const payload = (await res.json().catch(() => null)) as WompiOtpResponse | null;
+    return { ok: res.ok, httpStatus: res.status, payload };
+  }
+
+  /** Pide a Wompi que le vuelva a mandar el código a quien paga. */
+  async resendOtp(gatewayTransactionId: string): Promise<OtpAttempts | undefined> {
+    const services = await this.otpServices(gatewayTransactionId);
+    if (!services.send) {
+      throw new Error('Esta transacción de Wompi no permite reenviar el código');
+    }
+
+    const { ok, httpStatus, payload } = await this.callOtpService(services.send, services.token);
+
+    if (!ok) {
+      // 422 es el "ya no quedan envíos" de Wompi, y es una respuesta, no un
+      // fallo de red: se propaga con su mensaje para que el cliente lo lea.
+      const detail = typeof payload?.message === 'string' ? payload.message : '';
+      throw new Error(
+        `Wompi no reenvió el código (HTTP ${httpStatus}). ${detail}`.trim().slice(0, 300)
+      );
+    }
+
+    return readAttempts(payload);
+  }
+
+  /**
+   * Entrega el código que escribió quien paga.
+   *
+   * El matiz que no se ve: **un código errado también responde 200**. Wompi
+   * distingue el acierto por la presencia de `ConfirmIntention` dentro de
+   * los pasos de la transacción, no por el código HTTP. Tratar todo 200 como
+   * éxito daría por pagado un pedido con un código inventado.
+   */
+  async validateOtp(gatewayTransactionId: string, code: string): Promise<OtpOutcome> {
+    const services = await this.otpServices(gatewayTransactionId);
+    if (!services.validate) {
+      throw new Error('Esta transacción de Wompi no permite validar un código');
+    }
+
+    // Wompi documenta el código como número, no como texto.
+    const numeric = Number(code);
+    if (!Number.isInteger(numeric) || numeric < 0) {
+      throw new Error('El código de verificación tiene que ser numérico');
+    }
+
+    const { ok, httpStatus, payload } = await this.callOtpService(
+      services.validate,
+      services.token,
+      { code: numeric }
+    );
+
+    if (!ok) {
+      const detail = typeof payload?.message === 'string' ? payload.message : '';
+      throw new Error(
+        `Wompi rechazó el código (HTTP ${httpStatus}). ${detail}`.trim().slice(0, 300)
+      );
+    }
+
+    const steps = payload?.data?.transaction?.steps?.ConfirmIntention;
+    const accepted = Array.isArray(steps) && steps.length > 0;
+
+    // Se relee la transacción por la API de Transacciones en vez de creerle
+    // al cuerpo de este servicio: el estado que manda es el mismo que ve el
+    // webhook, y así hay una sola versión de la verdad.
+    const intent = await this.getPayment(gatewayTransactionId);
+
+    return { accepted, attempts: readAttempts(payload), intent };
   }
 }

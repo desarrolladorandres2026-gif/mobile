@@ -34,7 +34,6 @@ describe('shouldPersistQuery', () => {
     [['tracking', 'abc']],
     [['payments', 'cards']],
     [['payments', 'methods']],
-    [['loyalty']],
     [['coupons', 'mine']],
     [['driver', 'earnings', '2026-09-18']],
     [['driver', 'debts']],

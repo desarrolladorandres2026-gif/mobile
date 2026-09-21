@@ -3,6 +3,7 @@ import { View, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Text } from '../ui';
 import { categoryIllustration } from '../illustrations';
+import { categoryLogo } from '../../lib/categoryLogos';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { tap } from '../../lib/haptics';
 
@@ -44,7 +45,9 @@ export const CategoryTile = memo(function CategoryTile({
   const [broken, setBroken] = useState(false);
 
   const Illustration = categoryIllustration(categoryKey);
-  const showImage = !!imageUrl && !broken;
+  const logo = categoryLogo(categoryKey);
+  const source = imageUrl ? { uri: imageUrl } : logo;
+  const showImage = !!source && !broken;
 
   return (
     <Pressable
@@ -54,12 +57,12 @@ export const CategoryTile = memo(function CategoryTile({
       accessibilityState={selected !== undefined ? { selected } : undefined}
       style={styles.tileWrap}
     >
-      <View style={[styles.box, !showImage && color ? { backgroundColor: color } : null]}>
+      <View style={[styles.box, showImage && !imageUrl ? styles.logoBox : null, !showImage && color ? { backgroundColor: color } : null]}>
         {showImage ? (
           <Image
-            source={{ uri: imageUrl }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
+            source={source}
+            style={imageUrl ? StyleSheet.absoluteFill : styles.logoImage}
+            contentFit={imageUrl ? 'cover' : 'contain'}
             cachePolicy="memory-disk"
             recyclingKey={`cat-${categoryKey}`}
             onError={() => setBroken(true)}
@@ -91,4 +94,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+
+  // El logo (emoji-style, fondo transparente) no llena el cuadro como una
+  // foto: se centra con aire alrededor sobre un fondo neutro.
+  logoBox: { backgroundColor: 'rgba(148, 138, 111, 0.12)' },
+  logoImage: { width: '58%', height: '58%' },
 });

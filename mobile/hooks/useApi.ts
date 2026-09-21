@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import { paymentPollInterval } from '../lib/paymentPolling';
 import { pollInterval } from '../stores/realtimeStore';
-import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, loyaltyApi, errandsApi, offersApi, referralsApi, homeSectionsApi, exploreApi, authApi, proApi } from '../services/endpoints';
+import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, errandsApi, offersApi, referralsApi, homeSectionsApi, exploreApi, authApi, proApi } from '../services/endpoints';
 import type {
   PromoBanner, HomeCategory, SearchSort, CancellationCode,
   ReviewReasonDriverToClient, ReviewReasonDriverToBusiness, OwnCoupon, ActiveSession,
@@ -258,35 +258,6 @@ export const useTopSellers = (businessId: string, enabled = true) =>
     enabled: !!businessId && enabled,
     staleTime: 10 * 60_000,
   });
-
-// ── Puntos ZIPP ──
-
-/**
- * Saldo real de puntos, del servidor.
- *
- * Sustituye a `useZippStats().points`, que los derivaba del historial local
- * del teléfono: cambiaban de dispositivo a dispositivo y desaparecían al
- * reinstalar, porque no existían en ninguna parte.
- */
-export const useLoyalty = () =>
-  useQuery({
-    queryKey: ['loyalty'],
-    queryFn: () => loyaltyApi.mine(),
-    staleTime: 60_000,
-  });
-
-export const useRedeemPoints = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (points: number): Promise<{ coupon: OwnCoupon; points: number; value: number }> =>
-      loyaltyApi.redeem(points),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['loyalty'] });
-      // El canje genera un cupón: la lista de promociones cambió.
-      qc.invalidateQueries({ queryKey: ['coupons'] });
-    },
-  });
-};
 
 /**
  * Los cupones propios del cliente, vivos y sin usar.
@@ -933,11 +904,12 @@ export const useDeleteSavedCard = () => {
  * llegar vieja —de ella dependen los precios que se le prometen a la
  * persona—, así que se vuelve a preguntar al abrir la pestaña.
  */
-export const useProStatus = () =>
+export const useProStatus = (enabled = true) =>
   useQuery<ProStatus>({
     queryKey: ['pro'],
     queryFn: proApi.mine,
     staleTime: 30_000,
+    enabled,
   });
 
 /**

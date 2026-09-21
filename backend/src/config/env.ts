@@ -593,6 +593,13 @@ export const config = {
        * Wompi ignora el campo y el provider ni lo envía.
        */
       threeDsSandboxType: process.env.WOMPI_THREE_DS_SANDBOX_TYPE || 'challenge_v2',
+      /**
+       * Solo sandbox: qué desenlace simula Wompi para el Botón Bancolombia.
+       * Es la única forma de probar un rechazo de ese carril, porque la
+       * pantalla del banco en sandbox no la decide quien prueba. En
+       * producción Wompi lo ignora y el provider ni lo envía.
+       */
+      sandboxAsyncStatus: process.env.WOMPI_SANDBOX_ASYNC_STATUS || 'APPROVED',
     },
   },
 

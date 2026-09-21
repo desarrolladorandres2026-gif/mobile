@@ -17,7 +17,6 @@ import type { PromoBanner, BannerActionType } from '../services/endpoints';
  */
 const SCREEN_ROUTES: Record<string, string> = {
   search: '/(client)/(tabs)/search',
-  rewards: '/(client)/rewards',
   favorites: '/(client)/favorites',
   // Pedidos se movió a la pila cuando Descuentos ocupó su lugar en la
   // barra. Si esto siguiera apuntando a la pestaña vieja, un banner ya

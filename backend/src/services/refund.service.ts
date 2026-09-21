@@ -19,7 +19,6 @@ import {
 import { ledgerService } from './ledger.service';
 import { payoutService } from './payout.service';
 import { couponService } from './coupon.service';
-import { loyaltyService } from './loyalty.service';
 import { cashReconciliationService } from './cashReconciliation.service';
 import { getPaymentProvider } from './payments';
 import { assertMoney } from '../utils';
@@ -348,16 +347,6 @@ export class RefundService {
 
       if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
         await cashReconciliationService.void(order._id);
-      }
-
-      // La compra se deshizo entera: el premio por hacerla también. Un
-      // fallo aquí no puede tumbar el reembolso —el dinero del cliente va
-      // primero—, y `reverseForOrder` es idempotente, así que se puede
-      // repetir a mano con el mismo pedido.
-      try {
-        await loyaltyService.reverseForOrder(order);
-      } catch (error) {
-        console.error('[Loyalty] No se pudieron revertir los puntos del pedido', order._id, error);
       }
     }
 

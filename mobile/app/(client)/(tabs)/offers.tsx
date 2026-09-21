@@ -12,16 +12,14 @@ import { OfferTile } from '../../../components/domain/OfferTile';
 import { OfferBusinessRow } from '../../../components/domain/OfferBusinessRow';
 import { OffersHero } from '../../../components/domain/OffersHero';
 import { CouponSheet } from '../../../components/domain/CouponSheet';
-import { CouponWallet } from '../../../components/domain/CouponWallet';
-import { LoyaltyProgressBanner } from '../../../components/domain/LoyaltyProgressBanner';
-import { useOffers, useDeliveryCoords, useCouponEligibility } from '../../../hooks/useApi';
+import { useOffers, useDeliveryCoords, useCouponEligibility, useProStatus } from '../../../hooks/useApi';
 import type { OfferBusiness, OfferCoupon, ProductSearchHit } from '../../../services/endpoints';
 import { useAuthStore } from '../../../stores/authStore';
 import { useCouponStore } from '../../../stores/couponStore';
 import {
   pickSpotlightCoupon, isExpiringSoon, bigDiscountProducts, splitBusinessOffers,
   couponStatus, indexEligibility, isUsable, scheduledCoupons, windowLabel,
-  OFFER_FILTERS, type OfferFilter, type CouponStatus,
+  withoutRedundantFreeDelivery, OFFER_FILTERS, type OfferFilter, type CouponStatus,
 } from '../../../lib/offers';
 import { tap } from '../../../lib/haptics';
 import { useTheme } from '../../../hooks/useTheme';
@@ -68,15 +66,25 @@ export default function OffersScreen() {
   const eligibility = useMemo(() => indexEligibility(eligibilityRows), [eligibilityRows]);
 
   const saveCoupon = useCouponStore((s) => s.save);
+  const savedCode = useCouponStore((s) => s.code);
+  const clearCoupon = useCouponStore((s) => s.clear);
+
+  // A un socio Pro con envío gratis no se le ofrecen cupones de envío gratis:
+  // no le ahorran nada.
+  const { data: pro } = useProStatus(isAuthenticated);
+  const proFreeDelivery = !!pro?.member && !!pro.plan.benefits.freeDelivery.enabled;
 
   const [filter, setFilter] = useState<OfferFilter>('all');
   const [sheetCoupon, setSheetCoupon] = useState<OfferCoupon | null>(null);
 
-  const coupons = data?.coupons ?? [];
+  const allCoupons = data?.coupons;
+  const coupons = useMemo(
+    () => withoutRedundantFreeDelivery(allCoupons ?? [], proFreeDelivery),
+    [allCoupons, proFreeDelivery]
+  );
   const products = data?.products ?? [];
   const businesses = data?.businesses ?? [];
   const isEmpty = !coupons.length && !products.length && !businesses.length;
-
   // `useCallback` para que el `memo` de las tarjetas sirva de algo: sin
   // esto la funcion se recreaba en cada render y todas las filas se
   // volvian a renderizar.
@@ -120,10 +128,10 @@ export default function OffersScreen() {
   /** Refresca todo lo que se ve, no solo el feed. */
   const refreshAll = useCallback(() => {
     // Antes el gesto solo tocaba `['offers']`, así que los banners y el
-    // saldo de puntos seguían mostrando la respuesta vieja después de un
-    // tirón hacia abajo — justo el gesto con el que se pide lo contrario.
+    // estado personal de los cupones (`['coupons', 'eligibility']`, que
+    // decide "ya lo usaste") seguían mostrando la respuesta vieja después de
+    // un tirón hacia abajo — justo el gesto con el que se pide lo contrario.
     queryClient.invalidateQueries({ queryKey: ['banners'] });
-    queryClient.invalidateQueries({ queryKey: ['loyalty'] });
     queryClient.invalidateQueries({ queryKey: ['coupons'] });
     refetch();
   }, [queryClient, refetch]);
@@ -250,11 +258,30 @@ export default function OffersScreen() {
           renderItem={({ item }) => (
             <Chip
               label={item.label}
+              bare
               active={filter === item.key}
               onPress={() => setFilter(item.key)}
             />
           )}
         />
+
+        {/* El cupón que espera en el pago. Solo hay uno: sin esta línea
+            nada decía qué se llevaba, ni cómo soltarlo. */}
+        {savedCode ? (
+          <View style={styles.carrying}>
+            <Text v="bodyS" tone="textSecondary" style={styles.flex}>
+              {`Llevas ${savedCode} al pago`}
+            </Text>
+            <Pressable
+              onPress={() => { tap('light'); clearCoupon(); }}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel={`Quitar el cupón ${savedCode}`}
+            >
+              <Text v="strongS" tone="primaryText">Quitar</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* Se dibuja solo si el servidor mandó banners vigentes para esta
             pantalla; si no, la sección siguiente sube y no queda hueco. */}
@@ -394,19 +421,6 @@ export default function OffersScreen() {
               </>
             )}
 
-            {/* Fuera del vacío a propósito: aunque no haya ni un descuento
-                cerca, lo que ya es tuyo sigue siendo un camino a algo, no
-                un callejón sin salida. */}
-            <Section>
-              <Heading title={isAuthenticated ? 'Tu billetera' : 'Tus puntos'} />
-              <View style={styles.padded}>
-                {isAuthenticated ? (
-                  <CouponWallet onCouponPress={setSheetCoupon} />
-                ) : (
-                  <LoyaltyProgressBanner />
-                )}
-              </View>
-            </Section>
           </>
         )}
       </ScrollView>
@@ -501,7 +515,19 @@ const styles = StyleSheet.create({
   overscroll: { height: 320, marginTop: -320, backgroundColor: palette.ink900 },
 
   chipsRow: { marginTop: Spacing.lg },
-  chips: { gap: Spacing.sm, paddingHorizontal: Spacing.xl },
+  // `Chip` con `bare` ya trae su propio `paddingRight` como separación; un
+  // `gap` aquí sumaría un segundo espacio y las etiquetas quedarían más
+  // lejos entre sí que del borde de la pantalla.
+  chips: { paddingHorizontal: Spacing.xl },
+
+  flex: { flex: 1 },
+  carrying: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Spacing.md,
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+  },
 
   // Sin padding horizontal: si la sección lo llevara, el riel no podría
   // sangrar hasta el borde y las tarjetas se cortarían antes de tiempo.

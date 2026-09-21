@@ -4,11 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import {
-  Text, Icon, SearchField, CategoryChip, EmptyState, ErrorState,
+  Text, Icon, SearchField, EmptyState, ErrorState,
   BusinessResultRowSkeleton, DiscoveryHubSkeleton, DismissChip, Card, Chip,
 } from '../../../components/ui';
 import { BusinessResultRow, type Business } from '../../../components/domain/BusinessCard';
-import { CategoryTile } from '../../../components/domain/CategoryTile';
 import { ExploreCollections } from '../../../components/domain/ExploreCollections';
 import { categoryIllustration, ContentIcon } from '../../../components/illustrations';
 import {
@@ -16,15 +15,15 @@ import {
   type SearchFilters,
 } from '../../../components/domain/SearchFiltersSheet';
 import {
-  useBusinesses, useSearch, useSearchSuggestions, usePopularSearches, useDeliveryCoords,
+  useBusinesses, useSearch, useSearchSuggestions, useDeliveryCoords,
 } from '../../../hooks/useApi';
 import {
-  searchApi, type ProductSearchHit, type SearchSuggestion, type PopularTerm,
+  searchApi, type ProductSearchHit, type SearchSuggestion,
 } from '../../../services/endpoints';
 import { productImageUri, productImagePlaceholder } from '../../../lib/productImage';
 import { minutes } from '../../../lib/format';
 import { Image } from 'expo-image';
-import { useHomeCategories, type DisplayCategory } from '../../../hooks/useHomeCategories';
+import { useHomeCategories } from '../../../hooks/useHomeCategories';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
 import { usePrefsStore } from '../../../stores/prefsStore';
@@ -53,19 +52,6 @@ import { tap } from '../../../lib/haptics';
  * que ancla la pantalla y el único fondo donde el oro de la marca contrasta.
  * El resto es papel.
  */
-
-/**
- * Red de seguridad: el servidor ya devuelve el ranking real de búsquedas y,
- * mientras no haya volumen, las categorías del catálogo por su nombre. Si esa
- * consulta falla, una lista vacía dejaría la portada en blanco.
- *
- * Van con `count: 0` porque no son el conteo de nada: la pantalla solo
- * imprime el número cuando es real.
- */
-const FALLBACK_SEARCHES: PopularTerm[] = [
-  'Hamburguesas', 'Pizza', 'Salchipapas', 'Café',
-  'Pollo Broaster', 'Droguería', 'Desayunos', 'Helados',
-].map((term) => ({ term, count: 0 }));
 
 /**
  * Cuántos resultados hacen falta para que la lista llene la pantalla.
@@ -183,12 +169,6 @@ export default function SearchScreen() {
   // manda la búsqueda de catálogo, que también encuentra platos; navegando
   // por categorías manda el listado de negocios de siempre, que es el que
   // sabe filtrar por categoría.
-  // Las tendencias salen de las búsquedas reales de la gente y, mientras no
-  // haya volumen, de las categorías del catálogo. Antes era una lista
-  // escrita a mano que podía anunciar cosas que nadie vende.
-  const { data: serverPopular } = usePopularSearches();
-  const popularTerms = serverPopular?.length ? serverPopular : FALLBACK_SEARCHES;
-
   const catalog = useSearch(term, { lat: coords?.lat, lng: coords?.lng, sort: filters.sort });
   const suggestions = useSearchSuggestions(suggestOpen ? suggestTerm : '');
 
@@ -435,34 +415,6 @@ export default function SearchScreen() {
         </View>
       </SafeAreaView>
 
-      {/* Los chips quedan sobre el papel, justo debajo del borde de la banda:
-          así el chip activo es lo único dorado de esta mitad de la pantalla. */}
-      {!showSuggestions ? (
-        <FlatList
-          horizontal
-          data={categories}
-          keyExtractor={(item) => item.key}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
-          style={styles.chipsRow}
-          removeClippedSubviews
-          maxToRenderPerBatch={10}
-          windowSize={9}
-          initialNumToRender={6}
-          renderItem={({ item }) => (
-            <CategoryChip
-              label={item.label}
-              categoryKey={item.key}
-              active={category === item.key}
-              onPress={() => {
-                tap('select');
-                setCategory(category === item.key ? null : item.key);
-              }}
-            />
-          )}
-        />
-      ) : null}
-
       {/* Lo que está filtrado, con una salida por filtro en vez de una sola
           que lo borra todo a ciegas. */}
       {browsing && (filterChips.length > 0 || category) && !isLoading && !settling && !showSuggestions ? (
@@ -505,16 +457,13 @@ export default function SearchScreen() {
             <DiscoveryHubSkeleton />
           ) : (
             <DiscoveryHub
-              popularTerms={popularTerms}
               recentSearches={recentSearches}
-              categories={categories}
               coords={coords}
               coordsReady={coordsReady}
               filters={filters}
               onSelectSearch={selectTerm}
               onRemoveRecent={(value) => { tap('light'); removeRecentSearch(value); }}
               onClearRecents={() => { tap('light'); clearRecentSearches(); }}
-              onPickCategory={(key) => { tap('select'); setCategory(key); }}
               onIntent={applyIntent}
               onErrand={() => { tap('select'); router.push('/(client)/errand'); }}
             />
@@ -835,29 +784,23 @@ function ProductHit({
  * que no está en ninguna carta.
  */
 function DiscoveryHub({
-  popularTerms,
   recentSearches,
-  categories,
   coords,
   coordsReady,
   filters,
   onSelectSearch,
   onRemoveRecent,
   onClearRecents,
-  onPickCategory,
   onIntent,
   onErrand,
 }: {
-  popularTerms: PopularTerm[];
   recentSearches: string[];
-  categories: DisplayCategory[];
   coords?: { lat: number; lng: number } | null;
   coordsReady: boolean;
   filters: SearchFilters;
   onSelectSearch: (term: string) => void;
   onRemoveRecent: (term: string) => void;
   onClearRecents: () => void;
-  onPickCategory: (key: string) => void;
   onIntent: (patch: Partial<SearchFilters>) => void;
   onErrand: () => void;
 }) {
@@ -906,35 +849,6 @@ function DiscoveryHub({
         </View>
       ) : null}
 
-      {/* ── El ranking ──
-          Con número de puesto, que es lo que convierte una nube de etiquetas
-          en un dato. El conteo solo se imprime cuando viene de búsquedas
-          reales: el respaldo por categorías cuenta negocios, no búsquedas. */}
-      <View style={styles.discoverySection}>
-        <SectionTitle icon="racha" title="Lo más buscado" />
-        <View style={styles.rows}>
-          {popularTerms.map((row, index) => (
-            <Pressable
-              key={row.term}
-              onPress={() => onSelectSearch(row.term)}
-              accessibilityRole="button"
-              accessibilityLabel={`Buscar "${row.term}"`}
-              style={styles.rankRow}
-            >
-              <Text v="dataM" color={c.primaryText} style={styles.rankNumber}>
-                {index + 1}
-              </Text>
-              <Text v="bodyM" numberOfLines={1} style={styles.flex}>{row.term}</Text>
-              {row.count > 0 ? (
-                <Text v="caption" tone="textMuted">
-                  {row.count} {row.count === 1 ? 'búsqueda' : 'búsquedas'}
-                </Text>
-              ) : null}
-            </Pressable>
-          ))}
-        </View>
-      </View>
-
       {/* ── Intenciones ──
           Entre el historial y las categorías a propósito: lo de arriba es
           "lo que ya buscaste", lo de abajo "qué tipo de negocio", y esto es
@@ -953,28 +867,6 @@ function DiscoveryHub({
               )}
               onPress={() => onIntent(option.patch)}
             />
-          ))}
-        </View>
-      </View>
-
-      {/* ── Categorías ──
-          La misma baldosa del Inicio, a su tamaño real. Antes eran filas
-          anchas con la ilustración reducida a un icono de 44 px, así que la
-          misma categoría se dibujaba de dos formas en esta misma pantalla:
-          chip arriba, fila abajo. Aquí la baldosa navega y el chip filtra. */}
-      <View style={styles.discoverySection}>
-        <SectionTitle title="Explorar por categoría" />
-        <View style={styles.tileGrid}>
-          {categories.map((cat) => (
-            <View key={cat.key} style={styles.tileCell}>
-              <CategoryTile
-                categoryKey={cat.key}
-                label={cat.label}
-                imageUrl={cat.imageUrl}
-                color={cat.color}
-                onPress={() => onPickCategory(cat.key)}
-              />
-            </View>
           ))}
         </View>
       </View>
@@ -1030,11 +922,6 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.lg,
     gap: Spacing.lg,
   },
-
-  // `flexGrow: 0` porque una `FlatList` horizontal dentro de una columna se
-  // estira y se come el alto de la lista de abajo.
-  chipsRow: { marginTop: Spacing.lg, flexGrow: 0 },
-  chips: { gap: Spacing.sm, paddingHorizontal: Spacing.xl },
 
   summary: {
     paddingHorizontal: Spacing.xl,
@@ -1122,18 +1009,8 @@ const styles = StyleSheet.create({
   },
   recentClose: { padding: Spacing.sm },
 
-  rankRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingVertical: Spacing.sm + 2,
-  },
-  // Ancho fijo: así los números del uno al ocho no desalinean los términos.
-  rankNumber: { width: 18, textAlign: 'center' },
 
-  tileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
   // Tres columnas contando los dos huecos del `gap`.
-  tileCell: { width: '30%' },
 
   errand: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   errandIcon: {

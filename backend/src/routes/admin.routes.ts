@@ -47,9 +47,6 @@ router.patch('/users/:id/birth-date', requirePermission(Permission.USERS_UPDATE)
 router.patch('/users/:id/position', requirePermission(Permission.USERS_UPDATE), (req, res, next) => adminController.assignPosition(req, res, next));
 router.patch('/users/:id/roles', requirePermission(Permission.USERS_ROLE_CHANGE), (req, res, next) => adminController.assignRoles(req, res, next));
 router.get('/users/:id/profile-360', requirePermission(Permission.USERS_VIEW), (req, res, next) => adminController.userProfile360(req, res, next));
-// Los puntos son un pasivo de ZIPP: moverlos a mano es una operación
-// financiera, no de soporte, y pide el mismo permiso que las tarifas.
-router.post('/users/:id/loyalty-adjustment', requirePermission(Permission.FINANCE_MANAGE), (req, res, next) => adminController.adjustLoyalty(req, res, next));
 router.get('/users/:id/access', requirePermission(Permission.USERS_VIEW), (req, res, next) => adminController.getEffectiveAccess(req, res, next));
 router.patch('/users/:id/status', requireAnyPermission(Permission.USERS_UPDATE, Permission.USERS_BLOCK), (req, res, next) => adminController.setUserStatus(req, res, next));
 router.post('/users/:id/reset-password', requirePermission(Permission.USERS_UPDATE), (req, res, next) => adminController.resetUserPassword(req, res, next));

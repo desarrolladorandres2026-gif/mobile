@@ -25,6 +25,7 @@
     "migrate:auth-hardening": "tsx src/migrations/004-auth-hardening.ts",
     "migrate:business-search-description": "tsx src/migrations/005-business-search-description.ts",
     "migrate:perf-indexes": "tsx src/migrations/006-perf-indexes.ts",
+    "migrate:remove-loyalty": "tsx src/migrations/007-remove-loyalty.ts",
     "test": "vitest run",
     "test:load": "vitest run --config vitest.load.config.ts",
     "test:watch": "vitest",

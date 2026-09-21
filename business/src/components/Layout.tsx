@@ -14,6 +14,7 @@ import {
   RatingIllustration, PrepTimeIllustration, CashIllustration,
 } from './illustrations';
 import { apiMessage } from '../lib/apiError';
+import { preloadOn } from '../lib/lazyPage';
 
 const nav = [
   { path: '/', Illustration: DashboardIllustration, label: 'Dashboard' },
@@ -230,6 +231,10 @@ export default function Layout() {
                 to={item.path}
                 end={item.path === '/'}
                 onClick={() => setSidebarOpen(false)}
+                // El archivo de la pagina se pide al apuntar, no al pulsar:
+                // para cuando llega el clic ya esta descargado y no hay
+                // spinner. Ver `preloadOn`.
+                {...preloadOn(item.path)}
                 className={`relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-150 ${isActive
                     ? 'bg-[var(--color-primary)]/20 text-white font-semibold shadow-sm border border-[var(--color-primary)]/30'
                     : 'text-[var(--color-sidebar-text)] hover:text-white hover:bg-[var(--color-sidebar-hover)]'
