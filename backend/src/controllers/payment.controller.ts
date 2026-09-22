@@ -95,9 +95,10 @@ export class PaymentController {
         throw new AppError('Pedido no encontrado', 404);
       }
 
-      // El correo de la cuenta manda. El del cuerpo solo cubre a quien se
-      // registró con teléfono y no tiene ninguno.
-      const email = req.user!.email || req.body.customerEmail;
+      // El correo de la cuenta manda. `receiptEmail` es el que quedó
+      // definido en Mi cuenta la primera vez que se pidió; el del cuerpo es
+      // solo el respaldo de esa primera vez, antes de que exista.
+      const email = req.user!.email || req.user!.receiptEmail || req.body.customerEmail;
       if (!email) {
         throw new AppError(
           'Necesitamos un correo para enviarte el comprobante del pago',
@@ -134,6 +135,27 @@ export class PaymentController {
         // a que lo escriba. Es un booleano, no la dirección del servicio.
         otpRequired: result.intent.otpRequired,
       });
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * La persona deja a medias la verificación del banco para pagar de otra
+   * forma. No anula nada en la pasarela —Wompi no lo permite con un cobro
+   * pendiente—: suelta el intento en Zipp, después de preguntarle a Wompi.
+   */
+  async abandon(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await paymentService.abandonAttempt({
+        userId: req.user!._id.toString(),
+        transactionId: param(req, 'transactionId'),
+      });
+
+      const message =
+        result.status === 'approved' ? 'El pago ya estaba aprobado'
+        : result.status === 'declined' ? 'El pago ya había terminado sin aprobarse'
+        : 'Pago cancelado';
+
+      sendResponse(res, 200, message, result);
     } catch (error) { next(error); }
   }
 
@@ -194,7 +216,7 @@ export class PaymentController {
 
   async saveCard(req: Request, res: Response, next: NextFunction) {
     try {
-      const email = req.user!.email || req.body.customerEmail;
+      const email = req.user!.email || req.user!.receiptEmail || req.body.customerEmail;
       if (!email) {
         throw new AppError('Necesitamos un correo para guardar la tarjeta', 422, 'EMAIL_REQUIRED');
       }

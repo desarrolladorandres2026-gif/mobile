@@ -117,38 +117,41 @@ export function BusinessHeader({ business, fallbackAccent, distanceLabel, status
       </View>
 
       <View style={styles.body}>
-        {statusBadge || business.minOrder ? (
+        {/* Fila 1: lo que dice si se puede pedir ya — estado y cuánto tarda. */}
+        {statusBadge || business.deliveryTime ? (
           <View style={styles.chips}>
             {statusBadge}
+            <PromiseCell
+              icon="minutos"
+              label="Entrega"
+              value={minutes(business.deliveryTime)}
+              hint={distanceLabel ?? undefined}
+            />
+          </View>
+        ) : null}
+
+        {/* Fila 2: lo que cuesta — mínimo de compra y costo de envío. */}
+        {business.minOrder || business.deliveryFeeFrom ? (
+          <View style={styles.chips}>
             {business.minOrder ? (
-              <View style={[styles.minOrder, { borderColor: c.border, backgroundColor: c.surface }]}>
+              <View style={styles.minOrder}>
                 <Icon name="bolsa" size="sm" color={c.textSecondary} />
                 <Text v="strongS" tone="textSecondary">
                   Mínimo de compra {money(business.minOrder)}
                 </Text>
               </View>
             ) : null}
+            <PromiseCell
+              icon="domiciliario"
+              label="Envío"
+              // "Desde" y no un precio a secas: el domicilio se cobra por
+              // distancia, así que cualquier número exacto aquí sería una
+              // promesa que el carrito no puede cumplir.
+              value={business.deliveryFeeFrom ? `Desde ${money(business.deliveryFeeFrom)}` : '—'}
+              hint={business.deliveryFeeFrom ? 'según tu dirección' : 'se calcula al pedir'}
+            />
           </View>
         ) : null}
-
-        <View style={[styles.promise, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <PromiseCell
-            icon="minutos"
-            label="Entrega"
-            value={minutes(business.deliveryTime)}
-            hint={distanceLabel ?? undefined}
-          />
-          <View style={[styles.divider, { backgroundColor: c.border }]} />
-          <PromiseCell
-            icon="domiciliario"
-            label="Envío"
-            // "Desde" y no un precio a secas: el domicilio se cobra por
-            // distancia, así que cualquier número exacto aquí sería una
-            // promesa que el carrito no puede cumplir.
-            value={business.deliveryFeeFrom ? `Desde ${money(business.deliveryFeeFrom)}` : '—'}
-            hint={business.deliveryFeeFrom ? 'según tu dirección' : 'se calcula al pedir'}
-          />
-        </View>
       </View>
     </View>
   );
@@ -193,12 +196,10 @@ function PromiseCell({
 
   return (
     <View style={styles.cell}>
-      <View style={styles.cellLabel}>
-        <Icon name={icon} size="sm" color={c.textMuted} />
-        <Text v="caption" tone="textMuted">{label}</Text>
-      </View>
+      <Icon name={icon} size="sm" color={c.textMuted} />
+      <Text v="caption" tone="textMuted">{label}</Text>
       <Text v="dataM" tone="text">{value}</Text>
-      {hint ? <Text v="caption" tone="textMuted">{hint}</Text> : null}
+      {hint ? <Text v="caption" tone="textMuted">· {hint}</Text> : null}
     </View>
   );
 }
@@ -261,21 +262,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: BorderRadius.full,
   },
-  promise: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.lg,
-  },
-  cell: { flex: 1, alignItems: 'center', gap: 2 },
-  cellLabel: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  divider: { width: StyleSheet.hairlineWidth },
+  cell: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
 
   promo: {
     flexDirection: 'row',

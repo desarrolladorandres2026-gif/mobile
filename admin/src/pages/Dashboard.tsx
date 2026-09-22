@@ -7,8 +7,8 @@ import {
 import api from '../services/api';
 import { useAdminSocketEvents, useTrailingCallback } from '../hooks/useAdminSocket';
 import {
-  PackageIllustration, CashIllustration, StoreIllustration, DeliveryIllustration,
-} from '../components/illustrations';
+  PackageLogo, CashLogo, StoreLogo, DeliveryLogo,
+} from '../components/logos';
 import type { DashboardFinancials, DashboardStats, RecentOrder, RevenuePoint } from '../lib/apiTypes';
 
 export default function Dashboard() {
@@ -78,7 +78,7 @@ export default function Dashboard() {
       sub: `${stats?.todayOrders ?? 0} pedidos hoy`,
       change: `${stats?.activeOrders ?? 0} activos`,
       isPositive: true,
-      Illustration: PackageIllustration,
+      Illustration: PackageLogo,
     },
     {
       title: 'Ventas de Hoy (GMV)',
@@ -86,7 +86,7 @@ export default function Dashboard() {
       sub: `Comisión ZIPP: $${(financials?.platformEarnings || stats?.todayCommission || 0).toLocaleString('es-CO')}`,
       change: `COP`,
       isPositive: true,
-      Illustration: CashIllustration,
+      Illustration: CashLogo,
     },
     {
       title: 'Comercios Aliados',
@@ -94,7 +94,7 @@ export default function Dashboard() {
       sub: `de ${stats?.totalBusinesses ?? 0} registrados`,
       change: `${stats?.activeBusinesses ?? 0} abiertos`,
       isPositive: true,
-      Illustration: StoreIllustration,
+      Illustration: StoreLogo,
     },
     {
       title: 'Domiciliarios',
@@ -102,7 +102,7 @@ export default function Dashboard() {
       sub: `de ${stats?.totalDrivers ?? 0} en plataforma`,
       change: `Aprobados`,
       isPositive: true,
-      Illustration: DeliveryIllustration,
+      Illustration: DeliveryLogo,
     },
   ];
 

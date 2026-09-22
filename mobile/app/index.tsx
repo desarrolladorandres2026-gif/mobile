@@ -11,6 +11,7 @@ import {
 import { ensureFreshAccessToken } from '../services/api';
 import { coordsFromAddresses } from '../hooks/useApi';
 import { withTimeout } from '../lib/withTimeout';
+import { sizedImageUri, screenWidth } from '../lib/cloudinaryImage';
 import { decideAtStart, hrefFor } from '../lib/routing';
 import { IS_CLIENT_APP } from '../constants/variant';
 
@@ -22,28 +23,43 @@ import { IS_CLIENT_APP } from '../constants/variant';
  * precarga durante este mismo tiempo (ver `warmCache`).
  */
 const HOLD_MS = 1200;
-/** Tope para pedir la campaña activa: publicidad lenta nunca puede demorar el arranque. */
-const AD_FETCH_TIMEOUT_MS = 2500;
-/** Tope para precargar el flyer antes de decidir si se muestra. */
-const AD_PREFETCH_TIMEOUT_MS = 2000;
+/**
+ * Tope de la publicidad entera —campaña y flyer—, contado desde que se abre
+ * la app: el tiempo de marca y medio segundo más (decisión del 2026-09-21).
+ *
+ * Antes eran dos topes seguidos, 2,5 s para la campaña y 2 s para el flyer:
+ * con mala señal el arranque pasaba de 1,2 s a 4,5 s. Ahora, si no está
+ * lista a tiempo, esa vez no sale. La descarga sigue por detrás, así que en
+ * la siguiente apertura el flyer suele estar ya en el disco.
+ */
+const AD_BUDGET_MS = HOLD_MS + 500;
 
 /**
- * Busca la campaña activa y precarga su flyer, sin dejar que ninguna de las
- * dos cosas se demore más de lo acotado arriba. Cualquier fallo —API caída,
- * sin conexión, timeout, campaña vencida, imagen que no carga— resuelve a
- * `null`: "sin publicidad" es un resultado tan válido como "con publicidad",
- * nunca "esperando publicidad".
+ * La campaña activa con su flyer ya en el teléfono.
+ *
+ * El flyer se pide al ancho de la pantalla: se guarda tal cual lo subió el
+ * comercio (hasta 5 MB) y la pantalla nunca muestra más de ~1300 px. La URL
+ * reducida es la misma que pinta `AdSplash`, o la precarga no serviría.
+ */
+async function loadAd(): Promise<ActiveAd | null> {
+  const ad = await adsApi.getActive();
+  if (!ad) return null;
+  const sized = { ...ad, flyerUrl: sizedImageUri(ad.flyerUrl, screenWidth()) ?? ad.flyerUrl };
+  const loaded = await ExpoImage.prefetch(sized.flyerUrl);
+  return loaded ? sized : null;
+}
+
+/**
+ * Cualquier fallo —API caída, sin conexión, tope cumplido, campaña vencida,
+ * imagen que no carga— resuelve a `null`: "sin publicidad" es un resultado
+ * tan válido como "con publicidad", nunca "esperando publicidad".
  */
 async function prepareAd(): Promise<ActiveAd | null> {
   // La publicidad es de comercios para clientes; en Zipp Domiciliarios no
   // hay nada que anunciar y el flyer enlaza a pantallas que no existen.
   if (!IS_CLIENT_APP) return null;
   try {
-    const ad = await withTimeout(adsApi.getActive(), AD_FETCH_TIMEOUT_MS);
-    if (!ad) return null;
-
-    const loaded = await withTimeout(ExpoImage.prefetch(ad.flyerUrl), AD_PREFETCH_TIMEOUT_MS);
-    return loaded ? ad : null;
+    return await withTimeout(loadAd(), AD_BUDGET_MS);
   } catch {
     return null;
   }

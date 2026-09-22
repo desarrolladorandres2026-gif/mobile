@@ -3,7 +3,7 @@ import {
   View, Pressable, StyleSheet, Alert, ActivityIndicator, Keyboard, useWindowDimensions, Linking,
 } from 'react-native';
 import {
-  Text, Icon, IconButton, Button, Input, SearchField, Badge, Sheet, Notice,
+  Text, Icon, IconButton, Button, PlainField, SearchField, Badge, Sheet, Notice,
 } from '../ui';
 import {
   getAddressVisualConfig,
@@ -405,6 +405,13 @@ export function AddAddressButton({ onPress }: { onPress: () => void }) {
 // Nueva dirección
 // ──────────────────────────────────────────────────────────────
 
+/** Nombres frecuentes, con su ilustración. "Otro" no está: ese es el modo manual. */
+const LABEL_PRESETS = [
+  { name: 'Casa', illustration: HomeAddressIllustration },
+  { name: 'Trabajo', illustration: WorkAddressIllustration },
+  { name: 'Donde mi mamá', illustration: FamilyAddressIllustration },
+];
+
 /**
  * Retrasa un valor hasta que deja de cambiar.
  *
@@ -455,6 +462,17 @@ export function AddressFormSheet({
   const editing = !!address;
 
   const [label, setLabel] = useState('');
+  /** El desplegable de nombres está abierto. */
+  const [labelPickerOpen, setLabelPickerOpen] = useState(false);
+  /**
+   * Escribiendo un nombre a mano en vez de elegir uno de la lista.
+   *
+   * Arranca en `false` y no se deduce de `label` en cada render: mientras se
+   * escribe, lo tecleado puede coincidir con un preset a medias ("Casa" al
+   * borrar "Casa de mis papás") sin que eso deba devolver el campo al modo
+   * lista debajo del dedo.
+   */
+  const [customLabel, setCustomLabel] = useState(false);
   const [street, setStreet] = useState('');
   const [apartment, setApartment] = useState('');
   const [details, setDetails] = useState('');
@@ -598,6 +616,10 @@ export function AddressFormSheet({
     if (!visible || !address) return;
 
     setLabel(address.label);
+    // Si ya traía un nombre que no es de la lista, abre directo en modo
+    // manual: mandarlo al desplegable sin selección le escondería su propio
+    // nombre detrás de "Elige un nombre".
+    setCustomLabel(!LABEL_PRESETS.some((preset) => preset.name === address.label));
     setStreet(address.address);
     setApartment(address.apartment ?? '');
     setNeighborhood(address.neighborhood ?? '');
@@ -617,6 +639,7 @@ export function AddressFormSheet({
   const reset = () => {
     setLabel(''); setStreet(''); setApartment(''); setDetails('');
     setNeighborhood(''); setCity(''); setTerm('');
+    setLabelPickerOpen(false); setCustomLabel(false);
     setCoords(null); setError('');
     setAccuracy(null); setApproximate(false); setSource(null);
     setPlace(null); setGeocoding(false);
@@ -822,7 +845,7 @@ export function AddressFormSheet({
       visible={visible && !expanded}
       onClose={() => { reset(); onClose(); }}
       title={editing ? 'Editar dirección' : 'Nueva dirección'}
-      height={0.9}
+      fullScreen
       footer={
         <Button
           title={editing ? 'Guardar cambios' : 'Guardar dirección'}
@@ -862,8 +885,12 @@ export function AddressFormSheet({
           Una capa absoluta se recorta contra el borde del ScrollView de la
           hoja en Android, y una sugerencia a medio pintar es peor que un
           mapa que baja un poco.
+
+          Sin caja: nada de fondo ni borde alrededor del panel. Lo único que
+          separa una fila de la siguiente es el trazo fino que ya llevaba
+          cada sugerencia.
         */}
-        <View style={[styles.suggestions, { backgroundColor: c.surface, borderColor: c.border }]}>
+        <View style={styles.suggestions}>
           {/*
             El GPS va aquí arriba y no en un botón bajo el mapa porque es la
             primera respuesta a "¿dónde queda?" para quien está en su casa,
@@ -979,7 +1006,7 @@ export function AddressFormSheet({
         ) : null}
       </View>
 
-      <Input
+      <PlainField
         label="Dirección"
         icon="ruta"
         placeholder="Calle 5 # 3-21"
@@ -1003,7 +1030,7 @@ export function AddressFormSheet({
         referencias se perdía — esa nota se lee entera, de corrido y con la
         moto encendida.
       */}
-      <Input
+      <PlainField
         label="Piso o apartamento (opcional)"
         icon="edificio"
         placeholder="Torre B, apto 502"
@@ -1011,7 +1038,7 @@ export function AddressFormSheet({
         onChangeText={setApartment}
       />
 
-      <Input
+      <PlainField
         label="Cómo llegar (opcional)"
         icon="info"
         placeholder="Portón negro, timbre 2, al lado de la tienda"
@@ -1020,47 +1047,92 @@ export function AddressFormSheet({
         hint="Lo que le dirías a alguien que nunca ha ido."
       />
 
-      <Text v="strongS" tone="textSecondary">¿Cómo la llamas?</Text>
+      {/*
+        Desplegable y no chips: en un formulario ya largo, una lista que se
+        abre solo cuando hace falta pesa menos que cuatro opciones siempre
+        pintadas. "Escribir otro nombre" es una fila más de la lista, no un
+        campo aparte, para que elegir y escribir sean el mismo gesto.
+      */}
+      <View style={styles.labelField}>
+        <Text v="strongS" tone="textSecondary">¿Cómo la llamas?</Text>
 
-      <View style={styles.quickLabels}>
-        {[
-          { name: 'Casa', illustration: HomeAddressIllustration },
-          { name: 'Trabajo', illustration: WorkAddressIllustration },
-          { name: 'Donde mi mamá', illustration: FamilyAddressIllustration },
-          { name: 'Otro', illustration: PinAddressIllustration },
-        ].map((preset) => {
-          const active = label === preset.name;
-          const PresetIcon = preset.illustration;
-          return (
+        {customLabel ? (
+          <>
+            <PlainField
+              label="Nombre"
+              icon="ubicacion"
+              placeholder="Casa de mis papás, la oficina…"
+              value={label}
+              onChangeText={(t) => { setLabel(t); setError(''); }}
+            />
             <Pressable
-              key={preset.name}
-              onPress={() => { tap('select'); setLabel(preset.name); setError(''); }}
+              onPress={() => { tap('light'); setCustomLabel(false); setLabelPickerOpen(true); }}
               accessibilityRole="button"
-              accessibilityLabel={`Usar el nombre ${preset.name}`}
-              style={[
-                styles.quickLabel,
-                {
-                  backgroundColor: active ? c.primarySoft : c.surface,
-                  borderColor: active ? c.primary : c.border,
-                },
-              ]}
+              accessibilityLabel="Elegir un nombre de la lista"
+              hitSlop={8}
+              style={styles.labelSwitch}
             >
-              <PresetIcon size={22} />
-              <Text v="strongS" color={active ? c.primaryText : c.textSecondary}>
-                {preset.name}
-              </Text>
+              <Text v="strongS" color={c.primaryText}>Elegir de la lista</Text>
             </Pressable>
-          );
-        })}
-      </View>
+          </>
+        ) : (
+          <>
+            <Pressable
+              onPress={() => { tap('light'); setLabelPickerOpen((open) => !open); }}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: labelPickerOpen }}
+              accessibilityLabel={
+                label ? `Nombre: ${label}. Toca para cambiarlo` : 'Elige un nombre para la dirección'
+              }
+              style={styles.labelTrigger}
+            >
+              <Icon name="ubicacion" size="sm" color={c.textMuted} />
+              <Text v="bodyM" tone={label ? 'text' : 'textMuted'} style={styles.flexText} numberOfLines={1}>
+                {label || 'Elige un nombre'}
+              </Text>
+              <Icon name={labelPickerOpen ? 'plegar' : 'desplegar'} size="sm" color={c.textMuted} />
+            </Pressable>
+            <View style={[styles.labelLine, { backgroundColor: c.border }]} />
 
-      <Input
-        label="Nombre de la dirección"
-        icon="ubicacion"
-        placeholder="Casa, Trabajo, Donde mi mamá…"
-        value={label}
-        onChangeText={(t) => { setLabel(t); setError(''); }}
-      />
+            {labelPickerOpen ? (
+              <View accessibilityRole="radiogroup">
+                {LABEL_PRESETS.map((preset, index) => {
+                  const active = label === preset.name;
+                  const PresetIcon = preset.illustration;
+                  return (
+                    <Pressable
+                      key={preset.name}
+                      onPress={() => {
+                        tap('select'); setLabel(preset.name); setError(''); setLabelPickerOpen(false);
+                      }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: active }}
+                      style={[
+                        styles.labelOption,
+                        index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+                      ]}
+                    >
+                      <PresetIcon size={22} />
+                      <Text v={active ? 'strongS' : 'bodyM'} style={styles.flexText}>{preset.name}</Text>
+                      {active ? <Icon name="check" size="sm" color={c.primaryText} /> : null}
+                    </Pressable>
+                  );
+                })}
+
+                <Pressable
+                  onPress={() => { tap('select'); setCustomLabel(true); setLabelPickerOpen(false); setError(''); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Escribir otro nombre"
+                  style={[styles.labelOption, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border }]}
+                >
+                  <PinAddressIllustration size={22} />
+                  <Text v="bodyM" style={styles.flexText}>Escribir otro nombre</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </>
+        )}
+      </View>
 
       {error ? (
         <View style={styles.locationErrorBlock}>
@@ -1293,22 +1365,24 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
 
-  // Formulario y selector de modo
-  quickLabels: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    flexWrap: 'wrap',
-  },
-  quickLabel: {
+  // Nombre de la dirección: desplegable sin caja, línea fina en vez de borde
+  labelField: { gap: Spacing.sm },
+  labelTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
     height: 40,
-    borderRadius: 999,
-    borderWidth: 1.5,
-    justifyContent: 'center',
   },
+  labelLine: { height: StyleSheet.hairlineWidth },
+  labelOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+  },
+  labelSwitch: { alignSelf: 'flex-start', paddingVertical: 2 },
+  flexText: { flex: 1 },
+
   locate: { gap: Spacing.sm },
   mapFrame: { overflow: 'hidden', borderRadius: BorderRadius.lg },
   /** Etiqueta flotante sobre la vista previa del mapa. */
@@ -1325,12 +1399,8 @@ const styles = StyleSheet.create({
   },
   fullMapFooter: { gap: Spacing.sm },
 
-  // Sugerencias del buscador de direcciones
-  suggestions: {
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
+  // Sugerencias del buscador de direcciones, sin caja: separadores finos
+  suggestions: {},
   suggestion: {
     flexDirection: 'row',
     alignItems: 'center',

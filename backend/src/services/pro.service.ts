@@ -153,7 +153,7 @@ export class ProService {
       );
     }
 
-    const email = user.email || input.customerEmail;
+    const email = user.email || user.receiptEmail || input.customerEmail;
     if (!email) {
       throw new AppError(
         'Necesitamos un correo para enviarte el comprobante de tu membresía',

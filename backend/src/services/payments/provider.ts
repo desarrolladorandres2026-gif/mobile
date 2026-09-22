@@ -263,6 +263,46 @@ export interface OtpAttempts {
   maxValidations: number;
 }
 
+/**
+ * La pasarela dijo que no al código, y no por un fallo de red: se agotaron
+ * los intentos, la sesión venció o la transacción ya terminó.
+ *
+ * Se distingue de un `Error` cualquiera porque piden respuestas distintas.
+ * Esto es una respuesta —la persona tiene que saberlo y pasar a otra
+ * cosa—; un fallo de red es un "inténtalo otra vez".
+ */
+export class OtpRejectedError extends Error {
+  constructor(
+    message: string,
+    readonly reason: 'exhausted' | 'expired' | 'finalized'
+  ) {
+    super(message);
+    this.name = 'OtpRejectedError';
+  }
+}
+
+/**
+ * La pasarela no quiso crear el cobro, y se sabe decirle al cliente por qué.
+ *
+ * Lleva dos textos porque tienen dos lectores. `message` es para el registro
+ * y el soporte: el detalle crudo de la pasarela, con su código HTTP y su
+ * JSON. `customerMessage` es lo único que sale hacia la app — en español
+ * llano y sin el nombre de la pasarela, que mucha gente no conoce y que
+ * leído en un rechazo hace pensar que el cobro fue a otra empresa.
+ *
+ * Un `Error` cualquiera que salga de `createNativePayment` no se enseña:
+ * quien llama lo cambia por un mensaje genérico.
+ */
+export class GatewayRejectedError extends Error {
+  constructor(
+    message: string,
+    readonly customerMessage: string
+  ) {
+    super(message);
+    this.name = 'GatewayRejectedError';
+  }
+}
+
 /** Resultado de entregarle a la pasarela el código que escribió el cliente. */
 export interface OtpOutcome {
   /**

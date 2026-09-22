@@ -57,6 +57,23 @@ export function productImagePlaceholder(
   return uri ? { uri } : undefined;
 }
 
+/**
+ * Lo que se pinta mientras llega una variante grande: la del escalón de
+ * abajo.
+ *
+ * A la ficha se llega tocando una tarjeta que ya pintó `catalog`, y al
+ * visor desde la ficha, que ya pintó `detail`: las dos están en la caché
+ * del teléfono y salen al instante y nítidas, no borrosas. Sin variantes
+ * (productos anteriores al sistema) queda la miniatura borrosa.
+ */
+export function productImageStepDown(
+  product: WithProductImage | null | undefined,
+  size: 'detail' | 'large'
+): { uri: string } | undefined {
+  const uri = product?.images?.[size === 'large' ? 'detail' : 'catalog'];
+  return uri ? { uri } : productImagePlaceholder(product);
+}
+
 /** Si hay algo que pintar, sin importar de qué generación venga. */
 export function hasProductImage(product: WithProductImage | null | undefined): boolean {
   return Boolean(product?.images?.catalog || product?.image);

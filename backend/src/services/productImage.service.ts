@@ -5,6 +5,7 @@ import { IProduct, IProductImage } from '../models';
 import {
   PRODUCT_IMAGE_VARIANTS,
   ProductImageUrls,
+  productImagePlaceholderUrl,
   productImageUrl,
   productImageUrls,
 } from '../utils/productImageUrls';
@@ -48,6 +49,50 @@ interface InspectResult {
   width: number;
   height: number;
   checksum: string;
+}
+
+/** Lo que devuelve el almacenamiento de una foto recién subida. */
+interface StoredImage {
+  publicId: string;
+  width: number;
+  height: number;
+  bytes: number;
+  format: string;
+  placeholderDataUri: string | null;
+}
+
+/** Una miniatura de 24 px pesa ~90 bytes; algo de más de 1 KB no lo es. */
+const PLACEHOLDER_MAX_BYTES = 1024;
+/** Lo que se le concede a Cloudinary antes de seguir sin incrustarla. */
+const PLACEHOLDER_FETCH_TIMEOUT_MS = 2500;
+
+/**
+ * La miniatura borrosa de una foto, lista para viajar dentro del JSON.
+ *
+ * Como URL costaba una petición más por producto, y con mala señal esa
+ * petición es la que llega tarde: el hueco se quedaba vacío justo cuando
+ * más falta hacía algo que mirar. Incrustada se pinta con la respuesta.
+ *
+ * Nunca lanza. Si Cloudinary no contesta a tiempo o devuelve algo raro, el
+ * producto se guarda igual y sirve la URL, que es lo de antes.
+ */
+export async function fetchInlinePlaceholder(
+  publicId: string,
+  version?: number
+): Promise<string | null> {
+  try {
+    const res = await fetch(productImagePlaceholderUrl(publicId, { format: 'webp', version }), {
+      signal: AbortSignal.timeout(PLACEHOLDER_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const type = (res.headers.get('content-type') ?? '').split(';')[0].trim();
+    if (!type.startsWith('image/')) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (!bytes.length || bytes.length > PLACEHOLDER_MAX_BYTES) return null;
+    return `data:${type};base64,${bytes.toString('base64')}`;
+  } catch {
+    return null;
+  }
 }
 
 export class ProductImageService {
@@ -183,6 +228,7 @@ export class ProductImageService {
       checksum: inspected.checksum,
       enhanced: params.enhance !== false,
       backgroundRemoved: wantsBackgroundRemoval,
+      placeholderDataUri: uploaded.placeholderDataUri,
       uploadedAt: new Date(),
     } as IProductImage;
 
@@ -296,6 +342,7 @@ export class ProductImageService {
       checksum: inspected.checksum,
       enhanced: true,
       backgroundRemoved: params.removeBackground === true && this.backgroundRemovalAvailable,
+      placeholderDataUri: uploaded.placeholderDataUri,
       uploadedAt: new Date(),
     } as IProductImage);
 
@@ -363,13 +410,35 @@ export class ProductImageService {
 
   // ── Almacenamiento ───────────────────────────────────────────────────
 
-  /** Aislado para poder sustituirlo en pruebas sin tocar la red. */
-  private store(params: {
+  /**
+   * Sube el master y le calcula la miniatura incrustada.
+   *
+   * Aislado para poder sustituirlo en pruebas sin tocar la red.
+   *
+   * Con recorte de fondo no se incrusta: Cloudinary lo aplica en diferido,
+   * así que la miniatura saldría de la foto con fondo. La URL, que se
+   * deriva al pedirla, ya ve la recortada.
+   */
+  private async store(params: {
     buffer: Buffer;
     businessId: string;
     productId: string;
     removeBackground: boolean;
-  }): Promise<{ publicId: string; width: number; height: number; bytes: number; format: string }> {
+  }): Promise<StoredImage> {
+    const uploaded = await this.upload(params);
+    const placeholderDataUri = params.removeBackground
+      ? null
+      : await fetchInlinePlaceholder(uploaded.publicId, uploaded.version);
+    const { version: _version, ...stored } = uploaded;
+    return { ...stored, placeholderDataUri };
+  }
+
+  private upload(params: {
+    buffer: Buffer;
+    businessId: string;
+    productId: string;
+    removeBackground: boolean;
+  }): Promise<Omit<StoredImage, 'placeholderDataUri'> & { version: number }> {
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
@@ -403,6 +472,7 @@ export class ProductImageService {
             height: result.height,
             bytes: result.bytes,
             format: result.format,
+            version: result.version,
           });
         }
       );

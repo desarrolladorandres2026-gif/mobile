@@ -15,6 +15,7 @@
     "backfill:search-names": "tsx src/scripts/backfillSearchNames.ts",
     "backfill:demo-ratings": "tsx src/scripts/backfillDemoRatings.ts",
     "backfill:product-tags": "tsx src/scripts/backfillProductTags.ts",
+    "backfill:image-placeholders": "tsx src/scripts/backfillImagePlaceholders.ts",
     "seed:discovery-collections": "tsx src/scripts/seedDiscoveryCollections.ts",
     "seed:test-business-images": "tsx src/scripts/seedTestBusinessImages.ts",
     "exercise:business-flow": "tsx src/scripts/exerciseBusinessFlow.ts",

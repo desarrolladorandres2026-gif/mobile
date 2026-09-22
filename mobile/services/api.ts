@@ -40,6 +40,17 @@ const api = axios.create({
     : { 'Content-Type': 'application/json', 'User-Agent': DEVICE_USER_AGENT },
 });
 
+/**
+ * Plazo de las subidas de fotos: evidencia, documentos, selfie y avatar.
+ *
+ * Los 12 s de arriba miden una respuesta; una subida mide la señal del
+ * teléfono. Una foto de 200 KB con una sola barra tarda más que eso sin
+ * que nada esté roto, y la evidencia es obligatoria para cerrar recogida y
+ * entrega: cortarla a los 12 s dejaba al domiciliario sin poder terminar
+ * el pedido.
+ */
+export const UPLOAD_TIMEOUT_MS = 60_000;
+
 // Request interceptor - add token
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken;

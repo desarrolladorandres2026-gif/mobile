@@ -4,7 +4,12 @@ import request from 'supertest';
 import app from '../app';
 import { Category, Product } from '../models';
 import { UserRole } from '../types';
-import { productImageService, readImageHeader } from '../services/productImage.service';
+import {
+  productImageService,
+  readImageHeader,
+  fetchInlinePlaceholder,
+} from '../services/productImage.service';
+import { withProductImages } from '../utils/productImageUrls';
 import { makeUser, makeBusiness, authHeader } from './factories';
 
 /**
@@ -161,12 +166,38 @@ describe('Subida de la imagen de un producto', () => {
     expect(images.catalog).toBeTruthy();
     expect(images.detail).toBeTruthy();
     expect(images.large).toBeTruthy();
-    expect(images.placeholder).toBeTruthy();
-    // El `srcset` lleva los cuatro anchos reales.
-    expect(images.srcSet).toContain('200w');
-    expect(images.srcSet).toContain('1200w');
+    // Sin miniatura incrustada, la URL de respaldo.
+    expect(images.placeholder).toContain('e_blur');
+    // El `srcSet` lo arma el panel: ya no viaja repetido en cada producto.
+    expect(images.srcSet).toBeUndefined();
     // Formato negociado con el navegador, no fijado a mano.
     expect(images.catalog).toContain('f_auto');
+  });
+
+  it('sirve la miniatura incrustada y no la repite en imageAsset', async () => {
+    const { owner, business, product } = await scenario();
+    const dataUri = 'data:image/webp;base64,UklGRkQAAABXRUJQ';
+    (productImageService as any).store.mockImplementationOnce(async () => ({
+      publicId: `zipp/products/${business._id}/${product._id}`,
+      width: 1200,
+      height: 1200,
+      bytes: 180_000,
+      format: 'jpg',
+      placeholderDataUri: dataUri,
+    }));
+
+    const res = await request(app)
+      .post(`/api/v1/products/${product._id}/image`)
+      .set(await authHeader(owner))
+      .field('businessId', business._id.toString())
+      .attach('image', jpeg(1600, 1600), { filename: 'burger.jpg', contentType: 'image/jpeg' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.images.placeholder).toBe(dataUri);
+    expect(res.body.data.imageAsset.placeholderDataUri).toBeUndefined();
+    // Guardada de verdad, no solo pintada en la respuesta.
+    const saved = await Product.findById(product._id).lean();
+    expect(saved?.imageAsset?.placeholderDataUri).toBe(dataUri);
   });
 
   it('rechaza una imagen demasiado pequeña explicando por qué', async () => {
@@ -507,5 +538,62 @@ describe('Galería del producto', () => {
     // la carta.
     expect(json.galleryImages).toHaveLength(1);
     expect(json.galleryImages[0].detail).toContain('http');
+  });
+});
+
+describe('Miniatura incrustada', () => {
+  const webp = (size: number) => Buffer.alloc(size, 7);
+  const respond = (body: Buffer, type = 'image/webp', ok = true) =>
+    vi.fn(async () => ({
+      ok,
+      headers: new Headers({ 'content-type': type }),
+      arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length),
+    }));
+
+  it('devuelve un data URI con el tipo que dijo Cloudinary', async () => {
+    const fetchMock = respond(webp(90));
+    vi.stubGlobal('fetch', fetchMock);
+    const uri = await fetchInlinePlaceholder('zipp/products/b/p', 1789479177);
+    vi.unstubAllGlobals();
+
+    expect(uri).toMatch(/^data:image\/webp;base64,/);
+    // Pedida en WebP fijo y atada a la versión recién subida.
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toContain('f_webp');
+    expect(url).toContain('v1789479177');
+  });
+
+  it('no incrusta lo que no es una imagen pequeña', async () => {
+    vi.stubGlobal('fetch', respond(webp(90), 'text/html'));
+    expect(await fetchInlinePlaceholder('p')).toBeNull();
+    vi.stubGlobal('fetch', respond(webp(5000)));
+    expect(await fetchInlinePlaceholder('p')).toBeNull();
+    vi.stubGlobal('fetch', respond(webp(90), 'image/webp', false));
+    expect(await fetchInlinePlaceholder('p')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('nunca lanza: sin red, el producto sigue con la URL', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ECONNRESET'); }));
+    expect(await fetchInlinePlaceholder('p')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it('las filas de un aggregate salen con variantes y sin imageAsset', () => {
+    const row = withProductImages({
+      name: 'Hamburguesa',
+      imageAsset: {
+        publicId: 'zipp/products/b/p',
+        width: 1200,
+        height: 1200,
+        enhanced: false,
+        backgroundRemoved: false,
+        placeholderDataUri: 'data:image/webp;base64,AAAA',
+      },
+    });
+    expect(row).not.toHaveProperty('imageAsset');
+    expect(row.images?.thumb).toContain('w_200');
+    expect(row.images?.placeholder).toBe('data:image/webp;base64,AAAA');
+    expect(withProductImages({ name: 'Sin foto', imageAsset: null }).images).toBeNull();
   });
 });

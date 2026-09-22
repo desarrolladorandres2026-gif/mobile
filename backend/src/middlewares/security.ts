@@ -120,13 +120,18 @@ export const paymentStatusRateLimiter = rateLimit({
 });
 
 /**
- * Código de un solo uso de DaviPlata — 10 por 15 minutos.
+ * Código de un solo uso de DaviPlata — 10 por 15 minutos, por cuenta.
  *
  * Nada que ver con el limitador de consultas: aquí cada llamada le pide a la
  * pasarela que mande un SMS o comprueba un código de seis dígitos. Wompi ya
  * corta a dos intentos por sesión, pero nada le impide a alguien abrir
  * sesiones nuevas; esto es lo que hace que barrer el espacio de códigos
  * cueste tiempo en vez de nada.
+ *
+ * Por cuenta y no por IP: en datos móviles cientos de personas salen por la
+ * misma IP del operador, y un límite por IP de 10 dejaría a desconocidos
+ * sin poder pagar por culpa de otros. Va detrás de `authenticate`, así que
+ * `req.user` siempre existe; la IP queda solo como red de seguridad.
  */
 export const paymentOtpRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -137,6 +142,10 @@ export const paymentOtpRateLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = (req as { user?: { _id?: { toString(): string } } }).user?._id?.toString();
+    return userId ? `otp:${userId}` : `otp-anon:${req.ip}`;
+  },
 });
 
 /**

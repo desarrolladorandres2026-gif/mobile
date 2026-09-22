@@ -26,6 +26,14 @@ export interface IUser extends Document {
   birthDate?: Date;
   phone?: string;
   email?: string;
+  /**
+   * Correo para el comprobante de pago, solo cuando la cuenta no tiene
+   * `email` (registro por celular). Se pide una sola vez en el primer pago
+   * y desde ahí solo se cambia en Mi cuenta — nunca vuelve a preguntarse
+   * en el flujo de pago. Sin verificación por OTP a propósito: no es la
+   * identidad de la cuenta, es solo el destino del recibo de Wompi.
+   */
+  receiptEmail?: string;
   password?: string;
   googleId?: string;
   appleId?: string;
@@ -188,6 +196,12 @@ const userSchema = new Schema<IUser>(
       type: String,
       unique: true,
       sparse: true,
+      trim: true,
+      lowercase: true,
+      match: [/^\S+@\S+\.\S+$/, 'Email inválido'],
+    },
+    receiptEmail: {
+      type: String,
       trim: true,
       lowercase: true,
       match: [/^\S+@\S+\.\S+$/, 'Email inválido'],

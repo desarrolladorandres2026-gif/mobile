@@ -27,13 +27,29 @@ export interface ProductImages {
   catalog: string;
   detail: string;
   large: string;
+  /** `data:` URI incrustado, o la URL en productos anteriores al relleno. */
   placeholder: string;
-  srcSet: string;
   width: number;
   height: number;
   /** Si las variantes se sirven con la cadena de mejora automática. */
   enhanced: boolean;
   backgroundRemoved: boolean;
+}
+
+/**
+ * Ancho real de cada variante, en px. Copia de `PRODUCT_IMAGE_VARIANTS`
+ * del backend: si allí cambia un tamaño, cambia aquí.
+ *
+ * El `srcSet` se arma en el panel y no viaja del servidor porque solo lo
+ * usa el panel: en cada respuesta pública eran cuatro URLs repetidas por
+ * producto que ni el móvil ni la web leían.
+ */
+const VARIANT_WIDTHS = { thumb: 200, catalog: 400, detail: 800, large: 1200 } as const;
+
+function srcSetOf(images: ProductImages): string {
+  return (Object.keys(VARIANT_WIDTHS) as (keyof typeof VARIANT_WIDTHS)[])
+    .map((key) => `${images[key]} ${VARIANT_WIDTHS[key]}w`)
+    .join(', ');
 }
 
 interface Props {
@@ -87,12 +103,12 @@ export default function SmartImage({
         className={`absolute inset-0 bg-cover bg-center transition-opacity duration-300 ${
           loaded ? 'opacity-0' : 'opacity-100'
         }`}
-        style={{ backgroundImage: `url(${images.placeholder})` }}
+        style={{ backgroundImage: `url("${images.placeholder}")` }}
       />
 
       <img
         src={images[base]}
-        srcSet={images.srcSet}
+        srcSet={srcSetOf(images)}
         sizes={sizes}
         alt={alt}
         width={images.width}

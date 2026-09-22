@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { View, Pressable, StyleSheet, TextInput, type TextInputProps } from 'react-native';
+import { View, Pressable, StyleSheet, TextInput, type TextInputProps, type ViewStyle } from 'react-native';
 import { Text } from './Text';
 import { Icon } from './Icon';
 import { useTheme } from '../../hooks/useTheme';
@@ -18,7 +18,8 @@ import { Type, FontFamily } from '../../theme/typography';
 
 export interface PlainFieldProps {
   label: string;
-  icon: IconName;
+  /** Sin icono, la fila queda al ras: útil en grupos compactos (p. ej. vencimiento/código de una tarjeta). */
+  icon?: IconName;
   value: string;
   onChangeText?: (t: string) => void;
   placeholder?: string;
@@ -28,18 +29,23 @@ export interface PlainFieldProps {
   keyboardType?: TextInputProps['keyboardType'];
   autoCapitalize?: TextInputProps['autoCapitalize'];
   autoComplete?: TextInputProps['autoComplete'];
+  textContentType?: TextInputProps['textContentType'];
   returnKeyType?: TextInputProps['returnKeyType'];
   onSubmitEditing?: () => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
   autoFocus?: boolean;
   editable?: boolean;
   maxLength?: number;
   numeric?: boolean;
+  secureTextEntry?: boolean;
+  containerStyle?: ViewStyle;
 }
 
 export function PlainField({
   label, icon, value, onChangeText, placeholder, error, hint, prefix,
-  keyboardType, autoCapitalize, autoComplete, returnKeyType, onSubmitEditing, autoFocus,
-  editable = true, maxLength, numeric,
+  keyboardType, autoCapitalize, autoComplete, textContentType, returnKeyType, onSubmitEditing,
+  onFocus, onBlur, autoFocus, editable = true, maxLength, numeric, secureTextEntry, containerStyle,
 }: PlainFieldProps) {
   const { c } = useTheme();
   const [focused, setFocused] = useState(false);
@@ -47,15 +53,16 @@ export function PlainField({
 
   const lineColor = error ? c.error : focused ? c.primary : c.border;
   const iconColor = error ? c.error : focused ? c.primaryText : c.text;
+  const indent = icon ? 28 + Spacing.md : 0;
 
   return (
-    <View style={styles.plainField}>
+    <View style={[styles.plainField, containerStyle]}>
       <Pressable
         onPress={() => ref.current?.focus()}
         style={styles.plainFieldRow}
         accessibilityRole="none"
       >
-        <Icon name={icon} size={28} color={iconColor} />
+        {icon ? <Icon name={icon} size={28} color={iconColor} /> : null}
 
         <View style={styles.plainFieldBody}>
           <Text v="caption" tone="textMuted">{label}</Text>
@@ -74,15 +81,17 @@ export function PlainField({
               keyboardType={keyboardType}
               autoCapitalize={autoCapitalize}
               autoComplete={autoComplete}
+              textContentType={textContentType}
               returnKeyType={returnKeyType}
               onSubmitEditing={onSubmitEditing}
               autoFocus={autoFocus}
               editable={editable}
               maxLength={maxLength}
+              secureTextEntry={secureTextEntry}
               accessibilityLabel={label}
               style={[styles.plainFieldInput, numeric ? Type.dataM : Type.bodyM, { color: c.text }]}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
+              onFocus={() => { setFocused(true); onFocus?.(); }}
+              onBlur={() => { setFocused(false); onBlur?.(); }}
             />
           </View>
         </View>
@@ -91,17 +100,17 @@ export function PlainField({
       <View
         style={[
           styles.plainFieldLine,
-          { backgroundColor: lineColor, height: focused || error ? 2 : StyleSheet.hairlineWidth },
+          { marginLeft: indent, backgroundColor: lineColor, height: focused || error ? 2 : StyleSheet.hairlineWidth },
         ]}
       />
 
       {error ? (
-        <View style={styles.messageRow}>
+        <View style={[styles.messageRow, { marginLeft: indent }]}>
           <Icon name="atencion" size="sm" color={c.error} />
           <Text v="caption" tone="errorText" style={styles.flexText}>{error}</Text>
         </View>
       ) : hint ? (
-        <Text v="caption" tone="textMuted" style={styles.hintIndent}>{hint}</Text>
+        <Text v="caption" tone="textMuted" style={{ marginLeft: indent }}>{hint}</Text>
       ) : null}
     </View>
   );
@@ -113,8 +122,7 @@ const styles = StyleSheet.create({
   plainFieldBody: { flex: 1, gap: 2 },
   plainFieldInputRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   plainFieldInput: { flex: 1, paddingVertical: 4 },
-  plainFieldLine: { marginLeft: 28 + Spacing.md },
-  messageRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginLeft: 28 + Spacing.md },
+  plainFieldLine: {},
+  messageRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   flexText: { flex: 1 },
-  hintIndent: { marginLeft: 28 + Spacing.md },
 });

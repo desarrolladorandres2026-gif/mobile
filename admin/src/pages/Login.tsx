@@ -170,6 +170,15 @@ export default function Login() {
             <ShieldCheck className="w-3.5 h-3.5" />
             <span>Cifrado TLS 256-bit</span>
           </div>
+
+          <a
+            href="https://github.com/twitter/twemoji"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block mt-3 text-center text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+          >
+            Ilustraciones: Twemoji © Twitter, Inc. y colaboradores — CC-BY 4.0
+          </a>
         </div>
 
         {/* Right: Brand image panel */}

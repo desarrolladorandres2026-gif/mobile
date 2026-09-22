@@ -13,6 +13,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { orderCode } from '../../lib/format';
 import { apiMessage } from '../../lib/errors';
+import { declinedMessage } from '../../lib/paymentCopy';
 import { tap } from '../../lib/haptics';
 
 type Phase = 'opening' | 'waiting' | 'approved' | 'declined' | 'pending' | 'error';
@@ -161,10 +162,10 @@ function WebCheckoutResult() {
   if (phase === 'declined') {
     return (
       <Screen>
-        <Header title="Pago rechazado" fallback="/(client)/(tabs)/home" />
+        <Header title="Pago no aprobado" fallback="/(client)/(tabs)/home" />
         <ErrorState
-          title="Wompi rechazó el pago"
-          message={status?.declineReason || 'No se realizó ningún cobro. Puedes intentarlo de nuevo con otro método.'}
+          title="Tu banco no aprobó el pago"
+          message={declinedMessage(status?.declineReason, 'Puedes intentarlo de nuevo con otro método.')}
           onRetry={retry}
         />
         <View style={styles.actions}>
@@ -203,7 +204,7 @@ function WebCheckoutResult() {
           <Text v="titleL" center>Tu pago está pendiente</Text>
           <Text v="bodyM" tone="textSecondary" center style={styles.stateMessage}>
             Algunos métodos, como PSE, tardan unos minutos en confirmarse. Te
-            avisaremos apenas Wompi confirme el pago de tu pedido {reference}.
+            avisaremos apenas tu banco confirme el pago de tu pedido {reference}.
           </Text>
           <Button
             title="Ver mis pedidos"

@@ -1,4 +1,4 @@
-import api from './api';
+import api, { UPLOAD_TIMEOUT_MS } from './api';
 import type { ProductImages } from '../lib/productImage';
 import type { User, MarketingChannel, DocumentType } from '../stores/authStore';
 
@@ -7,6 +7,8 @@ export interface ProfileUpdate {
   firstName?: string;
   lastName?: string;
   email?: string;
+  /** Correo del comprobante de pago (`''` lo borra); solo aplica sin `email`. */
+  receiptEmail?: string;
   phone?: string;
   /** `null` borra el documento guardado. */
   documentType?: DocumentType | null;
@@ -111,10 +113,12 @@ export interface HomeSectionProduct {
 
 /** Qué tarjeta usa el cliente para pintar la colección — la decide el servidor.
  *
- * Las dos últimas son de negocio, no de producto: la colección que las use
+ * `grid` es la única que no es un carrusel horizontal: 3 columnas × 4 filas,
+ * doce como máximo y solo en Explorar (en Inicio cae a `price_focus`). Las
+ * dos últimas son de negocio, no de producto: la colección que las use
  * devuelve `businesses`, no `products`. */
 export type HomeSectionDisplayVariant =
-  | 'compact' | 'large' | 'horizontal' | 'featured' | 'price_focus' | 'banner'
+  | 'compact' | 'large' | 'horizontal' | 'featured' | 'price_focus' | 'banner' | 'grid'
   | 'business_row' | 'spotlight';
 
 export interface HomeSection {
@@ -492,6 +496,7 @@ export const orderFlowApi = {
     return api
       .post(`/orders/${orderId}/${stage}/evidence`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: UPLOAD_TIMEOUT_MS,
       })
       .then((r) => r.data.data);
   },
@@ -565,7 +570,8 @@ export interface ProductSearchHit {
   /** Solo lo manda `/offers`: el porcentaje ya calculado y redondeado. */
   discountPercent?: number;
   image?: string;
-  imageAsset?: Record<string, unknown>;
+  /** Variantes y miniatura borrosa. Faltan en servidores anteriores: ahí queda `image`. */
+  images?: ProductImages | null;
   businessId: string;
   businessName: string;
   /** Clave de categoría del negocio (`restaurant`, `pharmacy`…). La usa la
@@ -954,6 +960,7 @@ export const driverApi = {
     return api
       .post('/drivers/documents', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: UPLOAD_TIMEOUT_MS,
       })
       .then((r) => r.data.data);
   },
@@ -976,6 +983,7 @@ export const driverApi = {
     return api
       .post('/drivers/verifications', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: UPLOAD_TIMEOUT_MS,
       })
       .then((r) => r.data.data);
   },
@@ -1071,6 +1079,24 @@ export const paymentsApi = {
 
   deleteCard: (id: string) =>
     api.delete(`/payments/cards/${id}`).then((r) => r.data.data),
+
+  /**
+   * Deja a medias la verificación del banco para pagar de otra forma. No
+   * anula nada en Wompi (no se puede con un cobro pendiente): el servidor le
+   * pregunta primero y solo suelta el intento si el pago no entró.
+   */
+  abandon: (transactionId: string) =>
+    api.post(`/payments/status/${transactionId}/abandon`).then((r) => r.data.data),
+
+  // ── Código de DaviPlata ──
+  // El servidor hace de puente: la dirección del servicio y su credencial
+  // nunca llegan al teléfono. Aquí solo viaja lo que escribió la persona.
+
+  resendOtp: (transactionId: string) =>
+    api.post(`/payments/status/${transactionId}/otp/resend`).then((r) => r.data.data),
+
+  validateOtp: (transactionId: string, code: string) =>
+    api.post(`/payments/status/${transactionId}/otp/validate`, { code }).then((r) => r.data.data),
 };
 
 export const authApi = {
@@ -1205,6 +1231,7 @@ export const authApi = {
     return api
       .post('/auth/profile/avatar', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: UPLOAD_TIMEOUT_MS,
       })
       .then((r) => r.data.data);
   },

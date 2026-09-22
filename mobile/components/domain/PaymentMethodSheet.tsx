@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Text, Icon, Button, Sheet, Input, Notice, Skeleton } from '../ui';
 import { PaymentConsent, PaymentTermsNotice } from './PaymentConsent';
-import { WompiLogo } from '../brand/WompiLogo';
+import { SecurePaymentMark } from './SecurePaymentMark';
 import { BankLogo } from '../brand/BankLogo';
 import { NequiLogo, NEQUI } from '../brand/NequiLogo';
 import { CardBrandLogo } from '../brand/CardBrandLogo';
@@ -11,8 +11,12 @@ import { PaymentCardFields } from './PaymentCardFields';
 import {
   PaymentPseFields,
   validatePseForm,
+  DaviplataFields,
+  validateDaviplataForm,
   type PseFormErrors,
   type PseFormValues,
+  type DaviplataFormErrors,
+  type DaviplataFormValues,
 } from './PaymentPseFields';
 import { useTheme } from '../../hooks/useTheme';
 import {
@@ -23,7 +27,7 @@ import {
   type SavedCardSummary,
 } from '../../hooks/useApi';
 import { useAuthStore } from '../../stores/authStore';
-import { usePrefsStore } from '../../stores/prefsStore';
+import { authApi } from '../../services/endpoints';
 import {
   validateCardForm,
   parseExpiry,
@@ -55,13 +59,15 @@ import type { IconName } from '../../theme/icons';
  * pedido, y así el botón "Confirmar" del checkout es un solo toque.
  */
 
-type Step = 'list' | 'card' | 'nequi' | 'pse';
+type Step = 'list' | 'card' | 'nequi' | 'pse' | 'bancolombia' | 'daviplata';
 
 const TITLES: Record<Step, string> = {
   list: 'Cómo quieres pagar',
   card: 'Tarjeta de crédito o débito',
   nequi: 'Nequi',
   pse: 'PSE',
+  bancolombia: 'Bancolombia',
+  daviplata: 'DaviPlata',
 };
 
 /** Azul del logotipo de PSE, para el icono de su fila. */
@@ -73,6 +79,7 @@ const DAVIPLATA_RED = '#EB0029';
 
 const EMPTY_CARD: CardFormValues = { number: '', expiry: '', cvc: '', holder: '' };
 const EMPTY_PSE: PseFormValues = { bankCode: '', bankName: '', userType: null, docType: '', docNumber: '' };
+const EMPTY_DAVIPLATA: DaviplataFormValues = { docType: 'CC', docNumber: '' };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -81,7 +88,14 @@ interface Props {
   onClose: () => void;
   onSelect: (selected: SelectedInstrument) => void;
   /** Lo que el backend deja ofrecer, de `GET /payments/methods`. */
-  capabilities: { pse: boolean; savedCards: boolean };
+  capabilities: {
+    pse: boolean;
+    savedCards: boolean;
+    /** Botón Bancolombia propio. Falso o ausente con un backend anterior: la fila no aparece. */
+    bancolombiaTransfer?: boolean;
+    /** DaviPlata con código dentro de la app. Mismo criterio. */
+    daviplata?: boolean;
+  };
   /**
    * El cobro se va a repetir solo (hoy, la membresía Zipp Pro).
    *
@@ -97,19 +111,18 @@ interface Props {
 export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, recurring }: Props) {
   const { c } = useTheme();
   const user = useAuthStore((s) => s.user);
-  const savedEmail = usePrefsStore((s) => s.receiptEmail);
-  const setSavedEmail = usePrefsStore((s) => s.setReceiptEmail);
+  const setUser = useAuthStore((s) => s.setUser);
 
   const config = useCheckoutConfig(visible);
   const cards = useSavedCards(visible && capabilities.savedCards);
   const deleteCard = useDeleteSavedCard();
 
   const [step, setStep] = useState<Step>('list');
-  // Se pide desde la lista (no solo al entrar a PSE): la fila de Bancolombia
-  // necesita su código antes de que la persona toque nada.
+  // Se pide al abrir la hoja y no al entrar a PSE: así la lista de bancos
+  // ya está cuando alguien toca la fila, sin esqueleto de por medio.
+  // Bancolombia y DaviPlata ya no salen de aquí: tienen carril propio y no
+  // son "PSE con el banco elegido".
   const banks = usePseBanks(visible && capabilities.pse && !recurring);
-  const bancolombia = banks.data?.find((bank) => /BANCOLOMBIA/.test(bank.name.toUpperCase()));
-  const daviplata = banks.data?.find((bank) => /DAVIPLATA/.test(bank.name.toUpperCase()));
 
   const [pickedCardId, setPickedCardId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -124,21 +137,25 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
   const [pse, setPse] = useState<PseFormValues>(EMPTY_PSE);
   const [pseErrors, setPseErrors] = useState<PseFormErrors>({});
 
+  const [davi, setDavi] = useState<DaviplataFormValues>(EMPTY_DAVIPLATA);
+  const [daviErrors, setDaviErrors] = useState<DaviplataFormErrors>({});
+
   // Sin correo en la cuenta (registro por teléfono) hay que pedirlo: Wompi
-  // lo exige para mandar el comprobante.
-  const needsEmail = !user?.email;
+  // lo exige para mandar el comprobante. Pero solo la primera vez — en
+  // cuanto queda definido (`user.receiptEmail`), se usa en silencio y el
+  // campo no vuelve a aparecer aquí. Cambiarlo después es cosa de Mi cuenta.
+  const needsEmail = !user?.email && !user?.receiptEmail;
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState<string | undefined>();
 
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Al abrir: el teléfono y el correo, precargados.
+  // Al abrir: el teléfono, precargado.
   useEffect(() => {
     if (!visible) return;
     setPhone((current) => current || (user?.phone ?? '').replace(/\D/g, '').slice(-10));
-    setEmail((current) => current || savedEmail || '');
-  }, [visible, user?.phone, savedEmail]);
+  }, [visible, user?.phone]);
 
   /**
    * Cierra y **olvida** lo escrito. El número y el código de la tarjeta no
@@ -152,6 +169,8 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
     setPhoneError(undefined);
     setPse(EMPTY_PSE);
     setPseErrors({});
+    setDavi(EMPTY_DAVIPLATA);
+    setDaviErrors({});
     setPickedCardId(null);
     setConfirmDeleteId(null);
     setEmailError(undefined);
@@ -172,10 +191,21 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
 
   const finish = (selected: Omit<SelectedInstrument, 'customerEmail'>) => {
     const customerEmail = needsEmail ? email.trim().toLowerCase() : undefined;
-    if (customerEmail) setSavedEmail(customerEmail);
+    if (customerEmail) persistReceiptEmail(customerEmail);
     tap('success');
     onSelect({ ...selected, customerEmail });
     close();
+  };
+
+  /**
+   * Se escribe una sola vez: en cuanto se manda este primer pago, queda
+   * guardado en el perfil y esta hoja no lo vuelve a pedir. No bloquea el
+   * pago si falla — ya viaja como `customerEmail` en el cobro — solo se
+   * volvería a preguntar la próxima vez.
+   */
+  const persistReceiptEmail = (receiptEmail: string) => {
+    if (user) setUser({ ...user, receiptEmail });
+    authApi.updateProfile({ receiptEmail }).catch(() => {});
   };
 
   // ── Acciones por método ──
@@ -286,6 +316,33 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
     });
   };
 
+  const submitBancolombia = () => {
+    if (!commonReady()) return;
+    finish({
+      instrument: { kind: 'bancolombia_transfer' },
+      label: 'Bancolombia',
+      detail: 'Autorizas con tu clave dinámica',
+      icon: 'edificio',
+    });
+  };
+
+  const submitDaviplata = () => {
+    const errors = validateDaviplataForm(davi);
+    setDaviErrors(errors);
+    const common = commonReady();
+    if (Object.keys(errors).length || !common) {
+      if (Object.keys(errors).length) tap('error');
+      return;
+    }
+    const docNumber = davi.docNumber.trim();
+    finish({
+      instrument: { kind: 'daviplata', userLegalIdType: davi.docType, userLegalId: docNumber },
+      label: 'DaviPlata',
+      detail: `${davi.docType} ···· ${docNumber.slice(-4)} · confirmas con un código`,
+      icon: 'celular',
+    });
+  };
+
   const removeCard = async (id: string) => {
     try {
       await deleteCard.mutateAsync(id);
@@ -310,6 +367,8 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
     : step === 'card' ? { title: 'Usar esta tarjeta', onPress: submitCard }
     : step === 'nequi' ? { title: 'Usar Nequi', onPress: submitNequi }
     : step === 'pse' ? { title: 'Usar PSE', onPress: submitPse }
+    : step === 'bancolombia' ? { title: 'Usar Bancolombia', onPress: submitBancolombia }
+    : step === 'daviplata' ? { title: 'Usar DaviPlata', onPress: submitDaviplata }
     : pickedCard ? { title: `Usar ${cardLabel(pickedCard.brand, pickedCard.lastFour)}`, onPress: () => pickSavedCard(pickedCard) }
     : null;
 
@@ -337,7 +396,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
       autoCapitalize="none"
       autoComplete="email"
       error={emailError}
-      hint="Tu cuenta no tiene correo; Wompi te manda ahí el recibo"
+      hint="Tu cuenta no tiene correo; ahí te llegan tus comprobantes. Lo pedimos una sola vez — para cambiarlo después, ve a Mi cuenta"
     />
   ) : null;
 
@@ -378,10 +437,10 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
                 url={config.data?.permalinks.personalDataAuth}
               />
             ) : null}
-            <View style={[styles.secure, { backgroundColor: c.surfaceLight }]}>
+            <View style={styles.secure}>
               <Icon name="candado" size="sm" color={c.textMuted} />
               <Text v="caption" tone="textMuted" style={styles.flex}>
-                Tu tarjeta va cifrada directo a Wompi. Zipp nunca ve ni guarda el número ni el código.
+                Tu tarjeta viaja cifrada a nuestro procesador de pagos. Zipp nunca ve ni guarda el número ni el código.
               </Text>
             </View>
           </>
@@ -423,6 +482,47 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
             loading={banks.isLoading}
             loadError={banks.isError}
           />
+        ) : null}
+
+        {step === 'bancolombia' ? (
+          <View style={styles.railStep}>
+            <Image
+              source={require('../../assets/banks/bancolombia.png')}
+              style={styles.bancolombiaHero}
+              contentFit="contain"
+              accessibilityLabel="Bancolombia"
+            />
+            <RailSteps
+              items={[
+                'Al confirmar el pedido abrimos Bancolombia aquí mismo, dentro de Zipp.',
+                'Entras con tu usuario de la Sucursal Virtual y autorizas con la clave dinámica de tu app Bancolombia.',
+                'Al terminar vuelves solo a Zipp y ves el resultado del pago.',
+              ]}
+            />
+            <Text v="caption" tone="textMuted">
+              Necesitas una cuenta de ahorros o corriente Bancolombia. Si cierras la página antes de
+              autorizar, no se cobra nada y puedes pagar con otro método.
+            </Text>
+          </View>
+        ) : null}
+        {step === 'daviplata' ? (
+          <View style={styles.railStep}>
+            <Image
+              source={require('../../assets/banks/daviplata.png')}
+              style={styles.daviplataHero}
+              contentFit="contain"
+              accessibilityLabel="DaviPlata"
+            />
+            <DaviplataFields
+              values={davi}
+              errors={daviErrors}
+              onChange={(next) => { setDavi(next); setDaviErrors({}); }}
+            />
+            <Text v="bodyS" tone="text">
+              Te llega un código por mensaje de texto al celular que tienes registrado en DaviPlata. Lo
+              escribes aquí mismo, sin salir de Zipp.
+            </Text>
+          </View>
         ) : null}
 
         {(step !== 'list' && !choosingBank) || pickedCard ? emailField : null}
@@ -523,7 +623,7 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
             onPress={() => setStep('nequi')}
           />
         )}
-        {capabilities.pse && !recurring && bancolombia ? (
+        {capabilities.bancolombiaTransfer && !recurring ? (
           <MethodRow
             icon={
               <Image
@@ -534,16 +634,13 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
               />
             }
             title="Bancolombia"
-            subtitle="Débito PSE desde tu cuenta Bancolombia"
+            subtitle="Transfiere desde tu cuenta con tu clave dinámica"
             accent={BANCOLOMBIA_YELLOW}
             stacked
-            onPress={() => {
-              setPse({ ...EMPTY_PSE, bankCode: bancolombia.code, bankName: bancolombia.name });
-              setStep('pse');
-            }}
+            onPress={() => setStep('bancolombia')}
           />
         ) : null}
-        {capabilities.pse && !recurring && daviplata ? (
+        {capabilities.daviplata && !recurring ? (
           <MethodRow
             icon={
               <Image
@@ -554,14 +651,11 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
               />
             }
             title="DaviPlata"
-            subtitle="Débito PSE desde tu cuenta DaviPlata"
+            subtitle="Confirmas con un código que te llega por SMS"
             accent={DAVIPLATA_RED}
             stacked
             stackedTitleColor={DAVIPLATA_RED}
-            onPress={() => {
-              setPse({ ...EMPTY_PSE, bankCode: daviplata.code, bankName: daviplata.name });
-              setStep('pse');
-            }}
+            onPress={() => setStep('daviplata')}
           />
         ) : null}
         {capabilities.pse && !recurring ? (
@@ -582,18 +676,25 @@ export function PaymentMethodSheet({ visible, onClose, onSelect, capabilities, r
           />
         ) : null}
 
-        <View
-          style={[styles.protected, styles.gapTop]}
-          accessible
-          accessibilityLabel="Compra protegida con Wompi"
-        >
-          <Icon name="candado" size="sm" color={c.textMuted} />
-          <Text v="caption" tone="textMuted">Compra protegida con</Text>
-          <WompiLogo height={14} color={c.text} />
-        </View>
+        <SecurePaymentMark style={styles.gapTop} />
       </>
     );
   }
+}
+
+/** Qué va a pasar, en orden. Números en dorado y texto; nada de tarjetas. */
+function RailSteps({ items }: { items: string[] }) {
+  const { c } = useTheme();
+  return (
+    <View style={styles.railList} accessibilityRole="list">
+      {items.map((item, index) => (
+        <View key={item} style={styles.railItem}>
+          <Text v="strongS" color={c.primaryText} style={styles.railNumber}>{index + 1}</Text>
+          <Text v="bodyS" tone="text" style={styles.flex}>{item}</Text>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 function MethodRow({
@@ -710,8 +811,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.sm,
   },
   gapTop: { marginTop: Spacing.sm },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
@@ -723,6 +823,13 @@ const styles = StyleSheet.create({
   // Logo real de DaviPlata (assets/banks/daviplata.png), casi cuadrado
   // (1.214:1) a diferencia del wordmark ancho de Bancolombia.
   daviplataIcon: { width: 24 * 1.214, height: 24 },
+  // Los mismos logos, más grandes, encabezando su paso.
+  bancolombiaHero: { width: 32 * 4.258, height: 32 },
+  daviplataHero: { width: 40 * 1.214, height: 40 },
+  railStep: { gap: Spacing.lg, paddingTop: Spacing.sm },
+  railList: { gap: Spacing.md },
+  railItem: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md },
+  railNumber: { width: 16, textAlign: 'center' },
   nequiBand: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -739,11 +846,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.full,
-  },
-  protected: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
   },
 });

@@ -1423,6 +1423,7 @@ export class AuthService {
       firstName?: string;
       lastName?: string;
       email?: string;
+      receiptEmail?: string;
       phone?: string;
       documentType?: DocumentType | null;
       documentNumber?: string | null;
@@ -1469,6 +1470,14 @@ export class AuthService {
           user.email = undefined;
         }
       }
+    }
+
+    // Correo del comprobante: sin verificar y sin bloqueo, se sobreescribe
+    // libremente. No es la identidad de la cuenta, es solo a dónde llega el
+    // recibo de Wompi cuando no hay `email` — y aquí es el único lugar del
+    // que sale: el flujo de pago ya no deja editarlo.
+    if (data.receiptEmail !== undefined) {
+      user.receiptEmail = data.receiptEmail.trim().toLowerCase() || undefined;
     }
 
     if (data.name) {

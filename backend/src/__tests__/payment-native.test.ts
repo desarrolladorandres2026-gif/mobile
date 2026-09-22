@@ -9,6 +9,7 @@ import {
   PaymentIntent,
   PaymentIntentStatus,
   CreateNativePaymentInput,
+  GatewayRejectedError,
 } from '../services/payments';
 import { Order, Payment, User, SavedCard } from '../models';
 import { PaymentMethod, PaymentStatus, UserRole } from '../types';
@@ -37,8 +38,8 @@ class FakeNativeProvider implements PaymentProvider {
   private seq = 0;
   /** Estado con el que nace la próxima transacción. */
   nextStatus: PaymentIntentStatus = 'pending';
-  /** Si se fija, la próxima creación lanza con este mensaje. */
-  failNext: string | null = null;
+  /** Si se fija, la próxima creación lanza esto (un texto se lanza como `Error`). */
+  failNext: string | Error | null = null;
   lastInput: CreateNativePaymentInput | null = null;
   created = 0;
 
@@ -66,9 +67,9 @@ class FakeNativeProvider implements PaymentProvider {
   async createNativePayment(input: CreateNativePaymentInput): Promise<PaymentIntent> {
     this.lastInput = input;
     if (this.failNext) {
-      const message = this.failNext;
+      const failure = this.failNext;
       this.failNext = null;
-      throw new Error(message);
+      throw typeof failure === 'string' ? new Error(failure) : failure;
     }
     this.created += 1;
     const id = `wompi-tx-${++this.seq}`;
@@ -202,6 +203,26 @@ describe('POST /api/v1/payments/orders/:orderId/pay-native', () => {
     expect(provider.lastInput?.customer.email).toBe('cuenta@zipp.co');
   });
 
+  it('sin correo de cuenta, usa el receiptEmail guardado en el perfil aunque el cuerpo no mande uno', async () => {
+    const { client, order } = await scenario();
+    await User.updateOne({ _id: client._id }, { $set: { receiptEmail: 'guardado@zipp.co' } });
+
+    const res = await payNative(order._id, client, { customerEmail: undefined });
+
+    expect(res.status).toBe(201);
+    expect(provider.lastInput?.customer.email).toBe('guardado@zipp.co');
+  });
+
+  it('el receiptEmail del perfil manda sobre el del cuerpo: el segundo pago no vuelve a preguntar', async () => {
+    const { client, order } = await scenario();
+    await User.updateOne({ _id: client._id }, { $set: { receiptEmail: 'guardado@zipp.co' } });
+
+    const res = await payNative(order._id, client, { customerEmail: 'otro-del-cuerpo@zipp.co' });
+
+    expect(res.status).toBe(201);
+    expect(provider.lastInput?.customer.email).toBe('guardado@zipp.co');
+  });
+
   it('guarda el intento como `online` con el carril aparte y el id real de la pasarela', async () => {
     const { client, order } = await scenario();
 
@@ -238,11 +259,14 @@ describe('POST /api/v1/payments/orders/:orderId/pay-native', () => {
 
   it('un fallo de la pasarela cierra la fila y deja reintentar', async () => {
     const { client, order } = await scenario();
-    provider.failNext = 'Wompi rechazó la creación de la transacción (HTTP 422). Tarjeta vencida';
+    provider.failNext = new GatewayRejectedError(
+      'Wompi rechazó la creación de la transacción (HTTP 422). Tarjeta vencida',
+      'La tarjeta está vencida.'
+    );
 
     const failed = await payNative(order._id, client);
     expect(failed.status).toBe(502);
-    expect(failed.body.message).toMatch(/vencida/);
+    expect(failed.body.message).toBe('La tarjeta está vencida.');
 
     const retired = await Payment.findOne({ orderId: order._id });
     expect(retired?.status).toBe(PaymentStatus.FAILED);
@@ -252,6 +276,21 @@ describe('POST /api/v1/payments/orders/:orderId/pay-native', () => {
     const retry = await payNative(order._id, client);
     expect(retry.status).toBe(201);
     expect(await Payment.countDocuments({ orderId: order._id })).toBe(2);
+  });
+
+  it('un fallo inesperado no le enseña al cliente el texto interno de la pasarela', async () => {
+    const { client, order } = await scenario();
+    provider.failNext = 'Wompi rechazó la creación de la transacción (HTTP 422). {"payment_method":["inválido"]}';
+
+    const failed = await payNative(order._id, client);
+    expect(failed.status).toBe(502);
+    expect(failed.body.code).toBe('GATEWAY_REJECTED');
+    expect(failed.body.message).not.toMatch(/Wompi|HTTP|\{/);
+
+    // Soporte sí lo necesita: queda en la fila, fuera de lo que ve la app.
+    const retired = await Payment.findOne({ orderId: order._id });
+    expect(retired?.statusMessage).toBe(failed.body.message);
+    expect(String(retired?.metadata?.gatewayDetail)).toMatch(/HTTP 422/);
   });
 
   it('tras un rechazo de la pasarela se puede pagar con otra tarjeta', async () => {

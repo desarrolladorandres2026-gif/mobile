@@ -7,7 +7,7 @@ import api from '../services/api';
 import { sizedImage } from '../lib/cloudinary';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
-import { categoryIllustration } from '../components/illustrations';
+import { categoryLogo } from '../components/logos';
 
 type CategoryStatus = 'active' | 'inactive';
 
@@ -252,7 +252,7 @@ export default function HomeCategories() {
             </thead>
             <tbody>
               {filtered.map((c) => {
-                const CategoryArt = categoryIllustration(c.key);
+                const CategoryArt = categoryLogo(c.key);
                 return (
                 <tr
                   key={c._id}

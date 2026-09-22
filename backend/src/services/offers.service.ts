@@ -3,6 +3,7 @@ import { Product, Business, ICoupon } from '../models';
 import { CouponFundedBy } from '../types';
 import { LatLng } from '../utils/geo';
 import { VISIBLE_BUSINESS, withDistance, withinRadius } from '../utils/catalogQuery';
+import { withProductImages } from '../utils/productImageUrls';
 import { couponService, PublicCoupon } from './coupon.service';
 import { pricingConfigService } from './pricingConfig.service';
 
@@ -197,7 +198,7 @@ export class OffersService {
       },
     ];
 
-    return Product.aggregate(pipeline);
+    return (await Product.aggregate(pipeline)).map(withProductImages);
   }
 
   /**

@@ -5,7 +5,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
 import { apiMessage } from '../lib/apiError';
 import type { AdminUser } from '../lib/apiTypes';
-import { categoryIllustration } from '../components/illustrations';
+import { categoryLogo } from '../components/logos';
 
 interface Business {
   _id: string;
@@ -249,7 +249,7 @@ export default function Businesses() {
       ) : (
         <div className="grid gap-4">
           {businesses.map((b) => {
-            const CategoryArt = categoryIllustration(b.category);
+            const CategoryArt = categoryLogo(b.category);
             return (
             <div
               key={b._id}

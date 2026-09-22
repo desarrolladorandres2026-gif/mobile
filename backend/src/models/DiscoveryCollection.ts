@@ -90,17 +90,20 @@ export const MAX_RULES_PER_COLLECTION = 4;
 /**
  * Qué componente pinta la colección en la app.
  *
- * Los seis primeros son las variantes de tarjeta de producto que ya existen
- * en `mobile/components/domain/ProductCollectionRow.tsx`. Los dos últimos
- * son de negocio, no de producto, y por eso la colección que los use tiene
- * que devolver negocios.
+ * Los siete primeros son las variantes de tarjeta de producto que ya existen
+ * en `mobile/components/domain/ProductCollectionRow.tsx`. `grid` es la única
+ * que no es un carrusel horizontal: pinta 3 columnas × 4 filas (doce como
+ * máximo, y solo en Explorar; en Inicio cae a `price_focus`), pensada para las
+ * colecciones de "buscar entre muchas opciones baratas" en vez de "un hero a
+ * la vez". Los dos últimos son de negocio, no de producto, y por eso la
+ * colección que los use tiene que devolver negocios.
  */
 export type DisplayVariant =
-  | 'compact' | 'large' | 'horizontal' | 'featured' | 'price_focus' | 'banner'
+  | 'compact' | 'large' | 'horizontal' | 'featured' | 'price_focus' | 'banner' | 'grid'
   | 'business_row' | 'spotlight';
 
 export const DISPLAY_VARIANTS: DisplayVariant[] = [
-  'compact', 'large', 'horizontal', 'featured', 'price_focus', 'banner',
+  'compact', 'large', 'horizontal', 'featured', 'price_focus', 'banner', 'grid',
   'business_row', 'spotlight',
 ];
 

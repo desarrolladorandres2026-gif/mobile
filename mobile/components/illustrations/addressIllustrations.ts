@@ -1,18 +1,13 @@
 import type { ComponentType } from 'react';
+import { LOGOS } from '../../lib/logos';
+import { pngIllustration } from './pngIllustration';
+import { ContentIllustrationRegistry } from './contentIllustrations';
 import type { IllustrationProps } from './types';
-import { HomeAddressIllustration } from './HomeAddressIllustration';
-import { WorkAddressIllustration } from './WorkAddressIllustration';
-import { FamilyAddressIllustration } from './FamilyAddressIllustration';
-import { PinAddressIllustration } from './PinAddressIllustration';
-import { AddAddressIllustration } from './AddAddressIllustration';
 
-export {
-  HomeAddressIllustration,
-  WorkAddressIllustration,
-  FamilyAddressIllustration,
-  PinAddressIllustration,
-  AddAddressIllustration,
-};
+export const HomeAddressIllustration = pngIllustration(LOGOS.casa);
+export const WorkAddressIllustration = pngIllustration(LOGOS.trabajo);
+export const FamilyAddressIllustration = pngIllustration(LOGOS.familia);
+export const PinAddressIllustration = ContentIllustrationRegistry.ubicacion;
 
 export type AddressCategory = 'home' | 'work' | 'family' | 'other';
 

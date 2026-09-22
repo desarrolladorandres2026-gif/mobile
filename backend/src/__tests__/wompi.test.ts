@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WompiPaymentProvider } from '../services/payments/wompi.provider';
+import { GatewayRejectedError } from '../services/payments/provider';
 import { config } from '../config';
 
 const KEYS = {
@@ -358,7 +359,7 @@ describe('WompiPaymentProvider', () => {
       expect((await provider.createNativePayment(nativeInput())).threeDsChallengeHtml).toBeUndefined();
     });
 
-    it('conserva el motivo de Wompi cuando rechaza la creación', async () => {
+    it('conserva el motivo de Wompi para soporte y le da al cliente uno propio', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn().mockResolvedValue({
@@ -367,7 +368,38 @@ describe('WompiPaymentProvider', () => {
           json: async () => ({ error: { reason: 'La tarjeta está vencida' } }),
         })
       );
-      await expect(provider.createNativePayment(nativeInput())).rejects.toThrow(/422.*vencida/);
+      const error = await provider.createNativePayment(nativeInput()).catch((e) => e);
+      expect(error).toBeInstanceOf(GatewayRejectedError);
+      expect(error.message).toMatch(/422.*vencida/);
+      expect(error.customerMessage).toBe('La tarjeta está vencida.');
+    });
+
+    it('traduce un error de validación al campo que la persona puede corregir', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 422,
+          json: async () => ({
+            error: {
+              type: 'INPUT_VALIDATION_ERROR',
+              messages: { payment_method: { phone_number: ['debe tener 10 dígitos'] } },
+            },
+          }),
+        })
+      );
+      const error = await provider.createNativePayment(nativeInput()).catch((e) => e);
+      expect(error.customerMessage).toBe('Revisa el número de celular.');
+    });
+
+    it('un 5xx de Wompi se dice como caída, no como rechazo', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => null })
+      );
+      const error = await provider.createNativePayment(nativeInput()).catch((e) => e);
+      expect(error.customerMessage).toMatch(/no respondió/);
+      expect(error.customerMessage).not.toMatch(/Wompi/);
     });
 
     it('exige correo antes de llamar a Wompi, en vez de recibir su 422', async () => {
@@ -828,11 +860,32 @@ describe('WompiPaymentProvider', () => {
         ).toBe('PSE');
       });
 
-      it('acota el mensaje de estado en vez de guardarlo entero', () => {
-        const event = provider.parseWebhook(
+      it('traduce el motivo de rechazo en vez de reenviar el texto de Wompi', () => {
+        const funds = provider.parseWebhook(
+          signedPayload({ ...tx, status: 'DECLINED', status_message: 'Fondos insuficientes' })
+        );
+        expect(funds!.message).toBe('Tu tarjeta o cuenta no tiene saldo suficiente.');
+
+        // Un texto que no se reconoce —y de cualquier tamaño— no sale nunca.
+        const unknown = provider.parseWebhook(
           signedPayload({ ...tx, status: 'DECLINED', status_message: 'x'.repeat(5000) })
         );
-        expect(event!.message!.length).toBe(300);
+        expect(unknown!.message).not.toContain('x');
+        expect(unknown!.message!.length).toBeLessThan(120);
+      });
+
+      it('no le dice a quien prueba tarjetas que lo frenó el antifraude', () => {
+        const event = provider.parseWebhook(
+          signedPayload({ ...tx, status: 'DECLINED', status_message: 'Transacción rechazada por riesgo de fraude' })
+        );
+        expect(event!.message).not.toMatch(/fraude|riesgo/i);
+      });
+
+      it('una transacción aprobada no trae motivo de rechazo', () => {
+        const event = provider.parseWebhook(
+          signedPayload({ ...tx, status: 'APPROVED', status_message: 'Aprobada' })
+        );
+        expect(event!.message).toBeUndefined();
       });
 
       it('descarta una transacción sin referencia o sin monto utilizable', () => {

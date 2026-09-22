@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Plus, Tag, Power, X } from 'lucide-react';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
-import { CouponIllustration, DeliveryIllustration } from '../components/illustrations';
+import { CouponLogo, DeliveryLogo } from '../components/logos';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 
@@ -45,18 +45,12 @@ const TYPE_LABELS: Record<Coupon['type'], string> = {
 };
 
 /**
- * Mini-ilustración por tipo de promoción, en lugar del icono lucide genérico.
- * Un descuento (porcentaje o monto) es un cupón; el envío gratis es otra cosa.
- *
- * TODO(diseño): elegir la ilustración de `free_delivery`. `DeliveryIllustration`
- * (moto de reparto) es lo más literal, pero `PackageIllustration` —que ya se usa
- * en el Dashboard— podría leer mejor como "pedido sin costo de envío" y mantener
- * el set del panel más cerrado. Son 1–2 líneas; decide cuál cuenta mejor la
- * promoción de un vistazo en la lista.
+ * Logo por tipo de promoción: un descuento (porcentaje o monto) es un cupón;
+ * el envío gratis es la moto, lo mismo que usa la app para el domicilio.
  */
 function couponArt(type: Coupon['type']): ComponentType<{ size?: number }> {
-  if (type === 'free_delivery') return DeliveryIllustration;
-  return CouponIllustration;
+  if (type === 'free_delivery') return DeliveryLogo;
+  return CouponLogo;
 }
 
 const emptyForm = {

@@ -8,6 +8,7 @@ import {
   withDistance,
   withinRadius,
 } from '../utils/catalogQuery';
+import { withProductImages } from '../utils/productImageUrls';
 import { searchDictionaryService } from './searchDictionary.service';
 
 /**
@@ -160,7 +161,7 @@ async function searchProducts(
     },
   ];
 
-  return Product.aggregate(pipeline);
+  return (await Product.aggregate(pipeline)).map(withProductImages);
 }
 
 /**
@@ -292,7 +293,7 @@ export async function suggest(term: string, limit = 8): Promise<Suggestion[]> {
       { $unwind: '$business' },
       { $match: { 'business.isActive': true, 'business.isApproved': true } },
       { $limit: 3 },
-      { $project: { name: 1, image: 1, businessId: '$business._id', businessName: '$business.name' } },
+      { $project: { name: 1, image: 1, imageAsset: 1, businessId: '$business._id', businessName: '$business.name' } },
     ]),
     searchDictionaryService.completions(clean, 4),
   ]);
@@ -312,7 +313,8 @@ export async function suggest(term: string, limit = 8): Promise<Suggestion[]> {
       id: String(p.businessId),
       label: p.name,
       sublabel: p.businessName,
-      image: p.image ?? null,
+      // La miniatura y no la de catálogo: la sugerencia se pinta a 40 pt.
+      image: withProductImages(p).images?.thumb ?? p.image ?? null,
     })),
     ...terms.map((word) => ({ type: 'term' as const, label: word })),
   ];

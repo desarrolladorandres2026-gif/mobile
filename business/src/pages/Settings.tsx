@@ -284,7 +284,7 @@ export default function Settings() {
                   className={INPUT}
                 />
                 <p className="text-xs text-[var(--color-text-secondary)]">
-                  Es el número al que llama el cliente desde tu ficha.
+                  Para que Zipp pueda contactarte. El cliente no lo ve en tu ficha.
                 </p>
               </Field>
             </div>
@@ -311,8 +311,8 @@ export default function Settings() {
                 className={INPUT}
               />
               <p className="text-xs text-[var(--color-text-secondary)]">
-                El texto que lee el cliente. El punto por el que pasa el domiciliario se ajusta
-                aparte, abajo.
+                El cliente no la ve en tu ficha. El punto por el que pasa el domiciliario se
+                ajusta aparte, abajo.
               </p>
             </Field>
 

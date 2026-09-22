@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import DeliverySimulator from '../components/DeliverySimulator';
 import { LinkButton } from '../components/Button';
-import { PeopleIllustration, StoreIllustration, DeliveryIllustration } from '../components/illustrations';
+import { CustomerLogo, StoreLogo, DeliveryLogo } from '../components/logos';
 import { supportWhatsAppUrl } from '../lib/contact';
 
 const BUSINESS_URL = import.meta.env.VITE_BUSINESS_URL || 'http://localhost:3002';
@@ -11,7 +11,7 @@ type RoleTab = 'clientes' | 'comercios' | 'domiciliarios';
 
 const ROLES: Record<RoleTab, {
   label: string;
-  Illustration: typeof PeopleIllustration;
+  Illustration: typeof CustomerLogo;
   title: string;
   body: string;
   facts: [string, string][];
@@ -19,7 +19,7 @@ const ROLES: Record<RoleTab, {
 }> = {
   clientes: {
     label: 'Clientes',
-    Illustration: PeopleIllustration,
+    Illustration: CustomerLogo,
     title: 'Sin sorpresas cuando llega la cuenta',
     body: 'Cada pedido muestra la distancia real entre el comercio y tu dirección. Si llueve o es hora pico, tu tarifa no cambia por eso.',
     facts: [
@@ -30,7 +30,7 @@ const ROLES: Record<RoleTab, {
   },
   comercios: {
     label: 'Comercios',
-    Illustration: StoreIllustration,
+    Illustration: StoreLogo,
     title: 'Vende a domicilio sin regalar tu margen',
     body: 'Las plataformas grandes descuentan hasta el 30% por pedido. Zipp cobra menos, despacha rápido y te avisa al instante en tu panel de cocina.',
     facts: [
@@ -41,7 +41,7 @@ const ROLES: Record<RoleTab, {
   },
   domiciliarios: {
     label: 'Domiciliarios',
-    Illustration: DeliveryIllustration,
+    Illustration: DeliveryLogo,
     title: 'Tu kilometraje vale y la propina es tuya',
     body: 'Ves el valor de la carrera y la propina antes de aceptar. Rutas directas, sin penalizaciones raras y sin que nadie te descuente de la propina.',
     facts: [

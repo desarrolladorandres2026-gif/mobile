@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { View, StyleSheet, BackHandler } from 'react-native';
+import { View, StyleSheet, BackHandler, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Animated, {
   FadeIn, FadeInDown, useSharedValue, useAnimatedStyle, withRepeat, withTiming, Easing,
 } from 'react-native-reanimated';
 import { StatusBar } from 'expo-status-bar';
-import { Text, Icon, Button, Screen, Header, EmptyState, SuccessCheck } from '../ui';
+import { Text, Icon, Button, Screen, Header, EmptyState, SuccessCheck, OtpInput, ConfirmDialog } from '../ui';
 import { TrazoLoader } from '../brand/Trazo';
 import { PaymentMethodSheet } from './PaymentMethodSheet';
 import { PaymentWebView } from './PaymentWebView';
@@ -15,7 +16,11 @@ import {
   usePayNative,
   usePaymentMethods,
   usePaymentStatus,
+  useResendOtp,
+  useValidateOtp,
+  useAbandonPayment,
   type NativePaymentResult,
+  type OtpAttempts,
 } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
 import { socketService, type PaymentUpdate } from '../../services/socket';
@@ -31,7 +36,8 @@ import { apiMessage } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { NequiLogo, NEQUI } from '../brand/NequiLogo';
-import { WompiLogo } from '../brand/WompiLogo';
+import { SecurePaymentMark } from './SecurePaymentMark';
+import { declinedMessage } from '../../lib/paymentCopy';
 
 /**
  * El cobro dentro de la app, de principio a fin.
@@ -50,7 +56,9 @@ type Phase =
   | 'preparing' // esperando la configuración de la pasarela
   | 'choose' // no hay método: la hoja está abierta
   | 'charging' // creando la transacción
+  | 'handoff' // Bancolombia listo: se explica qué va a pasar antes de abrirlo
   | 'challenge' // banco o 3D Secure, en el WebView
+  | 'otp' // DaviPlata: la persona escribe el código que le llegó por SMS
   | 'waiting' // la pasarela resuelve
   | 'approved'
   | 'declined'
@@ -59,6 +67,12 @@ type Phase =
 
 /** Pasado esto, la espera se da por "pendiente" y se deja ir a la persona. */
 const LONG_WAIT_MS = 5 * 60_000;
+
+/** Largo del código de DaviPlata. Los de prueba de Wompi también son de seis. */
+const OTP_LENGTH = 6;
+
+/** Cuánto esperar antes de ofrecer otro SMS: menos, y el primero aún viene en camino. */
+const OTP_RESEND_COOLDOWN_S = 30;
 
 interface Props {
   orderId?: string;
@@ -79,7 +93,24 @@ export function NativePaymentFlow({ orderId, code }: Props) {
   const [attempt, setAttempt] = useState<NativePaymentResult | null>(null);
   const [web, setWeb] = useState<{ uri: string } | { html: string } | null>(null);
   const [message, setMessage] = useState('');
+  /**
+   * Si el "no" lo dio el banco (la transacción se resolvió rechazada) y no
+   * el servidor al crearla. Solo lo primero merece "Tu banco no aprobó el
+   * pago": un celular mal escrito no es culpa del banco.
+   */
+  const [bankDeclined, setBankDeclined] = useState(false);
   const [sheet, setSheet] = useState(false);
+  /** La dirección de Bancolombia, guardada mientras la persona lee qué va a pasar. */
+  const [bankUrl, setBankUrl] = useState<string | null>(null);
+  const [otp, setOtp] = useState('');
+  const [otpError, setOtpError] = useState<string | undefined>();
+  const [otpAttempts, setOtpAttempts] = useState<OtpAttempts | undefined>();
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const resendOtp = useResendOtp();
+  const validateOtp = useValidateOtp();
+  const abandonPayment = useAbandonPayment();
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [waitStart, setWaitStart] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const started = useRef(false);
@@ -91,6 +122,11 @@ export function NativePaymentFlow({ orderId, code }: Props) {
   const phaseRef = useRef<Phase>(phase);
   phaseRef.current = phase;
   /**
+   * El carril del intento vigente. `settle` corre en el mismo tick en que
+   * se eligió el método, antes de que `selected` llegue al estado.
+   */
+  const kindRef = useRef<SelectedInstrument['instrument']['kind'] | null>(null);
+  /**
    * El último reto 3DS que se abrió. Wompi lo sigue publicando mientras
    * esté pendiente, y sin esto cada consulta lo volvería a abrir encima de
    * quien acaba de cerrarlo.
@@ -99,9 +135,16 @@ export function NativePaymentFlow({ orderId, code }: Props) {
   /** La última URL de banco (PSE) que se abrió; mismo motivo que `shownChallenge`. */
   const shownAsyncUrl = useRef<string | null>(null);
   const reference = code || orderCode(orderId ?? '');
-  const capabilities = { pse: !!methods?.inApp?.pse, savedCards: !!methods?.inApp?.savedCards };
+  const capabilities = {
+    pse: !!methods?.inApp?.pse,
+    savedCards: !!methods?.inApp?.savedCards,
+    bancolombiaTransfer: !!methods?.inApp?.bancolombiaTransfer,
+    daviplata: !!methods?.inApp?.daviplata,
+  };
 
-  const watching = phase === 'waiting' || phase === 'challenge' || phase === 'pending';
+  const watching =
+    phase === 'waiting' || phase === 'challenge' || phase === 'pending' ||
+    phase === 'handoff' || phase === 'otp';
   const { data: status } = usePaymentStatus(attempt?.transactionId, watching);
 
   const startWaiting = () => {
@@ -122,6 +165,7 @@ export function NativePaymentFlow({ orderId, code }: Props) {
       tap('error');
       setWeb(null);
       setMessage(reason ?? '');
+      setBankDeclined(next === 'declined');
       setPhase('declined');
       return;
     }
@@ -131,12 +175,134 @@ export function NativePaymentFlow({ orderId, code }: Props) {
       setPhase('challenge');
       return;
     }
+    if (result?.otpRequired) {
+      openOtp();
+      return;
+    }
     if (result?.asyncPaymentUrl) {
-      setWeb({ uri: result.asyncPaymentUrl });
-      setPhase('challenge');
+      openBank(result.asyncPaymentUrl);
       return;
     }
     startWaiting();
+  };
+
+  /**
+   * Abre la página del banco. Bancolombia pasa antes por una pantalla que
+   * dice qué va a pasar y cuánto se paga: la persona sale a otra marca, a
+   * escribir claves, y tiene que saber a qué va y cómo vuelve. PSE ya lo
+   * sabe desde la hoja, donde eligió su banco a mano.
+   */
+  const openBank = (url: string) => {
+    shownAsyncUrl.current = url;
+    if (kindRef.current === 'bancolombia_transfer') {
+      setBankUrl(url);
+      setPhase('handoff');
+      return;
+    }
+    setWeb({ uri: url });
+    setPhase('challenge');
+  };
+
+  const openOtp = () => {
+    setOtp('');
+    setOtpError(undefined);
+    setOtpCooldown(OTP_RESEND_COOLDOWN_S);
+    setPhase('otp');
+  };
+
+  const submitOtp = async () => {
+    const transactionId = attemptRef.current?.transactionId;
+    if (!transactionId) return;
+    // El botón no se apaga: con el código incompleto, dice qué falta.
+    if (otp.length !== OTP_LENGTH) {
+      tap('error');
+      setOtpError(`Escribe los ${OTP_LENGTH} dígitos del código`);
+      return;
+    }
+    setOtpError(undefined);
+    try {
+      const result = await validateOtp.mutateAsync({ transactionId, code: otp });
+      setOtpAttempts(result.attempts);
+      if (result.status === 'approved') return settle('approved');
+      if (result.status === 'declined' || result.status === 'voided' || result.status === 'error') {
+        return settle('declined', result.declineReason);
+      }
+      if (result.accepted) {
+        // DaviPlata aceptó el código; la aprobación final llega sola.
+        startWaiting();
+        return;
+      }
+      tap('error');
+      setOtp('');
+      const left = result.attempts
+        ? result.attempts.maxValidations - result.attempts.validated
+        : undefined;
+      setOtpError(
+        left === 1 ? 'Código incorrecto. Te queda un intento.'
+        : left && left > 1 ? `Código incorrecto. Te quedan ${left} intentos.`
+        : 'Código incorrecto. Revisa el mensaje y vuelve a escribirlo.'
+      );
+    } catch (error) {
+      tap('error');
+      const errorCode = (error as { response?: { data?: { code?: string } } })?.response?.data?.code;
+      if (errorCode === 'OTP_REJECTED' || errorCode === 'PAYMENT_NOT_PENDING') {
+        // Ya no hay código que valga: el desenlace lo dice la pasarela, y la
+        // espera lo recoge por socket o consultando.
+        setMessage(apiMessage(error, 'DaviPlata ya no acepta códigos para este pago.'));
+        setPhase('pending');
+        return;
+      }
+      setOtpError(apiMessage(error, 'No pudimos verificar el código. Intenta de nuevo.'));
+    }
+  };
+
+  /**
+   * Cancelar la transacción a medias. Wompi no deja anular un cobro
+   * pendiente, así que el servidor le pregunta primero: si ya entró, se
+   * muestra aprobado; si no, se suelta el intento y se elige otro método.
+   */
+  const cancelTransaction = async () => {
+    setConfirmCancel(false);
+    const transactionId = attemptRef.current?.transactionId;
+    if (!transactionId) return;
+    setCancelError(null);
+    try {
+      const result = await abandonPayment.mutateAsync(transactionId);
+      if (result.status === 'approved') {
+        settle('approved');
+        return;
+      }
+      // Abandonado, o ya había terminado sin aprobarse: en los dos casos
+      // no hay cobro vivo y toca elegir cómo pagar.
+      tap('light');
+      setWeb(null);
+      setAttempt(null);
+      setBankUrl(null);
+      shownChallenge.current = null;
+      shownAsyncUrl.current = null;
+      setMessage('');
+      setPhase('choose');
+      setSheet(true);
+    } catch (error) {
+      tap('error');
+      setCancelError(apiMessage(error, 'No pudimos cancelar la transacción. Intenta de nuevo.'));
+    }
+  };
+
+  const requestNewOtp = async () => {
+    const transactionId = attemptRef.current?.transactionId;
+    if (!transactionId) return;
+    tap('light');
+    try {
+      const result = await resendOtp.mutateAsync(transactionId);
+      setOtpAttempts(result.attempts);
+      setOtp('');
+      setOtpError(undefined);
+      setOtpCooldown(OTP_RESEND_COOLDOWN_S);
+    } catch (error) {
+      tap('error');
+      setOtpError(apiMessage(error, 'No pudimos reenviar el código.'));
+    }
   };
 
   const charge = async (instrument: SelectedInstrument) => {
@@ -147,8 +313,11 @@ export function NativePaymentFlow({ orderId, code }: Props) {
       return;
     }
     setSelected(instrument);
+    kindRef.current = instrument.instrument.kind;
     setMessage('');
     setAttempt(null);
+    setBankUrl(null);
+    setOtpAttempts(undefined);
     setPhase('charging');
 
     try {
@@ -184,6 +353,7 @@ export function NativePaymentFlow({ orderId, code }: Props) {
       // decir "no se pudo cobrar" haría pensar que la tarjeta falló.
       const declined =
         httpStatus === 502 || (!!httpStatus && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 429);
+      setBankDeclined(false);
       setPhase(declined ? 'declined' : 'error');
     }
   };
@@ -224,15 +394,17 @@ export function NativePaymentFlow({ orderId, code }: Props) {
       setWeb({ html: status.threeDsChallengeHtml });
       setPhase('challenge');
     } else if (status.asyncPaymentUrl && status.asyncPaymentUrl !== shownAsyncUrl.current) {
-      // PSE tampoco trae la URL del banco al crear la transacción: Wompi la
-      // resuelve segundos después. Sin esta rama, la pantalla se quedaba en
-      // "esperando" hasta el timeout de 5 minutos sin abrir nunca el banco.
-      shownAsyncUrl.current = status.asyncPaymentUrl;
-      setWeb({ uri: status.asyncPaymentUrl });
-      setPhase('challenge');
+      // PSE y Bancolombia tampoco traen la URL del banco al crear la
+      // transacción: Wompi la resuelve segundos después. Sin esta rama, la
+      // pantalla se quedaba en "esperando" hasta el timeout de 5 minutos sin
+      // abrir nunca el banco.
+      openBank(status.asyncPaymentUrl);
+    } else if (status.otpRequired && phaseRef.current === 'waiting' && kindRef.current === 'daviplata') {
+      // Igual con DaviPlata: el servicio de código puede publicarse tarde.
+      openOtp();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.status, status?.threeDsChallengeHtml, status?.asyncPaymentUrl]);
+  }, [status?.status, status?.threeDsChallengeHtml, status?.asyncPaymentUrl, status?.otpRequired]);
 
   // ── Aviso principal: el socket ──
   useEffect(() => {
@@ -254,7 +426,10 @@ export function NativePaymentFlow({ orderId, code }: Props) {
       // anterior ya retirado no puede tumbar el que está en curso.
       const current = attemptRef.current;
       if (update.status === 'declined' && (!current || current.reference === update.reference)) {
-        if (live === 'waiting' || live === 'challenge' || live === 'pending') {
+        if (
+          live === 'waiting' || live === 'challenge' || live === 'pending' ||
+          live === 'handoff' || live === 'otp'
+        ) {
           settle('declined', update.declineReason);
         }
       }
@@ -263,6 +438,13 @@ export function NativePaymentFlow({ orderId, code }: Props) {
     return () => socketService.offPaymentUpdated(onUpdate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
+
+  // ── Cuenta atrás para pedir otro código ──
+  useEffect(() => {
+    if (phase !== 'otp' || otpCooldown <= 0) return;
+    const id = setTimeout(() => setOtpCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [phase, otpCooldown]);
 
   // ── Reloj de la espera ──
   useEffect(() => {
@@ -277,7 +459,7 @@ export function NativePaymentFlow({ orderId, code }: Props) {
 
   // Atrás bloqueado mientras hay dinero en vuelo; libre en lo demás.
   useEffect(() => {
-    const busy = phase === 'charging' || phase === 'challenge' || phase === 'waiting';
+    const busy = phase === 'charging' || phase === 'challenge' || phase === 'waiting' || phase === 'otp';
     const sub = BackHandler.addEventListener('hardwareBackPress', () => busy);
     return () => sub.remove();
   }, [phase]);
@@ -354,11 +536,15 @@ export function NativePaymentFlow({ orderId, code }: Props) {
           <View style={[styles.stateIcon, { backgroundColor: c.errorSoft }]}>
             <Icon name={declined ? 'tarjeta' : 'sinConexion'} size={28} color={c.errorText} />
           </View>
-          <Text v="titleL" center>{declined ? 'No se pudo cobrar' : 'No pudimos procesar el pago'}</Text>
+          <Text v="titleL" center>
+            {!declined ? 'No pudimos procesar el pago'
+              : bankDeclined ? 'Tu banco no aprobó el pago'
+              : 'No se pudo cobrar'}
+          </Text>
           <Text v="bodyM" tone="text" center style={styles.stateMessage}>
-            {message || (declined
-              ? 'No se hizo ningún cobro. Puedes intentarlo con otro método.'
-              : 'Revisa tu conexión e inténtalo de nuevo.')}
+            {declined
+              ? declinedMessage(message, 'Puedes intentarlo con otro método.')
+              : message || 'Revisa tu conexión e inténtalo de nuevo.'}
           </Text>
         </View>
         <View style={styles.actions}>
@@ -416,6 +602,115 @@ export function NativePaymentFlow({ orderId, code }: Props) {
     );
   }
 
+  if (phase === 'handoff' && bankUrl) {
+    // Bancolombia: antes de mandar a la persona a otra marca, decirle cuánto
+    // paga, adónde va y cómo vuelve. Sin cajas: logo, cifra y texto.
+    return (
+      <Screen edges={['top', 'bottom']}>
+        <Header title="Pagar con Bancolombia" fallback="/(client)/(tabs)/home" />
+        <View style={styles.handoff}>
+          <Image
+            source={require('../../assets/banks/bancolombia.png')}
+            style={styles.bancolombiaHero}
+            contentFit="contain"
+            accessibilityLabel="Bancolombia"
+          />
+          <View style={styles.amountBlock}>
+            <Text v="label" tone="textMuted">Vas a pagar</Text>
+            <Text v="dataXL">{attempt?.amount ? money(attempt.amount) : '—'}</Text>
+            <Text v="caption" tone="textMuted">Pedido {reference}</Text>
+          </View>
+          <View style={[styles.rule, { backgroundColor: c.border }]} />
+          <View style={styles.handoffSteps}>
+            <Text v="bodyM" tone="text">
+              Abrimos Bancolombia aquí mismo, dentro de Zipp. Entras con tu usuario de la Sucursal
+              Virtual y autorizas con la clave dinámica de tu app Bancolombia.
+            </Text>
+            <Text v="bodyS" tone="textMuted">
+              Al terminar vuelves solo a Zipp y verás el resultado. Si cierras antes de autorizar, no se
+              cobra nada.
+            </Text>
+          </View>
+        </View>
+        <View style={styles.actions}>
+          <Button
+            title="Continuar con Bancolombia"
+            iconRight="siguiente"
+            size="lg"
+            full
+            haptic="medium"
+            onPress={() => { setWeb({ uri: bankUrl }); setPhase('challenge'); }}
+          />
+          <Button title="Ver mis pedidos" variant="ghost" full onPress={goOrders} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (phase === 'otp') {
+    const left = otpAttempts ? otpAttempts.maxSends - otpAttempts.sent : undefined;
+    return (
+      <Screen edges={['top', 'bottom']}>
+        <Header title="Código de DaviPlata" fallback="/(client)/(tabs)/home" />
+        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView contentContainerStyle={styles.otpBody} keyboardShouldPersistTaps="handled">
+            <Image
+              source={require('../../assets/banks/daviplata.png')}
+              style={styles.daviplataHero}
+              contentFit="contain"
+              accessibilityLabel="DaviPlata"
+            />
+            <View style={styles.amountBlock}>
+              <Text v="label" tone="textMuted">Vas a pagar</Text>
+              <Text v="dataXL">{attempt?.amount ? money(attempt.amount) : '—'}</Text>
+            </View>
+            <Text v="bodyM" tone="text" center style={styles.stateMessage}>
+              Escribe el código que te llegó por mensaje de texto al celular que tienes registrado en
+              DaviPlata.
+            </Text>
+            <OtpInput
+              value={otp}
+              onChange={(next) => { setOtp(next); setOtpError(undefined); }}
+              length={OTP_LENGTH}
+              error={!!otpError}
+              autoFocus
+            />
+            {otpError ? <Text v="bodyS" tone="errorText" center>{otpError}</Text> : null}
+            {otpCooldown > 0 ? (
+              <Text v="caption" tone="textMuted" center>
+                ¿No te llegó? Puedes pedir otro en {otpCooldown} s
+              </Text>
+            ) : left === 0 ? (
+              <Text v="caption" tone="textMuted" center>
+                Ya pediste todos los códigos que permite DaviPlata para este pago.
+              </Text>
+            ) : (
+              <Button
+                title="Reenviar código"
+                variant="ghost"
+                icon="reintentar"
+                loading={resendOtp.isPending}
+                onPress={requestNewOtp}
+              />
+            )}
+          </ScrollView>
+          <View style={styles.actions}>
+            <Button
+              title="Confirmar pago"
+              icon="candado"
+              size="lg"
+              full
+              haptic="medium"
+              loading={validateOtp.isPending}
+              onPress={submitOtp}
+            />
+            <Button title="Ver mis pedidos" variant="ghost" full onPress={goOrders} />
+          </View>
+        </KeyboardAvoidingView>
+      </Screen>
+    );
+  }
+
   // 'preparing' | 'charging' | 'waiting' | 'challenge' (el WebView va encima)
   const kind = selected?.instrument.kind;
   const seconds = Math.floor(elapsed / 1000);
@@ -424,15 +719,24 @@ export function NativePaymentFlow({ orderId, code }: Props) {
 
   const title =
     phase === 'preparing' ? 'Preparando el pago…'
+    : phase === 'charging' && kind === 'bancolombia_transfer' ? 'Estamos preparando tu pago'
     : phase === 'charging' ? 'Procesando tu pago…'
-    : kind === 'nequi' ? 'Abre tu app de Nequi'
+    : kind === 'nequi' ? 'Aprueba el pago en Nequi'
     : kind === 'pse' ? 'Confirmando con tu banco…'
-    : 'Validando con tu banco…';
+    : 'Verificando tu pago…';
 
   const body =
     phase === 'waiting' && kind === 'nequi'
-      ? `Te enviamos una notificación para aprobar el pago${amount ? ` de ${amount}` : ''}. Apruébala y vuelve: aquí verás el resultado.`
-      : 'No cierres la aplicación. Esto solo toma un momento.';
+      ? `Nequi te mandó una notificación para aprobar ${amount ? amount : 'el pago'}. Abre tu app, entra con tu clave y apruébala en la campana de notificaciones. Aquí verás el resultado sin hacer nada más.`
+      : phase === 'waiting' && kind === 'daviplata'
+        ? 'DaviPlata recibió tu código. Estamos esperando la confirmación final.'
+        : phase === 'waiting' && kind === 'bancolombia_transfer'
+          ? 'Estamos esperando que Bancolombia confirme la transferencia.'
+          : 'No cierres la aplicación. Esto solo toma un momento.';
+
+  /** Lo que le pasa a quien no ve llegar la notificación de Nequi. */
+  const nequiHelp =
+    'Si la notificación no aparece, abre Nequi y revisa la campana. Si la rechazas o se vence, no se cobra nada y puedes pagar con otro método.';
 
   // Con Nequi, mientras se cobra y se espera, la pantalla se viste de
   // Nequi: quien va y vuelve de su app reconoce el mismo entorno.
@@ -457,13 +761,14 @@ export function NativePaymentFlow({ orderId, code }: Props) {
               {clock}
             </Text>
           ) : null}
+          {phase === 'waiting' ? (
+            <Text v="caption" center color="rgba(255,255,255,0.62)" style={styles.stateMessage}>
+              {nequiHelp}
+            </Text>
+          ) : null}
         </View>
 
-        <View style={styles.secure} accessible accessibilityLabel="Pago protegido por Wompi">
-          <Icon name="candado" size="sm" color="rgba(255,255,255,0.7)" />
-          <Text v="caption" color="rgba(255,255,255,0.7)">Pago protegido por</Text>
-          <WompiLogo height={14} color="#FFFFFF" />
-        </View>
+        <SecurePaymentMark onDark style={styles.secure} />
       </Screen>
     );
   }
@@ -501,23 +806,45 @@ export function NativePaymentFlow({ orderId, code }: Props) {
             }}
           />
         ) : null}
+        {/* Y una salida: quien no quiere seguir con el banco no debería
+            tener que esperar a que el cobro caduque solo. */}
+        {phase === 'waiting' && (status?.threeDsChallengeHtml || status?.asyncPaymentUrl) ? (
+          <Button
+            title="Cancelar transacción"
+            icon="cerrar"
+            variant="ghost"
+            loading={abandonPayment.isPending}
+            onPress={() => { tap('light'); setCancelError(null); setConfirmCancel(true); }}
+          />
+        ) : null}
+        {cancelError && phase === 'waiting' ? (
+          <Text v="bodyS" tone="errorText" center style={styles.stateMessage}>{cancelError}</Text>
+        ) : null}
       </View>
 
+      <ConfirmDialog
+        visible={confirmCancel}
+        onCancel={() => setConfirmCancel(false)}
+        onConfirm={cancelTransaction}
+        title="¿Cancelar esta transacción?"
+        message="Si todavía no autorizaste el pago en tu banco, no se cobra nada y puedes pagar con otro método. Si ya lo autorizaste, mejor espera: a veces tarda unos minutos en confirmarse."
+        confirmText="Sí, cancelar"
+        cancelText="Seguir esperando"
+        icon="cerrar"
+        tone="danger"
+      />
+
       {/* Quien espera con dinero en juego mira aquí de quién es el cobro. */}
-      <View
-        style={styles.secure}
-        accessible
-        accessibilityLabel="Pago protegido por Wompi"
-      >
-        <Icon name="candado" size="sm" color={c.textMuted} />
-        <Text v="caption" tone="textMuted">Pago protegido por</Text>
-        <WompiLogo height={14} color={c.text} />
-      </View>
+      <SecurePaymentMark style={styles.secure} />
 
       <PaymentWebView
         visible={phase === 'challenge' && !!web}
         source={web}
-        title={kind === 'pse' ? 'Tu banco' : 'Verificación de tu banco'}
+        title={
+          kind === 'pse' ? 'Tu banco'
+          : kind === 'bancolombia_transfer' ? 'Bancolombia'
+          : 'Verificación de tu banco'
+        }
         returnUrl={config.data?.returnUrl}
         onReturned={() => { setWeb(null); startWaiting(); }}
         onClosed={() => { setWeb(null); startWaiting(); }}
@@ -552,6 +879,26 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm,
   },
   stateMessage: { maxWidth: 320 },
+  flex: { flex: 1 },
+  handoff: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xxl,
+    gap: Spacing.xxl,
+  },
+  amountBlock: { gap: Spacing.xs, alignItems: 'center' },
+  handoffSteps: { gap: Spacing.md },
+  rule: { height: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
+  otpBody: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xxl,
+    paddingVertical: Spacing.xl,
+    gap: Spacing.lg,
+  },
+  bancolombiaHero: { width: 36 * 4.258, height: 36, alignSelf: 'center' },
+  daviplataHero: { width: 48 * 1.214, height: 48 },
   nequiHalo: {
     width: 188, height: 188, alignItems: 'center', justifyContent: 'center',
     marginBottom: Spacing.sm,

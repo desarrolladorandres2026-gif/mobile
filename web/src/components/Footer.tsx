@@ -36,6 +36,14 @@ export default function Footer() {
           <a href={`tel:${SUPPORT_PHONE}`} className="hover:text-text-secondary">
             {SUPPORT_PHONE_DISPLAY}
           </a>
+          <a
+            href="https://github.com/twitter/twemoji"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-text-secondary"
+          >
+            Ilustraciones: Twemoji © Twitter, Inc. y colaboradores — CC-BY 4.0
+          </a>
         </div>
       </div>
     </footer>

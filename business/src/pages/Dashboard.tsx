@@ -9,8 +9,8 @@ import { useAuthStore } from '../stores/authStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { useBusinessEvent, useRealtime } from '../hooks/realtimeContext';
 import {
-  PackageIllustration, CashIllustration, WalletIllustration, PrepTimeIllustration,
-} from '../components/illustrations';
+  PackageLogo, CashLogo, WalletLogo, PrepTimeLogo,
+} from '../components/logos';
 import PickupHandoff from '../components/PickupHandoff';
 import OrderDetailPanel from '../components/OrderDetailPanel';
 import RejectOrderDialog from '../components/RejectOrderDialog';
@@ -186,25 +186,25 @@ export default function Dashboard() {
       title: 'Comandas activas',
       value: String(queue.length),
       detail: `${readyCount} listas para recoger`,
-      Illustration: PrepTimeIllustration,
+      Illustration: PrepTimeLogo,
     },
     {
       title: 'Ventas de la semana',
       value: money(week?.productSubtotal),
       detail: `${week?.orderCount ?? 0} pedido(s) facturados`,
-      Illustration: CashIllustration,
+      Illustration: CashLogo,
     },
     {
       title: 'Neto de la semana',
       value: money(week?.netAmount),
       detail: 'Descontada la comisión ZIPP',
-      Illustration: PackageIllustration,
+      Illustration: PackageLogo,
     },
     {
       title: 'Próxima liquidación',
       value: money(next?.netAmount),
       detail: `${next?.orderCount ?? 0} venta(s) acumuladas`,
-      Illustration: WalletIllustration,
+      Illustration: WalletLogo,
     },
   ];
 

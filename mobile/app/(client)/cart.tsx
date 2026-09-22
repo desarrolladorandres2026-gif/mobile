@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { View, ScrollView, StyleSheet, Alert, TouchableOpacity, Pressable } from 'react-native';
 import { Image } from 'expo-image';
+import { sizedImageUri } from '../../lib/cloudinaryImage';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, { FadeIn, Layout, FadeOut } from 'react-native-reanimated';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -110,7 +111,7 @@ function CartChooser({ carts }: { carts: BusinessCart[] }) {
               <Card style={styles.chooserCard}>
                 {cart.businessLogo ? (
                   <Image
-                    source={{ uri: cart.businessLogo }}
+                    source={{ uri: sizedImageUri(cart.businessLogo, 40) }}
                     style={styles.businessIcon}
                     contentFit="cover"
                     transition={150}
@@ -236,7 +237,7 @@ function BusinessCartScreen({ cart }: { cart: BusinessCart }) {
         <View style={styles.business}>
           {businessLogo ? (
             <Image
-              source={{ uri: businessLogo }}
+              source={{ uri: sizedImageUri(businessLogo, 40) }}
               style={styles.businessIcon}
               contentFit="cover"
               transition={150}

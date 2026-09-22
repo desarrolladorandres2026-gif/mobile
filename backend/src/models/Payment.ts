@@ -18,7 +18,7 @@ export interface IPaymentStatusEvent {
    * depende de una persona, así que queda marcada como tal para que un
    * informe pueda separar "lo confirmó Wompi" de "lo dijo alguien".
    */
-  source: 'create' | 'webhook' | 'sync' | 'cash' | 'admin';
+  source: 'create' | 'webhook' | 'sync' | 'cash' | 'admin' | 'client';
   at: Date;
 }
 
@@ -70,7 +70,10 @@ const statusEventSchema = new Schema<IPaymentStatusEvent>(
     status: { type: String, enum: Object.values(PaymentStatus), required: true },
     gatewayStatus: { type: String, default: null },
     message: { type: String, default: null },
-    source: { type: String, enum: ['create', 'webhook', 'sync', 'cash', 'admin'], required: true },
+    // `client`: la persona abandonó el intento desde la app. Distinto de
+    // `admin` a propósito: un informe tiene que poder separar "lo decidió
+    // soporte" de "lo decidió quien pagaba".
+    source: { type: String, enum: ['create', 'webhook', 'sync', 'cash', 'admin', 'client'], required: true },
     at: { type: Date, default: Date.now },
   },
   { _id: false }

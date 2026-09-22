@@ -13,22 +13,19 @@ import {
   productImageUri, productImagePlaceholder, hasProductImage,
 } from '../../lib/productImage';
 import {
-  contentIllustration, categoryIllustration, DefaultIllustration, type IllustrationProps,
+  contentIllustration, contentIllustrationByName, categoryIllustration, DefaultIllustration,
+  type IllustrationProps,
 } from '../illustrations';
 import { CollectionHeader, type HeaderVariant } from './CollectionHeader';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
 import type { HomeSection, HomeSectionDisplayVariant, HomeSectionProduct } from '../../services/endpoints';
 
 /**
- * Icono de cada colección.
- *
- * Sin emojis: mini-ilustraciones propias, el mismo sistema que ya usan
- * Categorías y los estados vacíos — nunca un glifo de Lucide suelto. Las de
- * categoría de negocio (`categoryIllustration`) encajan mejor en las
- * secciones de comida por franja (antojo, desayuno, noche); el resto sale
- * del registro de "contenido". `dulce`/`bebida`/`etiqueta`/`corona`/
- * `tendencia`/`hielo` son las seis que no tenían equivalente y se sumaron a
- * `contentIllustrations.ts` siguiendo exactamente el mismo patrón visual.
+ * Icono de cada colección: logo PNG Twemoji, el mismo sistema que Categorías
+ * y los estados vacíos — nunca un glifo de Lucide suelto. Las de categoría de
+ * negocio (`categoryIllustration`) encajan mejor en las secciones de comida
+ * por franja (antojo, desayuno, noche); el resto sale del registro de
+ * "contenido".
  */
 const SECTION_ILLUSTRATION: Record<string, ComponentType<IllustrationProps>> = {
   losMasPedidos: contentIllustration('racha'),
@@ -51,6 +48,12 @@ const SECTION_ILLUSTRATION: Record<string, ComponentType<IllustrationProps>> = {
   porMenosDe10000: contentIllustration('etiqueta'),
   dateUnGusto: contentIllustration('corona'),
   refrescaElDia: contentIllustration('hielo'),
+  nuevosEnZipp: contentIllustration('nuevo'),
+  descubreAlgoNuevo: contentIllustration('explorar'),
+  nuncaHasProbado: contentIllustration('estrella'),
+  vuelveAPedir: contentIllustration('repetir'),
+  deTusFavoritos: contentIllustration('favorito'),
+  deLaDrogueria: categoryIllustration('pharmacy'),
 };
 
 /**
@@ -114,10 +117,16 @@ const FALLBACK_SUBTITLE: Record<string, string> = {
  *
  * El servidor decide con qué tarjeta se pinta cada colección
  * (`section.displayVariant`) — este componente solo elige el renderer.
+ *
+ * `allowGrid` solo lo enciende Explorar: la misma colección llega a los dos
+ * feeds, y en Inicio —que es pasear, no comparar— una cuadrícula de doce
+ * ocuparía la pantalla entera. Ahí `grid` cae al carrusel de `price_focus`,
+ * que es lo que esas colecciones eran antes.
  */
 export const ProductCollectionRow = memo(function ProductCollectionRow({
   section,
-}: { section: HomeSection }) {
+  allowGrid = false,
+}: { section: HomeSection; allowGrid?: boolean }) {
   const router = useRouter();
   const { c } = useTheme();
 
@@ -132,18 +141,20 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
   if (section.products.length === 0) return null;
 
   const variant = section.displayVariant ?? 'compact';
-  // La ilustración que manda el servidor tiene prioridad: una colección
-  // creada desde el panel no puede estar en un mapa escrito antes de que
-  // existiera.
+  // `section.illustration` es un nombre del registro de contenido, no una
+  // clave de sección: es lo que da ícono a una colección creada desde el
+  // panel, que no puede estar en un mapa escrito antes de que existiera.
   const Illustration =
-    SECTION_ILLUSTRATION[section.illustration ?? ''] ??
     SECTION_ILLUSTRATION[section.key] ??
+    contentIllustrationByName(section.illustration) ??
     DefaultIllustration;
   const CardComponent = CARD_BY_VARIANT[variant] ?? CompactCard;
   const headerVariant = HEADER_VARIANT[section.key] ?? 'minimal';
   const subtitle = section.subtitle ?? FALLBACK_SUBTITLE[section.key];
 
-  const list = (
+  const list = variant === 'grid' && allowGrid ? (
+    <ProductGrid products={section.products} onPress={goToProduct} />
+  ) : (
     <FlatList
       horizontal
       data={section.products}
@@ -160,7 +171,6 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
         <CardComponent
           product={item}
           onPress={() => goToProduct(item)}
-          emphasized={variant === 'featured' && section.key === 'favoritosZipp' && index === 0}
           rank={section.key === 'losMasPedidos' && index < 3 ? index + 1 : undefined}
         />
       )}
@@ -185,7 +195,7 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
 // Bloque compartido: identidad del comercio (aro + nombre + toque propio)
 // ──────────────────────────────────────────────────────────────
 
-type CardProps = { product: HomeSectionProduct; onPress: () => void; emphasized?: boolean; rank?: number };
+type CardProps = { product: HomeSectionProduct; onPress: () => void; rank?: number };
 
 /** El producto solo, sin nada más en el carrito, ya alcanza el domicilio gratis del comercio. */
 function hasFreeDelivery(product: HomeSectionProduct): boolean {
@@ -240,31 +250,24 @@ function ProductPhoto({
 }
 
 /**
- * El precio: solo lleva el fondo dorado cuando hay algo que celebrar —
+ * El precio: solo se pinta de dorado cuando hay algo que celebrar —
  * descuento o que el producto solo ya alcanza el domicilio gratis del
  * comercio. Sin eso, es texto plano: el dorado se reserva para cuando
- * comunica una ventaja real, no como decoración de cada tarjeta.
+ * comunica una ventaja real, nunca como fondo decorativo.
  */
 function PriceTag({
   product, size, alone,
 }: { product: HomeSectionProduct; size: 'dataS' | 'dataM' | 'dataL'; alone?: boolean }) {
-  const { c } = useTheme();
   const highlighted = product.discountPercent > 0 || hasFreeDelivery(product);
 
-  if (!highlighted) {
-    return (
-      <Text v={size} tone="primaryText" style={[styles.priceStrong, alone ? styles.pricePillAlone : null]}>
-        {money(product.effectivePrice)}
-      </Text>
-    );
-  }
-
   return (
-    <View style={[styles.pricePill, alone ? styles.pricePillAlone : null, { backgroundColor: c.gold }]}>
-      <Text v={size} color={c.black} style={styles.priceStrong}>
-        {money(product.effectivePrice)}
-      </Text>
-    </View>
+    <Text
+      v={size}
+      tone={highlighted ? 'primaryText' : 'text'}
+      style={[styles.priceStrong, alone ? styles.pricePillAlone : null]}
+    >
+      {money(product.effectivePrice)}
+    </Text>
   );
 }
 
@@ -370,8 +373,8 @@ const LargeCard = memo(function LargeCard({ product, onPress, rank }: CardProps)
     >
       <ProductPhoto product={product} height={195}>
         {rank ? (
-          <View style={[styles.rankBadge, { backgroundColor: c.gold }, Shadow.goldGlow]}>
-            <Text v="captionStrong" color={c.black}>#{rank}</Text>
+          <View style={styles.rankBadge}>
+            <Text v="titleS" tone="primaryText" style={styles.rankText}>#{rank}</Text>
           </View>
         ) : hasDiscount ? (
           <View style={styles.ribbon}>
@@ -505,10 +508,11 @@ const FEATURED_WIDTH = 215;
 
 /**
  * `featured`: la foto es la protagonista casi absoluta, mínimo texto
- * secundario. "ZIPP recomienda" (favoritosZipp) pide que se sienta curada:
- * la primera tarjeta lleva borde y halo dorados, sin volverse un banner.
+ * secundario. "ZIPP recomienda" (favoritosZipp) ya se siente curada por su
+ * encabezado propio (`headerVariant: 'featured'`); la primera tarjeta no
+ * necesita además un borde y halo dorados para destacar.
  */
-const FeaturedCard = memo(function FeaturedCard({ product, onPress, emphasized }: CardProps) {
+const FeaturedCard = memo(function FeaturedCard({ product, onPress }: CardProps) {
   const { c } = useTheme();
   const { business, goToBusiness } = useBusinessNav(product);
   const hasDiscount = product.discountPercent > 0;
@@ -519,11 +523,7 @@ const FeaturedCard = memo(function FeaturedCard({ product, onPress, emphasized }
       accessibilityRole="button"
       accessibilityLabel={`${product.name}, ${product.businessName}, ${money(product.effectivePrice)}`}
       accessibilityHint="Abre este producto en su negocio"
-      style={[
-        styles.card,
-        { width: FEATURED_WIDTH },
-        emphasized ? { borderWidth: 1.5, borderColor: c.gold, ...Shadow.goldGlow } : null,
-      ]}
+      style={[styles.card, { width: FEATURED_WIDTH }]}
     >
       <ProductPhoto product={product} height={205}>
         {hasDiscount ? (
@@ -641,6 +641,96 @@ const PriceFocusCard = memo(function PriceFocusCard({ product, onPress }: CardPr
 /** `banner`: misma tarjeta que `large`, sin panel propio alrededor del carrusel. */
 const BannerCard = LargeCard;
 
+// ──────────────────────────────────────────────────────────────
+// `grid`: 3 columnas × 4 filas, la única variante que no es un carrusel
+// ──────────────────────────────────────────────────────────────
+
+const GRID_COLUMNS = 3;
+const GRID_ROWS = 4;
+/**
+ * Tope duro de la cuadrícula. El servidor ya pide exactamente esto
+ * (`targetSize: 12` en `discoverySeeds.ts`); el recorte de aquí es para una
+ * colección editada a mano que mande más. Lo que sobre no entra por un
+ * scroll interno: un `ScrollView` vertical dentro del de Explorar atrapa el
+ * dedo en Android y la pantalla deja de bajar.
+ */
+const GRID_MAX = GRID_COLUMNS * GRID_ROWS;
+/**
+ * Con ~110 dp de ancho por tarjeta, 88 de foto + nombre + precio dejan cada
+ * fila en ~135 dp: las cuatro caben en una pantalla con el encabezado de la
+ * sección, que es lo que hace que se lea como una cuadrícula y no como una
+ * lista larga.
+ */
+const GRID_IMAGE_HEIGHT = 88;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const rows: T[][] = [];
+  for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size));
+  return rows;
+}
+
+/**
+ * Tarjeta de cuadrícula: foto, nombre y precio — nada más. Aquí se escanea
+ * por precio, y a este ancho el comercio y la calificación solo empujaban
+ * la cuarta fila fuera de la pantalla. El comercio sigue en la etiqueta de
+ * accesibilidad y en la ficha a la que lleva el toque.
+ */
+const GridCard = memo(function GridCard({ product, onPress }: CardProps) {
+  const hasDiscount = product.discountPercent > 0;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${product.name}, ${product.businessName}, ${money(product.effectivePrice)}`}
+      accessibilityHint="Abre este producto en su negocio"
+      style={styles.gridCard}
+    >
+      {/* El redondeo va en la foto y no en la tarjeta: sin fondo detrás del
+          texto, recortar la tarjeta dejaba la foto con las esquinas de abajo
+          en ángulo recto. */}
+      <View style={styles.gridPhoto}>
+        <ProductPhoto product={product} height={GRID_IMAGE_HEIGHT}>
+          {hasDiscount ? (
+            <View style={styles.ribbon}>
+              <CatalogBadge kind="descuento" label={`-${product.discountPercent}%`} />
+            </View>
+          ) : null}
+        </ProductPhoto>
+      </View>
+
+      <View style={styles.gridBody}>
+        <Text v="caption" numberOfLines={1}>{product.name}</Text>
+        <PriceTag product={product} size="dataS" />
+      </View>
+    </Pressable>
+  );
+});
+
+/** 3×4 fijo; nunca más de `GRID_MAX` tarjetas. */
+const ProductGrid = memo(function ProductGrid({
+  products, onPress,
+}: { products: HomeSectionProduct[]; onPress: (product: HomeSectionProduct) => void }) {
+  const rows = chunk(products.slice(0, GRID_MAX), GRID_COLUMNS);
+
+  return (
+    <View style={styles.gridRows}>
+      {rows.map((row, i) => (
+        <View key={i} style={styles.gridRow}>
+          {row.map((product) => (
+            <GridCard key={product._id} product={product} onPress={() => onPress(product)} />
+          ))}
+          {row.length < GRID_COLUMNS
+            ? Array.from({ length: GRID_COLUMNS - row.length }).map((_, j) => (
+                <View key={`filler-${j}`} style={styles.gridFiller} />
+              ))
+            : null}
+        </View>
+      ))}
+    </View>
+  );
+});
+
 /**
  * Las variantes que pintan **productos**.
  *
@@ -649,6 +739,9 @@ const BannerCard = LargeCard;
  * colección con esa variante que llegara aquí cae a `compact`, que es feo
  * pero se ve — mejor que una pantalla en blanco porque un admin eligió una
  * variante que no corresponde.
+ *
+ * `grid` está aquí solo para cuando no se pinta como cuadrícula (Inicio):
+ * entonces es un carrusel de `price_focus`.
  */
 const CARD_BY_VARIANT: Partial<Record<HomeSectionDisplayVariant, ComponentType<CardProps>>> = {
   compact: CompactCard,
@@ -657,6 +750,7 @@ const CARD_BY_VARIANT: Partial<Record<HomeSectionDisplayVariant, ComponentType<C
   featured: FeaturedCard,
   price_focus: PriceFocusCard,
   banner: BannerCard,
+  grid: PriceFocusCard,
 };
 
 const styles = StyleSheet.create({
@@ -669,10 +763,13 @@ const styles = StyleSheet.create({
   },
   image: { width: '100%' },
   ribbon: { position: 'absolute', top: Spacing.xs, left: Spacing.xs },
-  rankBadge: {
-    position: 'absolute', top: Spacing.xs, left: Spacing.xs,
-    minWidth: 28, height: 24, borderRadius: 12, paddingHorizontal: 7,
-    alignItems: 'center', justifyContent: 'center',
+  rankBadge: { position: 'absolute', top: Spacing.xs, left: Spacing.sm },
+  // Sin fondo: solo la sombra de texto para que el número se lea sobre
+  // cualquier foto, sin simular una pastilla.
+  rankText: {
+    textShadowColor: 'rgba(0, 0, 0, 0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   add: {
     position: 'absolute', bottom: Spacing.xs, right: Spacing.xs,
@@ -689,11 +786,6 @@ const styles = StyleSheet.create({
   priceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 2 },
   priceStrong: { fontWeight: '700' },
   strike: { textDecorationLine: 'line-through' },
-  pricePill: {
-    borderRadius: BorderRadius.full,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 3,
-  },
   pricePillAlone: { alignSelf: 'flex-start', marginTop: 2 },
 
   // horizontal
@@ -708,4 +800,12 @@ const styles = StyleSheet.create({
   // price_focus
   priceFocusBody: { padding: Spacing.xs + 2, gap: 2 },
   priceFocusDiscountRow: { flexDirection: 'row', alignItems: 'baseline', gap: Spacing.xs },
+
+  // grid
+  gridRows: { gap: Spacing.sm },
+  gridRow: { flexDirection: 'row', gap: Spacing.sm },
+  gridCard: { flex: 1 },
+  gridPhoto: { borderRadius: BorderRadius.md, overflow: 'hidden' },
+  gridFiller: { flex: 1 },
+  gridBody: { paddingTop: Spacing.xs + 2, paddingHorizontal: 2, gap: 1 },
 });

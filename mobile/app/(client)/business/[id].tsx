@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import {
-  View, ScrollView, Pressable, StyleSheet, Share, Linking, Platform, TextInput,
+  View, ScrollView, Pressable, StyleSheet, Share, TextInput,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Lightbox } from '../../../components/domain/Lightbox';
@@ -35,7 +35,7 @@ import {
 import { SuggestionRow } from '../../../components/domain/SuggestionRow';
 import { normalize, matches } from '../../../lib/text';
 import {
-  productImageUri, productImagePlaceholder, hasProductImage, productGallery,
+  productImageUri, productImagePlaceholder, productImageStepDown, hasProductImage, productGallery,
   type ProductImages,
 } from '../../../lib/productImage';
 import {
@@ -257,22 +257,6 @@ export default function BusinessScreen() {
     }
   };
 
-  const openMap = () => {
-    const lat = business.location?.coordinates?.[1];
-    const lng = business.location?.coordinates?.[0];
-    if (!lat || !lng) return;
-
-    const url = Platform.select({
-      ios: `maps:0,0?q=${business.name}@${lat},${lng}`,
-      android: `geo:0,0?q=${lat},${lng}(${business.name})`,
-    });
-    if (url) Linking.openURL(url).catch(() => {});
-  };
-
-  const call = () => {
-    if (business.phone) Linking.openURL(`tel:${business.phone}`).catch(() => {});
-  };
-
   return (
     <View style={[styles.screen, { backgroundColor: c.background }]}>
       <ScrollView
@@ -295,11 +279,12 @@ export default function BusinessScreen() {
             fallbackAccent={accent}
             distanceLabel={formatDistance(business.distanceMeters)}
             statusBadge={
-              <Badge
-                label={status.label || (status.open ? 'Abierto' : 'Cerrado')}
-                tone={status.open ? 'lime' : 'neutral'}
-                icon="reloj"
-              />
+              <View style={styles.statusRow}>
+                <Icon name="reloj" size="sm" color={status.open ? c.limeText : c.textMuted} />
+                <Text v="strongS" color={status.open ? c.limeText : c.textMuted}>
+                  {status.label || (status.open ? 'Abierto' : 'Cerrado')}
+                </Text>
+              </View>
             }
           />
 
@@ -340,45 +325,6 @@ export default function BusinessScreen() {
               <Icon name="siguiente" size="sm" color={c.textMuted} />
             </Pressable>
 
-            {business.address ? (
-              <Pressable
-                onPress={openMap}
-                accessibilityRole="button"
-                accessibilityLabel={`Dirección: ${business.address}`}
-                accessibilityHint="Abre la dirección en el mapa"
-                style={styles.addressRow}
-              >
-                <Icon name="ubicacion" size="sm" color={c.textMuted} />
-                <Text v="bodyS" tone="textSecondary" style={styles.flex} numberOfLines={1}>
-                  {business.address}
-                </Text>
-              </Pressable>
-            ) : null}
-
-            <View style={styles.actions}>
-              {business.phone ? (
-                <Pressable
-                  onPress={() => { tap('light'); call(); }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Llamar"
-                  style={styles.actionItem}
-                  hitSlop={8}
-                >
-                  <Icon name="llamar" size="sm" color={c.text} />
-                  <Text v="buttonSm" color={c.text}>Llamar</Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                onPress={() => { tap('light'); openMap(); }}
-                accessibilityRole="button"
-                accessibilityLabel="Cómo llegar"
-                style={styles.actionItem}
-                hitSlop={8}
-              >
-                <Icon name="ubicacion" size="sm" color={c.text} />
-                <Text v="buttonSm" color={c.text}>Cómo llegar</Text>
-              </Pressable>
-            </View>
 
             <BusinessPromoBanner business={business} />
 
@@ -941,7 +887,9 @@ function ProductSheet({
           >
             <Image
               source={{ uri: productImageUri(product, 'detail')! }}
-              placeholder={productImagePlaceholder(product)}
+              // La de catálogo que acaba de verse en la fila, no la borrosa.
+              placeholder={productImageStepDown(product, 'detail')}
+              placeholderContentFit="cover"
               style={StyleSheet.absoluteFill}
               contentFit="cover"
               transition={200}
@@ -1151,9 +1099,7 @@ const styles = StyleSheet.create({
 
   info: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, paddingBottom: Spacing.xl, gap: Spacing.md },
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  addressRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: -Spacing.xs },
-  actions: { flexDirection: 'row', gap: Spacing.xl },
-  actionItem: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
 
   tabs: { borderBottomWidth: StyleSheet.hairlineWidth },
   menuSearch: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md },

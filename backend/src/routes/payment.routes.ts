@@ -103,6 +103,17 @@ router.get(
   (req, res, next) => paymentController.status(req, res, next)
 );
 
+// Dejar a medias la verificación del banco para pagar de otra forma. Con el
+// limitador de consultas: cada llamada le pregunta a Wompi una vez.
+router.post(
+  '/status/:transactionId/abandon',
+  authenticate,
+  authorize(UserRole.CLIENT),
+  paymentStatusRateLimiter,
+  validate(paymentStatusSchema),
+  (req, res, next) => paymentController.abandon(req, res, next)
+);
+
 // DaviPlata confirma el cobro con un código que la pasarela le manda por SMS
 // a quien paga. Con su propio limitador —no el de consultas—: cada llamada
 // gasta un SMS o un intento de los pocos que da Wompi.

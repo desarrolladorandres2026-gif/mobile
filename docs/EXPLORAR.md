@@ -398,6 +398,7 @@ tenerlo abajo hace que el scroll tenga fondo — la sensación de "esto se acaba
 | Forma | Cuándo | Secciones |
 |---|---|---|
 | **Grid** | Taxonomía: el usuario escanea y elige | 3 (Antojos) |
+| **Grid** (2026-09-21) | Comparar muchas opciones parecidas por precio, no taxonomía: 3×4, 12 como máximo, sin scroll interno (atrapa el dedo en Android). Tarjeta de foto + nombre + precio (~135 pt por fila, las 4 caben en una pantalla). Solo en Explorar: en Inicio la misma colección es un carrusel `price_focus` | `descuentosLocos`, `buenoYBarato`, `porMenosDe10000` (antes `price_focus`) |
 | **Carrusel horizontal** | Colección: muestra variedad sin gastar altura | 4, 6, 7, 9, 10, 11 |
 | **Spotlight 3D** | Una sola cosa que queremos que se mire | 5 |
 | **Banda completa** | Contenido comercial de una sola pieza | 8 |
@@ -477,7 +478,10 @@ lista terminada.
 - Máximo **2 secciones y media** visibles en un iPhone estándar. Tres secciones
   completas en pantalla es un catálogo; dos y media es un feed.
 - Cada carrusel muestra **2.2 tarjetas** de ancho. El 0.2 es lo que dice "desliza".
-- Cada colección trae **8-10 productos**, no más. Nadie desliza doce.
+- Cada colección trae **8-10 productos**, no más. Nadie desliza doce. **Excepción a
+  propósito:** las tres colecciones en variante `grid` (`descuentosLocos`,
+  `buenoYBarato`, `porMenosDe10000`) piden `targetSize: 12` — ahí no se desliza, se
+  escanea un 3×4, y doce es exactamente lo que cabe: no hay sobrante ni scroll interno.
 - El feed entero: **10-14 entradas**. Por encima de eso la pantalla pesa y el `$facet`
   también.
 
@@ -1125,6 +1129,7 @@ Actualizado el 2026-09-20. Backend: **1335/1335 tests en verde**.
 | Las colecciones en Explorar | `mobile/components/domain/ExploreCollections.tsx` |
 | Chips de intención con retirada al volver a tocarlos | `search.tsx` (`INTENTS`, `applyIntent`) |
 | La ilustración del servidor manda sobre el mapa local | `ProductCollectionRow.tsx` |
+| Variante `grid` (3×4, tope 12, solo Explorar vía `allowGrid`) — `descuentosLocos`, `buenoYBarato`, `porMenosDe10000` | `ProductCollectionRow.tsx` (`ProductGrid`/`GridCard`), `ExploreCollections.tsx`, `DisplayVariant`, `exploreWeights.ts` |
 
 ### Pendiente
 
@@ -1147,6 +1152,18 @@ npm run seed:discovery-collections           # sin esto los dos feeds salen vac�
 
 El segundo **no es opcional**: desde que las colecciones viven en la base, un
 despliegue sin sembrar deja Inicio y Explorar en blanco.
+
+**Pendiente en cualquier base ya sembrada (incluida Atlas de dev):** el cambio de
+`descuentosLocos`/`buenoYBarato`/`porMenosDe10000` a `grid` y su `targetSize: 12`
+vive en `discoverySeeds.ts`, pero `seed:discovery-collections` **no pisa** una
+colección que ya existe salvo con `--force` (que si acaso alguien editó un título
+desde un panel, todavía no reescribe). Sin ese `--force`, esas tres colecciones
+siguen en `price_focus` con `targetSize: 10` en cualquier base ya sembrada, y el
+grid nunca llega a las 12 tarjetas.
+
+```bash
+npm run seed:discovery-collections -- --force
+```
 
 ---
 

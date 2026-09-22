@@ -24,6 +24,9 @@ export interface Seed {
   order: number;
   dayparts?: Daypart[];
   rotation?: RotationMode;
+  /** Por defecto 10 (`seedToDocument`). `grid` (3×4) pide 12: las que caben, ni una más. */
+  targetSize?: number;
+  minSize?: number;
 }
 
 /**
@@ -67,9 +70,11 @@ export const SEEDS: Seed[] = [
     key: 'descuentosLocos',
     title: 'Descuentos locos',
     subtitle: 'Rebajas que se acaban cuando se acaban',
-    displayVariant: 'price_focus',
+    displayVariant: 'grid',
     rule: { all: [{ source: 'discount', minPercent: 15 }], sortBy: 'discount' },
     order: 30,
+    // grid 3×4: exactamente las doce que caben; el default de 10 la deja coja.
+    targetSize: 12,
     feed: 'both',
   },
   {
@@ -153,7 +158,7 @@ export const SEEDS: Seed[] = [
     key: 'buenoYBarato',
     title: 'Bueno y barato',
     subtitle: 'Bien calificado sin que duela',
-    displayVariant: 'price_focus',
+    displayVariant: 'grid',
     rule: {
       all: [{ source: 'price', max: 15000 }, { source: 'businessRating', min: 4 }],
       sortBy: 'price_asc',
@@ -161,6 +166,8 @@ export const SEEDS: Seed[] = [
     order: 100,
     rotation: 'daily',
     feed: 'both',
+    // grid 3×4: exactamente las doce que caben; el default de 10 la deja coja.
+    targetSize: 12,
   },
   {
     key: 'listoParaPedir',
@@ -236,11 +243,13 @@ export const SEEDS: Seed[] = [
   {
     key: 'porMenosDe10000',
     title: 'Por menos de $10.000',
-    displayVariant: 'price_focus',
+    displayVariant: 'grid',
     rule: { all: [{ source: 'price', max: 10000 }], sortBy: 'price_asc' },
     order: 180,
     rotation: 'daily',
     feed: 'both',
+    // grid 3×4: exactamente las doce que caben; el default de 10 la deja coja.
+    targetSize: 12,
   },
   {
     key: 'dateUnGusto',
@@ -357,8 +366,8 @@ export function seedToDocument(seed: Seed) {
     dayparts: seed.dayparts ?? [],
     weekdays: [] as number[],
     rotation: seed.rotation ?? ('none' as const),
-    minSize: 4,
-    targetSize: 10,
+    minSize: seed.minSize ?? 4,
+    targetSize: seed.targetSize ?? 10,
     // Mientras el relleno de etiquetas no haya corrido en producción, las
     // reglas por `tags` tienen que poder caer a las palabras clave o media
     // pantalla sale vacía el día del despliegue.

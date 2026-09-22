@@ -200,6 +200,9 @@ export const updateProfileSchema = z.object({
       lastName: personNameSchema.optional(),
       phone: phoneSchema.optional(),
       email: z.string().email('Email inválido').max(254).optional().or(z.literal('')),
+      // Correo del comprobante de pago (solo cuentas sin `email`). Sin OTP:
+      // se guarda y se cambia libremente desde Mi cuenta.
+      receiptEmail: z.string().email('Email inválido').max(254).optional().or(z.literal('')),
       // `null` en los dos borra el documento guardado.
       documentType: z.enum(DOCUMENT_TYPES as [DocumentType, ...DocumentType[]]).nullable().optional(),
       documentNumber: z

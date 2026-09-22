@@ -33,6 +33,13 @@ export interface IProductImage {
   enhanced: boolean;
   /** Fondo retirado con el complemento de Cloudinary, si estaba disponible. */
   backgroundRemoved: boolean;
+  /**
+   * La miniatura borrosa como `data:` URI (~130 caracteres), calculada al
+   * subir. Viaja dentro de la respuesta, así que se pinta sin otra petición
+   * y aunque no haya red. Vacía en lo subido antes del relleno
+   * (`backfill:image-placeholders`): ahí se sirve la URL.
+   */
+  placeholderDataUri?: string | null;
   uploadedAt: Date;
 }
 
@@ -148,6 +155,9 @@ const productImageSchema = new Schema<IProductImage>(
     checksum: { type: String, required: true },
     enhanced: { type: Boolean, default: true },
     backgroundRemoved: { type: Boolean, default: false },
+    // El tope protege el tamaño de cada carta: una miniatura de 24 px pesa
+    // cien bytes, y algo que ocupe más no es un placeholder.
+    placeholderDataUri: { type: String, default: null, maxlength: 2048 },
     uploadedAt: { type: Date, default: Date.now },
   },
   { _id: false }
@@ -339,7 +349,17 @@ productSchema.virtual('galleryImages').get(function (this: IProduct) {
     .filter(Boolean);
 });
 
-productSchema.set('toJSON', { virtuals: true });
+productSchema.set('toJSON', {
+  virtuals: true,
+  // La miniatura incrustada ya sale en `images.placeholder`: repetirla en
+  // `imageAsset` y en cada foto de `gallery` la mandaría dos veces por
+  // producto en cada carta, y la guardaría dos veces en la caché del móvil.
+  transform: (_doc, ret: Record<string, any>) => {
+    if (ret.imageAsset) delete ret.imageAsset.placeholderDataUri;
+    for (const image of ret.gallery ?? []) delete image.placeholderDataUri;
+    return ret;
+  },
+});
 productSchema.set('toObject', { virtuals: true });
 
 /**

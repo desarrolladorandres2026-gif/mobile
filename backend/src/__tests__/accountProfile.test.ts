@@ -142,6 +142,33 @@ describe('PATCH /auth/profile — datos de Mi cuenta', () => {
   });
 });
 
+describe('Correo para comprobantes (`receiptEmail`)', () => {
+  // Sin OTP y sin bloqueo, a diferencia de `email`: se define una vez en el
+  // primer pago y desde ahí solo se cambia aquí — pero puede cambiarse las
+  // veces que haga falta.
+  it('se guarda y se puede cambiar libremente, sin quedar bloqueado', async () => {
+    const user = await makeUser();
+
+    const first = await patchProfile(user, { receiptEmail: 'primero@zipp.co' });
+    expect(first.status).toBe(200);
+    expect(first.body.data.user.receiptEmail).toBe('primero@zipp.co');
+
+    const changed = await patchProfile(user, { receiptEmail: 'segundo@zipp.co' });
+    expect(changed.status).toBe(200);
+    expect(changed.body.data.user.receiptEmail).toBe('segundo@zipp.co');
+  });
+
+  it('un string vacío lo borra', async () => {
+    const user = await makeUser();
+    await patchProfile(user, { receiptEmail: 'algo@zipp.co' });
+
+    const res = await patchProfile(user, { receiptEmail: '' });
+
+    expect(res.status).toBe(200);
+    expect((await User.findById(user._id))!.receiptEmail).toBeUndefined();
+  });
+});
+
 describe('GET /auth/me — hasPassword', () => {
   it('dice si la cuenta tiene contraseña, sin mostrarla', async () => {
     const withPassword = await makeUser();

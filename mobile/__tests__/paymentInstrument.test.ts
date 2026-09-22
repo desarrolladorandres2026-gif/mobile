@@ -46,6 +46,43 @@ describe('paymentInstrument', () => {
     expect(payNativeBody(pse, config, fakeBrowser)).not.toHaveProperty('redirectUrl');
   });
 
+  describe('carriles bancarios', () => {
+    const bancolombia: SelectedInstrument = {
+      instrument: { kind: 'bancolombia_transfer' },
+      label: 'Bancolombia',
+      icon: 'edificio',
+    };
+    const daviplata: SelectedInstrument = {
+      instrument: { kind: 'daviplata', userLegalIdType: 'CC', userLegalId: '1134568019' },
+      label: 'DaviPlata',
+      icon: 'celular',
+    };
+
+    it('Bancolombia viaja sin campos: ni tipo de persona, ni importe, ni dirección de regreso', () => {
+      const body = payNativeBody(bancolombia, { ...config, threeDs: true }, fakeBrowser);
+      expect(body).toEqual({ instrument: { kind: 'bancolombia_transfer' }, acceptanceToken: 'ACEPTACION' });
+    });
+
+    it('DaviPlata manda el documento y nada más: ni celular, ni navegador', () => {
+      const body = payNativeBody(daviplata, { ...config, threeDs: true }, fakeBrowser);
+      expect(body).toEqual({
+        instrument: { kind: 'daviplata', userLegalIdType: 'CC', userLegalId: '1134568019' },
+        acceptanceToken: 'ACEPTACION',
+      });
+    });
+
+    it('los dos se pueden reintentar: no dependen de un token de un solo uso', () => {
+      expect(isReusable(bancolombia)).toBe(true);
+      expect(isReusable(daviplata)).toBe(true);
+    });
+
+    it('ninguno admite cuotas', () => {
+      expect(acceptsInstallments(bancolombia)).toBe(false);
+      expect(acceptsInstallments(daviplata)).toBe(false);
+      expect(withInstallments(daviplata, 6)).toBe(daviplata);
+    });
+  });
+
   it('manda el navegador para 3DS solo con tarjeta nueva y 3DS encendido', () => {
     const on = { ...config, threeDs: true };
     expect(payNativeBody(card(), on, fakeBrowser).browserInfo).toEqual(fakeBrowser());

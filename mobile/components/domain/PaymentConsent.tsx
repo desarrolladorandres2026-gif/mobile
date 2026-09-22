@@ -22,7 +22,7 @@ interface Props {
   onToggle: (next: boolean) => void;
   /** Texto antes del enlace: "Acepto los". */
   lead: string;
-  /** El enlace: "términos de Wompi". */
+  /** El enlace: "tratamiento de mis datos". */
   linkText: string;
   url?: string;
   /** Aviso bajo la casilla cuando se intentó seguir sin marcarla. */
@@ -85,6 +85,9 @@ export function PaymentConsent({ checked, onToggle, lead, linkText, url, error }
  * Wompi pide que quien paga vea los términos antes de cobrar. Una frase
  * junto al botón, con el enlace al documento, lo cumple sin un paso más:
  * pulsar el botón es la aceptación.
+ *
+ * Nombra a Wompi, pero diciendo qué es: mucha gente no lo conoce, y un
+ * "términos de Wompi" a secas hace pensar que el pago va a otra empresa.
  */
 export function PaymentTermsNotice({ url }: { url?: string }) {
   const openDocument = () => {
@@ -103,7 +106,7 @@ export function PaymentTermsNotice({ url }: { url?: string }) {
         accessibilityRole="link"
         style={url ? styles.link : undefined}
       >
-        términos de Wompi
+        términos de nuestro procesador de pagos (Wompi)
       </Text>
     </Text>
   );

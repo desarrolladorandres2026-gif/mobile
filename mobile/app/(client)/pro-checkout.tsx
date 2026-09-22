@@ -4,18 +4,20 @@ import { useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import {
-  Text, Icon, Button, Screen, Header, SuccessCheck, Notice,
+  Text, Icon, Button, Screen, Header, SuccessCheck, Notice, ConfirmDialog,
 } from '../../components/ui';
 import { TrazoLoader } from '../../components/brand/Trazo';
 import { PaymentMethodSheet } from '../../components/domain/PaymentMethodSheet';
 import { PaymentWebView } from '../../components/domain/PaymentWebView';
-import { WompiLogo } from '../../components/brand/WompiLogo';
+import { SecurePaymentMark } from '../../components/domain/SecurePaymentMark';
+import { declinedMessage } from '../../lib/paymentCopy';
 import {
   useCheckoutConfig,
   usePaymentMethods,
   usePaymentStatus,
   useProStatus,
   useSubscribePro,
+  useAbandonPayment,
   type NativePaymentResult,
 } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
@@ -71,9 +73,14 @@ export default function ProCheckoutScreen() {
   const [attempt, setAttempt] = useState<NativePaymentResult | null>(null);
   const [challenge, setChallenge] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  /** El "no" lo dio el banco, no el servidor al crear el cobro. Ver NativePaymentFlow. */
+  const [bankDeclined, setBankDeclined] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [waitStart, setWaitStart] = useState(0);
   const [elapsed, setElapsed] = useState(0);
+  const abandonPayment = useAbandonPayment();
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const attemptRef = useRef<NativePaymentResult | null>(null);
   attemptRef.current = attempt;
@@ -96,6 +103,35 @@ export default function ProCheckoutScreen() {
     setPhase('waiting');
   };
 
+  /**
+   * Cancelar el cobro a medias. El servidor le pregunta a Wompi antes de
+   * soltar nada: si ya entró, la membresía queda activa; si no, se vuelve a
+   * elegir tarjeta sin activarla.
+   */
+  const cancelTransaction = async () => {
+    setConfirmCancel(false);
+    const transactionId = attemptRef.current?.transactionId;
+    if (!transactionId) return;
+    setCancelError(null);
+    try {
+      const result = await abandonPayment.mutateAsync(transactionId);
+      if (result.status === 'approved') {
+        settle('approved');
+        return;
+      }
+      tap('light');
+      setChallenge(null);
+      setAttempt(null);
+      shownChallenge.current = null;
+      setMessage('');
+      setPhase('choose');
+      setSheet(true);
+    } catch (error) {
+      tap('error');
+      setCancelError(apiMessage(error, 'No pudimos cancelar la transacción. Intenta de nuevo.'));
+    }
+  };
+
   const settle = (next: string, reason?: string, result?: NativePaymentResult) => {
     if (next === 'approved') {
       tap('success');
@@ -111,6 +147,7 @@ export default function ProCheckoutScreen() {
       tap('error');
       setChallenge(null);
       setMessage(reason ?? '');
+      setBankDeclined(next === 'declined');
       setPhase('declined');
       return;
     }
@@ -161,6 +198,7 @@ export default function ProCheckoutScreen() {
       // haría pensar que la tarjeta falló.
       const declined =
         httpStatus === 502 || (!!httpStatus && httpStatus >= 400 && httpStatus < 500 && httpStatus !== 429);
+      setBankDeclined(false);
       setPhase(declined ? 'declined' : 'error');
     }
   };
@@ -285,12 +323,14 @@ export default function ProCheckoutScreen() {
             <Icon name={declined ? 'tarjeta' : 'sinConexion'} size={28} color={c.errorText} />
           </View>
           <Text v="titleL" center>
-            {declined ? 'No se pudo cobrar tu membresía' : 'No pudimos procesar el pago'}
+            {!declined ? 'No pudimos procesar el pago'
+              : bankDeclined ? 'Tu banco no aprobó el pago'
+              : 'No se pudo cobrar tu membresía'}
           </Text>
           <Text v="bodyM" tone="text" center style={styles.stateMessage}>
-            {message || (declined
-              ? 'No se hizo ningún cobro. Puedes intentarlo con otra tarjeta.'
-              : 'Revisa tu conexión e inténtalo de nuevo.')}
+            {declined
+              ? declinedMessage(message, 'Puedes intentarlo con otra tarjeta.')
+              : message || 'Revisa tu conexión e inténtalo de nuevo.'}
           </Text>
         </View>
         <View style={styles.actions}>
@@ -410,14 +450,34 @@ export default function ProCheckoutScreen() {
             }}
           />
         ) : null}
+        {phase === 'waiting' && remote?.threeDsChallengeHtml ? (
+          <Button
+            title="Cancelar transacción"
+            icon="cerrar"
+            variant="ghost"
+            loading={abandonPayment.isPending}
+            onPress={() => { tap('light'); setCancelError(null); setConfirmCancel(true); }}
+          />
+        ) : null}
+        {cancelError && phase === 'waiting' ? (
+          <Text v="bodyS" tone="errorText" center style={styles.stateMessage}>{cancelError}</Text>
+        ) : null}
         {message ? <Notice tone="info">{message}</Notice> : null}
       </View>
 
-      <View style={styles.secure} accessible accessibilityLabel="Pago protegido por Wompi">
-        <Icon name="candado" size="sm" color={c.textMuted} />
-        <Text v="caption" tone="textMuted">Pago protegido por</Text>
-        <WompiLogo height={14} color={c.text} />
-      </View>
+      <ConfirmDialog
+        visible={confirmCancel}
+        onCancel={() => setConfirmCancel(false)}
+        onConfirm={cancelTransaction}
+        title="¿Cancelar esta transacción?"
+        message="Si todavía no autorizaste el pago en tu banco, no se cobra nada y tu membresía no se activa. Si ya lo autorizaste, mejor espera: a veces tarda unos minutos en confirmarse."
+        confirmText="Sí, cancelar"
+        cancelText="Seguir esperando"
+        icon="cerrar"
+        tone="danger"
+      />
+
+      <SecurePaymentMark style={styles.secure} />
 
       <PaymentWebView
         visible={phase === 'challenge' && !!challenge}

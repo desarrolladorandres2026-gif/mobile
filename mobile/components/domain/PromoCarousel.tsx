@@ -8,6 +8,7 @@ import { Text, Icon } from '../ui';
 import { useTheme } from '../../hooks/useTheme';
 import { useHomeBanners } from '../../hooks/useApi';
 import { hasAction, runBannerAction } from '../../lib/bannerAction';
+import { sizedImageUri, screenWidth } from '../../lib/cloudinaryImage';
 import { tap } from '../../lib/haptics';
 import type { PromoBanner } from '../../services/endpoints';
 import { BorderRadius, Motion, Spacing } from '../../theme/tokens';
@@ -107,7 +108,10 @@ function PromoCardContent({
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: c.surface }]}>
       <Image
-        source={{ uri: banner.imageUrl }}
+        // Al ancho de la pantalla, que es el techo de la tarjeta: el banner
+        // se guarda a 1080 px en el formato que se subió, y `sizedImageUri`
+        // lo reduce y lo entrega en WebP/AVIF.
+        source={{ uri: sizedImageUri(banner.imageUrl, screenWidth()) }}
         style={StyleSheet.absoluteFill}
         // La imagen llena la tarjeta sin deformarse, venga vertical,
         // cuadrada o panorámica desde el panel.

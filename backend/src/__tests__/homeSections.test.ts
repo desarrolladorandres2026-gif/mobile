@@ -13,12 +13,15 @@ const EXPLORE_API = '/api/v1/explore';
 /**
  * Las colecciones del producto, vengan del feed que vengan.
  *
- * Desde que el descubrimiento se repartió en dos pantallas, una colección
- * concreta vive en `/home-sections` o en `/explore`, pero no en las dos. Lo
- * que estas pruebas comprueban —que una sección mezcla comercios, respeta el
- * stock y el horario, y que ningún producto acapara el feed— no depende de
- * en cuál de las dos cayó, así que se miran juntas. El reparto en sí tiene
- * su propia prueba, más abajo.
+ * Las veinte colecciones heredadas viven a propósito en **los dos** feeds
+ * (`feed: 'both'`, ver el comentario en `constants/discoverySeeds.ts`): se
+ * intentó repartirlas —Inicio con tres, el resto a Explorar— y el Inicio se
+ * quedó sin un solo producto. Solo las seis colecciones nuevas son
+ * exclusivas de Explorar. Lo que estas pruebas comprueban —que una sección
+ * mezcla comercios, respeta el stock y el horario, y que ningún producto
+ * acapara **una** sección o **un** feed— no depende de en cuál de los dos
+ * cayó, así que se miran juntas. El reparto en sí tiene su propia prueba,
+ * más abajo.
  */
 async function feed(params: Record<string, string | number> = {}) {
   const [home, explore] = await Promise.all([
@@ -238,7 +241,7 @@ describe('GET /api/home-sections', () => {
     expect(names).not.toContain('Producto Estable');
   });
 
-  it('un mismo producto no acapara el inicio: aparece a lo sumo dos veces', async () => {
+  it('un mismo producto no acapara un feed: aparece a lo sumo dos veces por pantalla', async () => {
     const a = await makeBusiness(owner._id);
     await openAllDay(a._id);
 
@@ -255,14 +258,22 @@ describe('GET /api/home-sections', () => {
       await makeProduct(a._id, { name: `Hamburguesa Relleno ${i}`, price: 9000, discountPrice: 6000 });
     }
 
-    const res = { body: { data: await feed() } };
-    const appearances = res.body.data.reduce(
+    // Por separado, no con `feed()`: Inicio y Explorar comparten las veinte
+    // colecciones heredadas y cada uno arma su propio feed con su propio
+    // presupuesto de exposición. El tope es "dos veces en la pantalla que
+    // estás mirando", no "dos veces sumando las dos pantallas".
+    const [home, explore] = await Promise.all([
+      request(app).get(API).expect(200),
+      request(app).get(EXPLORE_API).expect(200),
+    ]);
+    const appearances = (sections: any[]) => sections.reduce(
       (count: number, section: any) =>
         count + section.products.filter((p: any) => p._id === estrella._id.toString()).length,
       0
     );
 
-    expect(appearances).toBeLessThanOrEqual(2);
+    expect(appearances(home.body.data)).toBeLessThanOrEqual(2);
+    expect(appearances(explore.body.data.entries)).toBeLessThanOrEqual(2);
   });
 
   it('sin coordenadas, no incluye "Cerca de ti" pero responde con las demás', async () => {

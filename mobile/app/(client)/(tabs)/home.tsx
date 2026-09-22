@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import Animated, {
   FadeIn, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue,
 } from 'react-native-reanimated';
-import { Text, Icon, Card, SectionHeader, Badge } from '../../../components/ui';
+import { Text, Icon, SectionHeader, Badge } from '../../../components/ui';
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
 import { ProductCollectionRow } from '../../../components/domain/ProductCollectionRow';
 import { ProductBannerBlock } from '../../../components/domain/ProductBannerBlock';
@@ -63,7 +63,6 @@ export default function HomeScreen() {
     ...categories.map((cat) => ({
       key: cat.key,
       label: cat.label,
-      imageUrl: cat.imageUrl,
       color: cat.color,
       onPress: () =>
         router.push({
@@ -239,9 +238,9 @@ const UsualCard = memo(function UsualCard({ item, onPress }: { item: UsualOrder;
   const Illustration = categoryIllustration(item.businessCategory);
 
   return (
-    <Card
-      onPress={onPress}
-      padded={false}
+    <Pressable
+      onPress={() => { tap('light'); onPress(); }}
+      accessibilityRole="button"
       style={styles.usual}
       accessibilityLabel={`Repetir pedido de ${item.businessName}: ${item.summary}. Total anterior ${money(item.total)}`}
       accessibilityHint="Agrega estos productos a tu bolsa"
@@ -258,12 +257,12 @@ const UsualCard = memo(function UsualCard({ item, onPress }: { item: UsualOrder;
         <Text v="bodyS" tone="textSecondary" numberOfLines={2}>{item.summary}</Text>
       </View>
 
-      <View style={[styles.usualCta, { backgroundColor: c.primarySoft }]}>
+      <View style={styles.usualCta}>
         <Icon name="repetir" size="sm" color={c.primaryText} />
         <Text v="strongS" tone="primaryText">Pedir otra vez</Text>
         <Text v="dataS" tone="textMuted" style={styles.usualPrice}>{money(item.total)}</Text>
       </View>
-    </Card>
+    </Pressable>
   );
 });
 
@@ -318,16 +317,13 @@ const styles = StyleSheet.create({
   section: { marginTop: Spacing.xxxl, paddingHorizontal: Spacing.xl },
   hList: { gap: Spacing.md, paddingRight: Spacing.xl },
 
-  usual: { width: 236, gap: Spacing.md, padding: Spacing.md },
+  usual: { width: 236, gap: Spacing.md },
   usualTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   usualBody: { gap: 2, minHeight: 52 },
   usualCta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs + 2,
-    paddingHorizontal: Spacing.md,
-    height: 42,
-    borderRadius: BorderRadius.md,
   },
   usualPrice: { marginLeft: 'auto' },
 });

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Star, MapPin, Phone, Clock, ShoppingBag, Percent } from 'lucide-react';
 import { getSharedBusiness, type SharedBusiness } from '../lib/api';
-import { StoreIllustration } from '../components/illustrations';
+import { StoreLogo } from '../components/logos';
 import { LinkButton } from '../components/Button';
 import { sizedImage } from '../lib/cloudinary';
 
@@ -101,7 +101,7 @@ export default function BusinessShare() {
             {business.logo ? (
               <img src={sizedImage(business.logo, 240)} alt="" width={80} height={80} className="h-full w-full object-cover" />
             ) : (
-              <StoreIllustration size={40} />
+              <StoreLogo size={40} />
             )}
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">

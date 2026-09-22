@@ -308,19 +308,27 @@ export function compileDSL(dsl: RuleDSL, ctx: CompileContext): Record<string, un
   return { $and: fragments };
 }
 
+// El `_id` final en cada orden no es cosmético: sin un desempate estable,
+// dos productos con el mismo descuento (o la misma fecha, el mismo precio…)
+// no tienen orden garantizado entre una ejecución de Mongo y la siguiente.
+// Con `/home-sections` y `/explore` consultando el mismo catálogo en
+// paralelo, esa falta de determinismo hacía que ambas pantallas eligieran
+// **conjuntos distintos** de productos "empatados" para la misma colección
+// — no por la rotación por semilla, que es intencional, sino por una
+// ejecución de `$sort` que Mongo no promete repetir.
 const SORT_STAGES: Record<SortBy, Record<string, 1 | -1>> = {
-  relevance: { isFeatured: -1, discountPercent: -1, createdAt: -1 },
-  discount: { discountPercent: -1 },
-  price_asc: { effectivePrice: 1 },
-  price_desc: { effectivePrice: -1 },
-  newest: { createdAt: -1 },
-  rating: { 'business.rating': -1, 'business.totalReviews': -1 },
-  prep: { effectivePrepTime: 1 },
+  relevance: { isFeatured: -1, discountPercent: -1, createdAt: -1, _id: 1 },
+  discount: { discountPercent: -1, _id: 1 },
+  price_asc: { effectivePrice: 1, _id: 1 },
+  price_desc: { effectivePrice: -1, _id: 1 },
+  newest: { createdAt: -1, _id: 1 },
+  rating: { 'business.rating': -1, 'business.totalReviews': -1, _id: 1 },
+  prep: { effectivePrepTime: 1, _id: 1 },
   // La distancia se calcula en JS después del `$facet` (haversine sobre las
   // coordenadas ya proyectadas), así que aquí solo se pide un orden estable.
-  distance: { createdAt: -1 },
+  distance: { createdAt: -1, _id: 1 },
   // El orden de ventas lo impone `orderByIds` con la lista ya rankeada.
-  sales: { createdAt: -1 },
+  sales: { createdAt: -1, _id: 1 },
 };
 
 export function sortStageFor(sortBy: SortBy): Record<string, 1 | -1> {
@@ -464,6 +472,15 @@ export function newBudget(relaxed = false): ExposureBudget {
     // servir un feed de tres secciones, se deja que un negocio aparezca más.
     maxPerBusiness: relaxed ? Number.POSITIVE_INFINITY : MAX_APPEARANCES_PER_BUSINESS,
     maxPerBusinessInSection: relaxed ? Number.POSITIVE_INFINITY : MAX_PER_BUSINESS_IN_SECTION,
+  };
+}
+
+/** Copia de trabajo para probar una colección sin comprometer el presupuesto real todavía. */
+function cloneBudget(budget: ExposureBudget): ExposureBudget {
+  return {
+    ...budget,
+    perProduct: new Map(budget.perProduct),
+    perBusiness: new Map(budget.perBusiness),
   };
 }
 
@@ -725,64 +742,101 @@ export async function buildDiscoveryFeed(
   return assemble(eligible, raw ?? {}, { coords, salesIds, seed });
 }
 
+/** Los candidatos de una colección, en el orden en que debe recorrerlos `pickForSection`. */
+function candidatesFor(
+  collection: IDiscoveryCollection,
+  raw: Record<string, SectionProduct[]>,
+  ctx: { coords: LatLng | null; salesIds: Record<string, Types.ObjectId[]>; seed: number }
+): SectionProduct[] {
+  let candidates = filterOpenNow(raw[collection.key] ?? []);
+
+  // El orden de ventas lo impone la lista rankeada, no el `$sort` de la
+  // rama: el `$in` devuelve en orden de índice, no de mérito.
+  const salesRule = collection.rule.all.find((r) => r.source === 'sales');
+  if (salesRule && salesRule.source === 'sales') {
+    candidates = orderByIds(candidates, ctx.salesIds[salesRule.window] ?? []);
+  }
+
+  if (needsCoords(collection.rule) && ctx.coords) {
+    candidates = withDistance(candidates, ctx.coords, 'businessLocation').sort(
+      (a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity)
+    );
+  }
+
+  if (collection.rotation !== 'none') {
+    candidates = rotateWindow(candidates, collection.targetSize, ctx.seed);
+  }
+
+  return candidates;
+}
+
+function toEntry(
+  collection: IDiscoveryCollection,
+  products: SectionProduct[]
+): DiscoveryCollectionEntry {
+  return {
+    kind: 'collection',
+    order: collection.order,
+    key: collection.key,
+    title: collection.title,
+    subtitle: collection.subtitle,
+    illustration: collection.illustration,
+    displayVariant: collection.displayVariant,
+    products: products.map(toPublicProduct),
+  };
+}
+
 /**
  * Convierte el resultado crudo del `$facet` en las entradas del feed.
  *
- * Se hace en dos pasadas cuando hace falta: la primera con los topes de
- * exposición puestos y, si el catálogo de la zona no da para un feed
- * decente, una segunda relajada. Antes que servir tres secciones, se repite
- * algún negocio.
+ * La relajación es **por colección**, no global: solo pierde su tope de
+ * exposición la colección que de verdad se quedó corta con los topes
+ * puestos. Antes esto era una segunda pasada de todo el feed disparada por
+ * el total de entradas, y una sola colección sin candidatos suficientes
+ * (una etiqueta que el catálogo de la zona no tiene, por ejemplo) le quitaba
+ * el tope por negocio a **todas las demás**, incluidas las que sí tenían
+ * variedad de sobra. Relajar solo lo que falla mantiene la garantía para
+ * cualquier colección que sí puede cumplirla.
  */
 function assemble(
   collections: IDiscoveryCollection[],
   raw: Record<string, SectionProduct[]>,
   ctx: { coords: LatLng | null; salesIds: Record<string, Types.ObjectId[]>; seed: number }
 ): DiscoveryCollectionEntry[] {
-  const build = (relaxed: boolean): DiscoveryCollectionEntry[] => {
-    const budget = newBudget(relaxed);
-    const entries: DiscoveryCollectionEntry[] = [];
+  // El presupuesto "comprometido" solo crece con lo que de verdad queda en
+  // el feed. Un intento que no llega a `minSize` se descarta entero —
+  // incluidos los productos que alcanzó a elegir antes de quedarse corto—
+  // para no gastarle la cuota a un producto que el usuario nunca ve.
+  const committed = newBudget(false);
+  const entries: DiscoveryCollectionEntry[] = [];
+  const deferred: IDiscoveryCollection[] = [];
 
-    for (const collection of collections) {
-      let candidates = filterOpenNow(raw[collection.key] ?? []);
-
-      // El orden de ventas lo impone la lista rankeada, no el `$sort` de la
-      // rama: el `$in` devuelve en orden de índice, no de mérito.
-      const salesRule = collection.rule.all.find((r) => r.source === 'sales');
-      if (salesRule && salesRule.source === 'sales') {
-        candidates = orderByIds(candidates, ctx.salesIds[salesRule.window] ?? []);
-      }
-
-      if (needsCoords(collection.rule) && ctx.coords) {
-        candidates = withDistance(candidates, ctx.coords, 'businessLocation').sort(
-          (a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity)
-        );
-      }
-
-      if (collection.rotation !== 'none') {
-        candidates = rotateWindow(candidates, collection.targetSize, ctx.seed);
-      }
-
-      const products = pickForSection(candidates, budget, collection.targetSize);
-      if (products.length < collection.minSize) continue;
-
-      entries.push({
-        kind: 'collection',
-        order: collection.order,
-        key: collection.key,
-        title: collection.title,
-        subtitle: collection.subtitle,
-        illustration: collection.illustration,
-        displayVariant: collection.displayVariant,
-        products: products.map(toPublicProduct),
-      });
+  for (const collection of collections) {
+    const candidates = candidatesFor(collection, raw, ctx);
+    const trial = cloneBudget(committed);
+    const products = pickForSection(candidates, trial, collection.targetSize);
+    if (products.length < collection.minSize) {
+      deferred.push(collection);
+      continue;
     }
+    committed.perProduct = trial.perProduct;
+    committed.perBusiness = trial.perBusiness;
+    entries.push(toEntry(collection, products));
+  }
 
-    return entries;
-  };
+  if (entries.length < MIN_FEED_ENTRIES && deferred.length) {
+    for (const collection of deferred) {
+      const candidates = candidatesFor(collection, raw, ctx);
+      const trial = cloneBudget(committed);
+      trial.maxPerBusiness = Number.POSITIVE_INFINITY;
+      trial.maxPerBusinessInSection = Number.POSITIVE_INFINITY;
+      const products = pickForSection(candidates, trial, collection.targetSize);
+      if (products.length < collection.minSize) continue;
+      committed.perProduct = trial.perProduct;
+      committed.perBusiness = trial.perBusiness;
+      entries.push(toEntry(collection, products));
+    }
+  }
 
-  const strict = build(false);
-  if (strict.length >= MIN_FEED_ENTRIES) return strict;
-
-  const relaxed = build(true);
-  return relaxed.length > strict.length ? relaxed : strict;
+  return entries;
 }

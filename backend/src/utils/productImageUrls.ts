@@ -17,6 +17,8 @@ export interface ProductImageAssetLike {
   height: number;
   enhanced: boolean;
   backgroundRemoved: boolean;
+  /** La miniatura borrosa ya incrustada, si se calculó al subir. */
+  placeholderDataUri?: string | null;
 }
 
 /** Tamaños que sirve el catálogo. Cuadrados, en píxeles. */
@@ -36,10 +38,13 @@ export interface ProductImageUrls {
   catalog: string;
   detail: string;
   large: string;
-  /** Versión diminuta y borrosa para pintar mientras carga la de verdad. */
+  /**
+   * Versión diminuta y borrosa para pintar mientras carga la de verdad.
+   *
+   * Un `data:` URI cuando se calculó al subir; la URL de Cloudinary en los
+   * productos que aún no pasaron por el relleno. Los dos se pintan igual.
+   */
   placeholder: string;
-  /** `srcset` listo para usar, en anchos reales. */
-  srcSet: string;
   width: number;
   height: number;
   enhanced: boolean;
@@ -100,6 +105,45 @@ export function productImageUrl(asset: ProductImageAssetLike, size: number): str
   });
 }
 
+/**
+ * La miniatura borrosa: 24 px, muy comprimida, del mismo encuadre que las
+ * variantes para que ocupe exactamente su hueco.
+ *
+ * `format` fijo solo para incrustarla: un `data:` URI no negocia con nadie,
+ * y WebP lo pintan los dos teléfonos y todos los navegadores. `version`
+ * obliga a Cloudinary a derivarla del archivo recién subido y no de la
+ * copia de la foto anterior que el CDN aún pueda tener con el mismo
+ * `public_id`.
+ */
+export function productImagePlaceholderUrl(
+  publicId: string,
+  options: { format?: 'auto' | 'webp'; version?: number } = {}
+): string {
+  return cloudinary.url(publicId, {
+    secure: true,
+    ...(options.version ? { version: options.version } : {}),
+    transformation: [
+      { width: 24, height: 24, crop: 'fill', gravity: 'auto' },
+      { effect: 'blur:400', quality: 30, fetch_format: options.format ?? 'auto' },
+    ],
+  });
+}
+
+/**
+ * Una fila de `.aggregate()` con sus variantes resueltas.
+ *
+ * Los virtuales de Mongoose no corren dentro de un pipeline: sin esto, la
+ * búsqueda y las ofertas mandaban `imageAsset` en crudo y ningún `images`,
+ * así que el móvil caía en `image` —la de 400 px— hasta para miniaturas
+ * de 56, y sin miniatura borrosa mientras cargaba.
+ */
+export function withProductImages<T extends { imageAsset?: unknown }>(
+  row: T
+): Omit<T, 'imageAsset'> & { images: ProductImageUrls | null } {
+  const { imageAsset, ...rest } = row;
+  return { ...rest, images: productImageUrls(imageAsset as ProductImageAssetLike | null) };
+}
+
 export function productImageUrls(
   asset: ProductImageAssetLike | null | undefined
 ): ProductImageUrls | null {
@@ -112,19 +156,13 @@ export function productImageUrls(
     catalog: url(PRODUCT_IMAGE_VARIANTS.catalog),
     detail: url(PRODUCT_IMAGE_VARIANTS.detail),
     large: url(PRODUCT_IMAGE_VARIANTS.large),
-    // 24 px y muy comprimida: pesa un par de cientos de bytes, llega
-    // antes que la imagen real y ocupa exactamente el mismo hueco, así
-    // que la tarjeta no da el salto de maquetación al cargar.
-    placeholder: cloudinary.url(asset.publicId, {
-      secure: true,
-      transformation: [
-        { width: 24, height: 24, crop: 'fill', gravity: 'auto' },
-        { effect: 'blur:400', quality: 30, fetch_format: 'auto' },
-      ],
-    }),
-    srcSet: (Object.values(PRODUCT_IMAGE_VARIANTS) as number[])
-      .map((size) => `${url(size)} ${size}w`)
-      .join(', '),
+    // Incrustada no cuesta un viaje a la red: pesa ~90 bytes, ocupa menos
+    // texto que su propia URL y se pinta aunque no haya señal. La URL queda
+    // de respaldo para los productos que el relleno aún no alcanzó.
+    placeholder: asset.placeholderDataUri || productImagePlaceholderUrl(asset.publicId),
+    // Sin `srcSet`: repetía las cuatro URLs en cada producto de cada
+    // respuesta —el 44 % del objeto— y solo lo usaba el panel del
+    // comercio, que ahora lo arma con estas mismas variantes.
     width: asset.width,
     height: asset.height,
     enhanced: asset.enhanced,

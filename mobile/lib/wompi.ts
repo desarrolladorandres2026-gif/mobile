@@ -58,7 +58,7 @@ function apiBase(publicKey: string): string {
 function friendlyError(messages: Record<string, unknown> | undefined): CardTokenizationError {
   const keys = Object.keys(messages ?? {});
   if (keys.includes('number')) {
-    return new CardTokenizationError('Wompi no reconoce ese número de tarjeta', 'number');
+    return new CardTokenizationError('Revisa el número de la tarjeta', 'number');
   }
   if (keys.includes('cvc')) {
     return new CardTokenizationError('El código de seguridad no es válido', 'cvc');

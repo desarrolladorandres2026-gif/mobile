@@ -1,0 +1,6 @@
+Graphics: Twemoji 14.0.2 — https://github.com/twitter/twemoji
+Copyright 2019 Twitter, Inc and other contributors.
+Licensed under CC-BY 4.0 — https://creativecommons.org/licenses/by/4.0/
+
+Changes: rasterized from the original SVGs to PNG and renamed by concept
+(scripts/logos/build.mjs). No other modifications.

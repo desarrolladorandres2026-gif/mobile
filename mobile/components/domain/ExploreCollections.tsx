@@ -1,9 +1,10 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { ProductCollectionRow } from './ProductCollectionRow';
 import { PromoCarousel } from './PromoCarousel';
 import { useExplore } from '../../hooks/useApi';
 import { useProgressiveLimit } from '../../hooks/useProgressiveLimit';
+import { alternateWeights } from '../../lib/exploreWeights';
 
 /**
  * Las colecciones de descubrimiento de Explorar.
@@ -36,7 +37,12 @@ export const ExploreCollections = memo(function ExploreCollections({
   const { data: feed } = useExplore(coords, ready);
   const sectionLimit = useProgressiveLimit(INITIAL_SECTIONS);
 
-  const entries = feed?.entries ?? [];
+  // El servidor ordena por franja, rotación y presupuesto de exposición —
+  // no por peso visual de tarjeta. `alternateWeights` es lo que hace
+  // cumplir la regla dura de docs/EXPLORAR.md §5: nunca dos carruseles del
+  // mismo peso ("protagonista" / "secundario") seguidos.
+  const rawEntries = feed?.entries ?? [];
+  const entries = useMemo(() => alternateWeights(rawEntries), [rawEntries]);
   if (entries.length === 0) return null;
 
   return (
@@ -45,7 +51,7 @@ export const ExploreCollections = memo(function ExploreCollections({
         entry.kind === 'promo' ? (
           <PromoCarousel key={`promo-${entry.order}`} banners={entry.banners} />
         ) : (
-          <ProductCollectionRow key={entry.key} section={entry} />
+          <ProductCollectionRow key={entry.key} section={entry} allowGrid />
         )
       )}
     </View>

@@ -8,6 +8,7 @@ import {
   GARZON, makeUser, makeBusiness, makeProduct, makePricingConfig,
   makeDiscoveryCollections,
 } from './factories';
+import { NEW_SEEDS } from '../constants/discoverySeeds';
 import {
   compileRule, compileDSL, isEligibleNow, dailySeed, hash32,
   type CompileContext,
@@ -158,10 +159,13 @@ describe('daypartAt', () => {
 /**
  * El reparto entre las dos pantallas.
  *
- * Es la garantía que sostiene el rediseño: Inicio se queda con lo justo para
- * quien ya sabe qué quiere, y el grueso del descubrimiento se muda a
- * Explorar. Si una colección apareciera en los dos, el usuario vería lo
- * mismo dos veces y Explorar se sentiría redundante.
+ * Se intentó que Inicio se quedara con lo justo —tres colecciones— y el
+ * resto se mudara entero a Explorar: Inicio se quedó sin un solo producto,
+ * porque esas tres dependían de ventas o de un descuento que el catálogo no
+ * siempre junta (ver el comentario en `constants/discoverySeeds.ts`). Por
+ * eso las veinte colecciones heredadas viven **a propósito** en los dos
+ * feeds (`feed: 'both'`); lo que de verdad separa las pantallas son las seis
+ * colecciones nuevas, exclusivas de Explorar.
  */
 describe('Reparto entre Inicio y Explorar', () => {
   let owner: any;
@@ -185,7 +189,7 @@ describe('Reparto entre Inicio y Explorar', () => {
     return business;
   }
 
-  it('ninguna colección aparece en los dos feeds', async () => {
+  it('las colecciones nuevas son exclusivas de Explorar; nunca aparecen en Inicio', async () => {
     await seedCatalog();
 
     const [home, explore] = await Promise.all([
@@ -196,26 +200,31 @@ describe('Reparto entre Inicio y Explorar', () => {
     const homeKeys = home.body.data
       .filter((e: any) => e.kind === 'collection')
       .map((e: any) => e.key);
+    const exploreOnlyKeys = new Set(NEW_SEEDS.map((s) => s.key));
+
+    expect(homeKeys.length).toBeGreaterThan(0);
+    expect(homeKeys.some((k: string) => exploreOnlyKeys.has(k))).toBe(false);
+    // Y sí puede coincidir con Explorar: las heredadas son compartidas.
     const exploreKeys = explore.body.data.entries
       .filter((e: any) => e.kind === 'collection')
       .map((e: any) => e.key);
-
-    expect(homeKeys.length).toBeGreaterThan(0);
-    expect(homeKeys.filter((k: string) => exploreKeys.includes(k))).toEqual([]);
+    expect(homeKeys.every((k: string) => exploreKeys.includes(k) || !exploreOnlyKeys.has(k))).toBe(true);
   });
 
-  it('Inicio se queda corto a propósito: menos colecciones que Explorar', async () => {
-    await seedCatalog();
+  it('Explorar tiene más colecciones definidas que Inicio: las seis nuevas son solo suyas', async () => {
+    // A nivel de definición, no de catálogo: cuántas colecciones activas
+    // puede llegar a mostrar cada pantalla, sin depender de si el negocio de
+    // prueba junta suficientes productos para cada una — eso ya lo cubren
+    // "Presupuesto de exposición" y las pruebas de arriba.
+    const homeDefined = await DiscoveryCollection.countDocuments({
+      isActive: true, feed: { $in: ['home', 'both'] },
+    });
+    const exploreDefined = await DiscoveryCollection.countDocuments({
+      isActive: true, feed: { $in: ['explore', 'both'] },
+    });
 
-    const [home, explore] = await Promise.all([
-      request(app).get(HOME_API).expect(200),
-      request(app).get(EXPLORE_API).expect(200),
-    ]);
-
-    const homeCount = home.body.data.filter((e: any) => e.kind === 'collection').length;
-    const exploreCount = explore.body.data.entries.filter((e: any) => e.kind === 'collection').length;
-
-    expect(exploreCount).toBeGreaterThan(homeCount);
+    expect(exploreDefined).toBeGreaterThan(homeDefined);
+    expect(exploreDefined - homeDefined).toBe(NEW_SEEDS.length);
   });
 
   it('Explorar dice en qué franja se armó el feed', async () => {

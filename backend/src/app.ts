@@ -20,6 +20,7 @@ import { setIO } from './sockets/emitter';
 import { startDispatchSweeper, stopDispatchSweeper } from './services/dispatch.service';
 import { startCartAbandonmentSweeper, stopCartAbandonmentSweeper } from './services/cartActivity.service';
 import { startProRenewalSweeper, stopProRenewalSweeper } from './services/pro.service';
+import { startPendingPaymentSweeper, stopPendingPaymentSweeper } from './services/payments';
 import { initCache, closeCache } from './cache';
 
 const app = express();
@@ -236,6 +237,7 @@ const start = async () => {
   startDispatchSweeper();
   startCartAbandonmentSweeper();
   startProRenewalSweeper();
+  startPendingPaymentSweeper();
 
   httpServer.listen(config.port, '0.0.0.0', () => {
     console.log(`\n🚀 ZIPP API en puerto ${config.port}`);
@@ -255,6 +257,7 @@ const shutdown = async (signal: string) => {
   stopDispatchSweeper();
   stopCartAbandonmentSweeper();
   stopProRenewalSweeper();
+  stopPendingPaymentSweeper();
   httpServer.close(async () => {
     await closeCache();
     try {

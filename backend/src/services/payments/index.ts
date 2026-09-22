@@ -20,6 +20,8 @@ import {
   PaymentInstrument,
   PseFinancialInstitution,
   OtpAttempts,
+  OtpRejectedError,
+  GatewayRejectedError,
 } from './provider';
 import { SandboxPaymentProvider } from './sandbox.provider';
 import {
@@ -597,11 +599,9 @@ export class PaymentService {
         browserInfo: input.browserInfo,
       });
     } catch (error) {
-      const reason = ((error as Error).message || 'La pasarela rechazó el cobro').slice(0, 300);
       // Se cierra la fila para liberar el hueco del índice; si no, el cliente
       // quedaría bloqueado sin poder reintentar nunca.
-      await this.retireAttempt(payment, reason);
-      throw new AppError(reason, 502, 'GATEWAY_REJECTED');
+      return this.failCreation(payment, error);
     }
 
     await Payment.updateOne(
@@ -707,9 +707,7 @@ export class PaymentService {
         browserInfo: input.browserInfo,
       });
     } catch (error) {
-      const reason = ((error as Error).message || 'La pasarela rechazó el cobro').slice(0, 300);
-      await this.retireAttempt(payment, reason);
-      throw new AppError(reason, 502, 'GATEWAY_REJECTED');
+      return this.failCreation(payment, error);
     }
 
     await Payment.updateOne(
@@ -995,17 +993,49 @@ export class PaymentService {
   }
 
   /**
+   * Cierra un intento que la pasarela no llegó a crear y responde al cliente.
+   *
+   * Antes el texto de la excepción salía tal cual hacia la app: "Wompi
+   * rechazó la creación de la transacción (HTTP 422). {…json…}". Eso es un
+   * nombre que mucha gente no reconoce, un código HTTP y un volcado de
+   * validación, justo en el momento en que alguien está decidiendo si
+   * confiar su tarjeta. Ahora el cliente ve `customerMessage` cuando la
+   * pasarela sabe explicarse (`GatewayRejectedError`) y un genérico si no;
+   * el detalle crudo queda en el registro y en `metadata.gatewayDetail` de
+   * la fila, que es donde lo busca soporte.
+   */
+  private async failCreation(payment: IPayment, error: unknown): Promise<never> {
+    const detail = ((error as Error)?.message || 'sin detalle').slice(0, 400);
+    const customerMessage =
+      error instanceof GatewayRejectedError
+        ? error.customerMessage
+        : 'No pudimos iniciar el pago. Intenta de nuevo o usa otro medio de pago.';
+
+    console.error('[PAYMENTS] La pasarela no creó el cobro', {
+      paymentId: payment._id.toString(),
+      detail,
+    });
+    await this.retireAttempt(payment, customerMessage, { gatewayDetail: detail });
+    throw new AppError(customerMessage, 502, 'GATEWAY_REJECTED');
+  }
+
+  /**
    * Closes a pending attempt without deleting it. The row stays resolvable
    * by reference, which is what lets a late gateway event about it be
    * recognised — and judged — instead of vanishing.
    */
+  /**
+   * Devuelve si de verdad lo retiró. El filtro exige `PENDING`, así que si
+   * un webhook lo resolvió un instante antes, esto no pisa nada y dice que no.
+   */
   private async retireAttempt(
     payment: IPayment,
     reason: string,
-    metadata: Record<string, unknown> = {}
-  ): Promise<void> {
+    metadata: Record<string, unknown> = {},
+    source: 'admin' | 'client' = 'admin'
+  ): Promise<boolean> {
     const now = new Date();
-    await Payment.updateOne(
+    const result = await Payment.updateOne(
       { _id: payment._id, status: PaymentStatus.PENDING },
       {
         $set: {
@@ -1014,10 +1044,83 @@ export class PaymentService {
           metadata: { ...(payment.metadata ?? {}), voidedReason: reason, voidedAt: now.toISOString(), ...metadata },
         },
         $push: {
-          statusHistory: { status: PaymentStatus.FAILED, source: 'admin', message: reason, at: now },
+          statusHistory: { status: PaymentStatus.FAILED, source, message: reason, at: now },
         },
       }
     );
+    return result.modifiedCount > 0;
+  }
+
+  /**
+   * La persona dejó a medias la verificación del banco y quiere pagar de
+   * otra forma.
+   *
+   * Wompi no deja anular un cobro pendiente (PSE, Bancolombia, 3D Secure):
+   * su `void` es solo para tarjetas ya aprobadas. Así que esto no cancela
+   * nada en la pasarela — suelta el intento en Zipp para que se pueda abrir
+   * otro. Es la única excepción a "nunca un segundo cobro con uno vivo", y
+   * por eso tiene tres condiciones:
+   *
+   *  1. Se le pregunta a Wompi primero. Si el pago ya entró, se dice eso y
+   *     no se suelta nada. Si no se le puede preguntar, tampoco: "no sé" no
+   *     es "no pagó".
+   *  2. El retiro es condicional a `PENDING`: si el webhook gana la carrera,
+   *     manda el webhook.
+   *  3. Si el banco aprueba después de todas formas, `FAILED → PAID` sigue
+   *     siendo legal y `onCaptured` lo retiene para revisión cuando el pedido
+   *     ya estaba pagado con otro intento. El dinero nunca se pierde de vista.
+   */
+  async abandonAttempt(input: { userId: string; transactionId: string }): Promise<{
+    status: 'approved' | 'declined' | 'abandoned';
+  }> {
+    const notFound = new AppError('Pago no encontrado', 404);
+    const key = input.transactionId;
+
+    const payment = await Payment.findOne({ $or: [{ transactionId: key }, { reference: key }] });
+    if (!payment) throw notFound;
+    if (payment.userId.toString() !== input.userId) throw notFound;
+    if (payment.method === PaymentMethod.CASH_ON_DELIVERY) throw notFound;
+
+    const outcome = (status: PaymentStatus) =>
+      status === PaymentStatus.PAID ? 'approved' as const : 'declined' as const;
+
+    // Ya resuelto: se dice cómo terminó, sin tocar nada.
+    if (payment.status !== PaymentStatus.PENDING) return { status: outcome(payment.status) };
+
+    const hasGatewayRecord = Boolean(
+      payment.transactionId && payment.transactionId !== payment.reference
+    );
+
+    if (hasGatewayRecord) {
+      try {
+        await this.sync(payment.transactionId!);
+      } catch {
+        throw new AppError(
+          'No pudimos confirmar con el banco si el pago entró. Espera un momento e inténtalo de nuevo.',
+          502,
+          'GATEWAY_ERROR'
+        );
+      }
+      const refreshed = await Payment.findById(payment._id);
+      if (refreshed && refreshed.status !== PaymentStatus.PENDING) {
+        return { status: outcome(refreshed.status) };
+      }
+    }
+
+    const retired = await this.retireAttempt(
+      payment,
+      'La persona abandonó el pago antes de terminarlo',
+      { abandonedByClient: true, abandonedAt: new Date().toISOString() },
+      'client'
+    );
+
+    if (!retired) {
+      // Otro camino lo resolvió entre la consulta y el retiro.
+      const latest = await Payment.findById(payment._id);
+      return { status: outcome(latest?.status ?? PaymentStatus.FAILED) };
+    }
+
+    return { status: 'abandoned' };
   }
 
   /**
@@ -1253,10 +1356,27 @@ export class PaymentService {
     const orderClosed =
       order.status === OrderStatus.CANCELLED || order.paymentStatus === PaymentStatus.REFUNDED;
 
-    if (shortPaid || orderClosed) {
+    // Otro intento del mismo pedido ya entró. Pasa cuando alguien abandona
+    // la verificación del banco, paga con otro método y el banco aprueba el
+    // primero de todas formas. Sin esto, el segundo cobro se asentaba en el
+    // libro como un ingreso más —mismo importe, otra referencia— y nadie lo
+    // habría visto: dinero cobrado dos veces por un solo pedido.
+    const alreadyPaid = Boolean(
+      await Payment.exists({
+        orderId: order._id,
+        _id: { $ne: payment._id },
+        type: PaymentType.ORDER_PAYMENT,
+        status: PaymentStatus.PAID,
+        'metadata.requiresReview': { $ne: true },
+      })
+    );
+
+    if (shortPaid || orderClosed || alreadyPaid) {
       const reason = orderClosed
         ? 'Se cobró un pedido que ya estaba cancelado o reembolsado'
-        : `Se cobró ${payment.amount} por un pedido que cuesta ${orderTotal}`;
+        : alreadyPaid
+          ? 'Se cobró dos veces el mismo pedido: ya estaba pagado con otro intento'
+          : `Se cobró ${payment.amount} por un pedido que cuesta ${orderTotal}`;
 
       console.error('[PAYMENTS] Cobro que no puede darse por bueno', {
         key,
@@ -1549,9 +1669,40 @@ export class PaymentService {
     }
 
     const payment = await this.otpPayment(input.userId, input.transactionId);
-    const attempts = await provider.resendOtp(payment.transactionId!);
+    const attempts = await this.callOtp(payment, () => provider.resendOtp!(payment.transactionId!));
 
     return { attempts };
+  }
+
+  /**
+   * Llama a un servicio de código y traduce lo que salga mal.
+   *
+   * Un "no" de la pasarela (`OtpRejectedError`) es un 422 con un mensaje que
+   * la persona pueda entender, y antes se resincroniza el cobro: si Wompi lo
+   * dio por terminado, el pedido tiene que enterarse ahora y no en el
+   * próximo barrido. Un fallo de red es un 502: la pasarela no contestó, y
+   * eso no es lo mismo que decir que no.
+   */
+  private async callOtp<T>(payment: IPayment, call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof OtpRejectedError) {
+        await this.sync(payment.transactionId!).catch(() => undefined);
+        const message =
+          error.reason === 'exhausted'
+            ? 'Se agotaron los intentos con el código de DaviPlata. Este cobro se cancela solo en unos minutos; después puedes pagar con otro método.'
+            : error.reason === 'expired'
+              ? 'El código de DaviPlata venció. Este cobro se cancela solo en unos minutos; después puedes volver a intentarlo.'
+              : 'DaviPlata ya cerró este cobro. Revisa el resultado en tu pedido.';
+        throw new AppError(message, 422, 'OTP_REJECTED');
+      }
+      console.error('[PAYMENTS] Falló el servicio de código de la pasarela', {
+        paymentId: payment._id.toString(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw new AppError('No pudimos comunicarnos con DaviPlata. Intenta de nuevo.', 502, 'GATEWAY_ERROR');
+    }
   }
 
   /**
@@ -1574,7 +1725,9 @@ export class PaymentService {
     }
 
     const payment = await this.otpPayment(input.userId, input.transactionId);
-    const outcome = await provider.validateOtp(payment.transactionId!, input.code);
+    const outcome = await this.callOtp(payment, () =>
+      provider.validateOtp!(payment.transactionId!, input.code)
+    );
 
     await this.applyGatewayStatus(
       payment.transactionId!,

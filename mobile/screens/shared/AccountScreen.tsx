@@ -24,7 +24,7 @@ import {
 } from '../../lib/identityDocument';
 import { SUPPORT_PHONE, supportWhatsAppUrl } from '../../constants/config';
 
-type SheetKind = 'name' | 'email' | 'phone' | 'document' | 'birthDate' | 'marketing';
+type SheetKind = 'name' | 'email' | 'receiptEmail' | 'phone' | 'document' | 'birthDate' | 'marketing';
 
 const CHANNELS: { value: MarketingChannel; label: string }[] = [
   { value: 'whatsapp', label: 'WhatsApp' },
@@ -167,6 +167,23 @@ export default function AccountScreen() {
           onPress: () => open('email'),
         };
 
+  // ── Correo para comprobantes: solo sin correo de cuenta ──
+  const receiptEmailRow: RowProps = user?.receiptEmail
+    ? {
+        icon: 'correo',
+        label: 'Correo para comprobantes',
+        value: user.receiptEmail,
+        detail: 'A dónde llegan tus comprobantes de pago',
+        onPress: () => open('receiptEmail'),
+      }
+    : {
+        icon: 'correo',
+        label: 'Correo para comprobantes',
+        value: 'Agregar',
+        detail: 'A dónde llegan tus comprobantes de pago',
+        onPress: () => open('receiptEmail'),
+      };
+
   // ── Fecha de nacimiento: una sola vez ──
   const birthRow: RowProps = user?.birthDate
     ? {
@@ -232,6 +249,7 @@ export default function AccountScreen() {
           />
           <Row {...phoneRow} />
           <Row {...emailRow} />
+          {!user?.email ? <Row {...receiptEmailRow} /> : null}
           <Row
             icon="documento"
             label="Documento de identidad"
@@ -312,6 +330,7 @@ export default function AccountScreen() {
       <NameSheet visible={sheet === 'name'} onClose={() => setSheet(null)} />
       <PhoneSheet visible={sheet === 'phone'} onClose={() => setSheet(null)} />
       <EmailSheet visible={sheet === 'email'} onClose={() => setSheet(null)} />
+      <ReceiptEmailSheet visible={sheet === 'receiptEmail'} onClose={() => setSheet(null)} />
       <DocumentSheet visible={sheet === 'document'} onClose={() => setSheet(null)} />
       <BirthDateSheet visible={sheet === 'birthDate'} onClose={() => setSheet(null)} />
       <MarketingSheet visible={sheet === 'marketing'} onClose={() => setSheet(null)} />
@@ -680,6 +699,90 @@ function EmailSheet({ visible, onClose }: SheetProps) {
         </Notice>
       ) : null}
       {formError ? <Notice tone="error">{formError}</Notice> : null}
+    </Sheet>
+  );
+}
+
+/**
+ * Correo para el comprobante de pago: solo aplica sin correo de cuenta.
+ *
+ * A diferencia de `EmailSheet`, sin OTP — no es la identidad de la cuenta,
+ * es solo a dónde Wompi manda el recibo. Se pide una vez en el primer pago
+ * (`PaymentMethodSheet`) y desde ahí solo se cambia aquí, en Mi cuenta.
+ */
+function ReceiptEmailSheet({ visible, onClose }: SheetProps) {
+  const user = useAuthStore((s) => s.user);
+  const save = useSaveProfile();
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState<string | undefined>();
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    setEmail(user?.receiptEmail ?? '');
+    setError(undefined);
+    setFormError('');
+  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const persist = async (receiptEmail: string) => {
+    setSaving(true);
+    setFormError('');
+    try {
+      await save({ receiptEmail });
+      tap('success');
+      onClose();
+    } catch (err) {
+      setFormError(fieldMessage(err, 'No pudimos guardar tu correo.'));
+      tap('error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submit = () => {
+    const problem = validateEmail(email);
+    if (problem) { setError(problem); tap('error'); return; }
+    void persist(email.trim().toLowerCase());
+  };
+
+  return (
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      title="Correo para comprobantes"
+      height={0.6}
+      footer={<Button title="Guardar" size="lg" full loading={saving} onPress={submit} haptic="medium" />}
+    >
+      <Text v="bodyM" tone="textSecondary">
+        Ahí te llegan tus comprobantes de pago. Tu cuenta no tiene correo propio, así que lo pedimos aquí
+        una sola vez y lo usamos en todos tus pagos.
+      </Text>
+
+      <PlainField
+        label="Correo electrónico"
+        icon="correo"
+        placeholder="tucorreo@ejemplo.com"
+        value={email}
+        onChangeText={(t) => { setEmail(t); setError(undefined); }}
+        error={error}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoComplete="email"
+      />
+
+      {formError ? <Notice tone="error">{formError}</Notice> : null}
+
+      {user?.receiptEmail ? (
+        <Pressable
+          onPress={() => persist('')}
+          accessibilityRole="button"
+          hitSlop={8}
+          style={styles.centered}
+        >
+          <Text v="strongS" tone="textMuted">Quitar correo</Text>
+        </Pressable>
+      ) : null}
     </Sheet>
   );
 }

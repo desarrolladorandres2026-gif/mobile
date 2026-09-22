@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Input } from '../ui';
+import { PlainField } from '../ui';
 import { CardPreview, type CardField } from './CardPreview';
 import {
   BRAND_LABEL,
@@ -52,7 +52,7 @@ export function PaymentCardFields({ values, errors, onChange }: Props) {
     <View style={styles.wrap}>
       <CardPreview values={values} focused={focused} />
 
-      <Input
+      <PlainField
         label="Número de la tarjeta"
         icon="tarjeta"
         numeric
@@ -69,7 +69,7 @@ export function PaymentCardFields({ values, errors, onChange }: Props) {
       />
 
       <View style={styles.row}>
-        <Input
+        <PlainField
           label="Vence"
           numeric
           value={values.expiry}
@@ -82,7 +82,7 @@ export function PaymentCardFields({ values, errors, onChange }: Props) {
         {...focusProps('expiry')}
           containerStyle={styles.half}
         />
-        <Input
+        <PlainField
           label="Código"
           numeric
           value={values.cvc}
@@ -99,7 +99,7 @@ export function PaymentCardFields({ values, errors, onChange }: Props) {
         />
       </View>
 
-      <Input
+      <PlainField
         label="Nombre en la tarjeta"
         value={values.holder}
         onChangeText={(text) => set({ holder: text })}
@@ -116,7 +116,7 @@ export function PaymentCardFields({ values, errors, onChange }: Props) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: Spacing.md },
-  row: { flexDirection: 'row', gap: Spacing.md },
+  wrap: { gap: Spacing.sm },
+  row: { flexDirection: 'row', gap: Spacing.lg },
   half: { flex: 1 },
 });

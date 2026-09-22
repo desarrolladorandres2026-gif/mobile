@@ -304,6 +304,17 @@ La 006 solo añade índices (`createIndexes`, no borra nada) y se puede
 repetir sin riesgo. Conviene correrla **antes** de desplegar el backend que
 los usa: así no se construyen al arrancar con tráfico entrando.
 
+Las miniaturas borrosas incrustadas (2026-09-21) se rellenan **después** de
+desplegar, con el mismo cuidado:
+
+```bash
+sudo -u zipp -E npm run backfill:image-placeholders -- --dry-run   # cuántas faltan
+sudo -u zipp -E npm run backfill:image-placeholders
+```
+
+Sin correrlo no se rompe nada: esas fotos siguen sirviendo la miniatura
+como URL, como antes. Se puede repetir; solo toca lo que falta.
+
 > **Nunca** ejecutes `npm run seed` en producción: reinicializa datos.
 
 ---

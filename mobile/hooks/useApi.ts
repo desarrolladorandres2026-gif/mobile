@@ -767,7 +767,14 @@ export interface PaymentMethods {
    * a esta función; en ese caso, o con `native` en falso, se usa el Web
    * Checkout de siempre.
    */
-  inApp?: { native: boolean; pse: boolean; savedCards: boolean };
+  inApp?: {
+    native: boolean;
+    pse: boolean;
+    savedCards: boolean;
+    /** Ausentes en un backend anterior a los carriles propios: se tratan como falso. */
+    bancolombiaTransfer?: boolean;
+    daviplata?: boolean;
+  };
 }
 
 /**
@@ -816,6 +823,10 @@ export type PaymentInstrument =
   | { kind: 'card_token'; token: string; installments: number; save?: boolean; card?: CardDisplay }
   | { kind: 'saved_card'; savedCardId: string; installments?: number }
   | { kind: 'nequi'; phone: string }
+  /** Botón Bancolombia. Sin campos: el servidor fija que quien paga es una persona. */
+  | { kind: 'bancolombia_transfer' }
+  /** DaviPlata. Wompi encuentra la billetera por el documento y manda un código. */
+  | { kind: 'daviplata'; userLegalIdType: string; userLegalId: string }
   | {
       kind: 'pse';
       financialInstitutionCode: string;
@@ -836,6 +847,24 @@ export interface NativePaymentResult {
   asyncPaymentUrl?: string;
   /** Reto 3D Secure, ya listo para pintarse. */
   threeDsChallengeHtml?: string;
+  /** DaviPlata: la pasarela le mandó un código por SMS y espera que se escriba. */
+  otpRequired?: boolean;
+}
+
+/** Cuántas veces se pidió y se probó el código, y cuántas da la pasarela. */
+export interface OtpAttempts {
+  sent: number;
+  maxSends: number;
+  validated: number;
+  maxValidations: number;
+}
+
+export interface OtpValidation {
+  /** La pasarela aceptó el código. El cobro puede seguir pendiente un rato. */
+  accepted: boolean;
+  attempts?: OtpAttempts;
+  status: NativePaymentResult['status'];
+  declineReason?: string;
 }
 
 export interface SavedCardSummary extends CardDisplay {
@@ -868,6 +897,42 @@ export const usePayNative = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       queryClient.invalidateQueries({ queryKey: ['payments', 'cards'] });
+    },
+  });
+};
+
+/**
+ * Cancelar la transacción desde la espera del banco.
+ *
+ * `approved`: el banco ya lo aprobó y no se soltó nada. `declined`: ya había
+ * terminado sin aprobarse. `abandoned`: se soltó y se puede pagar con otro
+ * método.
+ */
+export const useAbandonPayment = () => {
+  const queryClient = useQueryClient();
+  return useMutation<{ status: 'approved' | 'declined' | 'abandoned' }, unknown, string>({
+    mutationFn: (transactionId) => paymentsApi.abandon(transactionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payments', 'status'] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
+    },
+  });
+};
+
+export const useResendOtp = () =>
+  useMutation<{ attempts?: OtpAttempts }, unknown, string>({
+    mutationFn: (transactionId) => paymentsApi.resendOtp(transactionId),
+  });
+
+export const useValidateOtp = () => {
+  const queryClient = useQueryClient();
+  return useMutation<OtpValidation, unknown, { transactionId: string; code: string }>({
+    mutationFn: ({ transactionId, code }) => paymentsApi.validateOtp(transactionId, code),
+    onSuccess: (_data, { transactionId }) => {
+      // El estado del pago acaba de cambiar (o está por hacerlo): que la
+      // consulta de respaldo no siga mostrando lo de antes.
+      queryClient.invalidateQueries({ queryKey: ['payments', 'status', transactionId] });
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
     },
   });
 };

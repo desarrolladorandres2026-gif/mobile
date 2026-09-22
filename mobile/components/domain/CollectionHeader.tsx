@@ -164,9 +164,7 @@ export const CollectionHeader = memo(function CollectionHeader({
       return (
         <View style={styles.section}>
           <Animated.View style={[styles.row, iconStyle]}>
-            <View style={[styles.featuredMark, { backgroundColor: c.primarySoft, borderColor: c.primarySoftBorder }]}>
-              <Icon name="calificacion" size={14} color={c.gold} />
-            </View>
+            <AnimatedIcon Illustration={Illustration} size={ICON_SIZE_LARGE} />
             <Animated.View style={[styles.headerTitles, textStyle]}>
               <Text v="displayS">{title}</Text>
               {subtitle ? <Text v="bodyS" tone="textMuted">{subtitle}</Text> : null}
@@ -195,9 +193,7 @@ export const CollectionHeader = memo(function CollectionHeader({
       return (
         <View style={styles.section}>
           <Animated.View style={[styles.row, iconStyle]}>
-            <View style={[styles.commercialMark, { backgroundColor: c.gold }]}>
-              <Icon name="descuento" size={13} color={c.black} />
-            </View>
+            <AnimatedIcon Illustration={Illustration} size={ICON_SIZE_DEFAULT} />
             <Animated.View style={[styles.headerTitles, textStyle]}>
               <Text v="displayS">{title}</Text>
               {subtitle ? <Text v="bodyS" tone="textMuted">{subtitle}</Text> : null}
@@ -239,19 +235,6 @@ const styles = StyleSheet.create({
   numberLabel: { fontWeight: '700' },
   numberDash: { width: 14, height: 2, borderRadius: 1 },
 
-  // featured
-  featuredMark: {
-    width: 28, height: 28, borderRadius: 14,
-    borderWidth: 1,
-    alignItems: 'center', justifyContent: 'center',
-  },
-
   // trend
   trendTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-
-  // commercial
-  commercialMark: {
-    width: 26, height: 26, borderRadius: 8,
-    alignItems: 'center', justifyContent: 'center',
-  },
 });

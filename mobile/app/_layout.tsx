@@ -105,7 +105,7 @@ const queryClient = new QueryClient({
 });
 
 /** Rutas que pintan su propia cabecera oscura bajo la barra de estado. */
-const DARK_HEADER_ROUTES = ['/offers', '/search'];
+const DARK_HEADER_ROUTES = ['/offers'];
 
 function RootLayoutContent() {
   const isLoading = useAuthStore((s) => s.isLoading);

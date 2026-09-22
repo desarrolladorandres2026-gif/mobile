@@ -282,7 +282,7 @@ const SpotlightSlot = memo(function SpotlightSlot({
           // siempre debe montarse encima de las demás.
           zIndex: 10 - Math.abs(rel),
         },
-        front ? Shadow.goldGlow : Shadow.sm,
+        front ? Shadow.md : Shadow.sm,
         animated,
       ]}
       // La de atrás nunca debe robarle el toque a la de adelante.

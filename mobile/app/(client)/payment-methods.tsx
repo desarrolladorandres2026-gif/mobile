@@ -99,7 +99,7 @@ export default function PaymentMethodsScreen() {
               </View>
             ))}
             <Text v="caption" tone="textMuted" style={styles.note}>
-              Guardamos solo un token de Wompi, nunca el número completo ni el código de seguridad.
+              Guardamos solo una referencia segura de tu tarjeta, nunca el número completo ni el código de seguridad.
             </Text>
           </View>
         )}

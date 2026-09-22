@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
+import { sizedImageUri } from '../../lib/cloudinaryImage';
 import * as Linking from 'expo-linking';
 import Animated, { FadeIn, FadeOut, Layout } from 'react-native-reanimated';
 import {
@@ -36,7 +37,7 @@ import { scheduleDays, slotLabel, type ScheduleDay } from '../../lib/schedule';
 import type { DaySchedule } from '../../lib/business';
 import { useTheme } from '../../hooks/useTheme';
 import { ContentIcon } from '../../components/illustrations';
-import { WompiLogo } from '../../components/brand/WompiLogo';
+import { SecurePaymentMark } from '../../components/domain/SecurePaymentMark';
 import { CashLogo, DigitalPaymentLogos, MapboxLogo } from '../../components/brand/PaymentMethodLogos';
 import type { IconName } from '../../theme/icons';
 import { Type } from '../../theme/typography';
@@ -381,6 +382,8 @@ export default function CheckoutScreen() {
   const inAppCapabilities = {
     pse: !!methods?.inApp?.pse,
     savedCards: !!methods?.inApp?.savedCards,
+    bancolombiaTransfer: !!methods?.inApp?.bancolombiaTransfer,
+    daviplata: !!methods?.inApp?.daviplata,
   };
   const instrumentExpired = !!instrument && isExpiredSelection(instrument);
   const needsInstrument =
@@ -776,7 +779,7 @@ export default function CheckoutScreen() {
             >
               {businessLogo ? (
                 <Image
-                  source={{ uri: businessLogo }}
+                  source={{ uri: sizedImageUri(businessLogo, 40) }}
                   style={styles.summaryIcon}
                   contentFit="cover"
                   transition={150}
@@ -872,7 +875,11 @@ export default function CheckoutScreen() {
                   active={payment === 'online'}
                   logo={<DigitalPaymentLogos ink="#1A1F71" />}
                   title="Pago digital"
-                  subtitle={nativeCheckout ? 'Tarjeta, Nequi o PSE' : 'Se cobra desde la app'}
+                  subtitle={
+                    !nativeCheckout ? 'Se cobra desde la app'
+                    : inAppCapabilities.bancolombiaTransfer ? 'Tarjeta, Nequi, Bancolombia, DaviPlata o PSE'
+                    : 'Tarjeta, Nequi o PSE'
+                  }
                   onPress={() => {
                     tap('select');
                     setPayment('online');
@@ -887,17 +894,7 @@ export default function CheckoutScreen() {
             {/* Pago seguro: siempre a la vista bajo las opciones, aunque el
                 cliente esté en efectivo. Quien duda de pagar en línea lo hace
                 antes de elegir, no después. Solo aparece si hay pago digital. */}
-            {methods?.online ? (
-              <View
-                style={styles.secureRow}
-                accessible
-                accessibilityLabel="Pago seguro con Wompi"
-              >
-                <Icon name="candado" size="sm" color={c.textMuted} />
-                <Text v="caption" tone="textMuted">Pago seguro con</Text>
-                <WompiLogo height={14} color={c.text} />
-              </View>
-            ) : null}
+            {methods?.online ? <SecurePaymentMark align="start" /> : null}
 
             {/* ── Con qué se paga en línea ──
                 La tarjeta, el Nequi o el banco elegido, con un toque para
@@ -1606,7 +1603,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
     paddingVertical: Spacing.xs,
   },
-  secureRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
   sheetStack: { gap: Spacing.lg },
   optionsCard: { gap: Spacing.md },
   optionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },

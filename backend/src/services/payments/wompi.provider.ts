@@ -13,7 +13,10 @@ import {
   CreatePaymentSourceInput,
   OtpAttempts,
   OtpOutcome,
+  OtpRejectedError,
+  GatewayRejectedError,
 } from './provider';
+import { customerCreationMessage, customerDeclineReason } from './wompi.messages';
 
 /**
  * Wompi Colombia. Dos caminos de cobro, que conviven a propósito.
@@ -143,6 +146,8 @@ interface WompiOtpResponse {
   code?: string;
   message?: string;
   data?: {
+    /** Solo en los 422: el estado en que quedó la transacción. */
+    status?: string;
     transaction?: {
       status?: string;
       steps?: { ConfirmIntention?: unknown[] };
@@ -170,6 +175,21 @@ function isWompiUrl(value: unknown): value is string {
   } catch {
     return false;
   }
+}
+
+/**
+ * Traduce los "no" documentados de los servicios de código. 401 es el token
+ * de la transacción vencido; 422, intentos agotados o transacción ya
+ * terminada. Cualquier otra cosa no es una respuesta sino un fallo, y se
+ * deja como `Error` para que quien llama la trate como tal.
+ */
+function otpRejection(httpStatus: number, payload: WompiOtpResponse | null): OtpRejectedError | null {
+  const message = typeof payload?.message === 'string' ? payload.message.slice(0, 300) : '';
+  if (httpStatus === 401) return new OtpRejectedError(message || 'Sesión de código vencida', 'expired');
+  if (httpStatus !== 422) return null;
+  const finalStatus = payload?.data?.status ?? payload?.data?.transaction?.status;
+  const finalized = typeof finalStatus === 'string' && finalStatus !== 'PENDING';
+  return new OtpRejectedError(message || 'Código rechazado', finalized ? 'finalized' : 'exhausted');
 }
 
 function readAttempts(payload: WompiOtpResponse | null): OtpAttempts | undefined {
@@ -366,7 +386,9 @@ export class WompiPaymentProvider implements PaymentProvider {
       // getPayment()/refund() callers key off `payment.orderId` on the
       // local Payment row instead.
       orderId: '',
-      declineReason: typeof tx.status_message === 'string' ? tx.status_message.slice(0, 300) : undefined,
+      // Traducido: el texto de Wompi llega a la app del cliente. El original
+      // sigue en `raw` y en el dashboard de Wompi por su id.
+      declineReason: customerDeclineReason(tx.status, tx.status_message),
       paymentMethodType: sanitizePaymentMethodType(tx.payment_method_type),
       rawStatus: tx.status,
       raw: tx,
@@ -660,7 +682,7 @@ export class WompiPaymentProvider implements PaymentProvider {
       amount: Math.round(tx.amount_in_cents / 100),
       currency,
       gatewayTransactionId: tx.id,
-      message: typeof tx.status_message === 'string' ? tx.status_message.slice(0, 300) : undefined,
+      message: customerDeclineReason(tx.status, tx.status_message),
       paymentMethodType: sanitizePaymentMethodType(tx.payment_method_type),
       rawStatus: tx.status,
       raw: payload,
@@ -799,7 +821,10 @@ export class WompiPaymentProvider implements PaymentProvider {
     if (!input.customer.email) {
       // Wompi lo exige, y es a donde manda su comprobante. Fallar aquí da un
       // mensaje entendible; dejarlo pasar da un 422 de la pasarela.
-      throw new Error('Wompi requiere un correo del cliente para cobrar');
+      throw new GatewayRejectedError(
+        'Wompi requiere un correo del cliente para cobrar',
+        'Necesitamos tu correo para enviarte el comprobante del pago.'
+      );
     }
 
     const amountInCents = Math.round(input.amount * 100);
@@ -874,11 +899,13 @@ export class WompiPaymentProvider implements PaymentProvider {
       // entró (tarjeta vencida, banco caído, documento mal). Se conserva
       // acotado; tirar un "error de pasarela" a secas deja al soporte sin
       // nada que mirar.
+      // El detalle es para soporte; el cliente recibe su traducción.
       const detail =
         payload?.error?.reason ??
         (payload?.error?.messages ? JSON.stringify(payload.error.messages) : '');
-      throw new Error(
-        `Wompi rechazó la creación de la transacción (HTTP ${res.status}). ${detail}`.trim().slice(0, 400)
+      throw new GatewayRejectedError(
+        `Wompi rechazó la creación de la transacción (HTTP ${res.status}). ${detail}`.trim().slice(0, 400),
+        customerCreationMessage(res.status, payload?.error?.reason, payload?.error?.messages)
       );
     }
 
@@ -1033,6 +1060,9 @@ export class WompiPaymentProvider implements PaymentProvider {
 
     const { ok, httpStatus, payload } = await this.callOtpService(services.send, services.token);
 
+    const rejection = ok ? null : otpRejection(httpStatus, payload);
+    if (rejection) throw rejection;
+
     if (!ok) {
       // 422 es el "ya no quedan envíos" de Wompi, y es una respuesta, no un
       // fallo de red: se propaga con su mensaje para que el cliente lo lea.
@@ -1070,6 +1100,9 @@ export class WompiPaymentProvider implements PaymentProvider {
       services.token,
       { code: numeric }
     );
+
+    const rejection = ok ? null : otpRejection(httpStatus, payload);
+    if (rejection) throw rejection;
 
     if (!ok) {
       const detail = typeof payload?.message === 'string' ? payload.message : '';

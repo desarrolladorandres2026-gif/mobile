@@ -30,6 +30,71 @@ const DOC_TYPES: { code: string; label: string }[] = [
   { code: 'PP', label: 'Pasaporte' },
 ];
 
+// ── DaviPlata ──
+//
+// Wompi encuentra la billetera por el documento y le manda el código al
+// celular que DaviPlata tiene registrado. Por eso aquí no se pide número de
+// teléfono: el que vale es el de DaviPlata, no el que escriba quien paga.
+
+export interface DaviplataFormValues {
+  docType: string;
+  docNumber: string;
+}
+
+export type DaviplataFormErrors = Partial<Record<'docType' | 'docNumber', string>>;
+
+/**
+ * Los documentos de una persona. Sin NIT: una billetera DaviPlata es de una
+ * persona natural, y ofrecerlo solo produciría un rechazo de Wompi.
+ */
+const DAVIPLATA_DOC_TYPES = DOC_TYPES.filter((type) => type.code !== 'NIT');
+
+export function validateDaviplataForm(values: DaviplataFormValues): DaviplataFormErrors {
+  const errors: DaviplataFormErrors = {};
+  if (!values.docType) errors.docType = 'Elige el tipo de documento';
+  if (!/^[A-Za-z0-9]{4,20}$/.test(values.docNumber.trim())) {
+    errors.docNumber = 'Escribe el número del documento, sin puntos';
+  }
+  return errors;
+}
+
+export function DaviplataFields({
+  values,
+  errors,
+  onChange,
+}: {
+  values: DaviplataFormValues;
+  errors: DaviplataFormErrors;
+  onChange: (next: DaviplataFormValues) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const set = (patch: Partial<DaviplataFormValues>) => onChange({ ...values, ...patch });
+
+  return (
+    <View style={styles.wrap}>
+      <Dropdown
+        placeholder="Selecciona tipo de documento"
+        a11yName="Tipo de documento"
+        options={DAVIPLATA_DOC_TYPES}
+        value={values.docType || null}
+        open={open}
+        onToggle={() => setOpen((current) => !current)}
+        onSelect={(code) => { set({ docType: code }); setOpen(false); }}
+        error={errors.docType}
+      />
+      <Input
+        label="Número de documento"
+        numeric
+        value={values.docNumber}
+        onChangeText={(text) => set({ docNumber: text.replace(/[^A-Za-z0-9]/g, '') })}
+        keyboardType={values.docType === 'PP' ? 'default' : 'number-pad'}
+        maxLength={20}
+        error={errors.docNumber}
+      />
+    </View>
+  );
+}
+
 export function validatePseForm(values: PseFormValues): PseFormErrors {
   const errors: PseFormErrors = {};
   // Wompi pone en la lista una fila "A continuación seleccione su banco"

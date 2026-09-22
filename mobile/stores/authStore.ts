@@ -10,6 +10,8 @@ export interface User {
   name: string;
   phone?: string;
   email?: string;
+  /** Correo del comprobante de pago; solo aplica sin `email`. Se define una vez y se cambia en Mi cuenta. */
+  receiptEmail?: string;
   role: string;
   avatar?: string;
   isVerified: boolean;

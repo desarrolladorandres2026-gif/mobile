@@ -85,6 +85,16 @@ export default function LegalCenter() {
             onPress={() => Linking.openURL('https://www.sic.gov.co/')}
           />
         </View>
+
+        <Text
+          v="caption"
+          tone="textMuted"
+          center
+          accessibilityRole="link"
+          onPress={() => Linking.openURL('https://github.com/twitter/twemoji')}
+        >
+          Ilustraciones: Twemoji © Twitter, Inc. y colaboradores — CC-BY 4.0
+        </Text>
       </ScrollView>
     </Screen>
   );

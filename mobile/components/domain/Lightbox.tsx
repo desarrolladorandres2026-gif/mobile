@@ -69,11 +69,18 @@ export function Lightbox({
           onMomentumScrollEnd={(e) => {
             setIndex(Math.round(e.nativeEvent.contentOffset.x / width));
           }}
-          renderItem={({ item }) => (
+          renderItem={({ item, index: page }) => (
             <View style={{ width, height }}>
               <Image
                 source={{ uri: item.large }}
-                placeholder={item.placeholder ? { uri: item.placeholder } : undefined}
+                // La principal abre con la de la ficha, que ya está en el
+                // teléfono: nítida al instante y afina al llegar la grande.
+                // Las demás nunca se vieron en ese tamaño —pedirlo sería
+                // otra descarga por foto—, así que abren con la borrosa.
+                placeholder={
+                  page === 0 ? { uri: item.detail } : item.placeholder ? { uri: item.placeholder } : undefined
+                }
+                placeholderContentFit={page === 0 ? 'contain' : undefined}
                 style={StyleSheet.absoluteFill}
                 // `contain` y no `cover`: recortar la foto en el visor es
                 // exactamente lo que el cliente vino a evitar.

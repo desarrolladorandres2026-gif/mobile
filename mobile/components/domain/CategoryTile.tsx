@@ -3,7 +3,7 @@ import { View, Pressable, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { Text } from '../ui';
 import { categoryIllustration } from '../illustrations';
-import { categoryLogo } from '../../lib/categoryLogos';
+import { categoryLogo } from '../../lib/logos';
 import { BorderRadius, Spacing } from '../../theme/tokens';
 import { tap } from '../../lib/haptics';
 
@@ -31,7 +31,7 @@ export interface CategoryTileProps {
  * Reemplaza el icono genérico de lucide en el grid de Categorías: si el
  * admin configuró `imageUrl` se usa esa imagen (con el mismo cache de
  * `expo-image` que el resto de la app); si no hay imagen, o falla al
- * cargar, se dibuja la ilustración SVG propia de esa categoría.
+ * cargar, se dibuja el logo de esa categoría.
  *
  * Una sola forma a propósito: el cuadro con la etiqueta debajo. Hubo una
  * variante `layout="icon"` de 44 px para pintar categorías como filas de

@@ -24,10 +24,6 @@ interface PrefsState {
   acceptedPaymentTerms: string | null;
   setAcceptedPaymentTerms: (permalink: string | null) => void;
 
-  /** Correo para comprobantes de quien se registró solo con teléfono. */
-  receiptEmail: string | null;
-  setReceiptEmail: (email: string | null) => void;
-
   /** Se guarda para poder restaurar el estado en pruebas y soporte. */
   reset: () => void;
 }
@@ -61,11 +57,8 @@ export const usePrefsStore = create<PrefsState>()(
       acceptedPaymentTerms: null,
       setAcceptedPaymentTerms: (permalink) => set({ acceptedPaymentTerms: permalink }),
 
-      receiptEmail: null,
-      setReceiptEmail: (email) => set({ receiptEmail: email }),
-
       reset: () =>
-        set({ lastAddressId: null, recentSearches: [], acceptedPaymentTerms: null, receiptEmail: null }),
+        set({ lastAddressId: null, recentSearches: [], acceptedPaymentTerms: null }),
     }),
     {
       name: 'zipp-prefs',
