@@ -33,12 +33,12 @@ interface SecurityDossier {
   events: Array<{ action: string; description: string; timestamp: string; userRole: string }>;
 }
 
-const codeStatusStyle: Record<string, { label: string; bg: string; text: string; Icon: typeof ShieldCheck }> = {
-  pending: { label: 'Pendiente', bg: 'bg-[var(--color-warning-bg)]', text: 'text-[#B45309]', Icon: Clock },
-  used: { label: 'Validado', bg: 'bg-[var(--color-success-bg)]', text: 'text-[#047857]', Icon: ShieldCheck },
-  expired: { label: 'Expirado', bg: 'bg-[var(--color-bg-alt)]', text: 'text-[var(--color-text-secondary)]', Icon: Clock },
-  blocked: { label: 'Bloqueado', bg: 'bg-[var(--color-danger-bg)]', text: 'text-[#B91C1C]', Icon: ShieldAlert },
-  void: { label: 'Anulado', bg: 'bg-[var(--color-bg-alt)]', text: 'text-[var(--color-text-secondary)]', Icon: X },
+const codeStatusStyle: Record<string, { label: string; text: string; Icon: typeof ShieldCheck }> = {
+  pending: { label: 'Pendiente', text: 'text-[#B45309]', Icon: Clock },
+  used: { label: 'Validado', text: 'text-[#047857]', Icon: ShieldCheck },
+  expired: { label: 'Expirado', text: 'text-[var(--color-text-secondary)]', Icon: Clock },
+  blocked: { label: 'Bloqueado', text: 'text-[#B91C1C]', Icon: ShieldAlert },
+  void: { label: 'Anulado', text: 'text-[var(--color-text-secondary)]', Icon: X },
 };
 
 const typeOptions = [
@@ -214,8 +214,8 @@ export default function Evidences() {
             <button
               key={t.key}
               onClick={() => { setType(t.key); setPage(1); }}
-              className={`px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                type === t.key ? 'bg-[var(--color-primary)] text-white shadow-xs' : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'
+              className={`px-3 py-2 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${
+                type === t.key ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold' : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
               }`}
             >
               {t.label}
@@ -403,7 +403,7 @@ function CodeStatusCard({ title, code }: { title: string; code: SecurityCode | n
       <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">{title}</span>
       {code ? (
         <>
-          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${skin!.bg} ${skin!.text}`}>
+          <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${skin!.text}`}>
             <Icon className="w-3.5 h-3.5" /> {skin!.label}
           </span>
           <p className="text-[10px] text-[var(--color-text-secondary)]">

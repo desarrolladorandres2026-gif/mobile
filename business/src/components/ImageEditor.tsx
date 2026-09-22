@@ -292,11 +292,17 @@ export default function ImageEditor({
     const factor = OUTPUT_WIDTH / displayWidth();
     paint(output, OUTPUT_WIDTH, { x: offset.x * factor, y: offset.y * factor }, zoom);
 
+    // Un PNG o un WebP pueden traer transparencia —un producto ya recortado,
+    // un logo—, y JPEG no la tiene: el navegador pinta de **negro** cada
+    // píxel transparente al exportar. Esos salen en PNG. Una foto, en JPEG
+    // al 92%: por encima el archivo crece sin que nadie note la diferencia,
+    // y Cloudinary vuelve a comprimir con `q_auto` al servir. PNG
+    // multiplicaría por seis el peso de una fotografía.
+    const keepsTransparency = file.type === 'image/png' || file.type === 'image/webp';
     const blob = await new Promise<Blob | null>((resolve) =>
-      // JPEG al 92%: por encima el archivo crece sin que nadie note la
-      // diferencia, y Cloudinary vuelve a comprimir con `q_auto` al
-      // servir. PNG multiplicaría por seis el peso de una fotografía.
-      output.toBlob(resolve, 'image/jpeg', 0.92)
+      keepsTransparency
+        ? output.toBlob(resolve, 'image/png')
+        : output.toBlob(resolve, 'image/jpeg', 0.92)
     );
 
     if (blob) await onConfirm(blob);

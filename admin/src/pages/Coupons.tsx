@@ -391,9 +391,9 @@ export default function Coupons() {
             <button
               key={tab.id}
               onClick={() => setEstadoFiltro(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${estadoFiltro === tab.id
-                ? 'bg-[var(--color-primary)] text-white shadow-xs'
-                : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+              className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${estadoFiltro === tab.id
+                ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
                 }`}
             >
               {tab.label}
@@ -403,7 +403,7 @@ export default function Coupons() {
       </div>
 
       {error && (
-        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error}</p>
         </div>
@@ -431,7 +431,7 @@ export default function Coupons() {
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2.5">
-                      <span className="font-mono text-sm font-bold text-[var(--color-primary)] bg-[var(--color-primary-bg)] px-2.5 py-1 rounded-lg">
+                      <span className="font-mono text-sm font-bold text-[var(--color-primary)]">
                         {c.code}
                       </span>
                       <h3 className="text-base font-bold text-[var(--color-text-main)] truncate">{c.title}</h3>
@@ -748,7 +748,7 @@ export default function Coupons() {
                 </div>
 
                 {form.fundedBy === 'business' && form.type === 'free_delivery' && (
-                  <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-[11px] p-3 rounded-lg font-semibold">
+                  <div className="text-[var(--color-danger)] text-[11px] font-semibold">
                     Un comercio no puede financiar envío gratis: esa plata es del
                     repartidor y de la plataforma. Cambia el financiador a ZIPP.
                   </div>
@@ -936,9 +936,9 @@ export default function Coupons() {
               </div>
 
               {/* Exposición máxima */}
-              <div className={`p-3.5 rounded-xl border text-xs font-semibold flex items-start gap-2.5 ${exposicion === null
-                ? 'bg-[var(--color-warning-bg)] border-[var(--color-warning-bg)] text-[var(--color-chart-purple)]'
-                : 'bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-main)]'
+              <div className={`text-xs font-semibold flex items-start gap-2.5 ${exposicion === null
+                ? 'text-[var(--color-chart-purple)]'
+                : 'text-[var(--color-text-main)]'
                 }`}>
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">

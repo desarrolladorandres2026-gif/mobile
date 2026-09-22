@@ -229,22 +229,22 @@ export default function Security() {
 
   const getRiskBadge = (level: string) => {
     const map: Record<string, string> = {
-      low: 'bg-[var(--color-primary-bg)] text-[var(--color-primary)] border-[var(--color-primary-bg)]',
-      medium: 'bg-[var(--color-warning-bg)] text-[var(--color-warning)] border-[var(--color-warning-bg)]',
-      high: 'bg-[var(--color-warning-bg)] text-[var(--color-chart-purple)] border-[var(--color-warning-bg)]',
-      critical: 'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger-bg)] font-bold'
+      low: 'text-[var(--color-primary)]',
+      medium: 'text-[var(--color-warning)]',
+      high: 'text-[var(--color-chart-purple)]',
+      critical: 'text-[var(--color-danger)] font-bold'
     };
-    return map[level] || 'bg-gray-100 text-gray-800 border-gray-200';
+    return map[level] || 'text-gray-800';
   };
 
   const getSeverityBadge = (severity: string) => {
     const map: Record<string, string> = {
-      low: 'bg-[var(--color-primary-bg)] text-[#8A5D08] border-[var(--color-primary-bg)]',
-      medium: 'bg-[var(--color-warning-bg)] text-[var(--color-warning)] border-[var(--color-warning-bg)]',
-      high: 'bg-[var(--color-warning-bg)] text-[var(--color-chart-purple)] border-[var(--color-warning-bg)]',
-      critical: 'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger-bg)] font-bold'
+      low: 'text-[#8A5D08]',
+      medium: 'text-[var(--color-warning)]',
+      high: 'text-[var(--color-chart-purple)]',
+      critical: 'text-[var(--color-danger)] font-bold'
     };
-    return map[severity] || 'bg-gray-100 text-gray-800';
+    return map[severity] || 'text-gray-800';
   };
 
   return (
@@ -272,10 +272,10 @@ export default function Security() {
           <button
             key={tab}
             onClick={() => { setActiveTab(tab); setLoading(true); }}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+            className={`px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap border-b-2 ${
               activeTab === tab
-                ? 'bg-[var(--color-primary)] text-white shadow-xs'
-                : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)]'
+                ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+                : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
             }`}
           >
             {tab === 'overview' && 'Vista General'}
@@ -350,7 +350,7 @@ export default function Security() {
                         {new Date(ev.timestamp).toLocaleString('es-CO')}
                       </td>
                       <td className="table-body-cell">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getSeverityBadge(ev.severity)}`}>
+                        <span className={`text-[10px] font-bold uppercase ${getSeverityBadge(ev.severity)}`}>
                           {ev.severity}
                         </span>
                       </td>
@@ -390,15 +390,15 @@ export default function Security() {
                     </td>
                     <td className="table-body-cell font-mono text-[var(--color-primary)] text-xs font-bold">{al.userId}</td>
                     <td className="table-body-cell">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getRiskBadge(al.riskLevel)}`}>
+                      <span className={`text-[10px] font-bold uppercase ${getRiskBadge(al.riskLevel)}`}>
                         {al.riskLevel}
                       </span>
                     </td>
                     <td className="table-body-cell font-bold text-[var(--color-text-main)]">{al.riskScore} / 100</td>
                     <td className="table-body-cell text-xs font-semibold text-[var(--color-text-main)]">{al.type}</td>
                     <td className="table-body-cell">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                        al.status === 'open' ? 'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger-bg)]' : 'bg-[var(--color-primary-bg)] text-[var(--color-primary)] border border-[var(--color-primary-bg)]'
+                      <span className={`text-[10px] font-bold uppercase ${
+                        al.status === 'open' ? 'text-[var(--color-danger)]' : 'text-[var(--color-primary)]'
                       }`}>
                         {al.status === 'open' ? 'Abierta' : 'Resuelta'}
                       </span>
@@ -479,7 +479,7 @@ export default function Security() {
                       <td className="table-body-cell text-xs font-mono text-[var(--color-text-muted)]">{new Date(log.timestamp).toLocaleString('es-CO')}</td>
                       <td className="table-body-cell text-xs font-mono text-[var(--color-text-secondary)]">{log.userId ? `${log.userId.slice(-6)} (${log.role || '—'})` : 'Sistema'}</td>
                       <td className="table-body-cell">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getSeverityBadge(log.severity)}`}>{log.severity}</span>
+                        <span className={`text-[10px] font-bold uppercase ${getSeverityBadge(log.severity)}`}>{log.severity}</span>
                       </td>
                       <td className="table-body-cell font-bold text-[var(--color-text-main)] text-xs">{log.action}</td>
                       <td className="table-body-cell text-xs text-[var(--color-text-secondary)] max-w-xs truncate" title={log.description}>{log.description}</td>

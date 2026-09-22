@@ -5,7 +5,7 @@ import {
 } from '../models';
 import { AppError } from '../middlewares';
 import { cloudinary, config } from '../config';
-import { readImageHeader } from './productImage.service';
+import { readImageHeader } from '../utils/imageHeader';
 
 export type AdStatus = 'scheduled' | 'active' | 'paused' | 'finished' | 'cancelled';
 

@@ -126,18 +126,18 @@ export default function HomeBanners() {
       <div className="flex gap-1.5">
         <button
           onClick={() => setTab('banners')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${tab === 'banners'
-            ? 'bg-[var(--color-primary)] text-white shadow-xs'
-            : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+          className={`px-4 py-2 text-xs font-bold whitespace-nowrap transition-all cursor-pointer border-b-2 ${tab === 'banners'
+            ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+            : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
             }`}
         >
           Banners de Inicio
         </button>
         <button
           onClick={() => setTab('blocks')}
-          className={`px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${tab === 'blocks'
-            ? 'bg-[var(--color-primary)] text-white shadow-xs'
-            : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+          className={`px-4 py-2 text-xs font-bold whitespace-nowrap transition-all cursor-pointer border-b-2 ${tab === 'blocks'
+            ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+            : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
             }`}
         >
           Bloques Curados
@@ -384,9 +384,9 @@ function PromotionBannersPanel() {
             <button
               key={tab.id}
               onClick={() => setStatusFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${statusFilter === tab.id
-                ? 'bg-[var(--color-primary)] text-white shadow-xs'
-                : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+              className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${statusFilter === tab.id
+                ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
                 }`}
             >
               {tab.label}
@@ -396,7 +396,7 @@ function PromotionBannersPanel() {
       </div>
 
       {error && (
-        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error}</p>
         </div>

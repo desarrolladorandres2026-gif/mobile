@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { apiStatus } from '../lib/apiError';
+import { apiStatus, apiErrorCode } from '../lib/apiError';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
 
@@ -51,6 +51,21 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    // Un admin con `TOTP_REQUIRED_ADMINS` activo y sin 2FA propio recibe
+    // este 403 en cualquier ruta salvo /auth/me, /logout y las de
+    // configurar 2FA (ver `TWO_FACTOR_SETUP_PATHS` en el backend). No es un
+    // fallo de la pantalla que lo pidió: es que la cuenta tiene que activar
+    // 2FA antes de usar el resto del panel.
+    if (
+      apiStatus(error) === 403 &&
+      apiErrorCode(error) === 'TWO_FACTOR_SETUP_REQUIRED' &&
+      window.location.pathname !== '/setup-2fa'
+    ) {
+      window.location.href = '/setup-2fa';
+      return Promise.reject(error);
+    }
+
     if (apiStatus(error) === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {

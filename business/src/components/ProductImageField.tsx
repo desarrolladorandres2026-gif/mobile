@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  ImagePlus, Pencil, Sparkles, Trash2, AlertCircle, RefreshCw, Info, Scissors,
+  ImagePlus, Pencil, Sparkles, Trash2, AlertCircle, RefreshCw, Info, Scissors, Undo2,
 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
+import {
+  ACTION_LABEL, isImageInProgress, productImageFileName, productImageStatus, type BackgroundAction,
+} from '../lib/productImageStatus';
 import ImageEditor from './ImageEditor';
 import SmartImage, { type ProductImages } from './SmartImage';
 import type { Product } from '../lib/catalog';
@@ -23,8 +26,12 @@ import type { Product } from '../lib/catalog';
  * · **Producto existente**: la subida es inmediata, y "Mejorar" y
  *   "Eliminar" actúan sobre el servidor al momento.
  *
- * Ningún botón aparece si el servidor no puede cumplirlo: el recorte de
- * fondo se pinta solo cuando la cuenta de Cloudinary tiene el complemento.
+ * Quitar el fondo es automático: la casilla viene marcada, la foto se
+ * sube y se ve al instante con su fondo, y el recorte aparece solo unos
+ * segundos después. Mientras tanto el formulario sigue usable. Si el
+ * recorte falla, se queda la original y se ofrece reintentar.
+ *
+ * Ningún botón aparece si el servidor no puede cumplirlo.
  */
 
 export interface ImageCapabilities {
@@ -40,21 +47,25 @@ export interface ImageCapabilities {
 /**
  * Un recorte que todavía no tiene producto al que ir.
  *
- * Lleva las opciones de subida y no solo el binario: el recorte de fondo
- * se aplica **durante** la subida, así que si solo se pasara el blob, la
- * casilla que el comercio marcó en el editor se perdería al crear el
- * producto y la foto subiría con su fondo.
+ * Lleva las opciones de subida y no solo el binario: si solo se pasara el
+ * blob, la casilla que el comercio dejó marcada en el editor se perdería
+ * al crear el producto y la foto se quedaría con su fondo.
  */
 export interface PendingProductImage {
   blob: Blob;
   removeBackground: boolean;
 }
 
+/** Cada cuánto se pregunta por un recorte en curso. */
+const POLL_MS = 3_000;
+
 interface Props {
   /** Nulo mientras el producto no se ha creado. */
   productId: string | null;
   businessId: string;
   images: ProductImages | null;
+  /** Por qué falló el último recorte y cuándo se pidió. */
+  imageAsset?: Product['imageAsset'];
   capabilities: ImageCapabilities | null;
   /** Recorte pendiente de subir, en el alta de un producto nuevo. */
   onPendingChange: (pending: PendingProductImage | null) => void;
@@ -66,6 +77,7 @@ export default function ProductImageField({
   productId,
   businessId,
   images,
+  imageAsset,
   capabilities,
   onPendingChange,
   onUpdated,
@@ -74,16 +86,53 @@ export default function ProductImageField({
 
   const [file, setFile] = useState<File | null>(null);
   const [pendingPreview, setPendingPreview] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'upload' | 'enhance' | 'delete' | null>(null);
+  const [busy, setBusy] = useState<'upload' | 'enhance' | 'delete' | 'background' | null>(null);
   const [error, setError] = useState('');
   /**
-   * Recorte de fondo, si la cuenta de Cloudinary tiene el complemento.
-   *
-   * Se decide antes de subir porque se aplica durante la subida: no es un
-   * interruptor de la URL como la mejora, y cambiarlo después exigiría el
-   * archivo original, que ya no está en el navegador.
+   * Quitar el fondo al subir. Marcado por defecto: la función tiene que
+   * sentirse automática, y desmarcarlo antes de subir es la forma de no
+   * gastar un recorte en una foto que no lo necesita (un plato servido,
+   * una foto de ambiente).
    */
-  const [removeBackground, setRemoveBackground] = useState(false);
+  const [removeBackground, setRemoveBackground] = useState(true);
+  const canRemoveBackground = Boolean(capabilities?.backgroundRemoval);
+
+  const status = productImageStatus(
+    images,
+    imageAsset?.backgroundRemoval?.errorCode,
+    canRemoveBackground
+  );
+
+  // Mientras el servidor recorta, se le pregunta por el producto hasta
+  // verlo terminado. Con tope de tiempo (`isImageInProgress`): un recorte
+  // que se alarga lo retoma el servidor más tarde y no hace falta tener
+  // el panel preguntando mientras tanto.
+  //
+  // Un intervalo y no una consulta cacheada: una respuesta vieja guardada
+  // en caché devolvería el estado anterior justo después de "Reintentar".
+  // Aquí, al dejar de sondear, lo que siga en vuelo se descarta.
+  const polling = Boolean(productId) && isImageInProgress({ images, imageAsset });
+  const onUpdatedRef = useRef(onUpdated);
+  useEffect(() => {
+    onUpdatedRef.current = onUpdated;
+  });
+
+  useEffect(() => {
+    if (!polling || !productId) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {
+        const { data } = await api.get(`/products/${productId}`);
+        if (!cancelled) onUpdatedRef.current(data.data as Product);
+      } catch {
+        // Un fallo de red suelto: la siguiente vuelta lo vuelve a pedir.
+      }
+    }, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [polling, productId]);
 
   // La URL del objeto se libera al cambiarla o al desmontar: sin esto,
   // cada foto que el comercio prueba y descarta se queda en memoria.
@@ -127,7 +176,7 @@ export default function ProductImageField({
       // Producto nuevo: se guarda para subirlo en cuanto exista.
       if (pendingPreview) URL.revokeObjectURL(pendingPreview);
       setPendingPreview(URL.createObjectURL(blob));
-      onPendingChange({ blob, removeBackground });
+      onPendingChange({ blob, removeBackground: removeBackground && canRemoveBackground });
       return;
     }
 
@@ -141,8 +190,8 @@ export default function ProductImageField({
     try {
       const form = new FormData();
       form.append('businessId', businessId);
-      form.append('image', blob, 'producto.jpg');
-      if (removeBackground) form.append('removeBackground', 'true');
+      form.append('image', blob, productImageFileName(blob));
+      if (removeBackground && canRemoveBackground) form.append('removeBackground', 'true');
 
       // El Content-Type explícito evita que axios convierta el FormData a
       // JSON: la instancia declara 'application/json' por defecto, y con
@@ -175,6 +224,27 @@ export default function ProductImageField({
       onUpdated(data.data);
     } catch (err) {
       setError(apiMessage(err, 'No pudimos cambiar la mejora.'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Reintentar, quitar el fondo ahora, o elegir entre la original y el recorte. */
+  const runBackgroundAction = async (action: BackgroundAction) => {
+    if (!productId) return;
+    setBusy('background');
+    setError('');
+    try {
+      const { data } =
+        action === 'use-original' || action === 'use-cutout'
+          ? await api.patch(`/products/${productId}/image`, {
+              businessId,
+              useOriginal: action === 'use-original',
+            })
+          : await api.post(`/products/${productId}/image/background-removal`, { businessId });
+      onUpdated(data.data);
+    } catch (err) {
+      setError(apiMessage(err, 'No pudimos cambiar la foto. Inténtalo de nuevo.'));
     } finally {
       setBusy(null);
     }
@@ -215,12 +285,10 @@ export default function ProductImageField({
           onCancel={() => setFile(null)}
           onConfirm={onCropped}
           extras={
-            // Solo se pinta si el servidor dice que puede hacerlo. Es un
-            // complemento de pago de Cloudinary que la mayoría de las
-            // cuentas no tiene, y un botón que falla siempre es peor que
-            // no tenerlo.
-            capabilities?.backgroundRemoval ? (
-              <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors">
+            // Solo si el servidor puede hacerlo: un botón que falla
+            // siempre es peor que no tenerlo.
+            canRemoveBackground ? (
+              <label className="flex items-start gap-2.5 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={removeBackground}
@@ -233,8 +301,8 @@ export default function ProductImageField({
                     Quitar el fondo
                   </span>
                   <span className="block text-[11px] text-[var(--color-text-muted)] mt-0.5 leading-relaxed">
-                    Deja el producto sobre un fondo limpio con sombra suave.
-                    Funciona mejor con objetos de contorno definido.
+                    Dejamos solo el producto, centrado en el catálogo. Tu foto
+                    original se conserva y puedes volver a ella.
                   </span>
                 </span>
               </label>
@@ -262,12 +330,16 @@ export default function ProductImageField({
         <button
           type="button"
           onClick={pick}
-          disabled={capabilities?.enabled === false}
+          disabled={capabilities?.enabled === false || busy === 'upload'}
           className="w-full rounded-2xl border border-dashed border-[var(--color-border-strong)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors py-8 flex flex-col items-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          <ImagePlus className="w-6 h-6 text-[var(--color-primary)]" />
+          {busy === 'upload' ? (
+            <RefreshCw className="w-6 h-6 text-[var(--color-primary)] animate-spin" />
+          ) : (
+            <ImagePlus className="w-6 h-6 text-[var(--color-primary)]" />
+          )}
           <span className="text-xs font-bold text-[var(--color-text-main)]">
-            Agregar imagen
+            {busy === 'upload' ? 'Subiendo…' : 'Agregar imagen'}
           </span>
           <span className="text-[11px] text-[var(--color-text-muted)] px-6 text-center">
             {capabilities?.enabled === false
@@ -280,6 +352,11 @@ export default function ProductImageField({
       </Frame>
     );
   }
+
+  const showSpinner = Boolean(busy) || (!pendingPreview && status.working);
+  const caption = pendingPreview
+    ? 'Se subirá al guardar el producto.'
+    : status.message ?? 'Así se verá en el catálogo de ZIPP.';
 
   // ── Con imagen: vista previa y acciones ──
   return (
@@ -312,7 +389,7 @@ export default function ProductImageField({
             />
           )}
 
-          {busy && (
+          {showSpinner && (
             <div className="absolute inset-0 rounded-2xl bg-black/45 grid place-items-center">
               <RefreshCw className="w-5 h-5 text-white animate-spin" />
             </div>
@@ -320,20 +397,35 @@ export default function ProductImageField({
         </div>
 
         <div className="flex-1 min-w-0 space-y-2.5">
-          <p className="text-[11px] text-[var(--color-text-muted)] leading-relaxed">
-            {pendingPreview
-              ? 'Se subirá al guardar el producto.'
-              : 'Así se verá en el catálogo de ZIPP.'}
+          <p
+            className={`text-[11px] leading-relaxed ${
+              !pendingPreview && status.tone === 'warning'
+                ? 'font-semibold text-[var(--color-warning)]'
+                : 'text-[var(--color-text-muted)]'
+            }`}
+            aria-live="polite"
+          >
+            {caption}
           </p>
 
           <div className="flex flex-wrap gap-1.5">
             <Action icon={Pencil} label="Cambiar" onClick={pick} disabled={!!busy} />
 
             {/*
-              "Mejorar" solo tiene sentido sobre una imagen que ya está en
-              el servidor: es un ajuste de la URL de entrega, no del
-              archivo. Sobre un recorte local no habría nada que cambiar.
+              Las acciones del recorte y "Mejorar" solo tienen sentido sobre
+              una imagen que ya está en el servidor: son ajustes de la
+              entrega, no del archivo local.
             */}
+            {images && !pendingPreview && status.action && (
+              <Action
+                icon={status.action === 'use-original' ? Undo2 : Scissors}
+                label={ACTION_LABEL[status.action]}
+                onClick={() => runBackgroundAction(status.action!)}
+                disabled={!!busy}
+                active={status.action === 'retry'}
+              />
+            )}
+
             {images && (
               <Action
                 icon={Sparkles}

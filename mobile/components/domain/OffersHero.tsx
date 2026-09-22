@@ -1,52 +1,39 @@
 import { View, StyleSheet } from 'react-native';
 import { Text } from '../ui';
 import { TicketCard } from './TicketCard';
-import { BorderRadius, Spacing, palette } from '../../theme/tokens';
+import { useTheme } from '../../hooks/useTheme';
+import { Spacing } from '../../theme/tokens';
 import type { CouponStatus } from '../../lib/offers';
 import type { OfferCoupon } from '../../services/endpoints';
 
 /**
- * La cabecera de Descuentos: una franja de obsidiana con el mejor cupón.
+ * La cabecera de Descuentos: el título y el mejor cupón.
  *
- * El oro de la marca sobre gris claro queda mate — es un amarillo oscuro
- * sobre un fondo casi blanco, y no hay contraste que lo haga brillar. Sobre
- * obsidiana sí. Esta franja existe para eso y para darle a la pestaña una
- * forma reconocible de lejos, que era el problema: seis secciones con la
- * misma tarjeta blanca sobre el mismo gris.
+ * Va sobre el mismo papel que el resto de la pestaña. Antes era una franja
+ * de obsidiana; se quitó porque encerraba el título en una caja, y lo que
+ * distingue la cabecera ya lo hace el tamaño del título y el cupón ancho.
  *
- * Aparece **una sola vez**. Un fondo oscuro de pantalla completa con un
- * acento brillante es el aspecto que tienen todas las apps que quieren
- * parecer caras; una franja es un gesto, una pantalla entera es un disfraz.
- *
- * Sin cupón destacado se queda en el título. Sigue marcando la pestaña, y
- * ese hueco es más honesto que rellenarlo con algo decorativo.
+ * Sin cupón destacado se queda en el título. Ese hueco es más honesto que
+ * rellenarlo con algo decorativo.
  */
 export function OffersHero({
   coupon, status, topInset = 0, onPressCoupon, onExpire,
 }: {
   coupon: OfferCoupon | null;
   status?: CouponStatus;
-  /**
-   * El alto de la barra de estado. La franja pasa por debajo de ella en
-   * vez de empezar más abajo: cortarla ahí dejaría una banda blanca
-   * flotando sobre la obsidiana y el gesto se perdería.
-   */
+  /** El alto de la barra de estado: la pestaña no tiene cabecera propia. */
   topInset?: number;
   onPressCoupon?: () => void;
   onExpire?: () => void;
 }) {
+  const { c } = useTheme();
+
   return (
-    <View
-      style={[
-        styles.band,
-        !coupon && styles.bandBare,
-        { paddingTop: topInset + Spacing.lg },
-      ]}
-    >
+    <View style={[styles.header, { paddingTop: topInset + Spacing.lg }]}>
       <View style={styles.titleRow}>
-        <Text v="displayM" color={palette.paper0}>Descuentos</Text>
+        <Text v="displayM">Descuentos</Text>
         {coupon ? (
-          <Text v="bodyS" color={palette.ink100}>El mejor de hoy</Text>
+          <Text v="bodyS" tone="textMuted">El mejor de hoy</Text>
         ) : null}
       </View>
 
@@ -54,8 +41,7 @@ export function OffersHero({
         <TicketCard
           coupon={coupon}
           width="100%"
-          tone="ink"
-          notchColor={palette.ink900}
+          notchColor={c.background}
           status={status}
           onPress={onPressCoupon}
           onExpire={onExpire}
@@ -66,14 +52,6 @@ export function OffersHero({
 }
 
 const styles = StyleSheet.create({
-  band: {
-    backgroundColor: palette.ink900,
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.xxl,
-    borderBottomLeftRadius: BorderRadius.xxl,
-    borderBottomRightRadius: BorderRadius.xxl,
-    gap: Spacing.lg,
-  },
-  bandBare: { paddingBottom: Spacing.xl },
+  header: { paddingHorizontal: Spacing.xl, gap: Spacing.lg },
   titleRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
 });

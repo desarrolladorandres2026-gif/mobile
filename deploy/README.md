@@ -315,6 +315,26 @@ sudo -u zipp -E npm run backfill:image-placeholders
 Sin correrlo no se rompe nada: esas fotos siguen sirviendo la miniatura
 como URL, como antes. Se puede repetir; solo toca lo que falta.
 
+El recorte de fondo de fotos de producto (2026-09-22) trae la 008. Hay que
+correrla **antes** de desplegar, primero sin escribir:
+
+```bash
+sudo -u zipp -E npm run migrate:product-image-cutout             # solo informe
+sudo -u zipp -E npm run migrate:product-image-cutout -- --apply  # índices + reparación
+```
+
+La 008 no rellena datos: los productos sin recorte se ven igual que
+antes. Crea los índices del barrido y de `ImageProcessingEvent` (con TTL
+de 180 días). Además quita las entradas de galería que apuntan al mismo
+archivo que la portada, un daño del fallo anterior de la galería; no borra
+ningún archivo. El informe lista esos productos: **avisa a cada comercio**,
+porque su portada puede estar mostrando la última foto de galería que
+subió. Se puede repetir sin riesgo.
+
+Después, pon `PHOTOROOM_API_KEY` (la de producción, no una `sandbox_`) en
+el `.env` y reinicia. Sin clave, el recorte queda apagado y todo lo demás
+sigue igual.
+
 > **Nunca** ejecutes `npm run seed` en producción: reinicializa datos.
 
 ---

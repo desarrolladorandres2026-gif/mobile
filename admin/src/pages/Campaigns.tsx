@@ -433,9 +433,9 @@ export default function Campaigns() {
             <button
               key={tab.id}
               onClick={() => setStatusFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${statusFilter === tab.id
-                ? 'bg-[var(--color-primary)] text-white shadow-xs'
-                : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+              className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${statusFilter === tab.id
+                ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
                 }`}
             >
               {tab.label}
@@ -445,7 +445,7 @@ export default function Campaigns() {
       </div>
 
       {error && (
-        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error}</p>
         </div>
@@ -755,7 +755,7 @@ export default function Campaigns() {
                 )}
                 <input id="flyer-upload" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} className="hidden" disabled={uploading} />
                 {aspectWarning && (
-                  <div className="mt-2 flex items-start gap-2 text-[11px] font-medium text-[var(--color-warning)] bg-[var(--color-warning-bg)] border border-[var(--color-warning)]/30 rounded-lg p-2.5">
+                  <div className="mt-2 flex items-start gap-2 text-[11px] font-medium text-[var(--color-warning)]">
                     <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     <span>{aspectWarning} Puedes continuar y usarla igual.</span>
                   </div>

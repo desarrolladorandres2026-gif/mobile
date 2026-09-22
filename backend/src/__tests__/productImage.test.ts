@@ -86,10 +86,11 @@ beforeEach(() => {
   destroyed = [];
 
   vi.spyOn(productImageService as any, 'store').mockImplementation(async (...args: unknown[]) => {
-    const params = args[0] as { productId: string; businessId: string };
+    const params = args[0] as { productId: string; businessId: string; publicId: string };
     uploadCount += 1;
+    // Como Cloudinary: la carpeta del comercio delante del id que se pidió.
     return {
-      publicId: `zipp/products/${params.businessId}/${params.productId}`,
+      publicId: `zipp/products/${params.businessId}/${params.publicId}`,
       width: 1200,
       height: 1200,
       bytes: 180_000,
@@ -244,6 +245,27 @@ describe('Subida de la imagen de un producto', () => {
 
   it('borra la imagen anterior al reemplazarla', async () => {
     const { owner, business, product } = await scenario();
+    const upload = async (file: Buffer) =>
+      request(app)
+        .post(`/api/v1/products/${product._id}/image`)
+        .set(await authHeader(owner))
+        .field('businessId', business._id.toString())
+        .attach('image', file, { filename: 'b.jpg', contentType: 'image/jpeg' });
+
+    await upload(jpeg(1600, 1600));
+    const first = (await Product.findById(product._id))!.imageAsset!.publicId;
+
+    // El id sale del contenido: otra foto es otro archivo, y el anterior
+    // se borra en vez de acumularse uno por edición.
+    await upload(jpeg(1700, 1700));
+    const second = (await Product.findById(product._id))!.imageAsset!.publicId;
+
+    expect(second).not.toBe(first);
+    expect(destroyed).toEqual([first]);
+  });
+
+  it('volver a subir la misma foto no sube nada', async () => {
+    const { owner, business, product } = await scenario();
     const upload = async () =>
       request(app)
         .post(`/api/v1/products/${product._id}/image`)
@@ -252,21 +274,42 @@ describe('Subida de la imagen de un producto', () => {
         .attach('image', jpeg(1600, 1600), { filename: 'b.jpg', contentType: 'image/jpeg' });
 
     await upload();
+    const res = await upload();
 
-    // El `public_id` es estable por producto, así que Cloudinary
-    // sobrescribe y no hay nada que borrar: lo que no puede pasar es que
-    // se acumule una imagen por edición.
-    (productImageService as any).store.mockImplementationOnce(async () => ({
-      publicId: 'zipp/products/otro/identificador',
-      width: 1200,
-      height: 1200,
-      bytes: 150_000,
-      format: 'jpg',
-    }));
-    await upload();
+    expect(res.status).toBe(201);
+    expect(uploadCount).toBe(1);
+    expect(destroyed).toHaveLength(0);
+  });
 
-    expect(destroyed).toHaveLength(1);
-    expect(destroyed[0]).toContain(product._id.toString());
+  it('un archivo por encima del tope sale como 413 y en español', async () => {
+    const { owner, business, product } = await scenario();
+    const huge = Buffer.concat([jpeg(1600, 1600), Buffer.alloc(8 * 1024 * 1024 + 10, 1)]);
+
+    const res = await request(app)
+      .post(`/api/v1/products/${product._id}/image`)
+      .set(await authHeader(owner))
+      .field('businessId', business._id.toString())
+      .attach('image', huge, { filename: 'enorme.jpg', contentType: 'image/jpeg' });
+
+    expect(res.status).toBe(413);
+    expect(res.body.code).toBe('PRODUCT_IMAGE_TOO_LARGE');
+    expect(res.body.message).toMatch(/MB/);
+    expect(uploadCount).toBe(0);
+  });
+
+  it('rechaza un formato que no es JPG, PNG ni WEBP', async () => {
+    const { owner, business, product } = await scenario();
+    const gif = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(200, 1)]);
+
+    const res = await request(app)
+      .post(`/api/v1/products/${product._id}/image`)
+      .set(await authHeader(owner))
+      .field('businessId', business._id.toString())
+      .attach('image', gif, { filename: 'anim.gif', contentType: 'image/gif' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('PRODUCT_IMAGE_INVALID_FILE');
+    expect(uploadCount).toBe(0);
   });
 
   it('no deja subir la imagen de un producto ajeno', async () => {
@@ -297,6 +340,17 @@ describe('Ajustes y borrado de la imagen', () => {
       .attach('image', jpeg(1600, 1600), { filename: 'b.jpg', contentType: 'image/jpeg' });
     return s;
   }
+
+  it('rechaza un PATCH sin ningún ajuste', async () => {
+    const { owner, business, product } = await withImage();
+
+    const res = await request(app)
+      .patch(`/api/v1/products/${product._id}/image`)
+      .set(await authHeader(owner))
+      .send({ businessId: business._id.toString() });
+
+    expect(res.status).toBe(400);
+  });
 
   it('apaga la mejora sin volver a subir el archivo', async () => {
     const { owner, business, product } = await withImage();
@@ -356,8 +410,8 @@ describe('Capacidades del entorno', () => {
       .set(await authHeader(owner));
 
     expect(res.status).toBe(200);
-    // Es un complemento de pago de Cloudinary: por defecto va apagado, y
-    // el panel usa esto para no pintar un botón que fallaría siempre.
+    // Sin clave del proveedor (en pruebas nunca la hay) va apagado, y el
+    // panel usa esto para no pintar un botón que fallaría siempre.
     expect(res.body.data.backgroundRemoval).toBe(false);
     expect(res.body.data.minDimension).toBeGreaterThan(0);
     expect(res.body.data.aspectRatio).toBe('1:1');
@@ -393,13 +447,70 @@ describe('Galería del producto', () => {
 
   const withCover = async () => {
     const ctx = await scenario();
-    await productImageService.replace({
+    // `replace` escribe de forma atómica y devuelve el producto leído de
+    // nuevo: el documento de entrada no cambia.
+    ctx.product = (await productImageService.replace({
       product: ctx.product,
       buffer: png(1200, 1200),
       mimetype: 'image/png',
-    });
+    })) as typeof ctx.product;
     return ctx;
   };
+
+  it('cada foto de galería tiene su propio archivo y no pisa la portada', async () => {
+    // Sin `distinctUploads`: el id lo decide el servicio, como en producción.
+    const ctx = await withCover();
+    const cover = ctx.product.imageAsset!.publicId;
+
+    const updated = await productImageService.addToGallery({
+      product: ctx.product,
+      buffer: jpeg(1400, 1400),
+      mimetype: 'image/jpeg',
+    });
+
+    const galleryId = updated.gallery[0].publicId;
+    expect(galleryId).not.toBe(cover);
+    expect(galleryId).toContain(`${ctx.product._id}-g-`);
+
+    // Y quitarla no toca el archivo de la portada.
+    await productImageService.removeFromGallery(updated, galleryId);
+    expect(destroyed).toEqual([galleryId]);
+  });
+
+  it('quitar una entrada de galería que comparte archivo con la portada no borra la portada', async () => {
+    // Los datos que dejó el fallo anterior: galería y portada con el mismo id.
+    const ctx = await withCover();
+    const cover = ctx.product.imageAsset!;
+    ctx.product.gallery.push({ ...(cover as any).toObject(), checksum: 'otro' });
+    await ctx.product.save();
+
+    await productImageService.removeFromGallery(ctx.product, cover.publicId);
+
+    expect(destroyed).toHaveLength(0);
+    const saved = await Product.findById(ctx.product._id);
+    expect(saved!.imageAsset!.publicId).toBe(cover.publicId);
+    expect(saved!.gallery).toHaveLength(0);
+  });
+
+  it('DELETE de galería por HTTP encuentra la foto', async () => {
+    const ctx = await withCover();
+    const withPhoto = await productImageService.addToGallery({
+      product: ctx.product,
+      buffer: jpeg(1400, 1400),
+      mimetype: 'image/jpeg',
+    });
+    const publicId = withPhoto.gallery[0].publicId;
+
+    // Antes el validador tiraba `publicId` del cuerpo y esto daba 404.
+    const res = await request(app)
+      .delete(`/api/v1/products/${ctx.product._id}/gallery`)
+      .set(await authHeader(ctx.owner))
+      .send({ businessId: ctx.business._id.toString(), publicId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.galleryImages).toHaveLength(0);
+    expect(destroyed).toContain(publicId);
+  });
 
   it('exige portada antes de la galería', async () => {
     const ctx = await scenario();

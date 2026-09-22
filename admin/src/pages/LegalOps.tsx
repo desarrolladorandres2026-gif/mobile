@@ -61,7 +61,7 @@ export default function LegalOps() {
       </div>
 
       {error && (
-        <div className="p-3.5 rounded-xl bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs flex items-center gap-2">
+        <div className="text-[var(--color-danger)] text-xs flex items-center gap-2">
           <AlertCircle className="w-4 h-4" />
           <span>{error}</span>
         </div>
@@ -93,7 +93,7 @@ export default function LegalOps() {
                   <td className="py-3 font-semibold text-[var(--color-text-main)] capitalize">{x.type}</td>
                   <td className="py-3 text-[var(--color-text-secondary)]">{x.subject}</td>
                   <td className="py-3">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[var(--color-primary-bg)] text-[var(--color-primary)] border border-[var(--color-primary-bg)]">
+                    <span className="text-[10px] font-bold text-[var(--color-primary)]">
                       {x.status}
                     </span>
                   </td>
@@ -144,7 +144,7 @@ export default function LegalOps() {
                 <tr key={x._id} className="hover:bg-[var(--color-bg)] transition-colors">
                   <td className="py-3 font-semibold text-[var(--color-text-main)]">{x.type}</td>
                   <td className="py-3">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[var(--color-primary-bg)] text-[#8A5D08] border border-[var(--color-primary-bg)]">
+                    <span className="text-[10px] font-bold text-[#8A5D08]">
                       {x.status}
                     </span>
                   </td>

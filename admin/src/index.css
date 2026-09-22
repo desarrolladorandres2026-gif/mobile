@@ -119,16 +119,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Tarjeta Zipp */
+/* Sección plana Zipp: reemplaza la antigua tarjeta con fondo/borde por
+   espacio en blanco. Se mantiene el nombre de la clase para no tocar los
+   ~19 archivos que la usan; ver regla "sin cajas". */
 .zipp-card {
-  background-color: var(--color-surface);
-  border-radius: 0.75rem;
-  border: 1px solid var(--color-border);
-  transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-}
-
-.zipp-card:hover {
-  border-color: var(--color-border-strong);
+  background-color: transparent;
+  border-radius: 0;
+  border: none;
 }
 
 /* Sidebar Labels */

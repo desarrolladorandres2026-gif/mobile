@@ -5,7 +5,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, {
-  FadeIn, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue,
+  FadeIn, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useSharedValue,
 } from 'react-native-reanimated';
 import { Text, Icon, SectionHeader, Badge } from '../../../components/ui';
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
@@ -106,6 +106,18 @@ export default function HomeScreen() {
     };
   });
 
+  // El letrero de Categorías se mueve solo; fuera de la vista no tiene por
+  // qué hacer trabajar al teléfono. En teléfonos pequeños arranca incluso por
+  // debajo del pliegue, detrás de "Lo de siempre" y las promociones.
+  const viewportH = useSharedValue(0);
+  const categoriesTop = useSharedValue(0);
+  const categoriesBottom = useSharedValue(0);
+  const categoriesOffscreen = useDerivedValue(() =>
+    viewportH.value > 0 &&
+    (scrollY.value > categoriesBottom.value ||
+      scrollY.value + viewportH.value < categoriesTop.value)
+  );
+
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: c.background }]} edges={['top']}>
       <Animated.View
@@ -161,6 +173,7 @@ export default function HomeScreen() {
         contentContainerStyle={{ paddingBottom: bottomSpace }}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
+        onLayout={(e) => { viewportH.value = e.nativeEvent.layout.height; }}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -200,9 +213,18 @@ export default function HomeScreen() {
         <PromoCarousel />
 
         {/* ── Categorías ── */}
-        <View style={styles.section}>
+        {/* `onLayout` da la posición dentro del contenido del scroll (es
+            hijo directo) y se vuelve a disparar si lo de arriba cambia de alto. */}
+        <View
+          style={styles.section}
+          onLayout={(e) => {
+            const { y, height } = e.nativeEvent.layout;
+            categoriesTop.value = y;
+            categoriesBottom.value = y + height;
+          }}
+        >
           <SectionHeader title="Categorías" />
-          <CategoryMarquee categories={marqueeCategories} />
+          <CategoryMarquee categories={marqueeCategories} offscreen={categoriesOffscreen} />
         </View>
 
         {/* ── Secuencia del inicio: colecciones automáticas + bloques
@@ -212,7 +234,7 @@ export default function HomeScreen() {
         {homeSections.slice(0, sectionLimit).map((entry) => {
           switch (entry.kind) {
             case 'collection':
-              return <ProductCollectionRow key={entry.key} section={entry} />;
+              return <ProductCollectionRow key={entry.key} section={entry} largeNames />;
             case 'productBanner':
               return <ProductBannerBlock key={`productBanner-${entry.order}`} entry={entry} />;
             case 'businessBanner':

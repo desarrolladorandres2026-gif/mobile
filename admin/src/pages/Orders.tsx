@@ -48,29 +48,29 @@ interface OrderType {
  * recibido se veía exactamente igual que uno cobrado sin incidencias.
  * `cash_not_received` es justamente el caso que alguien tiene que ver.
  */
-const paymentStatusMap: Record<string, { label: string; bg: string; text: string }> = {
-  pending:           { label: 'Pago pendiente',   bg: 'bg-[var(--color-warning-bg)] border-[var(--color-warning-bg)]', text: 'text-[#B45309]' },
-  pending_cash:      { label: 'Cobra al entregar', bg: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)]', text: 'text-[var(--color-chart-purple)]' },
-  cash_received:     { label: 'Efectivo recibido', bg: 'bg-[var(--color-success-bg)] border-[var(--color-success-bg)]', text: 'text-[#047857]' },
-  paid:              { label: 'Pagado',           bg: 'bg-[var(--color-success-bg)] border-[var(--color-success-bg)]', text: 'text-[#047857]' },
-  cash_not_received: { label: 'Efectivo NO recibido', bg: 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)]', text: 'text-[#B91C1C]' },
-  failed:            { label: 'Cobro fallido',    bg: 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)]', text: 'text-[#B91C1C]' },
-  refunded:          { label: 'Reembolsado',      bg: 'bg-[var(--color-bg-alt)] border-[var(--color-border)]', text: 'text-[var(--color-text-muted)]' },
+const paymentStatusMap: Record<string, { label: string; text: string }> = {
+  pending:           { label: 'Pago pendiente',   text: 'text-[#B45309]' },
+  pending_cash:      { label: 'Cobra al entregar', text: 'text-[var(--color-chart-purple)]' },
+  cash_received:     { label: 'Efectivo recibido', text: 'text-[#047857]' },
+  paid:              { label: 'Pagado',           text: 'text-[#047857]' },
+  cash_not_received: { label: 'Efectivo NO recibido', text: 'text-[#B91C1C]' },
+  failed:            { label: 'Cobro fallido',    text: 'text-[#B91C1C]' },
+  refunded:          { label: 'Reembolsado',      text: 'text-[var(--color-text-muted)]' },
 };
 
 // Espejo del esquema `orderStatus` de mobile/theme/tokens.ts: espera/cocina en
 // ámbar, aceptado/listo en oro claro, en-camino en oro, entregado en esmeralda
 // (señal de cierre distinta) y cancelado en coral. El texto usa el tono
 // hermano más oscuro para legibilidad sobre el chip pálido.
-const statusMap: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-  pending:   { label: 'Pendiente',  bg: 'bg-[var(--color-warning-bg)] border-[var(--color-warning-bg)]', text: 'text-[#B45309]', dot: 'bg-[var(--color-warning)]' },
-  accepted:  { label: 'Aceptado',   bg: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)]', text: 'text-[var(--color-chart-purple)]', dot: 'bg-[var(--color-primary-light)]' },
-  preparing: { label: 'Preparando', bg: 'bg-[var(--color-warning-bg)] border-[var(--color-warning-bg)]', text: 'text-[#B45309]', dot: 'bg-[var(--color-warning)]' },
-  ready:     { label: 'Listo',      bg: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)]', text: 'text-[var(--color-chart-purple)]', dot: 'bg-[var(--color-primary-light)]' },
-  picked_up: { label: 'En camino',  bg: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)]', text: 'text-[#8A5D08]', dot: 'bg-[var(--color-primary)]' },
-  on_way:    { label: 'En camino',  bg: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)]', text: 'text-[#8A5D08]', dot: 'bg-[var(--color-primary)]' },
-  delivered: { label: 'Entregado',  bg: 'bg-[var(--color-success-bg)] border-[var(--color-success-bg)]', text: 'text-[#047857]', dot: 'bg-[var(--color-success)]' },
-  cancelled: { label: 'Cancelado',  bg: 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)]', text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
+const statusMap: Record<string, { label: string; text: string; dot: string }> = {
+  pending:   { label: 'Pendiente',  text: 'text-[#B45309]', dot: 'bg-[var(--color-warning)]' },
+  accepted:  { label: 'Aceptado',   text: 'text-[var(--color-chart-purple)]', dot: 'bg-[var(--color-primary-light)]' },
+  preparing: { label: 'Preparando', text: 'text-[#B45309]', dot: 'bg-[var(--color-warning)]' },
+  ready:     { label: 'Listo',      text: 'text-[var(--color-chart-purple)]', dot: 'bg-[var(--color-primary-light)]' },
+  picked_up: { label: 'En camino',  text: 'text-[#8A5D08]', dot: 'bg-[var(--color-primary)]' },
+  on_way:    { label: 'En camino',  text: 'text-[#8A5D08]', dot: 'bg-[var(--color-primary)]' },
+  delivered: { label: 'Entregado',  text: 'text-[#047857]', dot: 'bg-[var(--color-success)]' },
+  cancelled: { label: 'Cancelado',  text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
 };
 
 const filterOptions = [
@@ -169,10 +169,10 @@ export default function Orders() {
             <button
               key={f.key}
               onClick={() => setStatusFilter(f.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+              className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${
                 statusFilter === f.key
-                  ? 'bg-[var(--color-primary)] text-white shadow-xs'
-                  : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+                  ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                  : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
               }`}
             >
               {f.label}
@@ -205,7 +205,7 @@ export default function Orders() {
               </thead>
               <tbody className="divide-y divide-[var(--color-border-light)]">
                 {orders.map((o) => {
-                  const sc = statusMap[o.status] || { label: o.status, bg: 'bg-gray-50 border-gray-200', text: 'text-gray-900', dot: 'bg-gray-400' };
+                  const sc = statusMap[o.status] || { label: o.status, text: 'text-gray-900', dot: 'bg-gray-400' };
                   return (
                     <tr key={o._id} className="hover:bg-[var(--color-bg)] transition-colors">
                       <td className="table-body-cell font-mono text-[var(--color-primary)] font-bold text-xs">
@@ -226,14 +226,14 @@ export default function Orders() {
                         ${(o.total || 0).toLocaleString('es-CO')}
                       </td>
                       <td className="table-body-cell">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase ${
-                          o.paymentMethod === 'online' ? 'bg-[var(--color-primary-bg)] text-[var(--color-primary)] border-[var(--color-primary-bg)]' : 'bg-[var(--color-warning-bg)] text-[var(--color-warning)] border-[var(--color-warning-bg)]'
+                        <span className={`text-[10px] font-bold uppercase ${
+                          o.paymentMethod === 'online' ? 'text-[var(--color-primary)]' : 'text-[var(--color-warning)]'
                         }`}>
                           {o.paymentMethod === 'online' ? 'Digital' : 'Efectivo'}
                         </span>
                       </td>
                       <td className="table-body-cell">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${sc.bg} ${sc.text}`}>
+                        <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${sc.text}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${sc.dot} flex-shrink-0`} />
                           {sc.label}
                         </span>
@@ -358,14 +358,12 @@ export default function Orders() {
                   <p className="text-xl font-bold text-[var(--color-text-main)]">${(selectedOrder.total || 0).toLocaleString('es-CO')}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
-                  <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-[var(--color-primary)] text-white uppercase tracking-wider">
+                  <span className="text-xs font-bold text-[var(--color-primary)] uppercase tracking-wider">
                     {selectedOrder.paymentMethod === 'online' ? 'Pago Digital' : 'Efectivo'}
                   </span>
                   {selectedOrder.paymentStatus && paymentStatusMap[selectedOrder.paymentStatus] ? (
                     <span
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold border ${
-                        paymentStatusMap[selectedOrder.paymentStatus].bg
-                      } ${paymentStatusMap[selectedOrder.paymentStatus].text}`}
+                      className={`text-[11px] font-bold ${paymentStatusMap[selectedOrder.paymentStatus].text}`}
                     >
                       {paymentStatusMap[selectedOrder.paymentStatus].label}
                     </span>

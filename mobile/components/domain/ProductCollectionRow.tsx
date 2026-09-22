@@ -18,6 +18,7 @@ import {
 } from '../illustrations';
 import { CollectionHeader, type HeaderVariant } from './CollectionHeader';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
+import { FontFamily } from '../../theme/typography';
 import type { HomeSection, HomeSectionDisplayVariant, HomeSectionProduct } from '../../services/endpoints';
 
 /**
@@ -122,11 +123,17 @@ const FALLBACK_SUBTITLE: Record<string, string> = {
  * feeds, y en Inicio —que es pasear, no comparar— una cuadrícula de doce
  * ocuparía la pantalla entera. Ahí `grid` cae al carrusel de `price_focus`,
  * que es lo que esas colecciones eran antes.
+ *
+ * `largeNames` solo lo enciende Inicio: el nombre del producto sube un paso
+ * en la escala tipográfica de cada tarjeta, y las tarjetas que lo cortaban a
+ * una línea (`featured`, `price_focus`) pasan a dos. Explorar conserva el
+ * tamaño original a propósito.
  */
 export const ProductCollectionRow = memo(function ProductCollectionRow({
   section,
   allowGrid = false,
-}: { section: HomeSection; allowGrid?: boolean }) {
+  largeNames = false,
+}: { section: HomeSection; allowGrid?: boolean; largeNames?: boolean }) {
   const router = useRouter();
   const { c } = useTheme();
 
@@ -172,6 +179,7 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
           product={item}
           onPress={() => goToProduct(item)}
           rank={section.key === 'losMasPedidos' && index < 3 ? index + 1 : undefined}
+          largeNames={largeNames}
         />
       )}
     />
@@ -195,7 +203,7 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
 // Bloque compartido: identidad del comercio (aro + nombre + toque propio)
 // ──────────────────────────────────────────────────────────────
 
-type CardProps = { product: HomeSectionProduct; onPress: () => void; rank?: number };
+type CardProps = { product: HomeSectionProduct; onPress: () => void; rank?: number; largeNames?: boolean };
 
 /** El producto solo, sin nada más en el carrito, ya alcanza el domicilio gratis del comercio. */
 function hasFreeDelivery(product: HomeSectionProduct): boolean {
@@ -277,7 +285,7 @@ const CARD_WIDTH = 195;
  * `compact`: la tarjeta original — descubrimiento barato, la que usan la
  * mayoría de las secciones.
  */
-const CompactCard = memo(function CompactCard({ product, onPress }: CardProps) {
+const CompactCard = memo(function CompactCard({ product, onPress, largeNames }: CardProps) {
   const { c } = useTheme();
   const { business, goToBusiness } = useBusinessNav(product);
   const hasDiscount = product.discountPercent > 0;
@@ -320,7 +328,7 @@ const CompactCard = memo(function CompactCard({ product, onPress }: CardProps) {
           </Text>
         </Pressable>
 
-        <Text v="bodyS" numberOfLines={2} style={styles.name}>{product.name}</Text>
+        <Text v={largeNames ? 'bodyM' : 'bodyS'} numberOfLines={2} style={styles.name}>{product.name}</Text>
 
         <View style={styles.hMetaRow}>
                       <View style={styles.rating}>
@@ -357,7 +365,7 @@ const LARGE_WIDTH = 260;
  * más peso del inicio y el ranking lo deja claro de un vistazo, no solo el
  * tamaño de la tarjeta.
  */
-const LargeCard = memo(function LargeCard({ product, onPress, rank }: CardProps) {
+const LargeCard = memo(function LargeCard({ product, onPress, rank, largeNames }: CardProps) {
   const { c } = useTheme();
   const { business, goToBusiness } = useBusinessNav(product);
   const hasDiscount = product.discountPercent > 0;
@@ -404,7 +412,7 @@ const LargeCard = memo(function LargeCard({ product, onPress, rank }: CardProps)
           </Text>
         </Pressable>
 
-        <Text v="titleS" numberOfLines={2} style={styles.name}>{product.name}</Text>
+        <Text v={largeNames ? 'titleM' : 'titleS'} numberOfLines={2} style={styles.name}>{product.name}</Text>
 
         <View style={styles.hMetaRow}>
                       <View style={styles.rating}>
@@ -436,7 +444,7 @@ const LargeCard = memo(function LargeCard({ product, onPress, rank }: CardProps)
 const HORIZONTAL_WIDTH = 400;
 
 /** `horizontal`: la tarjeta se acuesta — foto cuadrada a la izquierda, datos a la derecha. */
-const HorizontalCard = memo(function HorizontalCard({ product, onPress }: CardProps) {
+const HorizontalCard = memo(function HorizontalCard({ product, onPress, largeNames }: CardProps) {
   const { c } = useTheme();
   const { business, goToBusiness } = useBusinessNav(product);
   const hasDiscount = product.discountPercent > 0;
@@ -472,7 +480,7 @@ const HorizontalCard = memo(function HorizontalCard({ product, onPress }: CardPr
           </Text>
         </Pressable>
 
-        <Text v="bodyS" numberOfLines={2} style={styles.name}>{product.name}</Text>
+        <Text v={largeNames ? 'bodyM' : 'bodyS'} numberOfLines={2} style={styles.name}>{product.name}</Text>
 
         <View style={styles.hMetaRow}>
                       <View style={styles.rating}>
@@ -512,7 +520,7 @@ const FEATURED_WIDTH = 215;
  * encabezado propio (`headerVariant: 'featured'`); la primera tarjeta no
  * necesita además un borde y halo dorados para destacar.
  */
-const FeaturedCard = memo(function FeaturedCard({ product, onPress }: CardProps) {
+const FeaturedCard = memo(function FeaturedCard({ product, onPress, largeNames }: CardProps) {
   const { c } = useTheme();
   const { business, goToBusiness } = useBusinessNav(product);
   const hasDiscount = product.discountPercent > 0;
@@ -547,7 +555,9 @@ const FeaturedCard = memo(function FeaturedCard({ product, onPress }: CardProps)
           </Text>
         </Pressable>
 
-        <Text v="bodyM" numberOfLines={1} style={styles.name}>{product.name}</Text>
+        <Text v={largeNames ? 'bodyL' : 'bodyM'} numberOfLines={largeNames ? 2 : 1} style={styles.name}>
+          {product.name}
+        </Text>
 
         <View style={styles.hMetaRow}>
                       <View style={styles.rating}>
@@ -576,7 +586,7 @@ const PRICE_FOCUS_WIDTH = 165;
  * de un vistazo. "Descuentos locos" trae de por sí productos con más
  * descuento, así que el badge ya se ve más grande sin distinguir por clave.
  */
-const PriceFocusCard = memo(function PriceFocusCard({ product, onPress }: CardProps) {
+const PriceFocusCard = memo(function PriceFocusCard({ product, onPress, largeNames }: CardProps) {
   const { c } = useTheme();
   const { business, goToBusiness } = useBusinessNav(product);
   const hasDiscount = product.discountPercent > 0;
@@ -611,7 +621,15 @@ const PriceFocusCard = memo(function PriceFocusCard({ product, onPress }: CardPr
           </Text>
         </Pressable>
 
-        <Text v="caption" numberOfLines={1} style={styles.name}>{product.name}</Text>
+        {/* `caption` es Medium; a 13 pt no hay variante Medium en la escala,
+            así que `bodyS` hereda la familia para no cambiar el peso. */}
+        <Text
+          v={largeNames ? 'bodyS' : 'caption'}
+          numberOfLines={largeNames ? 2 : 1}
+          style={[styles.name, largeNames ? styles.nameMedium : null]}
+        >
+          {product.name}
+        </Text>
 
         <View style={styles.hMetaRow}>
                       <View style={styles.rating}>
@@ -783,6 +801,7 @@ const styles = StyleSheet.create({
   businessName: { flex: 1 },
   rating: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   name: {},
+  nameMedium: { fontFamily: FontFamily.medium },
   priceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 2 },
   priceStrong: { fontWeight: '700' },
   strike: { textDecorationLine: 'line-through' },

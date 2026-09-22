@@ -77,10 +77,10 @@ const CUENTA_LABEL: Record<string, string> = {
  * escondería justo el caso que hay que atender.
  */
 const ESTADO_INCIDENCIA: Record<string, { texto: string; clase: string }> = {
-  open: { texto: 'Abierta', clase: 'bg-[var(--color-danger-bg)] text-[#B91C1C]' },
-  under_review: { texto: 'En revisión', clase: 'bg-[var(--color-warning-bg)] text-[#B45309]' },
-  resolved: { texto: 'Resuelta', clase: 'bg-[var(--color-success-bg)] text-[#047857]' },
-  rejected: { texto: 'Rechazada', clase: 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)]' },
+  open: { texto: 'Abierta', clase: 'text-[#B91C1C]' },
+  under_review: { texto: 'En revisión', clase: 'text-[#B45309]' },
+  resolved: { texto: 'Resuelta', clase: 'text-[#047857]' },
+  rejected: { texto: 'Rechazada', clase: 'text-[var(--color-text-secondary)]' },
 };
 
 const RESOLUCION_INCIDENCIA: Record<string, string> = {
@@ -284,15 +284,15 @@ export default function Financials() {
           <h1 className="page-title">Consola Financiera ZIPP</h1>
           <p className="page-subtitle">Balance contable, comisiones, pasivos y liquidaciones de efectivo</p>
         </div>
-        <div className="flex gap-1 bg-[var(--color-surface)] p-1 rounded-lg border border-[var(--color-border)] shadow-xs">
+        <div className="flex gap-1">
           {(['today', 'week', 'month'] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+              className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer border-b-2 ${
                 period === p
-                  ? 'bg-[var(--color-primary)] text-white shadow-xs'
-                  : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
+                  ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+                  : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
               }`}
             >
               {p === 'today' ? 'Hoy' : p === 'week' ? 'Semana' : 'Mes'}
@@ -309,10 +309,8 @@ export default function Financials() {
         <>
           {/* Status Ledger Pill */}
           {ledger && (
-            <div className={`p-4 rounded-xl border flex items-center justify-between shadow-xs ${
-              ledger.balanced
-                ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)] text-[var(--color-primary)]'
-                : 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)] text-[var(--color-danger)]'
+            <div className={`flex items-center justify-between ${
+              ledger.balanced ? 'text-[var(--color-primary)]' : 'text-[var(--color-danger)]'
             }`}>
               <div className="flex items-center gap-3">
                 {ledger.balanced ? <CheckCircle2 className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
@@ -441,7 +439,7 @@ export default function Financials() {
                               Pedido #{inc.orderId?.orderNumber ?? 'N/A'}
                             </p>
                             <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${estado.clase}`}
+                              className={`text-[10px] font-bold uppercase tracking-wider ${estado.clase}`}
                             >
                               {estado.texto}
                             </span>

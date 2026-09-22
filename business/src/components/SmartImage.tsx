@@ -33,8 +33,21 @@ export interface ProductImages {
   height: number;
   /** Si las variantes se sirven con la cadena de mejora automática. */
   enhanced: boolean;
+  /** Lo que se muestra es el producto sin fondo. */
   backgroundRemoved: boolean;
+  /**
+   * El producto sin fondo, transparente, si ya existe el recorte. Las
+   * variantes de arriba lo sirven compuesto sobre el fondo de ZIPP.
+   * Opcional: el backend anterior no lo mandaba.
+   */
+  cutout?: string | null;
+  /** En qué va el recorte de fondo. */
+  backgroundRemoval?: BackgroundRemovalStatus;
+  /** Se está mostrando la foto original, con su fondo. */
+  usingOriginal?: boolean;
 }
+
+export type BackgroundRemovalStatus = 'none' | 'pending' | 'processing' | 'completed' | 'failed';
 
 /**
  * Ancho real de cada variante, en px. Copia de `PRODUCT_IMAGE_VARIANTS`

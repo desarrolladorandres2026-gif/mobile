@@ -36,6 +36,13 @@ export interface Product {
   modifierGroups?: ApiModifierGroup[];
   /** Variantes ya calculadas por el servidor. Nulo si no tiene foto. */
   images?: ProductImages | null;
+  /**
+   * Lo poco que el panel lee del almacenamiento de la foto: por qué falló
+   * el último recorte y cuándo se pidió.
+   */
+  imageAsset?: {
+    backgroundRemoval?: { errorCode?: string | null; requestedAt?: string | null } | null;
+  } | null;
   /** Variantes de las fotos adicionales. La principal no está aquí. */
   galleryImages?: ProductImages[] | null;
   /** Identificadores de las fotos adicionales, para poder borrarlas. */

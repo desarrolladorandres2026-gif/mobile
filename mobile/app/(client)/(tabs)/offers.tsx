@@ -24,7 +24,7 @@ import {
 import { tap } from '../../../lib/haptics';
 import { useTheme } from '../../../hooks/useTheme';
 import { useTabContentPadding, CLIENT_DOCK_CLEARANCE } from '../../../hooks/useBottomSpace';
-import { Spacing, palette } from '../../../theme/tokens';
+import { Spacing } from '../../../theme/tokens';
 
 /**
  * Todo lo que está en oferta, en un solo scroll.
@@ -40,9 +40,6 @@ import { Spacing, palette } from '../../../theme/tokens';
  * una fila sin marco. Y la magnitud manda —"25%" a 32px— porque es la única
  * pregunta que esta pestaña tiene que contestar antes de que alguien
  * decida si sigue leyendo.
- *
- * La obsidiana aparece una vez, arriba, donde el oro de la marca por fin
- * contrasta. El resto es papel.
  */
 export default function OffersScreen() {
   const router = useRouter();
@@ -228,18 +225,9 @@ export default function OffersScreen() {
             onRefresh={refreshAll}
             tintColor={c.primary}
             colors={[c.primary]}
-            // El indicador cae sobre la obsidiana: en el fondo por defecto
-            // se vería como un disco blanco pegado a la franja.
-            progressBackgroundColor={palette.ink700}
           />
         }
       >
-        {/* El rebote de iOS al tirar hacia abajo enseña el fondo del
-            ScrollView, que es papel: sobre la franja obsidiana se veía un
-            destello blanco. Este bloque lo tapa y el margen negativo le
-            devuelve el alto, así que no ocupa nada. */}
-        <View style={styles.overscroll} />
-
         <OffersHero
           coupon={heroCoupon}
           status={heroCoupon ? statusOf(heroCoupon) : undefined}
@@ -512,7 +500,6 @@ function Loading() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  overscroll: { height: 320, marginTop: -320, backgroundColor: palette.ink900 },
 
   chipsRow: { marginTop: Spacing.lg },
   // `Chip` con `bare` ya trae su propio `paddingRight` como separación; un

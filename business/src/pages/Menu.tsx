@@ -16,6 +16,7 @@ import ProductGalleryField from '../components/ProductGalleryField';
 import ProductImageField, {
   type ImageCapabilities, type PendingProductImage,
 } from '../components/ProductImageField';
+import { isImageInProgress, productImageFileName } from '../lib/productImageStatus';
 import ModifierGroupsEditor from '../components/ModifierGroupsEditor';
 import { toDrafts, fromDrafts, type GroupDraft } from '../lib/modifierGroups';
 
@@ -47,12 +48,20 @@ export default function Menu() {
 
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
+  const [showProductModal, setShowProductModal] = useState(false);
 
   // La carta del panel incluye lo no disponible: es la vista del comercio,
   // y el servidor la sirve siempre fresca, fuera de la caché compartida.
   const menuQuery = useQuery({
     queryKey: qk.menu(businessId),
     enabled: !!businessId,
+    // Una foto recién subida se está recortando: la lista vuelve a pedirse
+    // hasta que la miniatura cambie sola. Con el modal abierto no, porque
+    // ahí ya pregunta el campo de la foto.
+    refetchInterval: (query) =>
+      !showProductModal && query.state.data?.products.some((product) => isImageInProgress(product))
+        ? 5_000
+        : false,
     queryFn: async () => {
       const [resCats, resProds] = await Promise.all([
         api.get(`/categories/business/${businessId}`),
@@ -102,8 +111,12 @@ export default function Menu() {
    */
   const [categoryLeadsToProduct, setCategoryLeadsToProduct] = useState(false);
 
-  const [showProductModal, setShowProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  /**
+   * Errores al guardar el producto, dentro del modal. En la página quedaban
+   * tapados por el propio modal y el comercio no sabía por qué no avanzaba.
+   */
+  const [modalError, setModalError] = useState('');
   const [productForm, setProductForm] = useState(EMPTY_FORM);
   /** Recorte hecho en el editor que todavía no tiene producto al que ir. */
   const [pendingImage, setPendingImage] = useState<PendingProductImage | null>(null);
@@ -139,6 +152,7 @@ export default function Menu() {
         setCategoryLeadsToProduct(false);
         setEditingProduct(null);
         setPendingImage(null);
+        setModalError('');
         setProductForm({ ...EMPTY_FORM, categoryId: created.data.data._id });
         setShowProductModal(true);
       }
@@ -198,6 +212,7 @@ export default function Menu() {
   const openProductModal = (product: Product | null = null) => {
     setPendingImage(null);
     setError('');
+    setModalError('');
 
     if (product) {
       setEditingProduct(product);
@@ -250,7 +265,7 @@ export default function Menu() {
 
     const price = Number(productForm.price);
     if (!Number.isFinite(price) || price <= 0) {
-      setError('Escribe un precio válido.');
+      setModalError('Escribe un precio válido.');
       return;
     }
 
@@ -263,7 +278,7 @@ export default function Menu() {
         : null;
 
     if (discount !== null && discount >= price) {
-      setError('El precio con descuento tiene que ser menor que el precio regular.');
+      setModalError('El precio con descuento tiene que ser menor que el precio regular.');
       return;
     }
 
@@ -276,7 +291,7 @@ export default function Menu() {
 
     const converted = fromDrafts(productForm.modifierGroups);
     if ('error' in converted) {
-      setError(converted.error);
+      setModalError(converted.error);
       return;
     }
 
@@ -294,32 +309,34 @@ export default function Menu() {
     };
 
     setSaving(true);
-    setError('');
+    setModalError('');
     try {
       const saved = editingProduct
         ? await api.put(`/products/${editingProduct._id}`, payload)
         : await api.post('/products', payload);
 
-      const productId = saved.data.data._id as string;
+      const savedProduct = saved.data.data as Product;
 
       if (pendingImage) {
         try {
           const form = new FormData();
           form.append('businessId', businessId);
-          form.append('image', pendingImage.blob, 'producto.jpg');
+          form.append('image', pendingImage.blob, productImageFileName(pendingImage.blob));
           if (pendingImage.removeBackground) form.append('removeBackground', 'true');
           // Sin esto axios manda el FormData como JSON — la instancia del
           // panel declara 'application/json' por defecto.
-          await api.post(`/products/${productId}/image`, form, {
+          await api.post(`/products/${savedProduct._id}/image`, form, {
             headers: { 'Content-Type': undefined },
           });
         } catch (imageError) {
-          setError(
-            `Guardamos el producto, pero la foto no subió: ${apiMessage(imageError, 'inténtalo de nuevo desde "Editar".')}`
+          // El producto ya existe. El modal pasa a editarlo y conserva la
+          // foto pendiente: otro "Guardar" reintenta la foto en vez de
+          // crear un segundo producto, que es lo que pasaba antes.
+          setEditingProduct(savedProduct);
+          setModalError(
+            `Guardamos el producto, pero la foto no subió: ${apiMessage(imageError, 'pulsa "Guardar cambios" para reintentarla.')}`
           );
-          setPendingImage(null);
           await fetchData();
-          setSaving(false);
           return;
         }
       }
@@ -328,7 +345,7 @@ export default function Menu() {
       setPendingImage(null);
       await fetchData();
     } catch (err) {
-      setError(apiMessage(err, 'No pudimos guardar el producto.'));
+      setModalError(apiMessage(err, 'No pudimos guardar el producto.'));
     } finally {
       setSaving(false);
     }
@@ -736,6 +753,7 @@ export default function Menu() {
                 productId={editingProduct?._id ?? null}
                 businessId={businessId!}
                 images={editingProduct?.images ?? null}
+                imageAsset={editingProduct?.imageAsset ?? null}
                 capabilities={capabilities}
                 onPendingChange={setPendingImage}
                 onUpdated={onProductImageUpdated}
@@ -936,6 +954,16 @@ export default function Menu() {
                 groups={productForm.modifierGroups}
                 onChange={(modifierGroups) => setProductForm((previous) => ({ ...previous, modifierGroups }))}
               />
+
+              {modalError && (
+                <p
+                  role="alert"
+                  className="flex items-start gap-1.5 text-[11px] font-semibold text-[var(--color-danger)]"
+                >
+                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                  {modalError}
+                </p>
+              )}
 
               <button
                 type="submit"

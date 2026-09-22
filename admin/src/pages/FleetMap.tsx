@@ -367,7 +367,7 @@ export default function FleetMap() {
       </div>
 
       {mapError ? (
-        <div className="mb-4 flex items-start gap-3 rounded-xl border border-[var(--color-danger-bg)] bg-[var(--color-danger-bg)] p-4 text-xs text-[var(--color-danger)]">
+        <div className="mb-4 flex items-start gap-3 text-xs text-[var(--color-danger)]">
           <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
           <span className="flex-1 font-semibold">{mapError}</span>
         </div>
@@ -379,7 +379,7 @@ export default function FleetMap() {
           className="zipp-card min-h-75 flex-1 overflow-hidden p-0"
         />
 
-        <aside className="zipp-card w-full shrink-0 overflow-y-auto p-0 lg:w-80">
+        <aside className="zipp-card w-full shrink-0 overflow-y-auto p-0 lg:w-80 lg:border-l lg:border-[var(--color-border)] dark:lg:border-[#232E46]">
           {drivers.length === 0 ? (
             <p className="p-8 text-center text-xs font-semibold text-[var(--color-text-secondary)] dark:text-[#7184A8]">
               No hay domiciliarios en operación ahora mismo.

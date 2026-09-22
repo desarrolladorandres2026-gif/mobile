@@ -29,19 +29,28 @@ export function offsetKm(base: { lat: number; lng: number }, km: number) {
 
 let counter = 0;
 const uniquePhone = () => `31${String(10000000 + counter++).padStart(8, '0')}`;
+const uniqueEmail = () => `test.${counter++}@zipp.test`;
 
 export async function makeUser(overrides: Partial<{
   name: string;
   phone: string;
+  email: string;
   password: string;
   role: UserRole;
   isFinanceAdmin: boolean;
 }> = {}) {
+  const role = overrides.role ?? UserRole.CLIENT;
+  // admin/business entran por correo (ver `models/User.ts`) y lo exigen: sin
+  // esto, cualquier `makeUser({ role: UserRole.ADMIN | UserRole.BUSINESS })`
+  // falla la validación de Mongoose antes de llegar al test.
+  const needsEmail = role === UserRole.ADMIN || role === UserRole.BUSINESS;
+
   const user = await User.create({
     name: overrides.name ?? 'Usuario Prueba',
     phone: overrides.phone ?? uniquePhone(),
+    email: overrides.email ?? (needsEmail ? uniqueEmail() : undefined),
     password: overrides.password ?? 'Clave.Segura123',
-    role: overrides.role ?? UserRole.CLIENT,
+    role,
     isFinanceAdmin: overrides.isFinanceAdmin ?? false,
     isActive: true,
     isVerified: true,

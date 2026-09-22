@@ -56,14 +56,23 @@ export const registerCompleteSchema = z.object({
   params: z.object({}).optional(),
 });
 
+// Cliente y domiciliario entran por celular, al estilo Rappi (arriba). Admin
+// y business entran por correo: ninguno de los dos tiene ya un `phone`
+// garantizado (ver el `required` condicional en `models/User.ts`), así que
+// el celular no les sirve como identificador. Un mismo `POST /auth/login`
+// acepta cualquiera de los dos y el servicio decide por cuál buscar.
 export const loginSchema = z.object({
   body: z.object({
-    phone: phoneSchema,
+    phone: phoneSchema.optional(),
+    email: z.string().trim().toLowerCase().email('Email inválido').max(254).optional(),
     password: z.string().min(1, 'La contraseña es requerida').max(128),
     // Antes el esquema no los declaraba y Zod los descartaba: el login con
     // 2FA nunca recibía el código, y el antifraude nunca veía el dispositivo.
     totpToken: secondFactorSchema.optional(),
     deviceId: z.string().trim().min(1).max(128).optional(),
+  }).refine((data) => !!data.phone || !!data.email, {
+    message: 'Se requiere celular o correo',
+    path: ['phone'],
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),

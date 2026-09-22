@@ -22,10 +22,10 @@ interface DriverType {
 // Semáforo de despacho: verde = libre y en línea, ámbar = ocupado en una
 // entrega, gris = desconectado. El verde "disponible" usa la esmeralda de
 // seguridad de mobile (palette.emerald).
-const statusStyles: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-  available: { label: 'Disponible',    bg: 'bg-[var(--color-success-bg)] border-[var(--color-success-bg)]', text: 'text-[#047857]', dot: 'bg-[var(--color-success)]' },
-  busy:      { label: 'En Entrega',    bg: 'bg-[var(--color-warning-bg)] border-[var(--color-warning-bg)]', text: 'text-[#B45309]', dot: 'bg-[var(--color-warning)]' },
-  offline:   { label: 'Desconectado', bg: 'bg-[var(--color-bg-alt)] border-[var(--color-border)]', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
+const statusStyles: Record<string, { label: string; text: string; dot: string }> = {
+  available: { label: 'Disponible',    text: 'text-[#047857]', dot: 'bg-[var(--color-success)]' },
+  busy:      { label: 'En Entrega',    text: 'text-[#B45309]', dot: 'bg-[var(--color-warning)]' },
+  offline:   { label: 'Desconectado', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
 };
 
 export default function Drivers() {
@@ -131,7 +131,7 @@ export default function Drivers() {
       </div>
 
       {error && (
-        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error}</p>
         </div>
@@ -162,19 +162,19 @@ export default function Drivers() {
                       <h3 className="text-base font-bold text-[var(--color-text-main)]">
                         {d.userId?.name || 'Domiciliario'}
                       </h3>
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${statusConfig.bg} ${statusConfig.text}`}>
+                      <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${statusConfig.text}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot} flex-shrink-0`} />
                         {statusConfig.label}
                       </span>
 
                       {!d.isApproved && (
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-warning-bg)] text-[var(--color-warning)] border border-[var(--color-warning-bg)]">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-warning)]">
                           Pendiente aprobación
                         </span>
                       )}
 
                       {!d.isActive && d.isApproved && (
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger-bg)]">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-danger)]">
                           Suspendido
                         </span>
                       )}
@@ -193,12 +193,12 @@ export default function Drivers() {
                         <Truck className="w-3.5 h-3.5 text-[var(--color-primary)]" />
                         {d.totalDeliveries || 0} entregas realizadas
                       </span>
-                      <span className="px-2.5 py-0.5 rounded-md bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-main)] font-mono text-xs font-semibold flex items-center gap-1">
+                      <span className="text-[var(--color-text-main)] font-mono text-xs font-semibold flex items-center gap-1">
                         <DollarSign className="w-3 h-3 text-[var(--color-primary)]" />
                         Base: ${(d.currentFund || 0).toLocaleString('es-CO')} / ${(d.baseFund || 0).toLocaleString('es-CO')}
                       </span>
                       {debt > 0 && (
-                        <span className="px-2.5 py-0.5 rounded-md bg-[var(--color-warning-bg)] border border-[var(--color-warning-bg)] text-[var(--color-warning)] font-bold text-xs flex items-center gap-1">
+                        <span className="text-[var(--color-warning)] font-bold text-xs flex items-center gap-1">
                           <AlertCircle className="w-3 h-3" />
                           Deuda: ${(debt).toLocaleString('es-CO')}
                         </span>

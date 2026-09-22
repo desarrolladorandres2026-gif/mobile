@@ -23,6 +23,7 @@ export {
   orderCodeRateLimiter,
   orderChatRateLimiter,
   orderEvidenceRateLimiter,
+  productImageUploadRateLimiter,
   orderCallRateLimiter,
   reviewCreateRateLimiter,
   geocodeRateLimiter,

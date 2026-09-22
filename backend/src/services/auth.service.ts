@@ -55,7 +55,8 @@ import {
 import { anonymizeAccount, deletionBlocker } from './accountDeletion.service';
 
 interface LoginInput {
-  phone: string;
+  phone?: string;
+  email?: string;
   password: string;
   deviceId?: string;
   totpToken?: string;
@@ -997,23 +998,30 @@ export class AuthService {
 
   async login(input: LoginInput, req?: Request): Promise<AuthOutcome> {
     const ip = requestIp(req);
-    const phone = normalizePhone(input.phone) ?? input.phone;
 
-    const bruteCheck = await checkBruteForce(ip, phone);
+    // Cliente y domiciliario entran por celular; admin y business —que ya
+    // no tienen garantizado un `phone` (ver `models/User.ts`)— entran por
+    // correo. El validador exige exactamente uno de los dos.
+    const byEmail = !!input.email;
+    const identifierValue = byEmail ? input.email!.toLowerCase().trim() : (normalizePhone(input.phone) ?? input.phone!);
+    const identifierMask = byEmail ? maskEmail(identifierValue) : maskPhone(identifierValue);
+    const identifierFilter = byEmail ? { email: identifierValue } : { phone: identifierValue };
+
+    const bruteCheck = await checkBruteForce(ip, identifierValue);
     if (!bruteCheck.allowed) {
       if (req) {
         await logAudit(req, {
           action: AuditAction.BRUTE_FORCE_DETECTED,
           entity: 'auth',
           severity: AuditSeverity.HIGH,
-          description: `Brute force detectado para ${maskPhone(phone)}: ${bruteCheck.reason}`,
+          description: `Brute force detectado para ${identifierMask}: ${bruteCheck.reason}`,
           metadata: { retryAfterMs: bruteCheck.retryAfterMs },
         });
       }
       throw new AppError(bruteCheck.reason || 'Demasiados intentos. Intenta más tarde.', 429);
     }
 
-    const user = await User.findOne({ phone })
+    const user = await User.findOne(identifierFilter)
       .select('+password +twoFactorEnabled +twoFactorSecret +failedLoginAttempts +lastLoginIp');
 
     const passwordOk = !!user && (await user.comparePassword(input.password));
@@ -1022,7 +1030,7 @@ export class AuthService {
       // Misma respuesta exista o no la cuenta. El bloqueo lo decide el
       // contador por identificador escrito (ver security/bruteforce.ts), que
       // se comporta igual para un teléfono registrado y uno inventado.
-      const attempt = await recordFailedAttempt(ip, phone);
+      const attempt = await recordFailedAttempt(ip, identifierValue);
 
       if (user) {
         await User.updateOne({ _id: user._id }, { $inc: { failedLoginAttempts: 1 } });
@@ -1032,7 +1040,7 @@ export class AuthService {
             entity: 'user',
             entityId: user._id.toString(),
             severity: attempt.allowed ? AuditSeverity.MEDIUM : AuditSeverity.HIGH,
-            description: `Login fallido para ${maskPhone(phone)}`,
+            description: `Login fallido para ${identifierMask}`,
           });
         }
       }
@@ -1054,14 +1062,14 @@ export class AuthService {
       // Un TOTP equivocado con la contraseña correcta también es un intento
       // fallido: si no contara, el TOTP se podía probar sin límite.
       if (error instanceof AppError && error.code === 'MFA_CODE_INVALID') {
-        await recordFailedAttempt(ip, phone);
+        await recordFailedAttempt(ip, identifierValue);
       }
       throw error;
     }
 
     if (outcome.requiresTOTP) return outcome;
 
-    await clearAttempts(ip, phone);
+    await clearAttempts(ip, identifierValue);
     await User.updateOne({ _id: user._id }, { $set: { failedLoginAttempts: 0, isVerified: true }, $unset: { lockedUntil: 1 } });
 
     if (req) {
@@ -1071,7 +1079,7 @@ export class AuthService {
           entity: 'user',
           entityId: user._id.toString(),
           severity: AuditSeverity.MEDIUM,
-          description: `Nuevo dispositivo detectado para ${maskPhone(phone)}`,
+          description: `Nuevo dispositivo detectado para ${identifierMask}`,
         });
       }
 
@@ -1085,7 +1093,7 @@ export class AuthService {
         action: AuditAction.LOGIN_SUCCESS,
         entity: 'user',
         entityId: user._id.toString(),
-        description: `Login exitoso: ${maskPhone(phone)}`,
+        description: `Login exitoso: ${identifierMask}`,
         metadata: { isNewDevice: outcome.isNewDevice, role: user.role },
       });
     }
@@ -1730,7 +1738,7 @@ export class AuthService {
     qrCodeDataUrl: string;
     recoveryCodes: string[];
   }> {
-    const user = await User.findById(userId).select('+twoFactorSecret');
+    const user = await User.findById(userId).select('twoFactorEnabled email phone');
     if (!user) throw new AppError('Usuario no encontrado', 404);
 
     if (user.twoFactorEnabled) {
@@ -1739,11 +1747,21 @@ export class AuthService {
 
     const result = await generateTOTPSecret(user.email || user.phone || user._id.toString());
 
-    // El secreto se guarda cifrado; se devuelve en claro una única vez para
-    // que el usuario lo registre en su app autenticadora.
-    user.twoFactorSecret = sealTotpSecret(result.secret);
-    user.recoveryCodes = hashRecoveryCodes(result.recoveryCodes);
-    await user.save();
+    // `findById → mutate → save()` sobre este mismo documento es el patrón
+    // que ya causó carreras de concurrencia en dinero (ver CLAUDE.md): dos
+    // pestañas o un doble-submit pisándose la versión de Mongoose termina en
+    // un `VersionError` sin capturar → 500. Un `updateOne` atómico no tiene
+    // ese problema: cada petición escribe el suyo sin chocar, y el último en
+    // guardar es el que `verify2FASetup` compara. El secreto se guarda
+    // cifrado; se devuelve en claro una única vez para que el usuario lo
+    // registre en su app autenticadora.
+    const update = await User.updateOne(
+      { _id: userId, twoFactorEnabled: { $ne: true } },
+      { $set: { twoFactorSecret: sealTotpSecret(result.secret), recoveryCodes: hashRecoveryCodes(result.recoveryCodes) } }
+    );
+    if (update.matchedCount === 0) {
+      throw new AppError('2FA ya está habilitado', 400);
+    }
 
     if (req) {
       await logAudit(req, {

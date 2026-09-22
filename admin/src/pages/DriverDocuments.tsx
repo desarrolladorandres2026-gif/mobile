@@ -142,20 +142,20 @@ export default function DriverDocuments() {
               </h3>
 
               {blocking && (
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger-bg)]">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-danger)]">
                   Obligatorio
                 </span>
               )}
 
               {tone === 'expired' && (
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger-bg)]">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-danger)]">
                   <ShieldAlert className="w-3 h-3" />
                   Vencido
                 </span>
               )}
 
               {tone === 'soon' && days !== null && (
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-warning-bg)] text-[var(--color-warning)] border border-[var(--color-warning-bg)]">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-warning)]">
                   <Clock className="w-3 h-3" />
                   {days <= 0 ? 'Vence hoy' : `Vence en ${days} día${days === 1 ? '' : 's'}`}
                 </span>
@@ -262,7 +262,7 @@ export default function DriverDocuments() {
       </div>
 
       {error && (
-        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error}</p>
         </div>

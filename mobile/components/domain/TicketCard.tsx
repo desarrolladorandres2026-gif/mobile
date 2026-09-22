@@ -27,12 +27,11 @@ import type { OfferCoupon } from '../../services/endpoints';
  * trabajo es contestar "¿cuánto me ahorro?".
  *
  * `notchColor` tiene que ser el color de lo que hay detrás: las muescas son
- * dos círculos pintados del color del fondo que se comen el borde. Sobre la
- * franja obsidiana no es el mismo que sobre papel, y con el color
- * equivocado se ven dos lunares en vez de un corte.
+ * dos círculos pintados del color del fondo que se comen el borde. Con el
+ * color equivocado se ven dos lunares en vez de un corte.
  */
 export const TicketCard = memo(function TicketCard({
-  coupon, width = 244, status, onPress, onExpire, notchColor, tone = 'paper',
+  coupon, width = 244, status, onPress, onExpire, notchColor,
 }: {
   coupon: OfferCoupon;
   width?: number | `${number}%`;
@@ -41,22 +40,19 @@ export const TicketCard = memo(function TicketCard({
   onExpire?: () => void;
   /** El color del fondo sobre el que se apoya el tiquete. */
   notchColor: string;
-  /** `ink` es el tiquete de la franja obsidiana: fondo titanio y oro claro. */
-  tone?: 'paper' | 'ink';
 }) {
   const { c } = useTheme();
-  const dark = tone === 'ink';
 
   const { value, qualifier } = couponMagnitude(coupon);
   const progress = usageProgress(coupon);
   const expiring = isExpiringSoon(coupon);
   const blocked = !!status && status.kind !== 'active';
 
-  const surface = dark ? palette.ink700 : c.surface;
-  const magnitude = dark ? palette.gold400 : palette.gold600;
-  const ink = dark ? palette.paper0 : c.text;
-  const quiet = dark ? palette.ink100 : c.textMuted;
-  const rule = dark ? palette.ink500 : c.border;
+  const surface = c.surface;
+  const magnitude = palette.gold600;
+  const ink = c.text;
+  const quiet = c.textMuted;
+  const rule = c.border;
 
   const Container: typeof View | typeof Pressable = onPress ? Pressable : View;
 
@@ -68,7 +64,7 @@ export const TicketCard = memo(function TicketCard({
       accessibilityHint={onPress ? 'Abre las condiciones del cupón' : undefined}
       style={[
         styles.ticket,
-        dark ? Shadow.none : Shadow.sm,
+        Shadow.sm,
         blocked && styles.blocked,
         { width, backgroundColor: surface },
       ]}

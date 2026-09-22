@@ -157,10 +157,7 @@ export default function Support() {
               tone: '',
             },
           ].map((kpi) => (
-            <div
-              key={kpi.label}
-              className="rounded-xl border border-[var(--color-border-light)] bg-[var(--color-surface)] p-4"
-            >
+            <div key={kpi.label}>
               <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
                 {kpi.label}
               </p>
@@ -205,7 +202,7 @@ export default function Support() {
             return (
               <li
                 key={ticket._id}
-                className="rounded-xl border border-[var(--color-border-light)] bg-[var(--color-surface)] p-4"
+                className="border-b border-[var(--color-border-light)] pb-4"
               >
                 <div className="flex flex-wrap items-start gap-3">
                   <div className="min-w-0 flex-1">

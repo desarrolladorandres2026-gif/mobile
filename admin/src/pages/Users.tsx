@@ -318,10 +318,10 @@ export default function Users() {
             <button
               key={r}
               onClick={() => setRoleFilter(r)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+              className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${
                 roleFilter === r
-                  ? 'bg-[var(--color-primary)] text-white shadow-xs'
-                  : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+                  ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                  : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
               }`}
             >
               {r === 'all' ? 'Todos los roles' : roleLabels[r]?.label}
@@ -635,9 +635,9 @@ export default function Users() {
                 <label className="block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1.5">
                   Permisos efectivos actuales ({effectivePermissions.length})
                 </label>
-                <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto p-2 bg-[var(--color-bg)] rounded-xl border border-[var(--color-border-light)]">
+                <div className="flex flex-wrap gap-x-2 gap-y-1 max-h-24 overflow-y-auto">
                   {effectivePermissions.map((p) => (
-                    <span key={p} className="px-1.5 py-0.5 rounded bg-[var(--color-surface)] border border-[var(--color-border)] text-[9px] font-mono text-[var(--color-text-secondary)]">{p}</span>
+                    <span key={p} className="text-[9px] font-mono text-[var(--color-text-secondary)]">{p}</span>
                   ))}
                 </div>
               </div>
@@ -719,8 +719,8 @@ export default function Users() {
             </div>
             <div className="space-y-3">
               <input placeholder="Nombre completo" value={staffForm.name} onChange={(e) => setStaffForm((f) => ({ ...f, name: e.target.value }))} className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs" />
-              <input placeholder="Celular (10 dígitos)" value={staffForm.phone} onChange={(e) => setStaffForm((f) => ({ ...f, phone: e.target.value }))} className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs" />
-              <input placeholder="Email (opcional)" value={staffForm.email} onChange={(e) => setStaffForm((f) => ({ ...f, email: e.target.value }))} className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs" />
+              <input placeholder="Correo (con esto entra al panel)" type="email" value={staffForm.email} onChange={(e) => setStaffForm((f) => ({ ...f, email: e.target.value }))} className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs" />
+              <input placeholder="Celular (opcional)" value={staffForm.phone} onChange={(e) => setStaffForm((f) => ({ ...f, phone: e.target.value }))} className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs" />
               <input placeholder="Contraseña inicial" type="password" value={staffForm.password} onChange={(e) => setStaffForm((f) => ({ ...f, password: e.target.value }))} className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs" />
               <select value={staffForm.positionId} onChange={(e) => setStaffForm((f) => ({ ...f, positionId: e.target.value }))} className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs">
                 <option value="">Sin cargo (asignar después)</option>

@@ -51,6 +51,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     ...config.ios,
     bundleIdentifier: APP.bundleId,
+    infoPlist: {
+      ...config.ios?.infoPlist,
+      // Sin esta clave, iOS limita a 60 fps las apps de terceros en iPhone
+      // con ProMotion. Con ella, el reloj de animación de Reanimated puede
+      // pedir 120 Hz; la pantalla vuelve a bajar sola cuando nada se mueve.
+      CADisableMinimumFrameDurationOnPhone: true,
+    },
   },
   android: {
     ...config.android,

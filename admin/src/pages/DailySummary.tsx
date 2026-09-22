@@ -382,7 +382,7 @@ function TopList({ rows, render }: { rows: TopBusiness[]; render: (b: TopBusines
 function HealthFlags({ flags }: { flags: HealthFlag[] }) {
   if (flags.length === 0) {
     return (
-      <div className="flex items-center gap-2 p-3 rounded-xl bg-[var(--color-primary-bg)] border border-[var(--color-primary-bg)] text-[#059669] text-xs font-semibold">
+      <div className="flex items-center gap-2 text-[#059669] text-xs font-semibold">
         <CircleCheck className="w-4 h-4" />
         Sin alertas para este día.
         <span className="font-normal text-[var(--color-text-muted)] no-print">
@@ -392,14 +392,14 @@ function HealthFlags({ flags }: { flags: HealthFlag[] }) {
     );
   }
   const style: Record<HealthFlag['level'], string> = {
-    ok: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)] text-[#059669]',
-    warn: 'bg-[var(--color-warning-bg)] border-[var(--color-warning-bg)] text-[var(--color-chart-purple)]',
-    critical: 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)] text-[var(--color-danger)]',
+    ok: 'text-[#059669]',
+    warn: 'text-[var(--color-chart-purple)]',
+    critical: 'text-[var(--color-danger)]',
   };
   return (
     <div className="space-y-2">
       {flags.map((f) => (
-        <div key={f.code} className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-semibold ${style[f.level]}`}>
+        <div key={f.code} className={`flex items-center gap-2 text-xs font-semibold ${style[f.level]}`}>
           {f.level === 'ok' ? <CircleCheck className="w-4 h-4 flex-shrink-0" /> : <TriangleAlert className="w-4 h-4 flex-shrink-0" />}
           {f.message}
         </div>

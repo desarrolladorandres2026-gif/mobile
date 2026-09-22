@@ -10,23 +10,23 @@ import { usePreferencesStore } from '../stores/preferencesStore';
 import { ThemeToggle } from './ThemeToggle';
 import ConfirmDialog from './ConfirmDialog';
 import {
-  DashboardIllustration, PackageIllustration, RestaurantIllustration, WalletIllustration,
-  RatingIllustration, PrepTimeIllustration, CashIllustration,
-} from './illustrations';
+  DashboardLogo, PackageLogo, RestaurantLogo, WalletLogo,
+  RatingLogo, PrepTimeLogo, CashLogo,
+} from './logos';
 import { apiMessage } from '../lib/apiError';
 import { preloadOn } from '../lib/lazyPage';
 
 const nav = [
-  { path: '/', Illustration: DashboardIllustration, label: 'Dashboard' },
-  { path: '/orders', Illustration: PackageIllustration, label: 'Pedidos' },
-  { path: '/settlements', Illustration: WalletIllustration, label: 'Liquidaciones' },
-  { path: '/analytics', Illustration: DashboardIllustration, label: 'Analíticas' },
-  { path: '/menu', Illustration: RestaurantIllustration, label: 'Menú & Catálogo' },
-  { path: '/promotions', Illustration: CashIllustration, label: 'Promociones' },
-  { path: '/advertising', Illustration: CashIllustration, label: 'Publicidad' },
-  { path: '/reviews', Illustration: RatingIllustration, label: 'Reseñas' },
-  { path: '/staff', Illustration: RestaurantIllustration, label: 'Equipo' },
-  { path: '/settings', Illustration: PrepTimeIllustration, label: 'Ajustes' },
+  { path: '/', Illustration: DashboardLogo, label: 'Dashboard' },
+  { path: '/orders', Illustration: PackageLogo, label: 'Pedidos' },
+  { path: '/settlements', Illustration: WalletLogo, label: 'Liquidaciones' },
+  { path: '/analytics', Illustration: DashboardLogo, label: 'Analíticas' },
+  { path: '/menu', Illustration: RestaurantLogo, label: 'Menú & Catálogo' },
+  { path: '/promotions', Illustration: CashLogo, label: 'Promociones' },
+  { path: '/advertising', Illustration: CashLogo, label: 'Publicidad' },
+  { path: '/reviews', Illustration: RatingLogo, label: 'Reseñas' },
+  { path: '/staff', Illustration: RestaurantLogo, label: 'Equipo' },
+  { path: '/settings', Illustration: PrepTimeLogo, label: 'Ajustes' },
 ];
 
 export default function Layout() {

@@ -224,9 +224,9 @@ export default function Businesses() {
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${selectedCategory === cat.id
-                ? 'bg-[var(--color-primary)] text-white shadow-xs'
-                : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+              className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${selectedCategory === cat.id
+                ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
                 }`}
             >
               {cat.label}
@@ -236,7 +236,7 @@ export default function Businesses() {
       </div>
 
       {error && (
-        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error}</p>
         </div>
@@ -298,7 +298,7 @@ export default function Businesses() {
               </div>
 
               <div className="flex items-center justify-between md:justify-end gap-3 border-t border-[var(--color-border-light)] md:border-0 pt-3 md:pt-0">
-                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border uppercase tracking-wider ${b.isActive ? 'bg-[var(--color-primary-bg)] text-[var(--color-primary)] border-[var(--color-primary-bg)]' : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger-bg)]'
+                <span className={`text-[10px] font-bold uppercase tracking-wider ${b.isActive ? 'text-[var(--color-primary)]' : 'text-[var(--color-danger)]'
                   }`}>
                   {b.isActive ? 'Activo' : 'Inactivo'}
                 </span>

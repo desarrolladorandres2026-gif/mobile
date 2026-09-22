@@ -112,12 +112,14 @@ const seed = async () => {
   });
 
   await User.create({
-    name: 'Juan Restaurantes', phone: '3151234567',
+    // El panel business entra por correo, no por celular (ver
+    // `auth.service.ts::login`): sin uno, `User.create` rechaza la cuenta.
+    name: 'Juan Restaurantes', phone: '3151234567', email: 'juan.restaurantes@zipp.demo',
     password: DEMO_PASSWORD, role: 'business', isActive: true, isVerified: true,
   });
 
   await User.create({
-    name: 'Ana Cafeterías', phone: '3161234567',
+    name: 'Ana Cafeterías', phone: '3161234567', email: 'ana.cafeterias@zipp.demo',
     password: DEMO_PASSWORD, role: 'business', isActive: true, isVerified: true,
   });
 

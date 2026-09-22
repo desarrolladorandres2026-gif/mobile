@@ -175,17 +175,17 @@ export default function Dashboard() {
 
   const getStatusBadge = (status: string) => {
     // Espejo del esquema `orderStatus` de mobile/theme/tokens.ts.
-    const map: Record<string, { label: string; bg: string; text: string }> = {
-      pending: { label: 'Por Aceptar', bg: 'bg-[var(--color-warning-bg)] border-[var(--color-warning-bg)]', text: 'text-[#B45309]' },
-      accepted: { label: 'Aceptado', bg: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)]', text: 'text-[var(--color-chart-purple)]' },
-      preparing: { label: 'En Cocina', bg: 'bg-[var(--color-warning-bg)] border-[var(--color-warning-bg)]', text: 'text-[#B45309]' },
-      ready: { label: 'Listo', bg: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)]', text: 'text-[var(--color-chart-purple)]' },
-      picked_up: { label: 'En Camino', bg: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)]', text: 'text-[#8A5D08]' },
-      on_way: { label: 'En Camino', bg: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)]', text: 'text-[#8A5D08]' },
-      delivered: { label: 'Entregado', bg: 'bg-[var(--color-success-bg)] border-[var(--color-success-bg)]', text: 'text-[#047857]' },
-      cancelled: { label: 'Cancelado', bg: 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)]', text: 'text-[var(--color-danger)]' },
+    const map: Record<string, { label: string; text: string }> = {
+      pending: { label: 'Por Aceptar', text: 'text-[#B45309]' },
+      accepted: { label: 'Aceptado', text: 'text-[var(--color-chart-purple)]' },
+      preparing: { label: 'En Cocina', text: 'text-[#B45309]' },
+      ready: { label: 'Listo', text: 'text-[var(--color-chart-purple)]' },
+      picked_up: { label: 'En Camino', text: 'text-[#8A5D08]' },
+      on_way: { label: 'En Camino', text: 'text-[#8A5D08]' },
+      delivered: { label: 'Entregado', text: 'text-[#047857]' },
+      cancelled: { label: 'Cancelado', text: 'text-[var(--color-danger)]' },
     };
-    return map[status] || { label: status, bg: 'bg-gray-50 border-gray-200', text: 'text-gray-900' };
+    return map[status] || { label: status, text: 'text-gray-900' };
   };
 
   return (
@@ -296,7 +296,7 @@ export default function Dashboard() {
           </div>
 
           {/* Alert Notice */}
-          <div className="mb-4 p-2.5 rounded-lg bg-[var(--color-primary-bg)] border border-[var(--color-primary-bg)] text-[11px] text-[#8A5D08] flex items-center justify-between">
+          <div className="mb-4 text-[11px] text-[#8A5D08] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-[var(--color-primary)] flex-shrink-0" />
               <span>Operación en tiempo real: {stats?.activeOrders ?? 0} pedidos procesándose en este momento.</span>
@@ -482,7 +482,7 @@ export default function Dashboard() {
                           ${(o.total || 0).toLocaleString('es-CO')}
                         </td>
                         <td className="py-2.5 text-right">
-                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${st.bg} ${st.text}`}>
+                          <span className={`text-[10px] font-bold uppercase tracking-wide ${st.text}`}>
                             {st.label}
                           </span>
                         </td>

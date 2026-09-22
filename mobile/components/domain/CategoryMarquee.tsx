@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, StyleSheet, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { View, PixelRatio, StyleSheet, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { useIsFocused } from 'expo-router';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue, useAnimatedStyle, useFrameCallback, useReducedMotion,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { CategoryTile } from './CategoryTile';
 import { Spacing } from '../../theme/tokens';
@@ -34,6 +35,14 @@ const SPEED_PX_PER_SEC = 22;
 
 /** Tope de avance por frame: si el hilo JS se congeló, no damos un tirón. */
 const MAX_STEP_MS = 50;
+
+/**
+ * Píxeles físicos por punto. A 22 pt/s el letrero avanza menos de un píxel
+ * físico por frame en pantallas de 90/120 Hz: sin redondear, las imágenes se
+ * dibujan en posiciones fraccionarias (se suavizan y se enfocan alternando)
+ * mientras el texto salta de píxel en píxel, y el cuadro parece temblar.
+ */
+const PX = PixelRatio.get();
 
 /**
  * Cuánto se queda quieto el letrero, después de que el usuario lo soltó,
@@ -71,8 +80,18 @@ export function resumeDelayFor(settledAligned: boolean): number | null {
  * en cualquier sentido; el movimiento automático se detiene y vuelve según
  * `resumeDelayFor`. Con "Reducir movimiento" no hay arrastre automático: la
  * fila queda quieta y se recorre solo con el dedo.
+ *
+ * `offscreen` lo calcula la pantalla que lo contiene (solo ella conoce su
+ * scroll): mientras sea `true` el letrero no avanza. Un valor animado que
+ * cambia obliga a dibujar un frame nuevo en cada vsync aunque la vista esté
+ * fuera de pantalla; quieto, el teléfono no dibuja nada.
  */
-export function CategoryMarquee({ categories }: { categories: MarqueeCategory[] }) {
+export function CategoryMarquee({
+  categories, offscreen,
+}: {
+  categories: MarqueeCategory[];
+  offscreen?: SharedValue<boolean>;
+}) {
   const { width } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
   const focused = useIsFocused();
@@ -108,7 +127,7 @@ export function CategoryMarquee({ categories }: { categories: MarqueeCategory[] 
 
   const frame = useFrameCallback((info) => {
     'worklet';
-    if (groupW.value === 0 || paused.value) return;
+    if (groupW.value === 0 || paused.value || offscreen?.value) return;
 
     const now = info.timestamp;
     if (armResume.value) {
@@ -158,7 +177,11 @@ export function CategoryMarquee({ categories }: { categories: MarqueeCategory[] 
     [groupW, paused, resumeAt, tx, settledAligned, armResume]
   );
 
-  const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }));
+  // `tx` acumula en decimales para que la velocidad sea exacta; lo que se
+  // pinta va redondeado al píxel físico (ver `PX`).
+  const rowStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: Math.round(tx.value * PX) / PX }],
+  }));
 
   return (
     <View style={styles.viewport}>

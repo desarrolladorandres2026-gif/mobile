@@ -84,15 +84,15 @@ export default function Analytics() {
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
+        <div className="flex items-center gap-1">
           {RANGES.map((range) => (
             <button
               key={range.days}
               onClick={() => setDays(range.days)}
-              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3 py-1.5 text-xs font-bold transition-all cursor-pointer border-b-2 ${
                 days === range.days
-                  ? 'bg-[var(--color-primary)] text-white'
-                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-alt)]'
+                  ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+                  : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
               }`}
             >
               {range.label}

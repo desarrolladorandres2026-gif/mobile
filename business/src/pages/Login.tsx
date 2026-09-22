@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Phone, Lock, Store, ArrowRight, Eye, EyeOff, Activity } from 'lucide-react';
+import { AlertCircle, Mail, Lock, ArrowRight, Eye, EyeOff, Activity } from 'lucide-react';
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
-import { ZippMark } from '../components/ZippMark';
 import heroImage from '../assets/hero.webp';
 import { apiMessage } from '../lib/apiError';
 
@@ -12,7 +11,7 @@ export default function Login() {
   const setAuth = useAuthStore((s) => s.setAuth);
   const setBusinesses = useAuthStore((s) => s.setBusinesses);
 
-  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
@@ -21,7 +20,7 @@ export default function Login() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phone || !password) {
+    if (!email || !password) {
       setError('Por favor completa todos los campos para continuar.');
       return;
     }
@@ -31,7 +30,7 @@ export default function Login() {
 
     try {
       const { data } = await api.post('/auth/login', {
-        phone: phone.replace(/\D/g, ''),
+        email: email.trim().toLowerCase(),
         password,
       });
       const { user, accessToken, refreshToken } = data.data;
@@ -56,7 +55,7 @@ export default function Login() {
     } catch (err) {
       setLoading(false);
       setError(
-        apiMessage(err, 'Error al iniciar sesión. Verifica el teléfono o la contraseña de tu comercio.')
+        apiMessage(err, 'Error al iniciar sesión. Verifica el correo o la contraseña de tu comercio.')
       );
     }
   };
@@ -67,9 +66,6 @@ export default function Login() {
         {/* Left: Form panel */}
         <div className="w-full md:w-1/2 flex flex-col justify-center px-8 py-10 sm:px-12">
           <div className="flex flex-col items-center text-center mb-8">
-            <div className="w-12 h-12 rounded-2xl bg-[#D69E26]/10 flex items-center justify-center mb-4">
-              <ZippMark size={30} />
-            </div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
               Bienvenido de nuevo
             </h1>
@@ -87,17 +83,14 @@ export default function Login() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="relative">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-slate-900">
-                <Phone className="w-4 h-4" />
-                <span className="text-xs font-semibold text-slate-900 border-r border-slate-200 pr-2">+57</span>
-              </div>
+              <Mail className="w-4 h-4 text-slate-900 absolute left-4 top-1/2 -translate-y-1/2" />
               <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Teléfono registrado del comercio"
-                className="w-full h-12 rounded-xl bg-slate-50 border border-slate-200 pl-20 pr-4 text-sm text-slate-900 placeholder-slate-400 focus:border-[#D69E26] focus:ring-2 focus:ring-[#D69E26]/15 outline-none transition-all"
-                autoComplete="tel"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Correo registrado del comercio"
+                className="w-full h-12 rounded-xl bg-slate-50 border border-slate-200 pl-11 pr-4 text-sm text-slate-900 placeholder-slate-400 focus:border-[#D69E26] focus:ring-2 focus:ring-[#D69E26]/15 outline-none transition-all"
+                autoComplete="email"
                 required
               />
             </div>
@@ -156,11 +149,6 @@ export default function Login() {
               )}
             </button>
           </form>
-
-          <div className="flex items-center justify-center gap-2 mt-8 text-[11px] text-slate-900">
-            <Store className="w-3.5 h-3.5" />
-            <span>Conexión encriptada</span>
-          </div>
 
           <a
             href="https://github.com/twitter/twemoji"

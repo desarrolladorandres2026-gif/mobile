@@ -1,11 +1,37 @@
 import { Request, Response, NextFunction } from 'express';
 import { productService, publicCatalogService } from '../services';
+import { MulterError } from 'multer';
+import { config } from '../config';
 import { productImageService } from '../services/productImage.service';
+import { backgroundRemovalService } from '../services/backgroundRemoval.service';
 import { sendResponse, param, query, clampLimit } from '../utils';
 import { AppError, cacheHeaders } from '../middlewares';
 import { uploadProductImage } from '../middlewares/upload';
 import { UserRole } from '../types';
 import { Business } from '../models';
+
+/**
+ * El error de multer, en el idioma y con el código del resto de la API.
+ *
+ * Un archivo demasiado grande salía como 400 "File too large": en inglés y
+ * con el mismo código que un archivo corrupto, así que el panel no podía
+ * decirle al comercio qué hacer.
+ */
+function uploadError(err: unknown): AppError {
+  if (err instanceof MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    const mb = (config.productImages.maxBytes / (1024 * 1024)).toFixed(0);
+    return new AppError(
+      `La imagen pesa más de ${mb} MB. Tómala de nuevo o redúcela antes de subirla.`,
+      413,
+      'PRODUCT_IMAGE_TOO_LARGE'
+    );
+  }
+  return new AppError(
+    err instanceof Error ? err.message : 'No se pudo procesar la imagen',
+    400,
+    'PRODUCT_IMAGE_INVALID_FILE'
+  );
+}
 
 async function assertOwnsBusiness(req: Request, businessId: string) {
   if (req.user!.role === UserRole.ADMIN) return;
@@ -115,13 +141,7 @@ export class ProductController {
   async uploadImage(req: Request, res: Response, next: NextFunction) {
     uploadProductImage(req, res, async (err: unknown) => {
       try {
-        if (err) {
-          throw new AppError(
-            err instanceof Error ? err.message : 'No se pudo procesar la imagen',
-            400,
-            'PRODUCT_IMAGE_INVALID_FILE'
-          );
-        }
+        if (err) throw uploadError(err);
         if (!req.file) {
           throw new AppError('Adjunta una imagen', 400, 'PRODUCT_IMAGE_INVALID_FILE');
         }
@@ -130,17 +150,43 @@ export class ProductController {
         await assertOwnsBusiness(req, businessId);
 
         const product = await productService.getOwned(param(req, 'id'), businessId);
-        const updated = await productImageService.replace({
+        let updated = await productImageService.replace({
           product,
           buffer: req.file.buffer,
           mimetype: req.file.mimetype,
           enhance: req.body?.enhance !== 'false',
-          removeBackground: req.body?.removeBackground === 'true',
         });
+
+        // El recorte no se espera: la respuesta sale con la original y el
+        // estado `pending`, y el panel pregunta hasta verlo terminado.
+        if (req.body?.removeBackground === 'true') {
+          updated = await backgroundRemovalService.requestIfNeeded(updated);
+        }
 
         sendResponse(res, 201, 'Imagen actualizada', updated);
       } catch (error) { next(error); }
     });
+  }
+
+  /**
+   * "Reintentar" o "Quitar el fondo" sobre la foto que ya tiene.
+   *
+   * Es la única forma de volver a cobrar un recorte de la misma foto, y
+   * por eso pasa por el limitador de subidas y por el tope diario.
+   */
+  async requestBackgroundRemoval(req: Request, res: Response, next: NextFunction) {
+    try {
+      await assertOwnsBusiness(req, req.body.businessId);
+      const product = await productService.getOwned(param(req, 'id'), req.body.businessId);
+      const updated = await backgroundRemovalService.request(product, 'retry');
+      const status = updated.imageAsset?.backgroundRemoval?.status;
+      sendResponse(
+        res,
+        status === 'pending' || status === 'processing' ? 202 : 200,
+        'Recorte de fondo solicitado',
+        updated
+      );
+    } catch (error) { next(error); }
   }
 
   /**
@@ -152,13 +198,7 @@ export class ProductController {
   async addGalleryImage(req: Request, res: Response, next: NextFunction) {
     uploadProductImage(req, res, async (err: unknown) => {
       try {
-        if (err) {
-          throw new AppError(
-            err instanceof Error ? err.message : 'No se pudo procesar la imagen',
-            400,
-            'PRODUCT_IMAGE_INVALID_FILE'
-          );
-        }
+        if (err) throw uploadError(err);
         if (!req.file) {
           throw new AppError('Adjunta una imagen', 400, 'PRODUCT_IMAGE_INVALID_FILE');
         }
@@ -171,7 +211,6 @@ export class ProductController {
           product,
           buffer: req.file.buffer,
           mimetype: req.file.mimetype,
-          removeBackground: req.body?.removeBackground === 'true',
         });
 
         sendResponse(res, 201, 'Foto añadida', updated);
@@ -181,29 +220,27 @@ export class ProductController {
 
   async removeGalleryImage(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = String(req.body?.businessId ?? '');
+      const { businessId, publicId } = req.body;
       await assertOwnsBusiness(req, businessId);
 
       const product = await productService.getOwned(param(req, 'id'), businessId);
-      const updated = await productImageService.removeFromGallery(
-        product,
-        String(req.body?.publicId ?? '')
-      );
+      const updated = await productImageService.removeFromGallery(product, publicId);
 
       sendResponse(res, 200, 'Foto eliminada', updated);
     } catch (error) { next(error); }
   }
 
-  /** Activa o desactiva la mejora sin volver a subir el archivo. */
+  /**
+   * "Mejorar" y "Usar imagen original", sin volver a subir el archivo ni
+   * gastar un recorte: los dos viven en la URL de entrega.
+   */
   async updateImageOptions(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = String(req.body?.businessId ?? '');
+      const { businessId, enhance, useOriginal } = req.body;
       await assertOwnsBusiness(req, businessId);
 
       const product = await productService.getOwned(param(req, 'id'), businessId);
-      const updated = await productImageService.updateOptions(product, {
-        enhance: typeof req.body?.enhance === 'boolean' ? req.body.enhance : undefined,
-      });
+      const updated = await productImageService.updateOptions(product, { enhance, useOriginal });
 
       sendResponse(res, 200, 'Imagen actualizada', updated);
     } catch (error) { next(error); }

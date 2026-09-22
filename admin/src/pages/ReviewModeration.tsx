@@ -129,7 +129,7 @@ export default function ReviewModeration() {
       </div>
 
       {error && (
-        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error}</p>
         </div>
@@ -160,7 +160,7 @@ export default function ReviewModeration() {
                       {review.businessId?.name ?? 'Negocio'}
                     </h3>
                     {review.isHidden && (
-                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-danger-bg)] text-[var(--color-danger)]">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-danger)]">
                         Oculta
                       </span>
                     )}

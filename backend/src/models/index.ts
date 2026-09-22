@@ -6,7 +6,14 @@ export { Position, IPosition } from './Position';
 export { Role, IRole } from './Role';
 export { Business, IBusiness } from './Business';
 export { Category, ICategory } from './Category';
-export { Product, IProduct, IProductImage } from './Product';
+export {
+  Product,
+  IProduct,
+  IProductImage,
+  IProductImageCutout,
+  IBackgroundRemovalState,
+  BackgroundRemovalStatus,
+} from './Product';
 export { Driver, IDriver } from './Driver';
 export { DriverLocation, IDriverLocation } from './DriverLocation';
 export { Order, IOrder, IOrderItem, IOrderFinance } from './Order';
@@ -136,3 +143,9 @@ export {
   ProSubscriptionStatus,
   isProActive,
 } from './ProSubscription';
+
+export {
+  ImageProcessingEvent,
+  IImageProcessingEvent,
+  ImageProcessingOutcome,
+} from './ImageProcessingEvent';

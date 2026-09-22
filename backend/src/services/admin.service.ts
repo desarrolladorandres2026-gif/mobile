@@ -15,7 +15,7 @@ import {
   getEffectiveRoles,
 } from './authorization.service';
 import { normalizePhone } from '../utils/phone';
-import { maskPhone } from '../utils/mask';
+import { maskEmail } from '../utils/mask';
 import { parseBirthDate, birthDateProblem } from '../utils/age';
 
 export class AdminService {
@@ -438,21 +438,32 @@ export class AdminService {
    * y no acepta Cargo/Roles). Requiere `users:create`.
    */
   async createStaffUser(
-    data: { name: string; phone: string; email?: string; password: string; positionId?: string; roleIds?: string[] },
+    data: { name: string; phone?: string; email: string; password: string; positionId?: string; roleIds?: string[] },
     actor: IUser,
     req?: Request
   ): Promise<IUser> {
-    const normalizedPhone = normalizePhone(data.phone);
-    if (!normalizedPhone) {
-      throw new AppError('Número de celular inválido', 400);
+    // El panel admin entra por correo (ver `auth.service.ts::login`), así
+    // que toda cuenta creada desde aquí necesita uno; el celular queda
+    // opcional, a diferencia de antes.
+    const normalizedEmail = data.email?.trim().toLowerCase();
+    if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      throw new AppError('Correo electrónico inválido', 400);
     }
-    data = { ...data, phone: normalizedPhone };
+    const existingEmail = await User.findOne({ email: normalizedEmail });
+    if (existingEmail) throw new AppError('Este correo electrónico ya está registrado', 409);
+
+    let normalizedPhone: string | undefined;
+    if (data.phone) {
+      normalizedPhone = normalizePhone(data.phone) ?? undefined;
+      if (!normalizedPhone) throw new AppError('Número de celular inválido', 400);
+      const existingPhone = await User.findOne({ phone: normalizedPhone });
+      if (existingPhone) throw new AppError('Este número de celular ya está registrado', 409);
+    }
+
+    data = { ...data, email: normalizedEmail, phone: normalizedPhone };
     if (!data.name || data.name.trim().length < 2) {
       throw new AppError('El nombre es requerido', 400);
     }
-
-    const existing = await User.findOne({ phone: data.phone });
-    if (existing) throw new AppError('Este número de celular ya está registrado', 409);
 
     const passwordCheck = validatePasswordComplexity(data.password);
     if (!passwordCheck.valid) throw new AppError(passwordCheck.errors.join('. '), 400);
@@ -489,7 +500,7 @@ export class AdminService {
         entity: 'user',
         entityId: user._id.toString(),
         severity: AuditSeverity.HIGH,
-        description: `Cuenta administrativa creada: ${user.name} (${maskPhone(user.phone)})`,
+        description: `Cuenta administrativa creada: ${user.name} (${maskEmail(user.email)})`,
         metadata: { positionId: data.positionId, roleIds },
       });
     }

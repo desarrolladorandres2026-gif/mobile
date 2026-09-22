@@ -153,3 +153,32 @@ export const productOwnerBodySchema = z.object({
   params: z.object({ id: objectId }),
   body: z.object({ businessId: objectId }),
 });
+
+/**
+ * Borrar una foto de la galería.
+ *
+ * `publicId` tiene que estar declarado: `validate` reemplaza el cuerpo por
+ * lo que el esquema conoce, y con `productOwnerBodySchema` se perdía por el
+ * camino y el borrado nunca encontraba la foto.
+ */
+export const productGalleryRemoveSchema = z.object({
+  params: z.object({ id: objectId }),
+  body: z.object({
+    businessId: objectId,
+    publicId: z.string().trim().min(1).max(300),
+  }),
+});
+
+/** "Mejorar" y "Usar imagen original": interruptores, nada más. */
+export const productImageOptionsSchema = z.object({
+  params: z.object({ id: objectId }),
+  body: z
+    .object({
+      businessId: objectId,
+      enhance: z.boolean().optional(),
+      useOriginal: z.boolean().optional(),
+    })
+    .refine((body) => body.enhance !== undefined || body.useOriginal !== undefined, {
+      message: 'Indica qué ajuste cambiar',
+    }),
+});

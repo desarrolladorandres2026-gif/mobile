@@ -215,7 +215,7 @@ export default function Advertising() {
             return (
               <li
                 key={c._id}
-                className="rounded-xl border border-[var(--color-border-light)] bg-[var(--color-surface)] p-4"
+                className="border-b border-[var(--color-border-light)] pb-4"
               >
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="min-w-0 flex-1">

@@ -261,7 +261,7 @@ export default function Pricing() {
         </div>
       </div>
 
-      <div className="p-3.5 rounded-xl bg-[var(--color-warning-bg)] border border-[var(--color-warning-bg)] text-[var(--color-warning)] text-xs flex items-center gap-2.5">
+      <div className="text-[var(--color-warning)] text-xs flex items-center gap-2.5">
         <AlertTriangle className="w-4 h-4 shrink-0" />
         <p className="font-medium">
           Toda modificación publica una <strong>nueva versión con auditoría</strong>. Los pedidos en curso no se ven afectados por cambios de tarifas.

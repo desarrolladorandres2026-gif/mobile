@@ -34,6 +34,10 @@ router.delete('/feature-flags/:key', (req, res, next) => adminController.deleteF
 router.get('/exports/orders', requirePermission(Permission.REPORTS_EXPORT), (req, res, next) => adminController.exportOrders(req, res, next));
 router.get('/exports/users', requirePermission(Permission.REPORTS_EXPORT), (req, res, next) => adminController.exportUsers(req, res, next));
 
+// ── Recorte de fondo de fotos de producto ──
+// Sin pantalla todavía: se consulta para cuadrar la factura del proveedor.
+router.get('/image-processing/stats', requirePermission(Permission.REPORTS_VIEW), (req, res, next) => adminController.imageProcessingStats(req, res, next));
+
 // Users management
 router.get('/users', requirePermission(Permission.USERS_VIEW), (req, res, next) => adminController.getUsers(req, res, next));
 router.post('/users', requirePermission(Permission.USERS_CREATE), (req, res, next) => adminController.createStaffUser(req, res, next));

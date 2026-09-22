@@ -5,11 +5,14 @@ import paquete from '../assets/logos/paquete.png';
 import billetera from '../assets/logos/billetera.png';
 import cupon from '../assets/logos/cupon.png';
 import domiciliario from '../assets/logos/domiciliario.png';
+import dashboard from '../assets/logos/dashboard.png';
+import restaurant from '../assets/logos/restaurant.png';
+import calificacion from '../assets/logos/calificacion.png';
 
 /**
  * Logos PNG de concepto (Twemoji 14, CC-BY 4.0), el mismo set que la app.
- * Los archivos los genera `scripts/logos/build.mjs`. La barra lateral sigue
- * con sus ilustraciones SVG a propósito.
+ * Los archivos los genera `scripts/logos/build.mjs`, incluida la barra
+ * lateral: sus 7 ilustraciones SVG quedaron sin uso y se borraron.
  */
 
 // El emoji llena su lienzo; a esta escala pesa lo que pesaba la ilustración SVG.
@@ -37,3 +40,6 @@ export const PackageLogo = logo(paquete);
 export const WalletLogo = logo(billetera);
 export const CouponLogo = logo(cupon);
 export const DeliveryLogo = logo(domiciliario);
+export const DashboardLogo = logo(dashboard);
+export const RestaurantLogo = logo(restaurant);
+export const RatingLogo = logo(calificacion);

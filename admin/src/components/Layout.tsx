@@ -10,12 +10,12 @@ import { useAuthStore } from '../stores/authStore';
 import { Permission } from '../lib/permissions';
 import { preloadOn } from '../lib/lazyPage';
 import {
-  DashboardIllustration, PackageIllustration, DeliveryIllustration, StoreIllustration,
-  PeopleIllustration, PricingIllustration, CouponIllustration, LocationIllustration,
-  BannerIllustration, CategoriesIllustration, MegaphoneIllustration, SecurityIllustration,
-  WalletIllustration, LegalIllustration, CalendarIllustration, EvidenceIllustration,
-  PositionsIllustration, RolesIllustration,
-} from './illustrations';
+  DashboardLogo, PackageLogo, DeliveryLogo, StoreLogo,
+  PeopleLogo, PricingLogo, CouponLogo, LocationLogo,
+  BannerLogo, CategoriesLogo, MegaphoneLogo, SecurityLogo,
+  WalletLogo, LegalLogo, CalendarLogo, EvidenceLogo,
+  PositionsLogo, RolesLogo,
+} from './logos';
 
 /** Lo que se ve el instante en que llega el archivo de una página. */
 function PageLoading() {
@@ -28,39 +28,39 @@ function PageLoading() {
 
 const navGroups: Array<{
   category: string;
-  items: Array<{ path: string; Illustration: typeof DashboardIllustration; label: string; permission?: string }>;
+  items: Array<{ path: string; Illustration: typeof DashboardLogo; label: string; permission?: string }>;
 }> = [
   {
     category: 'MENU',
     items: [
-      { path: '/', Illustration: DashboardIllustration, label: 'Dashboard' },
-      { path: '/daily-summary', Illustration: CalendarIllustration, label: 'Resumen Diario' },
+      { path: '/', Illustration: DashboardLogo, label: 'Dashboard' },
+      { path: '/daily-summary', Illustration: CalendarLogo, label: 'Resumen Diario' },
     ],
   },
   {
     category: 'APPS',
     items: [
-      { path: '/orders', Illustration: PackageIllustration, label: 'Pedidos' },
-      { path: '/evidences', Illustration: EvidenceIllustration, label: 'Evidencias' },
-      { path: '/drivers', Illustration: DeliveryIllustration, label: 'Domiciliarios' },
-      { path: '/driver-documents', Illustration: LegalIllustration, label: 'Documentos' },
-      { path: '/fleet', Illustration: LocationIllustration, label: 'Flota en Vivo' },
+      { path: '/orders', Illustration: PackageLogo, label: 'Pedidos' },
+      { path: '/evidences', Illustration: EvidenceLogo, label: 'Evidencias' },
+      { path: '/drivers', Illustration: DeliveryLogo, label: 'Domiciliarios' },
+      { path: '/driver-documents', Illustration: LegalLogo, label: 'Documentos' },
+      { path: '/fleet', Illustration: LocationLogo, label: 'Flota en Vivo' },
     ],
   },
   {
     category: 'CUSTOM',
     items: [
-      { path: '/businesses', Illustration: StoreIllustration, label: 'Negocios' },
-      { path: '/business-approvals', Illustration: LegalIllustration, label: 'Verificar Comercios' },
-      { path: '/reviews', Illustration: PeopleIllustration, label: 'Reseñas' },
-      { path: '/pricing', Illustration: PricingIllustration, label: 'Tarifas y Precios' },
-      { path: '/coupons', Illustration: CouponIllustration, label: 'Cupones' },
-      { path: '/zones', Illustration: LocationIllustration, label: 'Zonas' },
-      { path: '/home-banners', Illustration: BannerIllustration, label: 'Banners de Inicio' },
-      { path: '/home-categories', Illustration: CategoriesIllustration, label: 'Categorías de Inicio' },
-      { path: '/curated-home-blocks', Illustration: BannerIllustration, label: 'Bloques Curados de Inicio' },
-      { path: '/campaigns', Illustration: MegaphoneIllustration, label: 'Publicidad' },
-      { path: '/search-insights', Illustration: CategoriesIllustration, label: 'Búsquedas' },
+      { path: '/businesses', Illustration: StoreLogo, label: 'Negocios' },
+      { path: '/business-approvals', Illustration: LegalLogo, label: 'Verificar Comercios' },
+      { path: '/reviews', Illustration: PeopleLogo, label: 'Reseñas' },
+      { path: '/pricing', Illustration: PricingLogo, label: 'Tarifas y Precios' },
+      { path: '/coupons', Illustration: CouponLogo, label: 'Cupones' },
+      { path: '/zones', Illustration: LocationLogo, label: 'Zonas' },
+      { path: '/home-banners', Illustration: BannerLogo, label: 'Banners de Inicio' },
+      { path: '/home-categories', Illustration: CategoriesLogo, label: 'Categorías de Inicio' },
+      { path: '/curated-home-blocks', Illustration: BannerLogo, label: 'Bloques Curados de Inicio' },
+      { path: '/campaigns', Illustration: MegaphoneLogo, label: 'Publicidad' },
+      { path: '/search-insights', Illustration: CategoriesLogo, label: 'Búsquedas' },
     ],
   },
   {
@@ -69,21 +69,21 @@ const navGroups: Array<{
     // "Seguridad" (misma página, `/security`).
     category: 'SEGURIDAD Y ACCESO',
     items: [
-      { path: '/users', Illustration: PeopleIllustration, label: 'Usuarios', permission: Permission.USERS_VIEW },
-      { path: '/positions', Illustration: PositionsIllustration, label: 'Cargos', permission: Permission.POSITIONS_VIEW },
-      { path: '/roles', Illustration: RolesIllustration, label: 'Roles', permission: Permission.ROLES_VIEW },
-      { path: '/security', Illustration: SecurityIllustration, label: 'Seguridad', permission: Permission.SECURITY_VIEW },
+      { path: '/users', Illustration: PeopleLogo, label: 'Usuarios', permission: Permission.USERS_VIEW },
+      { path: '/positions', Illustration: PositionsLogo, label: 'Cargos', permission: Permission.POSITIONS_VIEW },
+      { path: '/roles', Illustration: RolesLogo, label: 'Roles', permission: Permission.ROLES_VIEW },
+      { path: '/security', Illustration: SecurityLogo, label: 'Seguridad', permission: Permission.SECURITY_VIEW },
       // El centro de incidentes vive junto a Seguridad porque es donde se
       // mira cuando algo va mal, no en una seccion de informes.
-      { path: '/incidents', Illustration: EvidenceIllustration, label: 'Incidentes', permission: Permission.SECURITY_VIEW },
+      { path: '/incidents', Illustration: EvidenceLogo, label: 'Incidentes', permission: Permission.SECURITY_VIEW },
     ],
   },
   {
     category: 'COMPONENTS',
     items: [
-      { path: '/financials', Illustration: WalletIllustration, label: 'Finanzas' },
-      { path: '/legal', Illustration: LegalIllustration, label: 'Legal y PQRS' },
-      { path: '/support', Illustration: PeopleIllustration, label: 'Soporte' },
+      { path: '/financials', Illustration: WalletLogo, label: 'Finanzas' },
+      { path: '/legal', Illustration: LegalLogo, label: 'Legal y PQRS' },
+      { path: '/support', Illustration: PeopleLogo, label: 'Soporte' },
     ],
   },
 ];
@@ -137,11 +137,6 @@ export default function Layout() {
       `}>
         {/* Brand Header */}
         <div className="flex items-center gap-3 px-6 py-5 border-b border-[var(--color-sidebar-border)]/70">
-          <img
-            src="/zipp-crown-logo.webp"
-            alt="ZIPP"
-            className="h-8 w-auto object-contain select-none"
-          />
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-primary-light)]/20 text-[var(--color-primary-light)] border border-[var(--color-primary-light)]/30">
             ADMIN
           </span>
@@ -172,7 +167,7 @@ export default function Layout() {
                       {...preloadOn(item.path)}
                       className={`relative flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 ${isActive
                           ? 'bg-[#1B2437] text-white font-semibold shadow-sm'
-                          : 'text-[var(--color-text-muted)] hover:text-white hover:bg-[#1B2437]/60'
+                          : 'text-[var(--color-sidebar-text)] hover:text-white hover:bg-[#1B2437]/60'
                         }`}
                     >
                       {isActive && (

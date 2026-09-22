@@ -264,8 +264,8 @@ export default function Roles() {
                       </button>
                     </td>
                     <td className="table-body-cell">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${
-                        role.isActive ? 'bg-[var(--color-primary-bg)] text-[var(--color-primary)] border-[var(--color-primary-bg)]' : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger-bg)]'
+                      <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${
+                        role.isActive ? 'text-[var(--color-primary)]' : 'text-[var(--color-danger)]'
                       }`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${role.isActive ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-danger)]'}`} />
                         {role.isActive ? 'Activo' : 'Inactivo'}

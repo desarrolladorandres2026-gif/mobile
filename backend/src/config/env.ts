@@ -221,6 +221,42 @@ function resolveMapboxToken(): string {
 
 const mapboxToken = resolveMapboxToken();
 
+/**
+ * La clave del proveedor de recorte de fondo.
+ *
+ * Solo la lee el backend: el panel se entera de si el recorte existe por
+ * `GET /products/image-capabilities`, que devuelve un booleano. Faltar no
+ * impide arrancar —las fotos se guardan con su fondo, como antes— pero en
+ * producción se avisa, igual que una clave de sandbox: esa funciona, y
+ * precisamente por eso es peligrosa, porque le pone marca de agua a cada
+ * foto del catálogo.
+ *
+ * En pruebas se ignora la del `.env`: una clave real ahí haría que la suite
+ * gastara créditos de verdad.
+ */
+function resolvePhotoroomKey(): string {
+  if (isTest) return '';
+  const value = (process.env.PHOTOROOM_API_KEY || '').trim();
+  if (!value) {
+    if (!isDev) {
+      console.warn(
+        '[IMAGE_BG] PHOTOROOM_API_KEY no está definida. El recorte de fondo queda ' +
+          'apagado y las fotos de producto se guardan con su fondo.'
+      );
+    }
+    return '';
+  }
+  if (value.startsWith('sandbox_') && !isDev) {
+    console.warn(
+      '[IMAGE_BG] PHOTOROOM_API_KEY es una clave de sandbox: las fotos recortadas ' +
+        'saldrán con marca de agua. Usa la clave de producción.'
+    );
+  }
+  return value;
+}
+
+const photoroomApiKey = resolvePhotoroomKey();
+
 if (jwtSecret && jwtRefreshSecret && jwtSecret === jwtRefreshSecret) {
   const message = 'JWT_SECRET y JWT_REFRESH_SECRET no pueden ser iguales.';
   if (isDev || isTest) console.warn(`[SECURITY] ${message}`);
@@ -757,14 +793,30 @@ export const config = {
     folder: process.env.PRODUCT_IMAGE_FOLDER || 'zipp/products',
     maxBytes: parseInt(process.env.PRODUCT_IMAGE_MAX_BYTES || '8388608', 10),
     minDimension: parseInt(process.env.PRODUCT_IMAGE_MIN_DIMENSION || '500', 10),
-    /**
-     * Recorte de fondo con IA.
-     *
-     * Es un **complemento de pago** de Cloudinary que la mayoría de las
-     * cuentas no tiene. Por defecto está apagado y el panel no enseña el
-     * botón: un botón que falla siempre es peor que no tenerlo.
-     */
-    backgroundRemoval: process.env.CLOUDINARY_BACKGROUND_REMOVAL === 'true',
+  },
+
+  /**
+   * Recorte de fondo de las fotos de producto.
+   *
+   * Cada foto recortada es un crédito pagado al proveedor, así que el tope
+   * diario no es una cortesía: es lo que impide que un comercio que resube
+   * en bucle —o una cuenta comprometida— queme el saldo de todos. Pasado el
+   * tope la foto se guarda igual, con su fondo.
+   *
+   * El proveedor se elige por nombre para poder cambiarlo sin tocar la
+   * lógica de productos (`services/imageProcessing/`).
+   */
+  backgroundRemoval: {
+    provider: (process.env.BACKGROUND_REMOVAL_PROVIDER || 'photoroom').trim().toLowerCase(),
+    dailyLimitPerBusiness: parseInt(
+      process.env.BACKGROUND_REMOVAL_DAILY_LIMIT_PER_BUSINESS || '60',
+      10
+    ),
+    photoroom: {
+      apiKey: photoroomApiKey,
+      apiUrl: process.env.PHOTOROOM_API_URL || 'https://sdk.photoroom.com/v1/segment',
+      timeoutMs: parseInt(process.env.PHOTOROOM_TIMEOUT_MS || '30000', 10),
+    },
   },
 
   /**
@@ -846,6 +898,12 @@ export const config = {
       orderCallMaxRequests: isTest
         ? Number.MAX_SAFE_INTEGER
         : parseInt(process.env.ORDER_CALL_RATE_LIMIT_MAX || '150', 10),
+      // Subidas de foto de producto y reintentos del recorte, por usuario.
+      // Una carta nueva de 40 productos cabe holgada en dos ventanas; lo que
+      // frena es el bucle, que con el recorte encendido cuesta créditos.
+      productImageUploadMaxRequests: isTest
+        ? Number.MAX_SAFE_INTEGER
+        : parseInt(process.env.PRODUCT_IMAGE_UPLOAD_RATE_LIMIT_MAX || '30', 10),
     },
 
     // Session

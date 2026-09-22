@@ -1,7 +1,8 @@
 import crypto from 'crypto';
+import { Types } from 'mongoose';
 import { cloudinary, config } from '../config';
 import { AppError } from '../middlewares';
-import { IProduct, IProductImage } from '../models';
+import { IProduct, IProductImage, IProductImageCutout, Product } from '../models';
 import {
   PRODUCT_IMAGE_VARIANTS,
   ProductImageUrls,
@@ -9,8 +10,10 @@ import {
   productImageUrl,
   productImageUrls,
 } from '../utils/productImageUrls';
+import { readImageHeader } from '../utils/imageHeader';
+import { getBackgroundRemovalProvider } from './imageProcessing';
 
-export { PRODUCT_IMAGE_VARIANTS };
+export { PRODUCT_IMAGE_VARIANTS, readImageHeader };
 export type { ProductImageUrls };
 
 /**
@@ -26,13 +29,20 @@ export type { ProductImageUrls };
  *    archivo. El master queda intacto, así que "Mejorar" es reversible y
  *    el comercio siempre puede volver a la foto que tomó. Un retoque
  *    irreversible sobre el original es justo lo que impide comparar el
- *    resultado con el producto real.
+ *    resultado con el producto real. El recorte de fondo sigue la misma
+ *    regla: es un **segundo archivo** (`imageAsset.cutout`), y el original
+ *    no se toca.
  *
  * 3. **Todas las variantes son cuadradas.** El catálogo mezcla fotos de
  *    cincuenta comercios distintos y la uniformidad es lo que hace que no
  *    parezca un tablón de anuncios. `crop: 'fill'` recorta, nunca
  *    deforma, y `gravity: 'auto'` deja el producto centrado sin que nadie
  *    tenga que encuadrarlo a mano.
+ *
+ * Los `public_id` dependen del contenido (`<producto>-<sha12>`): la
+ * portada, cada foto de galería y cada recorte tienen el suyo. Con un id
+ * fijo por producto, como antes, la galería sobrescribía la portada en
+ * Cloudinary y borrar una foto de galería borraba la portada.
  */
 
 export const PRODUCT_IMAGE_ERROR = {
@@ -67,6 +77,14 @@ const PLACEHOLDER_MAX_BYTES = 1024;
 const PLACEHOLDER_FETCH_TIMEOUT_MS = 2500;
 
 /**
+ * La parte del `public_id` que sale del contenido.
+ *
+ * Doce caracteres hexadecimales del SHA-256 bastan para que dos fotos del
+ * mismo producto no choquen nunca, y la misma foto dé siempre el mismo id.
+ */
+const contentKey = (checksum: string) => checksum.slice(0, 12);
+
+/**
  * La miniatura borrosa de una foto, lista para viajar dentro del JSON.
  *
  * Como URL costaba una petición más por producto, y con mala señal esa
@@ -78,12 +96,16 @@ const PLACEHOLDER_FETCH_TIMEOUT_MS = 2500;
  */
 export async function fetchInlinePlaceholder(
   publicId: string,
-  version?: number
+  version?: number,
+  options: { cutout?: boolean } = {}
 ): Promise<string | null> {
   try {
-    const res = await fetch(productImagePlaceholderUrl(publicId, { format: 'webp', version }), {
-      signal: AbortSignal.timeout(PLACEHOLDER_FETCH_TIMEOUT_MS),
+    const url = productImagePlaceholderUrl(publicId, {
+      format: 'webp',
+      version,
+      cutout: options.cutout,
     });
+    const res = await fetch(url, { signal: AbortSignal.timeout(PLACEHOLDER_FETCH_TIMEOUT_MS) });
     if (!res.ok) return null;
     const type = (res.headers.get('content-type') ?? '').split(';')[0].trim();
     if (!type.startsWith('image/')) return null;
@@ -96,16 +118,24 @@ export async function fetchInlinePlaceholder(
 }
 
 export class ProductImageService {
-  /** Si la cuenta de Cloudinary tiene el complemento de quitar fondo. */
-  get backgroundRemovalAvailable(): boolean {
-    return config.productImages.backgroundRemoval && this.isConfigured;
-  }
-
   get isConfigured(): boolean {
     return Boolean(config.cloudinary.cloudName && config.cloudinary.apiKey);
   }
 
-  /** Lo que el panel necesita saber antes de enseñar un botón. */
+  /**
+   * Si se puede quitar el fondo en este entorno: hace falta un proveedor
+   * con su clave y, además, Cloudinary para guardar el resultado.
+   */
+  get backgroundRemovalAvailable(): boolean {
+    return this.isConfigured && Boolean(getBackgroundRemovalProvider()?.isConfigured());
+  }
+
+  /**
+   * Lo que el panel necesita saber antes de enseñar un botón.
+   *
+   * `backgroundRemoval` es un booleano y nada más: ni el proveedor ni su
+   * clave salen del backend.
+   */
   capabilities() {
     return {
       enabled: this.isConfigured,
@@ -134,9 +164,8 @@ export class ProductImageService {
 
     const { maxBytes, minDimension } = config.productImages;
     if (buffer.length > maxBytes) {
-      const mb = (maxBytes / (1024 * 1024)).toFixed(0);
       throw new AppError(
-        `La imagen pesa más de ${mb} MB. Tómala de nuevo o redúcela antes de subirla.`,
+        `La imagen pesa más de ${(maxBytes / (1024 * 1024)).toFixed(0)} MB. Tómala de nuevo o redúcela antes de subirla.`,
         413,
         PRODUCT_IMAGE_ERROR.TOO_LARGE
       );
@@ -188,13 +217,20 @@ export class ProductImageService {
    * producto a ella y solo al final se borra la vieja. Al revés, un fallo
    * en la subida dejaría al producto sin ninguna foto habiendo borrado ya
    * la que funcionaba.
+   *
+   * La misma foto dos veces (mismo SHA-256) no se vuelve a subir: devuelve
+   * el producto tal cual. Quitarle el fondo es cosa del orquestador
+   * (`backgroundRemoval.service.ts`), que decide si hace falta.
+   *
+   * Devuelve el producto leído de nuevo, no el que recibió: la escritura es
+   * atómica y el documento de entrada puede no saber de un recorte que
+   * terminó mientras se subía la foto.
    */
   async replace(params: {
     product: IProduct;
     buffer: Buffer;
     mimetype: string;
     enhance?: boolean;
-    removeBackground?: boolean;
   }): Promise<IProduct> {
     const { product, buffer } = params;
 
@@ -207,19 +243,17 @@ export class ProductImageService {
     }
 
     const inspected = this.inspect(buffer, params.mimetype);
-    const previous = product.imageAsset?.publicId ?? null;
+    if (product.imageAsset?.checksum === inspected.checksum) return product;
 
-    const wantsBackgroundRemoval =
-      params.removeBackground === true && this.backgroundRemovalAvailable;
-
+    const productId = product._id.toString();
     const uploaded = await this.store({
       buffer,
       businessId: product.businessId.toString(),
-      productId: product._id.toString(),
-      removeBackground: wantsBackgroundRemoval,
+      productId,
+      publicId: `${productId}-${contentKey(inspected.checksum)}`,
     });
 
-    product.imageAsset = {
+    const asset = {
       publicId: uploaded.publicId,
       width: uploaded.width,
       height: uploaded.height,
@@ -227,45 +261,92 @@ export class ProductImageService {
       format: uploaded.format,
       checksum: inspected.checksum,
       enhanced: params.enhance !== false,
-      backgroundRemoved: wantsBackgroundRemoval,
+      backgroundRemoved: false,
       placeholderDataUri: uploaded.placeholderDataUri,
       uploadedAt: new Date(),
-    } as IProductImage;
+      cutout: null,
+      backgroundRemoval: null,
+      useOriginal: false,
+    };
 
     // `image` sigue siendo la URL de catálogo porque la app móvil lee ese
     // campo. Cambiarlo a un objeto habría roto todas las fichas de
     // producto en los teléfonos que no se hayan actualizado.
-    product.image = this.buildUrl(product.imageAsset, PRODUCT_IMAGE_VARIANTS.catalog);
-    await product.save();
+    //
+    // Sin `new`: devuelve el documento de antes de escribir, que es la
+    // única forma de saber con certeza qué archivos dejaron de usarse.
+    const before = await Product.findOneAndUpdate(
+      { _id: product._id },
+      { $set: { imageAsset: asset, image: productImageUrl(asset, PRODUCT_IMAGE_VARIANTS.catalog) } }
+    ).lean();
 
-    if (previous && previous !== uploaded.publicId) {
-      // Ya no la referencia nadie. Si el borrado falla no se propaga: el
-      // producto está bien guardado y lo único que queda es un archivo de
-      // más, que es infinitamente preferible a devolver un error por algo
-      // que al comercio ya le salió bien.
-      await this.destroy(previous);
+    if (!before) {
+      // El producto se borró mientras subía su foto.
+      await this.destroy(uploaded.publicId);
+      throw new AppError('Producto no encontrado', 404);
     }
 
-    return product;
+    // Ya no los referencia nadie. Si el borrado falla no se propaga: el
+    // producto está bien guardado y lo único que queda es un archivo de
+    // más, que es infinitamente preferible a devolver un error por algo
+    // que al comercio ya le salió bien.
+    await this.release(product._id, [
+      before.imageAsset?.publicId,
+      before.imageAsset?.cutout?.publicId,
+    ]);
+
+    return (await Product.findById(product._id))!;
   }
 
   /**
    * Cambia los ajustes de entrega sin volver a subir el archivo.
    *
-   * Es lo que hace que "Mejorar" sea un interruptor y no un viaje de ida:
-   * las variantes se recalculan desde el mismo master.
+   * Es lo que hace que "Mejorar" y "Usar imagen original" sean
+   * interruptores y no viajes de ida: las variantes se recalculan desde los
+   * mismos archivos.
+   *
+   * Escritura condicionada y no `save()`: si un recorte termina entre la
+   * lectura y la escritura, un `save()` de todo `imageAsset` lo borraría.
+   * Aquí la condición va en el filtro y, si el estado cambió, se vuelve a
+   * leer.
    */
-  async updateOptions(product: IProduct, options: { enhance?: boolean }): Promise<IProduct> {
-    if (!product.imageAsset) {
-      throw new AppError('Este producto no tiene imagen', 404, PRODUCT_IMAGE_ERROR.NO_IMAGE);
+  async updateOptions(
+    product: IProduct,
+    options: { enhance?: boolean; useOriginal?: boolean }
+  ): Promise<IProduct> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const current = await Product.findById(product._id).lean();
+      const asset = current?.imageAsset;
+      if (!asset) {
+        throw new AppError('Este producto no tiene imagen', 404, PRODUCT_IMAGE_ERROR.NO_IMAGE);
+      }
+
+      const next = {
+        ...asset,
+        enhanced: options.enhance ?? asset.enhanced,
+        useOriginal: options.useOriginal ?? Boolean(asset.useOriginal),
+      };
+
+      const updated = await Product.findOneAndUpdate(
+        {
+          _id: product._id,
+          'imageAsset.checksum': asset.checksum,
+          'imageAsset.cutout.publicId': asset.cutout?.publicId ?? null,
+          'imageAsset.backgroundRemoval.status': asset.backgroundRemoval?.status ?? null,
+        },
+        {
+          $set: {
+            'imageAsset.enhanced': next.enhanced,
+            'imageAsset.useOriginal': next.useOriginal,
+            image: productImageUrl(next, PRODUCT_IMAGE_VARIANTS.catalog),
+          },
+        },
+        { new: true }
+      );
+      if (updated) return updated;
     }
 
-    if (options.enhance !== undefined) product.imageAsset.enhanced = options.enhance;
-
-    product.image = this.buildUrl(product.imageAsset, PRODUCT_IMAGE_VARIANTS.catalog);
-    product.markModified('imageAsset');
-    await product.save();
-    return product;
+    throw new AppError('La foto cambió mientras la editabas. Inténtalo de nuevo.', 409);
   }
 
   // ── Galería ────────────────────────────────────────────────────────
@@ -277,7 +358,9 @@ export class ProductImageService {
    * Añade una foto a la galería del producto.
    *
    * No toca `imageAsset`: la principal se cambia con `replace` y es la que
-   * leen las listas. Esto es lo que se desliza en la ficha.
+   * leen las listas. Esto es lo que se desliza en la ficha. Tampoco se le
+   * quita el fondo: la galería suele ser de contexto (el plato servido, el
+   * empaque) y cada recorte cuesta un crédito.
    *
    * Exige que ya haya principal. Una galería sin portada dejaría al
    * producto sin miniatura en el catálogo mientras tiene cuatro fotos
@@ -288,7 +371,6 @@ export class ProductImageService {
     product: IProduct;
     buffer: Buffer;
     mimetype: string;
-    removeBackground?: boolean;
   }): Promise<IProduct> {
     const { product, buffer } = params;
 
@@ -326,11 +408,13 @@ export class ProductImageService {
       throw new AppError('Esa foto ya está en este producto', 409);
     }
 
+    const productId = product._id.toString();
     const uploaded = await this.store({
       buffer,
       businessId: product.businessId.toString(),
-      productId: product._id.toString(),
-      removeBackground: params.removeBackground === true && this.backgroundRemovalAvailable,
+      productId,
+      // Su propio id: con el de la portada, Cloudinary la sobrescribía.
+      publicId: `${productId}-g-${contentKey(inspected.checksum)}`,
     });
 
     product.gallery.push({
@@ -341,7 +425,7 @@ export class ProductImageService {
       format: uploaded.format,
       checksum: inspected.checksum,
       enhanced: true,
-      backgroundRemoved: params.removeBackground === true && this.backgroundRemovalAvailable,
+      backgroundRemoved: false,
       placeholderDataUri: uploaded.placeholderDataUri,
       uploadedAt: new Date(),
     } as IProductImage);
@@ -360,34 +444,65 @@ export class ProductImageService {
     product.gallery.splice(index, 1);
     await product.save();
 
-    await this.destroy(publicId);
+    // Con la guarda: en los productos que sufrieron el fallo de la galería,
+    // esa foto comparte archivo con la portada y borrarlo la dejaría sin foto.
+    await this.release(product._id, [publicId]);
     return product;
   }
 
-  /** Quita la imagen del producto y el archivo que la respaldaba. */
+  /** Quita la imagen del producto y los archivos que la respaldaban. */
   async remove(product: IProduct): Promise<IProduct> {
-    const publicId = product.imageAsset?.publicId ?? null;
+    const before = await Product.findOneAndUpdate(
+      { _id: product._id },
+      { $set: { imageAsset: null, image: null } }
+    ).lean();
 
-    product.imageAsset = null;
-    product.image = null;
-    await product.save();
-
-    if (publicId) await this.destroy(publicId);
-    return product;
+    await this.release(product._id, [
+      before?.imageAsset?.publicId,
+      before?.imageAsset?.cutout?.publicId,
+    ]);
+    return (await Product.findById(product._id)) ?? product;
   }
 
   /**
-   * Borra el archivo de un producto que desaparece.
+   * Borra los archivos de un producto que desaparece.
    *
    * Se llama desde el borrado del producto: sin esto, cada producto
    * eliminado deja su foto en Cloudinary sin que nada la referencie ya.
+   * Cada archivo una sola vez, aunque dos entradas lo compartan.
    */
   async forget(product: IProduct): Promise<void> {
-    if (product.imageAsset?.publicId) await this.destroy(product.imageAsset.publicId);
+    const ids = new Set<string>();
+    if (product.imageAsset?.publicId) ids.add(product.imageAsset.publicId);
+    if (product.imageAsset?.cutout?.publicId) ids.add(product.imageAsset.cutout.publicId);
     // La galería también: si no, borrar un producto con cinco fotos deja
     // cinco archivos huérfanos en vez de uno.
-    for (const image of product.gallery ?? []) {
-      await this.destroy(image.publicId);
+    for (const image of product.gallery ?? []) ids.add(image.publicId);
+    for (const id of ids) await this.destroy(id);
+  }
+
+  /**
+   * Borra los archivos que este producto ya no usa.
+   *
+   * Antes de borrar comprueba que ninguna entrada del producto siga
+   * apuntando al archivo. Es la red para los datos que dejó el fallo de la
+   * galería, donde portada y galería compartían el mismo `public_id`.
+   */
+  async release(
+    productId: Types.ObjectId | string,
+    publicIds: Array<string | null | undefined>
+  ): Promise<void> {
+    const unique = [...new Set(publicIds.filter((id): id is string => Boolean(id)))];
+    for (const publicId of unique) {
+      const stillUsed = await Product.exists({
+        _id: productId,
+        $or: [
+          { 'imageAsset.publicId': publicId },
+          { 'imageAsset.cutout.publicId': publicId },
+          { 'gallery.publicId': publicId },
+        ],
+      });
+      if (!stillUsed) await this.destroy(publicId);
     }
   }
 
@@ -404,31 +519,61 @@ export class ProductImageService {
     return productImageUrls(asset);
   }
 
-  private buildUrl(asset: IProductImage, size: number): string {
-    return productImageUrl(asset, size);
-  }
-
   // ── Almacenamiento ───────────────────────────────────────────────────
+
+  /**
+   * Guarda el recorte sin fondo de la foto principal.
+   *
+   * Otro archivo, con su propio id (`<producto>-<sha12>-cutout`): el
+   * original no se toca. La miniatura incrustada sale de la versión
+   * compuesta, que es la que ocupa el hueco en el catálogo.
+   */
+  async storeCutout(params: {
+    buffer: Buffer;
+    businessId: string;
+    productId: string;
+    checksum: string;
+    provider: string;
+  }): Promise<IProductImageCutout> {
+    const uploaded = await this.upload({
+      buffer: params.buffer,
+      businessId: params.businessId,
+      publicId: `${params.productId}-${contentKey(params.checksum)}-cutout`,
+      tags: ['product-image', 'product-cutout', params.businessId],
+    });
+    const placeholderDataUri = await fetchInlinePlaceholder(uploaded.publicId, uploaded.version, {
+      cutout: true,
+    });
+    return {
+      publicId: uploaded.publicId,
+      width: uploaded.width,
+      height: uploaded.height,
+      bytes: uploaded.bytes,
+      format: uploaded.format,
+      provider: params.provider,
+      placeholderDataUri,
+      createdAt: new Date(),
+    };
+  }
 
   /**
    * Sube el master y le calcula la miniatura incrustada.
    *
    * Aislado para poder sustituirlo en pruebas sin tocar la red.
-   *
-   * Con recorte de fondo no se incrusta: Cloudinary lo aplica en diferido,
-   * así que la miniatura saldría de la foto con fondo. La URL, que se
-   * deriva al pedirla, ya ve la recortada.
    */
   private async store(params: {
     buffer: Buffer;
     businessId: string;
     productId: string;
-    removeBackground: boolean;
+    publicId: string;
   }): Promise<StoredImage> {
-    const uploaded = await this.upload(params);
-    const placeholderDataUri = params.removeBackground
-      ? null
-      : await fetchInlinePlaceholder(uploaded.publicId, uploaded.version);
+    const uploaded = await this.upload({
+      buffer: params.buffer,
+      businessId: params.businessId,
+      publicId: params.publicId,
+      tags: ['product-image', params.businessId],
+    });
+    const placeholderDataUri = await fetchInlinePlaceholder(uploaded.publicId, uploaded.version);
     const { version: _version, ...stored } = uploaded;
     return { ...stored, placeholderDataUri };
   }
@@ -436,27 +581,30 @@ export class ProductImageService {
   private upload(params: {
     buffer: Buffer;
     businessId: string;
-    productId: string;
-    removeBackground: boolean;
+    publicId: string;
+    tags: string[];
   }): Promise<Omit<StoredImage, 'placeholderDataUri'> & { version: number }> {
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
           folder: `${config.productImages.folder}/${params.businessId}`,
-          public_id: params.productId,
-          // Sobrescribe la del mismo producto: un `public_id` estable
-          // evita acumular una foto por cada edición.
+          public_id: params.publicId,
+          // El id sale del contenido: sobrescribir solo ocurre al volver a
+          // subir exactamente el mismo archivo.
           overwrite: true,
           invalidate: true,
           resource_type: 'image',
           // El master se guarda acotado. Nadie va a mirar un producto a
           // más de 1200 px y guardar el original de 4000 solo cuesta.
           transformation: [{ width: 1200, height: 1200, crop: 'limit' }],
-          tags: ['product-image', params.businessId],
-          ...(params.removeBackground ? { background_removal: 'cloudinary_ai' } : {}),
+          tags: params.tags,
         },
         (error, result) => {
           if (error || !result) {
+            console.error('[PRODUCT_IMAGE] Cloudinary rechazó la subida', {
+              publicId: params.publicId,
+              error: error?.message ?? 'sin resultado',
+            });
             reject(
               new AppError(
                 'No pudimos guardar la imagen. Inténtalo de nuevo.',
@@ -491,112 +639,6 @@ export class ProductImageService {
       });
     }
   }
-}
-
-// ── Lectura de cabeceras ───────────────────────────────────────────────
-
-/**
- * Ancho, alto y formato leídos del propio binario.
- *
- * Sin dependencias a propósito: son tres formatos y una cabecera cada
- * uno. Devuelve `null` para cualquier cosa que no sea una imagen
- * reconocible, que es lo que convierte "archivo corrupto" en un rechazo
- * temprano y no en un error de Cloudinary media subida después.
- */
-export function readImageHeader(
-  buffer: Buffer
-): { format: 'jpg' | 'png' | 'webp'; width: number; height: number } | null {
-  // ── PNG ──
-  if (
-    buffer.length > 24 &&
-    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47 &&
-    buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a
-  ) {
-    // El primer chunk de un PNG válido es siempre IHDR, y lleva las
-    // dimensiones en sus ocho primeros bytes de datos.
-    if (buffer.toString('ascii', 12, 16) !== 'IHDR') return null;
-    return {
-      format: 'png',
-      width: buffer.readUInt32BE(16),
-      height: buffer.readUInt32BE(20),
-    };
-  }
-
-  // ── WEBP ──
-  if (
-    buffer.length > 30 &&
-    buffer.toString('ascii', 0, 4) === 'RIFF' &&
-    buffer.toString('ascii', 8, 12) === 'WEBP'
-  ) {
-    const kind = buffer.toString('ascii', 12, 16);
-    if (kind === 'VP8X') {
-      // Anchos y altos de 24 bits, menos uno, en little-endian.
-      return {
-        format: 'webp',
-        width: 1 + (buffer[24] | (buffer[25] << 8) | (buffer[26] << 16)),
-        height: 1 + (buffer[27] | (buffer[28] << 8) | (buffer[29] << 16)),
-      };
-    }
-    if (kind === 'VP8 ') {
-      return {
-        format: 'webp',
-        width: buffer.readUInt16LE(26) & 0x3fff,
-        height: buffer.readUInt16LE(28) & 0x3fff,
-      };
-    }
-    if (kind === 'VP8L') {
-      const bits = buffer.readUInt32LE(21);
-      return {
-        format: 'webp',
-        width: 1 + (bits & 0x3fff),
-        height: 1 + ((bits >> 14) & 0x3fff),
-      };
-    }
-    return null;
-  }
-
-  // ── JPEG ──
-  if (buffer.length > 4 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-    // Hay que recorrer los segmentos hasta dar con un marcador SOF, que es
-    // el único que lleva las dimensiones. Los demás (EXIF, cuantización,
-    // Huffman) se saltan por su longitud declarada.
-    let offset = 2;
-    while (offset + 9 < buffer.length) {
-      if (buffer[offset] !== 0xff) {
-        offset += 1;
-        continue;
-      }
-      const marker = buffer[offset + 1];
-
-      // Relleno y marcadores sin carga útil.
-      if (marker === 0xff || (marker >= 0xd0 && marker <= 0xd9)) {
-        offset += 2;
-        continue;
-      }
-
-      const length = buffer.readUInt16BE(offset + 2);
-      if (length < 2) return null;
-
-      // SOF0..SOF15, excluyendo DHT (c4), JPGA (c8) y DAC (cc), que caen
-      // en el mismo rango pero no describen la imagen.
-      const isSof =
-        marker >= 0xc0 && marker <= 0xcf &&
-        marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
-
-      if (isSof) {
-        return {
-          format: 'jpg',
-          height: buffer.readUInt16BE(offset + 5),
-          width: buffer.readUInt16BE(offset + 7),
-        };
-      }
-
-      offset += 2 + length;
-    }
-    return null;
-  }
-
-  return null;
 }
 
 export const productImageService = new ProductImageService();

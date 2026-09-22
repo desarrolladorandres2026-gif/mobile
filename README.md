@@ -87,13 +87,16 @@ portal, en `VITE_BUSINESS_URL` (por defecto `http://localhost:3002`).
 
 Tras `npm run seed`, la contraseña de **todas** las cuentas es `Zipp.2026`.
 
-| Rol | Teléfono | Dónde entra |
+Los paneles `admin` y `business` entran por **correo y contraseña**; la app
+móvil (cliente y domiciliario) sigue entrando por **celular**.
+
+| Rol | Usuario | Dónde entra |
 |---|---|---|
-| Administrador | `3001234567` | panel `admin` |
+| Administrador | `admin@zipp.co` | panel `admin` |
 | Cliente 1 | `3101234567` | app móvil (trae 2 direcciones guardadas) |
 | Cliente 2 | `3201234567` | app móvil |
-| Comercio 1 | `3151234567` | panel `business` (Burger House, Rincón Paisa, Super Fresh) |
-| Comercio 2 | `3161234567` | panel `business` (Café Aroma, Droguería Salud+) |
+| Comercio 1 | `juan.restaurantes@zipp.demo` | panel `business` (Burger House, Rincón Paisa, Super Fresh) |
+| Comercio 2 | `ana.cafeterias@zipp.demo` | panel `business` (Café Aroma, Droguería Salud+) |
 | Domiciliario 1 | `3111234567` | app móvil |
 | Domiciliario 2 | `3121234567` | app móvil |
 
@@ -116,7 +119,7 @@ abre uno, agrega productos con adicionales, entra al carrito. Verás el
 desglose (subtotal, envío por distancia, propina, total) calculado por el
 servidor. Aplica `ENVIOGRATIS` y confirma el pedido.
 
-**Comercio (panel `business`)** — inicia sesión con `3151234567`. El pedido
+**Comercio (panel `business`)** — inicia sesión con `juan.restaurantes@zipp.demo`. El pedido
 recién creado aparece en tiempo real. Acéptalo → prepáralo → márcalo listo.
 Cuando el domiciliario llegue verás su nombre, si ya tomó la foto y el
 **código de recogida** que tienes que dictarle. El ojo de cada fila abre la
@@ -145,7 +148,7 @@ ese último código.
 > cd backend && npm run seed:demo-drivers   # no borra nada; se niega a correr en producción
 > ```
 
-**Administrador (panel `admin`)** — inicia sesión con `3001234567` para ver
+**Administrador (panel `admin`)** — inicia sesión con `admin@zipp.co` para ver
 pedidos, comercios, domiciliarios, usuarios, finanzas y seguridad.
 
 ---
@@ -320,11 +323,39 @@ el archivo son sus primeros bytes.
 
 ### Recorte de fondo
 
-`e_background_removal` es un **complemento de pago** de Cloudinary que la
-mayoría de las cuentas no tiene. Está detrás de
-`CLOUDINARY_BACKGROUND_REMOVAL` y por defecto va apagado; el panel
-consulta `GET /products/image-capabilities` y **no pinta el botón** si el
-servidor no puede cumplirlo.
+La foto principal puede quedar **sin fondo, sobre transparencia**. El
+proveedor (hoy Photoroom, `services/imageProcessing/`) está detrás de una
+interfaz: cambiarlo no toca productos, rutas ni panel. La clave
+(`PHOTOROOM_API_KEY`) solo existe en el backend. El panel sabe si el
+recorte está disponible por `GET /products/image-capabilities`, que
+devuelve un booleano.
+
+- **Dos archivos, nunca uno retocado.** Los campos de siempre de
+  `imageAsset` siguen siendo la **foto original**, y el recorte es otro
+  archivo (`imageAsset.cutout`, `<producto>-<sha12>-cutout`). "Usar
+  imagen original" es un interruptor (`PATCH /products/:id/image` con
+  `useOriginal`) que no vuelve a subir nada ni gasta un crédito.
+- **Asíncrono.** La subida responde al instante con la original y el
+  estado `pending`. El recorte lo hace `backgroundRemoval.service.ts` en
+  segundo plano, y el estado vive en el producto
+  (`imageAsset.backgroundRemoval`), no en memoria. Reservar y cerrar son
+  escrituras condicionadas: una sola ejecución por foto, y un recorte
+  tardío no pisa una foto nueva. Un barrido cada 30 s retoma los
+  reintentos y las reservas de procesos caídos.
+- **Entrega.** Las variantes de siempre (`image`, `images.thumb/…`)
+  sirven el recorte **compuesto** —centrado, con margen, sobre
+  `#F6F8FA`—, así que las apps viejas no notan nada.
+  `images.cutout` es la versión transparente, para las pantallas que
+  quieran ponerla sobre otro fondo.
+- **Coste.** Cada foto recortada es un crédito. No se reprocesa la misma
+  foto (mismo SHA-256) ni al editar el producto. Hay un tope por comercio
+  al día (`BACKGROUND_REMOVAL_DAILY_LIMIT_PER_BUSINESS`, en hora de Bogotá),
+  un limitador de subidas por usuario y un máximo de 3 intentos
+  automáticos por foto. Cada intento queda en `ImageProcessingEvent`
+  (`billable` = crédito cobrado). `GET /admin/image-processing/stats`
+  (`reports:view`) lo suma para cuadrar la factura. No va al libro mayor:
+  es un coste operativo sin pedido detrás.
+- **Solo la foto principal.** La galería no se recorta.
 
 ---
 

@@ -20,7 +20,7 @@ import { migrateRbac } from '../migrations/002-rbac';
  * volver al estado inicial es lo que quieres, y este es para producción,
  * donde ejecutarlo dos veces por error no puede costarte los datos.
  *
- *   ADMIN_NAME="..." ADMIN_PHONE=3001234567 ADMIN_EMAIL="..." \
+ *   ADMIN_NAME="..." ADMIN_EMAIL="..." \
  *   ADMIN_PASSWORD="..." npm run bootstrap:admin
  */
 
@@ -35,9 +35,12 @@ function required(name: string): string {
 
 const bootstrapAdmin = async () => {
   const name = required('ADMIN_NAME');
-  const phone = required('ADMIN_PHONE');
+  // El panel admin entra por correo, no por celular (ver
+  // `auth.service.ts::login`): es lo único que este script exige además del
+  // nombre y la contraseña. El celular queda opcional.
+  const email = required('ADMIN_EMAIL');
   const password = required('ADMIN_PASSWORD');
-  const email = process.env.ADMIN_EMAIL?.trim() || undefined;
+  const phone = process.env.ADMIN_PHONE?.trim() || undefined;
 
   // Se valida ANTES de tocar la base: el modelo hashea en un hook pre-save,
   // así que una contraseña débil se guardaría sin protestar y solo daría la
@@ -55,7 +58,7 @@ const bootstrapAdmin = async () => {
   const existing = await User.findOne({ role: UserRole.ADMIN }).sort({ createdAt: 1 });
   if (existing) {
     console.error(
-      `\n❌ Ya existe una cuenta de administrador (${existing.phone}). ` +
+      `\n❌ Ya existe una cuenta de administrador (${existing.email || existing.phone}). ` +
         'Este script no sobrescribe cuentas: crea los administradores siguientes ' +
         'desde el panel, que además deja rastro en la auditoría.\n'
     );

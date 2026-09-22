@@ -62,7 +62,7 @@ export default function BusinessImageField({
       setError('');
 
       const form = new FormData();
-      form.append('image', cropped, `${slot}.jpg`);
+      form.append('image', cropped, `${slot}.${cropped.type === 'image/png' ? 'png' : 'jpg'}`);
 
       // La cabecera va explícita: la instancia de axios declara
       // `application/json` para todo el panel, y con ese tipo puesto axios

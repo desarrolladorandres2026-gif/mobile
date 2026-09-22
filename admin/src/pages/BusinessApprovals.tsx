@@ -42,10 +42,10 @@ const DOCUMENT_LABELS: Record<DocumentType, string> = {
 };
 
 const STATUS_STYLES: Record<BusinessDoc['status'], { label: string; className: string }> = {
-  approved: { label: 'Aprobado', className: 'bg-[var(--color-success-bg)] text-[#047857]' },
-  pending: { label: 'Por revisar', className: 'bg-[var(--color-warning-bg)] text-[var(--color-warning)]' },
-  rejected: { label: 'Rechazado', className: 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]' },
-  expired: { label: 'Vencido', className: 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]' },
+  approved: { label: 'Aprobado', className: 'text-[#047857]' },
+  pending: { label: 'Por revisar', className: 'text-[var(--color-warning)]' },
+  rejected: { label: 'Rechazado', className: 'text-[var(--color-danger)]' },
+  expired: { label: 'Vencido', className: 'text-[var(--color-danger)]' },
 };
 
 export default function BusinessApprovals() {
@@ -118,7 +118,7 @@ export default function BusinessApprovals() {
       </div>
 
       {error && (
-        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error}</p>
         </div>
@@ -185,7 +185,7 @@ export default function BusinessApprovals() {
                 </div>
 
                 {business.missingDocuments.length > 0 && (
-                  <div className="bg-[var(--color-warning-bg)] text-[var(--color-warning)] text-xs p-3 rounded-lg font-semibold">
+                  <div className="text-[var(--color-warning)] text-xs font-semibold">
                     Faltan: {business.missingDocuments.map((d) => DOCUMENT_LABELS[d]).join(', ')}
                   </div>
                 )}
@@ -221,7 +221,7 @@ export default function BusinessApprovals() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${style.className}`}>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider ${style.className}`}>
                             {style.label}
                           </span>
 

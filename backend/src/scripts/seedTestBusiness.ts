@@ -15,6 +15,9 @@ import { BusinessCategory, UserRole } from '../types';
 
 const DEMO_PASSWORD = 'Zipp.2026';
 const OWNER_PHONE = '3171234567';
+// El panel business entra por correo, no por celular (ver
+// `auth.service.ts::login`): sin uno, `User.create` rechaza la cuenta.
+const OWNER_EMAIL = 'sofia.ramirez@zipp.demo';
 const BUSINESS_PHONE = '3181234567';
 
 /** No hay categoría "carnicería" en `BusinessCategory`; supermercado es la más cercana. */
@@ -92,6 +95,7 @@ async function main(): Promise<void> {
     owner = await User.create({
       name: 'Sofía Ramírez',
       phone: OWNER_PHONE,
+      email: OWNER_EMAIL,
       password: DEMO_PASSWORD,
       role: UserRole.BUSINESS,
       isActive: true,
@@ -167,7 +171,7 @@ async function main(): Promise<void> {
   console.log(`📦 Productos: ${CATALOG.reduce((n, c) => n + c.products.length, 0)} (${productsCreated} nuevos)`);
   console.log(`\n✅ Listo para probar una compra.`);
   console.log(`   Comercio: Carnes Sofia (${business.isApproved ? 'aprobado' : 'pendiente'}, ${business.isActive ? 'activo' : 'inactivo'})`);
-  console.log(`   Dueño:    ${OWNER_PHONE} / ${DEMO_PASSWORD}`);
+  console.log(`   Dueño:    ${OWNER_EMAIL} / ${DEMO_PASSWORD}`);
 
   await mongoose.disconnect();
   process.exit(0);

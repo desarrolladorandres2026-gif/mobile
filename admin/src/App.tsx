@@ -18,6 +18,7 @@ import { lazyPage } from './lib/lazyPage';
  * archivo, dentro de FleetMap.
  */
 const Login = lazyPage(() => import('./pages/Login'), '/login');
+const TwoFactorSetup = lazyPage(() => import('./pages/TwoFactorSetup'), '/setup-2fa');
 const Dashboard = lazyPage(() => import('./pages/Dashboard'), '/');
 const DailySummary = lazyPage(() => import('./pages/DailySummary'), '/daily-summary');
 const Orders = lazyPage(() => import('./pages/Orders'), '/orders');
@@ -67,6 +68,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Suspense fallback={null}><Login /></Suspense>} />
+          <Route path="/setup-2fa" element={<Suspense fallback={null}><TwoFactorSetup /></Suspense>} />
           <Route path="/" element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="daily-summary" element={<DailySummary />} />

@@ -283,6 +283,27 @@ export const orderCallRateLimiter = rateLimit({
 });
 
 /**
+ * Subidas de foto de producto y reintentos del recorte de fondo.
+ *
+ * Por cuenta y no por IP: va detrás de `authenticate`, y un comercio en la
+ * red de un centro comercial no debería agotarle el cupo al de al lado.
+ * Con el recorte encendido cada subida puede costar un crédito, así que lo
+ * que frena aquí es el bucle —un script, una cuenta comprometida—; el
+ * gasto diario lo acota además el tope por comercio del orquestador.
+ */
+export const productImageUploadRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: limitFor(config.security.rateLimit.productImageUploadMaxRequests),
+  message: {
+    success: false,
+    message: 'Demasiadas fotos seguidas. Espera unos minutos antes de subir otra.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+});
+
+/**
  * Límite por usuario autenticado, complementario al límite global por IP.
  *
  * El límite por IP (`globalLimiter` en app.ts) tiene que ser holgado porque

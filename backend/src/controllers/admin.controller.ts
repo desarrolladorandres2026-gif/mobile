@@ -9,7 +9,36 @@ import { resolveOrderAccess } from '../services/orderAccess.service';
 import { OrderEvent, AuditAction, logAudit } from '../security';
 import { AppError } from '../middlewares';
 
+/** Hasta medio año: es lo que guarda la colección de eventos. */
+const IMAGE_STATS_MAX_RANGE_MS = 180 * 24 * 60 * 60_000;
+const IMAGE_STATS_DEFAULT_RANGE_MS = 30 * 24 * 60 * 60_000;
+
 export class AdminController {
+  /**
+   * Cuántas fotos de producto pasaron por el recorte de fondo, cómo
+   * salieron y cuánto costaron (`billable`), entre `from` y `to`. Por
+   * defecto, los últimos 30 días.
+   */
+  async imageProcessingStats(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { backgroundRemovalService } = await import('../services/backgroundRemoval.service');
+      const toRaw = query(req, 'to');
+      const fromRaw = query(req, 'from');
+      const to = toRaw ? new Date(toRaw) : new Date();
+      const from = fromRaw ? new Date(fromRaw) : new Date(to.getTime() - IMAGE_STATS_DEFAULT_RANGE_MS);
+
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
+        throw new AppError('Rango de fechas inválido', 400);
+      }
+      if (to.getTime() - from.getTime() > IMAGE_STATS_MAX_RANGE_MS) {
+        throw new AppError('El rango no puede pasar de 180 días', 400);
+      }
+
+      const stats = await backgroundRemovalService.stats({ from, to });
+      sendResponse(res, 200, 'Métricas del recorte de fondo', stats);
+    } catch (error) { next(error); }
+  }
+
   /**
    * Descarga de informes en CSV.
    *

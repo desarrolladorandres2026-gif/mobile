@@ -10,6 +10,8 @@ import { cloudinary } from '../config';
  * importa ningún modelo: solo describe la forma que necesita.
  */
 
+export type BackgroundRemovalStatusLike = 'none' | 'pending' | 'processing' | 'completed' | 'failed';
+
 /** Lo mínimo que hace falta para construir una URL. */
 export interface ProductImageAssetLike {
   publicId: string;
@@ -19,6 +21,10 @@ export interface ProductImageAssetLike {
   backgroundRemoved: boolean;
   /** La miniatura borrosa ya incrustada, si se calculó al subir. */
   placeholderDataUri?: string | null;
+  /** La foto sin fondo, si ya existe. Opcional: lo de antes no la tiene. */
+  cutout?: { publicId: string; placeholderDataUri?: string | null } | null;
+  backgroundRemoval?: { status?: BackgroundRemovalStatusLike | null } | null;
+  useOriginal?: boolean | null;
 }
 
 /** Tamaños que sirve el catálogo. Cuadrados, en píxeles. */
@@ -48,7 +54,22 @@ export interface ProductImageUrls {
   width: number;
   height: number;
   enhanced: boolean;
+  /** Lo que se muestra no tiene fondo (recorte actual o complemento antiguo). */
   backgroundRemoved: boolean;
+  /**
+   * El producto sin fondo, **transparente**, a 1200 px como máximo.
+   *
+   * Una sola URL y no cuatro variantes: la carga de cada respuesta importa
+   * (por eso salió `srcSet`), y quien la use puede pedir otro tamaño con la
+   * misma transformación de ancho que ya aplica la app a logos y portadas.
+   * Las variantes de arriba siguen siendo opacas, así que las apps que no
+   * conocen este campo no notan nada.
+   */
+  cutout: string | null;
+  /** En qué va el recorte: el panel lo usa para decir "Mejorando imagen…". */
+  backgroundRemoval: BackgroundRemovalStatusLike;
+  /** Se está sirviendo la foto original, con su fondo. */
+  usingOriginal: boolean;
 }
 
 /**
@@ -74,15 +95,76 @@ const ENHANCE_CHAIN = [
 ];
 
 /**
- * Fondo uniforme y sombra suave.
+ * Fondo uniforme y sombra suave, del complemento de Cloudinary ya retirado.
  *
- * Solo se aplica cuando el recorte de fondo llegó a ejecutarse: sobre una
- * foto que conserva su fondo, poner otro detrás no hace nada.
+ * Solo lo usan las fotos que se subieron con aquel complemento
+ * (`backgroundRemoved` sin `cutout`), para que se sigan viendo como
+ * entonces. El recorte actual se compone con `cutoutVariantUrl`.
  */
 const CLEAN_BACKGROUND = [
   { effect: 'shadow:40,x_0,y_8' },
   { background: 'rgb:f6f8fa' },
 ];
+
+/**
+ * El fondo sobre el que se compone el producto recortado en las variantes
+ * de siempre. El mismo platino que usaba el recorte anterior, sin sombra:
+ * las sombras son una decisión de estilo que todavía no se ha tomado.
+ */
+export const CUTOUT_CANVAS_BACKGROUND = 'rgb:f6f8fa';
+
+/**
+ * Qué parte del cuadro ocupa el producto. El resto es aire alrededor:
+ * pegado al borde, un producto recortado parece cortado.
+ */
+export const CUTOUT_FILL_RATIO = 0.88;
+
+/** Si lo que se sirve es el recorte y no la foto original. */
+export function showsCutout(asset: ProductImageAssetLike): boolean {
+  return Boolean(
+    asset.cutout?.publicId &&
+      asset.backgroundRemoval?.status === 'completed' &&
+      !asset.useOriginal
+  );
+}
+
+/**
+ * Una variante cuadrada del producto recortado.
+ *
+ * `c_fit` lo encaja entero dentro del 88 % del cuadro —nunca lo estira ni
+ * le corta un borde— y `c_pad` completa el cuadrado con el fondo, así el
+ * producto queda centrado sin que nadie lo encuadre. El fondo va en el
+ * mismo paso que el relleno para que cubra también los píxeles
+ * transparentes del recorte, no solo el margen añadido.
+ */
+function cutoutVariantUrl(cutoutPublicId: string, enhanced: boolean, size: number): string {
+  const inner = Math.round(size * CUTOUT_FILL_RATIO);
+  return cloudinary.url(cutoutPublicId, {
+    secure: true,
+    transformation: [
+      ...(enhanced ? ENHANCE_CHAIN : []),
+      { width: inner, height: inner, crop: 'fit' },
+      { width: size, height: size, crop: 'pad', background: CUTOUT_CANVAS_BACKGROUND },
+      { quality: 'auto:good', fetch_format: 'auto' },
+    ],
+  });
+}
+
+/**
+ * El recorte transparente, sin fondo ni margen.
+ *
+ * `f_auto` conserva el canal alfa: WebP o AVIF a quien los acepta y PNG a
+ * lo demás — nunca JPG, que lo aplanaría.
+ */
+export function productImageCutoutUrl(publicId: string): string {
+  return cloudinary.url(publicId, {
+    secure: true,
+    transformation: [
+      { width: PRODUCT_IMAGE_VARIANTS.large, height: PRODUCT_IMAGE_VARIANTS.large, crop: 'limit' },
+      { quality: 'auto:good', fetch_format: 'auto' },
+    ],
+  });
+}
 
 /**
  * Una variante cuadrada.
@@ -94,6 +176,7 @@ const CLEAN_BACKGROUND = [
  * resto y JPG a lo demás, sin mantener tres copias.
  */
 export function productImageUrl(asset: ProductImageAssetLike, size: number): string {
+  if (showsCutout(asset)) return cutoutVariantUrl(asset.cutout!.publicId, asset.enhanced, size);
   return cloudinary.url(asset.publicId, {
     secure: true,
     transformation: [
@@ -117,13 +200,21 @@ export function productImageUrl(asset: ProductImageAssetLike, size: number): str
  */
 export function productImagePlaceholderUrl(
   publicId: string,
-  options: { format?: 'auto' | 'webp'; version?: number } = {}
+  options: { format?: 'auto' | 'webp'; version?: number; cutout?: boolean } = {}
 ): string {
+  // Del recorte, la miniatura sale de la versión compuesta: es la que va a
+  // ocupar el hueco, y la transparente se vería como una mancha.
+  const frame = options.cutout
+    ? [
+        { width: 21, height: 21, crop: 'fit' },
+        { width: 24, height: 24, crop: 'pad', background: CUTOUT_CANVAS_BACKGROUND },
+      ]
+    : [{ width: 24, height: 24, crop: 'fill', gravity: 'auto' }];
   return cloudinary.url(publicId, {
     secure: true,
     ...(options.version ? { version: options.version } : {}),
     transformation: [
-      { width: 24, height: 24, crop: 'fill', gravity: 'auto' },
+      ...frame,
       { effect: 'blur:400', quality: 30, fetch_format: options.format ?? 'auto' },
     ],
   });
@@ -150,6 +241,11 @@ export function productImageUrls(
   if (!asset?.publicId) return null;
 
   const url = (size: number) => productImageUrl(asset, size);
+  const cutoutShown = showsCutout(asset);
+  const completedCutout =
+    asset.cutout?.publicId && asset.backgroundRemoval?.status === 'completed'
+      ? asset.cutout
+      : null;
 
   return {
     thumb: url(PRODUCT_IMAGE_VARIANTS.thumb),
@@ -159,13 +255,20 @@ export function productImageUrls(
     // Incrustada no cuesta un viaje a la red: pesa ~90 bytes, ocupa menos
     // texto que su propia URL y se pinta aunque no haya señal. La URL queda
     // de respaldo para los productos que el relleno aún no alcanzó.
-    placeholder: asset.placeholderDataUri || productImagePlaceholderUrl(asset.publicId),
+    placeholder:
+      cutoutShown && completedCutout
+        ? completedCutout.placeholderDataUri ||
+          productImagePlaceholderUrl(completedCutout.publicId, { cutout: true })
+        : asset.placeholderDataUri || productImagePlaceholderUrl(asset.publicId),
     // Sin `srcSet`: repetía las cuatro URLs en cada producto de cada
     // respuesta —el 44 % del objeto— y solo lo usaba el panel del
     // comercio, que ahora lo arma con estas mismas variantes.
     width: asset.width,
     height: asset.height,
     enhanced: asset.enhanced,
-    backgroundRemoved: asset.backgroundRemoved,
+    backgroundRemoved: cutoutShown || (asset.backgroundRemoved && !asset.cutout),
+    cutout: completedCutout ? productImageCutoutUrl(completedCutout.publicId) : null,
+    backgroundRemoval: asset.backgroundRemoval?.status ?? 'none',
+    usingOriginal: !cutoutShown,
   };
 }

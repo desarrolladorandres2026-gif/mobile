@@ -31,7 +31,12 @@ export interface IProductImage {
    * justo lo que impide comparar con el producto real.
    */
   enhanced: boolean;
-  /** Fondo retirado con el complemento de Cloudinary, si estaba disponible. */
+  /**
+   * Fondo retirado con el complemento de Cloudinary, ya retirado.
+   *
+   * Solo lo llevan en `true` las fotos subidas con aquel complemento: se
+   * siguen sirviendo como entonces. El recorte actual vive en `cutout`.
+   */
   backgroundRemoved: boolean;
   /**
    * La miniatura borrosa como `data:` URI (~130 caracteres), calculada al
@@ -41,6 +46,62 @@ export interface IProductImage {
    */
   placeholderDataUri?: string | null;
   uploadedAt: Date;
+  /**
+   * La misma foto sin fondo, como archivo aparte.
+   *
+   * Los campos de arriba siguen siendo la **foto original** y no se tocan
+   * nunca al recortar: por eso "Usar imagen original" es un interruptor y
+   * no una segunda subida. Solo la foto principal lo usa; en la galería
+   * queda siempre en `null`.
+   */
+  cutout?: IProductImageCutout | null;
+  /** En qué va el recorte de fondo de esta foto. */
+  backgroundRemoval?: IBackgroundRemovalState | null;
+  /** El comercio prefirió su foto con fondo aunque exista el recorte. */
+  useOriginal?: boolean;
+}
+
+export type BackgroundRemovalStatus = 'none' | 'pending' | 'processing' | 'completed' | 'failed';
+
+/** El PNG con transparencia que devolvió el proveedor, ya en Cloudinary. */
+export interface IProductImageCutout {
+  publicId: string;
+  width: number;
+  height: number;
+  bytes: number;
+  format: string;
+  /** Quién lo recortó: si se cambia de proveedor, se sabe de dónde salió cada foto. */
+  provider: string;
+  /** Miniatura borrosa de la versión compuesta, la que se ve en el catálogo. */
+  placeholderDataUri?: string | null;
+  createdAt: Date;
+}
+
+/**
+ * El estado del recorte vive en el producto, no en memoria del proceso.
+ *
+ * Mismo criterio que el reparto en cascada: si el proceso se reinicia a
+ * mitad, el barrido encuentra el trabajo donde quedó.
+ */
+export interface IBackgroundRemovalState {
+  status: BackgroundRemovalStatus;
+  provider: string | null;
+  /** Intentos automáticos de esta foto. Un "Reintentar" explícito lo pone a cero. */
+  attempts: number;
+  /** Código estable del último fallo; nunca el texto del proveedor. */
+  errorCode: string | null;
+  /** Identifica la ejecución que tiene la foto reservada. */
+  claimId: string | null;
+  requestedAt: Date | null;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+  /**
+   * Cuándo le toca al barrido: el próximo intento si está `pending`, o el
+   * vencimiento de la reserva si está `processing`. `null` en los estados
+   * terminales, que así quedan fuera del índice.
+   */
+  nextAttemptAt: Date | null;
+  durationMs: number | null;
 }
 
 export interface IProduct extends Document {
@@ -145,6 +206,40 @@ export interface IProduct extends Document {
   updatedAt: Date;
 }
 
+const productImageCutoutSchema = new Schema<IProductImageCutout>(
+  {
+    publicId: { type: String, required: true },
+    width: { type: Number, required: true, min: 1 },
+    height: { type: Number, required: true, min: 1 },
+    bytes: { type: Number, required: true, min: 0 },
+    format: { type: String, required: true },
+    provider: { type: String, required: true },
+    placeholderDataUri: { type: String, default: null, maxlength: 2048 },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
+const backgroundRemovalStateSchema = new Schema<IBackgroundRemovalState>(
+  {
+    status: {
+      type: String,
+      enum: ['none', 'pending', 'processing', 'completed', 'failed'],
+      default: 'none',
+    },
+    provider: { type: String, default: null },
+    attempts: { type: Number, default: 0, min: 0 },
+    errorCode: { type: String, default: null },
+    claimId: { type: String, default: null },
+    requestedAt: { type: Date, default: null },
+    startedAt: { type: Date, default: null },
+    finishedAt: { type: Date, default: null },
+    nextAttemptAt: { type: Date, default: null },
+    durationMs: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
 const productImageSchema = new Schema<IProductImage>(
   {
     publicId: { type: String, required: true },
@@ -159,6 +254,11 @@ const productImageSchema = new Schema<IProductImage>(
     // cien bytes, y algo que ocupe más no es un placeholder.
     placeholderDataUri: { type: String, default: null, maxlength: 2048 },
     uploadedAt: { type: Date, default: Date.now },
+    // Opcionales y en `null` por defecto: los productos de antes no los
+    // tienen y se leen como "sin recorte", exactamente como se veían.
+    cutout: { type: productImageCutoutSchema, default: null },
+    backgroundRemoval: { type: backgroundRemovalStateSchema, default: null },
+    useOriginal: { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -355,8 +455,20 @@ productSchema.set('toJSON', {
   // `imageAsset` y en cada foto de `gallery` la mandaría dos veces por
   // producto en cada carta, y la guardaría dos veces en la caché del móvil.
   transform: (_doc, ret: Record<string, any>) => {
-    if (ret.imageAsset) delete ret.imageAsset.placeholderDataUri;
-    for (const image of ret.gallery ?? []) delete image.placeholderDataUri;
+    for (const image of [ret.imageAsset, ...(ret.gallery ?? [])]) {
+      if (!image) continue;
+      delete image.placeholderDataUri;
+      // Las URLs del recorte ya van en `images`; el archivo en crudo, no.
+      delete image.cutout;
+      // Del recorte solo sale lo que el panel del comercio lee: por qué
+      // falló y cuándo se pidió. El proveedor, los intentos y la reserva
+      // son maquinaria interna —y este JSON lo sirve también la carta
+      // pública, a cualquiera—; el estado ya va en `images`.
+      if (image.backgroundRemoval) {
+        const { errorCode, requestedAt } = image.backgroundRemoval;
+        image.backgroundRemoval = { errorCode, requestedAt };
+      }
+    }
     return ret;
   },
 });
@@ -408,6 +520,17 @@ productSchema.index({ searchName: 1 });
  * índice serviría para poco.
  */
 productSchema.index({ tags: 1, isAvailable: 1 });
+
+// Lo que busca el barrido del recorte de fondo. Parcial porque
+// `nextAttemptAt` solo tiene fecha mientras hay trabajo pendiente: la carta
+// entera, con sus fotos ya terminadas, se queda fuera del índice.
+productSchema.index(
+  { 'imageAsset.backgroundRemoval.nextAttemptAt': 1 },
+  {
+    name: 'background_removal_due',
+    partialFilterExpression: { 'imageAsset.backgroundRemoval.nextAttemptAt': { $type: 'date' } },
+  }
+);
 
 // Lo que necesita la pantalla de Descuentos: productos rebajados y
 // disponibles. Parcial y no completo porque `discountPrice` es `null` en

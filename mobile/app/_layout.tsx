@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Stack, usePathname } from 'expo-router';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -104,9 +104,6 @@ const queryClient = new QueryClient({
   },
 });
 
-/** Rutas que pintan su propia cabecera oscura bajo la barra de estado. */
-const DARK_HEADER_ROUTES = ['/offers'];
-
 function RootLayoutContent() {
   const isLoading = useAuthStore((s) => s.isLoading);
   const loadStoredAuth = useAuthStore((s) => s.loadStoredAuth);
@@ -191,17 +188,6 @@ function RootLayoutContent() {
 
   const booted = !isLoading && fontsLoaded;
 
-  /**
-   * Pantallas cuya cabecera es oscura hasta arriba.
-   *
-   * Descuentos y Explorar: las dos abren con una franja obsidiana que pasa
-   * por debajo de la barra de estado. Se escribe como lista y no como
-   * comparación suelta para que añadir la siguiente sea una línea y no otro
-   * `endsWith` repartido por el árbol.
-   */
-  const pathname = usePathname();
-  const onDarkHeader = DARK_HEADER_ROUTES.some((route) => pathname.endsWith(route));
-
   useEffect(() => {
     // Se oculta solo cuando ya hay algo que enseñar debajo. Ocultarlo antes
     // es exactamente el parpadeo que se quería quitar.
@@ -217,14 +203,7 @@ function RootLayoutContent() {
     // que poder pintar con los colores de la app, y a la vez sustituir la
     // navegacion entera cuando bloquea.
     <VersionGate>
-      {/* Descuentos y Explorar llevan una franja obsidiana que pasa por
-          debajo de la barra de estado: ahí la hora va en claro o desaparece.
-          La decisión vive aquí, en el único sitio que nunca se desmonta.
-          Dentro de la pestaña no serviría —`freezeOnBlur` congela la
-          pantalla al perder el foco y podría quedarse sin devolver el
-          estilo—, y en el layout de pestañas dejaría la hora en blanco al
-          cerrar sesión desde esa pantalla. */}
-      <StatusBar style={isDark || onDarkHeader ? 'light' : 'dark'} />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <Stack screenOptions={screenOptions}>
         <Stack.Screen name="index" options={{ animation: 'fade' }} />
         <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />

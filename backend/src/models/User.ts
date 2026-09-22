@@ -178,9 +178,17 @@ const userSchema = new Schema<IUser>(
     birthDate: { type: Date },
     phone: {
       type: String,
-      // Opcional solo para cuentas creadas con Google o Apple: quedan sin
-      // celular hasta que completan la pantalla de verificación obligatoria.
-      required: [function (this: IUser) { return !this.googleId && !this.appleId && !this.facebookId; }, 'El número de celular es requerido'],
+      // Opcional para cuentas Google/Apple/Facebook (quedan sin celular
+      // hasta que completan la pantalla de verificación obligatoria) y para
+      // admin/business, que ahora entran por correo y contraseña, no por
+      // celular — ver `email` más abajo y `auth.service.ts::login`.
+      required: [
+        function (this: IUser) {
+          return !this.googleId && !this.appleId && !this.facebookId
+            && this.role !== UserRole.ADMIN && this.role !== UserRole.BUSINESS;
+        },
+        'El número de celular es requerido',
+      ],
       unique: true,
       sparse: true,
       trim: true,
@@ -194,6 +202,12 @@ const userSchema = new Schema<IUser>(
     },
     email: {
       type: String,
+      // Requerido para admin/business: es su identificador de login desde
+      // que los paneles admin y business dejaron de aceptar celular.
+      required: [
+        function (this: IUser) { return this.role === UserRole.ADMIN || this.role === UserRole.BUSINESS; },
+        'El correo es requerido para esta cuenta',
+      ],
       unique: true,
       sparse: true,
       trim: true,

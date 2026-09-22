@@ -673,12 +673,12 @@ export async function buildDiscoveryFeed(
 
   if (!eligible.length) return [];
 
-  const businessIds = await visibleBusinessIds(coords, maxDistance, options.city);
+  const needsSales = eligible.some((c) => c.rule.all.some((r) => r.source === 'sales'));
+  const [businessIds, salesIds] = await Promise.all([
+    visibleBusinessIds(coords, maxDistance, options.city),
+    needsSales ? cachedSalesRanking() : Promise.resolve({}),
+  ]);
   if (!businessIds.length) return [];
-
-  const salesIds = eligible.some((c) => c.rule.all.some((r) => r.source === 'sales'))
-    ? await cachedSalesRanking()
-    : {};
 
   const businessMatch = joinedBusinessMatch();
 

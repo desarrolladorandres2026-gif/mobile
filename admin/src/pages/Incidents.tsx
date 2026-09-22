@@ -110,7 +110,7 @@ function waitingFor(iso: string): string {
 
 function Kpi({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
-    <div className="rounded-xl border border-[var(--color-border-light)] bg-[var(--color-surface)] p-4">
+    <div>
       <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
         {label}
       </p>
@@ -225,10 +225,10 @@ export default function Incidents() {
           <button
             key={key}
             onClick={() => setFilter(key as 'all' | IncidentKind)}
-            className={`cursor-pointer rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`cursor-pointer px-3 py-1.5 text-xs font-semibold transition-colors border-b-2 ${
               filter === key
-                ? 'bg-[var(--color-primary)] text-white'
-                : 'border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)]'
+                ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
             }`}
           >
             {key === 'all' ? 'Todo' : KIND[key as IncidentKind].label}

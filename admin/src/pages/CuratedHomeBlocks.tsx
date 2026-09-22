@@ -305,9 +305,9 @@ export default function CuratedHomeBlocks() {
           <button
             key={k}
             onClick={() => setKindFilter(k)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${kindFilter === k
-              ? 'bg-[var(--color-primary)] text-white shadow-xs'
-              : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-border)]'
+            className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${kindFilter === k
+              ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+              : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
               }`}
           >
             {k === 'all' ? 'Todos' : KIND_LABELS[k]}
@@ -316,7 +316,7 @@ export default function CuratedHomeBlocks() {
       </div>
 
       {error && (
-        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error}</p>
         </div>
