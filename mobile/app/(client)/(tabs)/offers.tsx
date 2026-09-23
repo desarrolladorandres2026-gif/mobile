@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  Text, Chip, EmptyState, ErrorState, CouponCardSkeleton, Skeleton,
+  Text, EmptyState, ErrorState, CouponCardSkeleton, Skeleton,
 } from '../../../components/ui';
 import { PromoCarousel } from '../../../components/domain/PromoCarousel';
 import { TicketCard } from '../../../components/domain/TicketCard';
@@ -19,7 +19,7 @@ import { useCouponStore } from '../../../stores/couponStore';
 import {
   pickSpotlightCoupon, isExpiringSoon, bigDiscountProducts, splitBusinessOffers,
   couponStatus, indexEligibility, isUsable, scheduledCoupons, windowLabel,
-  withoutRedundantFreeDelivery, OFFER_FILTERS, type OfferFilter, type CouponStatus,
+  withoutRedundantFreeDelivery, type CouponStatus,
 } from '../../../lib/offers';
 import { tap } from '../../../lib/haptics';
 import { useTheme } from '../../../hooks/useTheme';
@@ -71,7 +71,6 @@ export default function OffersScreen() {
   const { data: pro } = useProStatus(isAuthenticated);
   const proFreeDelivery = !!pro?.member && !!pro.plan.benefits.freeDelivery.enabled;
 
-  const [filter, setFilter] = useState<OfferFilter>('all');
   const [sheetCoupon, setSheetCoupon] = useState<OfferCoupon | null>(null);
 
   const allCoupons = data?.coupons;
@@ -179,17 +178,6 @@ export default function OffersScreen() {
     [expiringCoupons, urgentProducts]
   );
 
-  // El filtro se aplica antes de decidir si la sección existe. Mirándolo
-  // después, elegir "Cupones" dejaba en pantalla el título "Se acaban hoy"
-  // sobre un riel vacío cuando lo urgente eran solo platos.
-  const visibleUrgent = useMemo(
-    () => urgentItems.filter((row) =>
-      row.kind === 'coupon'
-        ? filter === 'all' || filter === 'coupons'
-        : filter === 'all' || filter === 'products'),
-    [urgentItems, filter]
-  );
-
   /**
    * El horario que anuncia la sección de Horas Zipp.
    *
@@ -208,11 +196,6 @@ export default function OffersScreen() {
     () => splitBusinessOffers(businesses),
     [businesses]
   );
-
-  // Los filtros no piden nada: recortan lo que ya llegó. Una consulta por
-  // chip serían cuatro descargas para ver lo mismo, y el límite de
-  // peticiones no da para eso.
-  const shows = (kind: OfferFilter) => filter === 'all' || filter === kind;
 
   return (
     <View style={[styles.screen, { backgroundColor: c.background }]}>
@@ -234,23 +217,6 @@ export default function OffersScreen() {
           topInset={insets.top}
           onPressCoupon={heroCoupon ? () => setSheetCoupon(heroCoupon) : undefined}
           onExpire={refetch}
-        />
-
-        <FlatList
-          horizontal
-          data={OFFER_FILTERS}
-          keyExtractor={(row) => row.key}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
-          style={styles.chipsRow}
-          renderItem={({ item }) => (
-            <Chip
-              label={item.label}
-              bare
-              active={filter === item.key}
-              onPress={() => setFilter(item.key)}
-            />
-          )}
         />
 
         {/* El cupón que espera en el pago. Solo hay uno: sin esta línea
@@ -297,7 +263,7 @@ export default function OffersScreen() {
               </Section>
             ) : (
               <>
-                {timed.length > 0 && shows('coupons') ? (
+                {timed.length > 0 ? (
                   <Section>
                     <Heading title="Horas Zipp" note={timedLabel} />
                     <Rail
@@ -315,11 +281,11 @@ export default function OffersScreen() {
                   </Section>
                 ) : null}
 
-                {visibleUrgent.length > 0 ? (
+                {urgentItems.length > 0 ? (
                   <Section>
                     <Heading title="Se acaban hoy" />
-                    <Rail
-                      data={visibleUrgent}
+                    <UrgentRail
+                      data={urgentItems}
                       keyOf={(row) => `${row.kind}-${row.item._id}`}
                       render={(row) =>
                         row.kind === 'coupon' ? (
@@ -338,7 +304,7 @@ export default function OffersScreen() {
                   </Section>
                 ) : null}
 
-                {remainingCoupons.length > 0 && shows('coupons') ? (
+                {remainingCoupons.length > 0 ? (
                   <Section>
                     <Heading
                       title="Cupones"
@@ -364,7 +330,7 @@ export default function OffersScreen() {
                   </Section>
                 ) : null}
 
-                {remainingProducts.length > 0 && shows('products') ? (
+                {remainingProducts.length > 0 ? (
                   <Section>
                     <Heading
                       title="Platos rebajados"
@@ -381,7 +347,7 @@ export default function OffersScreen() {
                   </Section>
                 ) : null}
 
-                {freeDelivery.length > 0 && shows('free_delivery') ? (
+                {freeDelivery.length > 0 ? (
                   <Section>
                     <Heading title="Envío gratis" />
                     <View style={styles.rows}>
@@ -392,7 +358,7 @@ export default function OffersScreen() {
                   </Section>
                 ) : null}
 
-                {discounted.length > 0 && filter === 'all' ? (
+                {discounted.length > 0 ? (
                   <Section>
                     <Heading
                       title="Negocios en oferta"
@@ -474,6 +440,36 @@ function Rail<T>({
 }
 
 /**
+ * El riel de "Se acaban hoy": desparramado, no alineado.
+ *
+ * Es la única fila de la app que rota y desplaza sus tarjetas en zigzag —
+ * en ningún otro riel (Inicio, Explorar, el resto de Descuentos) pasa esto.
+ * La irregularidad es la seña de "esto no va a esperar a que lo ordenes",
+ * algo que un riel prolijo no puede decir por sí solo. `removeClippedSubviews`
+ * va apagado: con transform, la virtualización recorta tarjetas que sí están
+ * a la vista.
+ */
+function UrgentRail<T>({
+  data, keyOf, render,
+}: { data: T[]; keyOf: (item: T) => string; render: (item: T) => React.ReactElement }) {
+  return (
+    <FlatList
+      horizontal
+      data={data}
+      keyExtractor={keyOf}
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.urgentRail}
+      removeClippedSubviews={false}
+      renderItem={({ item, index }) => (
+        <View style={index % 2 === 0 ? styles.urgentEven : styles.urgentOdd}>
+          {render(item)}
+        </View>
+      )}
+    />
+  );
+}
+
+/**
  * La carga, con la silueta de lo que viene.
  *
  * Antes eran tres fantasmas de tarjeta de negocio en vertical para un feed
@@ -501,12 +497,6 @@ function Loading() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
 
-  chipsRow: { marginTop: Spacing.lg },
-  // `Chip` con `bare` ya trae su propio `paddingRight` como separación; un
-  // `gap` aquí sumaría un segundo espacio y las etiquetas quedarían más
-  // lejos entre sí que del borde de la pantalla.
-  chips: { paddingHorizontal: Spacing.xl },
-
   flex: { flex: 1 },
   carrying: {
     flexDirection: 'row',
@@ -531,4 +521,11 @@ const styles = StyleSheet.create({
   },
   rail: { gap: Spacing.md, paddingHorizontal: Spacing.xl, paddingVertical: Spacing.sm },
   rows: { gap: Spacing.xs, paddingHorizontal: Spacing.xl },
+
+  // Espacio extra arriba/abajo para que la rotación no corte contra el
+  // borde del riel; el gap sube porque el giro ya acerca visualmente las
+  // tarjetas más que en un riel plano.
+  urgentRail: { gap: Spacing.lg, paddingHorizontal: Spacing.xl, paddingVertical: Spacing.lg },
+  urgentEven: { transform: [{ rotate: '-3deg' }, { translateY: -6 }] },
+  urgentOdd: { transform: [{ rotate: '3deg' }, { translateY: 6 }] },
 });

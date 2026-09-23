@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Megaphone, Plus, Search, X, AlertCircle, AlertTriangle, Trash2, Pencil, Eye,
   ToggleLeft, ToggleRight, ImagePlus, Store, Ban, MousePointerClick,
-  XOctagon, BarChart3, Clock, Wallet,
+  XOctagon, BarChart3, Clock, Wallet, Rocket, Compass,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
@@ -13,6 +13,7 @@ import { apiMessage } from '../lib/apiError';
 
 type AdStatus = 'scheduled' | 'active' | 'paused' | 'finished' | 'cancelled';
 type ActionType = 'none' | 'business';
+type Placement = 'splash' | 'explore';
 
 interface Campaign {
   _id: string;
@@ -23,6 +24,7 @@ interface Campaign {
   endDate: string;
   isActive: boolean;
   priority: number;
+  placement: Placement;
   actionType: ActionType;
   businessId: string | null;
   maxImpressions: number;
@@ -50,6 +52,7 @@ interface CampaignForm {
   endDate: string;
   isActive: boolean;
   priority: number;
+  placement: Placement;
   actionType: ActionType;
   businessId: string;
   maxImpressions: number;
@@ -65,12 +68,15 @@ interface AdStats {
   todayClicks: number;
 }
 
-// Regla visual de flyers: la app siempre los pinta a pantalla completa en
-// 9:16 con recorte proporcional de bordes (nunca deformación). El tamaño
-// recomendado es 1080×1920 — cualquier imagen fuera de esa relación se
-// acepta igual, solo se advierte que perderá algo de borde al recortarse.
-const FLYER_RATIO = { w: 1080, h: 1920 } as const;
-const FLYER_ASPECT = FLYER_RATIO.w / FLYER_RATIO.h;
+// Regla visual de flyers, por superficie: el de arranque es pantalla
+// completa en 9:16; el de Explorar es un banner ancho, la misma relación
+// que ya usa `SpotlightCarousel` en la app (`aspect = 0.58` → alto = 0.58 ×
+// ancho). Las dos se recortan proporcionalmente (nunca se deforman);
+// cualquier imagen fuera de la relación se acepta igual, solo se advierte.
+const RATIO_BY_PLACEMENT: Record<Placement, { w: number; h: number; label: string }> = {
+  splash: { w: 1080, h: 1920, label: '9:16 vertical' },
+  explore: { w: 1080, h: 626, label: 'banner ancho' },
+};
 const FLYER_ASPECT_TOLERANCE = 0.03;
 
 function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
@@ -89,14 +95,16 @@ function readImageDimensions(file: File): Promise<{ width: number; height: numbe
   });
 }
 
-/** `null` cuando la imagen ya cumple la regla — nada que advertir. */
-function checkFlyerAspect(width: number, height: number): string | null {
-  if (height <= width) {
-    return `La imagen es horizontal (${width}×${height}). Los flyers deben ser verticales — se mostrarán recortados a pantalla completa.`;
+/** `null` cuando la imagen ya cumple la regla de esa superficie — nada que advertir. */
+function checkFlyerAspect(width: number, height: number, placement: Placement): string | null {
+  const target = RATIO_BY_PLACEMENT[placement];
+  if (placement === 'splash' && height <= width) {
+    return `La imagen es horizontal (${width}×${height}). El flyer de arranque debe ser vertical — se mostrará recortado a pantalla completa.`;
   }
+  const targetAspect = target.w / target.h;
   const ratio = width / height;
-  if (Math.abs(ratio - FLYER_ASPECT) > FLYER_ASPECT_TOLERANCE) {
-    return `La imagen es ${width}×${height}, no 9:16. Al mostrarse a pantalla completa se recortará el sobrante de los bordes — recomendado ${FLYER_RATIO.w}×${FLYER_RATIO.h} px.`;
+  if (Math.abs(ratio - targetAspect) > FLYER_ASPECT_TOLERANCE) {
+    return `La imagen es ${width}×${height}, no ${target.label}. Se recortará el sobrante de los bordes — recomendado ${target.w}×${target.h} px.`;
   }
   return null;
 }
@@ -114,10 +122,12 @@ const emptyForm = (): CampaignForm => {
     campaignName: '', advertiserName: '', flyerUrl: '',
     startDate: toDatetimeLocal(now.toISOString()),
     endDate: toDatetimeLocal(inAWeek.toISOString()),
-    isActive: true, priority: 0, actionType: 'none', businessId: '', maxImpressions: 0,
+    isActive: true, priority: 0, placement: 'splash', actionType: 'none', businessId: '', maxImpressions: 0,
     durationSeconds: 5, pricePaid: 0, internalNotes: '',
   };
 };
+
+const PLACEMENT_LABEL: Record<Placement, string> = { splash: 'Arranque', explore: 'Explorar' };
 
 const STATUS_STYLES: Record<AdStatus, { label: string; bg: string; text: string }> = {
   scheduled: { label: 'Programada', bg: 'var(--color-primary-bg)', text: 'var(--color-primary)' },
@@ -215,6 +225,7 @@ export default function Campaigns() {
       endDate: toDatetimeLocal(c.endDate),
       isActive: c.isActive,
       priority: c.priority,
+      placement: c.placement ?? 'splash',
       actionType: c.actionType,
       businessId: c.businessId || '',
       maxImpressions: c.maxImpressions,
@@ -236,7 +247,7 @@ export default function Campaigns() {
       // inmediato — no depende de que el backend devuelva las dimensiones.
       try {
         const { width, height } = await readImageDimensions(file);
-        setAspectWarning(checkFlyerAspect(width, height) || '');
+        setAspectWarning(checkFlyerAspect(width, height, form.placement) || '');
       } catch {
         // Si el navegador no puede leer las dimensiones, se sigue con la
         // subida igual: la validación de formato real corre en el backend.
@@ -270,6 +281,7 @@ export default function Campaigns() {
       endDate: new Date(form.endDate).toISOString(),
       isActive: form.isActive,
       priority: Number(form.priority),
+      placement: form.placement,
       actionType: form.actionType,
       businessId: form.actionType === 'business' ? form.businessId || null : null,
       maxImpressions: Number(form.maxImpressions),
@@ -389,7 +401,7 @@ export default function Campaigns() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Publicidad Patrocinada</h1>
-          <p className="page-subtitle">Campañas que se muestran en la pantalla de carga al abrir la app</p>
+          <p className="page-subtitle">Campañas patrocinadas: pantalla de carga al abrir la app, o intercaladas en Explorar</p>
         </div>
         <button
           onClick={openCreate}
@@ -478,6 +490,10 @@ export default function Campaigns() {
                         style={{ backgroundColor: st.bg, color: st.text }}
                       >
                         {st.label}
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)]">
+                        {c.placement === 'explore' ? <Compass className="w-3 h-3" /> : <Rocket className="w-3 h-3" />}
+                        {PLACEMENT_LABEL[c.placement ?? 'splash']}
                       </span>
                     </div>
                     <p className="text-xs text-[var(--color-text-secondary)] font-medium">{c.advertiserName}</p>
@@ -688,10 +704,16 @@ export default function Campaigns() {
               <X className="w-6 h-6" />
             </button>
             <div className="rounded-2xl overflow-hidden bg-[var(--color-surface)] shadow-xl">
-              {/* Misma composición que la app: pantalla completa 9:16 con recorte
-                  proporcional (cover), nunca deformado. El recuadro punteado es la
-                  zona segura — ahí deben quedar título, precio y logo. */}
-              <div className="relative w-full" style={{ aspectRatio: `${FLYER_RATIO.w} / ${FLYER_RATIO.h}` }}>
+              {/* Misma composición que la app: recorte proporcional (cover),
+                  nunca deformado, en el ratio de la superficie de la campaña.
+                  El recuadro punteado es la zona segura — ahí deben quedar
+                  título, precio y logo. */}
+              <div
+                className="relative w-full"
+                style={{
+                  aspectRatio: `${RATIO_BY_PLACEMENT[previewCampaign.placement ?? 'splash'].w} / ${RATIO_BY_PLACEMENT[previewCampaign.placement ?? 'splash'].h}`,
+                }}
+              >
                 <img
                   src={previewCampaign.flyerUrl}
                   alt={previewCampaign.campaignName}
@@ -724,15 +746,54 @@ export default function Campaigns() {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
+                <label className={labelClass}>Dónde Aparece</label>
+                <div className="flex gap-1.5">
+                  {[
+                    { id: 'splash' as const, label: 'Arranque', icon: Rocket },
+                    { id: 'explore' as const, label: 'Explorar', icon: Compass },
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={!!editingId}
+                      onClick={() => {
+                        setForm({ ...form, placement: opt.id });
+                        setAspectWarning('');
+                      }}
+                      title={editingId ? 'La superficie no se puede cambiar una vez creada la campaña' : undefined}
+                      className={`flex-1 flex items-center justify-center gap-1.5 h-10 rounded-lg text-xs font-semibold transition-all border disabled:opacity-50 disabled:cursor-not-allowed ${form.placement === opt.id
+                        ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
+                        : 'bg-[var(--color-bg)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:text-[var(--color-text-main)]'
+                        } ${editingId ? '' : 'cursor-pointer'}`}
+                    >
+                      <opt.icon className="w-3.5 h-3.5" />
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {form.placement === 'explore' ? (
+                  <p className="text-[11px] text-[var(--color-text-secondary)] mt-1.5">
+                    Se intercala entre las colecciones de Explorar, mezclada con los banners gratuitos.
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-[var(--color-text-secondary)] mt-1.5">
+                    Pantalla completa al abrir la app.
+                  </p>
+                )}
+              </div>
+
+              <div>
                 <label className={labelClass}>Flyer Publicitario</label>
                 <p className="text-[11px] text-[var(--color-text-secondary)] mb-2">
-                  Vertical 9:16 · recomendado {FLYER_RATIO.w}×{FLYER_RATIO.h} px. Se muestra a pantalla
-                  completa; el sobrante de los bordes se recorta, la imagen nunca se deforma.
+                  {RATIO_BY_PLACEMENT[form.placement].label} · recomendado {RATIO_BY_PLACEMENT[form.placement].w}×{RATIO_BY_PLACEMENT[form.placement].h} px.
+                  {form.placement === 'splash'
+                    ? ' Se muestra a pantalla completa; el sobrante de los bordes se recorta, la imagen nunca se deforma.'
+                    : ' Se muestra como banner ancho en Explorar; el sobrante de los bordes se recorta, la imagen nunca se deforma.'}
                 </p>
                 {form.flyerUrl ? (
                   <div
-                    className="relative mx-auto w-36 rounded-xl overflow-hidden border border-[var(--color-border)] group"
-                    style={{ aspectRatio: `${FLYER_RATIO.w} / ${FLYER_RATIO.h}` }}
+                    className="relative mx-auto w-full max-w-xs rounded-xl overflow-hidden border border-[var(--color-border)] group"
+                    style={{ aspectRatio: `${RATIO_BY_PLACEMENT[form.placement].w} / ${RATIO_BY_PLACEMENT[form.placement].h}` }}
                   >
                     <img src={form.flyerUrl} alt="Flyer" className="absolute inset-0 w-full h-full object-cover" />
                     {/* Zona segura: título, precio y logo deben quedar dentro de este recuadro. */}

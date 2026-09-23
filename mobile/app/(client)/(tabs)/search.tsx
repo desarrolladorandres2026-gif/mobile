@@ -32,8 +32,8 @@ import { tap } from '../../../lib/haptics';
  * para **comparar**: filas compactas, tres columnas siempre a la misma
  * altura, el plato y el negocio con la misma silueta para que se puedan
  * medir entre sí (`SearchResults.tsx`). Sin nada escrito es un feed para
- * **descubrir**: el grid de antojos, las colecciones que arma el servidor
- * solas y la salida de mandados (`ExploreFeed.tsx`).
+ * **descubrir**: las colecciones que arma el servidor solas y la salida de
+ * mandados (`ExploreFeed.tsx`).
  *
  * Este archivo solo orquesta: guarda el estado de la búsqueda, decide en
  * qué modo está la pantalla y reparte los datos ya resueltos a los dos
@@ -74,7 +74,9 @@ export default function SearchScreen() {
 
   const addRecentSearch = usePrefsStore((s) => s.addRecentSearch);
 
-  const { categories, isLoading: categoriesLoading } = useHomeCategories();
+  // Solo para nombrar la categoría que llega puesta desde Inicio; Explorar
+  // ya no enseña su propio grid de categorías.
+  const { categories } = useHomeCategories();
 
   const [query, setQuery] = useState(params.q ?? '');
   const [category, setCategory] = useState<string | null>(params.category ?? null);
@@ -380,10 +382,7 @@ export default function SearchScreen() {
         <ExploreFeed
           coords={coords}
           coordsReady={coordsReady}
-          categories={categories}
-          categoriesLoading={categoriesLoading}
           bottomSpace={bottomSpace}
-          onSelectCategory={(key) => { setCategory(key); }}
           onErrand={() => { tap('select'); router.push('/(client)/errand'); }}
         />
       ) : (

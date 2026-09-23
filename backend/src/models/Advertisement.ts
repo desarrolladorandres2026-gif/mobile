@@ -28,6 +28,22 @@ export enum AdPricingModel {
 }
 
 /**
+ * Dónde se le enseña la campaña a la app.
+ *
+ * `SPLASH` es lo que había: el flyer a pantalla completa al abrir la app.
+ * `EXPLORE` la intercala entre las colecciones de Explorar, mezclada con los
+ * banners gratuitos de `PromotionBanner`. Fija por campaña — nunca cambia
+ * una vez que registró impresiones o clics (`advertisement.controller.ts`),
+ * porque los contadores son un total único por documento: si una campaña
+ * pudiera repartirse entre dos superficies, `spendOf` ya no podría explicar
+ * en cuál se gastó cada peso.
+ */
+export enum AdPlacement {
+  SPLASH = 'splash',
+  EXPLORE = 'explore',
+}
+
+/**
  * En qué punto de la revisión está una campaña.
  *
  * Solo importa en las que compra un comercio por su cuenta: las que crea un
@@ -50,6 +66,7 @@ export interface IAdvertisement extends Document {
   isActive: boolean;
   /** Higher runs first when several campaigns are eligible at once. */
   priority: number;
+  placement: AdPlacement;
 
   /**
    * A quién se le enseña.
@@ -158,6 +175,11 @@ const advertisementSchema = new Schema<IAdvertisement>(
     },
     isActive: { type: Boolean, default: true },
     priority: { type: Number, default: 0, min: 0, max: 100 },
+    placement: {
+      type: String,
+      enum: Object.values(AdPlacement),
+      default: AdPlacement.SPLASH,
+    },
     targetCities: { type: [String], default: [] },
     targetCategories: { type: [String], default: [] },
     targetRoles: { type: [String], default: [] },
@@ -216,8 +238,9 @@ const advertisementSchema = new Schema<IAdvertisement>(
   { timestamps: true }
 );
 
-// Powers the "active campaign for the app" lookup: active flag, in-range
-// dates, best priority first.
-advertisementSchema.index({ isActive: 1, startDate: 1, endDate: 1, priority: -1 });
+// Powers the "active campaign for the app" lookup: superficie primero
+// (`getActiveForApp` siempre filtra por `placement`), luego el mismo criterio
+// de antes — activa, dentro de fecha, mejor prioridad primero.
+advertisementSchema.index({ placement: 1, isActive: 1, startDate: 1, endDate: 1, priority: -1 });
 
 export const Advertisement = mongoose.model<IAdvertisement>('Advertisement', advertisementSchema);

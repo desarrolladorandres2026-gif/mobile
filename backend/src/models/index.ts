@@ -65,7 +65,7 @@ export { DriverDocument, IDriverDocument } from './DriverDocument';
 export { DriverOffer, IDriverOffer, OfferOutcome, DeclineReason } from './DriverOffer';
 export {
   Advertisement, IAdvertisement, AdActionType, AD_DURATION,
-  AdPricingModel, AdApprovalStatus,
+  AdPricingModel, AdApprovalStatus, AdPlacement,
 } from './Advertisement';
 export { AdInvoice, IAdInvoice } from './AdInvoice';
 export { AdEvent, IAdEvent, AdEventType } from './AdEvent';

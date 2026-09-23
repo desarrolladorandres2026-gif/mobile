@@ -122,7 +122,7 @@ export default function Layout() {
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         {/* Brand Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[var(--color-sidebar-border)]/70">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-sidebar-border)]/70">
           <div className="flex items-center gap-3">
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-primary)]/20 text-[var(--color-primary-light)] border border-[var(--color-primary)]/30">
               BUSINESS
@@ -219,46 +219,46 @@ export default function Layout() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto sidebar-scroll px-3 py-4 space-y-1">
-          <p className="text-[10px] font-bold tracking-wider text-[var(--color-sidebar-text)] uppercase px-3 mb-1.5">
+        <nav className="flex-1 overflow-y-auto sidebar-scroll px-3 py-3">
+          <p className="text-xs font-bold tracking-wider text-[var(--color-sidebar-text)] uppercase px-3 mb-1">
             OPERACIONES
           </p>
-          {nav.map((item) => {
-            const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                end={item.path === '/'}
-                onClick={() => setSidebarOpen(false)}
-                // El archivo de la pagina se pide al apuntar, no al pulsar:
-                // para cuando llega el clic ya esta descargado y no hay
-                // spinner. Ver `preloadOn`.
-                {...preloadOn(item.path)}
-                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-150 ${isActive
-                    ? 'bg-[var(--color-primary)]/20 text-white font-semibold shadow-sm border border-[var(--color-primary)]/30'
-                    : 'text-[var(--color-sidebar-text)] hover:text-white hover:bg-[var(--color-sidebar-hover)]'
-                  }`}
-              >
-                {isActive && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-full bg-[var(--color-primary-light)]" />
-                )}
-                <item.Illustration size={26} />
-                <span className="truncate">{item.label}</span>
-              </NavLink>
-            );
-          })}
+          <div className="space-y-0">
+            {nav.map((item) => {
+              const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
+              return (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  end={item.path === '/'}
+                  onClick={() => setSidebarOpen(false)}
+                  // El archivo de la pagina se pide al apuntar, no al pulsar:
+                  // para cuando llega el clic ya esta descargado y no hay
+                  // spinner. Ver `preloadOn`.
+                  {...preloadOn(item.path)}
+                  className={`relative flex items-center gap-3 px-3 py-0.5 rounded-xl text-xs font-medium transition-all duration-150 ${isActive
+                      ? 'bg-[var(--color-primary)]/20 text-white font-semibold shadow-sm border border-[var(--color-primary)]/30'
+                      : 'text-[var(--color-sidebar-text)] hover:text-white hover:bg-[var(--color-sidebar-hover)]'
+                    }`}
+                >
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-full bg-[var(--color-primary-light)]" />
+                  )}
+                  <item.Illustration size={26} />
+                  <span className="truncate">{item.label}</span>
+                </NavLink>
+              );
+            })}
+          </div>
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="p-4 border-t border-[var(--color-sidebar-border)]/70 bg-[var(--color-sidebar-deep)]">
+        <div className="px-3 py-3 border-t border-[var(--color-sidebar-border)]/70">
           <button
             onClick={() => { setSidebarOpen(false); setShowLogoutModal(true); }}
-            className="group flex items-center gap-3 w-full px-4 py-3.5 rounded-2xl border border-[var(--color-danger)]/15 bg-[var(--color-danger)]/5 hover:bg-[var(--color-danger)]/10 hover:border-[var(--color-danger)]/25 active:scale-[0.985] transition-all cursor-pointer"
+            className="group flex items-center gap-3 w-full px-1 py-1 cursor-pointer"
           >
-            <span className="w-10 h-10 shrink-0 rounded-xl bg-[var(--color-danger)]/12 flex items-center justify-center">
-              <LogOut className="w-4 h-4 text-[var(--color-danger)]" strokeWidth={1.8} />
-            </span>
+            <LogOut className="w-4 h-4 shrink-0 text-[var(--color-danger)]" strokeWidth={1.8} />
             <span className="flex-1 min-w-0 text-left">
               <p className="text-xs font-bold text-[var(--color-danger)] leading-tight">Cerrar sesión</p>
               <p className="text-[10px] text-[var(--color-sidebar-text)] leading-tight mt-0.5">Salir del panel de comercio</p>

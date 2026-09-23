@@ -17,6 +17,16 @@
  */
 @import "../../variables de color/colores.css";
 
+/**
+ * Solo en admin: el texto "muted" pasa a negro en modo claro (pedido
+ * explícito, 2026-09-22). No se toca colores.css porque lo comparten
+ * business y web. En modo oscuro se conserva el gris-azulado de
+ * colores.css: negro puro sobre obsidiana sería ilegible.
+ */
+:root:not(.dark) {
+  --color-text-muted: #000000;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;

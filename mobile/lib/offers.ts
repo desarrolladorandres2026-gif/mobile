@@ -190,17 +190,6 @@ export function scheduledCoupons(coupons: OfferCoupon[]): OfferCoupon[] {
   return coupons.filter((c) => !!c.availability?.window);
 }
 
-// ── Filtros de la pestaña ──
-
-export type OfferFilter = 'all' | 'coupons' | 'products' | 'free_delivery';
-
-export const OFFER_FILTERS: Array<{ key: OfferFilter; label: string }> = [
-  { key: 'all', label: 'Todo' },
-  { key: 'coupons', label: 'Cupones' },
-  { key: 'products', label: 'Platos' },
-  { key: 'free_delivery', label: 'Envío gratis' },
-];
-
 // ── Lo que promete un cupón ──
 
 /**

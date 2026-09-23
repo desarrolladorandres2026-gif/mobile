@@ -41,7 +41,7 @@ export type { CategoryChipProps } from './CategoryChip';
 
 export {
   EmptyState, ErrorState, Notice,
-  Skeleton, BusinessCardSkeleton, BusinessResultRowSkeleton, DiscoveryHubSkeleton,
+  Skeleton, BusinessCardSkeleton, BusinessResultRowSkeleton,
   CouponCardSkeleton, LoadingScreen,
   OfflineBanner, SuccessCheck,
 } from './Feedback';

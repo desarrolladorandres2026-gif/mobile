@@ -114,6 +114,20 @@ export class AdvertisementController {
       const campaign = await Advertisement.findById(param(req, 'id'));
       if (!campaign) throw new AppError('Campaña no encontrada', 404);
 
+      // Los contadores son un total único por documento: si una campaña que
+      // ya sirvió impresiones o clics cambiara de superficie, `spendOf` y la
+      // factura ya no podrían explicar en cuál se gastó cada peso.
+      if (
+        req.body.placement !== undefined &&
+        req.body.placement !== campaign.placement &&
+        (campaign.impressionCount > 0 || campaign.clickCount > 0)
+      ) {
+        throw new AppError(
+          'No se puede cambiar la superficie de una campaña que ya registró impresiones o clics',
+          409
+        );
+      }
+
       const previousFlyerUrl = campaign.flyerUrl;
       Object.assign(campaign, req.body);
       await campaign.save();

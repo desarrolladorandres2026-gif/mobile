@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { exploreService } from '../services/explore.service';
+import { exploreService, bannerOrder, type ExploreEntry, type PromoEntry } from '../services/explore.service';
+import { advertisementService, type PublicAd } from '../services/advertisement.service';
+import type { DiscoveryCollectionEntry } from '../services/discovery.service';
 import { sendResponse, query } from '../utils';
 import { cache, CachePrefix } from '../cache';
 import { cacheHeaders } from '../middlewares/cacheControl';
-import { daypartAt } from '../models';
+import { AdPlacement, daypartAt } from '../models';
 
 /**
  * El feed de Explorar.
@@ -54,13 +56,57 @@ export class ExploreController {
         exploreService.getExploreFeed({ lat, lng, maxDistance, city, userId, now })
       );
 
+      // La campaña de Explorar se resuelve fuera de esta caché compartida
+      // por zona, en cada petición: si viviera dentro, todo el que comparte
+      // zona vería la misma campaña durante el minuto de TTL y
+      // `maxImpressionsPerUser` no serviría de nada. `feed` es el objeto
+      // cacheado — nunca se muta, o el efecto se filtraría a la próxima
+      // petición que reutilice la misma entrada.
+      const ad = await advertisementService.getActiveForApp(
+        { city, role: (req as any).user?.role, deviceId: userId },
+        AdPlacement.EXPLORE
+      );
+      const entries = ad ? mergeAd(feed.entries, ad) : feed.entries;
+
       // `private` y no `shared`: en cuanto el feed lleve una sección
       // derivada de los pedidos de quien mira, un proxy intermedio se la
       // serviría a otra persona.
       cacheHeaders(res, 'private');
-      sendResponse(res, 200, 'Explorar', feed);
+      sendResponse(res, 200, 'Explorar', { ...feed, entries });
     } catch (error) { next(error); }
   }
+}
+
+/**
+ * Mete la campaña de Explorar en el bloque `promo` del feed, sin tocar el
+ * array cacheado. Si ya hay banners de `PromotionBanner` a esa altura, la
+ * campaña va primera; si no hay ninguno, crea el bloque en la misma
+ * posición que habría elegido `PromotionBanner` (`bannerOrder`).
+ */
+function mergeAd(entries: ExploreEntry[], ad: PublicAd): ExploreEntry[] {
+  const adBanner: PromoEntry = {
+    id: ad.id,
+    imageUrl: ad.flyerUrl,
+    title: ad.campaignName,
+    description: '',
+    buttonText: '',
+    actionType: ad.actionType,
+    actionValue: ad.businessId ?? '',
+    durationSeconds: ad.durationSeconds,
+    isAd: true,
+  };
+
+  const promoIndex = entries.findIndex((e) => e.kind === 'promo');
+  if (promoIndex >= 0) {
+    const existing = entries[promoIndex] as Extract<ExploreEntry, { kind: 'promo' }>;
+    return entries.map((entry, i) =>
+      i === promoIndex ? { ...existing, banners: [adBanner, ...existing.banners] } : entry
+    );
+  }
+
+  const collections = entries.filter((e): e is DiscoveryCollectionEntry => e.kind !== 'promo');
+  const promo: ExploreEntry = { kind: 'promo', order: bannerOrder(collections), banners: [adBanner] };
+  return [...entries, promo].sort((a, b) => a.order - b.order);
 }
 
 export const exploreController = new ExploreController();

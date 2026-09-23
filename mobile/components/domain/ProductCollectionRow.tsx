@@ -120,9 +120,15 @@ const FALLBACK_SUBTITLE: Record<string, string> = {
  * (`section.displayVariant`) — este componente solo elige el renderer.
  *
  * `allowGrid` solo lo enciende Explorar: la misma colección llega a los dos
- * feeds, y en Inicio —que es pasear, no comparar— una cuadrícula de doce
- * ocuparía la pantalla entera. Ahí `grid` cae al carrusel de `price_focus`,
- * que es lo que esas colecciones eran antes.
+ * feeds, y en Inicio —que es pasear, no comparar— una cuadrícula ocuparía la
+ * pantalla entera. Ahí `grid` cae al carrusel de `price_focus`, que es lo
+ * que esas colecciones eran antes.
+ *
+ * `gridRows` reparte el propio Explorar entre dos pesos, para que la
+ * pantalla no sea la misma cuadrícula fija veinte veces seguidas: `4` es la
+ * pared completa de antes (sin scroll propio, tope de doce); `2` es nueva —
+ * dos filas que se desplazan hacia el lado, sin tope, el mismo gesto que un
+ * carrusel de Inicio pero en parejas verticales.
  *
  * `largeNames` solo lo enciende Inicio: el nombre del producto sube un paso
  * en la escala tipográfica de cada tarjeta, y las tarjetas que lo cortaban a
@@ -132,8 +138,9 @@ const FALLBACK_SUBTITLE: Record<string, string> = {
 export const ProductCollectionRow = memo(function ProductCollectionRow({
   section,
   allowGrid = false,
+  gridRows = 4,
   largeNames = false,
-}: { section: HomeSection; allowGrid?: boolean; largeNames?: boolean }) {
+}: { section: HomeSection; allowGrid?: boolean; gridRows?: 2 | 4; largeNames?: boolean }) {
   const router = useRouter();
   const { c } = useTheme();
 
@@ -160,7 +167,11 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
   const subtitle = section.subtitle ?? FALLBACK_SUBTITLE[section.key];
 
   const list = variant === 'grid' && allowGrid ? (
-    <ProductGrid products={section.products} onPress={goToProduct} />
+    gridRows === 2 ? (
+      <ScrollableProductGrid products={section.products} onPress={goToProduct} />
+    ) : (
+      <ProductGrid products={section.products} onPress={goToProduct} />
+    )
   ) : (
     <FlatList
       horizontal
@@ -749,6 +760,47 @@ const ProductGrid = memo(function ProductGrid({
   );
 });
 
+const SCROLL_GRID_ROWS = 2;
+/** Ancho de cada columna de dos tarjetas. Fijo, a diferencia de la
+ * cuadrícula estática: aquí no hay fila que reparta el ancho por flex. */
+const SCROLL_GRID_COLUMN_WIDTH = 148;
+
+/** Reparte en columnas de `rows` elementos, de arriba a abajo. */
+function columnize<T>(items: T[], rows: number): T[][] {
+  const columns: T[][] = [];
+  for (let i = 0; i < items.length; i += rows) columns.push(items.slice(i, i + rows));
+  return columns;
+}
+
+/**
+ * Dos filas que se desplazan hacia el lado, sin tope de doce: el scroll
+ * propio es lo que reemplaza al límite de la cuadrícula estática. Misma
+ * tarjeta (`GridCard`) que `ProductGrid`, solo cambia cómo se reparte.
+ */
+const ScrollableProductGrid = memo(function ScrollableProductGrid({
+  products, onPress,
+}: { products: HomeSectionProduct[]; onPress: (product: HomeSectionProduct) => void }) {
+  const columns = columnize(products, SCROLL_GRID_ROWS);
+
+  return (
+    <FlatList
+      horizontal
+      data={columns}
+      keyExtractor={(_, i) => `col-${i}`}
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.scrollGridList}
+      removeClippedSubviews
+      renderItem={({ item: column }) => (
+        <View style={styles.scrollGridColumn}>
+          {column.map((product) => (
+            <GridCard key={product._id} product={product} onPress={() => onPress(product)} />
+          ))}
+        </View>
+      )}
+    />
+  );
+});
+
 /**
  * Las variantes que pintan **productos**.
  *
@@ -827,4 +879,8 @@ const styles = StyleSheet.create({
   gridPhoto: { borderRadius: BorderRadius.md, overflow: 'hidden' },
   gridFiller: { flex: 1 },
   gridBody: { paddingTop: Spacing.xs + 2, paddingHorizontal: 2, gap: 1 },
+
+  // scroll grid (dos filas, desplazable)
+  scrollGridList: { gap: Spacing.sm, paddingRight: Spacing.xl },
+  scrollGridColumn: { width: SCROLL_GRID_COLUMN_WIDTH, gap: Spacing.sm },
 });

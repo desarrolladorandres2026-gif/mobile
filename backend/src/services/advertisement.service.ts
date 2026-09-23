@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import {
   Advertisement, IAdvertisement, AdEvent, AdEventType,
-  AdInvoice, IAdInvoice, AdPricingModel, AdApprovalStatus, Business,
+  AdInvoice, IAdInvoice, AdPricingModel, AdApprovalStatus, AdPlacement, Business,
 } from '../models';
 import { AppError } from '../middlewares';
 import { cloudinary, config } from '../config';
@@ -101,8 +101,18 @@ export class AdvertisementService {
    * es este mismo método: hoy `sort` desempata por `createdAt` desc, que es
    * determinista pero no reparte impresiones — cuando haga falta repartir,
    * es aquí donde se cambiaría el criterio de desempate.
+   *
+   * `placement` filtra la superficie. Para `SPLASH` también acepta los
+   * documentos que todavía no tienen el campo escrito en Atlas (nacieron
+   * antes de que existiera `placement`): sin ese respaldo, desplegar este
+   * cambio antes de correr la migración 009 haría desaparecer de golpe
+   * todas las campañas de siempre. `EXPLORE` no lo necesita — ninguna
+   * campaña nace con esa superficie hasta que este cambio existe.
    */
-  async getActiveForApp(viewer: AdViewer = {}): Promise<PublicAd | null> {
+  async getActiveForApp(
+    viewer: AdViewer = {},
+    placement: AdPlacement = AdPlacement.SPLASH
+  ): Promise<PublicAd | null> {
     const now = new Date();
 
     // El segmento viaja dentro de la consulta y no se filtra después: una
@@ -116,6 +126,10 @@ export class AdvertisementService {
       targeting.push({ $or: [{ targetRoles: { $size: 0 } }, { targetRoles: viewer.role }] });
     }
 
+    const placementFilter = placement === AdPlacement.SPLASH
+      ? { $or: [{ placement: AdPlacement.SPLASH }, { placement: { $exists: false } }] }
+      : { placement };
+
     const candidates = await Advertisement.find({
       isActive: true,
       cancelledAt: null,
@@ -126,6 +140,7 @@ export class AdvertisementService {
       startDate: { $lte: now },
       endDate: { $gte: now },
       flyerUrl: { $ne: '' },
+      ...placementFilter,
       ...(targeting.length ? { $and: targeting } : {}),
     }).sort({ priority: -1, impressionCount: 1, createdAt: -1 });
 

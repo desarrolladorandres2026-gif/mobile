@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,7 +10,8 @@ import { useHomeBanners } from '../../hooks/useApi';
 import { hasAction, runBannerAction } from '../../lib/bannerAction';
 import { sizedImageUri, screenWidth } from '../../lib/cloudinaryImage';
 import { tap } from '../../lib/haptics';
-import type { PromoBanner } from '../../services/endpoints';
+import { getDeviceId } from '../../lib/deviceId';
+import { adsApi, type PromoBanner } from '../../services/endpoints';
 import { BorderRadius, Motion, Spacing } from '../../theme/tokens';
 import { SpotlightCarousel, SpotlightSkeleton, type SpotlightRenderOpts } from './SpotlightCarousel';
 
@@ -64,8 +65,30 @@ export function PromoCarousel({
     []
   );
 
+  /**
+   * Impresión de una campaña pagada, una sola vez por carga del feed.
+   *
+   * Cuenta al montarse el carrusel, no cada vez que la tarjeta vuelve al
+   * frente en la rotación — igual que `AdSplash`. Contar por rotación
+   * cobraría varias veces por la misma vista en una campaña CPM.
+   */
+  const reportedAdImpressions = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const ad = visible.find((b) => b.isAd && !reportedAdImpressions.current.has(b.id));
+    if (!ad) return;
+    reportedAdImpressions.current.add(ad.id);
+    getDeviceId().then((deviceId) => {
+      adsApi.registerImpression(ad.id, deviceId).catch(() => {});
+    });
+  }, [visible]);
+
   const press = useCallback(
     (banner: PromoBanner) => {
+      if (banner.isAd) {
+        getDeviceId().then((deviceId) => {
+          adsApi.registerClick(banner.id, deviceId).catch(() => {});
+        });
+      }
       if (!hasAction(banner)) return;
       tap('medium');
       runBannerAction(banner, router);

@@ -19,9 +19,8 @@ import { alternateWeights } from '../../lib/exploreWeights';
  * forma más rápida de que el limitador devuelva un 429, y desde el teléfono
  * un 429 se lee exactamente igual que "no hay nada que mostrar".
  *
- * Devuelve `null` mientras no haya nada: el esqueleto de la pantalla ya lo
- * pinta quien la monta, y un hueco vacío entre las categorías y la tarjeta
- * de mandados se ve como un error de maquetación.
+ * Devuelve `null` mientras no haya nada: un hueco vacío encima de la
+ * tarjeta de mandados se ve como un error de maquetación.
  */
 
 /** Cuántas colecciones se montan antes de ceder el hilo a la animación de entrada. */
@@ -47,11 +46,26 @@ export const ExploreCollections = memo(function ExploreCollections({
 
   return (
     <View style={styles.root}>
-      {entries.slice(0, sectionLimit).map((entry) =>
+      {entries.slice(0, sectionLimit).map((entry, index) =>
         entry.kind === 'promo' ? (
           <PromoCarousel key={`promo-${entry.order}`} banners={entry.banners} />
         ) : (
-          <ProductCollectionRow key={entry.key} section={entry} allowGrid />
+          // Cuadrícula en vez del carrusel de Inicio: aquí se viene a
+          // comparar, no a pasear, y con las mismas tarjetas horizontales el
+          // feed era indistinguible del de Inicio. `displayVariant` se
+          // fuerza solo en esta copia — no toca lo que decide el servidor.
+          //
+          // Una sola cuadrícula fija veinte veces seguidas es tan monótono
+          // como el carrusel que reemplazó: una de cada tres secciones es la
+          // pared completa (4 filas, sin scroll propio); el resto son dos
+          // filas que se desplazan hacia el lado, el mismo gesto que un
+          // carrusel de Inicio pero en parejas.
+          <ProductCollectionRow
+            key={entry.key}
+            section={{ ...entry, displayVariant: 'grid' }}
+            allowGrid
+            gridRows={index % 3 === 2 ? 4 : 2}
+          />
         )
       )}
     </View>

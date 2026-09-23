@@ -36,7 +36,7 @@ export interface ExploreOptions {
   now?: Date;
 }
 
-interface PromoEntry {
+export interface PromoEntry {
   id: string;
   imageUrl: string;
   title: string;
@@ -45,6 +45,14 @@ interface PromoEntry {
   actionType: string;
   actionValue: string;
   durationSeconds: number;
+  /**
+   * Si este banner es una campaña pagada (`Advertisement`), no un
+   * `PromotionBanner` gratuito. Lo añade `explore.controller.ts` después de
+   * leer la caché — nunca este servicio — porque la elección de campaña
+   * tiene que ser por petición, no por zona: es lo único que respeta
+   * `maxImpressionsPerUser`.
+   */
+  isAd?: boolean;
 }
 
 export type ExploreEntry =
@@ -100,7 +108,7 @@ async function getExploreBanners(): Promise<PromoEntry[]> {
  * las categorías, que son más útiles. Se calcula sobre el `order` real de
  * las colecciones para que caiga entre dos, no pegado a un extremo.
  */
-function bannerOrder(collections: DiscoveryCollectionEntry[]): number {
+export function bannerOrder(collections: DiscoveryCollectionEntry[]): number {
   if (collections.length < 2) return 999;
   const middle = collections[Math.floor(collections.length / 2)];
   return middle.order - 1;

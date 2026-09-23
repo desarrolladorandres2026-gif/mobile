@@ -1540,6 +1540,13 @@ export interface PromoBanner {
   actionValue: string;
   /** Segundos que la tarjeta queda al frente antes de rotar. */
   durationSeconds: number;
+  /**
+   * Si es una campaña pagada (`Advertisement`) mezclada en el feed, no un
+   * banner gratuito de `PromotionBanner`. Solo lo trae hoy el bloque promo
+   * de Explorar — es lo que le dice al carrusel que reporte impresión y
+   * clic contra `/advertisements/:id`, igual que el flyer de arranque.
+   */
+  isAd?: boolean;
 }
 
 export const bannersApi = {
