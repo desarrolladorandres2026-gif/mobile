@@ -405,8 +405,18 @@ export class CouponService {
     const redemption = await CouponRedemption.findOne({ orderId }).session(session ?? null);
     if (!redemption) return;
 
-    const order = await Order.findById(orderId).session(session ?? null);
-    const platformFunded = order?.finance?.platformFundedDiscount ?? 0;
+    // `order.finance.platformFundedDiscount` es el subsidio TOTAL del
+    // pedido — incluye lo que puso Zipp Pro, que no tiene nada que ver con
+    // este cupón. Devolver eso al presupuesto del cupón inflaba
+    // `couponService.budgetSpent` con dinero que Pro había gastado, no él:
+    // el presupuesto se "recuperaba" de más y parecía tener más margen del
+    // que en verdad quedaba. Lo único que este cupón puso al presupuesto de
+    // la plataforma en el canje fue `redemption.discountAmount` — y solo si
+    // el propio cupón está financiado por ZIPP; si lo financia el comercio,
+    // nunca tocó `budgetSpent`.
+    const coupon = await Coupon.findById(redemption.couponId).session(session ?? null);
+    const platformFunded =
+      coupon?.fundedBy === CouponFundedBy.PLATFORM ? redemption.discountAmount : 0;
 
     await Coupon.updateOne(
       { _id: redemption.couponId, usedCount: { $gt: 0 } },

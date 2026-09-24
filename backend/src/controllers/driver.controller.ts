@@ -2,7 +2,9 @@ import { Request, Response, NextFunction } from 'express';
 import { driverService } from '../services/driver.service';
 import { sendResponse, param, query, clampLimit } from '../utils';
 import { DriverStatus } from '../types';
-import { AuditAction, logAudit } from '../security';
+import { AuditAction, AuditSeverity, logAudit } from '../security';
+import { Driver, User } from '../models';
+import type { ListDriversQuery } from '../validators/driver.validator';
 import { AppError } from '../middlewares/errorHandler';
 import { emitToUser } from '../sockets/emitter';
 import { uploadVerificationSelfie, uploadDriverDocumentImage } from '../middlewares/upload';
@@ -162,14 +164,17 @@ export class DriverController {
           image: req.file?.buffer,
         });
 
-        sendResponse(res, 201, 'Documento recibido para verificación', document);
+        // S16: la respuesta lleva la URL firmada, no el `imageKey` crudo.
+        const view = { ...document.toObject(), imageUrl: driverService.documentImageUrl(document) };
+        delete (view as any).imageKey;
+        sendResponse(res, 201, 'Documento recibido para verificación', view);
       } catch (error) { next(error); }
     });
   }
-  async getDocuments(req: Request, res: Response, next: NextFunction) { try { const driver = await driverService.getByUserId(req.user!._id.toString()); sendResponse(res, 200, 'Documentos', await driverService.listDocuments(driver._id.toString())); } catch (error) { next(error); } }
-  async reviewDocument(req: Request, res: Response, next: NextFunction) { try { const document = await driverService.reviewDocument(param(req, 'documentId'), req.user!._id.toString(), req.body.status); void logAudit(req, { action: AuditAction.DOCUMENT_REVIEWED, entity: 'driver_document', entityId: document._id.toString(), description: 'Documento de domiciliario verificado', metadata: { status: document.status, type: document.type } }); sendResponse(res, 200, 'Documento verificado', document); } catch (error) { next(error); } }
-  async listDriverDocuments(req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'Documentos del domiciliario', await driverService.listDocuments(param(req, 'id'))); } catch (error) { next(error); } }
-  async documentQueue(req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'Cola de verificación', await driverService.reviewQueue(Number(query(req, 'expiringInDays')) || 30)); } catch (error) { next(error); } }
+  async getDocuments(req: Request, res: Response, next: NextFunction) { try { res.setHeader('Cache-Control', 'no-store'); const driver = await driverService.getByUserId(req.user!._id.toString()); sendResponse(res, 200, 'Documentos', await driverService.listDocuments(driver._id.toString())); } catch (error) { next(error); } }
+  async reviewDocument(req: Request, res: Response, next: NextFunction) { try { const document = await driverService.reviewDocument(param(req, 'documentId'), req.user!._id.toString(), req.body.status, req.body.rejectionReason); void logAudit(req, { action: AuditAction.DOCUMENT_REVIEWED, entity: 'driver_document', entityId: document._id.toString(), description: 'Documento de domiciliario verificado', metadata: { status: document.status, type: document.type, rejectionReason: document.rejectionReason } }); const view = { ...document.toObject(), imageUrl: driverService.documentImageUrl(document) }; delete (view as any).imageKey; sendResponse(res, 200, 'Documento verificado', view); } catch (error) { next(error); } }
+  async listDriverDocuments(req: Request, res: Response, next: NextFunction) { try { res.setHeader('Cache-Control', 'no-store'); sendResponse(res, 200, 'Documentos del domiciliario', await driverService.listDocuments(param(req, 'id'))); } catch (error) { next(error); } }
+  async documentQueue(req: Request, res: Response, next: NextFunction) { try { res.setHeader('Cache-Control', 'no-store'); sendResponse(res, 200, 'Cola de verificación', await driverService.reviewQueue(Number(query(req, 'expiringInDays')) || 30)); } catch (error) { next(error); } }
 
   /** Guarda a quién avisar si algo va mal. */
   async setEmergencyContact(req: Request, res: Response, next: NextFunction) {
@@ -212,27 +217,135 @@ export class DriverController {
   }
   async myVerifications(req: Request, res: Response, next: NextFunction) { try { const driver = await driverService.getByUserId(req.user!._id.toString()); const { driverSecurityService } = await import('../security'); sendResponse(res, 200, 'Verificaciones', await driverSecurityService.getVerificationStatus(driver._id.toString())); } catch (error) { next(error); } }
   async requestVerification(req: Request, res: Response, next: NextFunction) { try { const driver = await driverService.getById(param(req, 'id')); const { driverSecurityService, VerificationType } = await import('../security'); const created = await driverSecurityService.requestVerification(driver._id.toString(), driver.userId.toString(), req.body?.type ?? VerificationType.RANDOM_SELFIE, req.body?.windowMinutes ?? 15); if (!created) throw new AppError('Ese domiciliario ya tiene una verificación en curso', 409); emitToUser(driver.userId.toString(), 'driver:verification:requested', { verificationId: created._id.toString(), type: created.type, dueAt: created.dueAt }); void logAudit(req, { action: AuditAction.DOCUMENT_REVIEWED, entity: 'driver', entityId: driver._id.toString(), description: 'Verificación de identidad solicitada en turno', metadata: { type: created.type, dueAt: created.dueAt } }); sendResponse(res, 201, 'Verificación solicitada', created); } catch (error) { next(error); } }
-  async verificationQueue(req: Request, res: Response, next: NextFunction) { try { const { DriverVerification, VerificationStatus } = await import('../security'); const items = await DriverVerification.find({ status: { $in: [VerificationStatus.PENDING, VerificationStatus.REQUESTED] } }).sort({ createdAt: 1 }).lean(); sendResponse(res, 200, 'Cola de verificaciones', items); } catch (error) { next(error); } }
-  async reviewVerification(req: Request, res: Response, next: NextFunction) { try { const { driverSecurityService } = await import('../security'); const result = await driverSecurityService.reviewVerification(param(req, 'verificationId'), req.user!._id.toString(), req.body.status === 'approved', req.body.rejectionReason); if (!result) throw new AppError('Verificación no encontrada', 404); sendResponse(res, 200, 'Verificación revisada', result); } catch (error) { next(error); } }
+  /**
+   * O5: la cola traía el documento crudo (`imageUrl`, `type`, `status`…)
+   * sin nada de la persona detrás — quien revisaba no tenía con qué
+   * comparar la selfie contra una cara conocida. Se enriquece con el
+   * `Driver` y el `User`, y con la foto de la cédula ya aprobada si existe,
+   * para que la revisión sea comparar dos fotos, no adivinar.
+   */
+  async verificationQueue(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { DriverVerification, VerificationStatus, driverSecurityService } = await import('../security');
+      const { DriverDocument } = await import('../models');
+      const items = await DriverVerification.find({ status: { $in: [VerificationStatus.PENDING, VerificationStatus.REQUESTED] } })
+        .sort({ createdAt: 1 })
+        .lean();
+
+      if (items.length === 0) return sendResponse(res, 200, 'Cola de verificaciones', []);
+
+      const driverIds = Array.from(new Set(items.map((i) => i.driverId)));
+      const userIds = Array.from(new Set(items.map((i) => i.userId)));
+      const [drivers, users, identityDocs] = await Promise.all([
+        Driver.find({ _id: { $in: driverIds } }).select('licensePlate vehicleType isApproved isActive').lean(),
+        User.find({ _id: { $in: userIds } }).select('name phone avatar').lean(),
+        // M4: solo la cédula ya aprobada sirve de referencia para comparar
+        // caras. Sin el filtro de `status`, una cédula rechazada o todavía
+        // pendiente (de cualquiera, incluida una falsa) se mostraba igual
+        // como "la foto de identidad de este domiciliario".
+        DriverDocument.find({ driverId: { $in: driverIds }, type: 'identity', status: 'approved' })
+          .select('driverId imageUrl imageKey isPrivate')
+          .lean(),
+      ]);
+      const driverById = new Map(drivers.map((d) => [d._id.toString(), d]));
+      const userById = new Map(users.map((u) => [u._id.toString(), u]));
+      const identityByDriver = new Map(
+        identityDocs.map((d) => [d.driverId.toString(), driverService.documentImageUrl(d)])
+      );
+
+      const enriched = items.map((item) => {
+        const driver = driverById.get(item.driverId);
+        const user = userById.get(item.userId);
+        return {
+          _id: item._id,
+          type: item.type,
+          status: item.status,
+          imageUrl: driverSecurityService.signedImageUrl(item),
+          dueAt: item.dueAt,
+          createdAt: item.createdAt,
+          rejectionReason: item.rejectionReason,
+          driver: driver
+            ? { _id: driver._id, licensePlate: (driver as any).licensePlate, vehicleType: driver.vehicleType, isApproved: driver.isApproved, isActive: driver.isActive }
+            : null,
+          user: user ? { _id: user._id, name: user.name, phone: user.phone, avatar: (user as any).avatar } : null,
+          identityDocumentUrl: identityByDriver.get(item.driverId),
+          identityDocumentStatus: identityByDriver.has(item.driverId) ? 'approved' : 'none',
+        };
+      });
+
+      sendResponse(res, 200, 'Cola de verificaciones', enriched);
+    } catch (error) { next(error); }
+  }
+
+  async reviewVerification(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { driverSecurityService } = await import('../security');
+      const result = await driverSecurityService.reviewVerification(
+        param(req, 'verificationId'),
+        req.user!._id.toString(),
+        req.body.status === 'approved',
+        req.body.rejectionReason
+      );
+      if (!result) throw new AppError('Verificación no encontrada', 404);
+
+      // S14: quién aprobó o rechazó una selfie de identidad queda auditado.
+      void logAudit(req, {
+        action: AuditAction.DOCUMENT_REVIEWED,
+        entity: 'driver_verification',
+        entityId: result._id.toString(),
+        severity: AuditSeverity.MEDIUM,
+        description: `Verificación de identidad ${result.status === 'approved' ? 'aprobada' : 'rechazada'}`,
+        metadata: { status: result.status, type: result.type, rejectionReason: result.rejectionReason },
+      });
+
+      sendResponse(res, 200, 'Verificación revisada', result);
+    } catch (error) { next(error); }
+  }
 
   // Admin endpoints
   async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await driverService.getAll(Number(query(req, 'page')) || 1, clampLimit(query(req, 'limit')));
+      // `validate(listDriversQuerySchema)` ya dejó la consulta tipada en `req.query`.
+      const q = req.query as unknown as ListDriversQuery;
+      const result = await driverService.list({ ...q, page: q.page ?? 1, limit: clampLimit(q.limit) });
       sendResponse(res, 200, 'Domiciliarios obtenidos', result.drivers, result.meta);
+    } catch (error) { next(error); }
+  }
+
+  async getById(req: Request, res: Response, next: NextFunction) {
+    try {
+      sendResponse(res, 200, 'Domiciliario obtenido', await driverService.getDetail(param(req, 'id')));
     } catch (error) { next(error); }
   }
 
   async approve(req: Request, res: Response, next: NextFunction) {
     try {
       const driver = await driverService.approve(param(req, 'id'));
+      void logAudit(req, {
+        action: AuditAction.DRIVER_APPROVED,
+        entity: 'driver',
+        entityId: driver._id.toString(),
+        severity: AuditSeverity.MEDIUM,
+        description: 'Domiciliario aprobado',
+      });
       sendResponse(res, 200, 'Domiciliario aprobado', driver);
     } catch (error) { next(error); }
   }
 
   async updateBaseFund(req: Request, res: Response, next: NextFunction) {
     try {
+      const before = await driverService.getDetail(param(req, 'id'));
+      const previousBaseFund = before.baseFund;
       const driver = await driverService.updateBaseFund(param(req, 'id'), req.body.baseFund);
+      void logAudit(req, {
+        action: AuditAction.PROFILE_UPDATED,
+        entity: 'driver',
+        entityId: driver._id.toString(),
+        severity: AuditSeverity.HIGH,
+        description:
+          `Fondo rotatorio cambiado de $${previousBaseFund} a $${driver.baseFund}. ` +
+          `Motivo: ${req.body.reason}`,
+      });
       sendResponse(res, 200, 'Fondo base actualizado', driver);
     } catch (error) { next(error); }
   }

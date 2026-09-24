@@ -142,7 +142,7 @@ export default function Positions() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       <div className="page-header">
         <div>
           <h1 className="page-title">Cargos</h1>
@@ -282,7 +282,7 @@ export default function Positions() {
 
       {(creating || editing) && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
               <div className="flex items-center gap-2">
                 <Briefcase className="w-5 h-5 text-[var(--color-primary)]" />
@@ -316,7 +316,7 @@ export default function Positions() {
 
             <div>
               <label className="block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">Roles asociados</label>
-              <div className="space-y-1.5 max-h-52 overflow-y-auto border border-[var(--color-border-light)] rounded-xl p-2">
+              <div className="space-y-1.5 max-h-52 overflow-y-auto divide-y divide-[var(--color-border-light)] border-y border-[var(--color-border-light)] py-1">
                 {roles.length === 0 && <p className="text-xs text-[var(--color-text-muted)] p-2">No hay roles activos. Crea uno primero.</p>}
                 {roles.map((r) => {
                   const checked = form.roleIds.includes(r._id);
@@ -356,7 +356,7 @@ export default function Positions() {
 
       {usersOfPosition && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-4">
+          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5">
             <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
               <h3 className="text-base font-bold text-[var(--color-text-main)]">Usuarios en "{usersOfPosition.position.name}"</h3>
               <button onClick={() => setUsersOfPosition(null)} className="text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">

@@ -1,11 +1,19 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import app from '../app';
 import { User, Position, Role } from '../models';
 import { AuditLog, AuditAction } from '../security';
 import { UserRole } from '../types';
 import { Permission, SUPER_ADMIN_ROLE_SLUG } from '../security/rbac';
-import { makeUser, authHeader } from './factories';
+import { makeUser, authHeader, makeStaff } from './factories';
+import { featureFlagService } from '../services/featureFlag.service';
+import { cache } from '../cache';
+
+// Estas pruebas verifican la semántica RBAC ya bloqueante (Fase 1): sin el flag se está en modo observación.
+beforeEach(async () => {
+  await featureFlagService.upsert('rbac_enforce', { audience: 'staff' });
+  await cache.flush();
+});
 
 /**
  * Cobertura de la sección 19 de la especificación: autenticación,
@@ -296,7 +304,7 @@ describe('Efectos inmediatos: permisos y roles', () => {
 describe('Desactivación / bloqueo invalida sesiones', () => {
   it('bloquear a un usuario revoca sus sesiones y su token deja de servir', async () => {
     const permRole = await makeRole({ permissions: [Permission.USERS_BLOCK, Permission.USERS_UPDATE, Permission.USERS_VIEW] });
-    const actor = await makeAdmin({ roleIds: [permRole._id] });
+    const actor = await makeStaff({ roleSlug: 'super_admin' });
     const target = await makeAdmin();
 
     // El token del objetivo funciona antes de bloquearlo.
@@ -357,7 +365,8 @@ describe('Auditoría', () => {
 describe('Cargos y Roles — CRUD básico', () => {
   it('un cargo hereda los permisos de sus roles asociados vía el usuario', async () => {
     const role = await makeRole({ permissions: [Permission.DRIVERS_APPROVE] });
-    const positionRole = await makeRole({ permissions: [Permission.POSITIONS_CREATE, Permission.POSITIONS_VIEW, Permission.ROLES_VIEW] });
+    // El actor debe poseer lo que otorga (guarda "no otorgar más de lo que posees"): también tiene DRIVERS_APPROVE.
+    const positionRole = await makeRole({ permissions: [Permission.POSITIONS_CREATE, Permission.POSITIONS_VIEW, Permission.ROLES_VIEW, Permission.DRIVERS_APPROVE] });
     const admin = await makeAdmin({ roleIds: [positionRole._id] });
 
     const res = await request(app)
@@ -370,7 +379,7 @@ describe('Cargos y Roles — CRUD básico', () => {
     expect(position!.roleIds.map((id) => id.toString())).toContain(role._id.toString());
 
     // Asigna el cargo a otro usuario y verifica que hereda el permiso.
-    const other = await makeAdmin({ roleIds: [positionRole._id] }); // reutiliza el permiso para poder llamar al endpoint
+    const other = await makeStaff({ roleSlug: 'super_admin' });
     const target = await makeAdmin();
 
     await request(app)

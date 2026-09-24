@@ -36,6 +36,8 @@ export interface ICashReconciliation extends Document {
   verifiedBy?: Types.ObjectId | null;
   verificationMethod?: 'gateway_transaction' | 'admin_confirmation' | null;
   transactionId?: string | null;
+  /** Comprobante de la consignación verificada por un admin de finanzas. */
+  receiptUrl?: string | null;
   settledAt?: Date | null;
   settlementId?: Types.ObjectId | null;
   /** Set when a cancellation/refund voids the obligation. */
@@ -101,6 +103,7 @@ const cashReconciliationSchema = new Schema<ICashReconciliation>(
       default: null,
     },
     transactionId: { type: String, default: null },
+    receiptUrl: { type: String, default: null },
     settledAt: { type: Date, default: null },
     settlementId: { type: Schema.Types.ObjectId, ref: 'Settlement', default: null },
     voidedAt: { type: Date, default: null },

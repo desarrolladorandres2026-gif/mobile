@@ -227,6 +227,8 @@ const couponRedemptionSchema = new Schema<ICouponRedemption>(
 );
 
 couponRedemptionSchema.index({ couponId: 1, userId: 1 });
+// Ficha del cliente (panel admin): sus canjes recientes.
+couponRedemptionSchema.index({ userId: 1, createdAt: -1 });
 // One redemption per order: guards against double-counting on retries.
 couponRedemptionSchema.index({ orderId: 1 }, { unique: true });
 

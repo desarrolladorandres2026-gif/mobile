@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { exploreService, bannerOrder, type ExploreEntry, type PromoEntry } from '../services/explore.service';
-import { advertisementService, type PublicAd } from '../services/advertisement.service';
-import type { DiscoveryCollectionEntry } from '../services/discovery.service';
+import { exploreLayoutService } from '../services/exploreLayout.service';
+import { advertisementService } from '../services/advertisement.service';
+import { dailySeed } from '../services/discovery.service';
 import { sendResponse, query } from '../utils';
 import { cache, CachePrefix } from '../cache';
 import { cacheHeaders } from '../middlewares/cacheControl';
@@ -10,15 +10,18 @@ import { AdPlacement, daypartAt } from '../models';
 /**
  * El feed de Explorar.
  *
- * La caché va en dos capas y esa división es lo importante: la parte **cara**
- * —la agregación con una rama por colección— se calcula una vez por zona y
- * franja, y solo lo que depende de quien mira se guarda por usuario. Cachear
- * el feed entero por usuario multiplicaría las claves por usuarios activos y
- * tiraría la caché al suelo.
+ * Lo que se ve lo decide el layout publicado desde el panel
+ * (`exploreLayout.service.ts`); aquí solo se arma la caché y se elige la
+ * campaña pagada.
  *
- * Hoy solo existe la capa compartida. La personal llega con el perfil de
- * gustos, y su clave y su TTL ya están decididos: `explore:u:{userId}:…`,
- * cinco minutos.
+ * La caché va por **versión publicada, zona y franja**: la parte cara —la
+ * agregación con una rama por sección— se calcula una vez por combinación.
+ * Publicar cambia la versión y con ella la clave, así que no hace falta
+ * vaciar nada; las claves viejas caducan solas.
+ *
+ * La semilla de rotación sale de la zona y no de quien mira: el resultado
+ * se comparte por zona, y antes la semilla dependía del primer usuario que
+ * llenaba la caché — toda la zona veía la rotación de esa persona.
  */
 
 /** Un minuto, igual que el inicio: lo que tarda en verse un producto nuevo. */
@@ -41,72 +44,36 @@ export class ExploreController {
       const rawDistance = numberOrUndefined(query(req, 'maxDistance'));
       const maxDistance = rawDistance === undefined ? undefined : Math.round(rawDistance);
       const city = query(req, 'city') || undefined;
-      const userId = (req as any).user?.id as string | undefined;
+      // Las apps anteriores al constructor no mandan esto y reciben `entries`.
+      const wantsLayout = query(req, 'layout') === '1';
 
       const now = new Date();
       const daypart = daypartAt(now);
 
-      // La franja entra en la clave: el feed de la mañana y el de la noche
-      // son feeds distintos, y sin esto el primero se serviría durante el
-      // minuto siguiente al cambio de franja.
       const zone = `${encodeURIComponent(city ?? '-').slice(0, 80)}:${lat ?? '-'}:${lng ?? '-'}:${maxDistance ?? '-'}`;
-      const key = `${CachePrefix.EXPLORE}feed:${zone}:${daypart}`;
+      const layout = await exploreLayoutService.getPublishedLayout();
+      const key = `${CachePrefix.EXPLORE}feed:v${layout.version}:${zone}:${daypart}`;
 
-      const feed = await cache.wrap(key, EXPLORE_TTL_SECONDS, () =>
-        exploreService.getExploreFeed({ lat, lng, maxDistance, city, userId, now })
+      const resolved = await cache.wrap(key, EXPLORE_TTL_SECONDS, () =>
+        exploreLayoutService.resolveLayout(layout.sections, {
+          lat, lng, maxDistance, city, now, seed: dailySeed(zone, daypart, now),
+        })
       );
 
-      // La campaña de Explorar se resuelve fuera de esta caché compartida
-      // por zona, en cada petición: si viviera dentro, todo el que comparte
-      // zona vería la misma campaña durante el minuto de TTL y
-      // `maxImpressionsPerUser` no serviría de nada. `feed` es el objeto
-      // cacheado — nunca se muta, o el efecto se filtraría a la próxima
-      // petición que reutilice la misma entrada.
-      const ad = await advertisementService.getActiveForApp(
-        { city, role: (req as any).user?.role, deviceId: userId },
-        AdPlacement.EXPLORE
-      );
-      const entries = ad ? mergeAd(feed.entries, ad) : feed.entries;
+      // La campaña va fuera de la caché compartida, en cada petición: si
+      // viviera dentro, toda la zona vería la misma durante el minuto de TTL.
+      const ad = await advertisementService.getActiveForApp({ city }, AdPlacement.EXPLORE);
+      const sections = exploreLayoutService.withAd(resolved.sections, ad);
 
       // `private` y no `shared`: en cuanto el feed lleve una sección
       // derivada de los pedidos de quien mira, un proxy intermedio se la
       // serviría a otra persona.
       cacheHeaders(res, 'private');
-      sendResponse(res, 200, 'Explorar', { ...feed, entries });
+      sendResponse(res, 200, 'Explorar', wantsLayout
+        ? { sections, daypart, personalized: false, layoutVersion: layout.version }
+        : { entries: exploreLayoutService.toLegacyEntries(sections), daypart, personalized: false });
     } catch (error) { next(error); }
   }
-}
-
-/**
- * Mete la campaña de Explorar en el bloque `promo` del feed, sin tocar el
- * array cacheado. Si ya hay banners de `PromotionBanner` a esa altura, la
- * campaña va primera; si no hay ninguno, crea el bloque en la misma
- * posición que habría elegido `PromotionBanner` (`bannerOrder`).
- */
-function mergeAd(entries: ExploreEntry[], ad: PublicAd): ExploreEntry[] {
-  const adBanner: PromoEntry = {
-    id: ad.id,
-    imageUrl: ad.flyerUrl,
-    title: ad.campaignName,
-    description: '',
-    buttonText: '',
-    actionType: ad.actionType,
-    actionValue: ad.businessId ?? '',
-    durationSeconds: ad.durationSeconds,
-    isAd: true,
-  };
-
-  const promoIndex = entries.findIndex((e) => e.kind === 'promo');
-  if (promoIndex >= 0) {
-    const existing = entries[promoIndex] as Extract<ExploreEntry, { kind: 'promo' }>;
-    return entries.map((entry, i) =>
-      i === promoIndex ? { ...existing, banners: [adBanner, ...existing.banners] } : entry
-    );
-  }
-
-  const collections = entries.filter((e): e is DiscoveryCollectionEntry => e.kind !== 'promo');
-  const promo: ExploreEntry = { kind: 'promo', order: bannerOrder(collections), banners: [adBanner] };
-  return [...entries, promo].sort((a, b) => a.order - b.order);
 }
 
 export const exploreController = new ExploreController();

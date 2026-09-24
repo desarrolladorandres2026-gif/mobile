@@ -1,40 +1,29 @@
-﻿import { Search, RotateCw, Eye, X, ShoppingBag, MapPin, User, Store, Truck, ShieldCheck } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+﻿import { Search, RotateCw, Eye, AlertCircle } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../services/api';
-import RefundPanel from '../components/RefundPanel';
+import { apiMessage } from '../lib/apiError';
 import Pagination from '../components/Pagination';
-import { PermissionGate } from '../components/PermissionGate';
+import EntityLink from '../components/EntityLink';
+import { FICHA_CHANGED_EVENT, useFicha } from '../lib/entityLinks';
 
-interface OrderItem {
-  name: string;
-  quantity: number;
-  price: number;
-}
-
+/**
+ * Lo que el listado necesita de cada pedido. El detalle completo (líneas,
+ * dirección, dinero, reembolsos, códigos, notas) vive en la ficha del pedido,
+ * que se abre con `?ficha=order:<id>`.
+ */
 interface OrderType {
   _id: string;
   orderNumber?: string;
-  businessId?: { name: string; address?: string };
+  businessId?: { _id?: string; name: string };
   /** Un mandado no tiene comercio de origen. */
   kind?: 'delivery' | 'errand';
-  errand?: {
-    description: string;
-    pickupAddress: string;
-    estimatedCost: number;
-    maxCost: number;
-    actualCost?: number;
-  };
-  clientId?: { name: string; phone: string };
-  driverId?: { userId?: { name: string; phone?: string } };
-  deliveryAddress?: { address: string; notes?: string };
-  items?: OrderItem[];
-  subtotal?: number;
-  deliveryFee?: number;
+  errand?: { pickupAddress: string };
+  clientId?: { _id?: string; name: string };
+  /** `_id` es el del `Driver`, que es lo que abre su ficha. */
+  driverId?: { _id?: string; userId?: { name: string } };
   total: number;
   paymentMethod: string;
-  /** Solo en efectivo: si el cliente avisó que paga con un billete que necesita vuelto. */
-  cashPayment?: { needsChange: boolean; payingWith?: number };
   paymentStatus?: string;
   status: string;
   createdAt: string;
@@ -73,6 +62,10 @@ const statusMap: Record<string, { label: string; text: string; dot: string }> = 
   cancelled: { label: 'Cancelado',  text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
 };
 
+// El cliente y el comercio hablan de `orderNumber`, y es por lo que busca el servidor.
+const orderLabel = (o: Pick<OrderType, '_id' | 'orderNumber'>) =>
+  o.orderNumber || o._id.slice(-8).toUpperCase();
+
 const filterOptions = [
   { key: 'all',       label: 'Todos los pedidos' },
   { key: 'pending',   label: 'Pendientes' },
@@ -84,12 +77,12 @@ const filterOptions = [
 ];
 
 export default function Orders() {
-  const navigate = useNavigate();
+  const { current, open: openFicha } = useFicha();
   const [orders, setOrders] = useState<OrderType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [selectedOrder, setSelectedOrder] = useState<OrderType | null>(null);
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
   const PAGE_SIZE = 25;
@@ -115,6 +108,7 @@ export default function Orders() {
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
+      setError('');
       const params: Record<string, string | number> = { page, limit: PAGE_SIZE };
       if (statusFilter !== 'all') params.status = statusFilter;
       if (debouncedSearch) params.search = debouncedSearch;
@@ -123,6 +117,7 @@ export default function Orders() {
       if (data.meta) setMeta(data.meta);
     } catch (err) {
       console.error(err);
+      setError(apiMessage(err, 'No se pudieron cargar los pedidos.'));
     } finally {
       setLoading(false);
     }
@@ -132,8 +127,37 @@ export default function Orders() {
     fetchOrders();
   }, [fetchOrders]);
 
+  // Enlaces viejos (`/orders?orderId=X`) siguen funcionando: se traducen a la
+  // ficha (`?ficha=order:X`) sin dejar la entrada antigua en el historial.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedOrderId = searchParams.get('orderId');
+  useEffect(() => {
+    if (!linkedOrderId) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('orderId');
+        next.set('ficha', `order:${linkedOrderId}`);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [linkedOrderId, setSearchParams]);
+
+  // La ficha permite reembolsar, cancelar o reasignar: al cerrarla, el
+  // listado se pone al día. También si la propia ficha avisa de un cambio.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !current) fetchOrders();
+    wasOpen.current = current !== null;
+  }, [current, fetchOrders]);
+  useEffect(() => {
+    window.addEventListener(FICHA_CHANGED_EVENT, fetchOrders);
+    return () => window.removeEventListener(FICHA_CHANGED_EVENT, fetchOrders);
+  }, [fetchOrders]);
+
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       {/* Header */}
       <div className="page-header">
         <div>
@@ -150,7 +174,7 @@ export default function Orders() {
       </div>
 
       {/* Filter & Search Bar */}
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
+      <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
         {/* Search */}
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
@@ -181,6 +205,12 @@ export default function Orders() {
         </div>
       </div>
 
+      {error && (
+        <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
+          <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+        </p>
+      )}
+
       {/* Table */}
       {loading ? (
         <div className="table-container p-16 text-center text-[var(--color-text-secondary)] text-xs font-semibold">
@@ -207,20 +237,32 @@ export default function Orders() {
                 {orders.map((o) => {
                   const sc = statusMap[o.status] || { label: o.status, text: 'text-gray-900', dot: 'bg-gray-400' };
                   return (
-                    <tr key={o._id} className="hover:bg-[var(--color-bg)] transition-colors">
+                    <tr
+                      key={o._id}
+                      onClick={() => openFicha('order', o._id)}
+                      className="cursor-pointer hover:bg-[var(--color-bg)] transition-colors"
+                    >
                       <td className="table-body-cell font-mono text-[var(--color-primary)] font-bold text-xs">
-                        #{o._id.slice(-8).toUpperCase()}
+                        <EntityLink type="order" id={o._id}>#{orderLabel(o)}</EntityLink>
                       </td>
                       <td className="table-body-cell font-semibold text-[var(--color-text-main)]">
-                        {o.kind === 'errand'
-                          ? `Mandado · ${o.errand?.pickupAddress ?? ''}`
-                          : o.businessId?.name || 'Establecimiento'}
+                        {o.kind === 'errand' ? (
+                          `Mandado · ${o.errand?.pickupAddress ?? ''}`
+                        ) : (
+                          <EntityLink type="business" id={o.businessId?._id}>
+                            {o.businessId?.name || 'Establecimiento'}
+                          </EntityLink>
+                        )}
                       </td>
                       <td className="table-body-cell text-[var(--color-text-secondary)] text-xs">
-                        {o.clientId?.name || 'Cliente'}
+                        <EntityLink type="user" id={o.clientId?._id}>{o.clientId?.name || 'Cliente'}</EntityLink>
                       </td>
                       <td className="table-body-cell text-[var(--color-text-muted)] text-xs">
-                        {o.driverId?.userId?.name || 'Sin asignar'}
+                        {o.driverId?.userId?.name ? (
+                          <EntityLink type="driver" id={o.driverId._id}>{o.driverId.userId.name}</EntityLink>
+                        ) : (
+                          'Sin asignar'
+                        )}
                       </td>
                       <td className="table-body-cell font-bold text-[var(--color-text-main)]">
                         ${(o.total || 0).toLocaleString('es-CO')}
@@ -231,6 +273,11 @@ export default function Orders() {
                         }`}>
                           {o.paymentMethod === 'online' ? 'Digital' : 'Efectivo'}
                         </span>
+                        {o.paymentStatus && paymentStatusMap[o.paymentStatus] ? (
+                          <p className={`text-[10px] font-bold ${paymentStatusMap[o.paymentStatus].text}`}>
+                            {paymentStatusMap[o.paymentStatus].label}
+                          </p>
+                        ) : null}
                       </td>
                       <td className="table-body-cell">
                         <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${sc.text}`}>
@@ -240,7 +287,10 @@ export default function Orders() {
                       </td>
                       <td className="table-body-cell">
                         <button
-                          onClick={() => setSelectedOrder(o)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openFicha('order', o._id);
+                          }}
                           className="p-1.5 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] transition-all cursor-pointer"
                           title="Ver detalle del pedido"
                         >
@@ -264,139 +314,6 @@ export default function Orders() {
         </div>
       )}
 
-      {/* Order Detail Modal */}
-      {selectedOrder && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-5 relative max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-bg)] text-[var(--color-primary)] flex items-center justify-center">
-                  <ShoppingBag className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-[var(--color-text-main)]">
-                    Pedido #{selectedOrder._id.slice(-8).toUpperCase()}
-                  </h3>
-                  <p className="text-xs text-[var(--color-text-muted)] font-mono">
-                    {new Date(selectedOrder.createdAt).toLocaleString('es-CO')}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedOrder(null)}
-                className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Content Details */}
-            <div className="space-y-4 text-xs divide-y divide-[var(--color-border-light)]">
-              <div className="grid grid-cols-2 gap-4 pb-4">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1">
-                    <Store className="w-3 h-3 text-[var(--color-primary)]" />{' '}
-                    {selectedOrder.kind === 'errand' ? 'Recoger en' : 'Negocio'}
-                  </span>
-                  <p className="font-bold text-[var(--color-text-main)] text-sm">
-                    {selectedOrder.kind === 'errand'
-                      ? selectedOrder.errand?.pickupAddress
-                      : selectedOrder.businessId?.name || 'Comercio'}
-                  </p>
-                  {selectedOrder.kind === 'errand' ? (
-                    <p className="text-[var(--color-text-secondary)]">
-                      {selectedOrder.errand?.description}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1">
-                    <User className="w-3 h-3 text-[var(--color-primary)]" /> Cliente
-                  </span>
-                  <p className="font-bold text-[var(--color-text-main)] text-sm">{selectedOrder.clientId?.name || 'Cliente'}</p>
-                  <p className="text-[var(--color-text-secondary)]">{selectedOrder.clientId?.phone || '-'}</p>
-                </div>
-              </div>
-
-              {/* Delivery info */}
-              <div className="space-y-1 py-4">
-                <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1">
-                  <MapPin className="w-3 h-3 text-[var(--color-primary)]" /> Dirección de Entrega
-                </span>
-                <p className="font-medium text-[var(--color-text-main)]">{selectedOrder.deliveryAddress?.address || 'Sin dirección'}</p>
-                {selectedOrder.deliveryAddress?.notes && (
-                  <p className="text-[var(--color-text-secondary)] italic">Notas: {selectedOrder.deliveryAddress.notes}</p>
-                )}
-              </div>
-
-              {/* Driver info */}
-              <div className="space-y-1 py-4">
-                <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider flex items-center gap-1">
-                  <Truck className="w-3 h-3 text-[var(--color-warning)]" /> Domiciliario Asignado
-                </span>
-                <p className="font-bold text-[var(--color-text-main)]">{selectedOrder.driverId?.userId?.name || 'Por asignar'}</p>
-              </div>
-
-              {/*
-                Los reembolsos van aquí, pegados al pedido y no en una
-                pantalla aparte: se deciden mirando quién pidió y qué
-                pagó. El backend reparte el coste por línea; desde aquí
-                solo se decide cuánto y por qué.
-              */}
-              <PermissionGate permission="finance:manage">
-                <RefundPanel
-                  orderId={selectedOrder._id}
-                  orderTotal={selectedOrder.total || 0}
-                  onDone={fetchOrders}
-                />
-              </PermissionGate>
-
-              {/* Total summary */}
-              <div className="pt-4 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] uppercase font-bold text-[var(--color-text-muted)] tracking-wider">Total a pagar</p>
-                  <p className="text-xl font-bold text-[var(--color-text-main)]">${(selectedOrder.total || 0).toLocaleString('es-CO')}</p>
-                </div>
-                <div className="flex flex-col items-end gap-1.5">
-                  <span className="text-xs font-bold text-[var(--color-primary)] uppercase tracking-wider">
-                    {selectedOrder.paymentMethod === 'online' ? 'Pago Digital' : 'Efectivo'}
-                  </span>
-                  {selectedOrder.paymentStatus && paymentStatusMap[selectedOrder.paymentStatus] ? (
-                    <span
-                      className={`text-[11px] font-bold ${paymentStatusMap[selectedOrder.paymentStatus].text}`}
-                    >
-                      {paymentStatusMap[selectedOrder.paymentStatus].label}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-
-              {selectedOrder.paymentMethod === 'cash_on_delivery' ? (
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  {selectedOrder.cashPayment?.needsChange && selectedOrder.cashPayment.payingWith
-                    ? `Paga con $${selectedOrder.cashPayment.payingWith.toLocaleString('es-CO')} · dar $${(selectedOrder.cashPayment.payingWith - (selectedOrder.total || 0)).toLocaleString('es-CO')} de vuelto`
-                    : 'Entrega el valor exacto, sin cambio'}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="pt-2 flex justify-end gap-2">
-              <button
-                onClick={() => setSelectedOrder(null)}
-                className="px-4 py-2 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] text-xs font-semibold text-[var(--color-text-main)] border border-[var(--color-border)] cursor-pointer transition-colors"
-              >
-                Cerrar
-              </button>
-              <button
-                onClick={() => navigate(`/evidences?orderId=${selectedOrder._id}`)}
-                className="px-4 py-2 rounded-lg bg-[var(--color-primary)] hover:bg-[var(--color-chart-purple)] text-xs font-bold text-white cursor-pointer transition-colors flex items-center gap-1.5"
-              >
-                <ShieldCheck className="w-3.5 h-3.5" /> Ver códigos y evidencias
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

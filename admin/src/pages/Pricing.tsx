@@ -233,7 +233,7 @@ export default function Pricing() {
   ) => {
     const Icono = icono;
     return (
-      <div className="zipp-card p-5 space-y-4">
+      <div className="zipp-card p-5 space-y-2.5">
         <div className="flex items-start gap-3 border-b border-[var(--color-border-light)] pb-3">
           <div className="w-9 h-9 rounded-lg bg-[var(--color-primary-bg)] text-[var(--color-primary)] flex items-center justify-center">
             <Icono className="w-5 h-5" />
@@ -243,13 +243,13 @@ export default function Pricing() {
             <p className="text-xs text-[var(--color-text-muted)]">{descripcion}</p>
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{contenido}</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">{contenido}</div>
       </div>
     );
   };
 
   return (
-    <div className="space-y-6 animate-fade-in pb-28">
+    <div className="space-y-3 animate-fade-in pb-28">
       {/* Header */}
       <div className="page-header">
         <div>

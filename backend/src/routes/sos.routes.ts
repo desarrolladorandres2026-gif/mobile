@@ -4,6 +4,8 @@ import { sosService } from '../services/sos.service';
 import { authenticate, authorize, validate } from '../middlewares';
 import { sendResponse, param } from '../utils';
 import { UserRole } from '../types';
+import { requirePermission } from '../middlewares/auth';
+import { Permission } from '../security';
 
 const router = Router();
 
@@ -39,19 +41,19 @@ router.post(
 
 // ── Panel de administración ──
 
-router.get('/active', authorize(UserRole.ADMIN), async (req, res, next) => {
+router.get('/active', authorize(UserRole.ADMIN), requirePermission(Permission.SOS_VIEW), async (req, res, next) => {
   try {
     sendResponse(res, 200, 'Emergencias activas', await sosService.active());
   } catch (error) { next(error); }
 });
 
-router.get('/history', authorize(UserRole.ADMIN), async (req, res, next) => {
+router.get('/history', authorize(UserRole.ADMIN), requirePermission(Permission.SOS_VIEW), async (req, res, next) => {
   try {
     sendResponse(res, 200, 'Historial de emergencias', await sosService.history());
   } catch (error) { next(error); }
 });
 
-router.patch('/:id/acknowledge', authorize(UserRole.ADMIN), async (req, res, next) => {
+router.patch('/:id/acknowledge', authorize(UserRole.ADMIN), requirePermission(Permission.SOS_MANAGE), async (req, res, next) => {
   try {
     const alert = await sosService.acknowledge(param(req, 'id'), req.user!._id.toString());
     sendResponse(res, 200, 'Alerta atendida', alert);
@@ -68,6 +70,7 @@ const resolveSchema = z.object({
 router.patch(
   '/:id/resolve',
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.SOS_MANAGE),
   validate(resolveSchema),
   async (req, res, next) => {
     try {

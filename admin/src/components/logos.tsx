@@ -23,6 +23,7 @@ import calendario from '../assets/logos/calendario.png';
 import evidencia from '../assets/logos/evidencia.png';
 import cargos from '../assets/logos/cargos.png';
 import roles from '../assets/logos/roles.png';
+import explorar from '../assets/logos/explorar.png';
 
 /**
  * Logos PNG de concepto (Twemoji 14, CC-BY 4.0), el mismo set que la app.
@@ -68,6 +69,7 @@ export const CalendarLogo = logo(calendario);
 export const EvidenceLogo = logo(evidencia);
 export const PositionsLogo = logo(cargos);
 export const RolesLogo = logo(roles);
+export const ExploreLogo = logo(explorar);
 
 const CATEGORY_LOGOS: Record<string, ComponentType<LogoProps>> = {
   restaurant: logo(restaurant),

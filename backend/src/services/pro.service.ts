@@ -268,8 +268,15 @@ export class ProService {
 
     const end = new Date(base.getTime() + PRO_PLAN.periodDays * 24 * 60 * 60_000);
 
-    await ProSubscription.updateOne(
-      { _id: sub._id },
+    // M5: un pago aprobado puede llegar tarde para una suscripción que el
+    // usuario ya canceló y que un panel de soporte pudo incluso anonimizar
+    // (S11-como). Reactivarla a ciegas le regalaría un mes de Pro que no
+    // pidió — o peor, se lo cobraría sin dar el servicio si la cuenta ya se
+    // dio de baja. La condición va en el filtro, no en un `if` después de
+    // leer: dos webhooks casi simultáneos no deben poder colarse entre la
+    // lectura y la escritura.
+    const activated = await ProSubscription.findOneAndUpdate(
+      { _id: sub._id, status: { $ne: ProSubscriptionStatus.CANCELLED } },
       {
         $set: {
           status: ProSubscriptionStatus.ACTIVE,
@@ -281,8 +288,21 @@ export class ProService {
           lastRenewalAttemptAt: now,
           lastPaymentId: payment._id,
         },
-      }
+      },
+      { new: true }
     );
+
+    if (!activated) {
+      // No se toca el dinero aquí: la decisión de reembolso es de
+      // finanzas, no de este servicio. Queda registrado para que alguien
+      // lo revise, no silenciado.
+      console.error('[PRO] Pago aprobado para una suscripción cancelada — revisar para reembolso manual', {
+        paymentId: payment._id.toString(),
+        subscriptionId: sub._id.toString(),
+        userId: sub.userId.toString(),
+      });
+      return;
+    }
 
     emitToUser(sub.userId.toString(), 'pro:updated', {
       member: true,

@@ -64,6 +64,7 @@ export class PromotionBannerController {
         ],
         placements: [
           { key: BannerPlacement.HOME, label: 'Solo pantalla inicial' },
+          { key: BannerPlacement.EXPLORE, label: 'Solo Explorar' },
           { key: BannerPlacement.ALL, label: 'Toda la app' },
         ],
         screens: BANNER_SCREENS,

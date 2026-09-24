@@ -23,6 +23,7 @@ export { driverService } from './driver.service';
 export { categoryService } from './category.service';
 export { adminService } from './admin.service';
 export { dailySummaryService } from './dailySummary.service';
+export { platformResultService } from './platformResult.service';
 export { reviewService } from './review.service';
 export { notificationService } from './notification.service';
 export { pushService } from './push.service';

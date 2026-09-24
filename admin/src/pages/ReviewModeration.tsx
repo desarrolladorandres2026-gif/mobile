@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Star, AlertCircle, EyeOff, Eye, MessageSquare, RefreshCw } from 'lucide-react';
 import api from '../services/api';
+import { Permission } from '../lib/permissions';
+import { PermissionGate } from '../components/PermissionGate';
 import { apiMessage } from '../lib/apiError';
 
 /**
@@ -96,8 +98,8 @@ export default function ReviewModeration() {
   const hiddenCount = reviews.filter((r) => r.isHidden).length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-3">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
         <div>
           <h1 className="page-title">Moderación de Reseñas</h1>
           <p className="page-subtitle">
@@ -147,7 +149,7 @@ export default function ReviewModeration() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-2.5">
           {visible.map((review) => (
             <div
               key={review._id}
@@ -180,6 +182,7 @@ export default function ReviewModeration() {
                   </p>
                 </div>
 
+                <PermissionGate permission={Permission.REVIEWS_MODERATE}>
                 <button
                   onClick={() => moderate(review._id, !review.isHidden)}
                   className={`px-3.5 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
@@ -195,6 +198,7 @@ export default function ReviewModeration() {
                       ? 'Restaurar'
                       : 'Ocultar'}
                 </button>
+                </PermissionGate>
               </div>
 
               {review.comment && (
@@ -204,7 +208,7 @@ export default function ReviewModeration() {
               )}
 
               {review.businessReply && (
-                <div className="p-3 rounded-lg bg-[var(--color-bg)] border-l-2 border-[var(--color-primary)]">
+                <div className="pl-3 border-l-2 border-[var(--color-primary)]">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)] mb-1">
                     Respuesta del negocio
                   </p>
@@ -215,7 +219,7 @@ export default function ReviewModeration() {
               {/* Lo que el negocio o el domiciliario opinaron del cliente. No
                   es público en ninguna parte: solo se ve aquí, para soporte. */}
               {(review.clientRatingByBusiness || review.clientRatingByDriver || review.clientNotes) && (
-                <div className="p-3 rounded-lg bg-[var(--color-bg-alt)] space-y-1.5">
+                <div className="pl-3 border-l-2 border-[var(--color-border)] space-y-1.5">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] flex items-center gap-1.5">
                     <MessageSquare className="w-3 h-3" />
                     Sobre el cliente (privado)

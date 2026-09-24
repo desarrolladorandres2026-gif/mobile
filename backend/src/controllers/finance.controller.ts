@@ -8,7 +8,11 @@ import {
   businessService,
 } from '../services';
 import { sendResponse, param, query, clampLimit } from '../utils';
+import { AppError } from '../middlewares';
+import { platformResultService } from '../services/platformResult.service';
+import { periodRange, isReportPeriod, customRange, type DateRange } from '../utils/period';
 import { PayoutBeneficiary, LedgerAccount, CashIncidentResolution } from '../types';
+import { AuditAction, AuditSeverity, logAudit } from '../security';
 
 export class FinanceController {
   // ── Pricing configuration ──
@@ -60,7 +64,7 @@ export class FinanceController {
 
   async updateBusinessTerms(req: Request, res: Response, next: NextFunction) {
     try {
-      const business = await businessService.updateTerms(param(req, 'id'), req.body);
+      const business = await businessService.updateTerms(param(req, 'id'), req.body, req.user, req);
       sendResponse(res, 200, 'Términos comerciales actualizados', business);
     } catch (error) { next(error); }
   }
@@ -86,6 +90,21 @@ export class FinanceController {
         reference: req.body.reference,
         createdBy: req.user!._id.toString(),
       });
+      if (result.settlement) {
+        void logAudit(req, {
+          action: AuditAction.PAYOUT_PROCESSED,
+          entity: 'settlement',
+          entityId: String(result.settlement._id),
+          severity: AuditSeverity.HIGH,
+          description: `Liquidación reclamada: ${result.count} payouts, neto $${result.netAmount.toLocaleString('es-CO')}`,
+          metadata: {
+            beneficiary: req.body.beneficiary,
+            businessId: req.body.businessId,
+            driverId: req.body.driverId,
+            netAmount: result.netAmount,
+          },
+        });
+      }
       sendResponse(res, 201, 'Liquidación registrada', result);
     } catch (error) { next(error); }
   }
@@ -102,6 +121,113 @@ export class FinanceController {
     } catch (error) { next(error); }
   }
 
+  /**
+   * Registra el pago manual de una liquidación: transferencia/consignación
+   * hecha por fuera de ZIPP y anotada aquí con referencia y comprobante.
+   * Es lo que de verdad cierra la liquidación y su asiento contable.
+   */
+  async paySettlement(req: Request, res: Response, next: NextFunction) {
+    try {
+      const settlement = await payoutService.registerPayment({
+        settlementId: param(req, 'id'),
+        method: req.body.method,
+        reference: req.body.reference,
+        paidAt: req.body.paidAt,
+        receiptUrl: req.body.receiptUrl,
+        note: req.body.note,
+        paidBy: req.user!._id.toString(),
+      });
+      void logAudit(req, {
+        action: AuditAction.SETTLEMENT_PAYMENT_REGISTERED,
+        entity: 'settlement',
+        entityId: param(req, 'id'),
+        severity: AuditSeverity.HIGH,
+        description: `Pago de liquidación registrado por ${req.body.method}, ref. ${req.body.reference}`,
+        metadata: { netAmount: settlement.netAmount, method: req.body.method },
+      });
+      sendResponse(res, 200, 'Pago de liquidación registrado', settlement);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * La cuenta a la que se paga esta liquidación, tal como se verificó al
+   * liquidar (no la actual del comercio). `no-store` y auditoría HIGH.
+   */
+  async revealSettlementPayoutAccount(req: Request, res: Response, next: NextFunction) {
+    try {
+      const account = await payoutService.revealSettlementPayoutAccount(param(req, 'id'), req);
+      res.setHeader('Cache-Control', 'no-store');
+      sendResponse(res, 200, 'Cuenta de pago de la liquidación', account);
+    } catch (error) { next(error); }
+  }
+
+  /** Toma de nuevo la foto de la cuenta de una liquidación pendiente con la cuenta actual verificada. */
+  async refreshSettlementPayoutAccount(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await payoutService.refreshPayoutAccountSnapshot(param(req, 'id'), req.user!._id.toString(), req);
+      res.setHeader('Cache-Control', 'no-store');
+      sendResponse(res, 200, 'Cuenta de pago de la liquidación actualizada', result);
+    } catch (error) { next(error); }
+  }
+
+  /** Cuentas de pago pendientes de verificación en comercios ya aprobados. */
+  async pendingPayoutAccounts(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const pending = await businessService.pendingPayoutAccounts();
+      res.setHeader('Cache-Control', 'no-store');
+      sendResponse(res, 200, 'Cuentas de pago pendientes de verificación', pending);
+    } catch (error) { next(error); }
+  }
+
+  // ── Arrastres fuera de una liquidación ──
+
+  async listClawbacks(req: Request, res: Response, next: NextFunction) {
+    try {
+      const clawbacks = await payoutService.listClawbacks({
+        status: query(req, 'status') as 'open' | 'collected' | 'written_off' | undefined,
+        businessId: query(req, 'businessId'),
+      });
+      sendResponse(res, 200, 'Arrastres', clawbacks);
+    } catch (error) { next(error); }
+  }
+
+  async collectClawback(req: Request, res: Response, next: NextFunction) {
+    try {
+      const payout = await payoutService.collectClawback({
+        payoutId: param(req, 'id'),
+        reference: req.body.reference,
+        receiptUrl: req.body.receiptUrl,
+      });
+      void logAudit(req, {
+        action: AuditAction.CLAWBACK_COLLECTED,
+        entity: 'payout',
+        entityId: param(req, 'id'),
+        severity: AuditSeverity.HIGH,
+        description: `Arrastre cobrado directo, ref. ${req.body.reference}`,
+        metadata: { amount: payout.amount, orderId: String(payout.orderId) },
+      });
+      sendResponse(res, 200, 'Arrastre cobrado', payout);
+    } catch (error) { next(error); }
+  }
+
+  async writeOffClawback(req: Request, res: Response, next: NextFunction) {
+    try {
+      const payout = await payoutService.writeOffClawback({
+        payoutId: param(req, 'id'),
+        reason: req.body.reason,
+      });
+      void logAudit(req, {
+        action: AuditAction.CLAWBACK_WRITTEN_OFF,
+        entity: 'payout',
+        entityId: param(req, 'id'),
+        severity: AuditSeverity.HIGH,
+        description: `Arrastre castigado como incobrable: ${req.body.reason}`,
+        metadata: { amount: payout.amount, orderId: String(payout.orderId) },
+      });
+      sendResponse(res, 200, 'Arrastre castigado como incobrable', payout);
+    } catch (error) { next(error); }
+  }
+
   // ── Cash reconciliation ──
 
   async listCash(req: Request, res: Response, next: NextFunction) {
@@ -115,12 +241,22 @@ export class FinanceController {
     } catch (error) { next(error); }
   }
 
+  /** Totales por estado sobre toda la colección, no solo la página cargada. */
+  async cashTotals(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const totals = await cashReconciliationService.totals();
+      sendResponse(res, 200, 'Totales de efectivo', totals);
+    } catch (error) { next(error); }
+  }
+
   async verifyCash(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await cashReconciliationService.verifyByAdmin(
         req.body.ids || [],
         req.user!._id.toString(),
-        req.body.note
+        req.body.reference,
+        req.body.receiptUrl,
+        req.body.amount
       );
       sendResponse(res, 200, 'Efectivo verificado', result);
     } catch (error) { next(error); }
@@ -192,19 +328,43 @@ export class FinanceController {
    * book ever stops balancing, something has written money outside the
    * ledger service and every downstream report is suspect.
    */
-  async ledgerSummary(_req: Request, res: Response, next: NextFunction) {
+  async ledgerSummary(req: Request, res: Response, next: NextFunction) {
     try {
+      // Periodo opcional: `?period=today|week|month` o `?from=YYYY-MM-DD&to=YYYY-MM-DD`
+      // (hora de Bogotá). Sin parámetros, acumulado histórico (compatibilidad).
+      const periodParam = query(req, 'period');
+      const fromParam = query(req, 'from');
+      const toParam = query(req, 'to');
+
+      let range: DateRange | undefined;
+      if (periodParam) {
+        if (!isReportPeriod(periodParam)) throw new AppError('Periodo inválido: usa today, week o month', 400);
+        range = periodRange(periodParam);
+      } else if (fromParam || toParam) {
+        const custom = customRange(fromParam || '', toParam || fromParam || '');
+        if (!custom) throw new AppError('Rango inválido: usa from y to como YYYY-MM-DD', 400);
+        range = custom;
+      }
+
+      const filter = range ? { createdAt: { $gte: range.from, $lte: range.to } } : {};
       const accounts = Object.values(LedgerAccount);
-      const balances = await Promise.all(
-        accounts.map(async (account) => ({
-          account,
-          ...(await ledgerService.accountBalance(account)),
-        }))
-      );
+      const [balances, platformResult, balanced] = await Promise.all([
+        Promise.all(
+          accounts.map(async (account) => ({
+            account,
+            ...(await ledgerService.accountBalance(account, filter)),
+          }))
+        ),
+        platformResultService.forRange(range),
+        // `balanced` es siempre global: un libro descuadrado lo está sin importar el periodo.
+        ledgerService.isBalanced(),
+      ]);
 
       sendResponse(res, 200, 'Balance por cuenta', {
         balances,
-        balanced: await ledgerService.isBalanced(),
+        balanced,
+        platformResult,
+        period: periodParam || (range ? 'custom' : 'all'),
       });
     } catch (error) { next(error); }
   }

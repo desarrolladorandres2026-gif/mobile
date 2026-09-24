@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Camera, RotateCw, X, Package, ShieldCheck, Clock, ShieldAlert } from 'lucide-react';
 import api from '../services/api';
+import { apiMessage } from '../lib/apiError';
 
 interface EvidenceRow {
   id: string;
@@ -84,6 +85,7 @@ export default function Evidences() {
   /** Lo que de verdad está filtrando la lista. */
   const [applied, setApplied] = useState({ orderId: '', from: '', to: '' });
 
+  const [error, setError] = useState('');
   const [dossier, setDossier] = useState<SecurityDossier | null>(null);
   const [dossierLoading, setDossierLoading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -106,8 +108,10 @@ export default function Evidences() {
       });
       setRows(data.data);
       setMeta(data.meta);
+      setError('');
     } catch (err) {
       console.error(err);
+      setError(apiMessage(err, 'No se pudieron cargar las evidencias.'));
     } finally {
       setLoading(false);
     }
@@ -131,6 +135,7 @@ export default function Evidences() {
       setDossier(data.data);
     } catch (err) {
       console.error(err);
+      setError(apiMessage(err, 'No se pudo abrir el expediente del pedido.'));
     } finally {
       setDossierLoading(false);
     }
@@ -156,7 +161,7 @@ export default function Evidences() {
   }, []);
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       <div className="page-header">
         <div>
           <h1 className="page-title">Evidencias y Trazabilidad</h1>
@@ -224,6 +229,12 @@ export default function Evidences() {
         </div>
       </div>
 
+      {error && (
+        <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
+          <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+        </p>
+      )}
+
       {/* Cuadrícula de evidencias */}
       {loading ? (
         <div className="table-container p-16 text-center text-[var(--color-text-secondary)] text-xs font-semibold">
@@ -237,7 +248,7 @@ export default function Evidences() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2.5">
             {rows.map((row) => (
               <button
                 key={row.id}
@@ -309,12 +320,10 @@ export default function Evidences() {
       {/* Expediente de seguridad del pedido */}
       {(dossier || dossierLoading) && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[var(--color-primary-bg)] text-[var(--color-primary)] flex items-center justify-center">
-                  <Package className="w-5 h-5" />
-                </div>
+                <Package className="w-5 h-5 text-[var(--color-primary)]" />
                 <div>
                   <h3 className="text-base font-bold text-[var(--color-text-main)]">
                     Expediente #{dossier?.orderNumber ?? dossier?.orderId.slice(-8).toUpperCase()}
@@ -333,7 +342,7 @@ export default function Evidences() {
             {dossierLoading ? (
               <div className="p-10 text-center text-[var(--color-text-muted)] text-xs font-semibold">Cargando expediente…</div>
             ) : dossier ? (
-              <div className="space-y-4 text-xs">
+              <div className="space-y-2.5 text-xs">
                 <div className="grid grid-cols-2 gap-3">
                   <CodeStatusCard title="Código de recogida" code={dossier.pickup} />
                   <CodeStatusCard title="Código de entrega" code={dossier.delivery} />
@@ -365,7 +374,7 @@ export default function Evidences() {
                     <p className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider mb-1.5">Bitácora</p>
                     <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                       {dossier.events.map((ev, idx) => (
-                        <div key={idx} className="flex items-start gap-2 p-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border-light)]">
+                        <div key={idx} className="flex items-start gap-2 py-1.5 border-b border-[var(--color-border-light)]">
                           <span className="text-[9px] font-mono text-[var(--color-text-muted)] whitespace-nowrap mt-0.5">
                             {new Date(ev.timestamp).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
                           </span>
@@ -399,7 +408,7 @@ function CodeStatusCard({ title, code }: { title: string; code: SecurityCode | n
   const Icon = skin?.Icon ?? Clock;
 
   return (
-    <div className="p-3.5 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border-light)] space-y-1.5">
+    <div className="py-2 border-b border-[var(--color-border-light)] space-y-1">
       <span className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">{title}</span>
       {code ? (
         <>

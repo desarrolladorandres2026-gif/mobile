@@ -4,7 +4,21 @@ export { OtpOutbox, IOtpOutbox } from './OtpOutbox';
 export { getNextSequence } from './Counter';
 export { Position, IPosition } from './Position';
 export { Role, IRole } from './Role';
-export { Business, IBusiness } from './Business';
+export {
+  Business,
+  IBusiness,
+  IBusinessLegal,
+  IBusinessPayoutAccount,
+  LegalDocumentType,
+  TaxRegime,
+  PayoutMethod,
+  PayoutAccountType,
+  PayoutAccountStatus,
+  LEGAL_DOCUMENT_TYPES,
+  TAX_REGIMES,
+  PAYOUT_METHODS,
+  PAYOUT_ACCOUNT_TYPES,
+} from './Business';
 export { Category, ICategory } from './Category';
 export {
   Product,
@@ -34,7 +48,7 @@ export { Address, IAddress } from './Address';
 export { Notification, INotification } from './Notification';
 export { Review, IReview } from './Review';
 export { Coupon, ICoupon, CouponRedemption, ICouponRedemption } from './Coupon';
-export { Zone, IZone } from './Zone';
+export { Zone, IZone, IZoneVersion, ZONE_TARIFF_FIELDS, ZoneTariffField, MAX_ZONE_VERSIONS } from './Zone';
 
 // ── Monetisation ─────────────────────────────────────────────────────
 export {
@@ -46,7 +60,7 @@ export {
   COMMISSION_CATEGORIES,
 } from './PlatformPricingConfig';
 export { LedgerEntry, ILedgerEntry } from './LedgerEntry';
-export { Payout, IPayout, Settlement, ISettlement } from './Payout';
+export { Payout, IPayout, Settlement, ISettlement, ISettlementPayoutAccount } from './Payout';
 export {
   CashReconciliation,
   ICashReconciliation,
@@ -117,6 +131,9 @@ export {
   BusinessDocument,
   IBusinessDocument,
   BusinessDocumentType,
+  BusinessDocumentStatus,
+  IBusinessDocumentHistoryEntry,
+  MAX_DOCUMENT_HISTORY,
   REQUIRED_BUSINESS_DOCUMENTS,
   FOOD_CATEGORIES,
 } from './BusinessDocument';
@@ -149,3 +166,21 @@ export {
   IImageProcessingEvent,
   ImageProcessingOutcome,
 } from './ImageProcessingEvent';
+
+export {
+  ExploreLayoutState,
+  IExploreLayoutState,
+  ExploreLayoutVersion,
+  IExploreLayoutVersion,
+  EXPLORE_GLOBAL_SCOPE,
+} from './ExploreLayout';
+
+// ── Panel admin, Fase 2 ──────────────────────────────────────────────
+export {
+  InternalNote,
+  IInternalNote,
+  NoteEntityType,
+  NOTE_ENTITY_TYPES,
+  NOTE_MAX_LENGTH,
+} from './InternalNote';
+export { AlertReceipt, IAlertReceipt, ALERT_RECEIPT_TTL_SECONDS } from './AlertReceipt';

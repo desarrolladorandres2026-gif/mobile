@@ -4,7 +4,7 @@ import { User, Business, Category, Product, Address, IBusiness, IProduct } from 
 import { businessService } from '../../services/business.service';
 import { productService } from '../../services/product.service';
 import { productImageService } from '../../services/productImage.service';
-import { REQUIRED_BUSINESS_DOCUMENTS, FOOD_CATEGORIES } from '../../models/BusinessDocument';
+import { REQUIRED_BUSINESS_DOCUMENTS, FOOD_CATEGORIES, BusinessDocument } from '../../models/BusinessDocument';
 import { UserRole, ModifierGroup } from '../../types';
 import { TESTE_BUSINESSES, TESTE_CLIENTS, TESTE_PASSWORD, TesteBusiness, TesteProduct } from './data/businesses';
 import { TESTE_IMAGE_BY_KEY, testeImageDownloadUrl, TesteImage } from './data/images';
@@ -139,20 +139,79 @@ async function ensureApproved(business: IBusiness, adminId: string, log: (s: str
   const required = [...REQUIRED_BUSINESS_DOCUMENTS];
   if (FOOD_CATEGORIES.includes(business.category)) required.push('health_permit');
 
+  // Primero la cuenta de pago (queda pendiente): el certificado bancario tiene
+  // que ser POSTERIOR al último cambio de la cuenta para poder verificarla.
+  const account = business.isApproved ? null : await ensureFiscalData(business);
+
   for (const type of required) {
     const doc = await businessService.submitDocument(business._id.toString(), {
       type,
       reference: `TESTE-${type.toUpperCase()}-${business.slug}`,
     });
     if (doc && doc.status !== 'approved') {
-      await businessService.reviewDocument(doc._id.toString(), adminId, 'approved');
+      // `reviewDocument` exige archivo adjunto y separación de funciones: son
+      // documentos de prueba sin archivo, así que se aprueban directo en la
+      // base (es un dato de seed, no una revisión real).
+      // `fileKey` de mentira: sin él el certificado bancario no cuenta para
+      // verificar la cuenta. No apunta a ningún archivo real.
+      await BusinessDocument.updateOne(
+        { _id: doc._id },
+        {
+          $set: {
+            status: 'approved',
+            reviewedBy: adminId,
+            reviewedAt: new Date(),
+            fileKey: `zipp/teste/sin-archivo/${type}`,
+            fileResourceType: 'image',
+            isPrivate: true,
+          },
+        }
+      );
     }
   }
 
-  if (!business.isApproved) {
+  if (!business.isApproved && account) {
+    await businessService.verifyPayoutAccount(business._id.toString(), adminId, account.version);
     await businessService.approve(business._id.toString(), adminId);
-    log(`   ✅ aprobado con ${required.length} documentos TESTE`);
+    log(`   ✅ aprobado con ${required.length} documentos TESTE y datos fiscales TESTE`);
   }
+}
+
+/**
+ * `approve()` exige datos legales completos y una cuenta de pago verificada
+ * (Fase 0). Se siembran con valores ficticios pero válidos —un NIT con su DV
+ * calculado— por el mismo camino que usaría el comercio: los "registra" el
+ * dueño y los verifica el admin, porque quien registra una cuenta no puede
+ * verificarla. Devuelve la cuenta pendiente; verificarla es del llamador.
+ */
+async function ensureFiscalData(business: IBusiness) {
+  const id = business._id.toString();
+  const ownerId = business.ownerId.toString();
+  // Un número estable por negocio, para que correr el seed dos veces no cambie nada.
+  const digits = String(
+    [...business.slug].reduce((hash, ch) => (hash * 31 + ch.charCodeAt(0)) % 90_000_000, 7)
+  ).padStart(8, '0');
+  const nit = `9${digits}`;
+
+  await businessService.setLegal(
+    id,
+    { documentType: 'NIT', documentNumber: nit, legalName: `${business.name} S.A.S. (TESTE)`, taxRegime: 'simple' },
+    ownerId
+  );
+  const account = await businessService.setPayoutAccount(
+    id,
+    {
+      method: 'bank',
+      bankName: 'Bancolombia (TESTE)',
+      accountType: 'ahorros',
+      accountNumber: `0000${digits}`,
+      holderName: `${business.name} (TESTE)`,
+      holderDocument: nit,
+    },
+    ownerId,
+    { asOwner: true }
+  );
+  return { version: account?.version ?? 1 };
 }
 
 async function ensureBusiness(spec: TesteBusiness, ownerId: Types.ObjectId, report: ApplyReport, log: (s: string) => void) {

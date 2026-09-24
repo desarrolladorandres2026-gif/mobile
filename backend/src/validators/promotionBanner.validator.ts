@@ -5,7 +5,7 @@ import { BANNER_SCREEN_KEYS, BANNER_DURATION } from '../models/PromotionBanner';
 const OBJECT_ID = /^[a-f\d]{24}$/i;
 
 const actionTypes = ['none', 'url', 'business', 'category', 'screen'] as const;
-const placements = ['home', 'all'] as const;
+const placements = ['home', 'explore', 'all'] as const;
 
 /**
  * El destino tiene que corresponder al tipo de acción.

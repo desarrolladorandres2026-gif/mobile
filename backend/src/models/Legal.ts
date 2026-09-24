@@ -29,7 +29,14 @@ const legalAcceptanceSchema = new Schema<ILegalAcceptance>({
 legalAcceptanceSchema.index({ userId: 1, documentId: 1 }, { unique: true });
 export const LegalAcceptance = mongoose.model<ILegalAcceptance>('LegalAcceptance', legalAcceptanceSchema);
 
-export interface IDataRequest extends Document { userId: Types.ObjectId; type: 'access'|'rectify'|'update'|'delete'|'revoke'; detail: string; status: 'received'|'in_review'|'resolved'|'rejected'; response?: string; handledBy?: Types.ObjectId; createdAt: Date; updatedAt: Date; }
-const dataRequestSchema = new Schema<IDataRequest>({ userId: { type: Schema.Types.ObjectId, ref: 'User', required: true }, type: { type: String, enum: ['access','rectify','update','delete','revoke'], required: true }, detail: { type: String, required: true, maxlength: 2000 }, status: { type: String, enum: ['received','in_review','resolved','rejected'], default: 'received' }, response: { type: String, maxlength: 4000 }, handledBy: { type: Schema.Types.ObjectId, ref: 'User' } }, { timestamps: true });
+export interface IDataRequest extends Document { userId: Types.ObjectId; type: 'access'|'rectify'|'update'|'delete'|'revoke'; detail: string; status: 'received'|'in_review'|'resolved'|'rejected'; response?: string; handledBy?: Types.ObjectId;
+  /**
+   * Plazo legal de Habeas Data (Ley 1581 de 2012, art. 14 / Decreto 1377 de
+   * 2013 — confirmar con asesor legal). Se calcula al crear según `type`.
+   */
+  legalDueAt?: Date | null;
+  createdAt: Date; updatedAt: Date; }
+const dataRequestSchema = new Schema<IDataRequest>({ userId: { type: Schema.Types.ObjectId, ref: 'User', required: true }, type: { type: String, enum: ['access','rectify','update','delete','revoke'], required: true }, detail: { type: String, required: true, maxlength: 2000 }, status: { type: String, enum: ['received','in_review','resolved','rejected'], default: 'received' }, response: { type: String, maxlength: 4000 }, handledBy: { type: Schema.Types.ObjectId, ref: 'User' }, legalDueAt: { type: Date, default: null } }, { timestamps: true });
 dataRequestSchema.index({ userId: 1, createdAt: -1 });
+dataRequestSchema.index({ status: 1, legalDueAt: 1 });
 export const DataRequest = mongoose.model<IDataRequest>('DataRequest', dataRequestSchema);

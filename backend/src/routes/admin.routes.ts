@@ -1,8 +1,14 @@
 import { Router } from 'express';
 import { adminController } from '../controllers/admin.controller';
-import { authenticate, authorize, requirePermission, requireAnyPermission } from '../middlewares';
+import { authenticate, authorize, requirePermission, requireAnyPermission, validate } from '../middlewares';
 import { UserRole } from '../types';
 import { Permission } from '../security';
+import { driverIdParamSchema } from '../validators/driver.validator';
+import adminNotesRouter from './adminNotes.routes';
+import adminAlertsRouter from './adminAlerts.routes';
+import adminSearchRouter from './adminSearch.routes';
+import adminOrdersRouter from './adminOrders.routes';
+import adminBusinessesRouter from './adminBusinesses.routes';
 
 const router = Router();
 
@@ -10,29 +16,33 @@ const router = Router();
 router.use(authenticate, authorize(UserRole.ADMIN));
 
 // Dashboard & Financials
-router.get('/dashboard', (req, res, next) => adminController.getDashboard(req, res, next));
-router.get('/financials', (req, res, next) => adminController.getFinancials(req, res, next));
-router.get('/revenue-chart', (req, res, next) => adminController.getRevenueChart(req, res, next));
-router.get('/daily-summary', (req, res, next) => adminController.getDailySummary(req, res, next));
+router.get('/dashboard', requirePermission(Permission.ORDERS_VIEW_ALL), (req, res, next) => adminController.getDashboard(req, res, next));
+router.get('/financials', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => adminController.getFinancials(req, res, next));
+router.get('/revenue-chart', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => adminController.getRevenueChart(req, res, next));
+router.get('/daily-summary', requirePermission(Permission.REPORTS_VIEW), (req, res, next) => adminController.getDailySummary(req, res, next));
 
 // ── Envíos dirigidos ──
 // El preview va antes del envío a propósito: enseñar "esto llega a 240
 // personas" es la diferencia entre una herramienta y una escopeta.
-router.post('/campaigns/preview', (req, res, next) => adminController.previewCampaign(req, res, next));
-router.post('/campaigns/send', (req, res, next) => adminController.sendCampaign(req, res, next));
+router.post('/campaigns/preview', requirePermission(Permission.NOTIFICATIONS_SEND), (req, res, next) => adminController.previewCampaign(req, res, next));
+router.post('/campaigns/send', requirePermission(Permission.NOTIFICATIONS_SEND), (req, res, next) => adminController.sendCampaign(req, res, next));
 
 // ── Interruptores de funcionalidad ──
 // Separan publicar código de encender comportamiento. Ver
 // `featureFlag.service.ts` para por qué existen.
-router.get('/feature-flags', (req, res, next) => adminController.listFeatureFlags(req, res, next));
-router.put('/feature-flags/:key', (req, res, next) => adminController.saveFeatureFlag(req, res, next));
-router.delete('/feature-flags/:key', (req, res, next) => adminController.deleteFeatureFlag(req, res, next));
+router.get('/feature-flags', requirePermission(Permission.SETTINGS_VIEW), (req, res, next) => adminController.listFeatureFlags(req, res, next));
+router.put('/feature-flags/:key', requirePermission(Permission.SETTINGS_UPDATE), (req, res, next) => adminController.saveFeatureFlag(req, res, next));
+router.delete('/feature-flags/:key', requirePermission(Permission.SETTINGS_UPDATE), (req, res, next) => adminController.deleteFeatureFlag(req, res, next));
 
 // ── Informes descargables ──
 // El permiso existía en el RBAC sin nada que lo usara; estos son sus dos
 // primeros consumidores.
-router.get('/exports/orders', requirePermission(Permission.REPORTS_EXPORT), (req, res, next) => adminController.exportOrders(req, res, next));
-router.get('/exports/users', requirePermission(Permission.REPORTS_EXPORT), (req, res, next) => adminController.exportUsers(req, res, next));
+// M2: POST con cuerpo, no GET con query string — `reason` y el código TOTP
+// viajaban en la URL (morgan, el log de Nginx, `AuditLog.path`). No hay
+// pantalla que consuma esto todavía, así que las rutas GET se retiran en
+// vez de mantenerlas en paralelo.
+router.post('/exports/orders', requirePermission(Permission.REPORTS_EXPORT), (req, res, next) => adminController.exportOrders(req, res, next));
+router.post('/exports/users', requirePermission(Permission.REPORTS_EXPORT), (req, res, next) => adminController.exportUsers(req, res, next));
 
 // ── Recorte de fondo de fotos de producto ──
 // Sin pantalla todavía: se consulta para cuadrar la factura del proveedor.
@@ -56,24 +66,47 @@ router.patch('/users/:id/status', requireAnyPermission(Permission.USERS_UPDATE, 
 router.post('/users/:id/reset-password', requirePermission(Permission.USERS_UPDATE), (req, res, next) => adminController.resetUserPassword(req, res, next));
 
 // Business management
-router.get('/businesses', (req, res, next) => adminController.getBusinesses(req, res, next));
-router.patch('/businesses/:id/toggle', (req, res, next) => adminController.toggleBusiness(req, res, next));
-router.patch('/businesses/:id/featured', (req, res, next) => adminController.toggleBusinessFeatured(req, res, next));
-router.delete('/businesses/:id', (req, res, next) => adminController.deleteBusiness(req, res, next));
+//
+// Sin `requirePermission` a propósito, igual que antes de este cambio: el
+// permiso por módulo (S4, anexo A de docs/PANEL-ADMIN.md) es Fase 1 —
+// rediseño completo de RBAC restrictivo, con migración de cargos. Meterlo
+// aquí a medias dejaría a un ADMIN legacy (el que hoy administra todo el
+// panel) bloqueado de una función que siempre tuvo, sin haber hecho esa
+// migración. Fase 0 corrige el CONTENIDO de estas acciones (S11: archivar,
+// no borrar; motivo obligatorio; auditoría), no quién puede llamarlas.
+router.get('/businesses', requirePermission(Permission.BUSINESSES_VIEW), (req, res, next) => adminController.getBusinesses(req, res, next));
+router.patch('/businesses/:id/toggle', requirePermission(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => adminController.toggleBusiness(req, res, next));
+router.patch('/businesses/:id/featured', requirePermission(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => adminController.toggleBusinessFeatured(req, res, next));
+// S11: ya no es borrado duro. `DELETE` sigue existiendo por compatibilidad
+// con clientes ya desplegados, pero hace exactamente lo mismo que
+// `PATCH .../archive`: archivar con motivo obligatorio, nunca `deleteOne`.
+router.delete('/businesses/:id', requirePermission(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => adminController.archiveBusiness(req, res, next));
+router.patch('/businesses/:id/archive', requirePermission(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => adminController.archiveBusiness(req, res, next));
+router.patch('/businesses/:id/restore', requirePermission(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => adminController.restoreBusiness(req, res, next));
+// Ficha del comercio y sus acciones (Fase 2). Después de las rutas /businesses/:id de arriba a propósito.
+router.use('/businesses/:id', adminBusinessesRouter);
 
 // Orders management
-router.get('/orders', (req, res, next) => adminController.getAllOrders(req, res, next));
+router.get('/orders', requirePermission(Permission.ORDERS_VIEW_ALL), (req, res, next) => adminController.getAllOrders(req, res, next));
 
 // Trazabilidad de la entrega: evidencias y expediente de seguridad
-router.get('/evidences', (req, res, next) => adminController.getEvidences(req, res, next));
-router.get('/orders/:id/security', (req, res, next) => adminController.getOrderSecurity(req, res, next));
+router.get('/evidences', requirePermission(Permission.EVIDENCES_VIEW), (req, res, next) => adminController.getEvidences(req, res, next));
+router.get('/orders/:id/security', requirePermission(Permission.EVIDENCES_VIEW), (req, res, next) => adminController.getOrderSecurity(req, res, next));
+
+// Ficha del pedido y sus acciones (Fase 2). Después de las rutas /orders de arriba a propósito.
+router.use('/orders/:id', adminOrdersRouter);
 
 // Financial
-router.get('/commissions', (req, res, next) => adminController.getCommissions(req, res, next));
-router.get('/driver-debts', (req, res, next) => adminController.getDriverDebts(req, res, next));
+router.get('/commissions', requirePermission(Permission.COMMISSIONS_VIEW), (req, res, next) => adminController.getCommissions(req, res, next));
 
 // Driver management
-router.patch('/drivers/:id/suspend', (req, res, next) => adminController.suspendDriver(req, res, next));
-router.patch('/drivers/:id/reactivate', (req, res, next) => adminController.reactivateDriver(req, res, next));
+router.get('/drivers/:id/profile-360', requirePermission(Permission.DRIVERS_VIEW), validate(driverIdParamSchema), (req, res, next) => adminController.driverProfile360(req, res, next));
+router.patch('/drivers/:id/suspend', requirePermission(Permission.DRIVERS_SUSPEND), validate(driverIdParamSchema), (req, res, next) => adminController.suspendDriver(req, res, next));
+router.patch('/drivers/:id/reactivate', requirePermission(Permission.DRIVERS_SUSPEND), validate(driverIdParamSchema), (req, res, next) => adminController.reactivateDriver(req, res, next));
+
+// ── Capa común de las fichas (Fase 2): notas, bandeja de alertas, búsqueda global ──
+router.use('/notes', adminNotesRouter);
+router.use('/alerts', adminAlertsRouter);
+router.use('/search', adminSearchRouter);
 
 export default router;

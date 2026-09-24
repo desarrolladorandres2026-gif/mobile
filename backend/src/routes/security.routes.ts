@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { securityController } from '../controllers/security.controller';
 import { authenticate, authorize, requirePermission } from '../middlewares';
+import { can, requireRole } from '../middlewares/auth';
 import { UserRole } from '../types';
-import { Permission } from '../security';
+import { Permission, SUPER_ADMIN_ROLE_SLUG } from '../security';
 
 const router = Router();
 
@@ -95,20 +96,25 @@ router.get(
 // de pánico, reclamos y pedidos detenidos ya existían, pero en cinco
 // pantallas distintas. Nadie mira cinco pantallas a la vez, así que en la
 // práctica se miraba una y las otras cuatro acumulaban.
-router.get('/incidents', authenticate, authorize(UserRole.ADMIN), async (req, res, next) => {
+router.get('/incidents', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADMIN_PANEL), async (req, res, next) => {
   try {
     const { incidentCenterService } = await import('../services/incidentCenter.service');
     const { sendResponse } = await import('../utils');
-    sendResponse(res, 200, 'Incidentes abiertos', await incidentCenterService.open());
+    sendResponse(res, 200, 'Incidentes abiertos', await incidentCenterService.open((p) => can(req, p)));
   } catch (error) { next(error); }
 });
 
-router.get('/incidents/summary', authenticate, authorize(UserRole.ADMIN), async (req, res, next) => {
+router.get('/incidents/summary', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADMIN_PANEL), async (req, res, next) => {
   try {
     const { incidentCenterService } = await import('../services/incidentCenter.service');
     const { sendResponse } = await import('../utils');
-    sendResponse(res, 200, 'Resumen de incidentes', await incidentCenterService.summary());
+    sendResponse(res, 200, 'Resumen de incidentes', await incidentCenterService.summary((p) => can(req, p)));
   } catch (error) { next(error); }
 });
+
+// ── Informe del modo observación (Fase 1): a quién se le bloquearía qué ──
+router.get('/authz-shadow', requireRole(SUPER_ADMIN_ROLE_SLUG), (req, res, next) =>
+  securityController.getAuthzShadow(req, res, next)
+);
 
 export default router;

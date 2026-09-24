@@ -12,7 +12,9 @@ import hpp from 'hpp';
 import mongoose from 'mongoose';
 
 import { config, connectDB } from './config';
-import { errorHandler, securityHeaders, sanitizeRequest, requestId, perUserRateLimiter } from './middlewares';
+import {
+  errorHandler, securityHeaders, sanitizeRequest, requestId, perUserRateLimiter, allowAdminFraming,
+} from './middlewares';
 import routes from './routes';
 import businessShareRoutes from './routes/businessShare.routes';
 import { initializeSocket } from './sockets';
@@ -20,6 +22,7 @@ import { setIO } from './sockets/emitter';
 import { startDispatchSweeper, stopDispatchSweeper } from './services/dispatch.service';
 import { startCartAbandonmentSweeper, stopCartAbandonmentSweeper } from './services/cartActivity.service';
 import { startProRenewalSweeper, stopProRenewalSweeper } from './services/pro.service';
+import { startCashOverdueSweeper } from './services/cashReconciliation.service';
 import { startPendingPaymentSweeper, stopPendingPaymentSweeper } from './services/payments';
 import { startBackgroundRemovalSweeper, stopBackgroundRemovalSweeper } from './services/backgroundRemoval.service';
 import { initCache, closeCache } from './cache';
@@ -176,6 +179,11 @@ app.get('/health', async (_req, res) => {
 // carpeta simplemente no se registra nada, sin romper el arranque.
 const pwaDir = path.join(__dirname, '../public/pwa');
 if (fs.existsSync(pwaDir)) {
+  // La vista previa del constructor de Explorar vive dentro de un iframe del
+  // panel. Va antes de `express.static` para que sus cabeceras apliquen
+  // también a los archivos del export.
+  app.use('/preview', allowAdminFraming);
+
   // Lo que Expo exporta con hash en el nombre no cambia nunca: un año de
   // caché y sin revalidar. Antes cada carga de la PWA preguntaba por cada
   // archivo a Node. Lo demás (el HTML, el manifiesto) se revalida siempre.
@@ -240,6 +248,7 @@ const start = async () => {
   startProRenewalSweeper();
   startPendingPaymentSweeper();
   startBackgroundRemovalSweeper();
+  startCashOverdueSweeper();
 
   httpServer.listen(config.port, '0.0.0.0', () => {
     console.log(`\n🚀 ZIPP API en puerto ${config.port}`);

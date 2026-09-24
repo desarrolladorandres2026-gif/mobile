@@ -2,7 +2,7 @@ import { Types } from 'mongoose';
 import { Order, IOrder, DriverOffer, DeclineReason } from '../models';
 import { OrderStatus } from '../types';
 import { suggestDriverForOrder, NearestDriver } from './tracking.service';
-import { emitToUser, getIO } from '../sockets/emitter';
+import { emitToUser, getIO, emitToAdmin } from '../sockets/emitter';
 import { pushService } from './push.service';
 import { logSystemAudit, AuditAction, AuditSeverity } from '../security';
 import { config } from '../config';
@@ -83,17 +83,24 @@ export function isDispatchEnabled(): boolean {
 /**
  * Sincroniza el interruptor con lo que diga el panel.
  *
- * La variable de entorno sigue siendo el suelo: si `DISPATCH_ENABLED` está
- * encendida, el reparto funciona aunque nadie haya creado el interruptor en
- * la base. Lo que añade el panel es poder encenderlo —y sobre todo
- * apagarlo— sin un redespliegue, que es lo que hace falta cuando algo se
- * tuerce a las nueve de la noche de un viernes.
+ * La variable de entorno es solo el valor por defecto, para cuando nadie ha
+ * tocado el interruptor todavía: si `DISPATCH_ENABLED` está encendida, el
+ * reparto funciona sin que nadie haya creado el interruptor en la base.
+ *
+ * En cuanto el panel guarda una decisión explícita —encendida o
+ * apagada— esa decisión manda sola. Antes `enabled = config.dispatch.enabled
+ * || fromPanel` hacía que, con la variable de entorno encendida, el panel
+ * pudiera prenderlo pero nunca apagarlo: un operador apagando el reparto un
+ * viernes a las nueve de la noche no conseguía nada (O2).
  */
 export async function syncDispatchFlag(): Promise<boolean> {
   try {
-    const { isEnabled } = await import('./featureFlag.service');
-    const fromPanel = await isEnabled(DISPATCH_FLAG);
-    enabled = config.dispatch.enabled || fromPanel;
+    const { isEnabled, isConfigured } = await import('./featureFlag.service');
+    if (await isConfigured(DISPATCH_FLAG)) {
+      enabled = await isEnabled(DISPATCH_FLAG);
+    } else {
+      enabled = config.dispatch.enabled;
+    }
   } catch (err) {
     // Si la consulta falla, se mantiene lo que hubiera: un fallo leyendo un
     // interruptor no puede cambiar el comportamiento de la operación.
@@ -386,7 +393,7 @@ async function restartCycle(order: IOrder): Promise<boolean> {
       cycles: cycle,
     };
 
-    getIO()?.to('admin').emit('order:dispatch:stalled', stalled);
+    emitToAdmin(getIO(), 'orders', 'order:dispatch:stalled', stalled);
 
     /**
      * El cliente también se entera.
@@ -629,28 +636,37 @@ export async function reassignStalledPickups(): Promise<number> {
   return reassigned;
 }
 
+/**
+ * Una vuelta del barrido. Separada de `startDispatchSweeper` para poder
+ * invocarla directamente desde las pruebas sin depender de un intervalo
+ * real de 5 segundos.
+ *
+ * El interruptor se relee en cada vuelta: así, encenderlo desde el panel
+ * surte efecto sin reiniciar, y apagarlo detiene el reparto en los
+ * siguientes segundos en vez de en el siguiente despliegue.
+ */
+export async function runSweepOnce(): Promise<void> {
+  const on = await syncDispatchFlag();
+
+  // Activar un pedido programado no es asignarlo: es hacerlo visible para
+  // el comercio y los domiciliarios cuando llega su hora. Eso debe pasar
+  // aunque el reparto automático esté apagado — apagarlo apaga la cascada
+  // de ofertas, no el reloj del pedido (O11). Antes vivía dentro del
+  // `if (!on) return`, así que con el interruptor apagado un pedido
+  // programado nunca salía de PENDING.
+  const { orderService } = await import('./order.service');
+  const tasks: Array<Promise<unknown>> = [orderService.activateScheduledOrders()];
+  if (on) tasks.push(sweepExpiredOffers(), reassignStalledPickups());
+  await Promise.all(tasks);
+}
+
 let sweepTimer: NodeJS.Timeout | null = null;
 
 /** Arranca el barrido periódico. Idempotente. */
 export function startDispatchSweeper(intervalMs = 5_000): void {
   if (sweepTimer) return;
   sweepTimer = setInterval(() => {
-    // El interruptor se relee en cada vuelta: así, encenderlo desde el
-    // panel surte efecto sin reiniciar, y apagarlo detiene el reparto en
-    // los siguientes segundos en vez de en el siguiente despliegue.
-    syncDispatchFlag()
-      .then(async (on) => {
-        if (!on) return;
-        // Las tres revisiones del barrido: ofertas vencidas, pedidos que
-        // alguien aceptó y no fue a recoger, y programados cuya hora llega.
-        const { orderService } = await import('./order.service');
-        await Promise.all([
-          sweepExpiredOffers(),
-          reassignStalledPickups(),
-          orderService.activateScheduledOrders(),
-        ]);
-      })
-      .catch((err) => console.error('[Dispatch] Falló el barrido:', err));
+    runSweepOnce().catch((err) => console.error('[Dispatch] Falló el barrido:', err));
   }, intervalMs);
 
   // No debe mantener vivo el proceso: si Node no tiene nada más que hacer,
@@ -686,6 +702,7 @@ export const dispatchService = {
   PICKUP_GRACE_MS,
   startDispatchSweeper,
   stopDispatchSweeper,
+  runSweepOnce,
   currentOffer,
   ROUNDS,
   CYCLE_PAUSE_MS,

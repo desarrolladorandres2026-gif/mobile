@@ -2,6 +2,13 @@ import { createHash } from 'crypto';
 import { FeatureFlag, IFeatureFlag, FeatureAudience } from '../models/FeatureFlag';
 import { UserRole } from '../types';
 import { AppError } from '../middlewares/errorHandler';
+import { disconnectAllAdminSockets } from './authzSockets.service';
+
+/** Interruptor que decide si el RBAC bloquea (`enforce`) o solo observa. Ver `authorization.service`. */
+export const RBAC_ENFORCE_FLAG = 'rbac_enforce';
+
+/** `rbac_enforce` es idéntico para todos los admins: solo esas audiencias tienen sentido. */
+const RBAC_ENFORCE_AUDIENCES: FeatureAudience[] = ['all', 'staff', 'off'];
 
 /**
  * Interruptores de funcionalidad.
@@ -111,6 +118,20 @@ export async function isEnabled(key: string, subject: FlagSubject = {}): Promise
   return evaluate(flags.get(key), subject);
 }
 
+/**
+ * ¿Existe un interruptor guardado con esta clave?
+ *
+ * Distinto de `isEnabled`: esa devuelve `false` tanto si el interruptor
+ * está apagado como si nadie lo ha creado todavía, y esa ambigüedad es
+ * justo lo que dejaba a `DISPATCH_ENABLED` (variable de entorno) ganarle al
+ * apagado explícito del panel (O2). Con esto, quien llama puede saber si
+ * hay una decisión guardada o si debe caer al valor por defecto.
+ */
+export async function isConfigured(key: string): Promise<boolean> {
+  const flags = await load();
+  return flags.has(key);
+}
+
 /** Todos los interruptores resueltos para un usuario, para mandárselos a la app. */
 export async function resolveAll(subject: FlagSubject = {}): Promise<Record<string, boolean>> {
   const flags = await load();
@@ -128,6 +149,12 @@ export async function upsert(
   input: { description?: string; audience?: FeatureAudience; percentage?: number },
   updatedBy?: string
 ): Promise<IFeatureFlag> {
+  if (key === RBAC_ENFORCE_FLAG && input.audience !== undefined && !RBAC_ENFORCE_AUDIENCES.includes(input.audience)) {
+    throw new AppError(
+      `El interruptor ${RBAC_ENFORCE_FLAG} solo admite las audiencias: ${RBAC_ENFORCE_AUDIENCES.join(', ')}.`,
+      400
+    );
+  }
   if (input.audience === 'percentage' && (input.percentage ?? 0) <= 0) {
     throw new AppError(
       'Un reparto por porcentaje con cero por ciento no enciende nada. Usa "off" si esa es la intención.',
@@ -156,12 +183,15 @@ export async function upsert(
   );
 
   invalidate();
+  // Cambia el modo de todos los admins: sus salas de socket se recalculan al reconectar.
+  if (key === RBAC_ENFORCE_FLAG) await disconnectAllAdminSockets();
   return flag;
 }
 
 export async function remove(key: string): Promise<void> {
   await FeatureFlag.deleteOne({ key });
   invalidate();
+  if (key === RBAC_ENFORCE_FLAG) await disconnectAllAdminSockets();
 }
 
 export const featureFlagService = {

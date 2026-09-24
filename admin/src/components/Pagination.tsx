@@ -26,7 +26,7 @@ export default function Pagination({ page, totalPages, total, limit, onPageChang
   // Máximo 5 números visibles, centrados en la página actual.
   const pages: number[] = [];
   let start = Math.max(1, page - 2);
-  let end = Math.min(totalPages, start + 4);
+  const end = Math.min(totalPages, start + 4);
   start = Math.max(1, end - 4);
   for (let p = start; p <= end; p++) pages.push(p);
 

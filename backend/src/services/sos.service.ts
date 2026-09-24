@@ -2,7 +2,7 @@ import { Types } from 'mongoose';
 import { SosAlert, SosStatus, Driver, Order, User } from '../models';
 import { OrderStatus } from '../types';
 import { AppError } from '../middlewares/errorHandler';
-import { getIO, emitToUser } from '../sockets/emitter';
+import { getIO, emitToUser, emitToAdmin } from '../sockets/emitter';
 import { logSystemAudit, AuditAction, AuditSeverity } from '../security';
 
 /**
@@ -95,7 +95,7 @@ export class SosService {
    * preguntar por él justo cuando soporte está ocupado con esto.
    */
   private broadcast(alert: { _id: unknown; driverId: unknown; orderId?: unknown; location: { coordinates: number[] } }, event: string) {
-    getIO()?.to('admin').emit(event, {
+    emitToAdmin(getIO(), 'sos', event, {
       alertId: String(alert._id),
       driverId: String(alert.driverId),
       orderId: alert.orderId ? String(alert.orderId) : null,

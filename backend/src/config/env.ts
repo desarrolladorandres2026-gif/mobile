@@ -714,6 +714,16 @@ export const config = {
   },
 
   /**
+   * Quién puede embeber la vista previa del constructor de Explorar
+   * (`/preview/*` de la PWA) en un iframe. Solo el panel admin: el resto de
+   * la PWA sigue con `X-Frame-Options: DENY`.
+   */
+  previewFrameAncestors: [
+    (process.env.ADMIN_URL || 'http://localhost:3001').replace(/\/+$/, ''),
+    ...(isDev ? ['http://localhost:3001', `http://${localIP}:3001`] : []),
+  ],
+
+  /**
    * El sitio público (`web/`), sin barra final.
    *
    * Solo lo usa `GET /negocio/:slug`: es a donde reenvía a un humano de

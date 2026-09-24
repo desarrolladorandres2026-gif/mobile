@@ -2,7 +2,8 @@ import { Request } from 'express';
 import { Position, IPosition, IUser, User, Role } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { logAudit, AuditAction, AuditSeverity } from '../security';
-import { assertCanAssignRoles } from './authorization.service';
+import { assertCanAssignRoles, assertNotOwnPosition } from './authorization.service';
+import { disconnectSocketsOfPosition } from './authzSockets.service';
 import { escapeRegex } from '../utils';
 
 function slugify(name: string): string {
@@ -94,10 +95,16 @@ export class PositionService {
     const position = await Position.findById(id);
     if (!position) throw new AppError('Cargo no encontrado', 404);
 
+    // No se edita el Cargo que uno mismo tiene: sería autoescalada por otra vía.
+    await assertNotOwnPosition(actor, id);
+
     if (data.roleIds) {
       const roleIds = await this.validateRoleIds(data.roleIds);
       await assertCanAssignRoles(actor, roleIds);
       position.roleIds = roleIds as any;
+    } else if (data.isActive === true && !position.isActive) {
+      // Reactivar un Cargo vuelve a otorgar sus Roles a quien lo tiene: mismo tope.
+      await assertCanAssignRoles(actor, position.roleIds);
     }
     if (data.name !== undefined) {
       const name = data.name.trim();
@@ -109,6 +116,8 @@ export class PositionService {
     position.updatedBy = actor._id;
 
     await position.save();
+    // Quienes tienen este Cargo deben recalcular sus salas de socket.
+    await disconnectSocketsOfPosition(position._id);
 
     if (req) {
       await logAudit(req, {

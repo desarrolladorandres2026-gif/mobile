@@ -1,17 +1,76 @@
 import { Request, Response, NextFunction } from 'express';
 import { adminService } from '../services/admin.service';
 import { dailySummaryService } from '../services/dailySummary.service';
-import { sendResponse, param, query, toCsv, csvFilename, clampLimit, type CsvColumn } from '../utils';
+import { sendResponse, param, query, toCsv, csvFilename, clampLimit, clientIp, type CsvColumn } from '../utils';
 import { OrderEvidenceType } from '../types';
 import { orderEvidenceService } from '../services/orderEvidence.service';
 import { orderSecurityService } from '../services/orderSecurity.service';
 import { resolveOrderAccess } from '../services/orderAccess.service';
-import { OrderEvent, AuditAction, logAudit } from '../security';
+import { OrderEvent, AuditAction, AuditSeverity, logAudit } from '../security';
 import { AppError } from '../middlewares';
+import { can } from '../middlewares/auth';
+import { Permission } from '../security';
 
 /** Hasta medio año: es lo que guarda la colección de eventos. */
 const IMAGE_STATS_MAX_RANGE_MS = 180 * 24 * 60 * 60_000;
 const IMAGE_STATS_DEFAULT_RANGE_MS = 30 * 24 * 60 * 60_000;
+
+const DASHBOARD_MONEY_KEYS = ['todayRevenue', 'todayCommission', 'platformResult'];
+
+/** Sin `finance:view` el panel no recibe cifras de dinero (ni el desglose por medio de pago). */
+function omitDashboardMoney<T extends Record<string, any>>(stats: T) {
+  const out: Record<string, any> = { ...stats };
+  for (const k of DASHBOARD_MONEY_KEYS) delete out[k];
+  if (out.paymentBreakdown) {
+    out.paymentBreakdown = {
+      online: { count: out.paymentBreakdown.online?.count ?? 0 },
+      cash: { count: out.paymentBreakdown.cash?.count ?? 0 },
+    };
+  }
+  return out;
+}
+
+const SUMMARY_MONEY_KEYS = [
+  'gmv', 'platformGrossRevenue', 'promotionExpense', 'netRevenue', 'businessPayouts', 'driverPayouts',
+  'tips', 'tax', 'merchantFundedDiscount', 'platformFundedDiscount', 'platformResult', 'avgTicket',
+  'payDigitalAmount', 'payCashAmount', 'refundsAmount',
+];
+
+/** Mensajes de alertas de salud del día sin cifras en pesos (los originales las traen; ver `deriveHealthFlags`). */
+const MONEY_FLAG_MESSAGES: Record<string, string> = {
+  MARGEN_NEGATIVO: 'El día cerró con margen negativo. Revisa promociones activas y subsidios de domicilio.',
+  PROMOCION_CARA: 'Las promociones costaron más del 10 % del GMV.',
+  REEMBOLSOS_ALTOS: 'Los reembolsos superaron el 5 % del GMV.',
+};
+
+function maskMoneyFlag(flag: { code: string; message: string } & Record<string, any>) {
+  const replacement = MONEY_FLAG_MESSAGES[flag.code];
+  if (replacement) return { ...flag, message: replacement };
+  // Red de seguridad: una alerta futura con "$" no debe filtrar pesos por omisión.
+  if (/\$\s?\d/.test(flag.message)) return { ...flag, message: 'Revisa el detalle financiero del día.' };
+  return flag;
+}
+
+/** Resumen diario para quien tiene `reports:view` pero no `finance:view`: solo operación. */
+function omitSummaryMoney<T extends Record<string, any>>(summary: T) {
+  const strip = (snap: Record<string, any>) => {
+    const o = { ...snap };
+    for (const k of SUMMARY_MONEY_KEYS) delete o[k];
+    return o;
+  };
+  const out: Record<string, any> = { ...summary };
+  out.today = strip(summary.today);
+  out.baseline = strip(summary.baseline);
+  out.comparison = (summary.comparison || []).filter((r: { metric: string }) => !SUMMARY_MONEY_KEYS.includes(r.metric));
+  out.flags = (summary.flags || []).map(maskMoneyFlag);
+  delete out.topBusinessesByGmv;
+  delete out.cashByStatus;
+  out.topBusinessesByOrders = (summary.topBusinessesByOrders || []).map((b: Record<string, any>) => {
+    const { gmv: _gmv, ...rest } = b;
+    return rest;
+  });
+  return out;
+}
 
 export class AdminController {
   /**
@@ -53,6 +112,9 @@ export class AdminController {
     const body = toCsv(rows, columns);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${csvFilename(prefix)}"`);
+    // M2: un CSV con datos personales no debe quedar en la caché de un
+    // proxy ni del navegador.
+    res.setHeader('Cache-Control', 'no-store');
     res.send(body);
   }
 
@@ -65,7 +127,19 @@ export class AdminController {
   async userProfile360(req: Request, res: Response, next: NextFunction) {
     try {
       const { userProfile360Service } = await import('../services/userProfile360.service');
-      const profile = await userProfile360Service.profile360(param(req, 'id'));
+      const profile = await userProfile360Service.profile360(param(req, 'id'), {
+        sensitive: can(req, Permission.USERS_VIEW_SENSITIVE),
+        commissions: can(req, Permission.COMMISSIONS_VIEW),
+      });
+      // S14: quién abrió la ficha 360 de un cliente queda auditado — es
+      // dirección, pagos, riesgo y sesiones de una persona real.
+      void logAudit(req, {
+        action: AuditAction.PROFILE_VIEWED,
+        entity: 'user',
+        entityId: param(req, 'id'),
+        severity: AuditSeverity.LOW,
+        description: 'Ficha 360 de cliente consultada',
+      });
       sendResponse(res, 200, 'Historial del usuario', profile);
     } catch (error) { next(error); }
   }
@@ -114,6 +188,16 @@ export class AdminController {
         req.body,
         req.user!._id.toString()
       );
+      // S14: un interruptor mal apagado es exactamente el tipo de acción
+      // que hay que poder reconstruir después (ver O2, el del reparto).
+      void logAudit(req, {
+        action: AuditAction.SETTINGS_UPDATED,
+        entity: 'feature_flag',
+        entityId: param(req, 'key'),
+        severity: AuditSeverity.HIGH,
+        description: `Interruptor "${param(req, 'key')}" actualizado`,
+        metadata: { body: req.body },
+      });
       sendResponse(res, 200, 'Interruptor actualizado', flag);
     } catch (error) { next(error); }
   }
@@ -122,24 +206,89 @@ export class AdminController {
     try {
       const { featureFlagService } = await import('../services/featureFlag.service');
       await featureFlagService.remove(param(req, 'key'));
+      void logAudit(req, {
+        action: AuditAction.SETTINGS_UPDATED,
+        entity: 'feature_flag',
+        entityId: param(req, 'key'),
+        severity: AuditSeverity.HIGH,
+        description: `Interruptor "${param(req, 'key')}" eliminado`,
+      });
       sendResponse(res, 200, 'Interruptor eliminado');
     } catch (error) { next(error); }
   }
 
+  /**
+   * Puerta común de los exportes (S9, S14): solo el Super Administrador,
+   * con un motivo escrito y el código TOTP de la petición verificado — no
+   * basta con haber pasado ya el 2FA de la sesión, porque descargar datos
+   * personales de miles de personas es una acción puntual que merece su
+   * propia confirmación, igual que aprobar un pago grande.
+   */
+  private async assertExportAuthorized(req: Request, reason: unknown, totpToken: unknown): Promise<void> {
+    const { actorIsSuperAdmin } = await import('../services/authorization.service');
+    if (!(await actorIsSuperAdmin(req.user!))) {
+      throw new AppError('Solo un Super Administrador puede exportar estos datos', 403, 'PRIVILEGE_ESCALATION_BLOCKED');
+    }
+    if (typeof reason !== 'string' || reason.trim().length < 5) {
+      throw new AppError('Indica el motivo del exporte (mínimo 5 caracteres)', 400);
+    }
+    if (typeof totpToken !== 'string' || !totpToken.trim()) {
+      throw new AppError('Confirma con tu código de verificación en dos pasos', 401, 'MFA_CODE_REQUIRED');
+    }
+
+    // M2: el TOTP de un exporte no tenía tope de intentos — se podía probar
+    // el código a fuerza bruta contra un endpoint que, si acierta, entrega
+    // datos personales masivos. Reutiliza el mismo contador que el login
+    // (5 fallos por cuenta) y, al llegar al tope, además revoca la sesión
+    // actual: un TOTP fallando repetido aquí huele más a sesión robada que
+    // a una persona que se equivocó de dígito.
+    const { checkBruteForce, recordFailedAttempt, clearAttempts } = await import('../security/bruteforce');
+    const actorId = req.user!._id.toString();
+    const bruteKey = `export:${actorId}`;
+    const ip = clientIp(req);
+    const bruteCheck = await checkBruteForce(ip, bruteKey);
+    if (!bruteCheck.allowed) {
+      throw new AppError(bruteCheck.reason || 'Demasiados intentos. Intenta más tarde.', 429);
+    }
+
+    const { verifySecondFactor } = await import('../services/mfa.service');
+    if (!(await verifySecondFactor(req.user!._id, totpToken.trim()))) {
+      const attempt = await recordFailedAttempt(ip, bruteKey);
+      if (!attempt.allowed) {
+        const { sessionManager } = await import('../security/sessions');
+        const sessionId = req.sessionId;
+        if (sessionId) await sessionManager.revokeSession(sessionId, actorId, 'reuse_detected');
+        await logAudit(req, {
+          action: AuditAction.TOTP_FAILED,
+          entity: 'user',
+          entityId: actorId,
+          severity: AuditSeverity.CRITICAL,
+          description: `5 códigos TOTP inválidos seguidos en un exporte — sesión revocada`,
+        });
+      }
+      throw new AppError('Código de verificación en dos pasos inválido', 401, 'MFA_CODE_INVALID');
+    }
+    await clearAttempts(ip, bruteKey);
+  }
+
   async exportOrders(req: Request, res: Response, next: NextFunction) {
     try {
+      const reason = req.body?.reason;
+      const totpToken = req.body?.totpToken;
+      await this.assertExportAuthorized(req, reason, totpToken);
+
       const { Order } = await import('../models');
       const filter: Record<string, unknown> = {};
 
-      const from = query(req, 'from');
-      const to = query(req, 'to');
+      const from = req.body?.from;
+      const to = req.body?.to;
       if (from || to) {
         filter.createdAt = {
           ...(from ? { $gte: new Date(from) } : {}),
           ...(to ? { $lte: new Date(to) } : {}),
         };
       }
-      const status = query(req, 'status');
+      const status = req.body?.status;
       if (status) filter.status = status;
 
       // Tope duro: un informe es un archivo que alguien abre, no un volcado
@@ -151,6 +300,14 @@ export class AdminController {
         .populate('businessId', 'name')
         .populate('clientId', 'name phone')
         .lean();
+
+      void logAudit(req, {
+        action: AuditAction.DATA_EXPORTED,
+        entity: 'order',
+        severity: AuditSeverity.HIGH,
+        description: `Exporte de pedidos (${orders.length} filas): ${reason}`,
+        metadata: { filter: { from, to, status }, rows: orders.length, reason },
+      });
 
       this.sendCsv(res, 'pedidos', orders, [
         { header: 'Número', value: (o: any) => o.orderNumber },
@@ -177,9 +334,13 @@ export class AdminController {
 
   async exportUsers(req: Request, res: Response, next: NextFunction) {
     try {
+      const reason = req.body?.reason;
+      const totpToken = req.body?.totpToken;
+      await this.assertExportAuthorized(req, reason, totpToken);
+
       const { User } = await import('../models');
       const filter: Record<string, unknown> = {};
-      const role = query(req, 'role');
+      const role = req.body?.role;
       if (role) filter.role = role;
 
       const users = await User.find(filter)
@@ -187,6 +348,14 @@ export class AdminController {
         .sort({ createdAt: -1 })
         .limit(10_000)
         .lean();
+
+      void logAudit(req, {
+        action: AuditAction.DATA_EXPORTED,
+        entity: 'user',
+        severity: AuditSeverity.HIGH,
+        description: `Exporte de usuarios (${users.length} filas): ${reason}`,
+        metadata: { filter: { role }, rows: users.length, reason },
+      });
 
       this.sendCsv(res, 'usuarios', users, [
         { header: 'Nombre', value: (u: any) => u.name },
@@ -204,7 +373,7 @@ export class AdminController {
   async getDashboard(req: Request, res: Response, next: NextFunction) {
     try {
       const stats = await adminService.getDashboardStats();
-      sendResponse(res, 200, 'Dashboard obtenido', stats);
+      sendResponse(res, 200, 'Dashboard obtenido', can(req, Permission.FINANCE_VIEW) ? stats : omitDashboardMoney(stats));
     } catch (error) { next(error); }
   }
 
@@ -227,7 +396,7 @@ export class AdminController {
   async getDailySummary(req: Request, res: Response, next: NextFunction) {
     try {
       const summary = await dailySummaryService.generate(query(req, 'date'));
-      sendResponse(res, 200, 'Resumen diario', summary);
+      sendResponse(res, 200, 'Resumen diario', can(req, Permission.FINANCE_VIEW) ? summary : omitSummaryMoney(summary));
     } catch (error) { next(error); }
   }
 
@@ -342,7 +511,8 @@ export class AdminController {
         query(req, 'search'),
         query(req, 'category'),
         Number(query(req, 'page')) || 1,
-        clampLimit(query(req, 'limit'))
+        clampLimit(query(req, 'limit')),
+        query(req, 'archived') === 'true'
       );
       sendResponse(res, 200, 'Negocios obtenidos', result.businesses, result.meta);
     } catch (error) { next(error); }
@@ -350,22 +520,34 @@ export class AdminController {
 
   async toggleBusiness(req: Request, res: Response, next: NextFunction) {
     try {
-      const business = await adminService.toggleBusinessActive(param(req, 'id'));
-      sendResponse(res, 200, `Negocio ${business.isActive ? 'activado' : 'desactivado'}`, business);
+      const business = await adminService.toggleBusinessActive(param(req, 'id'), req.body?.reason, req);
+      sendResponse(res, 200, `Negocio ${business.isSuspended ? 'suspendido' : 'reactivado'}`, business);
     } catch (error) { next(error); }
   }
 
   async toggleBusinessFeatured(req: Request, res: Response, next: NextFunction) {
     try {
-      const business = await adminService.toggleBusinessFeatured(param(req, 'id'));
+      const business = await adminService.toggleBusinessFeatured(param(req, 'id'), req);
       sendResponse(res, 200, `Negocio ${business.isFeatured ? 'destacado' : 'quitado de destacados'}`, business);
     } catch (error) { next(error); }
   }
 
-  async deleteBusiness(req: Request, res: Response, next: NextFunction) {
+  /**
+   * S11: archiva en vez de borrar. `reason` es obligatorio (lo exige
+   * `businessService.archive`) — "por qué" queda en el historial, no solo
+   * "quién y cuándo".
+   */
+  async archiveBusiness(req: Request, res: Response, next: NextFunction) {
     try {
-      await adminService.deleteBusiness(param(req, 'id'));
-      sendResponse(res, 200, 'Negocio eliminado');
+      const result = await adminService.archiveBusiness(param(req, 'id'), req.body?.reason, req.user!, req);
+      sendResponse(res, 200, 'Negocio archivado', result.business);
+    } catch (error) { next(error); }
+  }
+
+  async restoreBusiness(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await adminService.restoreBusiness(param(req, 'id'), req);
+      sendResponse(res, 200, 'Negocio restaurado', result.business);
     } catch (error) { next(error); }
   }
 
@@ -458,30 +640,35 @@ export class AdminController {
 
   // ── Driver Debts ──
 
-  async getDriverDebts(req: Request, res: Response, next: NextFunction) {
-    try {
-      const result = await adminService.getDriverDebts(
-        query(req, 'status'),
-        Number(query(req, 'page')) || 1,
-        clampLimit(query(req, 'limit'))
-      );
-      sendResponse(res, 200, 'Deudas obtenidas', result.debts, result.meta);
-    } catch (error) { next(error); }
-  }
-
   // ── Driver actions ──
 
   async suspendDriver(req: Request, res: Response, next: NextFunction) {
     try {
-      const driver = await adminService.suspendDriver(param(req, 'id'));
+      const driver = await adminService.suspendDriver(param(req, 'id'), req);
       sendResponse(res, 200, 'Domiciliario suspendido', driver);
     } catch (error) { next(error); }
   }
 
   async reactivateDriver(req: Request, res: Response, next: NextFunction) {
     try {
-      const driver = await adminService.reactivateDriver(param(req, 'id'));
+      const driver = await adminService.reactivateDriver(param(req, 'id'), req);
       sendResponse(res, 200, 'Domiciliario reactivado', driver);
+    } catch (error) { next(error); }
+  }
+
+  /** Ficha completa de un domiciliario en una sola llamada. */
+  async driverProfile360(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { driverProfile360Service } = await import('../services/driverProfile360.service');
+      const profile = await driverProfile360Service.profile360(param(req, 'id'));
+      void logAudit(req, {
+        action: AuditAction.PROFILE_VIEWED,
+        entity: 'driver',
+        entityId: param(req, 'id'),
+        severity: AuditSeverity.LOW,
+        description: 'Ficha 360 de domiciliario consultada',
+      });
+      sendResponse(res, 200, 'Ficha del domiciliario', profile);
     } catch (error) { next(error); }
   }
 }

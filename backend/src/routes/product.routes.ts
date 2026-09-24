@@ -9,6 +9,8 @@ import {
   productImageOptionsSchema,
 } from '../validators';
 import { UserRole } from '../types';
+import { Permission } from '../security';
+import { requirePermission, adminRequires, can } from '../middlewares/auth';
 
 const router = Router();
 
@@ -29,26 +31,26 @@ router.get('/:id', (req, res, next) => productController.getById(req, res, next)
 // `validate(...)` faltaba en las tres rutas de escritura. Los esquemas
 // existían desde el principio; nadie los había enchufado, así que el
 // cuerpo entero de la petición viajaba hasta Mongoose.
-router.post('/', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(createProductSchema), (req, res, next) => productController.create(req, res, next));
-router.put('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(updateProductSchema), (req, res, next) => productController.update(req, res, next));
-router.delete('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(productOwnerBodySchema), (req, res, next) => productController.delete(req, res, next));
+router.post('/', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.PRODUCTS_CREATE), validate(createProductSchema), (req, res, next) => productController.create(req, res, next));
+router.put('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.PRODUCTS_UPDATE), validate(updateProductSchema), (req, res, next) => productController.update(req, res, next));
+router.delete('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.PRODUCTS_DELETE), validate(productOwnerBodySchema), (req, res, next) => productController.delete(req, res, next));
 
 // ── Imagen del producto ──
 //
 // Va aparte del PUT porque es multipart y no JSON, y porque reemplazar la
 // foto tiene que poder borrar la anterior de Cloudinary: mezclarlo con el
 // resto de campos deja archivos huérfanos cada vez que algo falla a mitad.
-router.post('/:id/image', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), productImageUploadRateLimiter, (req, res, next) => productController.uploadImage(req, res, next));
-router.patch('/:id/image', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(productImageOptionsSchema), (req, res, next) => productController.updateImageOptions(req, res, next));
-router.delete('/:id/image', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(productOwnerBodySchema), (req, res, next) => productController.deleteImage(req, res, next));
+router.post('/:id/image', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.PRODUCTS_UPDATE), productImageUploadRateLimiter, (req, res, next) => productController.uploadImage(req, res, next));
+router.patch('/:id/image', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.PRODUCTS_UPDATE), validate(productImageOptionsSchema), (req, res, next) => productController.updateImageOptions(req, res, next));
+router.delete('/:id/image', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.PRODUCTS_UPDATE), validate(productOwnerBodySchema), (req, res, next) => productController.deleteImage(req, res, next));
 
 // "Reintentar" o "Quitar el fondo" sobre la foto que ya está. Cuesta un
 // crédito, así que comparte limitador con las subidas.
-router.post('/:id/image/background-removal', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), productImageUploadRateLimiter, validate(productOwnerBodySchema), (req, res, next) => productController.requestBackgroundRemoval(req, res, next));
+router.post('/:id/image/background-removal', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.PRODUCTS_UPDATE), productImageUploadRateLimiter, validate(productOwnerBodySchema), (req, res, next) => productController.requestBackgroundRemoval(req, res, next));
 
 // Galería: fotos adicionales para la ficha. No tocan la principal, que
 // es la que leen las listas y el carrito.
-router.post('/:id/gallery', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), productImageUploadRateLimiter, (req, res, next) => productController.addGalleryImage(req, res, next));
-router.delete('/:id/gallery', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(productGalleryRemoveSchema), (req, res, next) => productController.removeGalleryImage(req, res, next));
+router.post('/:id/gallery', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.PRODUCTS_UPDATE), productImageUploadRateLimiter, (req, res, next) => productController.addGalleryImage(req, res, next));
+router.delete('/:id/gallery', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.PRODUCTS_UPDATE), validate(productGalleryRemoveSchema), (req, res, next) => productController.removeGalleryImage(req, res, next));
 
 export default router;

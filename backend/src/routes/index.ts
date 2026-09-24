@@ -33,6 +33,7 @@ import sosRoutes from './sos.routes';
 import errandRoutes from './errand.routes';
 import homeSectionsRoutes from './homeSections.routes';
 import exploreRoutes from './explore.routes';
+import exploreLayoutRoutes from './exploreLayout.routes';
 import cartRoutes from './cart.routes';
 import proRoutes from './pro.routes';
 
@@ -72,6 +73,7 @@ router.use('/sos', sosRoutes);
 router.use('/errands', errandRoutes);
 router.use('/home-sections', homeSectionsRoutes);
 router.use('/explore', exploreRoutes);
+router.use('/explore-layout', exploreLayoutRoutes);
 router.use('/cart', cartRoutes);
 router.use('/pro', proRoutes);
 

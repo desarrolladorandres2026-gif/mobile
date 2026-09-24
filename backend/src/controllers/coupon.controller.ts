@@ -3,7 +3,8 @@ import { couponService, pricingConfigService } from '../services';
 import { Coupon, CouponRedemption } from '../models';
 import { sendResponse, param, query, escapeRegex } from '../utils';
 import { AppError } from '../middlewares';
-import { AuditAction, AuditSeverity, logAudit } from '../security';
+import { AuditAction, AuditSeverity, logAudit, Permission } from '../security';
+import { can } from '../middlewares/auth';
 
 /**
  * `campaignApproved` deja que una campaña se aplique aunque hunda el margen
@@ -17,7 +18,7 @@ import { AuditAction, AuditSeverity, logAudit } from '../security';
 function assertMayApproveCampaign(req: Request): void {
   if (req.body?.campaignApproved !== true) return;
 
-  if (req.user?.isFinanceAdmin) return;
+  if (can(req, Permission.FINANCE_MANAGE)) return;
 
   void logAudit(req, {
     action: AuditAction.SUSPICIOUS_ACTIVITY,

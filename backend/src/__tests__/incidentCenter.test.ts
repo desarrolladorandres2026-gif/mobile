@@ -17,6 +17,8 @@ import {
  * pero en cinco pantallas distintas. Nadie mira cinco pantallas a la vez,
  * así que se miraba una y las otras cuatro acumulaban.
  */
+const ALLOW_ALL = () => true;
+
 describe('Centro de incidentes', () => {
   let client: any;
   let business: any;
@@ -31,7 +33,7 @@ describe('Centro de incidentes', () => {
   });
 
   it('sin nada abierto, la lista está vacía', async () => {
-    expect(await incidentCenterService.open()).toEqual([]);
+    expect(await incidentCenterService.open(ALLOW_ALL)).toEqual([]);
   });
 
   it('recoge una emergencia', async () => {
@@ -39,7 +41,7 @@ describe('Centro de incidentes', () => {
     await makeDriver(driverUser._id);
     await sosService.trigger(driverUser._id.toString(), { lat: GARZON.lat, lng: GARZON.lng });
 
-    const incidents = await incidentCenterService.open();
+    const incidents = await incidentCenterService.open(ALLOW_ALL);
     expect(incidents).toHaveLength(1);
     expect(incidents[0].kind).toBe('sos');
     expect(incidents[0].severity).toBe('critical');
@@ -55,7 +57,7 @@ describe('Centro de incidentes', () => {
       evidence: {},
     });
 
-    const incidents = await incidentCenterService.open();
+    const incidents = await incidentCenterService.open(ALLOW_ALL);
     expect(incidents.some((i) => i.kind === 'fraud')).toBe(true);
   });
 
@@ -69,7 +71,7 @@ describe('Centro de incidentes', () => {
       evidence: {},
     });
 
-    expect(await incidentCenterService.open()).toHaveLength(0);
+    expect(await incidentCenterService.open(ALLOW_ALL)).toHaveLength(0);
   });
 
   it('recoge un reclamo sin resolver, pero no una sugerencia', async () => {
@@ -86,7 +88,7 @@ describe('Centro de incidentes', () => {
       detail: 'Nada urgente',
     });
 
-    const incidents = await incidentCenterService.open();
+    const incidents = await incidentCenterService.open(ALLOW_ALL);
     expect(incidents.filter((i) => i.kind === 'complaint')).toHaveLength(1);
   });
 
@@ -113,7 +115,7 @@ describe('Centro de incidentes', () => {
       }
     );
 
-    const incidents = await incidentCenterService.open();
+    const incidents = await incidentCenterService.open(ALLOW_ALL);
     expect(incidents.some((i) => i.kind === 'stalled_order')).toBe(true);
   });
 
@@ -129,7 +131,7 @@ describe('Centro de incidentes', () => {
     });
     await Order.updateOne({ _id: order._id }, { status: OrderStatus.PICKED_UP });
 
-    expect(await incidentCenterService.open()).toHaveLength(0);
+    expect(await incidentCenterService.open(ALLOW_ALL)).toHaveLength(0);
   });
 
   it('las emergencias van primero aunque acaben de entrar', async () => {
@@ -145,7 +147,7 @@ describe('Centro de incidentes', () => {
     await makeDriver(driverUser._id);
     await sosService.trigger(driverUser._id.toString(), { lat: GARZON.lat, lng: GARZON.lng });
 
-    const incidents = await incidentCenterService.open();
+    const incidents = await incidentCenterService.open(ALLOW_ALL);
     expect(incidents[0].kind).toBe('sos');
   });
 
@@ -163,7 +165,7 @@ describe('Centro de incidentes', () => {
 
     await Pqrs.create({ userId: client._id, type: 'claim', subject: 'Después', detail: 'y' });
 
-    const incidents = await incidentCenterService.open();
+    const incidents = await incidentCenterService.open(ALLOW_ALL);
     // Lo que lleva más tiempo sin atenderse es lo que más ha empeorado.
     expect(incidents[0].detail).toBe('Primero');
   });
@@ -179,7 +181,7 @@ describe('Centro de incidentes', () => {
     });
     await sosService.resolve(alert._id.toString(), admin._id.toString(), 'Todo bien');
 
-    expect(await incidentCenterService.open()).toHaveLength(0);
+    expect(await incidentCenterService.open(ALLOW_ALL)).toHaveLength(0);
   });
 
   it('el resumen cuenta cada tipo por separado', async () => {
@@ -189,7 +191,7 @@ describe('Centro de incidentes', () => {
 
     await Pqrs.create({ userId: client._id, type: 'claim', subject: 'Reclamo', detail: 'x' });
 
-    const summary = await incidentCenterService.summary();
+    const summary = await incidentCenterService.summary(ALLOW_ALL);
     expect(summary.activeSos).toBe(1);
     expect(summary.openClaims).toBe(1);
   });
@@ -197,7 +199,7 @@ describe('Centro de incidentes', () => {
   it('cada incidente dice a quién afecta, para poder abrir su historial', async () => {
     await Pqrs.create({ userId: client._id, type: 'claim', subject: 'Reclamo', detail: 'x' });
 
-    const incidents = await incidentCenterService.open();
+    const incidents = await incidentCenterService.open(ALLOW_ALL);
     expect(incidents[0].userId).toBe(client._id.toString());
   });
 });

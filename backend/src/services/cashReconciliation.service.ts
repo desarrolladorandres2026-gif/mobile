@@ -209,29 +209,95 @@ export class CashReconciliationService {
   async verifyByAdmin(
     reconciliationIds: string[],
     adminUserId: string,
-    note?: string
+    reference: string,
+    receiptUrl: string,
+    amount: number
   ): Promise<{ verifiedCount: number; totalVerified: number }> {
-    const records = await CashReconciliation.find({
-      _id: { $in: reconciliationIds.map((id) => new Types.ObjectId(id)) },
+    // Verificar efectivo sin consignación real y sin comprobante es lo mismo
+    // que darle crédito a la palabra del domiciliario, que es exactamente lo
+    // que este servicio existe para no hacer.
+    if (!reference || reference.trim().length < 4) {
+      throw new AppError('Indica la referencia de la consignación (mínimo 4 caracteres)', 400);
+    }
+    if (!receiptUrl || !receiptUrl.trim()) {
+      throw new AppError('Adjunta el comprobante de la consignación', 400);
+    }
+    if (!Number.isInteger(amount) || amount <= 0) {
+      throw new AppError('Indica el monto que de verdad consignó, en pesos enteros', 400);
+    }
+
+    const normalizedReference = reference.trim().slice(0, 200);
+    const ids = reconciliationIds.map((id) => new Types.ObjectId(id));
+
+    const records = await CashReconciliation.find({ _id: { $in: ids } });
+    if (records.length !== ids.length) {
+      throw new AppError('Alguno de los registros no existe', 404);
+    }
+
+    const eligible = [
+      CashReconciliationStatus.PENDING,
+      CashReconciliationStatus.REPORTED,
+      CashReconciliationStatus.OVERDUE,
+    ];
+    const ineligible = records.filter((r) => !eligible.includes(r.status));
+    if (ineligible.length > 0) {
+      throw new AppError(
+        'Alguno de los registros ya está verificado o liquidado; no se puede verificar dos veces',
+        409
+      );
+    }
+
+    const total = records.reduce((sum, r) => sum + r.amount, 0);
+    if (total !== amount) {
+      throw new AppError(
+        `El monto no coincide con lo pendiente: la suma de los registros seleccionados es ` +
+          `$${total.toLocaleString('es-CO')}`,
+        422
+      );
+    }
+
+    // Una consignación es una transacción única: la misma referencia no
+    // puede respaldar dos verificaciones distintas, o un solo depósito
+    // bancario terminaría cubriendo dos rendiciones de efectivo diferentes.
+    const reused = await CashReconciliation.findOne({
+      _id: { $nin: ids },
+      verificationMethod: 'admin_confirmation',
+      reportedReference: normalizedReference,
     });
-
-    if (records.length === 0) {
-      throw new AppError('No se encontraron registros para verificar', 404);
+    if (reused) {
+      throw new AppError(
+        'Esa referencia de consignación ya se usó para verificar otro lote de efectivo',
+        409
+      );
     }
 
-    let totalVerified = 0;
-    for (const record of records) {
-      this.assertTransition(record.status, CashReconciliationStatus.VERIFIED);
-      record.status = CashReconciliationStatus.VERIFIED;
-      record.verifiedAt = new Date();
-      record.verifiedBy = new Types.ObjectId(adminUserId);
-      record.verificationMethod = 'admin_confirmation';
-      if (note) record.reportedReference = note.slice(0, 200);
-      await record.save();
-      totalVerified += record.amount;
+    // Atómico y condicionado al estado, no `find` → validar → `save()`: si
+    // alguno de estos registros cambió de estado entre la lectura de arriba
+    // y este `updateMany` (otra verificación, una liquidación concurrente),
+    // ese documento no matchea el filtro y `modifiedCount` queda corto —
+    // nunca hay una verificación a medias ni una doble verificación.
+    const result = await CashReconciliation.updateMany(
+      { _id: { $in: ids }, status: { $in: eligible } },
+      {
+        $set: {
+          status: CashReconciliationStatus.VERIFIED,
+          verifiedAt: new Date(),
+          verifiedBy: new Types.ObjectId(adminUserId),
+          verificationMethod: 'admin_confirmation',
+          reportedReference: normalizedReference,
+          receiptUrl: receiptUrl.trim(),
+        },
+      }
+    );
+
+    if (result.modifiedCount !== ids.length) {
+      throw new AppError(
+        'Alguno de los registros cambió de estado justo antes de verificar. Vuelve a intentarlo.',
+        409
+      );
     }
 
-    return { verifiedCount: records.length, totalVerified };
+    return { verifiedCount: result.modifiedCount, totalVerified: total };
   }
 
   /**
@@ -261,6 +327,23 @@ export class CashReconciliationService {
     for (const record of records) {
       const order = record.orderId as unknown as IOrder;
 
+      // Transición atómica: la condición `status: VERIFIED` va en el filtro,
+      // no en un `if` después de leer. Dos liquidaciones concurrentes sobre
+      // el mismo registro solo dejan pasar a una; la otra ve `null` aquí y
+      // se salta sin volver a postear el asiento.
+      const claimed = await CashReconciliation.findOneAndUpdate(
+        { _id: record._id, status: CashReconciliationStatus.VERIFIED },
+        {
+          $set: {
+            status: CashReconciliationStatus.SETTLED,
+            settledAt: new Date(),
+            ...(record.verifiedBy ? {} : { verifiedBy: new Types.ObjectId(adminUserId) }),
+          },
+        },
+        { new: true }
+      );
+      if (!claimed) continue;
+
       await ledgerService.recordCashSettled({
         orderId: order._id,
         amount: record.amount,
@@ -269,11 +352,6 @@ export class CashReconciliationService {
         reference: record.transactionId ?? record.reportedReference ?? String(record._id),
         currency: record.currency,
       });
-
-      record.status = CashReconciliationStatus.SETTLED;
-      record.settledAt = new Date();
-      if (!record.verifiedBy) record.verifiedBy = new Types.ObjectId(adminUserId);
-      await record.save();
 
       totalSettled += record.amount;
     }
@@ -374,6 +452,50 @@ export class CashReconciliationService {
 
     return { records, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
+
+  /**
+   * Totales por estado, calculados en el servidor sobre TODA la colección.
+   *
+   * El panel sumaba en el navegador lo que había en la página cargada, así
+   * que "liquidado hoy" solo contaba los 20 registros visibles. Esta
+   * agregación no pagina: es la única fuente confiable para un total.
+   */
+  async totals(): Promise<Record<string, { count: number; amount: number }>> {
+    const rows = await CashReconciliation.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 }, amount: { $sum: '$amount' } } },
+    ]);
+    const byStatus: Record<string, { count: number; amount: number }> = {};
+    for (const row of rows) {
+      byStatus[row._id] = { count: row.count, amount: row.amount };
+    }
+    return byStatus;
+  }
 }
 
 export const cashReconciliationService = new CashReconciliationService();
+
+// ── Barrido de vencidos ──────────────────────────────────────────────
+//
+// `markOverdue()` existía pero nadie la llamaba: un saldo PENDING se
+// quedaba PENDING para siempre aunque llevara semanas vencido. Un
+// `setInterval` de proceso —no un cron externo— porque PM2 corre esta app
+// en una sola instancia `fork`; dos instancias duplicarían el barrido pero
+// `updateMany` es idempotente, así que tampoco sería grave.
+let overdueSweepTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startCashOverdueSweeper(intervalMs = 15 * 60_000): void {
+  if (overdueSweepTimer) return;
+  overdueSweepTimer = setInterval(() => {
+    cashReconciliationService.markOverdue().catch((error) => {
+      console.error('[cash-overdue-sweep]', error);
+    });
+  }, intervalMs);
+  overdueSweepTimer.unref?.();
+}
+
+export function stopCashOverdueSweeper(): void {
+  if (overdueSweepTimer) {
+    clearInterval(overdueSweepTimer);
+    overdueSweepTimer = null;
+  }
+}

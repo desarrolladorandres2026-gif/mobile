@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle, ShieldAlert, Banknote, MessageSquareWarning, Clock,
-  RotateCw, ArrowRight, ShieldCheck,
+  RotateCw, ArrowRight, ShieldCheck, Scale, FileWarning, Megaphone, Undo2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import api from '../services/api';
+import { apiMessage } from '../lib/apiError';
 import SosPanel from '../components/SosPanel';
+import EntityLink from '../components/EntityLink';
 import { useAdminSocketEvents } from '../hooks/useAdminSocket';
 
 /**
@@ -18,7 +20,9 @@ import { useAdminSocketEvents } from '../hooks/useAdminSocket';
  */
 function playSosBeep() {
   try {
-    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = new Ctx();
     [880, 660].forEach((freq, i) => {
       const osc = ctx.createOscillator();
@@ -51,18 +55,26 @@ function playSosBeep() {
  * juego es una persona y no dinero.
  */
 
-type IncidentKind = 'sos' | 'fraud' | 'cash' | 'complaint' | 'stalled_order';
 type Severity = 'critical' | 'high' | 'medium';
 
+/**
+ * `kind` es texto libre a propósito: el servidor puede sumar tipos nuevos
+ * (los mismos que llegan a la bandeja de alertas) sin que esta pantalla se
+ * rompa. Los que no conoce se pintan con la etiqueta por defecto.
+ */
 interface Incident {
-  kind: IncidentKind;
+  kind: string;
   severity: Severity;
   id: string;
+  /** Presente en los tipos nuevos: `kind:id:stage`. */
+  key?: string;
   title: string;
   detail: string;
   at: string;
   userId?: string;
   orderId?: string;
+  businessId?: string;
+  driverId?: string;
 }
 
 interface Summary {
@@ -71,15 +83,30 @@ interface Summary {
   openCash: number;
   openClaims: number;
   blockedUsers: number;
+  legalOverduePqrs?: number;
+  legalOverdueDataRequests?: number;
 }
 
-const KIND: Record<IncidentKind, { label: string; icon: LucideIcon }> = {
+const KIND: Record<string, { label: string; icon: LucideIcon }> = {
   sos: { label: 'Emergencia', icon: ShieldAlert },
   fraud: { label: 'Fraude', icon: AlertTriangle },
   cash: { label: 'Efectivo', icon: Banknote },
   complaint: { label: 'Reclamo', icon: MessageSquareWarning },
   stalled_order: { label: 'Pedido detenido', icon: Clock },
+  pqrs_legal: { label: 'Plazo legal PQRS', icon: Scale },
+  data_request_legal: { label: 'Datos personales', icon: Scale },
+  clawback_overdue: { label: 'Saldo en contra', icon: Banknote },
+  unassigned_order: { label: 'Pedido sin domiciliario', icon: Clock },
+  cash_overdue: { label: 'Efectivo vencido', icon: Banknote },
+  business_document_expiring: { label: 'Documento de comercio por vencer', icon: FileWarning },
+  driver_document_expiring: { label: 'Documento de domiciliario por vencer', icon: FileWarning },
+  ad_uninvoiced: { label: 'Publicidad sin facturar', icon: Megaphone },
+  refund_failed: { label: 'Reembolso fallido', icon: Undo2 },
 };
+
+/** Un tipo que esta pantalla aún no conoce: se ve, con una etiqueta neutra. */
+const DEFAULT_KIND: { label: string; icon: LucideIcon } = { label: 'Alerta', icon: AlertTriangle };
+const kindOf = (kind: string) => KIND[kind] ?? DEFAULT_KIND;
 
 const SEVERITY: Record<Severity, { label: string; bar: string; chip: string }> = {
   critical: {
@@ -124,7 +151,8 @@ export default function Incidents() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | IncidentKind>('all');
+  const [loadError, setLoadError] = useState('');
+  const [filter, setFilter] = useState<string>('all');
   const [openAlertId, setOpenAlertId] = useState<string | null>(null);
   const [justArrived, setJustArrived] = useState<{ id: string; detail: string } | null>(null);
 
@@ -139,8 +167,11 @@ export default function Incidents() {
       ]);
       setIncidents(list.data.data ?? []);
       setSummary(totals.data.data ?? null);
+      setLoadError('');
     } catch (err) {
       console.error(err);
+      // Una cola vacía por error se lee como "no pasa nada": aquí eso es lo peor.
+      setLoadError(apiMessage(err, 'No se pudo actualizar el centro de incidentes.'));
     } finally {
       setLoading(false);
     }
@@ -180,7 +211,7 @@ export default function Incidents() {
   const shown = filter === 'all' ? incidents : incidents.filter((i) => i.kind === filter);
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       <div className="page-header">
         <div>
           <h1 className="page-title">Centro de incidentes</h1>
@@ -210,28 +241,39 @@ export default function Incidents() {
         </button>
       ) : null}
 
+      {loadError ? (
+        <p className="flex items-center gap-2 text-sm font-bold text-[var(--color-danger)]">
+          <AlertTriangle className="h-4 w-4 shrink-0" /> {loadError} Lo que ves puede estar desactualizado.
+        </p>
+      ) : null}
+
       {summary ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
           <Kpi label="Emergencias" value={summary.activeSos} tone="text-[var(--color-danger)]" />
           <Kpi label="Fraude" value={summary.openFraud} />
           <Kpi label="Efectivo" value={summary.openCash} />
           <Kpi label="Reclamos" value={summary.openClaims} />
+          <Kpi
+            label="Plazos legales vencidos"
+            value={(summary.legalOverduePqrs ?? 0) + (summary.legalOverdueDataRequests ?? 0)}
+            tone="text-[var(--color-danger)]"
+          />
           <Kpi label="Cuentas bloqueadas" value={summary.blockedUsers} />
         </div>
       ) : null}
 
       <div className="flex flex-wrap gap-2 border-b border-[var(--color-border-light)] pb-4">
-        {(['all', ...Object.keys(KIND)] as const).map((key) => (
+        {['all', ...Object.keys(KIND)].map((key) => (
           <button
             key={key}
-            onClick={() => setFilter(key as 'all' | IncidentKind)}
+            onClick={() => setFilter(key)}
             className={`cursor-pointer px-3 py-1.5 text-xs font-semibold transition-colors border-b-2 ${
               filter === key
                 ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
                 : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
             }`}
           >
-            {key === 'all' ? 'Todo' : KIND[key as IncidentKind].label}
+            {key === 'all' ? 'Todo' : KIND[key].label}
           </button>
         ))}
       </div>
@@ -239,7 +281,7 @@ export default function Incidents() {
       {loading && incidents.length === 0 ? (
         <p className="text-sm text-[var(--color-text-muted)]">Cargando…</p>
       ) : shown.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-[var(--color-border-light)] bg-[var(--color-surface)] py-16">
+        <div className="flex flex-col items-center gap-2 border-y border-[var(--color-border-light)] py-10">
           <ShieldCheck className="h-8 w-8 text-[var(--color-success)]" />
           <p className="font-semibold text-[var(--color-text-main)]">No hay nada abierto</p>
           <p className="text-sm text-[var(--color-text-secondary)]">
@@ -249,14 +291,14 @@ export default function Incidents() {
       ) : (
         <ul className="space-y-2">
           {shown.map((incident) => {
-            const kind = KIND[incident.kind];
+            const kind = kindOf(incident.kind);
             const severity = SEVERITY[incident.severity];
             const Icon = kind.icon;
 
             return (
               <li
-                key={`${incident.kind}:${incident.id}`}
-                className="flex items-stretch overflow-hidden rounded-xl border border-[var(--color-border-light)] bg-[var(--color-surface)]"
+                key={incident.key ?? `${incident.kind}:${incident.id}`}
+                className="flex items-stretch overflow-hidden border-b border-[var(--color-border-light)]"
               >
                 {/* La gravedad se lee antes que el texto: es una barra de
                     color, no una etiqueta que haya que ir a buscar. */}
@@ -280,18 +322,17 @@ export default function Incidents() {
                     <p className="text-[11px] text-[var(--color-text-muted)]">
                       {kind.label} · {waitingFor(incident.at)}
                     </p>
+                    {/* Un incidente sin a dónde ir es una notificación. Las
+                        fichas se abren aquí mismo; quien no tiene el permiso
+                        de ver ese tipo no ve el enlace. */}
+                    <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-[var(--color-primary)]">
+                      <EntityLink type="order" id={incident.orderId} hideWhenDenied>Ver pedido</EntityLink>
+                      <EntityLink type="user" id={incident.userId} hideWhenDenied>Ver usuario</EntityLink>
+                      <EntityLink type="business" id={incident.businessId} hideWhenDenied>Ver comercio</EntityLink>
+                      <EntityLink type="driver" id={incident.driverId} hideWhenDenied>Ver domiciliario</EntityLink>
+                    </p>
                   </div>
 
-                  {/* Un incidente sin a dónde ir es una notificación. Estos
-                      llevan al sitio donde de verdad se resuelven. */}
-                  {incident.orderId ? (
-                    <button
-                      onClick={() => navigate(`/orders?orderId=${incident.orderId}`)}
-                      className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
-                    >
-                      Ver pedido <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
                   {incident.kind === 'sos' ? (
                     <div className="flex shrink-0 gap-2">
                       <button
@@ -308,7 +349,23 @@ export default function Incidents() {
                       </button>
                     </div>
                   ) : null}
-                  {incident.kind === 'complaint' ? (
+                  {incident.kind === 'clawback_overdue' ? (
+                    <button
+                      onClick={() => navigate('/financials')}
+                      className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+                    >
+                      Abrir finanzas <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                  {incident.kind === 'data_request_legal' ? (
+                    <button
+                      onClick={() => navigate('/legal')}
+                      className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+                    >
+                      Abrir datos personales <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                  {incident.kind === 'complaint' || incident.kind === 'pqrs_legal' ? (
                     <button
                       onClick={() => navigate('/support')}
                       className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"

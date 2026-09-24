@@ -44,6 +44,10 @@ const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.CANCELLED]: [],
 };
 
+/** Estados sin salida en `VALID_TRANSITIONS`: el pedido ya no necesita a nadie. */
+export const TERMINAL_ORDER_STATUSES: OrderStatus[] = (Object.keys(VALID_TRANSITIONS) as OrderStatus[])
+  .filter((s) => VALID_TRANSITIONS[s].length === 0);
+
 // Rol → estados que puede establecer
 const ROLE_ALLOWED_STATUSES: Record<string, OrderStatus[]> = {
   [UserRole.CLIENT]:   [OrderStatus.CANCELLED],
@@ -289,7 +293,15 @@ export class OrderService {
     }
 
     const business = await Business.findById(input.businessId);
-    if (!business || !business.isActive) throw new AppError('Negocio no encontrado o inactivo', 404);
+    if (
+      !business ||
+      !business.isActive ||
+      !business.isApproved ||
+      business.isArchived ||
+      business.isSuspended
+    ) {
+      throw new AppError('Negocio no encontrado o inactivo', 404);
+    }
 
     // Re-price server-side. The client's numbers are never trusted, and any
     // coupon it claims is re-validated here — this is the only place the
@@ -452,6 +464,7 @@ export class OrderService {
         deliveryFee: quote.deliveryCustomerFee,
         deliveryDistanceKm: quote.deliveryDistanceKm,
         zoneId: quote.zoneId,
+        zoneVersion: quote.zoneVersion,
         discount: quote.discount,
         couponId: quote.coupon?.couponId ?? null,
         couponCode: quote.coupon?.code ?? null,

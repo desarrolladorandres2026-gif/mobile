@@ -1,45 +1,59 @@
 import { Router } from 'express';
 import { financeController } from '../controllers/finance.controller';
-import { authenticate, authorize, validate, requireFinanceAdmin } from '../middlewares';
+import { authenticate, authorize, validate, requirePermission, payoutAccountRevealRateLimiter, businessFiscalRateLimiter } from '../middlewares';
 import {
   updatePricingConfigSchema,
   settleSchema,
+  settlementPaymentSchema,
+  settlementIdParamSchema,
   cashIdsSchema,
+  verifyCashSchema,
   cashIncidentIdSchema,
   resolveCashIncidentSchema,
+  listClawbacksSchema,
+  collectClawbackSchema,
+  writeOffClawbackSchema,
 } from '../validators/finance.validator';
 import { adminBusinessTermsSchema } from '../validators/business.validator';
 import { UserRole } from '../types';
+import { Permission } from '../security';
 
 const router = Router();
 
 // Every finance route requires an admin session.
 router.use(authenticate, authorize(UserRole.ADMIN));
 
-// ── Read: any admin ──
-router.get('/config', (req, res, next) => financeController.getConfig(req, res, next));
-router.get('/config/versions', (req, res, next) =>
+// ── Lectura: finance:view ──
+router.get('/config', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => financeController.getConfig(req, res, next));
+router.get('/config/versions', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
   financeController.listConfigVersions(req, res, next)
 );
-router.get('/config/audit', (req, res, next) =>
+router.get('/config/audit', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
   financeController.configAudit(req, res, next)
 );
-router.get('/payouts/summary', (req, res, next) =>
+router.get('/payouts/summary', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
   financeController.payoutSummary(req, res, next)
 );
-router.get('/settlements', (req, res, next) =>
+router.get('/settlements', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
   financeController.listSettlements(req, res, next)
 );
-router.get('/cash', (req, res, next) => financeController.listCash(req, res, next));
+router.get(
+  '',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate(listClawbacksSchema),
+  (req, res, next) => financeController.listClawbacks(req, res, next)
+);
+router.get('/cash', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => financeController.listCash(req, res, next));
+router.get('/cash/totals', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => financeController.cashTotals(req, res, next));
 // Los faltantes de efectivo. Solo lectura para cualquier administrador:
 // verlos es supervisión, decidirlos es finanzas (ver más abajo).
-router.get('/cash/incidents', (req, res, next) =>
+router.get('/cash/incidents', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
   financeController.listCashIncidents(req, res, next)
 );
-router.get('/ledger/summary', (req, res, next) =>
+router.get('/ledger/summary', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
   financeController.ledgerSummary(req, res, next)
 );
-router.get('/ledger/orders/:orderId', (req, res, next) =>
+router.get('/ledger/orders/:orderId', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
   financeController.ledgerForOrder(req, res, next)
 );
 
@@ -47,31 +61,79 @@ router.get('/ledger/orders/:orderId', (req, res, next) =>
 // These change what the platform charges or declare that money arrived.
 router.put(
   '/config',
-  requireFinanceAdmin,
+  requirePermission(Permission.FINANCE_MANAGE),
   validate(updatePricingConfigSchema),
   (req, res, next) => financeController.updateConfig(req, res, next)
 );
 router.patch(
   '/businesses/:id/terms',
-  requireFinanceAdmin,
+  requirePermission(Permission.COMMISSIONS_MANAGE),
   validate(adminBusinessTermsSchema),
   (req, res, next) => financeController.updateBusinessTerms(req, res, next)
 );
 router.post(
   '/settlements',
-  requireFinanceAdmin,
+  requirePermission(Permission.PAYOUTS_PROCESS),
   validate(settleSchema),
   (req, res, next) => financeController.settle(req, res, next)
 );
+/**
+ * Registra el pago manual (transferencia/consignación) de una liquidación
+ * ya reclamada por `POST /settlements`. Cierra la liquidación y postea el
+ * asiento contable de desembolso.
+ */
+router.post(
+  '/settlements/:id/payment',
+  requirePermission(Permission.PAYOUTS_PROCESS),
+  validate(settlementPaymentSchema),
+  (req, res, next) => financeController.paySettlement(req, res, next)
+);
+/**
+ * La cuenta a la que se paga una liquidación, desde la foto que se guardó al
+ * liquidar. La pantalla de pago usa esta, no la cuenta actual del comercio.
+ */
+router.get(
+  '/settlements/:id/payout-account',
+  requirePermission(Permission.PAYOUTS_REVEAL_ACCOUNT),
+  payoutAccountRevealRateLimiter,
+  validate(settlementIdParamSchema),
+  (req, res, next) => financeController.revealSettlementPayoutAccount(req, res, next)
+);
+/** Refresca la foto con la cuenta actual (verificada) de una liquidación pendiente. */
+router.post(
+  '/settlements/:id/payout-account/refresh',
+  requirePermission(Permission.PAYOUTS_REVEAL_ACCOUNT),
+  businessFiscalRateLimiter,
+  validate(settlementIdParamSchema),
+  (req, res, next) => financeController.refreshSettlementPayoutAccount(req, res, next)
+);
+/** Cola de cuentas pendientes de verificación en comercios ya aprobados. */
+router.get(
+  '/payout-accounts/pending',
+  requirePermission(Permission.PAYOUTS_PROCESS),
+  (req, res, next) => financeController.pendingPayoutAccounts(req, res, next)
+);
+router.post(
+  '/clawbacks/:id/collect',
+  requirePermission(Permission.FINANCE_MANAGE),
+  validate(collectClawbackSchema),
+  (req, res, next) => financeController.collectClawback(req, res, next)
+);
+router.post(
+  '/clawbacks/:id/write-off',
+  requirePermission(Permission.FINANCE_MANAGE),
+  validate(writeOffClawbackSchema),
+  (req, res, next) => financeController.writeOffClawback(req, res, next)
+);
 router.post(
   '/cash/verify',
-  requireFinanceAdmin,
-  validate(cashIdsSchema),
+  requirePermission(Permission.FINANCE_MANAGE),
+  validate(verifyCashSchema),
   (req, res, next) => financeController.verifyCash(req, res, next)
 );
 router.post(
   '/cash/settle',
-  requireFinanceAdmin,
+  requirePermission(Permission.FINANCE_MANAGE),
   validate(cashIdsSchema),
   (req, res, next) => financeController.settleCash(req, res, next)
 );
@@ -83,13 +145,13 @@ router.post(
  */
 router.post(
   '/cash/incidents/:id/review',
-  requireFinanceAdmin,
+  requirePermission(Permission.FINANCE_MANAGE),
   validate(cashIncidentIdSchema),
   (req, res, next) => financeController.reviewCashIncident(req, res, next)
 );
 router.post(
   '/cash/incidents/:id/resolve',
-  requireFinanceAdmin,
+  requirePermission(Permission.FINANCE_MANAGE),
   validate(resolveCashIncidentSchema),
   (req, res, next) => financeController.resolveCashIncident(req, res, next)
 );

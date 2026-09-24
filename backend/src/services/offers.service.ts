@@ -2,7 +2,7 @@ import { PipelineStage } from 'mongoose';
 import { Product, Business, ICoupon } from '../models';
 import { CouponFundedBy } from '../types';
 import { LatLng } from '../utils/geo';
-import { VISIBLE_BUSINESS, withDistance, withinRadius } from '../utils/catalogQuery';
+import { VISIBLE_BUSINESS, PUBLIC_LIST_PROJECTION, withDistance, withinRadius } from '../utils/catalogQuery';
 import { withProductImages } from '../utils/productImageUrls';
 import { couponService, PublicCoupon } from './coupon.service';
 import { pricingConfigService } from './pricingConfig.service';
@@ -234,7 +234,9 @@ export class OffersService {
     };
     if (city) filter.city = city;
 
-    const rows = await Business.find(filter).limit(limit).lean();
+    // A2: misma lista blanca pública — sin `.select()`, `.lean()` devolvía
+    // el documento crudo con `commissionRate(Bps)` y `ownerId`.
+    const rows = await Business.find(filter).select(PUBLIC_LIST_PROJECTION).limit(limit).lean();
 
     const withOffer = rows.map((row) => {
       const percent = bestDiscount.get(row._id.toString());

@@ -2,6 +2,7 @@ import mongoose, { Types } from 'mongoose';
 import { Order, IOrder, Business, Driver } from '../models';
 import { AppError } from '../middlewares';
 import { UserRole } from '../types';
+import { Permission } from '../security/rbac';
 
 /**
  * Quién es alguien *respecto a un pedido concreto*.
@@ -90,6 +91,16 @@ export async function resolveOrderAccess(
   }
 
   throw notFound;
+}
+
+/**
+ * Un ADMIN solo es participante de un pedido si tiene `orders:view_all`.
+ * `resolveOrderAccess` no conoce la request, así que las rutas compartidas lo
+ * cubren con `adminRequires(orders:view_all)` (que usa `can`) y los sockets
+ * llaman a esto con los permisos de la conexión. Los demás roles no se tocan.
+ */
+export function assertOrderAdminAccess(permissions: Permission[]): void {
+  if (!permissions.includes(Permission.ORDERS_VIEW_ALL)) throw new AppError('Pedido no encontrado', 404);
 }
 
 /**

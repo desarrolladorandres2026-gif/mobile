@@ -7,6 +7,8 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw';
 import 'leaflet-draw/dist/leaflet.draw.css';
 import api from '../services/api';
+import { Permission } from '../lib/permissions';
+import { PermissionGate } from '../components/PermissionGate';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiFieldMessage, apiMessage } from '../lib/apiError';
 
@@ -22,6 +24,17 @@ interface Zone {
   priority: number;
   isActive: boolean;
   updatedAt: string;
+}
+
+interface ZoneVersion {
+  version: number;
+  baseFee: number | null;
+  perKm: number | null;
+  surcharge: number;
+  minOrder: number;
+  changeReason?: string;
+  changedByName?: string;
+  changedAt: string;
 }
 
 interface ZoneForm {
@@ -66,6 +79,9 @@ export default function Zones() {
   const [form, setForm] = useState<ZoneForm>(emptyForm());
   const [polygonError, setPolygonError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<Zone | null>(null);
+  const [reason, setReason] = useState('');
+  const [original, setOriginal] = useState<Zone | null>(null);
+  const [history, setHistory] = useState<{ zone: Zone; versions: ZoneVersion[] } | null>(null);
 
   // El mapa vive fuera de React: Leaflet es dueño del DOM dentro de este div.
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -76,7 +92,7 @@ export default function Zones() {
     try {
       setLoading(true);
       setError('');
-      const { data } = await api.get('/zones?includeInactive=true');
+      const { data } = await api.get('/zones/admin');
       setZones(data.data);
     } catch (err) {
       console.error(err);
@@ -156,6 +172,8 @@ export default function Zones() {
 
   const openCreate = () => {
     setEditingId(null);
+    setOriginal(null);
+    setReason('');
     setForm(emptyForm());
     setPolygonError('');
     setShowModal(true);
@@ -163,6 +181,8 @@ export default function Zones() {
 
   const openEdit = (z: Zone) => {
     setEditingId(z._id);
+    setOriginal(z);
+    setReason('');
     setForm({
       name: z.name, city: z.city,
       baseFee: z.baseFee === null ? '' : String(z.baseFee),
@@ -186,7 +206,20 @@ export default function Zones() {
     const geoJson = (layers[0] as L.Polygon).toGeoJSON();
     const coordinates = (geoJson.geometry as GeoJSON.Polygon).coordinates;
 
+    const tariffChanged =
+      !!editingId &&
+      !!original &&
+      (original.baseFee !== (form.baseFee === '' ? null : Number(form.baseFee)) ||
+        original.perKm !== (form.perKm === '' ? null : Number(form.perKm)) ||
+        original.surcharge !== Number(form.surcharge) ||
+        original.minOrder !== Number(form.minOrder));
+    if (tariffChanged && reason.trim().length < 5) {
+      setPolygonError('Cambiaste una tarifa: escribe el motivo (mínimo 5 caracteres). Queda en el historial de la zona.');
+      return;
+    }
+
     const payload = {
+      ...(reason.trim() ? { reason: reason.trim() } : {}),
       name: form.name.trim(),
       city: form.city.trim(),
       coordinates,
@@ -207,6 +240,16 @@ export default function Zones() {
       fetchAll();
     } catch (err) {
       setError(apiFieldMessage(err) ?? apiMessage(err, 'No se pudo guardar la zona.'));
+    }
+  };
+
+  const openHistory = async (z: Zone) => {
+    try {
+      setError('');
+      const { data } = await api.get(`/zones/${z._id}/versions`);
+      setHistory({ zone: z, versions: data.data?.versions ?? [] });
+    } catch (err) {
+      setError(apiMessage(err, 'No se pudo cargar el historial de la zona.'));
     }
   };
 
@@ -232,12 +275,13 @@ export default function Zones() {
   const labelClass = 'block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1.5';
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       <div className="page-header">
         <div>
           <h1 className="page-title">Zonas de Cobertura</h1>
           <p className="page-subtitle">Polígonos que definen tarifa y pedido mínimo por sector</p>
         </div>
+        <PermissionGate permission={Permission.ZONES_MANAGE}>
         <button
           onClick={openCreate}
           className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
@@ -245,9 +289,10 @@ export default function Zones() {
           <Plus className="w-4 h-4" />
           <span>Nueva Zona</span>
         </button>
+        </PermissionGate>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
+      <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
           <input
@@ -283,9 +328,9 @@ export default function Zones() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-2.5">
           {filtered.map((z) => (
-            <div key={z._id} className="zipp-card p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div key={z._id} className="zipp-card p-5 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
               <div className="min-w-0 space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-[var(--color-primary-bg)] text-[var(--color-primary)] flex items-center justify-center shrink-0">
@@ -315,12 +360,21 @@ export default function Zones() {
 
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
+                  onClick={() => openHistory(z)}
+                  title="Historial de tarifas"
+                  className="px-2 py-1.5 rounded-lg text-[11px] font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] cursor-pointer"
+                >
+                  Historial
+                </button>
+                <PermissionGate permission={Permission.ZONES_MANAGE}>
+                <button
                   onClick={() => openEdit(z)}
                   title="Editar"
                   className="p-2 rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-bg)] transition-colors cursor-pointer"
                 >
                   <Pencil className="w-4 h-4" />
                 </button>
+                </PermissionGate>
                 <button
                   onClick={() => setConfirmDelete(z)}
                   title="Eliminar"
@@ -336,7 +390,7 @@ export default function Zones() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="Zipp-modal w-full max-w-3xl rounded-2xl p-6 space-y-5 max-h-[92vh] overflow-y-auto">
+          <div className="Zipp-modal w-full max-w-3xl rounded-2xl p-6 space-y-3 max-h-[92vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
               <div className="flex items-center gap-2">
                 <MapPin className="w-5 h-5 text-[var(--color-primary)]" />
@@ -349,7 +403,7 @@ export default function Zones() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-2.5">
               <div>
                 <label className={labelClass}>Dibuja el polígono de la zona</label>
                 <div
@@ -364,7 +418,7 @@ export default function Zones() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className={labelClass}>Nombre de la Zona</label>
                   <input type="text" required minLength={2} maxLength={80} value={form.name}
@@ -379,7 +433,7 @@ export default function Zones() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className={labelClass}>Tarifa Base (opcional)</label>
                   <input type="number" min={0} value={form.baseFee}
@@ -394,7 +448,7 @@ export default function Zones() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <div>
                   <label className={labelClass}>Recargo</label>
                   <input type="number" min={0} value={form.surcharge}
@@ -415,6 +469,15 @@ export default function Zones() {
                 </div>
               </div>
 
+              {editingId && (
+                <div>
+                  <label className={labelClass}>Motivo del cambio de tarifa</label>
+                  <input type="text" value={reason} maxLength={300}
+                    onChange={(e) => setReason(e.target.value)}
+                    className={inputClass} placeholder="Obligatorio si cambias base, km, recargo o mínimo" />
+                </div>
+              )}
+
               <label className="flex items-center gap-2.5 cursor-pointer w-fit">
                 <input type="checkbox" checked={form.isActive}
                   onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
@@ -429,6 +492,37 @@ export default function Zones() {
                 {editingId ? 'Guardar Cambios' : 'Crear Zona'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {history && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border-light)] pb-3">
+              <div>
+                <h3 className="text-base font-bold text-[var(--color-text-main)]">Historial de tarifas</h3>
+                <p className="text-xs text-[var(--color-text-secondary)]">{history.zone.name} · cada pedido guarda la versión que usó</p>
+              </div>
+              <button onClick={() => setHistory(null)} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-muted)]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <ul className="divide-y divide-[var(--color-border-light)] text-xs">
+              {history.versions.map((v) => (
+                <li key={v.version} className="space-y-0.5 py-3">
+                  <p className="font-bold text-[var(--color-text-main)]">
+                    Versión {v.version} · {new Date(v.changedAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}
+                    {v.changedByName ? ` · ${v.changedByName}` : ''}
+                  </p>
+                  <p className="text-[var(--color-text-secondary)]">
+                    Base {v.baseFee === null ? 'global' : cop(v.baseFee)} · Km {v.perKm === null ? 'global' : cop(v.perKm)} · Recargo {cop(v.surcharge)} · Mínimo {cop(v.minOrder)}
+                  </p>
+                  {v.changeReason && <p className="text-[var(--color-text-muted)]">Motivo: {v.changeReason}</p>}
+                </li>
+              ))}
+              {history.versions.length === 0 && <li className="py-6 text-center text-[var(--color-text-muted)]">Sin versiones registradas.</li>}
+            </ul>
           </div>
         </div>
       )}

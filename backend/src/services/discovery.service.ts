@@ -1,7 +1,7 @@
 import { PipelineStage, Types } from 'mongoose';
 import { Business, Order, Product, DiscoveryCollection } from '../models';
 import type {
-  CollectionFeed, Daypart, DisplayVariant, IDiscoveryCollection, Rule, RuleDSL, SortBy,
+  CollectionFeed, Daypart, DisplayVariant, IDiscoveryCollection, RotationMode, Rule, RuleDSL, SortBy,
 } from '../models';
 import { daypartAt } from '../models';
 import { OrderStatus } from '../types/enums';
@@ -337,6 +337,18 @@ export function sortStageFor(sortBy: SortBy): Record<string, 1 | -1> {
 
 // ── Elegibilidad ─────────────────────────────────────────────────────
 
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * El día de la semana en hora de Bogotá (0 = domingo), con el mismo criterio
+ * que `daypartAt`. `Date.getDay()` usa la zona del proceso: con el servidor
+ * en UTC, un lunes a las 20:00 de Garzón ya contaba como martes.
+ */
+export function weekdayAt(date: Date, timeZone = 'America/Bogota'): number {
+  const name = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(date);
+  return WEEKDAY_NAMES.indexOf(name);
+}
+
 /** Si una colección debe entrar en el feed ahora mismo. */
 export function isEligibleNow(
   collection: Pick<IDiscoveryCollection, 'isActive' | 'dayparts' | 'weekdays' | 'startDate' | 'endDate'>,
@@ -347,7 +359,7 @@ export function isEligibleNow(
   if (collection.startDate && collection.startDate > now) return false;
   if (collection.endDate && collection.endDate < now) return false;
   if (collection.dayparts?.length && !collection.dayparts.includes(daypart)) return false;
-  if (collection.weekdays?.length && !collection.weekdays.includes(now.getDay())) return false;
+  if (collection.weekdays?.length && !collection.weekdays.includes(weekdayAt(now))) return false;
   return true;
 }
 
@@ -640,66 +652,114 @@ export async function visibleBusinessIds(
 // ── El motor ─────────────────────────────────────────────────────────
 
 /**
- * Construye las colecciones de un feed.
+ * Lo que el motor necesita de una colección para armarla.
  *
- * No incluye bloques curados ni banners: eso lo compone quien llama, porque
- * cada feed los intercala a su manera.
+ * Son los mismos campos de `DiscoveryCollection`, pero sin exigir que vengan
+ * de la base: el constructor de Explorar arma colecciones "virtuales" —una
+ * regla propia de una sección, o una lista hecha a mano— que pasan por el
+ * mismo `$facet` y los mismos filtros de zona, disponibilidad y horario que
+ * las guardadas. Así no hay un segundo motor.
  */
-export async function buildDiscoveryFeed(
-  options: DiscoveryOptions
-): Promise<DiscoveryCollectionEntry[]> {
+export interface CollectionPlan {
+  key: string;
+  /** Nombre de la rama del `$facet`. Por defecto `key`; distinto cuando dos secciones usan la misma colección. */
+  facetKey?: string;
+  order: number;
+  title: string;
+  subtitle?: string;
+  illustration?: string;
+  displayVariant: DisplayVariant;
+  rule: RuleDSL;
+  rotation: RotationMode;
+  targetSize: number;
+  minSize: number;
+  fallbackKeywords?: boolean;
+  /** Lista hecha a mano: la rama busca estos ids y se respeta este orden. */
+  manualIds?: Types.ObjectId[];
+}
+
+/** Lo que sale de la única consulta al catálogo, listo para repartir entre secciones. */
+export interface LoadedCandidates {
+  raw: Record<string, SectionProduct[]>;
+  coords: LatLng | null;
+  salesIds: Record<string, Types.ObjectId[]>;
+  seed: number;
+}
+
+/**
+ * Si una colección de la base puede armarse ahora mismo.
+ *
+ * Las personales no viven aquí: su resultado depende de la sesión y no se
+ * puede cachear por zona, así que las resuelve la capa personal.
+ */
+export function isBuildableNow(
+  collection: IDiscoveryCollection,
+  now: Date,
+  daypart: Daypart,
+  coords: LatLng | null
+): boolean {
+  return (
+    isEligibleNow(collection, now, daypart) &&
+    !isPersonal(collection.rule) &&
+    (!!coords || !needsCoords(collection.rule))
+  );
+}
+
+/**
+ * La única consulta al catálogo: una rama del `$facet` por colección.
+ *
+ * Devuelve `null` cuando no hay nada que consultar o ningún negocio visible
+ * desde donde está el cliente — en los dos casos, cualquier colección
+ * saldría vacía.
+ */
+export async function loadCandidates(
+  plans: CollectionPlan[],
+  options: Omit<DiscoveryOptions, 'feed'>
+): Promise<LoadedCandidates | null> {
+  if (!plans.length) return null;
+
   const now = options.now ?? new Date();
-  const daypart = daypartAt(now);
   const coords = readCoords(options);
   const maxDistance = options.maxDistance ?? DEFAULT_MAX_DISTANCE;
-  const seed = options.seed ?? 0;
 
-  const feeds: CollectionFeed[] = options.feed === 'both'
-    ? ['home', 'explore', 'both']
-    : [options.feed, 'both'];
-
-  const defined = await DiscoveryCollection.find({ isActive: true, feed: { $in: feeds } })
-    .sort({ order: 1 })
-    .lean<IDiscoveryCollection[]>();
-
-  // Las personales no viven aquí: su resultado depende de la sesión y no se
-  // puede cachear por zona, así que las resuelve la capa personal.
-  const eligible = defined.filter(
-    (c) =>
-      isEligibleNow(c, now, daypart) &&
-      !isPersonal(c.rule) &&
-      (coords || !needsCoords(c.rule))
-  );
-
-  if (!eligible.length) return [];
-
-  const needsSales = eligible.some((c) => c.rule.all.some((r) => r.source === 'sales'));
+  const needsSales = plans.some((p) => p.rule.all.some((r) => r.source === 'sales'));
   const [businessIds, salesIds] = await Promise.all([
     visibleBusinessIds(coords, maxDistance, options.city),
     needsSales ? cachedSalesRanking() : Promise.resolve({}),
   ]);
-  if (!businessIds.length) return [];
+  if (!businessIds.length) return null;
 
   const businessMatch = joinedBusinessMatch();
 
-  // Una rama por colección. Todas comparten el mismo preámbulo —el `$match`
-  // acotado por negocio, el join y los campos derivados— y solo se
-  // diferencian en su `$match` propio.
+  // Todas las ramas comparten el mismo preámbulo —el `$match` acotado por
+  // negocio, el join y los campos derivados— y solo se diferencian en su
+  // `$match` propio.
   const facets: Record<string, PipelineStage.FacetPipelineStage[]> = {};
 
-  for (const collection of eligible) {
+  for (const plan of plans) {
+    const facetKey = plan.facetKey ?? plan.key;
+
+    if (plan.manualIds) {
+      facets[facetKey] = [
+        { $match: { ...businessMatch, _id: { $in: plan.manualIds } } },
+        { $limit: plan.manualIds.length },
+        PROJECT_STAGE,
+      ] as PipelineStage.FacetPipelineStage[];
+      continue;
+    }
+
     const ctx: CompileContext = {
       now,
       salesIds,
-      fallbackKeywords: collection.fallbackKeywords !== false,
+      fallbackKeywords: plan.fallbackKeywords !== false,
     };
-    const match = compileDSL(collection.rule, ctx);
-    const limit = needsCoords(collection.rule) ? NEARBY_CANDIDATE_LIMIT : CANDIDATE_LIMIT;
+    const match = compileDSL(plan.rule, ctx);
+    const limit = needsCoords(plan.rule) ? NEARBY_CANDIDATE_LIMIT : CANDIDATE_LIMIT;
 
-    facets[collection.key] = [
+    facets[facetKey] = [
       ...(match ? [{ $match: { ...businessMatch, ...match } } as PipelineStage.FacetPipelineStage]
                 : [{ $match: businessMatch } as PipelineStage.FacetPipelineStage]),
-      { $sort: sortStageFor(collection.rule.sortBy) },
+      { $sort: sortStageFor(plan.rule.sortBy) },
       { $limit: limit },
       PROJECT_STAGE,
     ] as PipelineStage.FacetPipelineStage[];
@@ -739,104 +799,243 @@ export async function buildDiscoveryFeed(
 
   const [raw] = await Product.aggregate(pipeline);
 
-  return assemble(eligible, raw ?? {}, { coords, salesIds, seed });
+  return { raw: raw ?? {}, coords, salesIds, seed: options.seed ?? 0 };
+}
+
+/**
+ * Construye las colecciones de un feed.
+ *
+ * No incluye bloques curados ni banners: eso lo compone quien llama, porque
+ * cada feed los intercala a su manera. Es el caso más simple de
+ * `assemblePlan`: una sola banda que se lleva todas las colecciones, en el
+ * orden de la base.
+ */
+export async function buildDiscoveryFeed(
+  options: DiscoveryOptions
+): Promise<DiscoveryCollectionEntry[]> {
+  const now = options.now ?? new Date();
+  const daypart = daypartAt(now);
+  const coords = readCoords(options);
+
+  const feeds: CollectionFeed[] = options.feed === 'both'
+    ? ['home', 'explore', 'both']
+    : [options.feed, 'both'];
+
+  const defined = await DiscoveryCollection.find({ isActive: true, feed: { $in: feeds } })
+    .sort({ order: 1 })
+    .lean<IDiscoveryCollection[]>();
+
+  const eligible = defined.filter((c) => isBuildableNow(c, now, daypart, coords));
+  if (!eligible.length) return [];
+
+  const loaded = await loadCandidates(eligible, options);
+  if (!loaded) return [];
+
+  const [entries] = assemblePlan(
+    [{ kind: 'band', take: 'rest', sizing: (plan) => ({ targetSize: plan.targetSize, minSize: plan.minSize }) }],
+    eligible,
+    loaded
+  );
+  return entries;
 }
 
 /** Los candidatos de una colección, en el orden en que debe recorrerlos `pickForSection`. */
 function candidatesFor(
-  collection: IDiscoveryCollection,
-  raw: Record<string, SectionProduct[]>,
-  ctx: { coords: LatLng | null; salesIds: Record<string, Types.ObjectId[]>; seed: number }
+  plan: CollectionPlan,
+  loaded: LoadedCandidates,
+  targetSize: number
 ): SectionProduct[] {
-  let candidates = filterOpenNow(raw[collection.key] ?? []);
+  let candidates = filterOpenNow(loaded.raw[plan.facetKey ?? plan.key] ?? []);
+
+  if (plan.manualIds) return orderByIds(candidates, plan.manualIds);
 
   // El orden de ventas lo impone la lista rankeada, no el `$sort` de la
   // rama: el `$in` devuelve en orden de índice, no de mérito.
-  const salesRule = collection.rule.all.find((r) => r.source === 'sales');
+  const salesRule = plan.rule.all.find((r) => r.source === 'sales');
   if (salesRule && salesRule.source === 'sales') {
-    candidates = orderByIds(candidates, ctx.salesIds[salesRule.window] ?? []);
+    candidates = orderByIds(candidates, loaded.salesIds[salesRule.window] ?? []);
   }
 
-  if (needsCoords(collection.rule) && ctx.coords) {
-    candidates = withDistance(candidates, ctx.coords, 'businessLocation').sort(
+  if (needsCoords(plan.rule) && loaded.coords) {
+    candidates = withDistance(candidates, loaded.coords, 'businessLocation').sort(
       (a, b) => (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity)
     );
   }
 
-  if (collection.rotation !== 'none') {
-    candidates = rotateWindow(candidates, collection.targetSize, ctx.seed);
+  if (plan.rotation !== 'none') {
+    candidates = rotateWindow(candidates, targetSize, loaded.seed);
   }
 
   return candidates;
 }
 
-function toEntry(
-  collection: IDiscoveryCollection,
-  products: SectionProduct[]
-): DiscoveryCollectionEntry {
+function toEntry(plan: CollectionPlan, products: SectionProduct[]): DiscoveryCollectionEntry {
   return {
     kind: 'collection',
-    order: collection.order,
-    key: collection.key,
-    title: collection.title,
-    subtitle: collection.subtitle,
-    illustration: collection.illustration,
-    displayVariant: collection.displayVariant,
+    order: plan.order,
+    key: plan.key,
+    title: plan.title,
+    subtitle: plan.subtitle,
+    illustration: plan.illustration,
+    displayVariant: plan.displayVariant,
     products: products.map(toPublicProduct),
   };
 }
 
+/** Cuántos productos lleva una sección y cuántos le hacen falta para publicarse. */
+export interface SlotSizing {
+  targetSize: number;
+  minSize: number;
+  /** Recorta a un múltiplo de esto: una cuadrícula solo enseña filas completas. */
+  multipleOf?: number;
+}
+
 /**
- * Convierte el resultado crudo del `$facet` en las entradas del feed.
+ * Un hueco del feed, en el orden en que se pinta.
+ *
+ * `fixed` es una colección concreta en una posición concreta. `band` va
+ * tomando colecciones de la bolsa común hasta llenar `take` — es la banda
+ * de descubrimiento, donde el motor decide qué entra y la semilla rota.
+ */
+export type PlanSlot =
+  | { kind: 'fixed'; plan: CollectionPlan; sizing: SlotSizing }
+  | {
+      kind: 'band';
+      take: number | 'rest';
+      /** `position` es el lugar que ocuparía dentro de la banda si entra. */
+      sizing: (plan: CollectionPlan, position: number) => SlotSizing;
+    };
+
+/** Cuenta una elección en el presupuesto sin aplicarle topes: lo curado se los salta, pero cuenta. */
+function countWithoutCaps(budget: ExposureBudget, products: SectionProduct[]): SectionProduct[] {
+  for (const p of products) {
+    const productId = String(p._id);
+    const businessId = String(p.businessId);
+    budget.perProduct.set(productId, (budget.perProduct.get(productId) ?? 0) + 1);
+    budget.perBusiness.set(businessId, (budget.perBusiness.get(businessId) ?? 0) + 1);
+  }
+  return products;
+}
+
+/** Devuelve al presupuesto lo que se eligió pero no se va a pintar. */
+function release(budget: ExposureBudget, products: SectionProduct[]): void {
+  for (const p of products) {
+    const productId = String(p._id);
+    const businessId = String(p.businessId);
+    budget.perProduct.set(productId, Math.max(0, (budget.perProduct.get(productId) ?? 0) - 1));
+    budget.perBusiness.set(businessId, Math.max(0, (budget.perBusiness.get(businessId) ?? 0) - 1));
+  }
+}
+
+/**
+ * Intenta armar una colección contra el presupuesto comprometido.
+ *
+ * El presupuesto "comprometido" solo crece con lo que de verdad queda en el
+ * feed. Un intento que no llega a `minSize` se descarta entero —incluidos los
+ * productos que alcanzó a elegir antes de quedarse corto— para no gastarle
+ * la cuota a un producto que el usuario nunca ve.
+ */
+function tryPlan(
+  plan: CollectionPlan,
+  sizing: SlotSizing,
+  committed: ExposureBudget,
+  loaded: LoadedCandidates,
+  relaxed: boolean
+): DiscoveryCollectionEntry | null {
+  const candidates = candidatesFor(plan, loaded, sizing.targetSize);
+  const trial = cloneBudget(committed);
+  if (relaxed) {
+    trial.maxPerBusiness = Number.POSITIVE_INFINITY;
+    trial.maxPerBusinessInSection = Number.POSITIVE_INFINITY;
+  }
+
+  let products = plan.manualIds
+    ? countWithoutCaps(trial, candidates.slice(0, sizing.targetSize))
+    : pickForSection(candidates, trial, sizing.targetSize);
+
+  if (sizing.multipleOf && sizing.multipleOf > 1) {
+    const keep = Math.floor(products.length / sizing.multipleOf) * sizing.multipleOf;
+    release(trial, products.slice(keep));
+    products = products.slice(0, keep);
+  }
+
+  if (products.length < sizing.minSize) return null;
+
+  committed.perProduct = trial.perProduct;
+  committed.perBusiness = trial.perBusiness;
+  return toEntry(plan, products);
+}
+
+/**
+ * Reparte los candidatos entre los huecos del feed, en el orden en que se
+ * pintan. Devuelve, por hueco, las entradas que quedaron (0 o 1 en un
+ * `fixed`; las que alcancen en una `band`).
+ *
+ * El orden importa: el presupuesto de exposición favorece a quien se arma
+ * primero, así que recorrerlo en el orden de pintado hace que la sección de
+ * arriba se quede con el producto repetido y no la de abajo.
  *
  * La relajación es **por colección**, no global: solo pierde su tope de
  * exposición la colección que de verdad se quedó corta con los topes
  * puestos. Antes esto era una segunda pasada de todo el feed disparada por
  * el total de entradas, y una sola colección sin candidatos suficientes
  * (una etiqueta que el catálogo de la zona no tiene, por ejemplo) le quitaba
- * el tope por negocio a **todas las demás**, incluidas las que sí tenían
- * variedad de sobra. Relajar solo lo que falla mantiene la garantía para
- * cualquier colección que sí puede cumplirla.
+ * el tope por negocio a **todas las demás**. Lo rescatado vuelve a su hueco:
+ * al final de su banda, o a su posición fija.
  */
-function assemble(
-  collections: IDiscoveryCollection[],
-  raw: Record<string, SectionProduct[]>,
-  ctx: { coords: LatLng | null; salesIds: Record<string, Types.ObjectId[]>; seed: number }
-): DiscoveryCollectionEntry[] {
-  // El presupuesto "comprometido" solo crece con lo que de verdad queda en
-  // el feed. Un intento que no llega a `minSize` se descarta entero —
-  // incluidos los productos que alcanzó a elegir antes de quedarse corto—
-  // para no gastarle la cuota a un producto que el usuario nunca ve.
+export function assemblePlan(
+  slots: PlanSlot[],
+  pool: CollectionPlan[],
+  loaded: LoadedCandidates
+): DiscoveryCollectionEntry[][] {
   const committed = newBudget(false);
-  const entries: DiscoveryCollectionEntry[] = [];
-  const deferred: IDiscoveryCollection[] = [];
+  const results: DiscoveryCollectionEntry[][] = slots.map(() => []);
+  const remaining = [...pool];
+  const deferred: Array<{ slot: number; plan: CollectionPlan }> = [];
+  let total = 0;
 
-  for (const collection of collections) {
-    const candidates = candidatesFor(collection, raw, ctx);
-    const trial = cloneBudget(committed);
-    const products = pickForSection(candidates, trial, collection.targetSize);
-    if (products.length < collection.minSize) {
-      deferred.push(collection);
-      continue;
+  const attempt = (slotIndex: number, plan: CollectionPlan, relaxed: boolean): boolean => {
+    const slot = slots[slotIndex];
+    const sizing = slot.kind === 'fixed' ? slot.sizing : slot.sizing(plan, results[slotIndex].length);
+    const entry = tryPlan(plan, sizing, committed, loaded, relaxed);
+    if (!entry) return false;
+    results[slotIndex].push(entry);
+    total++;
+    return true;
+  };
+
+  const hasRoom = (j: number): boolean => {
+    const slot = slots[j];
+    return slot.kind === 'band' && (slot.take === 'rest' || results[j].length < slot.take);
+  };
+
+  slots.forEach((slot, i) => {
+    if (slot.kind === 'fixed') {
+      if (!attempt(i, slot.plan, false)) deferred.push({ slot: i, plan: slot.plan });
+      return;
     }
-    committed.perProduct = trial.perProduct;
-    committed.perBusiness = trial.perBusiness;
-    entries.push(toEntry(collection, products));
+    while (remaining.length && hasRoom(i)) {
+      const plan = remaining.shift()!;
+      if (!attempt(i, plan, false)) deferred.push({ slot: i, plan });
+    }
+  });
+
+  if (total < MIN_FEED_ENTRIES) {
+    for (const { slot, plan } of deferred) {
+      // Con un catálogo pequeño la primera banda puede agotar la bolsa
+      // entera en la primera pasada (casi todo falla el mínimo). Lo que se
+      // rescata va a la primera banda que todavía tenga sitio desde la suya:
+      // si no, todo acababa arriba y el resto del layout —el bloque del
+      // anuncio incluido— quedaba al fondo o vacío.
+      let target = slot;
+      if (slots[slot].kind === 'band') {
+        for (let j = slot; j < slots.length; j++) {
+          if (hasRoom(j)) { target = j; break; }
+        }
+      }
+      attempt(target, plan, true);
+    }
   }
 
-  if (entries.length < MIN_FEED_ENTRIES && deferred.length) {
-    for (const collection of deferred) {
-      const candidates = candidatesFor(collection, raw, ctx);
-      const trial = cloneBudget(committed);
-      trial.maxPerBusiness = Number.POSITIVE_INFINITY;
-      trial.maxPerBusinessInSection = Number.POSITIVE_INFINITY;
-      const products = pickForSection(candidates, trial, collection.targetSize);
-      if (products.length < collection.minSize) continue;
-      committed.perProduct = trial.perProduct;
-      committed.perBusiness = trial.perBusiness;
-      entries.push(toEntry(collection, products));
-    }
-  }
-
-  return entries;
+  return results;
 }

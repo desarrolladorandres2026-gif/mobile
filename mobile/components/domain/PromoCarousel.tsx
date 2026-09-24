@@ -14,6 +14,7 @@ import { getDeviceId } from '../../lib/deviceId';
 import { adsApi, type PromoBanner } from '../../services/endpoints';
 import { BorderRadius, Motion, Spacing } from '../../theme/tokens';
 import { SpotlightCarousel, SpotlightSkeleton, type SpotlightRenderOpts } from './SpotlightCarousel';
+import { usePreviewMode } from './explore/PreviewContext';
 
 /** Cada banner trae su propia duración desde el panel; el de adelante manda. */
 const DEFAULT_DURATION = 5;
@@ -73,17 +74,22 @@ export function PromoCarousel({
    * cobraría varias veces por la misma vista en una campaña CPM.
    */
   const reportedAdImpressions = useRef<Set<string>>(new Set());
+  // En la vista previa del panel no cuenta nada: sería cobrarle al
+  // anunciante cada vez que un admin mira cómo queda Explorar.
+  const preview = usePreviewMode();
   useEffect(() => {
+    if (preview) return;
     const ad = visible.find((b) => b.isAd && !reportedAdImpressions.current.has(b.id));
     if (!ad) return;
     reportedAdImpressions.current.add(ad.id);
     getDeviceId().then((deviceId) => {
       adsApi.registerImpression(ad.id, deviceId).catch(() => {});
     });
-  }, [visible]);
+  }, [visible, preview]);
 
   const press = useCallback(
     (banner: PromoBanner) => {
+      if (preview) return;
       if (banner.isAd) {
         getDeviceId().then((deviceId) => {
           adsApi.registerClick(banner.id, deviceId).catch(() => {});
@@ -93,7 +99,7 @@ export function PromoCarousel({
       tap('medium');
       runBannerAction(banner, router);
     },
-    [router]
+    [router, preview]
   );
 
   if (isLoading) {

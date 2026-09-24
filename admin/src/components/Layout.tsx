@@ -1,22 +1,17 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   LogOut, Menu,
-  Search, Bell, ChevronDown, ChevronRight, RefreshCw,
+  ChevronDown, ChevronRight, RefreshCw,
 } from 'lucide-react';
 import { Suspense, useEffect, useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
 import ConfirmDialog from './ConfirmDialog';
+import GlobalSearch from './GlobalSearch';
+import AlertsTray from './AlertsTray';
+import FichaHost from './fichas/FichaHost';
 import { useAuthStore } from '../stores/authStore';
-import { Permission } from '../lib/permissions';
+import { NAV_GROUPS } from '../lib/navigation';
 import { preloadOn } from '../lib/lazyPage';
-import {
-  DashboardLogo, PackageLogo, DeliveryLogo, StoreLogo,
-  PeopleLogo, PricingLogo, CouponLogo, LocationLogo,
-  BannerLogo, CategoriesLogo, MegaphoneLogo, SecurityLogo,
-  WalletLogo, LegalLogo, CalendarLogo, EvidenceLogo,
-  PositionsLogo, RolesLogo,
-} from './logos';
-
 /** Lo que se ve el instante en que llega el archivo de una página. */
 function PageLoading() {
   return (
@@ -26,67 +21,25 @@ function PageLoading() {
   );
 }
 
-const navGroups: Array<{
-  category: string;
-  items: Array<{ path: string; Illustration: typeof DashboardLogo; label: string; permission?: string }>;
-}> = [
-  {
-    category: 'MENU',
-    items: [
-      { path: '/', Illustration: DashboardLogo, label: 'Dashboard' },
-      { path: '/daily-summary', Illustration: CalendarLogo, label: 'Resumen Diario' },
-    ],
-  },
-  {
-    category: 'APPS',
-    items: [
-      { path: '/orders', Illustration: PackageLogo, label: 'Pedidos' },
-      { path: '/evidences', Illustration: EvidenceLogo, label: 'Evidencias' },
-      { path: '/drivers', Illustration: DeliveryLogo, label: 'Domiciliarios' },
-      { path: '/driver-documents', Illustration: LegalLogo, label: 'Documentos' },
-      { path: '/fleet', Illustration: LocationLogo, label: 'Flota en Vivo' },
-    ],
-  },
-  {
-    category: 'CUSTOM',
-    items: [
-      { path: '/businesses', Illustration: StoreLogo, label: 'Negocios' },
-      { path: '/business-approvals', Illustration: LegalLogo, label: 'Verificar Comercios' },
-      { path: '/reviews', Illustration: PeopleLogo, label: 'Reseñas' },
-      { path: '/pricing', Illustration: PricingLogo, label: 'Tarifas y Precios' },
-      { path: '/coupons', Illustration: CouponLogo, label: 'Cupones' },
-      { path: '/zones', Illustration: LocationLogo, label: 'Zonas' },
-      { path: '/home-banners', Illustration: BannerLogo, label: 'Banners de Inicio' },
-      { path: '/home-categories', Illustration: CategoriesLogo, label: 'Categorías de Inicio' },
-      { path: '/curated-home-blocks', Illustration: BannerLogo, label: 'Bloques Curados de Inicio' },
-      { path: '/campaigns', Illustration: MegaphoneLogo, label: 'Publicidad' },
-      { path: '/search-insights', Illustration: CategoriesLogo, label: 'Búsquedas' },
-    ],
-  },
-  {
-    // Sección "Seguridad y Acceso": Usuarios, Cargos, Roles se administran
-    // aquí; Permisos/Auditoría/Sesiones viven como pestañas dentro de
-    // "Seguridad" (misma página, `/security`).
-    category: 'SEGURIDAD Y ACCESO',
-    items: [
-      { path: '/users', Illustration: PeopleLogo, label: 'Usuarios', permission: Permission.USERS_VIEW },
-      { path: '/positions', Illustration: PositionsLogo, label: 'Cargos', permission: Permission.POSITIONS_VIEW },
-      { path: '/roles', Illustration: RolesLogo, label: 'Roles', permission: Permission.ROLES_VIEW },
-      { path: '/security', Illustration: SecurityLogo, label: 'Seguridad', permission: Permission.SECURITY_VIEW },
-      // El centro de incidentes vive junto a Seguridad porque es donde se
-      // mira cuando algo va mal, no en una seccion de informes.
-      { path: '/incidents', Illustration: EvidenceLogo, label: 'Incidentes', permission: Permission.SECURITY_VIEW },
-    ],
-  },
-  {
-    category: 'COMPONENTS',
-    items: [
-      { path: '/financials', Illustration: WalletLogo, label: 'Finanzas' },
-      { path: '/legal', Illustration: LegalLogo, label: 'Legal y PQRS' },
-      { path: '/support', Illustration: PeopleLogo, label: 'Soporte' },
-    ],
-  },
-];
+const IDLE_LIMIT_MS = 30 * 60_000;
+const IDLE_WARNING_MS = 60_000;
+const ACTIVITY_KEY = 'admin_last_activity';
+
+const markActivity = (at: number) => {
+  try {
+    localStorage.setItem(ACTIVITY_KEY, String(at));
+  } catch {
+    // Sin almacenamiento, cada pestaña mide solo su propia actividad.
+  }
+};
+
+const lastActivity = () => {
+  try {
+    return Number(localStorage.getItem(ACTIVITY_KEY)) || Date.now();
+  } catch {
+    return Date.now();
+  }
+};
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -94,8 +47,8 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const { user, hasPermission, refresh, clear } = useAuthStore();
+  const [idleWarning, setIdleWarning] = useState(false);
+  const { user, hasPermission, refresh, clear, logout, authzMode, observedPermissions } = useAuthStore();
 
   useEffect(() => {
     const token = localStorage.getItem('admin_token');
@@ -115,14 +68,51 @@ export default function Layout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate]);
 
+  // Mismo plazo que el servidor (30 min sin uso). La actividad se comparte
+  // entre pestañas por localStorage: si no, una pestaña de fondo cerraba la
+  // sesión de todas, incluida la que vigila el SOS.
+  useEffect(() => {
+    let lastWrite = 0;
+    const touch = () => {
+      const now = Date.now();
+      if (now - lastWrite < 15_000) return;
+      lastWrite = now;
+      markActivity(now);
+    };
+    const check = () => {
+      const idle = Date.now() - lastActivity();
+      if (idle >= IDLE_LIMIT_MS) {
+        void logout().then(() => navigate('/login?motivo=inactividad'));
+      } else {
+        setIdleWarning(idle >= IDLE_LIMIT_MS - IDLE_WARNING_MS);
+      }
+    };
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'] as const;
+    events.forEach((e) => window.addEventListener(e, touch, { passive: true }));
+    markActivity(Date.now());
+    const interval = setInterval(check, 10_000);
+    return () => {
+      clearInterval(interval);
+      events.forEach((e) => window.removeEventListener(e, touch));
+    };
+  }, [logout, navigate]);
+
+  // "Sigo aquí" también toca el servidor: si solo se miró el mapa o el SOS,
+  // no hubo peticiones y la sesión del servidor caducaría igual.
+  const stayActive = () => {
+    markActivity(Date.now());
+    setIdleWarning(false);
+    void refresh();
+  };
+
   const positionName =
     user?.positionId && typeof user.positionId === 'object' ? user.positionId.name : null;
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setShowLogoutModal(false);
     setSidebarOpen(false);
     setUserMenuOpen(false);
-    clear();
+    await logout();
     navigate('/login');
   };
 
@@ -144,12 +134,12 @@ export default function Layout() {
 
         {/* Navigation Categories */}
         <nav className="flex-1 overflow-y-auto sidebar-scroll px-3 py-3 space-y-3">
-          {navGroups.map((group) => {
-            const visibleItems = group.items.filter((item) => !item.permission || hasPermission(item.permission));
+          {NAV_GROUPS.map((group) => {
+            const visibleItems = group.items.filter((item) => hasPermission(item.permission));
             if (visibleItems.length === 0) return null;
             return (
             <div key={group.category}>
-              <p className="text-xs font-bold tracking-wider text-[var(--color-text-secondary)] uppercase px-3 mb-1">
+              <p className="text-xs font-bold tracking-wider text-[var(--color-sidebar-text)] uppercase px-3 mb-1">
                 {group.category}
               </p>
               <div className="space-y-0">
@@ -220,17 +210,8 @@ export default function Layout() {
               <Menu className="w-5 h-5" />
             </button>
 
-            {/* Clean Top Search Bar */}
-            <div className="relative w-full max-w-xs md:max-w-sm">
-              <Search className="w-4 h-4 text-slate-900 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Buscar en el panel..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] dark:focus:bg-slate-900 transition-all"
-              />
-            </div>
+            {/* Búsqueda global: pedidos, clientes, comercios, domiciliarios, cupones */}
+            <GlobalSearch />
           </div>
 
           {/* Right Header Actions */}
@@ -238,13 +219,8 @@ export default function Layout() {
             {/* Theme Toggle (Claro / Oscuro / Automático) */}
             <ThemeToggle />
 
-            {/* Notification Bell */}
-            <button
-              title="Notificaciones"
-              className="p-2 rounded-lg text-slate-900 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              <Bell className="w-4 h-4" />
-            </button>
+            {/* Bandeja de alertas */}
+            <AlertsTray />
 
             <div className="w-px h-6 bg-slate-200 dark:bg-slate-800" />
 
@@ -288,6 +264,12 @@ export default function Layout() {
           </div>
         </header>
 
+        {authzMode === 'observe' && observedPermissions.length > 0 && (
+          <p className="px-6 lg:px-8 pt-3 text-xs font-semibold text-[var(--color-warning)]">
+            Modo observación: hoy conservas accesos que perderás al activar el bloqueo.
+          </p>
+        )}
+
         {/* Page Outlet */}
         <div className="p-6 lg:p-8 flex-1">
           <div className="page-container">
@@ -299,6 +281,24 @@ export default function Layout() {
           </div>
         </div>
       </main>
+
+      {/* Ficha lateral (?ficha=tipo:id), sobre cualquier página */}
+      <FichaHost />
+
+      {idleWarning && (
+        <ConfirmDialog
+          title="¿Sigues ahí?"
+          message="Por seguridad, la sesión se cierra en menos de un minuto si no hay actividad."
+          confirmLabel="Sigo aquí"
+          cancelLabel="Cerrar sesión"
+          variant="warning"
+          onConfirm={stayActive}
+          onCancel={() => {
+            setIdleWarning(false);
+            void handleLogout();
+          }}
+        />
+      )}
 
       {/* Modal de confirmación de Cerrar Sesión */}
       {showLogoutModal && (

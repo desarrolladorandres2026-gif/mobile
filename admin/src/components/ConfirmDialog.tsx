@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { AlertTriangle, Trash2, X } from 'lucide-react';
 
 /**
@@ -6,15 +7,19 @@ import { AlertTriangle, Trash2, X } from 'lucide-react';
  * Los colores salen de los tokens del sistema y no de hex fijos: escritos
  * a mano, este diálogo se pintaba blanco sobre blanco en el tema oscuro —
  * el texto seguía ahí, simplemente no se leía.
+ *
+ * Con `reason`, además pide un motivo: queda en la auditoría, y lo lee quien
+ * revise la decisión meses después.
  */
 interface ConfirmDialogProps {
   title: string;
   message: string;
-  onConfirm: () => void;
+  onConfirm: (reason?: string) => void;
   onCancel: () => void;
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: 'danger' | 'warning' | 'default';
+  reason?: { label: string; placeholder?: string; minLength?: number };
 }
 
 export default function ConfirmDialog({
@@ -25,24 +30,35 @@ export default function ConfirmDialog({
   confirmLabel = 'Confirmar',
   cancelLabel = 'Cancelar',
   variant = 'danger',
+  reason,
 }: ConfirmDialogProps) {
+  const [text, setText] = useState('');
+  const [tried, setTried] = useState(false);
+  const minLength = reason?.minLength ?? 5;
+  const reasonOk = !reason || text.trim().length >= minLength;
+
   const tone = {
     danger: {
       icon: 'text-[var(--color-danger)]',
-      iconBg: 'bg-[var(--color-danger-bg)]',
       button: 'bg-[var(--color-danger)] text-white hover:opacity-90',
     },
     warning: {
       icon: 'text-[var(--color-warning)]',
-      iconBg: 'bg-[var(--color-warning-bg)]',
       button: 'bg-[var(--color-warning)] text-white hover:opacity-90',
     },
     default: {
       icon: 'text-[var(--color-primary)]',
-      iconBg: 'bg-[var(--color-primary-bg)]',
       button: 'bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-dark)]',
     },
   }[variant];
+
+  const confirm = () => {
+    if (!reasonOk) {
+      setTried(true);
+      return;
+    }
+    onConfirm(reason ? text.trim() : undefined);
+  };
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
@@ -60,15 +76,11 @@ export default function ConfirmDialog({
       >
         <div className="p-6 space-y-4">
           <div className="flex items-start gap-3.5">
-            <span
-              className={`w-10 h-10 rounded-xl ${tone.iconBg} flex items-center justify-center shrink-0`}
-            >
-              {variant === 'danger' ? (
-                <Trash2 className={`w-5 h-5 ${tone.icon}`} strokeWidth={1.75} />
-              ) : (
-                <AlertTriangle className={`w-5 h-5 ${tone.icon}`} strokeWidth={1.75} />
-              )}
-            </span>
+            {variant === 'danger' ? (
+              <Trash2 className={`w-5 h-5 mt-0.5 shrink-0 ${tone.icon}`} strokeWidth={1.75} />
+            ) : (
+              <AlertTriangle className={`w-5 h-5 mt-0.5 shrink-0 ${tone.icon}`} strokeWidth={1.75} />
+            )}
 
             <div className="flex-1 min-w-0">
               <h3 className="text-base font-bold text-[var(--color-text-main)]">{title}</h3>
@@ -86,6 +98,28 @@ export default function ConfirmDialog({
             </button>
           </div>
 
+          {reason && (
+            <label className="block space-y-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
+                {reason.label}
+              </span>
+              <textarea
+                autoFocus
+                rows={2}
+                maxLength={300}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder={reason.placeholder}
+                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
+              />
+              {tried && !reasonOk && (
+                <span className="block text-[11px] font-semibold text-[var(--color-danger)]">
+                  Escribe el motivo (mínimo {minLength} caracteres).
+                </span>
+              )}
+            </label>
+          )}
+
           <div className="flex gap-2 pt-1">
             <button
               onClick={onCancel}
@@ -94,7 +128,7 @@ export default function ConfirmDialog({
               {cancelLabel}
             </button>
             <button
-              onClick={onConfirm}
+              onClick={confirm}
               className={`flex-1 py-2 rounded-lg text-xs font-bold cursor-pointer transition-opacity ${tone.button}`}
             >
               {confirmLabel}

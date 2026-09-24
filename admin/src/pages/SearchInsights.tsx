@@ -61,7 +61,7 @@ export default function SearchInsights() {
   const days = data?.days ?? 30;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-[var(--color-text-main)] flex items-center gap-2">
@@ -93,7 +93,7 @@ export default function SearchInsights() {
           Cargando búsquedas…
         </div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
           {/* ── Lo que sí se encuentra ── */}
           <section className="space-y-3">
             <header className="flex items-center gap-2">

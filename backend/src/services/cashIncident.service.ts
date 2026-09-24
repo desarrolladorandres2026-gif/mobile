@@ -21,6 +21,8 @@ import {
 import { AuditAction, AuditSeverity, logSystemAudit } from '../security';
 import { cashReconciliationService } from './cashReconciliation.service';
 import { notificationService } from './notification.service';
+import { usersWithPermission } from './authorization.service';
+import { Permission } from '../security/rbac';
 
 /**
  * Expediente de los faltantes de efectivo.
@@ -113,11 +115,7 @@ export class CashIncidentService {
     order: IOrder,
     incident: ICashPaymentIncident
   ): Promise<void> {
-    const admins = await User.find({
-      role: UserRole.ADMIN,
-      isFinanceAdmin: true,
-      isActive: true,
-    }).select('_id');
+    const admins = await usersWithPermission(Permission.FINANCE_MANAGE);
 
     await Promise.allSettled(
       admins.map((admin) =>

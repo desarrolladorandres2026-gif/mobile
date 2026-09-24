@@ -12,6 +12,7 @@ export type SessionRevokeReason =
   | 'password_changed'
   | 'contact_changed'
   | 'admin'
+  | 'role_changed'
   | 'reuse_detected'
   | 'session_limit'
   | 'device_removed'
@@ -59,6 +60,16 @@ export interface ISession extends Document {
    * siete días.
    */
   absoluteExpiresAt?: Date | null;
+  /**
+   * Sesión de staff (`role: admin`, panel admin). Decisión del 2026-09-23
+   * (S8): 8 h de vida absoluta con cierre a los 30 min de inactividad —
+   * mucho más corta que la de cliente/comercio/domiciliario (deslizante de
+   * `SESSION_TTL_DAYS`, absoluta de `SESSION_ABSOLUTE_TTL_DAYS`). Se guarda
+   * en la sesión, no se recalcula por el rol actual del usuario, para que
+   * rotar el token de una sesión ya abierta no cambie sus reglas a medio
+   * camino si el rol de la cuenta cambia después.
+   */
+  isStaff: boolean;
 }
 
 const sessionSchema = new Schema<ISession>(
@@ -87,6 +98,7 @@ const sessionSchema = new Schema<ISession>(
     lastActivity: { type: Date, default: Date.now },
     expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } },
     absoluteExpiresAt: { type: Date, default: null },
+    isStaff: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -195,8 +207,18 @@ export function hashToken(token: string): string {
 export const REFRESH_REUSE_GRACE_MS = 15 * 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const slidingTtlMs = () => Math.max(1, config.security.session.sessionTTLDays) * DAY_MS;
-const absoluteTtlMs = () => Math.max(1, config.security.session.absoluteTTLDays) * DAY_MS;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+
+/** Staff (S8): 30 min de inactividad cierran la sesión, sin excepción de entorno. */
+const STAFF_SLIDING_TTL_MS = 30 * MINUTE_MS;
+/** Staff (S8): 8 h de vida absoluta, por mucho que se refresque. */
+const STAFF_ABSOLUTE_TTL_MS = 8 * HOUR_MS;
+
+const slidingTtlMs = (isStaff: boolean) =>
+  isStaff ? STAFF_SLIDING_TTL_MS : Math.max(1, config.security.session.sessionTTLDays) * DAY_MS;
+const absoluteTtlMs = (isStaff: boolean) =>
+  isStaff ? STAFF_ABSOLUTE_TTL_MS : Math.max(1, config.security.session.absoluteTTLDays) * DAY_MS;
 
 /** Filtro de "no ha pasado la caducidad absoluta", tolerante con sesiones anteriores a ese campo. */
 const withinAbsoluteLifetime = (now: Date) => ({
@@ -234,8 +256,10 @@ export class SessionManager {
     ip: string;
     userAgent: string;
     deviceId?: string;
+    /** S8: cuentas `role: admin` corren con TTL de staff (8h/30min). */
+    isStaff?: boolean;
   }): Promise<{ session: ISession; isNewDevice: boolean }> {
-    const { userId, sessionId, refreshToken, ip, userAgent, deviceId } = params;
+    const { userId, sessionId, refreshToken, ip, userAgent, deviceId, isStaff = false } = params;
     const actualDeviceId = deviceId || generateDeviceId(userAgent, ip);
 
     // Check if this is a new device
@@ -271,8 +295,9 @@ export class SessionManager {
       userAgent,
       isActive: true,
       lastActivity: new Date(now),
-      expiresAt: new Date(now + slidingTtlMs()),
-      absoluteExpiresAt: new Date(now + absoluteTtlMs()),
+      expiresAt: new Date(now + slidingTtlMs(isStaff)),
+      absoluteExpiresAt: new Date(now + absoluteTtlMs(isStaff)),
+      isStaff,
     });
 
     await this.enforceSessionLimit(userId);
@@ -310,14 +335,38 @@ export class SessionManager {
   async isSessionActive(sessionId: string, userId: string): Promise<boolean> {
     if (!Types.ObjectId.isValid(sessionId)) return false;
     const now = new Date();
-    const found = await Session.exists({
+    const session = await Session.findOne({
       _id: sessionId,
       userId,
       isActive: true,
       expiresAt: { $gt: now },
       ...withinAbsoluteLifetime(now),
-    });
-    return !!found;
+    }).select('isStaff lastActivity absoluteExpiresAt');
+    if (!session) return false;
+
+    // M1(c): la caducidad por inactividad del staff (30 min) solo avanzaba
+    // cuando refrescaba el access token — en la práctica, hasta 15 min de
+    // margen extra sobre el TTL nominal porque la petición REST de cada
+    // pantalla nunca toca `expiresAt`. Aquí se desliza también, pero como
+    // mucho una vez por minuto (para no convertir cada petición en una
+    // escritura) y sin pasar de `absoluteExpiresAt`.
+    if (session.isStaff) {
+      const throttleMs = 60_000;
+      const dueForSlide =
+        !session.lastActivity || now.getTime() - session.lastActivity.getTime() >= throttleMs;
+      if (dueForSlide) {
+        let newExpiresAt = new Date(now.getTime() + slidingTtlMs(true));
+        if (session.absoluteExpiresAt && newExpiresAt > session.absoluteExpiresAt) {
+          newExpiresAt = session.absoluteExpiresAt;
+        }
+        await Session.updateOne(
+          { _id: sessionId },
+          { $set: { lastActivity: now, expiresAt: newExpiresAt } }
+        );
+      }
+    }
+
+    return true;
   }
 
   /** La sesión (viva o no) a la que pertenece un refresh token. */
@@ -337,16 +386,43 @@ export class SessionManager {
   async rotateRefreshToken(oldRefreshToken: string, newRefreshToken: string): Promise<RotationResult> {
     const oldHash = hashToken(oldRefreshToken);
     const now = new Date();
+    const filter = { tokenHash: oldHash, isActive: true, expiresAt: { $gt: now }, ...withinAbsoluteLifetime(now) };
+
+    // S8: la sesión de staff refresca con su propio TTL (30 min de
+    // inactividad), no con el de cliente/comercio/domiciliario. `isStaff`
+    // ya vive en el documento desde `createSession`, así que una lectura
+    // previa (fuera del `findOneAndUpdate` atómico, que sigue siendo la
+    // única escritura) basta para saber cuál aplicar.
+    const existing = await Session.findOne(filter).select('isStaff');
+    if (!existing) {
+      const dead = await Session.findOne({ tokenHash: oldHash }).select('userId');
+      if (!dead) {
+        const rotatedAway = await Session.findOne({ previousTokenHash: oldHash });
+        if (rotatedAway) {
+          const withinGrace =
+            rotatedAway.isActive &&
+            !!rotatedAway.rotatedAt &&
+            now.getTime() - rotatedAway.rotatedAt.getTime() <= REFRESH_REUSE_GRACE_MS;
+          if (withinGrace) return { status: 'race', session: rotatedAway };
+
+          const revokedCount = await this.revokeAllSessions(rotatedAway.userId, { reason: 'reuse_detected' });
+          console.error(`[SECURITY] Refresh token reuse detected for user ${rotatedAway.userId}. All sessions revoked.`);
+          return { status: 'reuse', userId: rotatedAway.userId, revokedCount };
+        }
+        return { status: 'revoked', userId: undefined };
+      }
+      return { status: 'revoked', userId: dead.userId };
+    }
 
     const rotated = await Session.findOneAndUpdate(
-      { tokenHash: oldHash, isActive: true, expiresAt: { $gt: now }, ...withinAbsoluteLifetime(now) },
+      filter,
       {
         $set: {
           tokenHash: hashToken(newRefreshToken),
           previousTokenHash: oldHash,
           rotatedAt: now,
           lastActivity: now,
-          expiresAt: new Date(now.getTime() + slidingTtlMs()),
+          expiresAt: new Date(now.getTime() + slidingTtlMs(existing.isStaff)),
         },
       },
       { new: true }

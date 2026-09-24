@@ -2,10 +2,11 @@ import crypto from 'crypto';
 import { Types } from 'mongoose';
 import {
   User, IUser, Order, Address, Favorite, Notification, Driver, DriverDebt, Business,
+  SavedCard, ProSubscription, ProSubscriptionStatus,
 } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { DebtStatus, OrderStatus, UserRole } from '../types';
-import { sessionManager, DeviceFingerprint } from '../security';
+import { sessionManager, DeviceFingerprint, logSystemAudit, AuditAction, AuditSeverity } from '../security';
 
 /**
  * Supresión de datos personales de una cuenta (Ley 1581 de 2012, y el
@@ -149,6 +150,40 @@ export async function anonymizeAccount(userId: Types.ObjectId | string): Promise
     Favorite.deleteMany({ userId: id }),
     Notification.deleteMany({ userId: id }),
   ]);
+
+  // S13: anonimizar dejaba vivas las tarjetas guardadas (tokenizadas en
+  // Wompi, pero el vínculo con la persona ya no debería existir) y una
+  // membresía Pro activa seguía cobrando a una cuenta que ya no puede
+  // entrar a usarla. Sin reembolso automático aquí a propósito —eso es
+  // dinero, pasa por `zipp-finance`—, pero sí queda cancelada y auditada
+  // para que alguien la revise.
+  const [{ deletedCount: cardsDeleted }, activeSubscription] = await Promise.all([
+    SavedCard.deleteMany({ userId: id }),
+    ProSubscription.findOne({
+      userId: id,
+      status: { $in: [ProSubscriptionStatus.ACTIVE, ProSubscriptionStatus.PENDING] },
+    }),
+  ]);
+
+  if (activeSubscription) {
+    activeSubscription.status = ProSubscriptionStatus.CANCELLED;
+    activeSubscription.autoRenew = false;
+    activeSubscription.cancelledAt = now;
+    await activeSubscription.save();
+  }
+
+  if (cardsDeleted > 0 || activeSubscription) {
+    void logSystemAudit({
+      userId: id.toString(),
+      action: AuditAction.ACCOUNT_DELETED,
+      entity: 'user',
+      entityId: id.toString(),
+      severity: AuditSeverity.HIGH,
+      description: `Anonimización: ${cardsDeleted} tarjeta(s) guardada(s) eliminada(s)` +
+        (activeSubscription ? '; membresía Zipp Pro cancelada sin reembolso automático (revisar)' : ''),
+      metadata: { cardsDeleted, proSubscriptionCancelled: !!activeSubscription },
+    });
+  }
 
   // Pedidos: se conservan (registro financiero) sin la dirección exacta. Las
   // coordenadas quedan a dos decimales (~1 km), útil para estadística de

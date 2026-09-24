@@ -58,7 +58,7 @@ interface CuratedProduct {
 }
 
 /** Un negocio tal como lo necesita una tarjeta de banner/collection de negocios. */
-interface CuratedBusiness {
+export interface CuratedBusiness {
   _id: Types.ObjectId;
   name: string;
   category: string;
@@ -116,7 +116,7 @@ function toCuratedProduct(p: {
   };
 }
 
-function toCuratedBusiness(b: {
+export function toCuratedBusiness(b: {
   _id: Types.ObjectId;
   name: string;
   category: string;

@@ -21,7 +21,30 @@ export const EARTH_RADIUS_M = 6_378_100;
  * encajen: enseñarlo lleva a una carta que no se puede pedir, y el usuario
  * culpa a la aplicación, no al estado del comercio.
  */
-export const VISIBLE_BUSINESS = { isActive: true, isApproved: true };
+export const VISIBLE_BUSINESS = {
+  isActive: true,
+  isApproved: true,
+  isArchived: { $ne: true },
+  isSuspended: { $ne: true },
+};
+
+/**
+ * Campos seguros para servir sin sesión: sin `commissionRate(Bps)` ni
+ * `ownerId` (S1). Lista blanca, no lista negra — un campo nuevo del modelo
+ * no se cuela aquí por accidente. Compartida por `business.service.ts`,
+ * `search.service.ts`, `offers.service.ts` y `favorite.service.ts` (A2):
+ * un negocio no puede ser visible en una ruta y filtrado en otra.
+ */
+export const PUBLIC_BUSINESS_FIELDS =
+  'name slug description logo coverImage brandColor category address phone ' +
+  'rating totalReviews deliveryTime minOrder freeDeliveryThreshold ' +
+  'showPromoBanner schedule city isActive location';
+
+/** El listado público lleva además `isFeatured`, que la app usa para ordenar y marcar. */
+export const PUBLIC_LIST_FIELDS = `${PUBLIC_BUSINESS_FIELDS} isFeatured`;
+export const PUBLIC_LIST_PROJECTION: Record<string, 1> = Object.fromEntries(
+  PUBLIC_LIST_FIELDS.split(' ').map((field) => [field, 1])
+);
 
 /**
  * El filtro de radio, como cláusula de consulta y no como etapa.

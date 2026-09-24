@@ -248,7 +248,7 @@ export default function Security() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       {/* Header */}
       <div className="page-header">
         <div>
@@ -288,8 +288,8 @@ export default function Security() {
 
       {/* ── 1. VISTA GENERAL ── */}
       {activeTab === 'overview' && !loading && overview && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pb-6 border-b border-[var(--color-border-light)]">
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pb-6 border-b border-[var(--color-border-light)]">
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Sesiones Activas</span>
@@ -421,7 +421,7 @@ export default function Security() {
 
       {/* ── 3. AUDITORÍA ── */}
       {activeTab === 'audit' && !loading && (
-        <div className="space-y-4">
+        <div className="space-y-2.5">
           <div className="zipp-card p-4 flex flex-wrap gap-3">
             <select
               value={auditFilters.action}
@@ -498,7 +498,7 @@ export default function Security() {
 
       {/* ── 4. SESIONES ── */}
       {activeTab === 'sessions' && !loading && (
-        <div className="space-y-4">
+        <div className="space-y-2.5">
           <div className="zipp-card p-4 flex flex-wrap gap-3">
             <input
               value={sessionUserFilter}
@@ -568,7 +568,7 @@ export default function Security() {
       {/* Manual Block Modal */}
       {blockModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-4">
+          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5">
             <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-3">
               <div className="flex items-center gap-2">
                 <Lock className="w-5 h-5 text-[var(--color-danger)]" />
@@ -624,7 +624,7 @@ export default function Security() {
       {/* Selected Alert Modal */}
       {selectedAlert && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-4">
+          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5">
             <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-3">
               <h3 className="text-base font-bold text-[var(--color-text-main)]">Detalle de Alerta #{selectedAlert._id.slice(-6)}</h3>
               <button onClick={() => setSelectedAlert(null)} className="text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] p-1 rounded-lg">

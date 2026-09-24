@@ -88,9 +88,7 @@ const seed = async () => {
   await User.create({
     name: 'Admin ZIPP', phone: '3001234567', email: 'admin@zipp.co',
     password: DEMO_PASSWORD, role: 'admin', isActive: true, isVerified: true,
-    // Grants access to pricing, cash verification and settlements. Narrower
-    // than `role: admin` on purpose — see requireFinanceAdmin.
-    isFinanceAdmin: true,
+    // Super Administrador lo asigna `migrateRbac` más abajo (cuenta admin más antigua).
   });
 
   await User.create({
@@ -98,7 +96,6 @@ const seed = async () => {
     password: DEMO_PASSWORD, role: 'admin', isActive: true, isVerified: true,
     // Deliberately not a finance admin: useful for checking that the money
     // endpoints really are closed to ordinary admins.
-    isFinanceAdmin: false,
   });
 
   await User.create({

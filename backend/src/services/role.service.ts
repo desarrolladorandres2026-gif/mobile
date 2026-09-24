@@ -4,7 +4,8 @@ import { AppError } from '../middlewares/errorHandler';
 import { logAudit, AuditAction, AuditSeverity, Permission } from '../security';
 import { SUPER_ADMIN_ROLE_SLUG } from '../security/rbac';
 import { escapeRegex } from '../utils';
-import { assertRoleMutable, hasPermission } from './authorization.service';
+import { assertRoleMutable, hasPermission, resolveAuthorization } from './authorization.service';
+import { disconnectSocketsOfRole } from './authzSockets.service';
 
 function slugify(name: string): string {
   return name
@@ -42,8 +43,12 @@ export class RoleService {
    * `roles:create` pero sin `finance:manage` podría crear un rol con
    * `finance:manage` y luego asignárselo a sí mismo por otra vía.
    */
-  private assertGrantable(actor: IUser, actorPermissions: Permission[], permissions: Permission[]) {
-    const notOwned = permissions.filter((p) => !hasPermission(actorPermissions, p));
+  private async assertGrantable(actor: IUser, _actorPermissions: Permission[], permissions: Permission[]) {
+    // Siempre contra `strict` (lo que el actor puede hacer de verdad), no
+    // contra lo que llegue de la request: en modo observación `req.permissions`
+    // trae permisos legacy que el actor no posee y no debe poder delegar.
+    const { strict } = await resolveAuthorization(actor);
+    const notOwned = permissions.filter((p) => !hasPermission(strict, p));
     if (notOwned.length > 0) {
       throw new AppError(
         `No puedes otorgar permisos que no posees: ${notOwned.join(', ')}`,
@@ -62,7 +67,7 @@ export class RoleService {
     if (!name) throw new AppError('El nombre del rol es requerido', 400);
 
     const permissions = Array.from(new Set(data.permissions || []));
-    this.assertGrantable(actor, actorPermissions, permissions);
+    await this.assertGrantable(actor, actorPermissions, permissions);
 
     const slug = slugify(name);
     if (slug === SUPER_ADMIN_ROLE_SLUG) {
@@ -108,8 +113,11 @@ export class RoleService {
 
     if (data.permissions) {
       const permissions = Array.from(new Set(data.permissions));
-      this.assertGrantable(actor, actorPermissions, permissions);
+      await this.assertGrantable(actor, actorPermissions, permissions);
       role.permissions = permissions;
+    } else if (data.isActive === true && !role.isActive) {
+      // Reactivar un rol vuelve a otorgar sus permisos a quien lo tiene: mismo tope.
+      await this.assertGrantable(actor, actorPermissions, role.permissions || []);
     }
     if (data.name !== undefined) {
       const name = data.name.trim();
@@ -121,6 +129,8 @@ export class RoleService {
     role.updatedBy = actor._id;
 
     await role.save();
+    // Los usuarios con este rol (directo o vía Cargo) deben recalcular sus salas de socket.
+    await disconnectSocketsOfRole(role._id);
 
     if (req) {
       await logAudit(req, {

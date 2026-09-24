@@ -5,6 +5,9 @@ import { useThemeStore } from './stores/themeStore';
 import UpdateBanner from './components/UpdateBanner';
 import Layout from './components/Layout';
 import { lazyPage } from './lib/lazyPage';
+import RequireAccess, { NoRoleScreen } from './components/RequireAccess';
+import { findNavItem, hasAnyAccess } from './lib/navigation';
+import { useAuthStore } from './stores/authStore';
 
 /**
  * Cada página se descarga al abrirla, no al entrar al panel.
@@ -45,6 +48,7 @@ const HomeBanners = lazyPage(() => import('./pages/HomeBanners'), '/home-banners
 const HomeCategories = lazyPage(() => import('./pages/HomeCategories'), '/home-categories');
 const CuratedHomeBlocks = lazyPage(() => import('./pages/CuratedHomeBlocks'), '/curated-home-blocks');
 const SearchInsights = lazyPage(() => import('./pages/SearchInsights'), '/search-insights');
+const ExploreBuilder = lazyPage(() => import('./pages/ExploreBuilder'), '/explore-builder');
 
 // 30 s de frescura por defecto: navegar entre páginas y volver no repite
 // peticiones que acaban de hacerse, y cada pantalla sigue pudiendo pedir
@@ -54,6 +58,27 @@ const queryClient = new QueryClient({
     queries: { staleTime: 30_000, gcTime: 10 * 60_000, retry: 1 },
   },
 });
+
+/** Envuelve una página con el permiso que declara lib/navigation. */
+function guard(path: string, element: React.ReactNode) {
+  const item = findNavItem(path);
+  if (!item) return element;
+  return (
+    <RequireAccess permission={item.permission} redirectHome={path === '/'}>
+      {element}
+    </RequireAccess>
+  );
+}
+
+/** Sin ningún permiso no hay panel que mostrar: pide un rol. */
+function AccessLayout() {
+  const user = useAuthStore((s) => s.user);
+  const hasPermission = useAuthStore((s) => s.hasPermission);
+  useAuthStore((s) => s.permissions);
+  useAuthStore((s) => s.observedPermissions);
+  if (user && !hasAnyAccess(hasPermission)) return <NoRoleScreen />;
+  return <Layout />;
+}
 
 function App() {
   const initTheme = useThemeStore((s) => s.initTheme);
@@ -69,40 +94,41 @@ function App() {
         <Routes>
           <Route path="/login" element={<Suspense fallback={null}><Login /></Suspense>} />
           <Route path="/setup-2fa" element={<Suspense fallback={null}><TwoFactorSetup /></Suspense>} />
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Dashboard />} />
-            <Route path="daily-summary" element={<DailySummary />} />
-            <Route path="orders" element={<Orders />} />
-            <Route path="evidences" element={<Evidences />} />
-            <Route path="businesses" element={<Businesses />} />
-            <Route path="business-approvals" element={<BusinessApprovals />} />
-            <Route path="reviews" element={<ReviewModeration />} />
-            <Route path="drivers" element={<Drivers />} />
-            <Route path="driver-documents" element={<DriverDocuments />} />
+          <Route path="/" element={<AccessLayout />}>
+            <Route index element={guard('/', <Dashboard />)} />
+            <Route path="daily-summary" element={guard('/daily-summary', <DailySummary />)} />
+            <Route path="orders" element={guard('/orders', <Orders />)} />
+            <Route path="evidences" element={guard('/evidences', <Evidences />)} />
+            <Route path="businesses" element={guard('/businesses', <Businesses />)} />
+            <Route path="business-approvals" element={guard('/business-approvals', <BusinessApprovals />)} />
+            <Route path="reviews" element={guard('/reviews', <ReviewModeration />)} />
+            <Route path="drivers" element={guard('/drivers', <Drivers />)} />
+            <Route path="driver-documents" element={guard('/driver-documents', <DriverDocuments />)} />
             <Route
               path="fleet"
-              element={
+              element={guard('/fleet',
                 <Suspense fallback={<div className="p-8 text-sm text-[var(--color-text-secondary)]">Cargando el mapa…</div>}>
                   <FleetMap />
                 </Suspense>
-              }
+              )}
             />
-            <Route path="users" element={<Users />} />
-            <Route path="positions" element={<Positions />} />
-            <Route path="roles" element={<Roles />} />
-            <Route path="financials" element={<Financials />} />
-            <Route path="pricing" element={<Pricing />} />
-            <Route path="security" element={<Security />} />
-            <Route path="incidents" element={<Incidents />} />
-            <Route path="support" element={<Support />} />
-            <Route path="legal" element={<LegalOps />} />
-            <Route path="campaigns" element={<Campaigns />} />
-            <Route path="coupons" element={<Coupons />} />
-            <Route path="zones" element={<Zones />} />
-            <Route path="home-banners" element={<HomeBanners />} />
-            <Route path="home-categories" element={<HomeCategories />} />
-            <Route path="curated-home-blocks" element={<CuratedHomeBlocks />} />
-            <Route path="search-insights" element={<SearchInsights />} />
+            <Route path="users" element={guard('/users', <Users />)} />
+            <Route path="positions" element={guard('/positions', <Positions />)} />
+            <Route path="roles" element={guard('/roles', <Roles />)} />
+            <Route path="financials" element={guard('/financials', <Financials />)} />
+            <Route path="pricing" element={guard('/pricing', <Pricing />)} />
+            <Route path="security" element={guard('/security', <Security />)} />
+            <Route path="incidents" element={guard('/incidents', <Incidents />)} />
+            <Route path="support" element={guard('/support', <Support />)} />
+            <Route path="legal" element={guard('/legal', <LegalOps />)} />
+            <Route path="campaigns" element={guard('/campaigns', <Campaigns />)} />
+            <Route path="coupons" element={guard('/coupons', <Coupons />)} />
+            <Route path="zones" element={guard('/zones', <Zones />)} />
+            <Route path="home-banners" element={guard('/home-banners', <HomeBanners />)} />
+            <Route path="home-categories" element={guard('/home-categories', <HomeCategories />)} />
+            <Route path="curated-home-blocks" element={guard('/curated-home-blocks', <CuratedHomeBlocks />)} />
+            <Route path="search-insights" element={guard('/search-insights', <SearchInsights />)} />
+            <Route path="explore-builder" element={guard('/explore-builder', <ExploreBuilder />)} />
           </Route>
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

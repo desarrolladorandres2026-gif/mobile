@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { objectId, copAmount } from './common';
 
 const coordinate = z.tuple([
   z.number().min(-180).max(180), // longitude
@@ -18,28 +19,47 @@ const polygon = z
     { message: 'Cada anillo debe cerrarse: el primer punto igual al último' }
   );
 
+/**
+ * Motivo de un cambio de tarifa. Obligatorio cuando el cambio toca
+ * `baseFee`, `perKm`, `surcharge` o `minOrder` (lo comprueba el servicio, que
+ * es quien sabe si el valor realmente cambió); opcional en cualquier otro.
+ */
+const changeReason = z.string().trim().min(5, 'El motivo debe tener al menos 5 caracteres').max(300);
+
+// Dinero entero en COP: nada de decimales en lo que se cobra y se paga.
 const zoneBody = z.object({
   name: z.string().trim().min(2).max(80),
   city: z.string().trim().max(80).optional(),
   coordinates: polygon,
-  baseFee: z.number().min(0).nullable().optional(),
-  perKm: z.number().min(0).nullable().optional(),
-  surcharge: z.number().min(0).optional(),
-  minOrder: z.number().min(0).optional(),
+  baseFee: copAmount.nullable().optional(),
+  perKm: copAmount.nullable().optional(),
+  surcharge: copAmount.optional(),
+  minOrder: copAmount.optional(),
   priority: z.number().int().optional(),
   isActive: z.boolean().optional(),
 });
 
 export const createZoneSchema = z.object({
-  body: zoneBody,
+  body: zoneBody.extend({ reason: changeReason.optional() }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
 });
 
 export const updateZoneSchema = z.object({
-  body: zoneBody.partial(),
+  body: zoneBody.partial().extend({ reason: changeReason.optional() }),
   query: z.object({}).optional(),
-  params: z.object({ id: z.string() }),
+  params: z.object({ id: objectId }),
+});
+
+/** El motivo del borrado es opcional pero, si viene, queda en la auditoría. */
+export const deleteZoneSchema = z.object({
+  body: z.object({ reason: changeReason.optional() }).optional(),
+  query: z.object({}).optional(),
+  params: z.object({ id: objectId }),
+});
+
+export const zoneIdParamSchema = z.object({
+  params: z.object({ id: objectId }),
 });
 
 export const checkCoverageSchema = z.object({

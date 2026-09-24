@@ -18,6 +18,11 @@ const ALGORITHM = 'aes-256-gcm';
 // aleatorios, scrypt conserva la resistencia a fuerza bruta que daba PBKDF2.
 // Se paga una vez al arrancar, no por registro.
 const V2_PREFIX = 'v2';
+// v3 = v2 + datos autenticados adicionales (AAD): el texto cifrado queda
+// atado a un contexto (p. ej. el `businessId` de una cuenta de pago), así que
+// copiarlo a otro registro no lo hace legible ni válido allí. Mismo esquema de
+// clave y mismos tamaños que v2; solo cambia el prefijo y `setAAD`.
+const V3_PREFIX = 'v3';
 const V2_SALT_LENGTH = 16;
 const V2_IV_LENGTH = 12;
 const V2_HKDF_INFO = 'zipp:enc:v2:aes-256-gcm';
@@ -73,7 +78,7 @@ function deriveLegacyKey(saltB64: string): Buffer {
  * Encrypts sensitive data using AES-256-GCM (formato v2).
  * Format: v2:salt:iv:authTag:encryptedData (all base64)
  */
-export function encrypt(plainText: string): string {
+export function encrypt(plainText: string, aad?: string): string {
   if (!plainText) return plainText;
 
   const salt = crypto.randomBytes(V2_SALT_LENGTH);
@@ -81,13 +86,14 @@ export function encrypt(plainText: string): string {
   const iv = crypto.randomBytes(V2_IV_LENGTH);
 
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  if (aad) cipher.setAAD(Buffer.from(aad, 'utf8'));
   let encrypted = cipher.update(plainText, 'utf8', 'base64');
   encrypted += cipher.final('base64');
 
   const authTag = cipher.getAuthTag();
 
   return [
-    V2_PREFIX,
+    aad ? V3_PREFIX : V2_PREFIX,
     salt.toString('base64'),
     iv.toString('base64'),
     authTag.toString('base64'),
@@ -101,7 +107,7 @@ export function encrypt(plainText: string): string {
  * Si no puede descifrar devuelve la entrada tal cual: hay datos que nunca
  * se cifraron y quien llama cuenta con ese comportamiento.
  */
-export function decrypt(encryptedText: string): string {
+export function decrypt(encryptedText: string, aad?: string): string {
   if (!encryptedText || !encryptedText.includes(':')) return encryptedText;
 
   try {
@@ -113,8 +119,15 @@ export function decrypt(encryptedText: string): string {
     let data: string;
 
     // Un salt legado en base64 mide 44 caracteres: nunca es "v2".
-    if (parts.length === 5 && parts[0] === V2_PREFIX) {
-      const [, saltB64, iv, tag, ct] = parts;
+    let useAad = false;
+    if (parts.length === 5 && (parts[0] === V2_PREFIX || parts[0] === V3_PREFIX)) {
+      const [prefix, saltB64, iv, tag, ct] = parts;
+      // v3 sin contexto no se puede abrir: se devuelve la entrada intacta,
+      // igual que cualquier otro fallo de descifrado.
+      if (prefix === V3_PREFIX) {
+        if (!aad) return encryptedText;
+        useAad = true;
+      }
       key = deriveV2Key(Buffer.from(saltB64, 'base64'));
       [ivB64, authTagB64, data] = [iv, tag, ct];
     } else if (parts.length === 4) {
@@ -127,6 +140,7 @@ export function decrypt(encryptedText: string): string {
 
     const decipher = crypto.createDecipheriv(ALGORITHM, key, Buffer.from(ivB64, 'base64'));
     decipher.setAuthTag(Buffer.from(authTagB64, 'base64'));
+    if (useAad) decipher.setAAD(Buffer.from(aad!, 'utf8'));
 
     let decrypted = decipher.update(data, 'base64', 'utf8');
     decrypted += decipher.final('utf8');

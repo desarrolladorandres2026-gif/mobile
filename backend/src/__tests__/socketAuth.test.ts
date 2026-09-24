@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import jwt from 'jsonwebtoken';
 import { Types } from 'mongoose';
 import { config } from '../config';
@@ -44,6 +44,38 @@ describe('authenticateSocket: el handshake del socket', () => {
 
     expect(identity.userId).toBe(user._id.toString());
     expect(identity.role).toBe(UserRole.DRIVER);
+  });
+
+  describe('S5: 2FA en la sala `admin`', () => {
+    afterEach(() => {
+      config.security.twoFactor.requiredForAdmins = false;
+    });
+
+    it('un admin sin TOTP identifica pero no satisface el 2FA cuando el flag está encendido', async () => {
+      config.security.twoFactor.requiredForAdmins = true;
+      const admin = await makeUser({ role: UserRole.ADMIN });
+
+      const identity = await authenticateSocket(await signFor(admin._id.toString(), 'admin'));
+
+      expect(identity.role).toBe(UserRole.ADMIN);
+      expect(identity.twoFactorSatisfied).toBe(false);
+    });
+
+    it('un admin con TOTP activo sí lo satisface', async () => {
+      config.security.twoFactor.requiredForAdmins = true;
+      const admin = await makeUser({ role: UserRole.ADMIN });
+      await User.updateOne({ _id: admin._id }, { $set: { twoFactorEnabled: true } });
+
+      const identity = await authenticateSocket(await signFor(admin._id.toString(), 'admin'));
+
+      expect(identity.twoFactorSatisfied).toBe(true);
+    });
+
+    it('con el flag apagado, cualquier admin lo satisface', async () => {
+      const admin = await makeUser({ role: UserRole.ADMIN });
+      const identity = await authenticateSocket(await signFor(admin._id.toString(), 'admin'));
+      expect(identity.twoFactorSatisfied).toBe(true);
+    });
   });
 
   it('rechaza a un usuario borrado aunque su token siga siendo válido', async () => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Stack } from 'expo-router';
+import { Slot, Stack, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -225,7 +225,39 @@ const persistOptions = {
   dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
 };
 
+/** Cliente aparte y sin persistir: la vista previa no debe escribir en el almacenamiento de la app. */
+const previewQueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+/**
+ * El árbol de la vista previa del constructor de Explorar (`/preview/*`).
+ *
+ * Vive dentro de un iframe del panel, sin sesión: nada de guardia de
+ * sesión, push, socket, service worker ni caché persistente — solo lo
+ * necesario para pintar (fuentes, gestos y un QueryClient en memoria).
+ */
+function PreviewRoot() {
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+  });
+  if (!fontsLoaded) return null;
+
+  return (
+    <GestureHandlerRootView style={styles.root}>
+      <QueryClientProvider client={previewQueryClient}>
+        <Slot />
+      </QueryClientProvider>
+    </GestureHandlerRootView>
+  );
+}
+
 export default function RootLayout() {
+  const pathname = usePathname();
+  if (IS_CLIENT_APP && pathname?.startsWith('/preview')) return <PreviewRoot />;
+
   return (
     <GestureHandlerRootView style={styles.root}>
       {IS_CLIENT_APP ? (

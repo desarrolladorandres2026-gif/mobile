@@ -27,6 +27,7 @@ const AdvertisingPage = lazyPage(() => import('./pages/Advertising'), '/advertis
 const AnalyticsPage = lazyPage(() => import('./pages/Analytics'), '/analytics');
 const StaffPage = lazyPage(() => import('./pages/Staff'), '/staff');
 const SettlementsPage = lazyPage(() => import('./pages/Settlements'), '/settlements');
+const DocumentsPage = lazyPage(() => import('./pages/Documents'), '/documents');
 
 /**
  * Caché de lecturas del panel. 30 s de frescura: ir de Pedidos a la cocina
@@ -81,6 +82,7 @@ function App() {
               <Route path="promotions" element={<PromotionsPage />} />
               <Route path="advertising" element={<AdvertisingPage />} />
               <Route path="staff" element={<StaffPage />} />
+              <Route path="documents" element={<DocumentsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Route>

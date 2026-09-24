@@ -5,6 +5,7 @@ import { Order, Payment, toPublicCard } from '../models';
 import { AppError } from '../middlewares';
 import { sendResponse, param } from '../utils';
 import { RefundKind, UserRole } from '../types';
+import { AuditAction, AuditSeverity, logAudit } from '../security';
 
 export class PaymentController {
   /** Lets checkout know whether to offer online payment at all. */
@@ -419,6 +420,32 @@ export class PaymentController {
     try {
       const refunds = await refundService.listForOrder(param(req, 'orderId'));
       sendResponse(res, 200, 'Reembolsos del pedido', refunds);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Reembolso ya hecho por fuera de ZIPP (dashboard de Wompi), porque la
+   * pasarela no admite reembolsos parciales por API. No mueve dinero real
+   * en la pasarela: solo reparte contablemente y deja auditoría.
+   */
+  async refundExternal(req: Request, res: Response, next: NextFunction) {
+    try {
+      const refund = await refundService.issueExternal({
+        orderId: param(req, 'orderId'),
+        amount: req.body.amount,
+        reason: req.body.reason,
+        externalReference: req.body.externalReference,
+        requestedBy: req.user!._id.toString(),
+      });
+      void logAudit(req, {
+        action: AuditAction.REFUND_ISSUED,
+        entity: 'order',
+        entityId: param(req, 'orderId'),
+        severity: AuditSeverity.HIGH,
+        description: `Reembolso externo registrado por $${req.body.amount?.toLocaleString?.('es-CO') ?? req.body.amount}, ref. ${req.body.externalReference}`,
+        metadata: { refundId: String(refund._id), externalReference: req.body.externalReference },
+      });
+      sendResponse(res, 201, 'Reembolso externo registrado', refund);
     } catch (error) { next(error); }
   }
 }

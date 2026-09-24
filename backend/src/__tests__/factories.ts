@@ -8,7 +8,11 @@ import {
   Coupon,
   Zone,
   PlatformPricingConfig,
+  BusinessDocument,
+  Role,
 } from '../models';
+import { STAFF_ROLE_PERMISSIONS, SUPER_ADMIN_ROLE_SLUG, Permission } from '../security/rbac';
+import { encrypt, hashForSearch } from '../security';
 import { UserRole, CouponType, CouponFundedBy, CouponScope, OrderCodeKind, OrderEvidenceType, OrderStatus } from '../types';
 import { generateAccessToken } from '../utils';
 import { sessionManager } from '../security';
@@ -151,6 +155,12 @@ export async function makeBusiness(ownerId: any, overrides: Partial<{
   isApproved: boolean;
   category: string;
   city: string;
+  /**
+   * Da al negocio una cuenta de pago ya verificada (por defecto, solo si está
+   * aprobado). `settle()` exige una: sin ella un negocio aprobado no se
+   * liquida. Pasa `false` para probar el negocio sin cuenta.
+   */
+  withPayoutAccount: boolean;
 }> = {}) {
   const bps =
     overrides.commissionRateBps ??
@@ -158,7 +168,34 @@ export async function makeBusiness(ownerId: any, overrides: Partial<{
       ? Math.round(overrides.commissionRate * 10_000)
       : 1000);
 
+  const _id = new Types.ObjectId();
+  const isApproved = overrides.isApproved ?? true;
+  const withAccount = overrides.withPayoutAccount ?? isApproved;
+  const aad = `zipp:business:${_id}`;
+  const now = new Date();
+
   return Business.create({
+    _id,
+    ...(withAccount
+      ? {
+          payoutAccount: {
+            method: 'bank',
+            bankName: 'Bancolombia',
+            accountType: 'ahorros',
+            accountNumberEnc: encrypt('12345678901', aad),
+            accountNumberHash: hashForSearch(`bank:12345678901:${_id}`),
+            accountLast4: '8901',
+            holderName: 'Titular de prueba',
+            holderDocument: encrypt('900123456', aad),
+            verificationStatus: 'verified',
+            verifiedAt: now,
+            verifiedBy: new Types.ObjectId(),
+            version: 1,
+            updatedAt: now,
+            updatedBy: new Types.ObjectId(),
+          },
+        }
+      : {}),
     ownerId,
     name: overrides.name ?? `Negocio ${counter++}`,
     description: overrides.description ?? 'Negocio de prueba',
@@ -175,7 +212,7 @@ export async function makeBusiness(ownerId: any, overrides: Partial<{
     // decimal mirror cannot represent that, so it falls back to 0.
     commissionRate: Math.max(0, bps) / 10_000,
     isActive: overrides.isActive ?? true,
-    isApproved: overrides.isApproved ?? true,
+    isApproved,
     city: overrides.city ?? 'Garzón',
   });
 }
@@ -467,4 +504,109 @@ export async function makeDiscoveryCollections() {
   const { DiscoveryCollection } = await import('../models');
   const { ALL_SEEDS, seedToDocument } = await import('../constants/discoverySeeds');
   return DiscoveryCollection.insertMany(ALL_SEEDS.map(seedToDocument));
+}
+
+// ── Documentos y cuenta de pago del comercio ─────────────────────────
+
+/** Le pone un archivo (llave falsa) a un documento: aprobar exige archivo. */
+export async function attachTestFile(documentId: any) {
+  await BusinessDocument.updateOne(
+    { _id: documentId },
+    { $set: { fileKey: `test/${documentId}`, fileResourceType: 'image', fileFormat: 'png', isPrivate: true } }
+  );
+}
+
+/**
+ * Revisa un documento como lo hace el panel: con la `revision` (el `updatedAt`
+ * en ms) del documento tal como está ahora.
+ */
+export async function reviewDoc(
+  documentId: any,
+  adminId: string,
+  status: 'approved' | 'rejected',
+  rejectionReason?: string
+) {
+  const { businessService } = await import('../services/business.service');
+  const doc = await BusinessDocument.findById(documentId);
+  return businessService.reviewDocument(String(documentId), adminId, status, rejectionReason, doc!.updatedAt.getTime());
+}
+
+/** Sube (sin archivo real), le pone archivo y aprueba un documento del comercio. */
+export async function approveBusinessDocument(businessId: string, type: string, adminId: string, submittedBy?: string) {
+  const { businessService } = await import('../services/business.service');
+  const doc = await businessService.submitDocument(businessId, {
+    type: type as never,
+    reference: `REF-${type}`,
+    submittedBy,
+  });
+  await attachTestFile(doc._id);
+  return reviewDoc(doc._id, adminId, 'approved');
+}
+
+/**
+ * Deja al comercio con la cuenta de pago registrada por su dueño y verificada
+ * por `verifierId`, con el certificado bancario aprobado y posterior al
+ * cambio, que es lo que exige `verifyPayoutAccount`.
+ */
+export async function provisionVerifiedAccount(
+  business: any,
+  ownerId: string,
+  verifierId: string,
+  overrides: { accountNumber?: string; holderDocument?: string } = {}
+) {
+  const { businessService } = await import('../services/business.service');
+  const id = String(business._id);
+  const account = await businessService.setPayoutAccount(
+    id,
+    {
+      method: 'bank',
+      bankName: 'Bancolombia',
+      accountType: 'ahorros',
+      accountNumber: overrides.accountNumber ?? '12345678901',
+      holderName: 'Negocio SAS',
+      holderDocument: overrides.holderDocument ?? '900123456',
+    },
+    ownerId,
+    { asOwner: true }
+  );
+  await approveBusinessDocument(id, 'bank_certificate', verifierId);
+  await businessService.verifyPayoutAccount(id, verifierId, account!.version as number);
+  return account!;
+}
+
+/**
+ * Un comercio real, aprobado y con cuenta de pago verificada, del que solo se
+ * devuelve el id. `settle()` lee la cuenta del negocio: un `ObjectId` inventado
+ * ya no sirve para liquidar.
+ */
+export async function makeSettleableBusinessId(): Promise<Types.ObjectId> {
+  const owner = await makeUser({ role: UserRole.BUSINESS });
+  const business = await makeBusiness(owner._id, {});
+  return business._id as Types.ObjectId;
+}
+
+/**
+ * Admin con un rol explicito de la Fase 1. `roleSlug`: `super_admin` o una
+ * clave de `STAFF_ROLE_PERMISSIONS`; sin `roleSlug` el admin nace sin roles
+ * (solo `admin:panel`). Crea el rol si no existe.
+ */
+export async function makeStaff(
+  opts: { roleSlug?: 'super_admin' | keyof typeof STAFF_ROLE_PERMISSIONS | null; permissions?: Permission[]; name?: string; email?: string } = {}
+) {
+  const user = await makeUser({ role: UserRole.ADMIN, name: opts.name, email: opts.email });
+  const slug = opts.roleSlug;
+  if (slug) {
+    const isSuper = slug === SUPER_ADMIN_ROLE_SLUG;
+    const def = isSuper ? null : STAFF_ROLE_PERMISSIONS[slug as keyof typeof STAFF_ROLE_PERMISSIONS];
+    const role = await Role.findOneAndUpdate(
+      { slug },
+      {
+        $set: { permissions: isSuper ? Object.values(Permission) : opts.permissions ?? def!.permissions, isActive: true },
+        $setOnInsert: { name: def?.name ?? 'Super Administrador', description: def?.description ?? 'Sistema', isSystem: isSuper },
+      },
+      { upsert: true, new: true }
+    );
+    await User.updateOne({ _id: user._id }, { $addToSet: { roleIds: role._id } });
+  }
+  return (await User.findById(user._id))!;
 }

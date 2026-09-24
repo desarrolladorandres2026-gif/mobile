@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError } from '../middlewares';
+import { emitToAdmin } from '../sockets/emitter';
 import { uploadEvidenceImage } from '../middlewares/upload';
 import { sendResponse, param, query, clientIp, userAgent, readLocation, clampLimit } from '../utils';
 import {
@@ -168,7 +169,7 @@ export class OrderFlowController {
           .catch(console.error);
       }
 
-      io?.to('admin').emit('order:driver:arrived', payload);
+      emitToAdmin(io, 'orders', 'order:driver:arrived', payload);
 
       orderTimelineService
         .record(
@@ -470,7 +471,7 @@ export class OrderFlowController {
       io?.to(`user:${participants.driverUserId}`).emit('order:status:changed', payload);
     }
     io?.to(`business:${participants.businessId}`).emit('order:status:changed', payload);
-    io?.to('admin').emit('order:status:changed', payload);
+    emitToAdmin(io, 'orders', 'order:status:changed', payload);
 
     if (kind === OrderCodeKind.PICKUP) {
       const notices: Promise<unknown>[] = [

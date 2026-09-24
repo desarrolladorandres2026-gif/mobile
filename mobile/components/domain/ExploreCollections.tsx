@@ -2,9 +2,11 @@ import { memo, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { ProductCollectionRow } from './ProductCollectionRow';
 import { PromoCarousel } from './PromoCarousel';
+import { ExploreSections } from './explore/ExploreSections';
 import { useExplore } from '../../hooks/useApi';
 import { useProgressiveLimit } from '../../hooks/useProgressiveLimit';
 import { alternateWeights } from '../../lib/exploreWeights';
+import { exploreContent } from '../../lib/exploreSections';
 
 /**
  * Las colecciones de descubrimiento de Explorar.
@@ -18,6 +20,10 @@ import { alternateWeights } from '../../lib/exploreWeights';
  * Todo llega en **una sola petición**. Una consulta por sección sería la
  * forma más rápida de que el limitador devuelva un 429, y desde el teléfono
  * un 429 se lee exactamente igual que "no hay nada que mostrar".
+ *
+ * Dos caminos: las secciones del constructor del panel (`ExploreSections`),
+ * o —si el servidor todavía no lo conoce— la forma de siempre, que se sigue
+ * pintando aquí abajo igual que antes.
  *
  * Devuelve `null` mientras no haya nada: un hueco vacío encima de la
  * tarjeta de mandados se ve como un error de maquetación.
@@ -35,13 +41,18 @@ export const ExploreCollections = memo(function ExploreCollections({
 }) {
   const { data: feed } = useExplore(coords, ready);
   const sectionLimit = useProgressiveLimit(INITIAL_SECTIONS);
+  const content = useMemo(() => exploreContent(feed), [feed]);
 
-  // El servidor ordena por franja, rotación y presupuesto de exposición —
-  // no por peso visual de tarjeta. `alternateWeights` es lo que hace
-  // cumplir la regla dura de docs/EXPLORAR.md §5: nunca dos carruseles del
-  // mismo peso ("protagonista" / "secundario") seguidos.
-  const rawEntries = feed?.entries ?? [];
-  const entries = useMemo(() => alternateWeights(rawEntries), [rawEntries]);
+  // Camino de siempre. El servidor ordena por franja, rotación y
+  // presupuesto de exposición —no por peso visual de tarjeta—, así que
+  // `alternateWeights` hace cumplir la regla dura de docs/EXPLORAR.md §5:
+  // nunca dos carruseles del mismo peso ("protagonista" / "secundario") seguidos.
+  const entries = useMemo(
+    () => (content.mode === 'entries' ? alternateWeights(content.entries) : []),
+    [content]
+  );
+
+  if (content.mode === 'sections') return <ExploreSections sections={content.sections} />;
   if (entries.length === 0) return null;
 
   return (

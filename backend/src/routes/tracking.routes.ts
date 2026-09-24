@@ -3,6 +3,8 @@ import { trackingController } from '../controllers/tracking.controller';
 import { authenticate, authorize, validate } from '../middlewares';
 import { pingSchema, routeSchema, nearestSchema } from '../validators/tracking.validator';
 import { UserRole } from '../types';
+import { requirePermission, adminRequires } from '../middlewares/auth';
+import { Permission } from '../security';
 
 const router = Router();
 
@@ -24,7 +26,7 @@ router.get('/config', authenticate, (req, res, next) => trackingController.confi
 
 // Seguimiento de un pedido: cliente, comercio, repartidor o admin — lo
 // resuelve el servicio contra la base, no el rol.
-router.get('/orders/:orderId', authenticate, (req, res, next) =>
+router.get('/orders/:orderId', authenticate, adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) =>
   trackingController.order(req, res, next)
 );
 
@@ -33,6 +35,7 @@ router.post(
   '/orders/:orderId/route',
   authenticate,
   authorize(UserRole.DRIVER, UserRole.ADMIN),
+  adminRequires(Permission.ORDERS_VIEW_ALL),
   validate(routeSchema),
   (req, res, next) => trackingController.route(req, res, next)
 );
@@ -47,7 +50,7 @@ router.post(
 );
 
 // Panel admin
-router.get('/fleet', authenticate, authorize(UserRole.ADMIN), (req, res, next) =>
+router.get('/fleet', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_TRACK), (req, res, next) =>
   trackingController.fleet(req, res, next)
 );
 
@@ -55,6 +58,7 @@ router.get(
   '/nearest',
   authenticate,
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.DRIVERS_TRACK),
   validate(nearestSchema),
   (req, res, next) => trackingController.nearest(req, res, next)
 );

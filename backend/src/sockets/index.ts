@@ -3,7 +3,7 @@ import { Server as HttpServer } from 'http';
 import { config } from '../config';
 import { sessionManager } from '../security';
 import { verifyAccessToken, isLegacyTokenAcceptable, DecodedToken } from '../utils/token';
-import { Business, Driver, Order, OrderCall, User } from '../models';
+import { Business, BusinessStaff, Driver, Order, OrderCall, User } from '../models';
 import { OrderCallStatus, OrderStatus } from '../types';
 import { resolveOrderAccess } from '../services/orderAccess.service';
 import {
@@ -12,13 +12,41 @@ import {
   getDriverRoute,
   LocationPing,
 } from '../services/tracking.service';
-import { emitDriverLocation } from './emitter';
+import { emitDriverLocation, adminRoom } from './emitter';
+import { resolveAuthorization, type ResolvedAuthorization } from '../services/authorization.service';
+import { Permission } from '../security';
+import { assertOrderAdminAccess } from '../services/orderAccess.service';
 
 export interface SocketIdentity {
   userId: string;
   role: string;
   /** Sesión del token; el socket se une a `session:<id>` para cerrarse si se revoca. */
   sessionId?: string;
+  /** Ve la sala `admin` (ubicación de flota, SOS, pedidos) solo si aprobó el mismo requisito de 2FA que exige la API REST. */
+  twoFactorSatisfied: boolean;
+  /** `exp` del access token (segundos Unix), para desconectar el socket cuando caduque (M1). */
+  exp?: number;
+  /** Autorización del admin (Fase 1); undefined para el resto de cuentas. */
+  authz?: ResolvedAuthorization;
+}
+
+/**
+ * Permisos con los que se deciden las salas de un admin: en observación
+ * `legacyUnion` (nadie pierde eventos hoy), en bloqueo `strict`.
+ */
+export function socketPermissions(authz: ResolvedAuthorization | undefined): Permission[] {
+  if (!authz) return [];
+  return authz.mode === 'observe' ? authz.legacyUnion : authz.strict;
+}
+
+/** Salas de admin que le corresponden según sus permisos. */
+export function adminRoomsFor(authz: ResolvedAuthorization | undefined): string[] {
+  const perms = socketPermissions(authz);
+  const rooms: string[] = [];
+  if (perms.includes(Permission.ORDERS_VIEW_ALL)) rooms.push(adminRoom('orders'));
+  if (perms.includes(Permission.DRIVERS_TRACK)) rooms.push(adminRoom('fleet'));
+  if (perms.includes(Permission.SOS_VIEW)) rooms.push(adminRoom('sos'));
+  return rooms;
 }
 
 /**
@@ -59,7 +87,7 @@ export async function authenticateSocket(token: unknown): Promise<SocketIdentity
     throw new Error('Token inválido o expirado');
   }
 
-  const user = await User.findById(decoded.id).select('role isActive isBlocked passwordChangedAt');
+  const user = await User.findById(decoded.id).select('role isActive isBlocked passwordChangedAt twoFactorEnabled roleIds positionId isFinanceAdmin');
   if (!user) throw new Error('Usuario no encontrado o desactivado');
   if (user.isBlocked) throw new Error('Cuenta bloqueada');
   if (!user.isActive) throw new Error('Usuario no encontrado o desactivado');
@@ -77,7 +105,27 @@ export async function authenticateSocket(token: unknown): Promise<SocketIdentity
   // El rol sale de la base, no del token: a quien le cambien el rol, su
   // token viejo seguiría afirmando el anterior y lo metería en salas que ya
   // no le corresponden — `admin`, por ejemplo.
-  return { userId: decoded.id, role: user.role, sessionId: decoded.sid };
+  //
+  // S5: el middleware HTTP (`middlewares/auth.ts:124`) bloquea a un admin
+  // sin 2FA fuera de las rutas para activarlo cuando
+  // `TOTP_REQUIRED_ADMINS`/`requiredForAdmins` está encendido. El socket no
+  // tenía el mismo requisito: un admin sin TOTP entraba igual a la sala
+  // `admin` y recibía ubicación de flota, SOS y pedidos en vivo.
+  const twoFactorSatisfied =
+    !(config.security.twoFactor.requiredForAdmins && user.role === 'admin' && !user.twoFactorEnabled);
+
+  // Las salas de admin se calculan aquí, al conectar: un cambio de roles
+  // desconecta sus sockets (admin.service) y el reconectar las recalcula.
+  const authz = user.role === 'admin' ? await resolveAuthorization(user) : undefined;
+
+  return {
+    authz,
+    userId: decoded.id,
+    role: user.role,
+    sessionId: decoded.sid,
+    twoFactorSatisfied,
+    exp: typeof decoded.exp === 'number' ? decoded.exp : undefined,
+  };
 }
 
 export const initializeSocket = (httpServer: HttpServer): SocketServer => {
@@ -95,9 +143,19 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
     const token = socket.handshake.auth.token;
     try {
       const identity = await authenticateSocket(token);
+      // A3: un admin sin el 2FO exigido no entra ni a la sala `admin` ni a
+      // ninguna otra — antes solo se le negaba `admin`, pero `track:driver`
+      // y `order:join` seguían aceptando su conexión (S5 a medias). Misma
+      // regla que la API REST: sin 2FA, el handshake entero se rechaza.
+      if (identity.role === 'admin' && !identity.twoFactorSatisfied) {
+        throw new Error('Verificación en dos pasos requerida');
+      }
       (socket as any).userId = identity.userId;
       (socket as any).userRole = identity.role;
       (socket as any).sessionId = identity.sessionId;
+      (socket as any).twoFactorSatisfied = identity.twoFactorSatisfied;
+      (socket as any).tokenExp = identity.exp;
+      (socket as any).authz = identity.authz;
       next();
     } catch (error) {
       next(error as Error);
@@ -117,9 +175,29 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
     if (sessionId) socket.join(`session:${sessionId}`);
 
     // Join role-based rooms
-    if (userRole === 'admin') {
-      socket.join('admin');
+    if (userRole === 'admin' && (socket as any).twoFactorSatisfied) {
+      for (const room of adminRoomsFor((socket as any).authz)) socket.join(room);
     }
+
+    // M1(d): el socket se cierra solo cuando caduca el access token que lo
+    // abrió, igual que ya se cierra al revocarse la sesión (sala
+    // `session:<id>`). Sin esto, una conexión de WebSocket sobrevivía al
+    // vencimiento del token que la autenticó: REST volvía a pedir uno
+    // nuevo, pero el socket seguía abierto con el viejo hasta que algo más
+    // lo cortara.
+    const tokenExp = (socket as any).tokenExp as number | undefined;
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+    if (typeof tokenExp === 'number') {
+      const msUntilExpiry = tokenExp * 1000 - Date.now();
+      if (msUntilExpiry <= 0) {
+        socket.disconnect(true);
+      } else {
+        expiryTimer = setTimeout(() => socket.disconnect(true), msUntilExpiry);
+      }
+    }
+    socket.on('disconnect', () => {
+      if (expiryTimer) clearTimeout(expiryTimer);
+    });
 
     if (userRole === 'driver') {
       socket.join('drivers');
@@ -179,7 +257,7 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
           const validStatuses = ['available', 'busy', 'offline'];
           if (!validStatuses.includes(status)) return;
           await Driver.findOneAndUpdate({ userId }, { status });
-          io.to('admin').emit('driver:status:update', { driverId: userId, status });
+          io.to(adminRoom('fleet')).emit('driver:status:update', { driverId: userId, status });
         } catch (err) {
           console.error('[Socket] Error actualizando estado del conductor:', err);
         }
@@ -199,12 +277,18 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
     }
 
     if (userRole === 'business') {
-      // Business users join their own business rooms for real-time order events
+      // Business users join their own business rooms for real-time order events.
+      // S15: antes solo resolvía por `ownerId`, así que un empleado
+      // (`BusinessStaff`, sin ser el dueño) nunca entraba a la sala de su
+      // propio negocio y se perdía los pedidos en vivo.
       try {
-        const businesses = await Business.find({ ownerId: userId }).select('_id');
-        for (const biz of businesses) {
-          socket.join(`business:${biz._id.toString()}`);
-        }
+        const [owned, staffOf] = await Promise.all([
+          Business.find({ ownerId: userId }).select('_id'),
+          BusinessStaff.find({ userId, isActive: true }).select('businessId'),
+        ]);
+        const ids = new Set<string>(owned.map((b) => b._id.toString()));
+        for (const staff of staffOf) ids.add(staff.businessId.toString());
+        for (const id of ids) socket.join(`business:${id}`);
       } catch (err) {
         console.error('[Socket] Error cargando negocios del usuario:', err);
       }
@@ -218,13 +302,19 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
       const activeStatuses = [OrderStatus.READY, OrderStatus.PICKED_UP, OrderStatus.ON_WAY];
       const driver = await Driver.findOne({ userId: driverId }).select('_id');
       if (!driver) return socket.emit('driver:tracking:denied', { message: 'Domiciliario no encontrado' });
-      let allowed = userRole === 'admin';
+      let allowed =
+        userRole === 'admin' &&
+        socketPermissions((socket as any).authz).includes(Permission.DRIVERS_TRACK);
       if (!allowed && userRole === 'client') {
         allowed = !!(await Order.exists({ driverId: driver._id, clientId: userId, status: { $in: activeStatuses } }));
       }
       if (!allowed && userRole === 'business') {
-        const businesses = await Business.find({ ownerId: userId }).select('_id');
-        allowed = !!(await Order.exists({ driverId: driver._id, businessId: { $in: businesses.map((b) => b._id) }, status: { $in: activeStatuses } }));
+        const [owned, staffOf] = await Promise.all([
+          Business.find({ ownerId: userId }).select('_id'),
+          BusinessStaff.find({ userId, isActive: true }).select('businessId'),
+        ]);
+        const businessIds = [...owned.map((b) => b._id), ...staffOf.map((s) => s.businessId)];
+        allowed = !!(await Order.exists({ driverId: driver._id, businessId: { $in: businessIds }, status: { $in: activeStatuses } }));
       }
       if (allowed) socket.join(`driver:tracking:${driverId}`);
       else socket.emit('driver:tracking:denied', { message: 'No tienes un pedido activo asociado a este domiciliario' });
@@ -244,6 +334,9 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
     socket.on('order:join', async (orderId: string) => {
       try {
         await resolveOrderAccess(orderId, { _id: userId, role: userRole });
+        if (userRole === 'admin') {
+          assertOrderAdminAccess(socketPermissions((socket as any).authz));
+        }
         socket.join(`order:${orderId}`);
         socket.emit('order:joined', { orderId });
       } catch {

@@ -3,6 +3,8 @@ import { couponController } from '../controllers';
 import { authenticate, authorize, validate } from '../middlewares';
 import { validateCouponSchema, createCouponSchema, updateCouponSchema } from '../validators';
 import { UserRole } from '../types';
+import { Permission } from '../security';
+import { requirePermission, adminRequires, can } from '../middlewares/auth';
 import { z } from 'zod';
 
 const router = Router();
@@ -70,16 +72,17 @@ router.patch('/business/:id/deactivate', authenticate, authorize(UserRole.BUSINE
 );
 
 // Admin — CRUD
-router.get('/', authenticate, authorize(UserRole.ADMIN), (req, res, next) =>
+router.get('/', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.COUPONS_VIEW), (req, res, next) =>
   couponController.list(req, res, next)
 );
-router.get('/:id/redemptions', authenticate, authorize(UserRole.ADMIN), (req, res, next) =>
+router.get('/:id/redemptions', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.COUPONS_VIEW), (req, res, next) =>
   couponController.redemptions(req, res, next)
 );
 router.post(
   '/',
   authenticate,
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.COUPONS_MANAGE),
   validate(createCouponSchema),
   (req, res, next) => couponController.create(req, res, next)
 );
@@ -87,10 +90,11 @@ router.patch(
   '/:id',
   authenticate,
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.COUPONS_MANAGE),
   validate(updateCouponSchema),
   (req, res, next) => couponController.update(req, res, next)
 );
-router.delete('/:id', authenticate, authorize(UserRole.ADMIN), (req, res, next) =>
+router.delete('/:id', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.COUPONS_MANAGE), (req, res, next) =>
   couponController.remove(req, res, next)
 );
 

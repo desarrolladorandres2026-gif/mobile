@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { BUSINESS_BRAND_COLORS } from '../utils/businessBrand';
+import { objectId } from './common';
+import {
+  LEGAL_DOCUMENT_TYPES,
+  TAX_REGIMES,
+  PAYOUT_METHODS,
+  PAYOUT_ACCOUNT_TYPES,
+} from '../models/Business';
 
 /**
  * Merchant-facing schemas.
@@ -100,11 +107,129 @@ export const adminBusinessTermsSchema = z.object({
     .object({
       commissionRateBps: z.number().int().min(-1).max(10_000).optional(),
       isFeatured: z.boolean().optional(),
-      isApproved: z.boolean().optional(),
+      // `isApproved` ya no se acepta aquí (S11): aprobar es una puerta
+      // aparte (`businessService.approve`) que exige documentos en regla y
+      // deja `approvedBy`. Aceptarlo aquí dejaba aprobar sin ninguno de los
+      // dos. `.strict()` en el body rechaza cualquier envío que lo incluya.
       isActive: z.boolean().optional(),
       minOrder: z.number().int().min(0).optional(),
     })
     .strict(),
   query: z.object({}).optional(),
   params: z.object({ id: z.string() }),
+});
+
+// ── Documentos del comercio (O4) ─────────────────────────────────────
+
+export const BUSINESS_DOCUMENT_TYPES = [
+  'rut',
+  'chamber_of_commerce',
+  'legal_rep_id',
+  'bank_certificate',
+  'health_permit',
+] as const;
+
+/**
+ * Los campos de texto que acompañan al archivo. La petición es multipart, así
+ * que este esquema se aplica **dentro del controlador**, después de que multer
+ * haya leído el cuerpo: pasarlo por `validate()` antes vaciaría `req.body`.
+ */
+export const businessDocumentBody = z.object({
+  type: z.enum(BUSINESS_DOCUMENT_TYPES),
+  reference: z.string().trim().min(3, 'El número del documento es obligatorio').max(500),
+  // Un formulario multipart manda la cadena vacía cuando el campo no se llena.
+  expiresAt: z.preprocess(
+    (value) => (value === '' || value === null ? undefined : value),
+    z.coerce
+      .date()
+      .refine((date) => date.getTime() > Date.now(), 'La fecha de vencimiento debe ser futura')
+      .optional()
+  ),
+});
+
+export const reviewBusinessDocumentSchema = z.object({
+  body: z
+    .object({
+      status: z.enum(['approved', 'rejected']),
+      /** Obligatorio al rechazar: el comercio lo ve y corrige a ciegas si no. */
+      rejectionReason: z.string().trim().min(5).max(300).optional(),
+      /**
+       * `updatedAt` (ms) del documento tal como lo vio quien revisa. Si el
+       * comercio lo reemplazó mientras tanto, la revisión se rechaza en vez
+       * de aprobar un archivo que nadie miró.
+       */
+      revision: z.number().int().positive(),
+    })
+    .strict()
+    .superRefine((body, ctx) => {
+      if (body.status === 'rejected' && !body.rejectionReason) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['rejectionReason'],
+          message: 'El motivo del rechazo es obligatorio (5 a 300 caracteres)',
+        });
+      }
+    }),
+  params: z.object({ documentId: objectId }),
+});
+
+// ── Datos fiscales y cuenta de pago ──────────────────────────────────
+
+const optionalText = (min: number, max: number) =>
+  z.string().trim().min(min).max(max).optional().nullable();
+
+/**
+ * Identidad tributaria. Las reglas que dependen de otros campos (largo del
+ * documento según el tipo, DV del NIT) viven en `business.service.ts`, que
+ * también recibe llamadas que no pasan por HTTP.
+ */
+export const businessLegalSchema = z.object({
+  body: z
+    .object({
+      documentType: z.enum(LEGAL_DOCUMENT_TYPES),
+      documentNumber: z.string().trim().min(4).max(20),
+      /** Opcional: el servidor lo calcula; si viene, se comprueba. */
+      dv: z
+        .union([z.string().trim().regex(/^\d$/, 'El DV es un solo dígito'), z.number().int().min(0).max(9)])
+        .optional()
+        .nullable(),
+      legalName: z.string().trim().min(2).max(150),
+      legalRepName: optionalText(2, 120),
+      taxRegime: z.enum(TAX_REGIMES).optional().nullable(),
+      billingEmail: z.string().trim().toLowerCase().email('Correo de facturación inválido').max(254).optional().nullable(),
+    })
+    .strict(),
+  params: z.object({ id: objectId }),
+});
+
+export const businessPayoutAccountSchema = z.object({
+  body: z
+    .object({
+      method: z.enum(PAYOUT_METHODS),
+      bankName: optionalText(2, 80),
+      accountType: z.enum(PAYOUT_ACCOUNT_TYPES).optional().nullable(),
+      accountNumber: z.string().trim().min(6).max(24),
+      holderName: z.string().trim().min(2).max(120),
+      holderDocument: z.string().trim().min(5).max(20),
+      /**
+       * Reautenticación: la contraseña actual de quien hace el cambio, o el OTP
+       * del celular si la cuenta no tiene contraseña (`POST .../payout-account/reauth-otp`).
+       * Un token de acceso robado no basta para desviar el dinero.
+       */
+      currentPassword: z.string().min(1).max(200).optional(),
+      otpCode: z.string().trim().regex(/^\d{4,8}$/, 'Código inválido').optional(),
+    })
+    .strict(),
+  params: z.object({ id: objectId }),
+});
+
+export const verifyPayoutAccountSchema = z.object({
+  body: z
+    .object({
+      /** La versión de la cuenta que finanzas revisó (`version` de la lectura). */
+      version: z.number().int().min(1),
+      note: z.string().trim().max(300).optional(),
+    })
+    .strict(),
+  params: z.object({ id: objectId }),
 });

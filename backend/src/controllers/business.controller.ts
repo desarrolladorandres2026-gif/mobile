@@ -1,11 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { businessService, businessImageService, payoutService, publicCatalogService } from '../services';
-import { AppError, uploadBusinessImage, cacheHeaders } from '../middlewares';
+import { can } from '../middlewares/auth';
+import { AppError, uploadBusinessImage, uploadBusinessDocumentFile, cacheHeaders } from '../middlewares';
 import { Business } from '../models';
 import { PayoutStatus } from '../types';
 import { sendResponse, param, query, toCsv, csvFilename, clampLimit } from '../utils';
 import { UserRole } from '../types';
-import { AuditAction, logAudit } from '../security';
+import { AuditAction, AuditSeverity, Permission, logAudit } from '../security';
+import { businessDocumentBody } from '../validators/business.validator';
 
 export class BusinessController {
   /**
@@ -162,7 +164,19 @@ export class BusinessController {
   /** Cola de negocios esperando revisión, con lo que le falta a cada uno. */
   async pendingApprovals(req: Request, res: Response, next: NextFunction) {
     try {
-      sendResponse(res, 200, 'Negocios por revisar', await businessService.pendingApprovals());
+      const pending = await businessService.pendingApprovals();
+      // Copias de cédulas y RUT: que ningún intermediario las guarde, y
+      // que consultar la cola deje rastro (antes no lo dejaba).
+      res.setHeader('Cache-Control', 'no-store');
+      void logAudit(req, {
+        action: AuditAction.BUSINESS_DOCUMENT_VIEWED,
+        entity: 'business',
+        entityId: 'pending-approvals',
+        severity: AuditSeverity.LOW,
+        description: 'Cola de negocios por revisar consultada (incluye enlaces a documentos)',
+        metadata: { businesses: pending.length },
+      });
+      sendResponse(res, 200, 'Negocios por revisar', pending);
     } catch (error) { next(error); }
   }
 
@@ -180,43 +194,107 @@ export class BusinessController {
   }
 
   /**
-   * RUT, cámara de comercio, cédula del representante y certificación
-   * bancaria. Antes bastaba con tener rol `business` para leer o pisar los de
-   * cualquier negocio cambiando el `:id`. Ahora hace falta ser el dueño (o
-   * un empleado con `settings:manage`, que hoy solo tiene el dueño); un
-   * administrador entra por su rol, como en la revisión de documentos.
+   * Acceso a los papeles y datos fiscales de un negocio.
+   *
+   * Antes bastaba con tener rol `business` para leer o pisar los de cualquier
+   * negocio cambiando el `:id`. Ahora:
+   *   - el dueño (o un empleado con `settings:manage`, que hoy solo tiene el
+   *     dueño) entra a los de SU negocio y a ninguno más;
+   *   - un administrador entra con el permiso que la operación pida
+   *     (`adminPermissions`, cualquiera de la lista) — no basta con ser admin.
+   * Devuelve si quien pregunta es admin, para que el caller decida qué auditar.
    */
-  private async assertCanManageDocuments(req: Request, businessId: string): Promise<void> {
-    if (req.user!.role === UserRole.ADMIN) return;
+  private async assertBusinessFileAccess(
+    req: Request,
+    businessId: string,
+    adminPermissions: Permission[]
+  ): Promise<{ isAdmin: boolean }> {
+    if (req.user!.role === UserRole.ADMIN) {
+      if (!adminPermissions.some((permission) => can(req, permission))) {
+        throw new AppError('No tienes permisos suficientes para esta acción', 403);
+      }
+      return { isAdmin: true };
+    }
 
     const { businessStaffService } = await import('../services/businessStaff.service');
     const { BusinessPermission } = await import('../models');
     await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission.SETTINGS_MANAGE);
+    return { isAdmin: false };
+  }
+
+  /** Papeles: el admin necesita poder aprobar comercios. */
+  private assertCanManageDocuments(req: Request, businessId: string) {
+    return this.assertBusinessFileAccess(req, businessId, [Permission.BUSINESSES_APPROVE]);
   }
 
   async listDocuments(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = param(req, 'id');
-      await this.assertCanManageDocuments(req, businessId);
-      sendResponse(res, 200, 'Documentos', await businessService.listDocuments(businessId));
+      const { isAdmin } = await this.assertCanManageDocuments(req, businessId);
+      // `?history=true` firma también las versiones anteriores (bajo demanda).
+      const documents = await businessService.listDocuments(businessId, {
+        includeHistory: query(req, 'history') === 'true',
+      });
+      res.setHeader('Cache-Control', 'no-store');
+
+      // Un admin abriendo los papeles de un comercio es un acceso a copias de
+      // cédulas: queda rastro. El dueño viendo los suyos no.
+      if (isAdmin) {
+        void logAudit(req, {
+          action: AuditAction.BUSINESS_DOCUMENT_VIEWED,
+          entity: 'business',
+          entityId: businessId,
+          severity: AuditSeverity.LOW,
+          description: 'Documentos del comercio consultados por administración',
+          metadata: { count: documents.length },
+        });
+      }
+
+      sendResponse(res, 200, 'Documentos', documents);
     } catch (error) { next(error); }
   }
 
+  /**
+   * Subida de un documento: multipart con el archivo en el campo `file`
+   * (imagen o PDF) más `type`, `reference` y `expiresAt`.
+   *
+   * Sin `validate()` en la ruta por la misma razón que las fotos: zod vaciaría
+   * `req.body` antes de que multer lo lea. El acceso se comprueba **antes** de
+   * leer el archivo, para no cargar a memoria lo que un tercero intenta subir.
+   */
   async submitDocument(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = param(req, 'id');
       await this.assertCanManageDocuments(req, businessId);
-      const document = await businessService.submitDocument(businessId, req.body);
 
-      void logAudit(req, {
-        action: AuditAction.BUSINESS_UPDATED,
-        entity: 'business',
-        entityId: businessId,
-        description: `Documento ${req.body.type} enviado para verificación`,
-        metadata: { documentType: req.body.type },
+      uploadBusinessDocumentFile(req, res, async (err: unknown) => {
+        try {
+          if (err) {
+            const tooBig = (err as { code?: string }).code === 'LIMIT_FILE_SIZE';
+            throw new AppError(
+              tooBig
+                ? 'El archivo supera el máximo de 8 MB'
+                : err instanceof Error ? err.message : 'No se pudo procesar el archivo',
+              tooBig ? 413 : 400
+            );
+          }
+          if (!req.file) throw new AppError('Adjunta el archivo del documento (campo "file")', 400);
+
+          const parsed = businessDocumentBody.safeParse(req.body);
+          if (!parsed.success) {
+            throw new AppError(parsed.error.issues[0]?.message ?? 'Revisa los datos del documento', 400);
+          }
+
+          const document = await businessService.submitDocument(
+            businessId,
+            { ...parsed.data, file: req.file.buffer, submittedBy: req.user!._id.toString() },
+            req
+          );
+
+          res.setHeader('Cache-Control', 'no-store');
+          sendResponse(res, 201, 'Documento recibido para verificación', businessService.documentView(document));
+        } catch (error) { next(error); }
       });
-
-      sendResponse(res, 201, 'Documento recibido para verificación', document);
     } catch (error) { next(error); }
   }
 
@@ -226,16 +304,131 @@ export class BusinessController {
         param(req, 'documentId'),
         req.user!._id.toString(),
         req.body.status,
-        req.body.rejectionReason
+        req.body.rejectionReason,
+        req.body.revision
       );
       void logAudit(req, {
         action: AuditAction.DOCUMENT_REVIEWED,
         entity: 'business_document',
         entityId: document._id.toString(),
         description: 'Documento de comercio verificado',
-        metadata: { status: document.status, type: document.type },
+        metadata: {
+          businessId: document.businessId.toString(),
+          status: document.status,
+          type: document.type,
+          rejectionReason: document.rejectionReason ?? undefined,
+        },
       });
-      sendResponse(res, 200, 'Documento verificado', document);
+      res.setHeader('Cache-Control', 'no-store');
+      sendResponse(res, 200, 'Documento verificado', businessService.documentView(document));
+    } catch (error) { next(error); }
+  }
+
+  // ── Datos legales y cuenta de pago ──
+
+  /** Leer: el dueño, o un admin que pueda aprobar comercios o ver finanzas. */
+  private assertCanReadFiscal(req: Request, businessId: string) {
+    return this.assertBusinessFileAccess(req, businessId, [Permission.BUSINESSES_APPROVE, Permission.FINANCE_VIEW]);
+  }
+
+  /** Escribir: el dueño, o un admin con permiso para editar cualquier negocio. */
+  private assertCanWriteFiscal(req: Request, businessId: string) {
+    return this.assertBusinessFileAccess(req, businessId, [Permission.BUSINESSES_UPDATE_ALL]);
+  }
+
+  async getLegal(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      await this.assertCanReadFiscal(req, businessId);
+      res.setHeader('Cache-Control', 'no-store');
+      sendResponse(res, 200, 'Datos legales', await businessService.getLegal(businessId));
+    } catch (error) { next(error); }
+  }
+
+  async putLegal(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      await this.assertCanWriteFiscal(req, businessId);
+      const legal = await businessService.setLegal(businessId, req.body, req.user!._id.toString(), req);
+      sendResponse(res, 200, 'Datos legales guardados', legal);
+    } catch (error) { next(error); }
+  }
+
+  /** La cuenta, enmascarada (4 últimos dígitos). El número completo es `revealPayoutAccount`. */
+  async getPayoutAccount(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      await this.assertCanReadFiscal(req, businessId);
+      res.setHeader('Cache-Control', 'no-store');
+      sendResponse(res, 200, 'Cuenta de pago', await businessService.getPayoutAccount(businessId));
+    } catch (error) { next(error); }
+  }
+
+  async putPayoutAccount(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      const { isAdmin } = await this.assertCanWriteFiscal(req, businessId);
+
+      // Reautenticación: cambiar a dónde va el dinero pide algo que un token
+      // robado no tiene. Los campos de prueba no se propagan al servicio.
+      const { currentPassword, otpCode, ...accountInput } = req.body;
+      const { authService } = await import('../services/auth.service');
+      try {
+        await authService.assertReauth(req.user!._id.toString(), { password: currentPassword, otpCode });
+      } catch (error) {
+        void logAudit(req, {
+          action: AuditAction.SUSPICIOUS_ACTIVITY,
+          entity: 'business',
+          entityId: businessId,
+          severity: AuditSeverity.HIGH,
+          description: 'Cambio de cuenta de pago rechazado: reautenticación fallida',
+        });
+        throw error;
+      }
+
+      const account = await businessService.setPayoutAccount(businessId, accountInput, req.user!._id.toString(), {
+        asOwner: !isAdmin,
+        req,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      sendResponse(res, 200, 'Cuenta de pago guardada: queda pendiente de verificación por finanzas', account);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Pide el OTP de reautenticación (solo para cuentas sin contraseña, que
+   * entran con OAuth). Con contraseña no manda nada: responde `password`.
+   */
+  async requestPayoutAccountOtp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      await this.assertCanWriteFiscal(req, businessId);
+      const { authService } = await import('../services/auth.service');
+      sendResponse(res, 200, 'Confirmación solicitada', await authService.requestReauthOtp(req.user!._id.toString()));
+    } catch (error) { next(error); }
+  }
+
+  /** Solo el admin financiero (`requireFinanceAdmin` en la ruta). */
+  async verifyPayoutAccount(req: Request, res: Response, next: NextFunction) {
+    try {
+      const account = await businessService.verifyPayoutAccount(
+        param(req, 'id'),
+        req.user!._id.toString(),
+        req.body.version,
+        req,
+        req.body.note
+      );
+      sendResponse(res, 200, 'Cuenta de pago verificada', account);
+    } catch (error) { next(error); }
+  }
+
+  /** Solo el admin financiero: el número de cuenta completo, auditado. */
+  async revealPayoutAccount(req: Request, res: Response, next: NextFunction) {
+    try {
+      const account = await businessService.revealPayoutAccount(param(req, 'id'), req);
+      // Datos sensibles: que ningún intermediario los guarde.
+      res.setHeader('Cache-Control', 'no-store');
+      sendResponse(res, 200, 'Cuenta de pago (completa)', account);
     } catch (error) { next(error); }
   }
 
@@ -264,7 +457,9 @@ export class BusinessController {
         maxDistance: query(req, 'maxDistance') ? Number(query(req, 'maxDistance')) : undefined,
         page: Number(query(req, 'page')) || 1,
         limit: clampLimit(query(req, 'limit')),
-        includeInactive: query(req, 'includeInactive') === 'true' || query(req, 'all') === 'true' || req.user?.role === 'admin',
+        // Ruta pública sin sesión: nadie puede pedir aquí los no aprobados.
+        // El panel admin lista todo por `/admin/businesses`.
+        includeInactive: false,
       });
       sendResponse(res, 200, 'Negocios obtenidos', result.businesses, result.meta);
     } catch (error) { next(error); }

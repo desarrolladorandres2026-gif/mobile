@@ -4,6 +4,8 @@ import {
   ToggleLeft, ToggleRight, ImagePlus,
 } from 'lucide-react';
 import api from '../services/api';
+import { Permission } from '../lib/permissions';
+import { PermissionGate } from '../components/PermissionGate';
 import { sizedImage } from '../lib/cloudinary';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
@@ -195,7 +197,7 @@ export default function HomeCategories() {
   const labelClass = 'block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1.5';
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       <div className="page-header">
         <div>
           <h1 className="page-title">Categorías de Inicio</h1>
@@ -203,6 +205,7 @@ export default function HomeCategories() {
             Las tarjetas de categoría que aparecen en el Home de la app
           </p>
         </div>
+        <PermissionGate permission={Permission.CONTENT_MANAGE}>
         <button
           onClick={openCreate}
           className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
@@ -210,9 +213,10 @@ export default function HomeCategories() {
           <Plus className="w-4 h-4" />
           <span>Crear categoría</span>
         </button>
+        </PermissionGate>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
+      <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
           <input
@@ -296,6 +300,7 @@ export default function HomeCategories() {
                     </span>
                   </td>
                   <td className="table-body-cell">
+                    <PermissionGate permission={Permission.CONTENT_MANAGE}>
                     <button
                       onClick={() => handleToggle(c)}
                       className="cursor-pointer hover:scale-105 transition-transform"
@@ -307,9 +312,11 @@ export default function HomeCategories() {
                         <ToggleLeft className="w-8 h-8 text-[var(--color-text-muted)]" />
                       )}
                     </button>
+                    </PermissionGate>
                   </td>
                   <td className="table-body-cell">
                     <div className="flex items-center justify-end gap-2">
+                      <PermissionGate permission={Permission.CONTENT_MANAGE}>
                       <button
                         onClick={() => openEdit(c)}
                         className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
@@ -317,6 +324,7 @@ export default function HomeCategories() {
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
+                      </PermissionGate>
                       <button
                         onClick={() => setConfirmDelete(c)}
                         className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
@@ -361,7 +369,7 @@ export default function HomeCategories() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="Zipp-modal w-full max-w-md rounded-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="Zipp-modal w-full max-w-md rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
               <div className="flex items-center gap-2">
                 <LayoutGrid className="w-5 h-5 text-[var(--color-primary)]" />
@@ -374,7 +382,7 @@ export default function HomeCategories() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-2.5">
               <div>
                 <label className={labelClass}>Imagen (opcional)</label>
                 {form.imageUrl ? (

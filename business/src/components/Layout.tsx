@@ -26,6 +26,7 @@ const nav = [
   { path: '/advertising', Illustration: CashLogo, label: 'Publicidad' },
   { path: '/reviews', Illustration: RatingLogo, label: 'Reseñas' },
   { path: '/staff', Illustration: RestaurantLogo, label: 'Equipo' },
+  { path: '/documents', Illustration: PackageLogo, label: 'Documentos' },
   { path: '/settings', Illustration: PrepTimeLogo, label: 'Ajustes' },
 ];
 
@@ -204,7 +205,22 @@ export default function Layout() {
             </button>
           </div>
 
-          {!isStoreOpen && !pauseError && (
+          {/* Aunque el dueño lo tenga "Abierto", una suspensión de ZIPP o la
+              falta de aprobación dejan el local sin pedidos: hay que decirlo. */}
+          {selectedBusiness?.isSuspended ? (
+            <p className="text-[10px] font-semibold text-[var(--color-danger)] leading-snug">
+              ZIPP suspendió este local
+              {selectedBusiness.suspensionReason ? `: ${selectedBusiness.suspensionReason}` : ''}. No
+              recibe pedidos hasta que soporte levante la suspensión.
+            </p>
+          ) : selectedBusiness && selectedBusiness.isApproved === false ? (
+            <p className="text-[10px] font-semibold text-[var(--color-warning)] leading-snug">
+              Tu local aún no está aprobado: los clientes no lo ven hasta que
+              ZIPP revise tus documentos.
+            </p>
+          ) : null}
+
+          {!isStoreOpen && !pauseError && !selectedBusiness?.isSuspended && (
             <p className="text-[10px] font-semibold text-[var(--color-danger)] leading-snug">
               No estás recibiendo pedidos nuevos. Los que ya tienes en cocina
               siguen su curso.

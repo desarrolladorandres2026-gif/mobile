@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ShieldAlert, Phone, MapPin, User, Clock, X, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
+import { apiMessage } from '../lib/apiError';
+import { PermissionGate } from './PermissionGate';
+import { Permission } from '../lib/permissions';
 
 /**
  * Detalle de una emergencia y lo que un administrador puede hacer con ella.
@@ -68,8 +71,8 @@ export default function SosPanel({
       const { data } = await api.get('/sos/active');
       const found = (data.data ?? []).find((a: SosAlertDetail) => a._id === alertId) ?? null;
       setAlert(found);
-    } catch {
-      setError('No pudimos cargar la emergencia.');
+    } catch (err) {
+      setError(apiMessage(err, 'No pudimos cargar la emergencia.'));
     } finally {
       setLoading(false);
     }
@@ -86,8 +89,8 @@ export default function SosPanel({
       await api.patch(`/sos/${alertId}/acknowledge`);
       await load();
       onChanged();
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? 'No se pudo marcar como atendida.');
+    } catch (err) {
+      setError(apiMessage(err, 'No se pudo marcar como atendida.'));
     } finally {
       setBusy(false);
     }
@@ -104,8 +107,8 @@ export default function SosPanel({
       await api.patch(`/sos/${alertId}/resolve`, { resolution: resolution.trim(), falseAlarm });
       onChanged();
       onClose();
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? 'No se pudo cerrar la emergencia.');
+    } catch (err) {
+      setError(apiMessage(err, 'No se pudo cerrar la emergencia.'));
     } finally {
       setBusy(false);
     }
@@ -130,9 +133,7 @@ export default function SosPanel({
         className="relative w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl animate-fade-in"
       >
         <div className="flex items-start gap-3 border-b border-[var(--color-border-light)] p-5">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--color-danger)]">
-            <ShieldAlert className="h-5 w-5 text-white" />
-          </span>
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-danger)]" />
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-bold text-[var(--color-text-main)]">Botón de pánico</h3>
             <p className="text-xs text-[var(--color-text-secondary)]">
@@ -175,7 +176,7 @@ export default function SosPanel({
               ) : null}
 
               {alert.emergencyContact?.phone ? (
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg)] p-3">
+                <div className="flex items-center justify-between gap-3 border-t border-[var(--color-border-light)] pt-4">
                   <InfoRow
                     icon={Phone}
                     label={`Contacto de emergencia${alert.emergencyContact.relationship ? ` · ${alert.emergencyContact.relationship}` : ''}`}
@@ -211,7 +212,7 @@ export default function SosPanel({
               />
 
               {alert.note ? (
-                <div className="rounded-lg border border-[var(--color-border-light)] bg-[var(--color-bg)] p-3">
+                <div className="border-t border-[var(--color-border-light)] pt-4">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Nota</p>
                   <p className="text-sm text-[var(--color-text-main)]">{alert.note}</p>
                 </div>
@@ -220,7 +221,7 @@ export default function SosPanel({
               {error ? <p className="text-sm text-[var(--color-danger)]">{error}</p> : null}
 
               {resolving ? (
-                <div className="space-y-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-3">
+                <div className="space-y-2 border-t border-[var(--color-border-light)] pt-4">
                   <label className="block space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
                       Qué pasó
@@ -259,6 +260,10 @@ export default function SosPanel({
                   </div>
                 </div>
               ) : (
+                <PermissionGate
+                  permission={Permission.SOS_MANAGE}
+                  fallback={<p className="pt-1 text-xs text-[var(--color-text-muted)]">Tu rol puede ver la emergencia, pero no atenderla.</p>}
+                >
                 <div className="flex gap-2 pt-1">
                   {alert.status === 'active' ? (
                     <button
@@ -269,7 +274,7 @@ export default function SosPanel({
                       {busy ? 'Marcando…' : 'La estoy atendiendo'}
                     </button>
                   ) : (
-                    <span className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+                    <span className="flex flex-1 items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-[var(--color-text-secondary)]">
                       <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)]" /> Ya la estás atendiendo
                     </span>
                   )}
@@ -280,6 +285,7 @@ export default function SosPanel({
                     Cerrar emergencia
                   </button>
                 </div>
+                </PermissionGate>
               )}
             </div>
           )}

@@ -4,7 +4,9 @@
     "shape": {
       "data": {
         "accessToken": "string",
+        "authzMode": "string",
         "isNewDevice": "boolean",
+        "observedPermissions": [],
         "permissions": [
           "string"
         ],
@@ -24,6 +26,7 @@
           "marketingChannels": [],
           "marketingConsent": "boolean",
           "marketingConsentAt": "null",
+          "mustChangePassword": "boolean",
           "name": "string",
           "passwordChangedAt": "string",
           "phone": "string",
@@ -53,23 +56,17 @@
     "shape": {
       "data": [
         {
-          "__v": "number",
           "_id": "string",
           "address": "string",
-          "approvedAt": "null",
-          "approvedBy": "null",
+          "brandColor": "null",
           "category": "string",
           "city": "string",
-          "commissionRate": "number",
-          "commissionRateBps": "number",
           "coverImage": "null",
-          "createdAt": "string",
           "deliveryTime": "number",
           "description": "string",
           "distanceMeters": "number",
           "freeDeliveryThreshold": "number",
           "isActive": "boolean",
-          "isApproved": "boolean",
           "isFeatured": "boolean",
           "location": {
             "coordinates": [
@@ -80,7 +77,6 @@
           "logo": "null",
           "minOrder": "number",
           "name": "string",
-          "ownerId": "string",
           "phone": "string",
           "rating": "number",
           "schedule": {
@@ -120,10 +116,9 @@
               "open": "string"
             }
           },
-          "searchName": "string",
+          "showPromoBanner": "boolean",
           "slug": "string",
-          "totalReviews": "number",
-          "updatedAt": "string"
+          "totalReviews": "number"
         }
       ],
       "message": "string",
@@ -140,24 +135,18 @@
     "status": 200,
     "shape": {
       "data": {
-        "__v": "number",
         "_id": "string",
         "address": "string",
-        "approvedAt": "null",
-        "approvedBy": "null",
+        "brandColor": "null",
         "category": "string",
         "city": "string",
-        "commissionRate": "number",
-        "commissionRateBps": "number",
         "coverImage": "null",
-        "createdAt": "string",
+        "deliveryFeeFrom": "number",
         "deliveryTime": "number",
         "description": "string",
         "freeDeliveryThreshold": "number",
         "id": "string",
         "isActive": "boolean",
-        "isApproved": "boolean",
-        "isFeatured": "boolean",
         "location": {
           "coordinates": [
             "number"
@@ -167,7 +156,6 @@
         "logo": "null",
         "minOrder": "number",
         "name": "string",
-        "ownerId": "string",
         "phone": "string",
         "rating": "number",
         "schedule": {
@@ -207,9 +195,9 @@
             "open": "string"
           }
         },
+        "showPromoBanner": "boolean",
         "slug": "string",
-        "totalReviews": "number",
-        "updatedAt": "string"
+        "totalReviews": "number"
       },
       "message": "string",
       "success": "boolean"
@@ -237,10 +225,13 @@
           "isAvailable": "boolean",
           "isFeatured": "boolean",
           "lowStockThreshold": "number",
+          "modifierGroups": [],
           "name": "string",
+          "prepTimeMinutes": "null",
           "price": "number",
           "requiresAgeVerification": "boolean",
           "stock": "null",
+          "tags": [],
           "updatedAt": "string"
         }
       ],
@@ -274,10 +265,13 @@
         "isAvailable": "boolean",
         "isFeatured": "boolean",
         "lowStockThreshold": "number",
+        "modifierGroups": [],
         "name": "string",
+        "prepTimeMinutes": "null",
         "price": "number",
         "requiresAgeVerification": "boolean",
         "stock": "null",
+        "tags": [],
         "updatedAt": "string"
       },
       "message": "string",
@@ -305,10 +299,13 @@
         "isAvailable": "boolean",
         "isFeatured": "boolean",
         "lowStockThreshold": "number",
+        "modifierGroups": [],
         "name": "string",
+        "prepTimeMinutes": "null",
         "price": "number",
         "requiresAgeVerification": "boolean",
         "stock": "null",
+        "tags": [],
         "updatedAt": "string"
       },
       "message": "string",
@@ -365,17 +362,22 @@
         "platformPromotionExpense": "number",
         "precioOriginal": "number",
         "pricingConfigVersion": "number",
+        "proDeliveryDiscount": "number",
+        "proServiceFeeDiscount": "number",
         "productSubtotal": "number",
+        "requiresAgeVerification": "boolean",
         "subsidioComercio": "number",
         "subsidioPlataforma": "number",
         "subtotal": "number",
+        "suggestedCoupon": "null",
         "tax": "number",
         "taxPayable": "number",
         "tip": "number",
         "total": "number",
         "totalUsuario": "number",
         "zoneId": "null",
-        "zoneName": "null"
+        "zoneName": "null",
+        "zoneVersion": "null"
       },
       "message": "string",
       "success": "boolean"
@@ -476,17 +478,22 @@
         "platformPromotionExpense": "number",
         "precioOriginal": "number",
         "pricingConfigVersion": "number",
+        "proDeliveryDiscount": "number",
+        "proServiceFeeDiscount": "number",
         "productSubtotal": "number",
+        "requiresAgeVerification": "boolean",
         "subsidioComercio": "number",
         "subsidioPlataforma": "number",
         "subtotal": "number",
+        "suggestedCoupon": "null",
         "tax": "number",
         "taxPayable": "number",
         "tip": "number",
         "total": "number",
         "totalUsuario": "number",
         "zoneId": "null",
-        "zoneName": "null"
+        "zoneName": "null",
+        "zoneVersion": "null"
       },
       "message": "string",
       "success": "boolean"
@@ -622,7 +629,8 @@
         "tip": "number",
         "total": "number",
         "updatedAt": "string",
-        "zoneId": "null"
+        "zoneId": "null",
+        "zoneVersion": "null"
       },
       "message": "string",
       "success": "boolean"
@@ -747,7 +755,8 @@
           "tip": "number",
           "total": "number",
           "updatedAt": "string",
-          "zoneId": "null"
+          "zoneId": "null",
+          "zoneVersion": "null"
         }
       ],
       "message": "string",
@@ -863,7 +872,8 @@
         "tip": "number",
         "total": "number",
         "updatedAt": "string",
-        "zoneId": "null"
+        "zoneId": "null",
+        "zoneVersion": "null"
       },
       "message": "string",
       "success": "boolean"
@@ -911,10 +921,13 @@
         "isAvailable": "boolean",
         "isFeatured": "boolean",
         "lowStockThreshold": "number",
+        "modifierGroups": [],
         "name": "string",
+        "prepTimeMinutes": "null",
         "price": "number",
         "requiresAgeVerification": "boolean",
         "stock": "null",
+        "tags": [],
         "updatedAt": "string"
       },
       "message": "string",

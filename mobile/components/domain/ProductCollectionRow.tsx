@@ -17,9 +17,12 @@ import {
   type IllustrationProps,
 } from '../illustrations';
 import { CollectionHeader, type HeaderVariant } from './CollectionHeader';
+import { usePreviewMode } from './explore/PreviewContext';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
 import { FontFamily } from '../../theme/typography';
-import type { HomeSection, HomeSectionDisplayVariant, HomeSectionProduct } from '../../services/endpoints';
+import type {
+  ExploreHeaderVariant, ExploreProductLayout, HomeSection, HomeSectionDisplayVariant, HomeSectionProduct,
+} from '../../services/endpoints';
 
 /**
  * Icono de cada colección: logo PNG Twemoji, el mismo sistema que Categorías
@@ -134,23 +137,39 @@ const FALLBACK_SUBTITLE: Record<string, string> = {
  * en la escala tipográfica de cada tarjeta, y las tarjetas que lo cortaban a
  * una línea (`featured`, `price_focus`) pasan a dos. Explorar conserva el
  * tamaño original a propósito.
+ *
+ * `layout` lo manda el constructor de Explorar desde el panel y, si llega,
+ * decide solo: carrusel de 1 a 3 filas o cuadrícula de 2 a 4 columnas. Con
+ * él, `displayVariant`, `allowGrid` y `gridRows` dejan de contar.
  */
 export const ProductCollectionRow = memo(function ProductCollectionRow({
   section,
   allowGrid = false,
   gridRows = 4,
   largeNames = false,
-}: { section: HomeSection; allowGrid?: boolean; gridRows?: 2 | 4; largeNames?: boolean }) {
+  layout,
+  headerVariant: headerOverride = 'auto',
+  showTitle = true,
+}: {
+  section: HomeSection;
+  allowGrid?: boolean;
+  gridRows?: 2 | 4;
+  largeNames?: boolean;
+  layout?: ExploreProductLayout;
+  headerVariant?: ExploreHeaderVariant;
+  showTitle?: boolean;
+}) {
   const router = useRouter();
-  const { c } = useTheme();
+  const preview = usePreviewMode();
 
   const goToProduct = useCallback((product: HomeSectionProduct) => {
+    if (preview) return;
     tap('medium');
     router.push({
       pathname: '/(client)/business/[id]',
       params: { id: product.businessId, productId: product._id },
     });
-  }, [router]);
+  }, [router, preview]);
 
   if (section.products.length === 0) return null;
 
@@ -162,16 +181,33 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
     SECTION_ILLUSTRATION[section.key] ??
     contentIllustrationByName(section.illustration) ??
     DefaultIllustration;
-  const CardComponent = CARD_BY_VARIANT[variant] ?? CompactCard;
-  const headerVariant = HEADER_VARIANT[section.key] ?? 'minimal';
+  const headerVariant: HeaderVariant = headerOverride === 'auto'
+    ? HEADER_VARIANT[section.key] ?? 'minimal'
+    : headerOverride;
   const subtitle = section.subtitle ?? FALLBACK_SUBTITLE[section.key];
 
-  const list = variant === 'grid' && allowGrid ? (
-    gridRows === 2 ? (
-      <ScrollableProductGrid products={section.products} onPress={goToProduct} />
-    ) : (
-      <ProductGrid products={section.products} onPress={goToProduct} />
-    )
+  // Sin layout del panel, se traduce lo de siempre a un layout: así hay un
+  // solo camino de render para los dos casos.
+  const effective: ExploreProductLayout | null = layout ?? (
+    variant === 'grid' && allowGrid
+      ? gridRows === 2
+        ? { kind: 'carousel', rows: 2, card: 'compact' }
+        : { kind: 'grid', columns: 3, rows: GRID_ROWS }
+      : null
+  );
+  const CardComponent = effective?.kind === 'carousel' && effective.rows === 1
+    ? CARD_BY_VARIANT[effective.card] ?? CompactCard
+    : CARD_BY_VARIANT[variant] ?? CompactCard;
+
+  const list = effective?.kind === 'grid' ? (
+    <ProductGrid
+      products={section.products}
+      onPress={goToProduct}
+      columns={effective.columns}
+      rows={effective.rows}
+    />
+  ) : effective?.kind === 'carousel' && effective.rows > 1 ? (
+    <ScrollableProductGrid products={section.products} onPress={goToProduct} rows={effective.rows} />
   ) : (
     <FlatList
       horizontal
@@ -198,12 +234,14 @@ export const ProductCollectionRow = memo(function ProductCollectionRow({
 
   return (
     <View style={styles.section}>
-      <CollectionHeader
-        variant={headerVariant}
-        title={section.title}
-        subtitle={subtitle}
-        Illustration={Illustration}
-      />
+      {showTitle && section.title ? (
+        <CollectionHeader
+          variant={headerVariant}
+          title={section.title}
+          subtitle={subtitle}
+          Illustration={Illustration}
+        />
+      ) : null}
 
       {list}
     </View>
@@ -231,7 +269,9 @@ function useBusinessNav(product: HomeSectionProduct) {
     deliveryTime: product.businessDeliveryTime,
     logo: product.businessLogo,
   };
+  const preview = usePreviewMode();
   const goToBusiness = useCallback(() => {
+    if (preview) return;
     tap('light');
     router.push(`/(client)/business/${product.businessId}`);
   }, [router, product.businessId]);
@@ -671,26 +711,24 @@ const PriceFocusCard = memo(function PriceFocusCard({ product, onPress, largeNam
 const BannerCard = LargeCard;
 
 // ──────────────────────────────────────────────────────────────
-// `grid`: 3 columnas × 4 filas, la única variante que no es un carrusel
+// `grid`: cuadrícula estática de 2 a 4 columnas, sin scroll propio
 // ──────────────────────────────────────────────────────────────
 
-const GRID_COLUMNS = 3;
 const GRID_ROWS = 4;
 /**
- * Tope duro de la cuadrícula. El servidor ya pide exactamente esto
- * (`targetSize: 12` en `discoverySeeds.ts`); el recorte de aquí es para una
- * colección editada a mano que mande más. Lo que sobre no entra por un
- * scroll interno: un `ScrollView` vertical dentro del de Explorar atrapa el
- * dedo en Android y la pantalla deja de bajar.
+ * Tope duro de la cuadrícula: doce, venga como venga el layout (el backend
+ * ya lo valida). Lo que sobre no entra por un scroll interno: un
+ * `ScrollView` vertical dentro del de Explorar atrapa el dedo en Android y
+ * la pantalla deja de bajar.
  */
-const GRID_MAX = GRID_COLUMNS * GRID_ROWS;
+const GRID_MAX = 12;
 /**
- * Con ~110 dp de ancho por tarjeta, 88 de foto + nombre + precio dejan cada
- * fila en ~135 dp: las cuatro caben en una pantalla con el encabezado de la
- * sección, que es lo que hace que se lea como una cuadrícula y no como una
- * lista larga.
+ * La foto se ajusta al ancho de la columna. Con 3 columnas (~110 dp por
+ * tarjeta), 88 de foto + nombre + precio dejan cada fila en ~135 dp: cuatro
+ * filas caben en una pantalla con el encabezado, que es lo que hace que se
+ * lea como una cuadrícula y no como una lista larga.
  */
-const GRID_IMAGE_HEIGHT = 88;
+const GRID_IMAGE_HEIGHT: Record<2 | 3 | 4, number> = { 2: 124, 3: 88, 4: 68 };
 
 function chunk<T>(items: T[], size: number): T[][] {
   const rows: T[][] = [];
@@ -704,7 +742,9 @@ function chunk<T>(items: T[], size: number): T[][] {
  * la cuarta fila fuera de la pantalla. El comercio sigue en la etiqueta de
  * accesibilidad y en la ficha a la que lleva el toque.
  */
-const GridCard = memo(function GridCard({ product, onPress }: CardProps) {
+const GridCard = memo(function GridCard({
+  product, onPress, imageHeight = GRID_IMAGE_HEIGHT[3],
+}: CardProps & { imageHeight?: number }) {
   const hasDiscount = product.discountPercent > 0;
 
   return (
@@ -719,7 +759,7 @@ const GridCard = memo(function GridCard({ product, onPress }: CardProps) {
           texto, recortar la tarjeta dejaba la foto con las esquinas de abajo
           en ángulo recto. */}
       <View style={styles.gridPhoto}>
-        <ProductPhoto product={product} height={GRID_IMAGE_HEIGHT}>
+        <ProductPhoto product={product} height={imageHeight}>
           {hasDiscount ? (
             <View style={styles.ribbon}>
               <CatalogBadge kind="descuento" label={`-${product.discountPercent}%`} />
@@ -736,21 +776,27 @@ const GridCard = memo(function GridCard({ product, onPress }: CardProps) {
   );
 });
 
-/** 3×4 fijo; nunca más de `GRID_MAX` tarjetas. */
+/** Columnas × filas fijas; nunca más de `GRID_MAX` tarjetas. */
 const ProductGrid = memo(function ProductGrid({
-  products, onPress,
-}: { products: HomeSectionProduct[]; onPress: (product: HomeSectionProduct) => void }) {
-  const rows = chunk(products.slice(0, GRID_MAX), GRID_COLUMNS);
+  products, onPress, columns = 3, rows: maxRows = GRID_ROWS,
+}: {
+  products: HomeSectionProduct[];
+  onPress: (product: HomeSectionProduct) => void;
+  columns?: 2 | 3 | 4;
+  rows?: number;
+}) {
+  const rows = chunk(products.slice(0, Math.min(columns * maxRows, GRID_MAX)), columns);
+  const imageHeight = GRID_IMAGE_HEIGHT[columns];
 
   return (
     <View style={styles.gridRows}>
       {rows.map((row, i) => (
         <View key={i} style={styles.gridRow}>
           {row.map((product) => (
-            <GridCard key={product._id} product={product} onPress={() => onPress(product)} />
+            <GridCard key={product._id} product={product} onPress={() => onPress(product)} imageHeight={imageHeight} />
           ))}
-          {row.length < GRID_COLUMNS
-            ? Array.from({ length: GRID_COLUMNS - row.length }).map((_, j) => (
+          {row.length < columns
+            ? Array.from({ length: columns - row.length }).map((_, j) => (
                 <View key={`filler-${j}`} style={styles.gridFiller} />
               ))
             : null}
@@ -760,8 +806,7 @@ const ProductGrid = memo(function ProductGrid({
   );
 });
 
-const SCROLL_GRID_ROWS = 2;
-/** Ancho de cada columna de dos tarjetas. Fijo, a diferencia de la
+/** Ancho de cada columna del carrusel en filas. Fijo, a diferencia de la
  * cuadrícula estática: aquí no hay fila que reparta el ancho por flex. */
 const SCROLL_GRID_COLUMN_WIDTH = 148;
 
@@ -773,14 +818,14 @@ function columnize<T>(items: T[], rows: number): T[][] {
 }
 
 /**
- * Dos filas que se desplazan hacia el lado, sin tope de doce: el scroll
- * propio es lo que reemplaza al límite de la cuadrícula estática. Misma
- * tarjeta (`GridCard`) que `ProductGrid`, solo cambia cómo se reparte.
+ * Dos o tres filas que se desplazan hacia el lado, sin tope de doce: el
+ * scroll propio es lo que reemplaza al límite de la cuadrícula estática.
+ * Misma tarjeta (`GridCard`) que `ProductGrid`, solo cambia cómo se reparte.
  */
 const ScrollableProductGrid = memo(function ScrollableProductGrid({
-  products, onPress,
-}: { products: HomeSectionProduct[]; onPress: (product: HomeSectionProduct) => void }) {
-  const columns = columnize(products, SCROLL_GRID_ROWS);
+  products, onPress, rows = 2,
+}: { products: HomeSectionProduct[]; onPress: (product: HomeSectionProduct) => void; rows?: number }) {
+  const columns = columnize(products, rows);
 
   return (
     <FlatList

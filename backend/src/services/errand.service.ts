@@ -145,6 +145,7 @@ export class ErrandService {
       deliveryFee: delivery.customerFee,
       deliveryDistanceKm: delivery.distanceKm,
       zoneId: delivery.zoneId,
+      zoneVersion: delivery.zoneVersion,
       discount: 0,
       tip: 0,
       tax: 0,
@@ -260,7 +261,14 @@ export class ErrandService {
         actualCost,
         estimatedCost: order.errand!.estimatedCost,
         maxCost: order.errand!.maxCost,
-        receiptUrl,
+        // S16: antes se guardaba aquí la URL firmada del recibo, que queda
+        // leíble en el historial de auditoría para siempre — justo lo que
+        // firmar al momento de leer trata de evitar. Solo se conserva la
+        // referencia (la URL que mandó el domiciliario, ya validada como
+        // evidencia por el endpoint de subida); quien necesite volver a
+        // verla la resuelve desde ahí, no desde este log.
+        hasReceipt: !!receiptUrl,
+        receiptRef: receiptUrl,
       },
     });
 

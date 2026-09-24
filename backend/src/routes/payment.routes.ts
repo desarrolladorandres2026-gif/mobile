@@ -4,13 +4,13 @@ import {
   authenticate,
   authorize,
   validate,
-  requireFinanceAdmin,
+  requirePermission,
   paymentInitiateRateLimiter,
   paymentStatusRateLimiter,
   paymentWebhookRateLimiter,
   paymentOtpRateLimiter,
 } from '../middlewares';
-import { refundSchema } from '../validators/finance.validator';
+import { refundSchema, externalRefundSchema } from '../validators/finance.validator';
 import {
   initiatePaymentSchema,
   payNativeSchema,
@@ -23,6 +23,7 @@ import {
   chargebackSchema,
 } from '../validators/payment.validator';
 import { UserRole } from '../types';
+import { Permission } from '../security';
 
 const router = Router();
 
@@ -139,21 +140,28 @@ router.get('/orders/:orderId', authenticate, validate(orderPaymentsSchema), (req
 );
 
 // ── Finance admin ──
-// Refunds and chargebacks move real money, so they sit behind the narrower
-// finance gate rather than plain admin.
+// Refunds and chargebacks move real money: `refunds:create` (rol Finanzas).
 router.post(
   '/orders/:orderId/refund',
   authenticate,
   authorize(UserRole.ADMIN),
-  requireFinanceAdmin,
+  requirePermission(Permission.REFUNDS_CREATE),
   validate(refundSchema),
   (req, res, next) => paymentController.refund(req, res, next)
+);
+router.post(
+  '/orders/:orderId/refund/external',
+  authenticate,
+  authorize(UserRole.ADMIN),
+  requirePermission(Permission.REFUNDS_CREATE),
+  validate(externalRefundSchema),
+  (req, res, next) => paymentController.refundExternal(req, res, next)
 );
 router.post(
   '/orders/:orderId/chargeback',
   authenticate,
   authorize(UserRole.ADMIN),
-  requireFinanceAdmin,
+  requirePermission(Permission.REFUNDS_CREATE),
   validate(chargebackSchema),
   (req, res, next) => paymentController.chargeback(req, res, next)
 );
@@ -161,6 +169,7 @@ router.get(
   '/orders/:orderId/refunds',
   authenticate,
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.REFUNDS_VIEW),
   validate(orderPaymentsSchema),
   (req, res, next) => paymentController.listRefunds(req, res, next)
 );

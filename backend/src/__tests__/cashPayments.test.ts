@@ -605,7 +605,8 @@ describe('Contabilidad del efectivo', () => {
     await cashReconciliationService.verifyByAdmin(
       [String(record!._id)],
       admin._id.toString(),
-      'Consignación 4411'
+      'Consignación 4411', 'https://example.com/comprobante.jpg',
+      record!.amount
     );
     await cashReconciliationService.settle([String(record!._id)], admin._id.toString());
 

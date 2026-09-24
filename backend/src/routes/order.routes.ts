@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { orderController, orderFlowController } from '../controllers';
 import { authenticate, authorize } from '../middlewares';
+import { adminRequires } from '../middlewares/auth';
+import { Permission } from '../security';
 import { validate } from '../middlewares';
 import {
   orderCodeRateLimiter,
@@ -27,10 +29,10 @@ const router = Router();
 router.post('/quote', authenticate, authorize(UserRole.CLIENT), validate(quoteOrderSchema), (req, res, next) => orderController.quote(req, res, next));
 router.post('/', authenticate, authorize(UserRole.CLIENT), validate(createOrderSchema), (req, res, next) => orderController.create(req, res, next));
 router.get('/my', authenticate, (req, res, next) => orderController.getMyOrders(req, res, next));
-router.get('/business/:businessId', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), (req, res, next) => orderController.getBusinessOrders(req, res, next));
-router.get('/driver/available', authenticate, authorize(UserRole.DRIVER, UserRole.ADMIN), (req, res, next) => orderController.getAvailableOrders(req, res, next));
+router.get('/business/:businessId', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderController.getBusinessOrders(req, res, next));
+router.get('/driver/available', authenticate, authorize(UserRole.DRIVER, UserRole.ADMIN), adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderController.getAvailableOrders(req, res, next));
 router.get('/driver/my', authenticate, authorize(UserRole.DRIVER), (req, res, next) => orderController.getDriverOrders(req, res, next));
-router.get('/:id/receipt', authenticate, (req, res, next) => orderController.receipt(req, res, next));
+router.get('/:id/receipt', authenticate, adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderController.receipt(req, res, next));
 
 // ── Traspaso físico del pedido ───────────────────────────────────────
 //
@@ -43,7 +45,7 @@ router.get('/:id/receipt', authenticate, (req, res, next) => orderController.rec
 // Van declaradas antes que `/:id` para que Express no interprete
 // "pickup" como un identificador de pedido.
 
-router.get('/:id/flow', authenticate, (req, res, next) => orderFlowController.getState(req, res, next));
+router.get('/:id/flow', authenticate, adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderFlowController.getState(req, res, next));
 
 // Recogida en el comercio
 router.post('/:id/pickup/arrive', authenticate, validate(orderArrivalSchema), (req, res, next) => orderFlowController.arriveAtStore(req, res, next));
@@ -72,23 +74,23 @@ router.post(
   (req, res, next) => orderFlowController.confirmCash(req, res, next)
 );
 
-router.get('/:id/evidence', authenticate, (req, res, next) => orderFlowController.listEvidence(req, res, next));
-router.get('/:id/timeline', authenticate, (req, res, next) => orderFlowController.getTimeline(req, res, next));
+router.get('/:id/evidence', authenticate, adminRequires(Permission.EVIDENCES_VIEW), (req, res, next) => orderFlowController.listEvidence(req, res, next));
+router.get('/:id/timeline', authenticate, adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderFlowController.getTimeline(req, res, next));
 
 // Chat del pedido
-router.get('/:id/chat', authenticate, (req, res, next) => orderFlowController.getChat(req, res, next));
-router.post('/:id/chat/messages', authenticate, orderChatRateLimiter, validate(orderChatMessageSchema), (req, res, next) => orderFlowController.sendMessage(req, res, next));
+router.get('/:id/chat', authenticate, adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderFlowController.getChat(req, res, next));
+router.post('/:id/chat/messages', authenticate, adminRequires(Permission.ORDERS_UPDATE), orderChatRateLimiter, validate(orderChatMessageSchema), (req, res, next) => orderFlowController.sendMessage(req, res, next));
 router.post('/:id/chat/read', authenticate, (req, res, next) => orderFlowController.markChatRead(req, res, next));
 
 // Llamadas del pedido
-router.get('/:id/calls', authenticate, (req, res, next) => orderFlowController.listCalls(req, res, next));
-router.post('/:id/call', authenticate, orderCallRateLimiter, (req, res, next) => orderFlowController.startCall(req, res, next));
+router.get('/:id/calls', authenticate, adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderFlowController.listCalls(req, res, next));
+router.post('/:id/call', authenticate, adminRequires(Permission.ORDERS_UPDATE), orderCallRateLimiter, (req, res, next) => orderFlowController.startCall(req, res, next));
 router.post('/:id/call/:callId/answer', authenticate, validate(orderCallSchema), (req, res, next) => orderFlowController.answerCall(req, res, next));
 router.post('/:id/call/:callId/end', authenticate, validate(orderCallSchema), (req, res, next) => orderFlowController.endCall(req, res, next));
 
-router.get('/:id', authenticate, (req, res, next) => orderController.getById(req, res, next));
-router.patch('/:id/status', authenticate, validate(updateOrderStatusSchema), (req, res, next) => orderController.updateStatus(req, res, next));
-router.patch('/:id/assign-driver', authenticate, authorize(UserRole.ADMIN, UserRole.DRIVER), (req, res, next) => orderController.assignDriver(req, res, next));
+router.get('/:id', authenticate, adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderController.getById(req, res, next));
+router.patch('/:id/status', authenticate, adminRequires(Permission.ORDERS_UPDATE), validate(updateOrderStatusSchema), (req, res, next) => orderController.updateStatus(req, res, next));
+router.patch('/:id/assign-driver', authenticate, authorize(UserRole.ADMIN, UserRole.DRIVER), adminRequires(Permission.ORDERS_ASSIGN_DRIVER), (req, res, next) => orderController.assignDriver(req, res, next));
 router.post('/:id/decline', authenticate, authorize(UserRole.DRIVER), (req, res, next) => orderController.declineOffer(req, res, next));
 
 // Cambiar de método antes de que el comercio acepte. Solo el cliente:

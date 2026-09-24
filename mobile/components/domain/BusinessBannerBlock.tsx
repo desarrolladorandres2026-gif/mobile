@@ -7,6 +7,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { businessAccent } from '../../lib/business';
 import { categoryIllustration, contentIllustration } from '../illustrations';
 import { CollectionHeader } from './CollectionHeader';
+import { usePreviewMode } from './explore/PreviewContext';
 import { SpotlightCarousel, type SpotlightRenderOpts } from './SpotlightCarousel';
 import { tap } from '../../lib/haptics';
 import { Spacing } from '../../theme/tokens';
@@ -21,11 +22,13 @@ export const BusinessBannerBlock = memo(function BusinessBannerBlock({
   entry,
 }: { entry: BusinessBannerEntry }) {
   const router = useRouter();
+  const preview = usePreviewMode();
 
   const goToBusiness = useCallback((business: CuratedHomeBusiness) => {
+    if (preview) return;
     tap('medium');
     router.push(`/(client)/business/${business._id}`);
-  }, [router]);
+  }, [router, preview]);
 
   if (entry.businesses.length === 0) return null;
 

@@ -52,14 +52,20 @@ async function withDeliveryFloor(business: IBusiness) {
 }
 
 export const publicCatalogService = {
+  /**
+   * Sin sesión (S1): usa la proyección pública —sin `commissionRate(Bps)`
+   * ni `ownerId`— y exige `isApproved`/no archivado. `getById` sigue
+   * existiendo para quien sí necesita el documento entero con sesión de
+   * por medio (ver `businessController.assertOwnsBusiness`).
+   */
   async businessDetail(id: string) {
-    const load = async () => withDeliveryFloor(await businessService.getById(id));
+    const load = async () => withDeliveryFloor(await businessService.getPublicById(id));
     if (!cacheable(id)) return load();
     return cache.wrap(`${CachePrefix.business(id)}detail`, DETAIL_TTL_SECONDS, load);
   },
 
   async businessBySlug(slug: string) {
-    const load = async () => withDeliveryFloor(await businessService.getBySlug(slug));
+    const load = async () => withDeliveryFloor(await businessService.getPublicBySlug(slug));
     if (!slug || slug.length > 120) return load();
     return cache.wrap(`${CachePrefix.BUSINESS_SLUG}${encodeURIComponent(slug)}`, DETAIL_TTL_SECONDS, load);
   },

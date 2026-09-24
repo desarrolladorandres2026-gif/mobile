@@ -257,10 +257,18 @@ describe('C4 — documentos de un negocio: solo su dueño (o su staff, o admin) 
     const admin = await makeUser({ role: UserRole.ADMIN });
     const business = await makeBusiness(owner._id);
 
+    // La subida va a Cloudinary privado: se sustituye por un destino en memoria.
+    const { cloudinary } = await import('../config');
+    const { Writable } = await import('stream');
+    vi.spyOn(cloudinary.uploader, 'upload_stream').mockImplementation(((_o: unknown, cb: (e: null, r: { public_id: string }) => void) =>
+      new Writable({ write(_c, _e, n) { n(); }, final(done) { cb(null, { public_id: 'zipp/business-documents/test' }); done(); } })) as never);
+
     await request(app)
       .post(`/api/v1/businesses/${business._id}/documents`)
       .set(await authHeader(owner))
-      .send({ type: 'rut', reference: 'RUT-0000000001' })
+      .field('type', 'rut')
+      .field('reference', 'RUT-0000000001')
+      .attach('file', Buffer.from('%PDF-1.4 %%EOF'), { filename: 'rut.pdf', contentType: 'application/pdf' })
       .expect(201);
 
     await request(app).get(`/api/v1/businesses/${business._id}/documents`).set(await authHeader(admin)).expect(200);

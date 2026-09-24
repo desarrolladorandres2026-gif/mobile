@@ -6,6 +6,8 @@ import {
   rateClientReasonsSchema,
 } from '../validators';
 import { UserRole } from '../types';
+import { Permission } from '../security';
+import { requirePermission, adminRequires, can } from '../middlewares/auth';
 import { z } from 'zod';
 
 const replySchema = z.object({
@@ -38,8 +40,8 @@ router.get('/pending', authenticate, authorize(UserRole.CLIENT), (req, res, next
 
 // ── Moderación (admin) ──
 // Antes de las rutas con parámetro, para que "moderation" no se lea como id.
-router.get('/moderation', authenticate, authorize(UserRole.ADMIN), (req, res, next) => reviewController.moderationQueue(req, res, next));
-router.patch('/:id/moderate', authenticate, authorize(UserRole.ADMIN), validate(moderateSchema), (req, res, next) => reviewController.moderate(req, res, next));
+router.get('/moderation', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.REVIEWS_VIEW), (req, res, next) => reviewController.moderationQueue(req, res, next));
+router.patch('/:id/moderate', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.REVIEWS_MODERATE), validate(moderateSchema), (req, res, next) => reviewController.moderate(req, res, next));
 
 // ── La otra dirección ──
 // El negocio responde en público; negocio y domiciliario califican al

@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { Favorite, FavoriteKind, Business, Product } from '../models';
 import { AppError } from '../middlewares/errorHandler';
+import { VISIBLE_BUSINESS, PUBLIC_LIST_FIELDS } from '../utils/catalogQuery';
 
 /**
  * Favoritos del cliente.
@@ -68,7 +69,9 @@ export class FavoriteService {
 
     const [businesses, products] = await Promise.all([
       businessIds.length
-        ? Business.find({ _id: { $in: businessIds }, isActive: true, isApproved: true }).lean()
+        ? Business.find({ _id: { $in: businessIds }, ...VISIBLE_BUSINESS })
+            .select(PUBLIC_LIST_FIELDS)
+            .lean()
         : [],
       productIds.length
         ? Product.find({ _id: { $in: productIds } }).populate('businessId', 'name rating').lean()

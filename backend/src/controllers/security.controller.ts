@@ -12,9 +12,71 @@ import {
 } from '../security';
 import { User } from '../models';
 import { AppError } from '../middlewares';
-import { assertNotSelfTarget, assertCanModifyPrivilegedUser } from '../services/authorization.service';
+import { assertNotSelfTarget, assertCanModifyPrivilegedUser, assertIsSuperAdmin } from '../services/authorization.service';
+import { sessionManager, SESSION_PUBLIC_FIELDS } from '../security/sessions';
 
 export class SecurityController {
+  /**
+   * Informe del modo observación: cada (usuario, permiso, ruta) que se habría
+   * bloqueado con `rbac_enforce` activo. Solo Super Administrador.
+   */
+  async getAuthzShadow(req: Request, res: Response, next: NextFunction) {
+    try {
+      await assertIsSuperAdmin(req.user!, 'Solo el Super Administrador puede ver este informe');
+      const raw = Number.parseInt(String(req.query.days ?? '7'), 10);
+      const days = Math.min(30, Math.max(1, Number.isFinite(raw) ? raw : 7));
+      const since = new Date(Date.now() - days * 86_400_000);
+
+      const rows = await AuditLog.aggregate([
+        { $match: { action: AuditAction.PERMISSION_SHADOW_DENIED, timestamp: { $gte: since } } },
+        {
+          $group: {
+            _id: {
+              userId: '$userId',
+              permission: '$metadata.permission',
+              route: '$metadata.route',
+              method: '$metadata.method',
+            },
+            count: { $sum: 1 },
+            firstSeen: { $min: '$timestamp' },
+            lastSeen: { $max: '$timestamp' },
+            roleSlugs: { $last: '$metadata.roleSlugs' },
+          },
+        },
+        { $sort: { lastSeen: -1 } },
+        { $limit: 1000 },
+      ]);
+
+      const ids = [...new Set(rows.map((r) => r._id.userId).filter(Boolean))];
+      const users = await User.find({ _id: { $in: ids } }).select('name email').lean();
+      const byId = new Map(users.map((u: any) => [String(u._id), u]));
+
+      const items = rows.map((r) => {
+        const u: any = byId.get(String(r._id.userId));
+        return {
+          userId: r._id.userId,
+          userName: u?.name ?? null,
+          email: u?.email ?? null,
+          roleSlugs: r.roleSlugs ?? [],
+          permission: r._id.permission,
+          route: r._id.route,
+          method: r._id.method,
+          count: r.count,
+          firstSeen: r.firstSeen,
+          lastSeen: r.lastSeen,
+        };
+      });
+
+      const { RBAC_ENFORCE_FLAG } = await import('../services/authorization.service');
+      sendResponse(res, 200, 'Informe del modo observación', {
+        mode: req.authz?.mode ?? 'observe',
+        enforceFlag: RBAC_ENFORCE_FLAG,
+        days,
+        items,
+      });
+    } catch (error) { next(error); }
+  }
+
   // ── Audit Logs ──
 
   async getAuditLogs(req: Request, res: Response, next: NextFunction) {
@@ -208,6 +270,7 @@ export class SecurityController {
   async unblockUser(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.params.userId as string;
+      await assertIsSuperAdmin(req.user!, 'Solo el Super Administrador puede desbloquear usuarios');
       assertNotSelfTarget(req.user!._id.toString(), userId, 'No puedes desbloquear tu propia cuenta');
       const targetUser = await User.findById(userId);
       if (!targetUser) throw new AppError('Usuario no encontrado', 404);
@@ -248,6 +311,7 @@ export class SecurityController {
     try {
       const userId = req.params.userId as string;
       const { reason } = req.body;
+      await assertIsSuperAdmin(req.user!, 'Solo el Super Administrador puede bloquear usuarios');
       assertNotSelfTarget(req.user!._id.toString(), userId, 'No puedes bloquear tu propia cuenta');
       const targetUser = await User.findById(userId);
       if (!targetUser) throw new AppError('Usuario no encontrado', 404);
@@ -273,8 +337,11 @@ export class SecurityController {
       // Deactivate user
       await User.findByIdAndUpdate(userId, { isActive: false, isBlocked: true });
 
-      // Revoke all sessions
-      await Session.updateMany({ userId }, { isActive: false });
+      // S6: `Session.updateMany` solo apagaba el flag en la base — el
+      // socket ya abierto seguía vivo y un domiciliario bloqueado seguía
+      // emitiendo ubicación y estado. `sessionManager.revokeAllSessions`
+      // marca las sesiones Y desconecta sus sockets (`session:<id>`).
+      await sessionManager.revokeAllSessions(userId, { reason: 'admin' });
 
       await logAudit(req, {
         action: AuditAction.USER_BLOCKED,
@@ -300,6 +367,7 @@ export class SecurityController {
 
       const [sessions, total] = await Promise.all([
         Session.find(query)
+          .select(SESSION_PUBLIC_FIELDS)
           .sort({ lastActivity: -1 })
           .skip(skip)
           .limit(parseInt(limit))
@@ -323,20 +391,27 @@ export class SecurityController {
     try {
       const userId = req.params.userId as string;
 
-      const result = await Session.updateMany(
-        { userId, isActive: true },
-        { isActive: false }
-      );
+      await assertIsSuperAdmin(req.user!, 'Solo el Super Administrador puede revocar las sesiones de otro usuario');
+      // S12: sin guardas, cualquiera con `security:manage` podía cerrar las
+      // sesiones del propio Super Administrador o de sí mismo. Misma pareja
+      // de comprobaciones que `blockUser`.
+      assertNotSelfTarget(req.user!._id.toString(), userId, 'No puedes revocar tus propias sesiones por aquí');
+      const targetUser = await User.findById(userId);
+      if (!targetUser) throw new AppError('Usuario no encontrado', 404);
+      await assertCanModifyPrivilegedUser(req.user!, targetUser);
+
+      // S6: revoca Y desconecta los sockets abiertos con esas sesiones.
+      const revoked = await sessionManager.revokeAllSessions(userId, { reason: 'admin' });
 
       await logAudit(req, {
         action: AuditAction.SESSION_REVOKED_ALL,
         entity: 'user',
         entityId: userId as string,
         severity: AuditSeverity.HIGH,
-        description: `Todas las sesiones revocadas por admin (${result.modifiedCount})`,
+        description: `Todas las sesiones revocadas por admin (${revoked})`,
       });
 
-      sendResponse(res, 200, `${result.modifiedCount} sesiones revocadas`);
+      sendResponse(res, 200, `${revoked} sesiones revocadas`);
     } catch (error) { next(error); }
   }
 

@@ -1,5 +1,52 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document, Types } from 'mongoose';
 import { cacheInvalidationPlugin, CachePrefix } from '../cache';
+
+/**
+ * Los campos de una zona que cambian lo que se cobra o se paga por un
+ * domicilio (o el pedido mínimo). Tocar cualquiera crea una versión nueva,
+ * con motivo y autor — ver `zone.service.ts#update` y D9 del plan del panel.
+ *
+ * También versionan (con la misma regla) el polígono (`area`), la `priority`
+ * y `isActive`: no son tarifa, pero cambiar cualquiera altera qué zona aplica
+ * a una dirección y por tanto cuánto se cobra y se paga por ese domicilio.
+ */
+export const ZONE_TARIFF_FIELDS = ['baseFee', 'perKm', 'surcharge', 'minOrder'] as const;
+export type ZoneTariffField = (typeof ZONE_TARIFF_FIELDS)[number];
+
+/**
+ * Una versión de la tarifa de una zona.
+ *
+ * Vive **dentro** del documento (`versions[]`) y no en una colección aparte
+ * como `PlatformPricingConfig`: esa es una fila global de la que cuelgan todos
+ * los pedidos, y aquí hay una versión por zona; el pedido ya guarda `zoneId`,
+ * así que `(zoneId, zoneVersion)` lo explica sin un modelo más. El arreglo se
+ * acota y se descarta de toda lectura pública (`select: false`).
+ */
+export interface IZoneVersion {
+  version: number;
+  baseFee: number | null;
+  perKm: number | null;
+  surcharge: number;
+  minOrder: number;
+  /**
+   * El resto de lo que define la zona efectiva. Opcionales: las versiones
+   * anteriores al versionado de área/prioridad/activa (migración 018 no las
+   * reescribe) no los traen.
+   */
+  priority?: number;
+  isActive?: boolean;
+  /** SHA-256 del polígono vigente en esa versión. */
+  areaHash?: string;
+  /** El polígono, solo en la versión donde se creó o se cambió. */
+  area?: number[][][];
+  /** Por qué cambió. Obligatorio salvo en la versión 1. */
+  changeReason: string;
+  changedBy: Types.ObjectId | null;
+  changedAt: Date;
+}
+
+/** Cuántas versiones de tarifa se conservan por zona (las más recientes). */
+export const MAX_ZONE_VERSIONS = 200;
 
 /**
  * A delivery coverage zone.
@@ -27,9 +74,41 @@ export interface IZone extends Document {
   /** Higher priority wins when polygons overlap. */
   priority: number;
   isActive: boolean;
+  /**
+   * Versión vigente de la tarifa (`baseFee`, `perKm`, `surcharge`,
+   * `minOrder`). Sube en 1 con cada cambio de tarifa; cada pedido guarda la
+   * que usó (`Order.zoneVersion`), así un pedido viejo se explica con las
+   * reglas de su día.
+   */
+  version: number;
+  /** Historial de tarifas, la más antigua primero. `select: false`. */
+  versions?: IZoneVersion[];
   createdAt: Date;
   updatedAt: Date;
 }
+
+const integerMoney = {
+  validator: (value: number | null | undefined) => value === null || value === undefined || Number.isInteger(value),
+  message: 'Debe ser un entero en COP',
+};
+
+const zoneVersionSchema = new Schema<IZoneVersion>(
+  {
+    version: { type: Number, required: true, min: 1 },
+    baseFee: { type: Number, default: null },
+    perKm: { type: Number, default: null },
+    surcharge: { type: Number, default: 0 },
+    minOrder: { type: Number, default: 0 },
+    priority: { type: Number, default: undefined },
+    isActive: { type: Boolean, default: undefined },
+    areaHash: { type: String, default: undefined },
+    area: { type: [[[Number]]], default: undefined },
+    changeReason: { type: String, required: true, trim: true, maxlength: 300 },
+    changedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    changedAt: { type: Date, required: true },
+  },
+  { _id: false }
+);
 
 const zoneSchema = new Schema<IZone>(
   {
@@ -64,12 +143,14 @@ const zoneSchema = new Schema<IZone>(
         },
       },
     },
-    baseFee: { type: Number, default: null, min: 0 },
-    perKm: { type: Number, default: null, min: 0 },
-    surcharge: { type: Number, default: 0, min: 0 },
-    minOrder: { type: Number, default: 0, min: 0 },
+    baseFee: { type: Number, default: null, min: 0, validate: integerMoney },
+    perKm: { type: Number, default: null, min: 0, validate: integerMoney },
+    surcharge: { type: Number, default: 0, min: 0, validate: integerMoney },
+    minOrder: { type: Number, default: 0, min: 0, validate: integerMoney },
     priority: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
+    version: { type: Number, default: 1, min: 1 },
+    versions: { type: [zoneVersionSchema], default: undefined, select: false },
   },
   { timestamps: true }
 );

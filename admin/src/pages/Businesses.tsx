@@ -1,36 +1,78 @@
-﻿import { useCallback, useEffect, useState } from 'react';
-import { Store, Star, MapPin, Clock, ToggleLeft, ToggleRight, X, AlertCircle, Trash2, Plus, Search } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Store, Star, X, AlertCircle, Archive, ArchiveRestore, Plus, Search, Power } from 'lucide-react';
 import api from '../services/api';
+import { Permission } from '../lib/permissions';
+import { PermissionGate } from '../components/PermissionGate';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
 import { apiMessage } from '../lib/apiError';
 import type { AdminUser } from '../lib/apiTypes';
 import { categoryLogo } from '../components/logos';
+import EntityLink from '../components/EntityLink';
+import { useFicha } from '../lib/entityLinks';
 
 interface Business {
   _id: string;
   name: string;
   category: string;
+  city?: string;
   rating: number;
   totalReviews?: number;
   address: string;
   deliveryTime: number;
-  commissionRate: number;
   commissionRateBps: number;
+  /** Interruptor del dueño: abierto o cerrado hoy. */
   isActive: boolean;
+  /** Suspensión de ZIPP: el dueño no puede quitarla. */
+  isSuspended?: boolean;
+  suspensionReason?: string;
   isApproved: boolean;
   isFeatured: boolean;
+  isArchived?: boolean;
+  archivedAt?: string;
+  archiveReason?: string;
+  ownerId?: { _id: string; name?: string; phone?: string } | string | null;
+  createdAt?: string;
 }
 
+const CATEGORIES = [
+  { id: 'all', label: 'Todas' },
+  { id: 'restaurant', label: 'Restaurantes' },
+  { id: 'fast_food', label: 'Comidas Rápidas' },
+  { id: 'pharmacy', label: 'Droguerías' },
+  { id: 'cafe', label: 'Cafeterías' },
+  { id: 'supermarket', label: 'Supermercados' },
+];
+
+const CATEGORY_LABEL: Record<string, string> = {
+  restaurant: 'Restaurante',
+  fast_food: 'Comidas Rápidas',
+  pharmacy: 'Droguería',
+  cafe: 'Cafetería',
+  supermarket: 'Supermercado',
+};
+
+const PAGE_SIZE = 25;
+
+const ownerOf = (b: Business) => (b.ownerId && typeof b.ownerId === 'object' ? b.ownerId : null);
+
+type PendingAction =
+  | { kind: 'suspend'; business: Business }
+  | { kind: 'archive'; business: Business }
+  | { kind: 'restore'; business: Business };
+
 export default function Businesses() {
+  const { open: openFicha } = useFicha();
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
-  const PAGE_SIZE = 25;
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: PAGE_SIZE });
+  const [pending, setPending] = useState<PendingAction | null>(null);
 
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({
@@ -46,41 +88,33 @@ export default function Businesses() {
     ownerId: '',
   });
   const [owners, setOwners] = useState<AdminUser[]>([]);
-  const [confirmDelete, setConfirmDelete] = useState<Business | null>(null);
 
-  // La búsqueda se manda al servidor (ahí vive el índice y el `$regex`
-  // sobre toda la tabla), no se filtra en el navegador sobre la página
-  // actual — si no, "buscar" solo encontraría coincidencias dentro de
-  // los 25 negocios ya cargados.
-  const [debouncedSearch, setDebouncedSearch] = useState('');
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
     return () => clearTimeout(t);
   }, [search]);
-  useEffect(() => { setPage(1); }, [selectedCategory, debouncedSearch]);
+  useEffect(() => { setPage(1); }, [selectedCategory, debouncedSearch, archived]);
 
+  // `/admin/businesses` y no el catálogo público: el público solo sirve
+  // comercios aprobados y sin datos comerciales, que es lo correcto para la app.
   const fetchBusinesses = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      const params: Record<string, string | number | boolean> = {
-        page, limit: PAGE_SIZE, includeInactive: true,
-      };
+      const params: Record<string, string | number | boolean> = { page, limit: PAGE_SIZE };
       if (selectedCategory !== 'all') params.category = selectedCategory;
       if (debouncedSearch) params.search = debouncedSearch;
-      const { data } = await api.get('/businesses', { params });
+      if (archived) params.archived = true;
+      const { data } = await api.get('/admin/businesses', { params });
       setBusinesses(data.data);
       if (data.meta) setMeta(data.meta);
     } catch (err) {
-      console.error(err);
-      setError('No se pudieron cargar los negocios.');
+      setError(apiMessage(err, 'No se pudieron cargar los negocios.'));
     } finally {
       setLoading(false);
     }
-  }, [page, selectedCategory, debouncedSearch]);
+  }, [page, selectedCategory, debouncedSearch, archived]);
 
-  // Los dueños candidatos del formulario de alta no dependen de la página
-  // visible de negocios: es un catálogo aparte, se pide una sola vez.
   const fetchOwners = async () => {
     try {
       const { data } = await api.get('/admin/users?role=business&limit=100');
@@ -96,37 +130,47 @@ export default function Businesses() {
   useEffect(() => { fetchBusinesses(); }, [fetchBusinesses]);
   useEffect(() => { fetchOwners(); }, []);
 
-  const handleToggleActive = async (business: Business) => {
+  const patchLocal = (id: string, patch: Partial<Business>) =>
+    setBusinesses((prev) => prev.map((b) => (b._id === id ? { ...b, ...patch } : b)));
+
+  const liftSuspension = async (business: Business) => {
     try {
+      setError('');
       const { data } = await api.patch(`/admin/businesses/${business._id}/toggle`);
-      setBusinesses((prev) =>
-        prev.map((b) => (b._id === business._id ? { ...b, isActive: data.data.isActive } : b))
-      );
+      patchLocal(business._id, { isSuspended: data.data.isSuspended, suspensionReason: data.data.suspensionReason });
     } catch (err) {
-      setError(apiMessage(err, 'No se pudo actualizar el estado del comercio.'));
+      setError(apiMessage(err, 'No se pudo levantar la suspensión.'));
     }
   };
 
   const handleToggleFeatured = async (business: Business) => {
     try {
+      setError('');
       const { data } = await api.patch(`/admin/businesses/${business._id}/featured`);
-      setBusinesses((prev) =>
-        prev.map((b) => (b._id === business._id ? { ...b, isFeatured: data.data.isFeatured } : b))
-      );
+      patchLocal(business._id, { isFeatured: data.data.isFeatured });
     } catch (err) {
       setError(apiMessage(err, 'No se pudo destacar el comercio.'));
     }
   };
 
-  const handleDeleteBusiness = async () => {
-    if (!confirmDelete) return;
+  const confirmPending = async (reason?: string) => {
+    if (!pending) return;
+    const { kind, business } = pending;
+    setPending(null);
     try {
-      await api.delete(`/admin/businesses/${confirmDelete._id}`);
-      setBusinesses((prev) => prev.filter((b) => b._id !== confirmDelete._id));
-      setConfirmDelete(null);
+      setError('');
+      if (kind === 'suspend') {
+        const { data } = await api.patch(`/admin/businesses/${business._id}/toggle`, { reason });
+        patchLocal(business._id, { isSuspended: data.data.isSuspended, suspensionReason: data.data.suspensionReason });
+      } else if (kind === 'archive') {
+        await api.patch(`/admin/businesses/${business._id}/archive`, { reason });
+        setBusinesses((prev) => prev.filter((b) => b._id !== business._id));
+      } else {
+        await api.patch(`/admin/businesses/${business._id}/restore`);
+        setBusinesses((prev) => prev.filter((b) => b._id !== business._id));
+      }
     } catch (err) {
-      setError(apiMessage(err, 'No se pudo eliminar el comercio.'));
-      setConfirmDelete(null);
+      setError(apiMessage(err, 'No se pudo actualizar el comercio.'));
     }
   };
 
@@ -150,11 +194,9 @@ export default function Businesses() {
         deliveryTime: Number(form.deliveryTime),
       });
 
-      // Se fija la comisión, pero NO se aprueba: el alta y la aprobación son
-      // dos actos distintos. Aprobar es dar por buenos los papeles de alguien
-      // a quien se le va a transferir dinero, y hasta ahora ocurría solo
-      // porque este formulario mandaba `isApproved: true` fijo. La aprobación
-      // vive ahora en Verificación de Comercios, con los documentos delante.
+      // Se fija la comisión, pero NO se aprueba: aprobar es dar por buenos los
+      // papeles de alguien a quien se le va a transferir dinero, y vive en
+      // Verificar Comercios con los documentos delante.
       await api.patch(`/finance/businesses/${data.data._id}/terms`, {
         commissionRateBps: Math.round(Number(form.commissionRate) * 10000),
       });
@@ -171,24 +213,45 @@ export default function Businesses() {
     }
   };
 
-  const getCategoryLabel = (cat: string) => {
-    const map: Record<string, string> = {
-      restaurant: 'Restaurante', fast_food: 'Comidas Rápidas',
-      pharmacy: 'Droguería', cafe: 'Cafetería', supermarket: 'Supermercado',
-    };
-    return map[cat] || cat;
-  };
-
   const inputClass = 'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-muted)]';
   const labelClass = 'block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1.5';
+  const headClass = 'px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] whitespace-nowrap';
+  const cellClass = 'px-3 py-3.5 text-xs align-middle border-t border-[var(--color-border-light)] text-[var(--color-text-main)]';
+
+  const dialog = pending
+    ? pending.kind === 'suspend'
+      ? {
+          title: 'Suspender comercio',
+          message: `"${pending.business.name}" deja de aparecer en la app y no recibe pedidos. El dueño ve el motivo en su panel y no puede quitar la suspensión.`,
+          confirmLabel: 'Suspender',
+          variant: 'warning' as const,
+          reason: { label: 'Motivo (lo ve el comercio)', placeholder: 'Ej. documentos vencidos: SOAT y concepto sanitario' },
+        }
+      : pending.kind === 'archive'
+        ? {
+            title: 'Archivar comercio',
+            message: `"${pending.business.name}" sale de la app y del catálogo. Sus pedidos, liquidaciones y facturas se conservan, y se puede restaurar.`,
+            confirmLabel: 'Archivar',
+            variant: 'danger' as const,
+            reason: { label: 'Motivo del archivo', placeholder: 'Ej. cerró definitivamente el local' },
+          }
+        : {
+            title: 'Restaurar comercio',
+            message: `"${pending.business.name}" vuelve al listado de comercios y a la app si está aprobado.`,
+            confirmLabel: 'Restaurar',
+            variant: 'default' as const,
+            reason: undefined,
+          }
+    : null;
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
+    <div className="space-y-3 animate-fade-in">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Gestión de Comercios Aliados</h1>
-          <p className="page-subtitle">Administra los restaurantes y tiendas registrados</p>
+          <h1 className="page-title">Comercios aliados</h1>
+          <p className="page-subtitle">
+            {meta.total} {archived ? 'archivados' : 'registrados'}
+          </p>
         </div>
         <button
           onClick={() => setShowModal(true)}
@@ -199,35 +262,47 @@ export default function Businesses() {
         </button>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
-        <div className="relative w-full md:w-80">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nombre..."
-            className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
-          />
+      <div className="space-y-2.5 pb-4 border-b border-[var(--color-border-light)]">
+        <div className="flex flex-col md:flex-row gap-2.5 justify-between md:items-center">
+          <div className="relative w-full md:w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por nombre o ciudad..."
+              className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            {[
+              { value: false, label: 'Operando' },
+              { value: true, label: 'Archivados' },
+            ].map((tab) => (
+              <button
+                key={tab.label}
+                onClick={() => setArchived(tab.value)}
+                className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${
+                  archived === tab.value
+                    ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                    : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
-
-        <div className="flex gap-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
-          {[
-            { id: 'all', label: 'Todas' },
-            { id: 'restaurant', label: 'Restaurantes' },
-            { id: 'fast_food', label: 'Comidas Rápidas' },
-            { id: 'pharmacy', label: 'Droguerías' },
-            { id: 'cafe', label: 'Cafeterías' },
-            { id: 'supermarket', label: 'Supermercados' },
-          ].map((cat) => (
+        <div className="flex gap-1.5 overflow-x-auto">
+          {CATEGORIES.map((cat) => (
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
-              className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${selectedCategory === cat.id
-                ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
-                : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
-                }`}
+              className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${
+                selectedCategory === cat.id
+                  ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                  : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
+              }`}
             >
               {cat.label}
             </button>
@@ -236,122 +311,175 @@ export default function Businesses() {
       </div>
 
       {error && (
-        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
-          <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
-          <p className="flex-1 font-semibold">{error}</p>
-        </div>
+        <p className="flex items-start gap-2 text-xs font-semibold text-[var(--color-danger)]">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
+        </p>
       )}
 
       {loading ? (
-        <div className="table-container p-16 text-center text-[var(--color-text-secondary)] text-xs font-semibold">
-          Cargando catálogo de negocios...
-        </div>
+        <p className="py-16 text-center text-xs font-semibold text-[var(--color-text-secondary)]">
+          Cargando comercios...
+        </p>
       ) : (
-        <div className="grid gap-4">
-          {businesses.map((b) => {
-            const CategoryArt = categoryLogo(b.category);
-            return (
-            <div
-              key={b._id}
-              className="zipp-card p-5 flex flex-col md:flex-row md:items-center justify-between gap-5"
-            >
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-[var(--color-primary-bg)] border border-[var(--color-primary-bg)] flex items-center justify-center flex-shrink-0 overflow-hidden">
-                  <CategoryArt size={34} />
-                </div>
-
-                <div className="min-w-0 space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <h3 className="text-base font-bold text-[var(--color-text-main)]">{b.name}</h3>
-                    <button
-                      onClick={() => handleToggleFeatured(b)}
-                      className={`text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider transition-all cursor-pointer border ${b.isFeatured
-                        ? 'bg-[var(--color-warning-bg)] text-[var(--color-warning)] border-[var(--color-warning-bg)]'
-                        : 'bg-[var(--color-bg)] text-[var(--color-text-muted)] border-[var(--color-border)] hover:text-[var(--color-text-main)]'
-                        }`}
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px]">
+              <thead>
+                <tr>
+                  <th className={headClass}>Comercio</th>
+                  <th className={headClass}>Dueño</th>
+                  <th className={headClass}>Estado</th>
+                  <th className={headClass}>Calificación</th>
+                  <th className={headClass}>Entrega</th>
+                  <th className={headClass}>Comisión</th>
+                  <th className={`${headClass} text-right`}>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {businesses.map((b) => {
+                  const CategoryArt = categoryLogo(b.category);
+                  const owner = ownerOf(b);
+                  return (
+                    <tr
+                      key={b._id}
+                      onClick={() => openFicha('business', b._id)}
+                      className="cursor-pointer hover:bg-[var(--color-bg)] transition-colors"
                     >
-                      <Star className={`w-3 h-3 inline mr-1 ${b.isFeatured ? 'fill-[var(--color-warning)]' : ''}`} />
-                      {b.isFeatured ? 'Destacado' : 'Destacar'}
-                    </button>
-                  </div>
-
-                  <p className="text-xs text-[var(--color-text-secondary)] font-medium">{getCategoryLabel(b.category)}</p>
-
-                  <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--color-text-secondary)]">
-                    <span className="flex items-center gap-1 text-[var(--color-text-main)] font-medium">
-                      <Star className="w-3.5 h-3.5 text-[var(--color-warning)] fill-[var(--color-warning)]" />
-                      {b.rating || 'S/V'} ({b.totalReviews || 0})
-                    </span>
-                    <span className="flex items-center gap-1 text-[var(--color-text-secondary)]">
-                      <MapPin className="w-3.5 h-3.5 text-[var(--color-primary)]" />
-                      {b.address}
-                    </span>
-                    <span className="flex items-center gap-1 text-[var(--color-text-secondary)]">
-                      <Clock className="w-3.5 h-3.5 text-[var(--color-primary-light)]" />
-                      {b.deliveryTime} min
-                    </span>
-                    <span className="px-2 py-0.5 rounded bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-primary)] font-mono font-bold text-[11px]">
-                      Comisión: {b.commissionRateBps >= 0 ? `${(b.commissionRateBps / 100).toFixed(1)}%` : 'Global'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between md:justify-end gap-3 border-t border-[var(--color-border-light)] md:border-0 pt-3 md:pt-0">
-                <span className={`text-[10px] font-bold uppercase tracking-wider ${b.isActive ? 'text-[var(--color-primary)]' : 'text-[var(--color-danger)]'
-                  }`}>
-                  {b.isActive ? 'Activo' : 'Inactivo'}
-                </span>
-
-                <button
-                  onClick={() => handleToggleActive(b)}
-                  className="cursor-pointer hover:scale-105 transition-transform"
-                  title={b.isActive ? 'Desactivar comercio' : 'Activar comercio'}
-                >
-                  {b.isActive ? (
-                    <ToggleRight className="w-8 h-8 text-[var(--color-primary)]" />
-                  ) : (
-                    <ToggleLeft className="w-8 h-8 text-[var(--color-text-muted)]" />
-                  )}
-                </button>
-
-                <button
-                  onClick={() => setConfirmDelete(b)}
-                  className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
-                  title="Eliminar comercio"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            );
-          })}
-
-          {businesses.length === 0 && (
-            <div className="zipp-card p-12 text-center text-[var(--color-text-muted)] text-xs font-semibold">
-              No hay establecimientos que coincidan con la búsqueda.
-            </div>
-          )}
+                      <td className={cellClass}>
+                        <div className="flex items-center gap-3">
+                          <CategoryArt size={30} />
+                          <div className="min-w-0">
+                            <p className="font-bold truncate max-w-[220px]">
+                              <EntityLink type="business" id={b._id}>{b.name}</EntityLink>
+                            </p>
+                            <p className="text-[var(--color-text-secondary)] truncate max-w-[220px]">
+                              {CATEGORY_LABEL[b.category] ?? b.category} · {b.address}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className={cellClass}>
+                        <p>
+                          {owner?.name ? <EntityLink type="user" id={owner._id}>{owner.name}</EntityLink> : '—'}
+                        </p>
+                        <p className="font-mono text-[var(--color-text-secondary)]">{owner?.phone ?? ''}</p>
+                      </td>
+                      <td className={cellClass}>
+                        {b.isArchived ? (
+                          <>
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-muted)]">Archivado</p>
+                            {b.archiveReason && (
+                              <p className="text-[var(--color-text-secondary)] max-w-[200px] truncate" title={b.archiveReason}>
+                                {b.archiveReason}
+                              </p>
+                            )}
+                          </>
+                        ) : !b.isApproved ? (
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-warning)]">Sin aprobar</p>
+                        ) : b.isSuspended ? (
+                          <>
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-danger)]">Suspendido por ZIPP</p>
+                            {b.suspensionReason && (
+                              <p className="text-[var(--color-text-secondary)] max-w-[200px] truncate" title={b.suspensionReason}>
+                                {b.suspensionReason}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className={`text-[10px] font-bold uppercase tracking-wide ${b.isActive ? 'text-[#047857]' : 'text-[var(--color-text-muted)]'}`}>
+                            {b.isActive ? 'Abierto' : 'Cerrado por el dueño'}
+                          </p>
+                        )}
+                        {b.isFeatured && !b.isArchived && (
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-warning)]">Destacado</p>
+                        )}
+                      </td>
+                      <td className={`${cellClass} whitespace-nowrap`}>
+                        <span className="inline-flex items-center gap-1 font-medium">
+                          <Star className="w-3.5 h-3.5 text-[var(--color-warning)] fill-[var(--color-warning)]" />
+                          {b.rating ? b.rating.toFixed(1) : 'S/V'}
+                          <span className="text-[var(--color-text-muted)]">({b.totalReviews ?? 0})</span>
+                        </span>
+                      </td>
+                      <td className={cellClass}>{b.deliveryTime} min</td>
+                      <td className={`${cellClass} font-mono font-semibold`}>
+                        {b.commissionRateBps >= 0 ? `${(b.commissionRateBps / 100).toFixed(1)}%` : 'Global'}
+                      </td>
+                      <td className={cellClass}>
+                        {/* Las acciones no deben abrir la ficha de la fila. */}
+                        <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          {b.isArchived ? (
+                            <PermissionGate permission={Permission.BUSINESSES_UPDATE_ALL}>
+                            <button
+                              onClick={() => setPending({ kind: 'restore', business: b })}
+                              className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-[var(--color-border)] text-[11px] font-semibold cursor-pointer"
+                            >
+                              <ArchiveRestore className="w-4 h-4" /> Restaurar
+                            </button>
+                            </PermissionGate>
+                          ) : (
+                            <>
+                              <PermissionGate permission={Permission.BUSINESSES_UPDATE_ALL}>
+                              <button
+                                onClick={() => handleToggleFeatured(b)}
+                                title={b.isFeatured ? 'Quitar de destacados' : 'Destacar'}
+                                className={`p-2 rounded-lg border border-[var(--color-border)] cursor-pointer ${b.isFeatured ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)]'}`}
+                              >
+                                <Star className={`w-4 h-4 ${b.isFeatured ? 'fill-[var(--color-warning)]' : ''}`} />
+                              </button>
+                              </PermissionGate>
+                              <button
+                                onClick={() => (b.isSuspended ? liftSuspension(b) : setPending({ kind: 'suspend', business: b }))}
+                                title={b.isSuspended ? 'Levantar suspensión' : 'Suspender'}
+                                className={`p-2 rounded-lg border cursor-pointer ${b.isSuspended ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-[var(--color-border)] text-[var(--color-danger)]'}`}
+                              >
+                                <Power className="w-4 h-4" />
+                              </button>
+                              <PermissionGate permission={Permission.BUSINESSES_UPDATE_ALL}>
+                              <button
+                                onClick={() => setPending({ kind: 'archive', business: b })}
+                                title="Archivar"
+                                className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] cursor-pointer"
+                              >
+                                <Archive className="w-4 h-4" />
+                              </button>
+                              </PermissionGate>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {businesses.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-14 text-center text-[var(--color-text-muted)] text-xs font-semibold">
+                      {archived ? 'No hay comercios archivados.' : 'No hay comercios que coincidan con la búsqueda.'}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
           <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
-        </div>
+        </>
       )}
 
-      {/* Confirm Delete Dialog */}
-      {confirmDelete && (
+      {pending && dialog && (
         <ConfirmDialog
-          title="Eliminar Establecimiento"
-          message={`¿Estás seguro de eliminar "${confirmDelete.name}"? Esta acción removerá el comercio de la app.`}
-          confirmLabel="Eliminar Definitivamente"
-          onConfirm={handleDeleteBusiness}
-          onCancel={() => setConfirmDelete(null)}
-          variant="danger"
+          title={dialog.title}
+          message={dialog.message}
+          confirmLabel={dialog.confirmLabel}
+          variant={dialog.variant}
+          reason={dialog.reason}
+          onConfirm={confirmPending}
+          onCancel={() => setPending(null)}
         />
       )}
 
-      {/* Create Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="Zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
               <div className="flex items-center gap-2">
                 <Store className="w-5 h-5 text-[var(--color-primary)]" />
@@ -362,8 +490,8 @@ export default function Businesses() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateBusiness} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <form onSubmit={handleCreateBusiness} className="space-y-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className={labelClass}>Nombre del Establecimiento</label>
                   <input type="text" required value={form.name}
@@ -392,7 +520,7 @@ export default function Businesses() {
                   placeholder="Descripción atractiva para los usuarios" />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className={labelClass}>Categoría Principal</label>
                   <select value={form.category}
@@ -420,7 +548,7 @@ export default function Businesses() {
                   className={inputClass} placeholder="Calle 7 # 10-45" />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className={labelClass}>Tiempo Promedio de Entrega (min)</label>
                   <input type="number" required value={form.deliveryTime}
@@ -439,7 +567,7 @@ export default function Businesses() {
                 type="submit"
                 className="w-full h-11 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-white font-bold text-xs uppercase tracking-wider rounded-lg shadow-sm cursor-pointer mt-2"
               >
-                Crear y Activar Comercio
+                Crear comercio (queda pendiente de aprobación)
               </button>
             </form>
           </div>

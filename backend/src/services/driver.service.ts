@@ -1,9 +1,12 @@
-import { Driver, IDriver, DriverDebt, DriverDocument, DriverOffer } from '../models';
+import { Types } from 'mongoose';
+import { Driver, IDriver, DriverDebt, DriverDocument, DriverOffer, User } from '../models';
 import { AppError } from '../middlewares';
+import { escapeRegex } from '../utils';
 import { DriverStatus, DebtStatus } from '../types';
 import { cashReconciliationService } from './cashReconciliation.service';
 import { payoutService } from './payout.service';
 import { PayoutBeneficiary } from '../types';
+import { cloudinary } from '../config';
 
 /**
  * La fecha en la zona del servidor, como `YYYY-MM-DD`.
@@ -18,6 +21,98 @@ function localDay(date: Date): string {
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+export interface DriverListFilters {
+  page?: number;
+  limit?: number;
+  search?: string;
+  driverStatus?: 'pending' | 'active' | 'suspended';
+  availability?: 'available' | 'busy' | 'offline';
+  vehicleType?: 'motorcycle' | 'bicycle';
+  dateFrom?: Date;
+  dateTo?: Date;
+  sortBy?: 'name' | 'createdAt' | 'rating' | 'totalDeliveries' | 'lastLocationAt';
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface DriverListItem {
+  _id: string;
+  userId: {
+    _id: string;
+    name: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    email?: string;
+    avatar?: string;
+    documentType?: string;
+    documentNumber?: string;
+    lastLoginAt?: Date;
+    isBlocked?: boolean;
+    createdAt: Date;
+  };
+  vehicleType: string;
+  licensePlate?: string;
+  status: string;
+  isActive: boolean;
+  isApproved: boolean;
+  baseFund: number;
+  currentFund: number;
+  rating: number;
+  totalReviews: number;
+  totalDeliveries: number;
+  lastLocationAt?: Date;
+  createdAt: Date;
+}
+
+export interface DriverDetail extends DriverListItem {
+  emergencyContact?: { name: string; phone: string; relationship?: string };
+  batteryLevel?: number;
+  totalEarnings: number;
+}
+
+/**
+ * Los únicos campos del usuario que salen hacia el panel. Se proyectan dentro
+ * del `$lookup` para que ni siquiera el hash de la contraseña ni el secreto
+ * 2FA lleguen a la memoria del proceso.
+ */
+const USER_FIELDS = [
+  'name', 'firstName', 'lastName', 'phone', 'email', 'avatar',
+  'documentType', 'documentNumber', 'lastLoginAt', 'isBlocked', 'createdAt',
+] as const;
+
+const userLookupStage = () => ({
+  $lookup: {
+    from: User.collection.name,
+    let: { uid: '$userId' },
+    pipeline: [
+      { $match: { $expr: { $eq: ['$_id', '$$uid'] } } },
+      { $project: Object.fromEntries(USER_FIELDS.map((f) => [f, 1])) },
+    ],
+    as: 'user',
+  },
+});
+
+const LIST_PROJECTION = {
+  userId: {
+    _id: '$user._id',
+    ...Object.fromEntries(USER_FIELDS.map((f) => [f, `$user.${f}`])),
+  },
+  vehicleType: 1,
+  licensePlate: 1,
+  status: 1,
+  isActive: 1,
+  isApproved: 1,
+  baseFund: 1,
+  currentFund: 1,
+  rating: 1,
+  totalReviews: 1,
+  totalDeliveries: 1,
+  lastLocationAt: 1,
+  createdAt: 1,
+};
+
+const DETAIL_PROJECTION = { emergencyContact: 1, batteryLevel: 1, totalEarnings: 1 };
 
 interface CreateDriverInput {
   userId: string;
@@ -95,13 +190,91 @@ export class DriverService {
     }).populate('userId', 'name phone avatar');
   }
 
+  /** Compatibilidad: el listado sin filtros. Ver `list`. */
   async getAll(page = 1, limit = 20) {
-    const skip = (page - 1) * limit;
-    const [drivers, total] = await Promise.all([
-      Driver.find().skip(skip).limit(limit).populate('userId', 'name phone avatar').sort({ createdAt: -1 }),
-      Driver.countDocuments(),
+    const { drivers, meta } = await this.list({ page, limit });
+    return { drivers, meta };
+  }
+
+  /**
+   * Listado del panel: búsqueda, filtros, orden y paginación.
+   *
+   * Los campos de búsqueda viven en dos colecciones (`drivers` y `users`),
+   * así que es una agregación con `$lookup`. Ojo con lo que eso implica:
+   * los virtuals y el `select: false` de Mongoose NO aplican aquí, de modo
+   * que la proyección es explícita y es lo único que impide que salgan
+   * `reputationScore` o los campos de credenciales del usuario.
+   */
+  async list(filters: DriverListFilters = {}) {
+    const page = Math.max(1, filters.page ?? 1);
+    const limit = Math.max(1, filters.limit ?? 20);
+
+    const match: Record<string, unknown> = {};
+    if (filters.driverStatus === 'pending') match.isApproved = false;
+    else if (filters.driverStatus === 'suspended') Object.assign(match, { isApproved: true, isActive: false });
+    else if (filters.driverStatus === 'active') Object.assign(match, { isApproved: true, isActive: true });
+    if (filters.availability) match.status = filters.availability;
+    if (filters.vehicleType) match.vehicleType = filters.vehicleType;
+    if (filters.dateFrom || filters.dateTo) {
+      match.createdAt = {
+        ...(filters.dateFrom ? { $gte: filters.dateFrom } : {}),
+        ...(filters.dateTo ? { $lte: filters.dateTo } : {}),
+      };
+    }
+
+    const term = filters.search?.trim();
+    const searchMatch = term
+      ? (() => {
+          const rx = new RegExp(escapeRegex(term), 'i');
+          return {
+            $or: [
+              { 'user.name': rx },
+              { 'user.phone': rx },
+              { 'user.email': rx },
+              { 'user.documentNumber': rx },
+              { licensePlate: rx },
+            ],
+          };
+        })()
+      : null;
+
+    const sortField = filters.sortBy === 'name' ? 'user.name' : filters.sortBy ?? 'createdAt';
+    const sortDir = filters.sortOrder === 'asc' ? 1 : -1;
+
+    const [result] = await Driver.aggregate([
+      { $match: match },
+      userLookupStage(),
+      { $unwind: '$user' },
+      ...(searchMatch ? [{ $match: searchMatch }] : []),
+      // `_id` desempata: sin él, dos filas con el mismo valor pueden repetirse
+      // o saltarse entre página y página.
+      { $sort: { [sortField]: sortDir, _id: 1 } },
+      {
+        $facet: {
+          items: [{ $skip: (page - 1) * limit }, { $limit: limit }, { $project: LIST_PROJECTION }],
+          count: [{ $count: 'total' }],
+        },
+      },
+    ]).collation({ locale: 'es', strength: 2 });
+
+    const total: number = result?.count?.[0]?.total ?? 0;
+    return {
+      drivers: (result?.items ?? []) as DriverListItem[],
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  /** Un domiciliario con los mismos campos del listado más los de detalle. */
+  async getDetail(id: string): Promise<DriverDetail> {
+    if (!Types.ObjectId.isValid(id)) throw new AppError('Identificador de domiciliario inválido', 400);
+    const [driver] = await Driver.aggregate([
+      { $match: { _id: new Types.ObjectId(id) } },
+      userLookupStage(),
+      { $unwind: '$user' },
+      { $project: { ...LIST_PROJECTION, ...DETAIL_PROJECTION } },
     ]);
-    return { drivers, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    if (!driver) throw new AppError('Domiciliario no encontrado', 404);
+    return driver as DriverDetail;
   }
 
   async approve(id: string): Promise<IDriver> {
@@ -161,14 +334,20 @@ export class DriverService {
    * habilitación para trabajar y tiene que poder consultarse mientras el
    * documento siga vigente.
    */
+  /**
+   * S16: `authenticated` — la cédula, el SOAT y los demás documentos del
+   * domiciliario son datos personales y de identidad; no tienen por qué
+   * quedar en una URL de Cloudinary servible por cualquiera que la
+   * adivine o la encuentre en un volcado. Devuelve el `public_id`, no una
+   * URL: solo se firma al leer, y nunca se guarda esa firma.
+   */
   private async storeDocumentImage(buffer: Buffer): Promise<string> {
-    const { cloudinary } = await import('../config');
-
     return new Promise<string>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
           folder: 'zipp/driver-documents',
           resource_type: 'image',
+          type: 'authenticated',
           // Se limita, no se recorta: un número de póliza recortado no se
           // puede leer, y leerlo es todo el propósito de la foto.
           transformation: [
@@ -176,15 +355,32 @@ export class DriverService {
             { quality: 'auto', fetch_format: 'auto' },
           ],
         },
-        (error: unknown, result: { secure_url: string } | undefined) => {
+        (error: unknown, result: { public_id: string } | undefined) => {
           if (error || !result) {
             reject(new AppError('No se pudo subir la foto del documento', 502));
             return;
           }
-          resolve(result.secure_url);
+          resolve(result.public_id);
         }
       );
       stream.end(buffer);
+    });
+  }
+
+  /**
+   * URL firmada para ver la foto de un documento de domiciliario (S16).
+   *
+   * Se calcula en cada lectura y nunca se persiste. Un documento anterior a
+   * esta migración, todavía con `imageUrl` público y sin `imageKey`, se
+   * devuelve tal cual — la migración 015 es la que los pasa uno a uno.
+   */
+  documentImageUrl(doc: { imageUrl?: string | null; imageKey?: string | null; isPrivate?: boolean }): string | undefined {
+    if (!doc.isPrivate || !doc.imageKey) return doc.imageUrl ?? undefined;
+    return cloudinary.url(doc.imageKey, {
+      type: 'authenticated',
+      resource_type: 'image',
+      sign_url: true,
+      secure: true,
     });
   }
 
@@ -206,13 +402,17 @@ export class DriverService {
 
     const existing = await DriverDocument.findOne({ driverId: driver._id, type: input.type });
 
-    if (!input.image && !existing?.imageUrl) {
+    if (!input.image && !existing?.imageUrl && !existing?.imageKey) {
       throw new AppError('Necesitamos una foto del documento para poder revisarlo', 400);
     }
 
-    const imageUrl = input.image
-      ? await this.storeDocumentImage(input.image)
-      : existing!.imageUrl;
+    // S16: una foto nueva sube `authenticated` (público_id en `imageKey`);
+    // si no llega foto nueva, se conserva lo que ya hubiera, sea el
+    // `imageUrl` público de un documento anterior a este cambio o el
+    // `imageKey` privado de uno posterior.
+    const imagePatch = input.image
+      ? { imageKey: await this.storeDocumentImage(input.image), isPrivate: true, imageUrl: null }
+      : { imageKey: existing?.imageKey, isPrivate: existing?.isPrivate ?? false, imageUrl: existing?.imageUrl };
 
     return DriverDocument.findOneAndUpdate(
       { driverId: driver._id, type: input.type },
@@ -221,7 +421,7 @@ export class DriverService {
         type: input.type,
         reference: input.reference,
         expiresAt: input.expiresAt,
-        imageUrl,
+        ...imagePatch,
         status: 'pending',
         reviewedBy: null,
         reviewedAt: null,
@@ -230,7 +430,16 @@ export class DriverService {
     );
   }
 
-  async listDocuments(driverId: string) { return DriverDocument.find({ driverId }).sort({ type: 1 }); }
+  async listDocuments(driverId: string): Promise<Record<string, unknown>[]> {
+    const documents = await DriverDocument.find({ driverId }).sort({ type: 1 }).lean();
+    // S16: `imageKey` no sale del backend — solo la URL ya firmada, en el
+    // mismo campo `imageUrl` que el panel y la app siempre leyeron.
+    return documents.map((doc) => {
+      const imageUrl = this.documentImageUrl(doc);
+      const { imageKey, ...rest } = doc;
+      return { ...rest, imageUrl };
+    });
+  }
 
   /**
    * Lo que un administrador tiene pendiente de mirar.
@@ -272,24 +481,88 @@ export class DriverService {
         populate: { path: 'userId', select: 'name phone' },
       });
 
+    // S16: la foto se firma al servir la cola, nunca antes — `imageKey` no
+    // sale de este método.
+    const view = (d: (typeof documents)[number]) => {
+      const obj = d.toObject() as unknown as Record<string, unknown>;
+      delete obj.imageKey;
+      obj.imageUrl = this.documentImageUrl(d);
+      return obj;
+    };
+
     // Se reparten en tres listas en vez de ordenarse por un campo, porque
     // el orden que importa no es alfabético ni cronológico: es el de la
     // urgencia con la que hay que actuar sobre cada grupo.
     return {
-      pending: documents.filter((d) => d.status === 'pending'),
-      expired: documents.filter((d) => d.status === 'expired'),
-      expiringSoon: documents.filter((d) => d.status === 'approved'),
+      pending: documents.filter((d) => d.status === 'pending').map(view),
+      expired: documents.filter((d) => d.status === 'expired').map(view),
+      expiringSoon: documents.filter((d) => d.status === 'approved').map(view),
     };
   }
-  async reviewDocument(id: string, adminId: string, status: 'approved'|'rejected') { const document = await DriverDocument.findByIdAndUpdate(id, { status, reviewedBy: adminId, reviewedAt: new Date() }, { new: true, runValidators: true }); if (!document) throw new AppError('Documento no encontrado', 404); return document; }
+  /** O6: `rejectionReason` es obligatorio al rechazar — antes el domiciliario reintentaba a ciegas, sin saber qué corregir. */
+  async reviewDocument(id: string, adminId: string, status: 'approved'|'rejected', rejectionReason?: string) {
+    if (status === 'rejected' && (!rejectionReason || rejectionReason.trim().length < 5)) {
+      throw new AppError('El motivo del rechazo es obligatorio (mínimo 5 caracteres)', 400);
+    }
+    const document = await DriverDocument.findByIdAndUpdate(
+      id,
+      { status, reviewedBy: adminId, reviewedAt: new Date(), rejectionReason: status === 'rejected' ? rejectionReason!.trim() : null },
+      { new: true, runValidators: true }
+    );
+    if (!document) throw new AppError('Documento no encontrado', 404);
+    return document;
+  }
 
+  /**
+   * Cambia el fondo rotatorio base de un domiciliario.
+   *
+   * `currentFund` no se pisa con el nuevo `baseFund`: tiene reservas de
+   * pedidos en curso metidas dentro. La condición `baseFund: previousBaseFund`
+   * en el filtro de `findOneAndUpdate` es lo que hace el cambio atómico
+   * —dos administradores editando a la vez no se pisan— y el `$inc` aplica
+   * solo la diferencia, preservando lo que ya estaba comprometido. Si la
+   * diferencia es negativa y no hay suficiente `currentFund` libre para
+   * absorberla, se rechaza con 409 en vez de dejar el fondo en negativo.
+   */
   async updateBaseFund(id: string, baseFund: number): Promise<IDriver> {
-    const driver = await Driver.findById(id);
-    if (!driver) throw new AppError('Domiciliario no encontrado', 404);
-    driver.baseFund = baseFund;
-    driver.currentFund = baseFund;
-    await driver.save();
-    return driver;
+    const current = await Driver.findById(id).select('baseFund currentFund');
+    if (!current) throw new AppError('Domiciliario no encontrado', 404);
+
+    const previousBaseFund = current.baseFund;
+    const delta = baseFund - previousBaseFund;
+
+    const updated = await Driver.findOneAndUpdate(
+      {
+        _id: id,
+        baseFund: previousBaseFund,
+        ...(delta < 0 ? { currentFund: { $gte: -delta } } : {}),
+      },
+      { $set: { baseFund }, $inc: { currentFund: delta } },
+      { new: true }
+    );
+
+    if (!updated) {
+      // O el fondo base cambió justo antes (carrera), o no alcanza a
+      // absorber la reducción porque hay dinero retenido en pedidos.
+      const fresh = await Driver.findById(id).select('baseFund currentFund');
+      if (!fresh) throw new AppError('Domiciliario no encontrado', 404);
+      if (fresh.baseFund !== previousBaseFund) {
+        throw new AppError(
+          'El fondo base cambió justo antes de esta actualización. Intenta de nuevo.',
+          409
+        );
+      }
+      // `currentFund` es lo que le queda libre, no lo retenido: lo retenido
+      // en pedidos abiertos es la diferencia contra el techo (`baseFund`).
+      // El mensaje anterior mostraba el libre como si fuera lo ocupado.
+      const held = Math.max(0, fresh.baseFund - fresh.currentFund);
+      throw new AppError(
+        `No se puede reducir el fondo base: tiene $${held.toLocaleString('es-CO')} retenido en pedidos.`,
+        409
+      );
+    }
+
+    return updated;
   }
 
   // ── Financial ──

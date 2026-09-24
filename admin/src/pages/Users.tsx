@@ -4,7 +4,8 @@ import {
 } from 'lucide-react';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
-import UserProfile360 from '../components/UserProfile360';
+import EntityLink from '../components/EntityLink';
+import { useFicha } from '../lib/entityLinks';
 import { PermissionGate } from '../components/PermissionGate';
 import { Permission } from '../lib/permissions';
 import { useAuthStore } from '../stores/authStore';
@@ -59,6 +60,8 @@ function refName(ref: RoleRef | PositionRef | string | null | undefined): string
 
 export default function Users() {
   const currentUserId = useAuthStore((s) => s.user?._id);
+  const authzMode = useAuthStore((s) => s.authzMode);
+  const observedPermissions = useAuthStore((s) => s.observedPermissions);
   const [users, setUsers] = useState<UserType[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -90,8 +93,9 @@ export default function Users() {
   // Crear cuenta administrativa
   // Historial completo de una persona. Se abre desde su fila porque es
   // donde nace la pregunta que contesta: quien la necesita ya esta
-  // mirando a ese usuario.
-  const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  // mirando a ese usuario. La ficha vive en la URL (`?ficha=user:<id>`).
+  const { open: openFicha } = useFicha();
+  const [loadError, setLoadError] = useState('');
   const [creatingStaff, setCreatingStaff] = useState(false);
   const [staffForm, setStaffForm] = useState({ name: '', phone: '', email: '', password: '', positionId: '' });
 
@@ -120,8 +124,10 @@ export default function Users() {
       const { data } = await api.get('/admin/users', { params });
       setUsers(data.data);
       if (data.meta) setMeta(data.meta);
+      setLoadError('');
     } catch (err) {
       console.error(err);
+      setLoadError(apiMessage(err, 'No se pudieron cargar los usuarios.'));
     } finally {
       setLoading(false);
     }
@@ -273,7 +279,7 @@ export default function Users() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       {/* Header */}
       <div className="page-header">
         <div>
@@ -301,7 +307,7 @@ export default function Users() {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
+      <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
           <input
@@ -329,6 +335,10 @@ export default function Users() {
           ))}
         </div>
       </div>
+
+      {loadError && (
+        <p className="text-xs font-semibold text-[var(--color-danger)]">{loadError}</p>
+      )}
 
       {/* Table */}
       {loading ? (
@@ -363,7 +373,7 @@ export default function Users() {
                           {u.name?.charAt(0)?.toUpperCase() || '?'}
                         </div>
                         <div>
-                          <p className="text-xs font-bold text-[var(--color-text-main)]">{u.name}{isSelf && <span className="ml-1.5 text-[9px] text-[var(--color-text-muted)] font-normal">(tú)</span>}</p>
+                          <p className="text-xs font-bold text-[var(--color-text-main)]"><EntityLink type="user" id={u._id}>{u.name}</EntityLink>{isSelf && <span className="ml-1.5 text-[9px] text-[var(--color-text-muted)] font-normal">(tú)</span>}</p>
                           {u.email && <p className="text-[10px] text-[var(--color-text-muted)]">{u.email}</p>}
                         </div>
                       </div>
@@ -400,7 +410,7 @@ export default function Users() {
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <PermissionGate permission={Permission.USERS_VIEW}>
                           <button
-                            onClick={() => setProfileUserId(u._id)}
+                            onClick={() => openFicha('user', u._id)}
                             title="Historial completo"
                             className="p-1.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] transition-all cursor-pointer"
                           >
@@ -522,7 +532,7 @@ export default function Users() {
       {/* Role Modal */}
       {editingUser && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div ref={modalRef} className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-4">
+          <div ref={modalRef} className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5">
             <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
               <div className="flex items-center gap-2">
                 <Shield className="w-5 h-5 text-[var(--color-primary)]" />
@@ -589,7 +599,7 @@ export default function Users() {
       {/* Cargo y Roles (RBAC) */}
       {accessUser && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
               <div className="flex items-center gap-2">
                 <Shield className="w-5 h-5 text-[var(--color-primary)]" />
@@ -616,7 +626,7 @@ export default function Users() {
 
             <div>
               <label className="block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">Roles adicionales</label>
-              <div className="space-y-1.5 max-h-40 overflow-y-auto border border-[var(--color-border-light)] rounded-xl p-2">
+              <div className="space-y-1.5 max-h-40 overflow-y-auto divide-y divide-[var(--color-border-light)] border-y border-[var(--color-border-light)] py-1">
                 {allRoles.length === 0 && <p className="text-xs text-[var(--color-text-muted)] p-2">No hay roles disponibles.</p>}
                 {allRoles.map((r) => {
                   const checked = accessForm.roleIds.includes(r._id);
@@ -643,6 +653,21 @@ export default function Users() {
               </div>
             )}
 
+            {/* Solo se conoce lo que perdería la propia cuenta (viene de /auth/me);
+                lo de las demás personas está en Roles > Revisión de accesos. */}
+            {authzMode === 'observe' && accessUser._id === currentUserId && observedPermissions.length > 0 && (
+              <div>
+                <label className="block text-[11px] font-bold text-[var(--color-warning)] uppercase tracking-wider mb-1.5">
+                  Perdería al activar el bloqueo ({observedPermissions.length})
+                </label>
+                <div className="flex flex-wrap gap-x-2 gap-y-1 max-h-24 overflow-y-auto">
+                  {observedPermissions.map((p) => (
+                    <span key={p} className="text-[9px] font-mono text-[var(--color-text-secondary)]">{p}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-2 pt-2">
               <button onClick={() => setAccessUser(null)} className="flex-1 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] transition-colors cursor-pointer">
                 Cancelar
@@ -658,7 +683,7 @@ export default function Users() {
       {/* Restablecer contraseña */}
       {resetUser && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-4">
+          <div className="zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-2.5">
             <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
               <div className="flex items-center gap-2">
                 <KeyRound className="w-5 h-5 text-[var(--color-primary)]" />
@@ -685,8 +710,10 @@ export default function Users() {
               </>
             ) : (
               <>
-                <p className="text-xs text-[var(--color-text-secondary)]">Contraseña temporal generada. No se volverá a mostrar — cópiala ahora:</p>
-                <div className="flex items-center gap-2 p-3 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg">
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                  Contraseña temporal generada. No se volverá a mostrar: cópiala ahora. Caduca en 24 horas y la persona tendrá que cambiarla al entrar.
+                </p>
+                <div className="flex items-center gap-2 border-y border-[var(--color-border-light)] py-3">
                   <code className="flex-1 text-xs font-mono text-[var(--color-text-main)] break-all">{tempPassword}</code>
                   <button
                     onClick={() => { navigator.clipboard?.writeText(tempPassword); setToast({ message: 'Copiado al portapapeles', type: 'success' }); }}
@@ -710,7 +737,7 @@ export default function Users() {
       {/* Crear cuenta administrativa */}
       {creatingStaff && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
               <h3 className="text-base font-bold text-[var(--color-text-main)]">Nueva Cuenta Administrativa</h3>
               <button onClick={() => setCreatingStaff(false)} className="text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
@@ -738,10 +765,6 @@ export default function Users() {
           </div>
         </div>
       )}
-
-      {profileUserId ? (
-        <UserProfile360 userId={profileUserId} onClose={() => setProfileUserId(null)} />
-      ) : null}
 
       {/* Toast Notification */}
       {toast && (

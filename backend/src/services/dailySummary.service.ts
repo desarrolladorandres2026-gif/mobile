@@ -9,6 +9,8 @@ import {
   CashReconciliation,
 } from '../models';
 import { OrderStatus, PaymentMethod, UserRole } from '../types';
+import { platformResultService, PlatformResult } from './platformResult.service';
+import { bogotaDayRange, bogotaDateString, shiftDateString } from '../utils/period';
 
 /**
  * Cierre operativo de un día.
@@ -20,9 +22,13 @@ import { OrderStatus, PaymentMethod, UserRole } from '../types';
  * (GMV, ingreso bruto, gasto promocional, margen neto), con respaldo a los
  * campos planos legados cuando un pedido viejo no lo tiene.
  *
- * El día se delimita con la hora local del servidor, igual que el resto del
- * panel admin. Si algún día el servidor deja de correr en horario de
- * Colombia (UTC-5) habrá que fijar la zona aquí y en `admin.service`.
+ * El día se delimita en hora de Colombia (America/Bogota, UTC-5 fijo), vía
+ * `utils/period.ts`, sin depender de la zona del servidor.
+ *
+ * El ingreso de ZIPP (`platformGrossRevenue`, `promotionExpense`,
+ * `netRevenue`) sale del libro mayor con `platformResultService`, la misma
+ * función que usan el Dashboard y Finanzas. `netRevenue` es el neto ANTES de
+ * costos de pasarela (`platformResult.incomplete`), no rentabilidad.
  */
 
 // ── Tipos ────────────────────────────────────────────────────────────
@@ -51,6 +57,8 @@ export interface DaySnapshot {
   tax: number;
   merchantFundedDiscount: number;
   platformFundedDiscount: number;
+  /** Resultado de ZIPP del día según el libro mayor (fuente de las tres cifras anteriores). */
+  platformResult: PlatformResult;
 
   // Métodos de pago (sobre lo entregado ese día)
   payDigitalCount: number;
@@ -133,20 +141,13 @@ export interface DailySummary {
 
 // ── Límites del día ──────────────────────────────────────────────────
 
+// El día es el día calendario de Bogotá (UTC-5), no el de la hora del servidor.
 function dayBounds(dateStr: string): { start: Date; end: Date } {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const start = new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
-  const end = new Date(y, (m ?? 1) - 1, d ?? 1, 23, 59, 59, 999);
-  return { start, end };
+  const { from, to } = bogotaDayRange(dateStr);
+  return { start: from, end: to };
 }
 
-function shiftDays(dateStr: string, delta: number): string {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const dt = new Date(y, (m ?? 1) - 1, (d ?? 1) + delta);
-  const mm = String(dt.getMonth() + 1).padStart(2, '0');
-  const dd = String(dt.getDate()).padStart(2, '0');
-  return `${dt.getFullYear()}-${mm}-${dd}`;
-}
+const shiftDays = shiftDateString;
 
 // `order.finance` es la fuente de verdad; los pedidos anteriores a la
 // migración de monetización no lo tienen, así que cada línea cae al campo
@@ -176,6 +177,7 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
     reviews,
     pqrs,
     refunds,
+    result,
   ] = await Promise.all([
     Order.countDocuments({ createdAt: inDay }),
     Order.countDocuments({ status: OrderStatus.CANCELLED, cancelledAt: inDay }),
@@ -187,9 +189,6 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
           _id: null,
           count: { $sum: 1 },
           gmv: { $sum: F('customerTotal', 'total') },
-          platformGrossRevenue: { $sum: F('platformGrossRevenue', 'platformCommission') },
-          promotionExpense: { $sum: F('platformPromotionExpense') },
-          netRevenue: { $sum: F('platformNetRevenueBeforeOperatingCosts', 'platformCommission') },
           businessPayouts: { $sum: F('businessPayout', 'businessPayout') },
           driverPayouts: { $sum: F('driverPayout', 'driverPayout') },
           tips: { $sum: F('tip', 'tip') },
@@ -251,6 +250,7 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
       { $match: { createdAt: inDay } },
       { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } },
     ]),
+    platformResultService.forRange({ from: start, to: end }),
   ]);
 
   const m = money[0] || {};
@@ -272,9 +272,10 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
     avgDeliveryMinutes: deliveryTime[0]?.avgMs ? Math.round(deliveryTime[0].avgMs / 60000) : 0,
 
     gmv: m.gmv || 0,
-    platformGrossRevenue: m.platformGrossRevenue || 0,
-    promotionExpense: m.promotionExpense || 0,
-    netRevenue: m.netRevenue || 0,
+    platformGrossRevenue: result.grossRevenue,
+    promotionExpense: result.promotionExpense,
+    netRevenue: result.netBeforeGatewayCosts,
+    platformResult: result,
     businessPayouts: m.businessPayouts || 0,
     driverPayouts: m.driverPayouts || 0,
     tips: m.tips || 0,
@@ -541,10 +542,7 @@ export function deriveHealthFlags(today: DaySnapshot): HealthFlag[] {
 // ── Orquestador ────────────────────────────────────────────────────
 
 function todayStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-    d.getDate()
-  ).padStart(2, '0')}`;
+  return bogotaDateString();
 }
 
 export const dailySummaryService = {

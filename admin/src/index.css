@@ -157,10 +157,10 @@
 }
 
 .page-header {
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 @media (min-width: 640px) {
@@ -187,28 +187,29 @@
 
 /* Tablas Zipp */
 .table-container {
-  border: 1px solid var(--color-border);
-  border-radius: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
   overflow: hidden;
-  background-color: var(--color-surface);
+  background-color: transparent;
 }
 
 .table-header-cell {
-  padding: 0.875rem 1.25rem;
-  font-size: 0.72rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.68rem;
   font-weight: 600;
   color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   /* `bg-alt` y no `bg`: la cabecera tiene que separarse de la superficie
      de la tabla, y ese es justo el token que existe para eso. */
-  background-color: var(--color-bg-alt);
+  background-color: transparent;
   border-bottom: 1px solid var(--color-border);
 }
 
 .table-body-cell {
-  padding: 0.95rem 1.25rem;
-  font-size: 0.8125rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.78rem;
   vertical-align: middle;
   color: var(--color-text-main);
   border-bottom: 1px solid var(--color-border);

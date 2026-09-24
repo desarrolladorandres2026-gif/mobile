@@ -45,8 +45,10 @@ export async function generateTOTPSecret(
  *
  * En claro, una copia de la base bastaba para generar los códigos de
  * cualquier cuenta con 2FA. `decrypt` devuelve intacto un valor que no está
- * cifrado, así que los secretos anteriores a este cambio siguen funcionando
- * hasta que la migración 004 los cifre.
+ * cifrado, así que los secretos anteriores a este cambio seguían
+ * funcionando en claro — la migración 004 NO los tocó (cifrar `Session` y
+ * limpiar `refreshToken` no incluía TOTP). La migración 012
+ * (`migrate:encrypt-totp-secrets`) es la que cifra los que quedaron.
  */
 export function sealTotpSecret(secret: string): string {
   return encrypt(secret);

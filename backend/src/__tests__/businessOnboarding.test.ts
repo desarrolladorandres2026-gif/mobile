@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Business, BusinessDocument } from '../models';
 import { UserRole } from '../types';
 import { businessService } from '../services/business.service';
-import { makeUser, makeBusiness, GARZON } from './factories';
+import { makeUser, makeBusiness, GARZON, attachTestFile, reviewDoc, approveBusinessDocument, provisionVerifiedAccount } from './factories';
 
 /**
  * Alta y verificación de comercios.
@@ -23,12 +23,19 @@ describe('Alta de comercios', () => {
     adminId: string
   ) => {
     for (const type of types) {
-      const doc = await businessService.submitDocument(businessId, {
-        type: type as never,
-        reference: `REF-${type}`,
-      });
-      await businessService.reviewDocument(doc!._id.toString(), adminId, 'approved');
+      await approveBusinessDocument(businessId, type, adminId);
     }
+  };
+
+  /** `approve()` exige datos legales y cuenta verificada: los registra el dueño, los verifica otro. */
+  const provisionFiscal = async (adminId: string) => {
+    const id = business._id.toString();
+    await businessService.setLegal(
+      id,
+      { documentType: 'NIT', documentNumber: '900123456', legalName: 'Negocio SAS' },
+      owner._id.toString()
+    );
+    await provisionVerifiedAccount(business, owner._id.toString(), adminId);
   };
 
   beforeEach(async () => {
@@ -102,7 +109,7 @@ describe('Alta de comercios', () => {
       type: 'rut',
       reference: 'borroso',
     });
-    await businessService.reviewDocument(doc!._id.toString(), admin._id.toString(), 'rejected', 'No se lee');
+    await reviewDoc(doc!._id, admin._id.toString(), 'rejected', 'No se lee');
 
     const again = await businessService.submitDocument(business._id.toString(), {
       type: 'rut',
@@ -132,6 +139,7 @@ describe('Alta de comercios', () => {
       ['rut', 'chamber_of_commerce', 'legal_rep_id', 'bank_certificate', 'health_permit'],
       admin._id.toString()
     );
+    await provisionFiscal(admin._id.toString());
 
     const approved = await businessService.approve(business._id.toString(), admin._id.toString());
 
@@ -148,7 +156,8 @@ describe('Alta de comercios', () => {
       reference: '900123456-1',
       expiresAt: new Date(Date.now() - 86_400_000),
     });
-    await businessService.reviewDocument(doc!._id.toString(), admin._id.toString(), 'approved');
+    await attachTestFile(doc!._id);
+    await reviewDoc(doc!._id, admin._id.toString(), 'approved');
 
     const missing = await businessService.missingDocuments(business._id.toString());
     expect(missing).toContain('rut');
@@ -173,6 +182,7 @@ describe('Alta de comercios', () => {
       ['rut', 'chamber_of_commerce', 'legal_rep_id', 'bank_certificate', 'health_permit'],
       admin._id.toString()
     );
+    await provisionFiscal(admin._id.toString());
     await businessService.approve(business._id.toString(), admin._id.toString());
 
     const pending = await businessService.pendingApprovals();

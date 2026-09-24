@@ -4,6 +4,87 @@ import { normalize } from '../utils/text';
 import { BUSINESS_BRAND_COLORS } from '../utils/businessBrand';
 import { cacheInvalidationPlugin, CachePrefix, fieldFrom } from '../cache';
 
+// ── Datos fiscales y cuenta de pago (Fase 0) ─────────────────────────
+
+export const LEGAL_DOCUMENT_TYPES = ['NIT', 'CC', 'CE'] as const;
+export type LegalDocumentType = (typeof LEGAL_DOCUMENT_TYPES)[number];
+
+export const TAX_REGIMES = ['simple', 'ordinario', 'no_responsable_iva', 'otro'] as const;
+export type TaxRegime = (typeof TAX_REGIMES)[number];
+
+export const PAYOUT_METHODS = ['bank', 'nequi', 'daviplata'] as const;
+export type PayoutMethod = (typeof PAYOUT_METHODS)[number];
+
+export const PAYOUT_ACCOUNT_TYPES = ['ahorros', 'corriente'] as const;
+export type PayoutAccountType = (typeof PAYOUT_ACCOUNT_TYPES)[number];
+
+/**
+ * Identidad tributaria del comercio. Estructurada desde ya aunque ZIPP aún
+ * no tenga NIT propio (decisión del 2026-09-23): la facturación y las
+ * liquidaciones la necesitarán, y hoy solo existe como un PDF subido.
+ */
+export interface IBusinessLegal {
+  documentType: LegalDocumentType;
+  /**
+   * Solo dígitos. Para un NIT, sin el dígito de verificación. Se guarda
+   * **cifrado** (AAD = businessId); las filas anteriores a la migración 018
+   * pueden estar en claro y se siguen leyendo (`decrypt` las deja pasar).
+   */
+  documentNumber: string;
+  /** DV calculado por el servidor (módulo 11 de la DIAN). Solo NIT. */
+  dv?: string | null;
+  legalName: string;
+  legalRepName?: string | null;
+  taxRegime?: TaxRegime | null;
+  billingEmail?: string | null;
+  updatedAt?: Date;
+  updatedBy?: Types.ObjectId | null;
+}
+
+/** Una cuenta sin verificar nunca recibe una liquidación. */
+export type PayoutAccountStatus = 'pendingVerification' | 'verified';
+
+/**
+ * A dónde se le paga al comercio.
+ *
+ * El número de cuenta es sensible: se guarda **cifrado** (`accountNumberEnc`,
+ * AES-256-GCM como los secretos TOTP) y solo sus 4 últimos dígitos en claro
+ * (`accountLast4`) para mostrarlos enmascarados. El completo solo lo lee
+ * finanzas, por un endpoint propio y auditado.
+ */
+export interface IBusinessPayoutAccount {
+  method: PayoutMethod;
+  /** Solo `bank`. */
+  bankName?: string | null;
+  /** Solo `bank`. */
+  accountType?: PayoutAccountType | null;
+  /** Cifrado. Nunca sale en una respuesta. */
+  accountNumberEnc: string;
+  accountLast4: string;
+  /**
+   * HMAC determinista del número de cuenta (`hashForSearch`): el cifrado usa
+   * sal e IV aleatorios y no sirve para comparar, y esto sí deja detectar la
+   * misma cuenta en varios comercios sin descifrar nada. Nunca sale.
+   */
+  accountNumberHash?: string | null;
+  /** Últimos 4 de la cuenta anterior, para el aviso al dueño y la cola de finanzas. */
+  previousLast4?: string | null;
+  holderName: string;
+  /** Cifrado con AAD = businessId (v3); las filas anteriores pueden estar en claro. */
+  holderDocument: string;
+  verificationStatus: PayoutAccountStatus;
+  verifiedAt?: Date | null;
+  verifiedBy?: Types.ObjectId | null;
+  /**
+   * Se incrementa en cada cambio de la cuenta. Quien verifica manda la que
+   * vio: si el comercio la cambió entre tanto, la verificación se rechaza y
+   * nadie aprueba a ciegas una cuenta distinta de la que revisó.
+   */
+  version: number;
+  updatedAt?: Date;
+  updatedBy?: Types.ObjectId | null;
+}
+
 export interface IBusiness extends Document {
   ownerId: Types.ObjectId;
   name: string;
@@ -80,9 +161,88 @@ export interface IBusiness extends Document {
   isFeatured: boolean;
   schedule: WeekSchedule;
   city: string;
+  /**
+   * Borrado suave. Un comercio nunca se borra de verdad (S11): archivarlo
+   * lo saca de la app y del catálogo público —igual que `isApproved: false`
+   * o `isActive: false`— pero conserva su historial (pedidos, liquidaciones,
+   * reseñas) y es reversible con `restore()`.
+   */
+  isArchived: boolean;
+  archivedAt?: Date | null;
+  archivedBy?: Types.ObjectId | null;
+  archiveReason?: string | null;
+  /**
+   * Suspensión por ZIPP, distinta del `isActive` del dueño.
+   *
+   * `isActive` es el interruptor "abierto/cerrado" del comercio; un dueño
+   * suspendido no puede quitarse esto solo con PUT — solo soporte/admin.
+   */
+  isSuspended: boolean;
+  suspendedAt?: Date | null;
+  suspendedBy?: Types.ObjectId | null;
+  suspensionReason?: string | null;
+  /**
+   * Datos tributarios. `select: false`: no viajan en ninguna consulta
+   * normal (ni en la ficha que recibe un empleado); quien los necesita los
+   * pide a propósito (`+legal`) desde su endpoint propio.
+   */
+  legal?: IBusinessLegal;
+  /** Igual que `legal`, y además con el número de cuenta cifrado. */
+  payoutAccount?: IBusinessPayoutAccount;
   createdAt: Date;
   updatedAt: Date;
 }
+
+const legalSchema = new Schema<IBusinessLegal>(
+  {
+    documentType: { type: String, enum: LEGAL_DOCUMENT_TYPES, required: true },
+    documentNumber: { type: String, required: true, trim: true, maxlength: 300 },
+    dv: { type: String, default: null, maxlength: 1 },
+    legalName: { type: String, required: true, trim: true, maxlength: 150 },
+    legalRepName: { type: String, trim: true, maxlength: 120, default: null },
+    taxRegime: { type: String, enum: [...TAX_REGIMES, null], default: null },
+    billingEmail: { type: String, trim: true, lowercase: true, maxlength: 254, default: null },
+    updatedAt: { type: Date },
+    updatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  },
+  { _id: false }
+);
+
+const payoutAccountSchema = new Schema<IBusinessPayoutAccount>(
+  {
+    method: { type: String, enum: PAYOUT_METHODS, required: true },
+    bankName: { type: String, trim: true, maxlength: 80, default: null },
+    accountType: { type: String, enum: [...PAYOUT_ACCOUNT_TYPES, null], default: null },
+    accountNumberEnc: { type: String, required: true },
+    accountLast4: { type: String, required: true, maxlength: 4 },
+    accountNumberHash: { type: String, default: null },
+    previousLast4: { type: String, maxlength: 4, default: null },
+    holderName: { type: String, required: true, trim: true, maxlength: 120 },
+    holderDocument: { type: String, required: true, trim: true, maxlength: 300 },
+    verificationStatus: {
+      type: String,
+      enum: ['pendingVerification', 'verified'],
+      default: 'pendingVerification',
+    },
+    verifiedAt: { type: Date, default: null },
+    verifiedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    version: { type: Number, default: 1, min: 1 },
+    updatedAt: { type: Date },
+    updatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  },
+  { _id: false }
+);
+
+// Segunda barrera: si alguien carga la cuenta con `+payoutAccount` y
+// serializa el documento, el texto cifrado tampoco sale.
+payoutAccountSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete (ret as unknown as Record<string, unknown>).accountNumberEnc;
+    delete (ret as unknown as Record<string, unknown>).accountNumberHash;
+    delete (ret as unknown as Record<string, unknown>).holderDocument;
+    return ret;
+  },
+});
 
 const dayScheduleSchema = new Schema(
   {
@@ -252,6 +412,22 @@ const businessSchema = new Schema<IBusiness>(
       default: 'Garzón',
       trim: true,
     },
+    isArchived: {
+      type: Boolean,
+      default: false,
+    },
+    archivedAt: { type: Date, default: null },
+    archivedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    archiveReason: { type: String, default: null, maxlength: 500 },
+    isSuspended: {
+      type: Boolean,
+      default: false,
+    },
+    suspendedAt: { type: Date, default: null },
+    suspendedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    suspensionReason: { type: String, default: null, maxlength: 500 },
+    legal: { type: legalSchema, select: false, default: undefined },
+    payoutAccount: { type: payoutAccountSchema, select: false, default: undefined },
   },
   {
     timestamps: true,
@@ -312,6 +488,11 @@ businessSchema.index({ location: '2dsphere' });
 businessSchema.index({ category: 1, isActive: 1 });
 businessSchema.index({ city: 1, isActive: 1 });
 businessSchema.index({ isApproved: 1, isActive: 1 });
+businessSchema.index({ isArchived: 1 });
+// Cola de cuentas de pago pendientes y detección de la misma cuenta en varios
+// comercios (migración 018 los crea en producción).
+businessSchema.index({ 'payoutAccount.verificationStatus': 1 }, { sparse: true });
+businessSchema.index({ 'payoutAccount.accountNumberHash': 1 }, { sparse: true });
 // `slug` already declares `unique: true` on the path, which creates the index.
 businessSchema.index({ isFeatured: 1 });
 // "Mis negocios", la sala de socket del dueño y cada comprobación de

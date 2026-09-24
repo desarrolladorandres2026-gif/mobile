@@ -34,6 +34,10 @@ export enum AuditAction {
   USER_UNBLOCKED = 'user_unblocked',
   ROLE_CHANGED = 'role_changed',
   PROFILE_UPDATED = 'profile_updated',
+  PROFILE_VIEWED = 'profile_viewed',
+  ACCOUNT_DELETED = 'account_deleted',
+  DATA_EXPORTED = 'data_exported',
+  SETTINGS_UPDATED = 'settings_updated',
   USER_CONTACT_OVERRIDDEN = 'user_contact_overridden',
 
   // ── Seguridad y Acceso: Cargos, Roles, asignaciones ──
@@ -47,6 +51,8 @@ export enum AuditAction {
   USER_POSITION_ASSIGNED = 'user_position_assigned',
   USER_ROLES_ASSIGNED = 'user_roles_assigned',
   PRIVILEGE_ESCALATION_BLOCKED = 'privilege_escalation_blocked',
+  // Modo observación de permisos (Fase 1): el admin habría sido bloqueado.
+  PERMISSION_SHADOW_DENIED = 'permission_shadow_denied',
 
   // Order events
   ORDER_CREATED = 'order_created',
@@ -86,15 +92,43 @@ export enum AuditAction {
   REFUND_ISSUED = 'refund_issued',
   COMMISSION_ADJUSTED = 'commission_adjusted',
   PAYOUT_PROCESSED = 'payout_processed',
+  SETTLEMENT_PAYMENT_REGISTERED = 'settlement_payment_registered',
+  CLAWBACK_COLLECTED = 'clawback_collected',
+  CLAWBACK_WRITTEN_OFF = 'clawback_written_off',
 
   // Business events
   BUSINESS_CREATED = 'business_created',
   BUSINESS_UPDATED = 'business_updated',
   BUSINESS_DEACTIVATED = 'business_deactivated',
+  BUSINESS_TOGGLED_ACTIVE = 'business_toggled_active',
+  BUSINESS_TOGGLED_FEATURED = 'business_toggled_featured',
+  BUSINESS_TERMS_UPDATED = 'business_terms_updated',
+  BUSINESS_ARCHIVED = 'business_archived',
+  BUSINESS_RESTORED = 'business_restored',
+  // Documentos y datos fiscales/bancarios del comercio (O4, Fase 0). Cambiar
+  // la cuenta donde se le paga a un comercio es el cambio de mayor riesgo del
+  // módulo, y ver el número completo es un acceso a datos sensibles: los dos
+  // dejan rastro propio y no un genérico `business_updated`.
+  BUSINESS_DOCUMENT_SUBMITTED = 'business_document_submitted',
+  BUSINESS_DOCUMENT_VIEWED = 'business_document_viewed',
+  BUSINESS_LEGAL_UPDATED = 'business_legal_updated',
+  BUSINESS_PAYOUT_ACCOUNT_UPDATED = 'business_payout_account_updated',
+  BUSINESS_PAYOUT_ACCOUNT_VERIFIED = 'business_payout_account_verified',
+  BUSINESS_PAYOUT_ACCOUNT_REVEALED = 'business_payout_account_revealed',
+  // La cuenta a la que se paga una liquidación: revelarla o refrescar su foto.
+  SETTLEMENT_PAYOUT_ACCOUNT_REVEALED = 'settlement_payout_account_revealed',
+  SETTLEMENT_PAYOUT_ACCOUNT_REFRESHED = 'settlement_payout_account_refreshed',
+
+  // Zonas de cobertura: cambian el precio del domicilio (D9).
+  ZONE_CREATED = 'zone_created',
+  ZONE_UPDATED = 'zone_updated',
+  ZONE_TARIFF_CHANGED = 'zone_tariff_changed',
+  ZONE_DELETED = 'zone_deleted',
 
   // Driver events
   DRIVER_APPROVED = 'driver_approved',
   DRIVER_SUSPENDED = 'driver_suspended',
+  DRIVER_REACTIVATED = 'driver_reactivated',
   DRIVER_VERIFICATION = 'driver_verification',
 
   // Security events
@@ -121,9 +155,24 @@ export enum AuditAction {
   CURATED_HOME_BLOCK_CREATED = 'curated_home_block_created',
   CURATED_HOME_BLOCK_UPDATED = 'curated_home_block_updated',
   CURATED_HOME_BLOCK_DELETED = 'curated_home_block_deleted',
+  EXPLORE_LAYOUT_SAVED = 'explore_layout_saved',
+  EXPLORE_LAYOUT_PUBLISHED = 'explore_layout_published',
+  EXPLORE_LAYOUT_RESTORED = 'explore_layout_restored',
   DOCUMENT_REVIEWED = 'document_reviewed',
   PQRS_ANSWERED = 'pqrs_answered',
   DATA_REQUEST_RESOLVED = 'data_request_resolved',
+
+  // ── Panel admin, Fase 2: fichas y capa común ──
+  // Las notas internas se auditan sin su texto (el log rota y no debe copiar
+  // datos personales): solo entidad, id y longitud.
+  INTERNAL_NOTE_CREATED = 'internal_note_created',
+  INTERNAL_NOTE_DELETED = 'internal_note_deleted',
+  // Búsqueda por teléfono o correo: se guarda un hash y los 4 últimos, nunca el término.
+  ADMIN_SEARCH = 'admin_search',
+  ORDER_NOTIFICATION_RESENT = 'order_notification_resent',
+  ORDER_DRIVER_UNASSIGNED = 'order_driver_unassigned',
+  BUSINESS_DOCUMENTS_REQUESTED = 'business_documents_requested',
+  BUSINESS_SUSPENSION_SET = 'business_suspension_set',
 }
 
 export enum AuditSeverity {
@@ -204,6 +253,8 @@ interface AuditEntry {
   metadata?: Record<string, any>;
   userId?: string;
   role?: string;
+  /** Sustituye `req.originalUrl` (que trae ids y query) en `metadata.path`. */
+  pathOverride?: string;
 }
 
 export async function logAudit(req: Request, entry: AuditEntry): Promise<void> {
@@ -222,7 +273,7 @@ export async function logAudit(req: Request, entry: AuditEntry): Promise<void> {
       metadata: {
         ...entry.metadata,
         method: req.method,
-        path: req.originalUrl,
+        path: entry.pathOverride ?? req.originalUrl,
       },
       sessionId: (req as any).sessionId,
     });

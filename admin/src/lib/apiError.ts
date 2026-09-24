@@ -47,6 +47,11 @@ export function apiMessage(
 ): string {
   const data = asApiError(error).response?.data;
 
+  // Sin esto, el límite de peticiones se leía en cada pantalla como "no hay datos".
+  if (asApiError(error).response?.status === 429) {
+    return 'Demasiadas consultas seguidas. Espera unos segundos y vuelve a intentarlo.';
+  }
+
   const detail = data?.errors?.[0];
   if (typeof detail === 'string') return detail;
   if (detail && typeof detail === 'object' && detail.message) return detail.message;

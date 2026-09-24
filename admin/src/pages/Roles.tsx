@@ -9,6 +9,7 @@ import { Permission, moduleLabel, actionLabel } from '../lib/permissions';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 import type { AdminUser } from '../lib/apiTypes';
+import AccessReview from './AccessReview';
 
 interface RoleType {
   _id: string;
@@ -28,7 +29,7 @@ interface PermissionGroup {
 
 const emptyForm = { name: '', description: '', permissions: [] as string[] };
 
-export default function Roles() {
+function RolesList() {
   const { hasPermission, permissions: myPermissions } = useAuthStore();
   const [roles, setRoles] = useState<RoleType[]>([]);
   const [catalog, setCatalog] = useState<PermissionGroup[]>([]);
@@ -181,7 +182,7 @@ export default function Roles() {
   const canGrant = (perm: string) => myPermissions.includes(perm);
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       <div className="page-header">
         <div>
           <h1 className="page-title">Roles</h1>
@@ -332,7 +333,7 @@ export default function Roles() {
       {/* ── Crear / Editar rol ── */}
       {(creating || editing) && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-2.5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="w-5 h-5 text-[var(--color-primary)]" />
@@ -377,7 +378,7 @@ export default function Roles() {
               </div>
             </div>
 
-            <div className="border border-[var(--color-border-light)] rounded-xl overflow-hidden">
+            <div className="border-y border-[var(--color-border-light)]">
               <div className="overflow-x-auto max-h-[45vh] overflow-y-auto">
                 <table className="w-full text-xs">
                   <tbody className="divide-y divide-[var(--color-border-light)]">
@@ -456,7 +457,7 @@ export default function Roles() {
       {/* ── Usuarios con este rol ── */}
       {usersOfRole && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-4">
+          <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5">
             <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
               <h3 className="text-base font-bold text-[var(--color-text-main)]">Usuarios con "{usersOfRole.role.name}"</h3>
               <button onClick={() => setUsersOfRole(null)} className="text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
@@ -517,6 +518,29 @@ export default function Roles() {
       {!hasPermission(Permission.ROLES_VIEW) && (
         <p className="text-xs text-[var(--color-text-muted)]">No tienes permiso para ver roles.</p>
       )}
+    </div>
+  );
+}
+
+export default function Roles() {
+  const isSuperAdmin = useAuthStore((s) => s.roleSlugs.includes('super_admin'));
+  const [tab, setTab] = useState<'roles' | 'review'>('roles');
+  const active = isSuperAdmin ? tab : 'roles';
+  const tabClass = (t: string) =>
+    `pb-2 text-xs font-bold cursor-pointer border-b-2 ${
+      active === t
+        ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
+        : 'border-transparent text-[var(--color-text-muted)]'
+    }`;
+  return (
+    <div className="space-y-3">
+      {isSuperAdmin && (
+        <div className="flex gap-6 border-b border-[var(--color-border-light)]">
+          <button className={tabClass('roles')} onClick={() => setTab('roles')}>Roles</button>
+          <button className={tabClass('review')} onClick={() => setTab('review')}>Revisión de accesos</button>
+        </div>
+      )}
+      {active === 'review' ? <AccessReview /> : <RolesList />}
     </div>
   );
 }

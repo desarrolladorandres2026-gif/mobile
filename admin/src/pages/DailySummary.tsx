@@ -1,11 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import {
-  ChevronLeft, ChevronRight, Printer, RefreshCw, TriangleAlert,
-  CircleCheck, PackageCheck, PackageX, Package, Wallet, CreditCard,
-  Banknote, Store, Truck, UserPlus, Star, RotateCcw, MessageSquareWarning,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Printer, RefreshCw } from 'lucide-react';
 import api from '../services/api';
+import { apiMessage } from '../lib/apiError';
 
 // ── Tipos (espejo de dailySummary.service.ts) ──────────────────────
 
@@ -117,11 +113,10 @@ const CASH_LABEL: Record<string, string> = {
 
 // ── Bloques de presentación ────────────────────────────────────────
 
-function Card({ title, icon: Icon, children }: { title: string; icon: LucideIcon; children: React.ReactNode }) {
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="zipp-card p-5">
-      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-[var(--color-border-light)] dark:border-[#232E46]">
-        <Icon className="w-4 h-4 text-[var(--color-primary)]" strokeWidth={1.8} />
+    <div className="zipp-card py-3 border-b border-[var(--color-border)]">
+      <div className="flex items-center gap-2 mb-2 pb-2 border-b border-[var(--color-border)]">
         <h2 className="text-sm font-bold text-[var(--color-text-main)] dark:text-white">{title}</h2>
       </div>
       {children}
@@ -131,7 +126,7 @@ function Card({ title, icon: Icon, children }: { title: string; icon: LucideIcon
 
 function Line({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className="flex items-center justify-between py-1.5 text-xs">
+    <div className="flex items-center justify-between py-1 text-xs">
       <span className="text-[var(--color-text-secondary)] dark:text-[#7C8BA1]">{label}</span>
       <span className={`tabular ${strong ? 'font-bold text-[var(--color-text-main)] dark:text-white' : 'font-semibold text-[var(--color-text-main)] dark:text-[#EDF1F5]'}`}>
         {value}
@@ -146,14 +141,17 @@ export default function DailySummary() {
   const [date, setDate] = useState(todayStr());
   const [data, setData] = useState<DailySummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const res = await api.get(`/admin/daily-summary?date=${date}`);
       setData(res.data.data);
     } catch (err) {
       console.error('Error cargando el resumen diario:', err);
+      setLoadError(apiMessage(err, 'No se pudo cargar el resumen de este día.'));
       setData(null);
     } finally {
       setLoading(false);
@@ -166,8 +164,8 @@ export default function DailySummary() {
   const t = data?.today;
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <style>{`@media print { aside, header.sticky { display: none !important; } .no-print { display: none !important; } .page-container { padding: 0 !important; } }`}</style>
+    <div className="space-y-3 animate-fade-in">
+      <style>{`@media print { aside, header.sticky { display: none !important; } .no-print { display: none !important; } .page-container { padding: 0 !important; } @page { size: A4; margin: 12mm; } html, body, #root { height: auto !important; overflow: visible !important; background: #fff !important; color: #111 !important; } #root > div, main { display: block !important; height: auto !important; overflow: visible !important; background: #fff !important; } * { color-scheme: light !important; box-shadow: none !important; } .grid > *, .divide-y > * { break-inside: avoid; page-break-inside: avoid; } .grid.lg\\:grid-cols-2 { grid-template-columns: 1fr 1fr !important; } .grid.lg\\:grid-cols-4 { grid-template-columns: repeat(4, 1fr) !important; } .truncate { overflow: visible !important; white-space: normal !important; } }`}</style>
 
       {/* Header + navegación de fecha */}
       <div className="page-header">
@@ -221,7 +219,7 @@ export default function DailySummary() {
         <div className="flex flex-col items-center justify-center h-80 text-[var(--color-text-secondary)] space-y-3">
           <RefreshCw className="w-7 h-7 text-[var(--color-primary)] animate-spin" />
           <p className="text-xs font-semibold">
-            {loading ? 'Reconstruyendo el día...' : 'No se pudo cargar el resumen de este día.'}
+            {loading ? 'Reconstruyendo el día...' : loadError || 'No se pudo cargar el resumen de este día.'}
           </p>
         </div>
       ) : (
@@ -230,30 +228,30 @@ export default function DailySummary() {
           <HealthFlags flags={data!.flags} />
 
           {/* KPIs del día */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 pb-6 border-b border-[var(--color-border-light)] dark:border-[#232E46]">
-            <Kpi icon={Package} label="Pedidos creados" value={num(t.ordersCreated)}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-0 pb-3 border-b border-[var(--color-border)] lg:divide-x divide-[var(--color-border)] lg:[&>*]:px-4 lg:[&>*:first-child]:pl-0">
+            <Kpi label="Pedidos creados" value={num(t.ordersCreated)}
               hint={isToday && data!.ordersInProgressNow != null ? `${num(data!.ordersInProgressNow)} sin cerrar ahora` : ''} />
-            <Kpi icon={PackageCheck} label="Entregados" value={num(t.ordersDelivered)}
+            <Kpi label="Entregados" value={num(t.ordersDelivered)}
               hint={`Ticket prom. ${money(t.avgTicket)}`} />
-            <Kpi icon={PackageX} label="Cancelados" value={num(t.ordersCancelled)}
+            <Kpi label="Cancelados" value={num(t.ordersCancelled)}
               hint={`${t.ordersCreated > 0 ? Math.round((t.ordersCancelled / t.ordersCreated) * 100) : 0}% de los creados`} />
-            <Kpi icon={Wallet} label="GMV del día" value={money(t.gmv)}
+            <Kpi label="GMV del día" value={money(t.gmv)}
               hint={`Margen neto ${money(t.netRevenue)}`} />
           </div>
 
           {/* Comparativa vs. mismo día -7 */}
-          <Card title="Hoy vs. mismo día de la semana pasada" icon={RotateCcw}>
+          <Card title="Hoy vs. mismo día de la semana pasada">
             <Comparison rows={data!.comparison} baselineDate={data!.baseline.date} />
           </Card>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:divide-x divide-[var(--color-border)] lg:[&>*:nth-child(odd)]:pr-4 lg:[&>*:nth-child(even)]:pl-4">
             {/* Dinero del día */}
-            <Card title="Dinero del día" icon={Wallet}>
+            <Card title="Dinero del día">
               <Line label="GMV (lo que pagó el cliente)" value={money(t.gmv)} strong />
               <Line label="Ingreso bruto ZIPP" value={money(t.platformGrossRevenue)} />
               <Line label="Gasto promocional" value={`−${money(t.promotionExpense)}`} />
               <Line label="Margen neto operativo" value={money(t.netRevenue)} strong />
-              <div className="my-2 border-t border-[var(--color-border-light)] dark:border-[#232E46]" />
+              <div className="my-1 border-t border-[var(--color-border)]" />
               <Line label="Pagos a comercios" value={money(t.businessPayouts)} />
               <Line label="Pagos a domiciliarios" value={money(t.driverPayouts)} />
               <Line label="Propinas" value={money(t.tips)} />
@@ -263,24 +261,24 @@ export default function DailySummary() {
             </Card>
 
             {/* Métodos de pago + efectivo por conciliar */}
-            <Card title="Métodos de pago y efectivo" icon={CreditCard}>
-              <div className="flex items-center justify-between py-1.5 text-xs">
+            <Card title="Métodos de pago y efectivo">
+              <div className="flex items-center justify-between py-1 text-xs">
                 <span className="flex items-center gap-1.5 text-[var(--color-text-secondary)] dark:text-[#7C8BA1]">
-                  <CreditCard className="w-3.5 h-3.5" /> Pago digital
+                  Pago digital
                 </span>
                 <span className="tabular font-semibold text-[var(--color-text-main)] dark:text-[#EDF1F5]">
                   {num(t.payDigitalCount)} · {money(t.payDigitalAmount)}
                 </span>
               </div>
-              <div className="flex items-center justify-between py-1.5 text-xs">
+              <div className="flex items-center justify-between py-1 text-xs">
                 <span className="flex items-center gap-1.5 text-[var(--color-text-secondary)] dark:text-[#7C8BA1]">
-                  <Banknote className="w-3.5 h-3.5" /> Efectivo contra entrega
+                  Efectivo contra entrega
                 </span>
                 <span className="tabular font-semibold text-[var(--color-text-main)] dark:text-[#EDF1F5]">
                   {num(t.payCashCount)} · {money(t.payCashAmount)}
                 </span>
               </div>
-              <div className="my-2 border-t border-[var(--color-border-light)] dark:border-[#232E46]" />
+              <div className="my-1 border-t border-[var(--color-border)]" />
               <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">
                 Conciliaciones de efectivo abiertas hoy
               </p>
@@ -294,7 +292,7 @@ export default function DailySummary() {
             </Card>
 
             {/* Altas del día */}
-            <Card title="Altas del día" icon={UserPlus}>
+            <Card title="Altas del día">
               <Line label="Clientes nuevos" value={num(t.newClients)} />
               <Line label="Comercios nuevos" value={num(t.newBusinesses)} />
               <Line label="Domiciliarios nuevos" value={num(t.newDrivers)} />
@@ -304,7 +302,7 @@ export default function DailySummary() {
             </Card>
 
             {/* Operación de domiciliarios */}
-            <Card title="Operación de domiciliarios" icon={Truck}>
+            <Card title="Operación de domiciliarios">
               <Line label="Domiciliarios con entregas" value={num(t.activeDrivers)} strong />
               <Line label="Entregas por domiciliario" value={num(t.deliveriesPerActiveDriver)} />
               <Line label="Tiempo medio de entrega" value={`${num(t.avgDeliveryMinutes)} min`} />
@@ -312,24 +310,24 @@ export default function DailySummary() {
           </div>
 
           {/* Top comercios */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <Card title="Top comercios por pedidos" icon={Store}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-0 lg:divide-x divide-[var(--color-border)] lg:[&>*:nth-child(odd)]:pr-4 lg:[&>*:nth-child(even)]:pl-4">
+            <Card title="Top comercios por pedidos">
               <TopList rows={data!.topBusinessesByOrders} render={(b) => `${num(b.orders)} pedidos`} />
             </Card>
-            <Card title="Top comercios por ventas" icon={Store}>
+            <Card title="Top comercios por ventas">
               <TopList rows={data!.topBusinessesByGmv} render={(b) => money(b.gmv)} />
             </Card>
           </div>
 
           {/* Calidad y soporte */}
-          <Card title="Calidad y soporte" icon={MessageSquareWarning}>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <Kpi icon={Star} label="Reseñas del día" value={num(t.reviewsCount)}
+          <Card title="Calidad y soporte">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-0 lg:divide-x divide-[var(--color-border)] lg:[&>*]:px-4 lg:[&>*:first-child]:pl-0">
+              <Kpi label="Reseñas del día" value={num(t.reviewsCount)}
                 hint={`Comercio ${t.avgBusinessRating || '—'} · Repartidor ${t.avgDriverRating || '—'}`} />
-              <Kpi icon={TriangleAlert} label="Reseñas ≤ 2★" value={num(t.lowRatingsCount)} />
-              <Kpi icon={MessageSquareWarning} label="PQRS abiertas" value={num(t.pqrsOpened)}
+              <Kpi label="Reseñas ≤ 2★" value={num(t.lowRatingsCount)} />
+              <Kpi label="PQRS abiertas" value={num(t.pqrsOpened)}
                 hint={data!.pqrsByType.map((p) => `${PQRS_LABEL[p.type] ?? p.type}: ${p.count}`).join(' · ')} />
-              <Kpi icon={RotateCcw} label="Reembolsos" value={num(t.refundsCount)}
+              <Kpi label="Reembolsos" value={num(t.refundsCount)}
                 hint={money(t.refundsAmount)} />
             </div>
           </Card>
@@ -345,15 +343,14 @@ export default function DailySummary() {
 
 // ── Sub-componentes ────────────────────────────────────────────────
 
-function Kpi({ icon: Icon, label, value, hint }: { icon: LucideIcon; label: string; value: string; hint?: string }) {
+function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div>
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className="w-4 h-4 text-[var(--color-primary)]" strokeWidth={1.8} />
+      <div className="flex items-center gap-2 mb-1">
         <p className="text-[11px] font-semibold text-[var(--color-text-secondary)] dark:text-[#7C8BA1]">{label}</p>
       </div>
       <p className="kpi-value text-xl">{value}</p>
-      {hint ? <p className="text-[10px] text-[var(--color-text-muted)] mt-1 truncate">{hint}</p> : null}
+      {hint ? <p className="text-[10px] text-[var(--color-text-muted)] truncate">{hint}</p> : null}
     </div>
   );
 }
@@ -363,9 +360,9 @@ function TopList({ rows, render }: { rows: TopBusiness[]; render: (b: TopBusines
     return <p className="text-xs text-[var(--color-text-muted)] py-1.5">Sin pedidos entregados este día.</p>;
   }
   return (
-    <div className="divide-y divide-[var(--color-bg)] dark:divide-[#232E46]">
+    <div className="divide-y divide-[var(--color-border)]">
       {rows.map((b, i) => (
-        <div key={b.businessId} className="flex items-center justify-between py-2 text-xs">
+        <div key={b.businessId} className="flex items-center justify-between py-1 text-xs">
           <span className="flex items-center gap-2 truncate max-w-[220px]">
             <span className="w-5 h-5 rounded bg-[var(--color-bg)] dark:bg-[#232E46] text-[var(--color-text-secondary)] font-bold flex items-center justify-center text-[10px]">
               {i + 1}
@@ -383,7 +380,6 @@ function HealthFlags({ flags }: { flags: HealthFlag[] }) {
   if (flags.length === 0) {
     return (
       <div className="flex items-center gap-2 text-[#059669] text-xs font-semibold">
-        <CircleCheck className="w-4 h-4" />
         Sin alertas para este día.
         <span className="font-normal text-[var(--color-text-muted)] no-print">
           (o <code>deriveHealthFlags</code> aún no está implementada)
@@ -400,7 +396,6 @@ function HealthFlags({ flags }: { flags: HealthFlag[] }) {
     <div className="space-y-2">
       {flags.map((f) => (
         <div key={f.code} className={`flex items-center gap-2 text-xs font-semibold ${style[f.level]}`}>
-          {f.level === 'ok' ? <CircleCheck className="w-4 h-4 flex-shrink-0" /> : <TriangleAlert className="w-4 h-4 flex-shrink-0" />}
           {f.message}
         </div>
       ))}
@@ -422,15 +417,15 @@ function Comparison({ rows, baselineDate }: { rows: ComparisonRow[]; baselineDat
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border-light)] dark:border-[#232E46]">
-            <th className="pb-2 font-semibold">Métrica</th>
-            <th className="pb-2 font-semibold text-right">Hoy</th>
-            <th className="pb-2 font-semibold text-right">{baselineDate}</th>
-            <th className="pb-2 font-semibold text-right">Δ</th>
-            <th className="pb-2 font-semibold text-right">Δ%</th>
+          <tr className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
+            <th className="pb-1 font-semibold">Métrica</th>
+            <th className="pb-1 font-semibold text-right">Hoy</th>
+            <th className="pb-1 font-semibold text-right">{baselineDate}</th>
+            <th className="pb-1 font-semibold text-right">Δ</th>
+            <th className="pb-1 font-semibold text-right">Δ%</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-[var(--color-bg)] dark:divide-[#232E46]">
+        <tbody className="divide-y divide-[var(--color-border)]">
           {rows.map((r) => {
             const improved = r.direction === 'flat'
               ? null
@@ -438,13 +433,13 @@ function Comparison({ rows, baselineDate }: { rows: ComparisonRow[]; baselineDat
             const color = improved == null ? 'text-[var(--color-text-muted)]' : improved ? 'text-[#059669]' : 'text-[var(--color-danger)]';
             return (
               <tr key={r.metric}>
-                <td className="py-2 font-semibold text-[var(--color-text-main)] dark:text-[#EDF1F5]">{r.label}</td>
-                <td className="py-2 text-right tabular font-bold text-[var(--color-text-main)] dark:text-white">{num(r.today)}</td>
-                <td className="py-2 text-right tabular text-[var(--color-text-secondary)] dark:text-[#7C8BA1]">{num(r.baseline)}</td>
-                <td className={`py-2 text-right tabular font-semibold ${color}`}>
+                <td className="py-1 font-semibold text-[var(--color-text-main)] dark:text-[#EDF1F5]">{r.label}</td>
+                <td className="py-1 text-right tabular font-bold text-[var(--color-text-main)] dark:text-white">{num(r.today)}</td>
+                <td className="py-1 text-right tabular text-[var(--color-text-secondary)] dark:text-[#7C8BA1]">{num(r.baseline)}</td>
+                <td className={`py-1 text-right tabular font-semibold ${color}`}>
                   {r.deltaAbs > 0 ? '+' : ''}{num(r.deltaAbs)}
                 </td>
-                <td className={`py-2 text-right tabular font-semibold ${color}`}>
+                <td className={`py-1 text-right tabular font-semibold ${color}`}>
                   {r.deltaPct == null ? '—' : `${r.deltaPct > 0 ? '+' : ''}${r.deltaPct}%`}
                 </td>
               </tr>

@@ -5,7 +5,11 @@ import { AppError } from './errorHandler';
 import { UserRole } from '../types';
 import { Permission, logAudit, AuditAction, AuditSeverity, sessionManager } from '../security';
 import { verifyAccessToken, isLegacyTokenAcceptable } from '../utils/token';
-import { resolveAuthorization } from '../services/authorization.service';
+import {
+  resolveAuthorization,
+  type ResolvedAuthorization,
+} from '../services/authorization.service';
+import { cache } from '../cache';
 
 // Extend Express Request. `declare global { namespace Express {...} } ` is
 // the idiomatic — and only — way to augment a third-party module's ambient
@@ -29,6 +33,12 @@ declare global {
        */
       permissions?: Permission[];
       roleSlugs?: string[];
+      /**
+       * Autorización completa (Fase 1): `strict` = lo que puede hacer de
+       * verdad, `legacyUnion` = cálculo anterior, `mode` = observe|enforce.
+       * `can()` decide con esto; nada más debería leer `permissions`.
+       */
+      authz?: ResolvedAuthorization;
       /**
        * Administrador sin 2FA con `TOTP_REQUIRED_ADMINS` activo: solo puede
        * llegar a las rutas para configurarlo. Ver `authenticate`.
@@ -134,9 +144,14 @@ export const authenticate = async (
 
     // Resueltos una vez por request; ver el comentario en la declaración
     // de tipos más arriba.
-    const { permissions, roleSlugs } = await resolveAuthorization(user);
-    req.permissions = permissions;
-    req.roleSlugs = roleSlugs;
+    const authz = await resolveAuthorization(user);
+    req.authz = authz;
+    // `req.permissions` es lo que leen los controladores que aún no usan
+    // `can()`: en modo observación un admin conserva el conjunto legacy (nadie
+    // pierde acceso); en bloqueo, y para cualquier otra cuenta, es `strict`.
+    req.permissions =
+      user.role === UserRole.ADMIN && authz.mode === 'observe' ? authz.legacyUnion : authz.strict;
+    req.roleSlugs = authz.roleSlugs;
 
     next();
   } catch (error) {
@@ -157,98 +172,145 @@ export const authorize = (...roles: UserRole[]) => {
   };
 };
 
+type Verdict = 'allow' | 'shadow' | 'deny';
+
+/** Decide sin efectos secundarios. */
+function evaluatePermission(req: Request, permission: Permission): Verdict {
+  const authz = req.authz;
+  if (!authz) return (req.permissions || []).includes(permission) ? 'allow' : 'deny';
+  if (authz.strict.includes(permission)) return 'allow';
+  if (authz.mode === 'observe' && authz.legacyUnion.includes(permission)) return 'shadow';
+  return 'deny';
+}
+
+const SHADOW_DEDUPE_TTL_SECONDS = 3600;
+
+/**
+ * Modo observación: deja rastro de que el admin habría sido bloqueado.
+ * Una línea por (usuario, permiso, ruta) y hora. La clave NO usa el prefijo
+ * `authz:` porque el plugin de `Role` lo borra al editar un rol. Si la caché
+ * falla se registra igual: una línea repetida es aceptable, perder el
+ * registro no.
+ */
+async function recordShadowDenied(req: Request, permission: Permission): Promise<void> {
+  const route = `${req.baseUrl || ''}${req.route?.path ?? ''}`;
+  try {
+    const key = `authzshadow:${req.user?._id?.toString()}:${permission}:${route}`;
+    if (await cache.get<number>(key)) return;
+    await cache.set(key, 1, SHADOW_DEDUPE_TTL_SECONDS);
+  } catch {
+    // seguimos y registramos
+  }
+  await logAudit(req, {
+    action: AuditAction.PERMISSION_SHADOW_DENIED,
+    entity: 'permission',
+    severity: AuditSeverity.LOW,
+    description: `Modo observación: se bloquearía por falta de ${permission}`,
+    metadata: { permission, method: req.method, route, roleSlugs: req.roleSlugs || [] },
+    pathOverride: route,
+  });
+}
+
+/**
+ * Única función que decide si la request puede ejercer un permiso.
+ *   - en `strict`                                  → true
+ *   - falta en `strict`, está en `legacyUnion` y modo 'observe' → registra y true
+ *   - otro caso                                    → false (el llamador responde 403)
+ * Úsala también desde los controladores que comprueban permisos por dentro.
+ */
+export function can(req: Request, permission: Permission): boolean {
+  if (!req.user) return false;
+  const verdict = evaluatePermission(req, permission);
+  if (verdict === 'shadow') void recordShadowDenied(req, permission);
+  return verdict !== 'deny';
+}
+
+type PermissionMiddleware = ((req: Request, res: Response, next: NextFunction) => void) & {
+  /** Permisos que exige, para que una meta-prueba recorra el router. */
+  __permissions: string[];
+};
+
+function tag(mw: (req: Request, res: Response, next: NextFunction) => void, permissions: string[]): PermissionMiddleware {
+  return Object.assign(mw, { __permissions: permissions });
+}
+
+function denyAndAudit(req: Request, next: NextFunction, description: string, permissions: Permission[]) {
+  logAudit(req, {
+    action: AuditAction.SUSPICIOUS_ACTIVITY,
+    entity: 'permission',
+    severity: AuditSeverity.MEDIUM,
+    description,
+    metadata: { requiredPermissions: permissions, userRole: req.user?.role },
+  });
+  return next(new AppError('No tienes permisos suficientes para esta acción', 403));
+}
+
 /**
  * Gate for money-moving operations: editing pricing, verifying cash
- * remittances, settling payouts and issuing refunds.
- *
- * Deliberately narrower than `authorize(ADMIN)`. Every operations admin can
- * see finance; only a designated finance admin can change what the platform
- * charges or declare that money arrived. Denials are audited, because an
- * attempt to reach these endpoints is worth knowing about.
+ * remittances, settling payouts. Exige `finance:manage` (rol Finanzas o
+ * Super Administrador); ya no lee la marca `isFinanceAdmin`. Denials are
+ * audited, because an attempt to reach these endpoints is worth knowing about.
  */
-export const requireFinanceAdmin = (
-  req: Request,
-  _res: Response,
-  next: NextFunction
-) => {
+export const requireFinanceAdmin = tag((req, _res, next) => {
   if (!req.user) return next(new AppError('No autorizado', 401));
 
-  const isAdmin = req.user.role === UserRole.ADMIN;
-  if (isAdmin && req.user.isFinanceAdmin) return next();
+  if (req.user.role === UserRole.ADMIN && can(req, Permission.FINANCE_MANAGE)) return next();
 
   logAudit(req, {
     action: AuditAction.SUSPICIOUS_ACTIVITY,
     entity: 'finance',
     severity: AuditSeverity.HIGH,
-    description: 'Intento de acceso a operaciones financieras sin rol de admin financiero',
-    metadata: { userRole: req.user.role, isFinanceAdmin: req.user.isFinanceAdmin },
+    description: 'Intento de acceso a operaciones financieras sin el permiso finance:manage',
+    metadata: { userRole: req.user.role },
   });
 
   return next(
-    new AppError(
-      'Esta operación requiere permisos de administrador financiero',
-      403
-    )
+    new AppError('Esta operación requiere permisos de administrador financiero', 403)
   );
-};
+}, [Permission.FINANCE_MANAGE]);
 
 /**
- * Permission-based authorization middleware (RBAC)
- *
- * Más granular que `authorize`: en vez de comparar contra `role`, exige
- * TODOS los permisos dados de la lista efectiva calculada en
- * `authenticate` (legacy `role` + Cargo/Roles de RBAC). Nunca confía en
- * nada que venga del cliente.
+ * Permission-based authorization (RBAC): exige TODOS los permisos dados, con
+ * la lógica de `can()` (estricto / observación). Ojo: NO restringe por tipo
+ * de cuenta y comercios/domiciliarios comparten algunos permisos con el
+ * staff; en rutas compartidas usa `adminRequires`.
  */
-export const requirePermission = (...permissions: Permission[]) => {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return next(new AppError('No autorizado', 401));
-    }
-
-    const granted = req.permissions || [];
-    const hasAll = permissions.every((p) => granted.includes(p));
-
-    if (!hasAll) {
-      // Log unauthorized access attempt
-      logAudit(req, {
-        action: AuditAction.SUSPICIOUS_ACTIVITY,
-        entity: 'permission',
-        severity: AuditSeverity.MEDIUM,
-        description: `Intento de acceso sin permisos: ${permissions.join(', ')}`,
-        metadata: { requiredPermissions: permissions, userRole: req.user.role },
-      });
-
-      return next(new AppError('No tienes permisos suficientes para esta acción', 403));
-    }
-    next();
-  };
-};
+export const requirePermission = (...permissions: Permission[]) =>
+  tag((req, _res, next) => {
+    if (!req.user) return next(new AppError('No autorizado', 401));
+    if (permissions.every((p) => can(req, p))) return next();
+    return denyAndAudit(req, next, `Intento de acceso sin permisos: ${permissions.join(', ')}`, permissions);
+  }, permissions);
 
 /**
  * Require any one of the specified permissions
  */
-export const requireAnyPermission = (...permissions: Permission[]) => {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return next(new AppError('No autorizado', 401));
-    }
+export const requireAnyPermission = (...permissions: Permission[]) =>
+  tag((req, _res, next) => {
+    if (!req.user) return next(new AppError('No autorizado', 401));
 
-    const granted = req.permissions || [];
-    const hasAny = permissions.some((p) => granted.includes(p));
-
-    if (!hasAny) {
-      logAudit(req, {
-        action: AuditAction.SUSPICIOUS_ACTIVITY,
-        entity: 'permission',
-        severity: AuditSeverity.MEDIUM,
-        description: `Intento de acceso sin ninguno de los permisos: ${permissions.join(', ')}`,
-        metadata: { requiredPermissions: permissions, userRole: req.user.role },
-      });
-      return next(new AppError('No tienes permisos suficientes para esta acción', 403));
+    const verdicts = permissions.map((p) => evaluatePermission(req, p));
+    if (verdicts.includes('allow')) return next();
+    const shadowIdx = verdicts.indexOf('shadow');
+    if (shadowIdx >= 0) {
+      void recordShadowDenied(req, permissions[shadowIdx]);
+      return next();
     }
-    next();
-  };
+    return denyAndAudit(req, next, `Intento de acceso sin ninguno de los permisos: ${permissions.join(', ')}`, permissions);
+  }, permissions);
+
+/**
+ * Para rutas COMPARTIDAS con comercio o domiciliario: el permiso solo se
+ * exige cuando quien llama es admin. Cualquier otro rol pasa sin más (sus
+ * propias comprobaciones siguen en el controlador): nunca abre la ruta a
+ * otros roles ni la cierra para ellos.
+ */
+export const adminRequires = (permission: Permission) => {
+  const gate = requirePermission(permission);
+  return tag((req, res, next) => {
+    if (req.user && req.user.role !== UserRole.ADMIN) return next();
+    return gate(req, res, next);
+  }, [permission]);
 };
 
 /**

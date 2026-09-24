@@ -20,6 +20,11 @@ interface Business {
    * menu lateral lo escribe de verdad en el servidor.
    */
   isActive?: boolean;
+  /** Suspendido por ZIPP: el dueño no puede quitarlo desde aquí. */
+  isSuspended?: boolean;
+  suspensionReason?: string;
+  isApproved?: boolean;
+  isArchived?: boolean;
 }
 
 /**

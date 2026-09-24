@@ -19,6 +19,15 @@ export const CachePrefix = {
    */
   EXPLORE: 'explore:',
   /**
+   * La versión publicada del layout de Explorar.
+   *
+   * Fuera de `explore:` a propósito: `invalidateBusiness` borra `explore:`
+   * con cada cambio de producto o negocio, y esto solo cambia al publicar.
+   * La clave del feed lleva la versión, así que publicar no necesita vaciar
+   * `explore:` — las claves viejas caducan solas.
+   */
+  EXPLORE_LAYOUT: 'explorelayout:',
+  /**
    * Perfil de gustos por usuario, derivado de sus pedidos entregados.
    *
    * No lo toca el plugin de invalidación de ningún modelo: se borra a mano

@@ -45,6 +45,7 @@ export interface IUser extends Document {
    * be able to change what the platform charges, and an audit trail is
    * only meaningful when the set of people who can act is narrow.
    */
+  /** @deprecated usa el permiso `finance:manage` (rol Finanzas). */
   isFinanceAdmin: boolean;
   avatar?: string;
   isActive: boolean;
@@ -88,6 +89,14 @@ export interface IUser extends Document {
   lastLoginAt?: Date;
   lastLoginIp?: string;
   passwordChangedAt?: Date;
+  /**
+   * La contraseña actual es una temporal generada por un admin
+   * (`resetUserPassword`, S10). No hay envío de correo/SMS en el repo, así
+   * que el panel sigue viendo el valor en claro una sola vez; esto acota el
+   * riesgo: la cuenta tiene que cambiarla en su próximo login y caduca sola.
+   */
+  mustChangePassword?: boolean;
+  passwordExpiresAt?: Date;
 
   // ── 2FA fields ──
   twoFactorEnabled: boolean;
@@ -249,6 +258,7 @@ const userSchema = new Schema<IUser>(
       enum: Object.values(UserRole),
       default: UserRole.CLIENT,
     },
+    /** @deprecated Fase 1: el poder financiero es el permiso `finance:manage` del rol Finanzas. Se migra con 019 y se borra en una 020. */
     isFinanceAdmin: {
       type: Boolean,
       default: false,
@@ -323,6 +333,14 @@ const userSchema = new Schema<IUser>(
     },
     passwordChangedAt: {
       type: Date,
+    },
+    mustChangePassword: {
+      type: Boolean,
+      default: false,
+    },
+    passwordExpiresAt: {
+      type: Date,
+      select: false,
     },
 
     // ── 2FA fields ──

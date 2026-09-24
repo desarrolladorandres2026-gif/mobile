@@ -51,6 +51,21 @@ export const SOCKET_URL = __DEV__
 export const API_ORIGIN = PROD_ORIGIN;
 
 /**
+ * Quién puede hablarle a la vista previa del constructor de Explorar
+ * (`app/preview/explore.tsx`) por `postMessage`: solo el panel admin.
+ *
+ * Sale de EXPO_PUBLIC_ADMIN_ORIGIN (varios separados por coma). En
+ * desarrollo siempre se acepta el panel local.
+ */
+export const PREVIEW_ADMIN_ORIGINS: readonly string[] = [
+  ...String(process.env.EXPO_PUBLIC_ADMIN_ORIGIN ?? '')
+    .split(',')
+    .map((origin: string) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean),
+  ...(__DEV__ ? ['http://localhost:3001'] : []),
+];
+
+/**
  * Categorías de negocio. El icono ya no viaja aquí: lo resuelve
  * `categoryIcon()` en `theme/icons.ts`, para que exista un solo lugar donde
  * se decide cómo se ve cada categoría.

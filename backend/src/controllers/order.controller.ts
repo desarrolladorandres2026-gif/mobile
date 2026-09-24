@@ -2,8 +2,24 @@ import { Request, Response, NextFunction } from 'express';
 import { orderService, driverService } from '../services';
 import { sendResponse, param, query, clientIp, userAgent, clampLimit } from '../utils';
 import { OrderStatus, UserRole } from '../types';
-import { Business } from '../models';
+import { Business, Driver } from '../models';
 import { AppError } from '../middlewares';
+import { can } from '../middlewares/auth';
+import { Permission } from '../security';
+import { emitToAdmin } from '../sockets/emitter';
+
+/**
+ * `order.driverId` es el `_id` de `Driver`, no de `User` (O3). Emitir a
+ * `user:<Driver._id>` no le llegaba a nadie: la sala personal de un socket
+ * se une por `User._id` (`sockets/index.ts:112`), así que el repartidor no
+ * recibía en vivo ni la asignación ni la cancelación por esta vía — solo
+ * por el socket `driver:*`, si estaba conectado en ese momento.
+ */
+async function driverUserId(driverId: unknown): Promise<string | null> {
+  if (!driverId) return null;
+  const driver = await Driver.findById(driverId).select('userId');
+  return driver ? driver.userId.toString() : null;
+}
 
 /**
  * El motivo del rechazo, si es uno de los nuestros.
@@ -72,7 +88,7 @@ export class OrderController {
         }
         // Notify drivers and admin
         io.to('drivers').emit('order:available', { orderId: order._id.toString(), city: order.city });
-        io.to('admin').emit('order:new', { orderId: order._id.toString(), orderNumber: order.orderNumber });
+        emitToAdmin(io, 'orders', 'order:new', { orderId: order._id.toString(), orderNumber: order.orderNumber });
       }
 
       sendResponse(res, 201, 'Pedido creado exitosamente', order);
@@ -128,7 +144,7 @@ export class OrderController {
        * su propio comprobante podía ver la comisión que ZIPP le cobra a
        * cada negocio, dato que ni el propio comercio expone en su carta.
        */
-      const data = req.user!.role === UserRole.ADMIN
+      const data = req.user!.role === UserRole.ADMIN && can(req, Permission.COMMISSIONS_VIEW)
         ? {
             ...base,
             comisionZipp: order.finance.merchantCommission,
@@ -184,6 +200,19 @@ export class OrderController {
 
   async updateStatus(req: Request, res: Response, next: NextFunction) {
     try {
+      if (req.user!.role === UserRole.ADMIN) {
+        // Cancelar y forzar un estado sin códigos son poderes distintos de `orders:update`.
+        const target = req.body.status as OrderStatus;
+        if (target === OrderStatus.CANCELLED && !can(req, Permission.ORDERS_CANCEL)) {
+          throw new AppError('No tienes permiso para cancelar pedidos', 403);
+        }
+        if (
+          (target === OrderStatus.PICKED_UP || target === OrderStatus.DELIVERED) &&
+          !can(req, Permission.ORDERS_MODIFY)
+        ) {
+          throw new AppError('No tienes permiso para forzar el estado de un pedido', 403);
+        }
+      }
       const order = await orderService.updateStatus(
         param(req, 'id'),
         req.body.status as OrderStatus,
@@ -204,15 +233,16 @@ export class OrderController {
           cancellationReason: order.cancellationReason,
         };
         io.to(`user:${order.clientId.toString()}`).emit('order:status:changed', payload);
-        if (order.driverId) {
-          io.to(`user:${order.driverId.toString()}`).emit('order:status:changed', payload);
+        const driverUid = await driverUserId(order.driverId);
+        if (driverUid) {
+          io.to(`user:${driverUid}`).emit('order:status:changed', payload);
         }
         // Un mandado no tiene comercio al que avisar: no hay nadie
         // preparando nada al otro lado.
         if (order.businessId) {
           io.to(`business:${order.businessId.toString()}`).emit('order:status:changed', payload);
         }
-        io.to('admin').emit('order:status:changed', payload);
+        emitToAdmin(io, 'orders', 'order:status:changed', payload);
       }
 
       sendResponse(res, 200, 'Estado actualizado', order);
@@ -267,8 +297,9 @@ export class OrderController {
           driverId: order.driverId?.toString(),
         };
         io.to(`user:${order.clientId.toString()}`).emit('order:driver:assigned', payload);
-        if (order.driverId) {
-          io.to(`user:${order.driverId.toString()}`).emit('order:driver:assigned', payload);
+        const driverUid = await driverUserId(order.driverId);
+        if (driverUid) {
+          io.to(`user:${driverUid}`).emit('order:driver:assigned', payload);
         }
         // El comercio es quien va a tener a esa persona en el mostrador
         // pidiendo el código de recogida; era el único de los tres que no
@@ -276,7 +307,7 @@ export class OrderController {
         if (order.businessId) {
           io.to(`business:${order.businessId.toString()}`).emit('order:driver:assigned', payload);
         }
-        io.to('admin').emit('order:driver:assigned', payload);
+        emitToAdmin(io, 'orders', 'order:driver:assigned', payload);
       }
 
       sendResponse(res, 200, 'Domiciliario asignado', order);

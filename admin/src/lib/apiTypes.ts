@@ -23,7 +23,33 @@ export interface AdminUser {
 }
 
 /** Tarjetas de cabecera del dashboard. */
-export interface DashboardStats {
+/** Resultado de la plataforma según el libro mayor: la única definición de "ingreso". */
+export interface PlatformResult {
+  grossRevenue: number;
+  promotionExpense: number;
+  cashShortageExpense: number;
+  driverFeeAbsorbed: number;
+  badDebt: number;
+  netBeforeGatewayCosts: number;
+  incomplete: boolean;
+  incompleteReason: string;
+}
+
+/** Agregados de los pedidos del periodo, calculados en la base (no sobre una muestra). */
+export interface OrderAggregates {
+  paymentBreakdown?: {
+    online: { count: number; amount: number };
+    cash: { count: number; amount: number };
+  };
+  /** Porcentaje 0-100; null si no se cerró ningún pedido. */
+  deliveryRate?: number | null;
+  deliveredCount?: number;
+  cancelledCount?: number;
+  ordersByStatus?: Record<string, number>;
+}
+
+export interface DashboardStats extends OrderAggregates {
+  platformResult?: PlatformResult;
   totalOrders?: number;
   todayOrders?: number;
   weekOrders?: number;
@@ -36,9 +62,11 @@ export interface DashboardStats {
   approvedDrivers?: number;
 }
 
-export interface DashboardFinancials {
+export interface DashboardFinancials extends OrderAggregates {
   totalRevenue?: number;
-  platformEarnings?: number;
+  platformResult?: PlatformResult;
+  from?: string;
+  to?: string;
 }
 
 /** Una barra del gráfico de ingresos. */
@@ -47,8 +75,10 @@ export interface RevenuePoint {
   _id?: string;
   date?: string;
   label?: string;
+  /** GMV del día. */
   revenue?: number;
-  commission?: number;
+  /** Ingreso de ZIPP del día, del libro mayor. */
+  platformRevenue?: number;
   orders?: number;
 }
 
@@ -109,4 +139,83 @@ export interface DriverLocationUpdate {
   driverId?: string;
   location?: { lat: number; lng: number };
   heading?: number | null;
+}
+
+/** Búsqueda global: `GET /admin/search`. Cada lista solo llega si el permiso lo permite. */
+export interface SearchOrderHit {
+  _id: string;
+  orderNumber: string;
+  status: string;
+  kind?: 'delivery' | 'errand';
+  createdAt: string;
+  businessName?: string;
+}
+
+export interface SearchUserHit {
+  _id: string;
+  name: string;
+  role: string;
+  phoneMasked?: string;
+  emailMasked?: string;
+  isActive: boolean;
+}
+
+export interface SearchBusinessHit {
+  _id: string;
+  name: string;
+  city?: string;
+  isApproved: boolean;
+  isSuspended?: boolean;
+  isArchived?: boolean;
+}
+
+export interface SearchDriverHit {
+  _id: string;
+  name: string;
+  licensePlate?: string;
+  status?: string;
+  isApproved: boolean;
+}
+
+export interface SearchCouponHit {
+  _id: string;
+  code: string;
+  isActive: boolean;
+  validUntil?: string | null;
+  businessId?: string | null;
+}
+
+export interface AdminSearchResults {
+  orders?: SearchOrderHit[];
+  users?: SearchUserHit[];
+  businesses?: SearchBusinessHit[];
+  drivers?: SearchDriverHit[];
+  coupons?: SearchCouponHit[];
+}
+
+/** Bandeja de alertas: `GET /admin/alerts`. */
+export type AlertSeverity = 'critical' | 'high' | 'medium';
+
+export interface AdminAlertItem {
+  /** `kind:id:stage`: estable mientras dure la alerta; una escalada cambia el `stage`. */
+  key: string;
+  kind: string;
+  severity: AlertSeverity;
+  title: string;
+  detail: string;
+  at: string;
+  links: {
+    orderId?: string;
+    userId?: string;
+    businessId?: string;
+    driverId?: string;
+  };
+  seen: boolean;
+}
+
+export interface AdminAlertsResponse {
+  items: AdminAlertItem[];
+  unseen: number;
+  generatedAt: string;
+  truncated: boolean;
 }

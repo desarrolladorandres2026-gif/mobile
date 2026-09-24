@@ -243,4 +243,7 @@ const advertisementSchema = new Schema<IAdvertisement>(
 // de antes — activa, dentro de fecha, mejor prioridad primero.
 advertisementSchema.index({ placement: 1, isActive: 1, startDate: 1, endDate: 1, priority: -1 });
 
+// Ficha del comercio (panel admin): campañas que se le facturan.
+advertisementSchema.index({ billedToBusinessId: 1, createdAt: -1 });
+
 export const Advertisement = mongoose.model<IAdvertisement>('Advertisement', advertisementSchema);

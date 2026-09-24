@@ -11,9 +11,12 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() =>
+    new URLSearchParams(window.location.search).get('motivo') === 'inactividad'
+      ? 'Cerramos tu sesión tras 30 minutos sin uso. Vuelve a ingresar.'
+      : ''
+  );
 
   // Segundo paso: solo aparece cuando la cuenta ya tiene 2FA activo. El
   // primer factor (contraseña) ya fue correcto; el backend devolvió un reto
@@ -63,7 +66,7 @@ export default function Login() {
         return;
       }
 
-      const { user, accessToken, refreshToken, permissions, roleSlugs } = data.data;
+      const { user, accessToken, refreshToken, permissions, roleSlugs, authzMode, observedPermissions } = data.data;
 
       if (user.role !== 'admin') {
         setError('Acceso denegado: Esta cuenta no posee credenciales de administrador general.');
@@ -73,7 +76,7 @@ export default function Login() {
 
       localStorage.setItem('admin_token', accessToken);
       localStorage.setItem('admin_refresh_token', refreshToken);
-      useAuthStore.getState().setSession(user, permissions || [], roleSlugs || []);
+      useAuthStore.getState().setSession(user, permissions || [], roleSlugs || [], { authzMode, observedPermissions });
 
       setLoading(false);
       navigate('/');
@@ -87,7 +90,11 @@ export default function Login() {
 
   const handleMfaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mfaCode.trim() || mfaVerifying) return;
+    if (mfaVerifying) return;
+    if (!mfaCode.trim()) {
+      setMfaError('Escribe el código de 6 dígitos de tu app autenticadora.');
+      return;
+    }
 
     setMfaVerifying(true);
     setMfaError('');
@@ -99,7 +106,7 @@ export default function Login() {
         code: mfaCode.trim(),
       });
 
-      const { user, accessToken, refreshToken, permissions, roleSlugs } = data.data;
+      const { user, accessToken, refreshToken, permissions, roleSlugs, authzMode, observedPermissions } = data.data;
 
       if (user.role !== 'admin') {
         setMfaError('Acceso denegado: Esta cuenta no posee credenciales de administrador general.');
@@ -109,7 +116,7 @@ export default function Login() {
 
       localStorage.setItem('admin_token', accessToken);
       localStorage.setItem('admin_refresh_token', refreshToken);
-      useAuthStore.getState().setSession(user, permissions || [], roleSlugs || []);
+      useAuthStore.getState().setSession(user, permissions || [], roleSlugs || [], { authzMode, observedPermissions });
 
       setMfaVerifying(false);
       navigate('/');
@@ -151,15 +158,14 @@ export default function Login() {
               />
 
               {mfaError && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-600 text-xs p-3.5 rounded-xl flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                  <p className="flex-1 font-medium leading-relaxed">{mfaError}</p>
-                </div>
+                <p className="flex items-start gap-2 text-xs font-medium leading-relaxed text-rose-600">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {mfaError}
+                </p>
               )}
 
               <button
                 type="submit"
-                disabled={!mfaCode.trim() || mfaVerifying}
+                disabled={mfaVerifying}
                 className="w-full h-12 rounded-xl bg-[var(--color-primary)] hover:bg-[var(--color-chart-purple)] text-white font-bold text-sm transition-all duration-200 shadow-lg shadow-[var(--color-primary)]/25 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
               >
                 {mfaVerifying ? (
@@ -186,10 +192,9 @@ export default function Login() {
           ) : (
             <>
               {error && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-600 text-xs p-3.5 rounded-xl flex items-start gap-2.5 mb-5">
-                  <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                  <p className="flex-1 font-medium leading-relaxed">{error}</p>
-                </div>
+                <p className="mb-5 flex items-start gap-2 text-xs font-medium leading-relaxed text-rose-600">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
+                </p>
               )}
 
               <form onSubmit={handleLogin} className="space-y-4">
@@ -227,20 +232,10 @@ export default function Login() {
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between text-xs pt-1">
-                  <label className="flex items-center gap-2 text-slate-900 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={remember}
-                      onChange={(e) => setRemember(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded border-slate-300 text-[var(--color-primary)] focus:ring-[var(--color-primary)]/30"
-                    />
-                    Recordar por 30 días
-                  </label>
-                  <span className="text-[var(--color-primary)] font-semibold">
-                    Requiere 2FA
-                  </span>
-                </div>
+                <p className="flex items-center justify-between pt-1 text-xs text-slate-900">
+                  <span>La sesión dura una jornada y se cierra tras 30 min sin uso.</span>
+                  <span className="font-semibold text-[var(--color-primary)]">Requiere 2FA</span>
+                </p>
 
                 <button
                   type="submit"

@@ -84,17 +84,55 @@ export enum Permission {
 
   SETTINGS_VIEW = 'settings:view',
   SETTINGS_UPDATE = 'settings:update',
+
+  // ── Constructor de Explorar ──
+  // Separados de `settings:*` porque quien diseña Explorar (banners,
+  // colecciones) no tiene por qué poder tocar la configuración general.
+  EXPLORE_VIEW = 'explore:view',
+  EXPLORE_MANAGE = 'explore:manage',
+
+  // ── Zonas de cobertura (D9) ──
+  // Una zona cambia lo que se cobra y se paga por cada domicilio de su
+  // polígono: editarla es tocar el precio. Permiso propio y no `settings:*`
+  // ni `finance:manage` (decisión del 2026-09-23: cupones y zonas tienen
+  // permiso por módulo, con versión y auditoría).
+  ZONES_VIEW = 'zones:view',
+  ZONES_MANAGE = 'zones:manage',
+
+  // ── Fase 1 del panel admin: permisos por módulo (2026-09-24) ──
+  // Solo se AÑADEN: `Role.permissions` valida contra este enum, así que
+  // renombrar o borrar uno invalidaría roles ya guardados.
+  USERS_VIEW_SENSITIVE = 'users:view_sensitive', // cédula completa, nacimiento, IP, dispositivos
+  EVIDENCES_VIEW = 'evidences:view',
+  PAYOUTS_REVEAL_ACCOUNT = 'payouts:reveal_account',
+  REFUNDS_VIEW = 'refunds:view',
+  REFUNDS_CREATE = 'refunds:create',
+  COUPONS_VIEW = 'coupons:view',
+  COUPONS_MANAGE = 'coupons:manage',
+  ADS_VIEW = 'ads:view',
+  ADS_MANAGE = 'ads:manage',
+  REVIEWS_VIEW = 'reviews:view',
+  REVIEWS_MODERATE = 'reviews:moderate',
+  CONTENT_VIEW = 'content:view',
+  CONTENT_MANAGE = 'content:manage',
+  SUPPORT_VIEW = 'support:view',
+  SUPPORT_MANAGE = 'support:manage',
+  LEGAL_VIEW = 'legal:view',
+  LEGAL_MANAGE = 'legal:manage',
+  SOS_VIEW = 'sos:view',
+  SOS_MANAGE = 'sos:manage',
 }
 
 // ── Extended Roles ──
 //
 // Estos son los roles *legacy*, resueltos únicamente a partir de
-// `User.role` (el tipo de cuenta) para mantener retrocompatibilidad total:
-// cualquier cuenta que no tenga Roles de RBAC asignados explícitamente
-// sigue teniendo exactamente los permisos que tenía antes de este módulo.
-// Los Cargos/Roles administrables desde el panel (colecciones `Position` y
-// `Role`, ver rbac.routes.ts) se resuelven aparte, en
-// `services/authorization.service.ts`, y se **suman** a estos.
+// `User.role` (el tipo de cuenta). Desde la Fase 1 (2026-09-24) este mapa ya
+// NO es la autoridad para las cuentas `admin`: un admin solo trae
+// `admin:panel` y el resto sale de los Roles de RBAC que se le asignen (ver
+// `STAFF_ROLE_PERMISSIONS` abajo y `authorization.service.ts`). Este mapa
+// sigue siendo el permiso real de comercios, domiciliarios y clientes, y el
+// "conjunto legacy" con el que el modo observación compara lo que un admin
+// dejaría de poder hacer.
 export enum ExtendedRole {
   SUPER_ADMIN = 'super_admin',
   ADMIN = 'admin',
@@ -155,6 +193,15 @@ const rolePermissions: Record<string, Permission[]> = {
     Permission.REPORTS_VIEW,
     Permission.REPORTS_EXPORT,
     Permission.SETTINGS_VIEW,
+    // Mismo alcance que ya tenía sobre banners y bloques curados (que se
+    // gestionan con `authorize(UserRole.ADMIN)`): Explorar es contenido.
+    Permission.EXPLORE_VIEW,
+    Permission.EXPLORE_MANAGE,
+    // Se mantienen aquí solo para el modo observación (conjunto legacy): en
+    // modo estricto un admin recibe `zones:*` únicamente por un Rol (Finanzas
+    // tiene `zones:manage`; Operaciones solo `zones:view`).
+    Permission.ZONES_VIEW,
+    Permission.ZONES_MANAGE,
   ],
 
   [ExtendedRole.OPERATOR]: [
@@ -204,6 +251,110 @@ const rolePermissions: Record<string, Permission[]> = {
     Permission.PRODUCTS_VIEW,
     Permission.NOTIFICATIONS_VIEW,
   ],
+};
+
+/**
+ * Roles base del personal (Fase 1). FUENTE ÚNICA: la migración 019 los
+ * siembra desde aquí. Decisiones del dueño (2026-09-24): `users:block`,
+ * anonimizar datos personales y escribir la cuenta de pago de un comercio son
+ * solo del Super Administrador, así que no aparecen en ningún rol base;
+ * `zones:manage` solo en Finanzas; Soporte solo tiene `refunds:view`.
+ */
+export interface StaffRoleDefinition {
+  name: string;
+  description: string;
+  permissions: Permission[];
+}
+
+export const STAFF_ROLE_PERMISSIONS: Record<
+  'operaciones' | 'soporte' | 'finanzas' | 'comercios_contenido',
+  StaffRoleDefinition
+> = {
+  operaciones: {
+    name: 'Operaciones + Domiciliarios',
+    description: 'Pedidos, reparto, domiciliarios, SOS y mapa de flota.',
+    permissions: [
+      Permission.ADMIN_PANEL,
+      Permission.ORDERS_VIEW_ALL,
+      Permission.ORDERS_UPDATE,
+      Permission.ORDERS_CANCEL,
+      Permission.ORDERS_MODIFY,
+      Permission.ORDERS_ASSIGN_DRIVER,
+      Permission.EVIDENCES_VIEW,
+      Permission.DRIVERS_VIEW,
+      Permission.DRIVERS_APPROVE,
+      Permission.DRIVERS_SUSPEND,
+      Permission.DRIVERS_TRACK,
+      Permission.ZONES_VIEW,
+      Permission.SOS_VIEW,
+      Permission.SOS_MANAGE,
+      Permission.BUSINESSES_VIEW,
+      Permission.USERS_VIEW,
+      Permission.FRAUD_ALERTS_VIEW,
+      Permission.REPORTS_VIEW,
+    ],
+  },
+  soporte: {
+    name: 'Soporte',
+    description: 'PQRS, atención al cliente y consulta de pedidos.',
+    permissions: [
+      Permission.ADMIN_PANEL,
+      Permission.SUPPORT_VIEW,
+      Permission.SUPPORT_MANAGE,
+      Permission.USERS_VIEW,
+      Permission.ORDERS_VIEW_ALL,
+      Permission.EVIDENCES_VIEW,
+      Permission.REFUNDS_VIEW,
+      Permission.BUSINESSES_VIEW,
+      Permission.DRIVERS_VIEW,
+    ],
+  },
+  finanzas: {
+    name: 'Finanzas',
+    description: 'Dinero: tarifas, efectivo, liquidaciones, reembolsos y zonas.',
+    permissions: [
+      Permission.ADMIN_PANEL,
+      Permission.FINANCE_VIEW,
+      Permission.FINANCE_MANAGE,
+      Permission.COMMISSIONS_VIEW,
+      Permission.COMMISSIONS_MANAGE,
+      Permission.PAYOUTS_PROCESS,
+      Permission.PAYOUTS_REVEAL_ACCOUNT,
+      Permission.REFUNDS_VIEW,
+      Permission.REFUNDS_CREATE,
+      Permission.ORDERS_VIEW_ALL,
+      Permission.BUSINESSES_VIEW,
+      Permission.DRIVERS_VIEW,
+      Permission.REPORTS_VIEW,
+      Permission.COUPONS_VIEW,
+      Permission.ADS_VIEW,
+      Permission.ZONES_VIEW,
+      Permission.ZONES_MANAGE,
+    ],
+  },
+  comercios_contenido: {
+    name: 'Comercios + Contenido',
+    description: 'Comercios, catálogo, reseñas, Explorar, cupones y publicidad.',
+    permissions: [
+      Permission.ADMIN_PANEL,
+      Permission.BUSINESSES_VIEW,
+      Permission.BUSINESSES_UPDATE_ALL,
+      Permission.BUSINESSES_APPROVE,
+      Permission.PRODUCTS_CREATE,
+      Permission.PRODUCTS_UPDATE,
+      Permission.PRODUCTS_DELETE,
+      Permission.REVIEWS_VIEW,
+      Permission.REVIEWS_MODERATE,
+      Permission.EXPLORE_VIEW,
+      Permission.EXPLORE_MANAGE,
+      Permission.CONTENT_VIEW,
+      Permission.CONTENT_MANAGE,
+      Permission.COUPONS_VIEW,
+      Permission.COUPONS_MANAGE,
+      Permission.ADS_VIEW,
+      Permission.ADS_MANAGE,
+    ],
+  },
 };
 
 /**

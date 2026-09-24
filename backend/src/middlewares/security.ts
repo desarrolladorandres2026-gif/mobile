@@ -304,6 +304,170 @@ export const productImageUploadRateLimiter = rateLimit({
 });
 
 /**
+ * Subida de documentos del comercio (cédula, RUT, certificado bancario).
+ *
+ * Por cuenta y no por IP, igual que las fotos de producto: va detrás de
+ * `authenticate`. Cada subida es un archivo sensible que queda en el
+ * almacén privado, así que lo que frena es el bucle (un script, una cuenta
+ * comprometida llenando el almacén), no el uso normal: un comercio sube
+ * cinco o seis papeles en toda su vida.
+ */
+export const businessDocumentUploadRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(30),
+  message: {
+    success: false,
+    message: 'Demasiados documentos seguidos. Espera un rato antes de subir otro.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+});
+
+/**
+ * Cambios de datos fiscales y de la cuenta de pago del comercio, y lecturas
+ * del número de cuenta completo.
+ *
+ * Es la ruta que más le interesa a quien quiere desviar dinero: un tope bajo
+ * por cuenta hace inviable probar cuentas en bucle, y ningún uso legítimo se
+ * acerca a 20 cambios por hora.
+ */
+export const businessFiscalRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(20),
+  message: {
+    success: false,
+    message: 'Demasiados cambios seguidos en los datos fiscales o bancarios. Intenta más tarde.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+});
+
+/**
+ * Lectura del número de cuenta completo (comercio o liquidación).
+ *
+ * Aparte del limitador fiscal general (20/h compartido con verificar y
+ * cambiar la cuenta): revelar es lo que más le sirve a quien tiene una sesión
+ * de finanzas robada, y ningún uso legítimo se acerca a 10 lecturas por hora
+ * (una por transferencia). Al alcanzar el tope queda una alerta HIGH en la
+ * auditoría, porque es una señal, no solo un 429.
+ */
+export const payoutAccountRevealRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(10),
+  message: {
+    success: false,
+    message: 'Demasiadas consultas del número de cuenta. Intenta más tarde.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+  handler: (req, res, _next, options) => {
+    void logAudit(req, {
+      action: AuditAction.SUSPICIOUS_ACTIVITY,
+      entity: 'finance',
+      severity: AuditSeverity.HIGH,
+      description: 'Tope de consultas del número de cuenta de pago alcanzado',
+      metadata: { limit: options.limit },
+    });
+    res.status(options.statusCode).json(options.message);
+  },
+});
+
+/**
+ * Deja que el panel admin —y solo él— embeba la vista previa de Explorar.
+ *
+ * El resto de la PWA sigue sin poder ir dentro de un iframe (clickjacking):
+ * esto se monta únicamente sobre `/preview`. Se quita `X-Frame-Options`
+ * porque no admite una lista de orígenes, y se reescribe `frame-ancestors`
+ * de la CSP que ya puso helmet con los orígenes del panel.
+ */
+export function allowAdminFraming(req: Request, res: Response, next: NextFunction) {
+  res.removeHeader('X-Frame-Options');
+  const csp = String(res.getHeader('Content-Security-Policy') ?? '');
+  const directives = csp
+    .split(';')
+    .map((d) => d.trim())
+    .filter((d) => d && !d.startsWith('frame-ancestors'));
+  directives.push(`frame-ancestors ${config.previewFrameAncestors.join(' ')}`);
+  res.setHeader('Content-Security-Policy', directives.join('; '));
+  next();
+}
+
+/**
+ * Vista previa del constructor de Explorar — 60 por minuto por cuenta.
+ *
+ * Cada una resuelve el layout entero contra el catálogo y no pasa por la
+ * caché. El panel la pide con retardo mientras se edita (una cada ~600 ms
+ * como mucho); esto frena el bucle, no el uso normal.
+ */
+export const exploreLayoutPreviewRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: limitFor(60),
+  message: {
+    success: false,
+    message: 'Demasiadas vistas previas seguidas. Espera unos segundos.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+});
+
+/**
+ * Búsqueda global del panel admin — 60 por minuto por cuenta.
+ *
+ * El panel busca con espera de 300 ms al teclear; un uso normal no se acerca.
+ * Lo que frena es enumerar la base (teléfonos, correos) con un script o una
+ * sesión robada. Al alcanzar el tope queda una alerta HIGH en la auditoría,
+ * porque es una señal, no solo un 429.
+ */
+export const adminSearchRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: limitFor(60),
+  message: {
+    success: false,
+    message: 'Demasiadas búsquedas seguidas. Espera un minuto antes de volver a buscar.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+  handler: (req, res, _next, options) => {
+    void logAudit(req, {
+      action: AuditAction.SUSPICIOUS_ACTIVITY,
+      entity: 'admin_search',
+      severity: AuditSeverity.HIGH,
+      description: 'Tope de búsquedas del panel admin alcanzado',
+      metadata: { limit: options.limit },
+    });
+    res.status(options.statusCode).json(options.message);
+  },
+});
+
+/**
+ * Reenviar aviso de un pedido desde el panel admin — 3 por pedido cada 10 min.
+ *
+ * La clave es usuario + pedido: reenviar a un pedido no agota el cupo de
+ * otro. Solo hay plantillas fijas, así que esto frena el spam de push al
+ * cliente, no el phishing. Ha de montarse en una ruta con `:id` (o
+ * `:orderId`) para que `req.params` ya exista.
+ */
+export const orderNotifyRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: limitFor(3),
+  message: {
+    success: false,
+    message: 'Ya reenviaste varios avisos de este pedido. Espera unos minutos.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const orderId = req.params?.id ?? req.params?.orderId ?? 'none';
+    return req.user ? `user:${req.user._id}:order:${orderId}` : `anon:${req.ip}:order:${orderId}`;
+  },
+});
+
+/**
  * Límite por usuario autenticado, complementario al límite global por IP.
  *
  * El límite por IP (`globalLimiter` en app.ts) tiene que ser holgado porque

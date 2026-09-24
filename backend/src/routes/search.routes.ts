@@ -1,6 +1,8 @@
 import { Router, Request } from 'express';
 import { searchService, SortKey } from '../services/search.service';
 import { authenticate, authorize, identifyIfPossible, viewerId } from '../middlewares';
+import { requirePermission } from '../middlewares/auth';
+import { Permission } from '../security';
 import { UserRole } from '../types';
 import { sendResponse, sendError, query } from '../utils';
 
@@ -92,6 +94,7 @@ router.get(
   '/insights',
   authenticate,
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.CONTENT_VIEW),
   async (req, res, next) => {
     try {
       sendResponse(res, 200, 'Búsquedas', await searchService.insights(num(req, 'limit') ?? 25));

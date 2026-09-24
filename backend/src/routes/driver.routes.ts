@@ -1,9 +1,25 @@
 import { Router } from 'express';
 import { driverController } from '../controllers/driver.controller';
-import { authenticate, authorize, validate } from '../middlewares';
+import { authenticate, authorize, requirePermission, requireFinanceAdmin, validate } from '../middlewares';
+import { listDriversQuerySchema, driverIdParamSchema } from '../validators/driver.validator';
+import { Permission } from '../security';
 import { reportCashSchema } from '../validators/finance.validator';
+import { objectId } from '../validators/common';
 import { UserRole } from '../types';
 import { z } from 'zod';
+
+// Fondo rotatorio: dinero real. `requireFinanceAdmin` + Zod acotado + auditoría
+// con motivo obligatorio, igual que cualquier otro cambio de dinero de admin.
+const baseFundSchema = z.object({
+  body: z
+    .object({
+      baseFund: z.number().int().positive(),
+      reason: z.string().trim().min(5).max(300),
+    })
+    .strict(),
+  query: z.object({}).optional(),
+  params: z.object({ id: objectId }),
+});
 
 const router = Router();
 
@@ -65,16 +81,60 @@ router.get('/verifications', authenticate, authorize(UserRole.DRIVER), (req, res
 router.post('/verifications', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.submitVerification(req, res, next));
 
 // Admin
-router.get('/', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.getAll(req, res, next));
+router.get('/', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_VIEW), validate(listDriversQuerySchema), (req, res, next) => driverController.getAll(req, res, next));
 /** Por qué se rechazan los pedidos, en agregado. Pregunta de operaciones. */
-router.get('/decline-reasons', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.declineReasons(req, res, next));
-router.patch('/:id/approve', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.approve(req, res, next));
-router.patch('/:id/base-fund', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.updateBaseFund(req, res, next));
-router.get('/verifications/queue', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.verificationQueue(req, res, next));
-router.patch('/verifications/:verificationId/review', authenticate, authorize(UserRole.ADMIN), validate(z.object({ body: z.object({ status: z.enum(['approved','rejected']), rejectionReason: z.string().max(300).optional() }) })), (req, res, next) => driverController.reviewVerification(req, res, next));
-router.post('/:id/request-verification', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.requestVerification(req, res, next));
-router.get('/documents/queue', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.documentQueue(req, res, next));
-router.get('/:id/documents', authenticate, authorize(UserRole.ADMIN), (req, res, next) => driverController.listDriverDocuments(req, res, next));
-router.patch('/documents/:documentId/review', authenticate, authorize(UserRole.ADMIN), validate(z.object({ body: z.object({ status: z.enum(['approved','rejected']) }) })), (req, res, next) => driverController.reviewDocument(req, res, next));
+router.get('/decline-reasons', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_VIEW), (req, res, next) => driverController.declineReasons(req, res, next));
+router.patch('/:id/approve', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), (req, res, next) => driverController.approve(req, res, next));
+router.patch('/:id/base-fund', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.FINANCE_MANAGE), validate(baseFundSchema), (req, res, next) => driverController.updateBaseFund(req, res, next));
+router.get('/verifications/queue', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), (req, res, next) => driverController.verificationQueue(req, res, next));
+router.patch(
+  '/verifications/:verificationId/review',
+  authenticate,
+  authorize(UserRole.ADMIN),
+  requirePermission(Permission.DRIVERS_APPROVE),
+  validate(
+    z.object({
+      body: z
+        .object({ status: z.enum(['approved', 'rejected']), rejectionReason: z.string().trim().min(5).max(300).optional() })
+        .refine((v) => v.status !== 'rejected' || !!v.rejectionReason, {
+          message: 'El motivo del rechazo es obligatorio',
+          path: ['rejectionReason'],
+        }),
+    })
+  ),
+  (req, res, next) => driverController.reviewVerification(req, res, next)
+);
+router.post('/:id/request-verification', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), (req, res, next) => driverController.requestVerification(req, res, next));
+// S16: solo quien aprueba domiciliarios puede ver la cola de documentos y
+// los documentos de uno en concreto — no cualquier admin. `authorize(ADMIN)`
+// por sí solo no distinguía entre roles de admin con permisos distintos.
+router.get('/documents/queue', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), (req, res, next) => driverController.documentQueue(req, res, next));
+router.get('/:id/documents', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), (req, res, next) => driverController.listDriverDocuments(req, res, next));
+router.patch(
+  '/documents/:documentId/review',
+  authenticate,
+  authorize(UserRole.ADMIN),
+  requirePermission(Permission.DRIVERS_APPROVE),
+  validate(
+    z.object({
+      body: z
+        .object({
+          status: z.enum(['approved', 'rejected']),
+          rejectionReason: z.string().trim().min(5).max(300).optional(),
+        })
+        // O6: `rejectionReason` obligatorio si se rechaza — el servicio ya
+        // lo exige, pero fallar aquí devuelve un mensaje de campo, no un 400 genérico.
+        .refine((v) => v.status !== 'rejected' || !!v.rejectionReason, {
+          message: 'El motivo del rechazo es obligatorio',
+          path: ['rejectionReason'],
+        }),
+    })
+  ),
+  (req, res, next) => driverController.reviewDocument(req, res, next)
+);
+
+// Va al final a propósito: `/:id` captura cualquier segmento, así que todas las
+// rutas GET estáticas de arriba (/profile, /metrics, /decline-reasons...) tienen que registrarse antes.
+router.get('/:id', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_VIEW), validate(driverIdParamSchema), (req, res, next) => driverController.getById(req, res, next));
 
 export default router;

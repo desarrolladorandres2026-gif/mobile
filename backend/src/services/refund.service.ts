@@ -53,34 +53,74 @@ export interface RefundAllocation {
  * Integer allocation uses largest-remainder so the parts sum to the refund
  * exactly — no stray peso that would unbalance the ledger.
  */
+/** Lo ya devuelto por cada cuenta en reembolsos previos completados del mismo pedido. */
+export type PriorAllocation = RefundAllocation;
+
+const ZERO_ALLOCATION: PriorAllocation = {
+  fromMerchantPayout: 0,
+  fromDriverPayout: 0,
+  fromCommission: 0,
+  fromDeliveryMargin: 0,
+  fromServiceFee: 0,
+  fromTax: 0,
+  fromPlatform: 0,
+};
+
 export function allocateRefund(
   finance: IOrderFinance,
   amount: number,
-  kind: RefundKind
+  kind: RefundKind,
+  prior: PriorAllocation = ZERO_ALLOCATION
 ): RefundAllocation {
   assertMoney(amount, 'reembolso');
 
-  const isFull = kind !== RefundKind.PARTIAL || amount >= finance.customerTotal;
+  // Kind ya no fuerza "total" por sí solo: un CHARGEBACK parcial (la
+  // pasarela solo revirtió una parte) tiene que repartirse igual que un
+  // reembolso parcial, o cada contracargo parcial explota en
+  // `LedgerImbalanceError` al intentar devolver cuentas enteras por menos
+  // dinero del que en verdad se revirtió.
+  const isFull = kind === RefundKind.FULL || amount >= finance.customerTotal;
+
+  // Lo que queda vivo en cada cuenta después de reembolsos previos. Sin
+  // esto, un segundo reembolso parcial vuelve a usar los montos originales
+  // del pedido como techo y puede devolver más de lo que esa cuenta
+  // realmente tiene.
+  const remaining = {
+    merchantPayout: Math.max(0, finance.businessPayout - prior.fromMerchantPayout),
+    driverPayout: Math.max(0, finance.driverPayout - prior.fromDriverPayout),
+    commission: Math.max(0, finance.merchantCommission - prior.fromCommission),
+    serviceFee: Math.max(0, finance.customerServiceFee - prior.fromServiceFee),
+    deliveryMargin: Math.max(0, finance.deliveryMargin - prior.fromDeliveryMargin),
+    tax: Math.max(0, finance.taxPayable - prior.fromTax),
+    platform: Math.max(0, finance.platformPromotionExpense - prior.fromPlatform),
+  };
+
+  // Un margen negativo (ZIPP subsidió el envío) es legítimo y hay que
+  // conservar su signo en el reembolso total; solo se acota a 0 cuando se
+  // usa como techo de un reembolso parcial, igual que hacía el código
+  // original.
+  const deliveryMarginSigned = finance.deliveryMargin - prior.fromDeliveryMargin;
+  const deliveryMarginCap = Math.max(0, deliveryMarginSigned);
 
   if (isFull) {
     return {
-      fromMerchantPayout: finance.businessPayout,
-      fromDriverPayout: finance.driverPayout,
-      fromCommission: finance.merchantCommission,
-      fromServiceFee: finance.customerServiceFee,
-      fromDeliveryMargin: finance.deliveryMargin,
-      fromTax: finance.taxPayable,
-      fromPlatform: finance.platformPromotionExpense,
+      fromMerchantPayout: remaining.merchantPayout,
+      fromDriverPayout: remaining.driverPayout,
+      fromCommission: remaining.commission,
+      fromServiceFee: remaining.serviceFee,
+      fromDeliveryMargin: deliveryMarginSigned,
+      fromTax: remaining.tax,
+      fromPlatform: remaining.platform,
     };
   }
 
   // Buckets a partial refund may draw from. The driver's payout is not one.
   const buckets: Array<[keyof RefundAllocation, number]> = [
-    ['fromMerchantPayout', finance.businessPayout],
-    ['fromCommission', finance.merchantCommission],
-    ['fromServiceFee', finance.customerServiceFee],
-    ['fromDeliveryMargin', Math.max(0, finance.deliveryMargin)],
-    ['fromTax', finance.taxPayable],
+    ['fromMerchantPayout', remaining.merchantPayout],
+    ['fromCommission', remaining.commission],
+    ['fromServiceFee', remaining.serviceFee],
+    ['fromDeliveryMargin', deliveryMarginCap],
+    ['fromTax', remaining.tax],
   ];
 
   const pool = buckets.reduce((sum, [, value]) => sum + value, 0);
@@ -148,7 +188,21 @@ export class RefundService {
   }): Promise<IRefund> {
     if (params.idempotencyKey) {
       const existing = await Refund.findOne({ idempotencyKey: params.idempotencyKey });
-      if (existing) return existing;
+      if (existing) {
+        // Un reintento con la misma clave que encuentra el reembolso todavía
+        // PENDING no es un éxito: el primer intento sigue en curso (o se
+        // cayó a mitad de camino). Devolverlo como si hubiera terminado le
+        // mentía al llamador; ahora se distingue el estado terminal
+        // (COMPLETED/FAILED, se devuelve tal cual) del no terminal (409).
+        if (existing.status === RefundStatus.PENDING) {
+          throw new AppError(
+            'Ya hay un reembolso en curso con esta referencia. Espera a que termine antes de reintentar.',
+            409,
+            'REFUND_IN_FLIGHT'
+          );
+        }
+        return existing;
+      }
     }
 
     const order = await Order.findById(params.orderId);
@@ -178,7 +232,8 @@ export class RefundService {
       params.kind ??
       (amount >= refundable && alreadyRefunded === 0 ? RefundKind.FULL : RefundKind.PARTIAL);
 
-    const allocation = allocateRefund(finance, amount, kind);
+    const prior = await this.allocatedSoFar(order._id);
+    const allocation = allocateRefund(finance, amount, kind, prior);
 
     const payment = await Payment.findOne({
       orderId: order._id,
@@ -334,12 +389,22 @@ export class RefundService {
       },
     });
 
-    await payoutService.reverse(order._id, {
-      business: allocation.fromMerchantPayout,
-      driver: allocation.fromDriverPayout,
-    });
+    await payoutService.reverse(
+      order._id,
+      {
+        business: allocation.fromMerchantPayout,
+        driver: allocation.fromDriverPayout,
+      },
+      reference
+    );
 
-    const isFull = customerAmount >= finance.customerTotal;
+    // Acumulado, no solo este reembolso: un parcial que agota justo lo que
+    // quedaba ("el resto") tiene que cerrar el pedido igual que uno total.
+    // `refundedTotal` solo cuenta reembolsos ya COMPLETED, y este todavía no
+    // lo está en el momento en que se llama aquí — así que sumarle
+    // `customerAmount` da exactamente el acumulado tras este reembolso.
+    const priorRefunded = await this.refundedTotal(order._id);
+    const isFull = priorRefunded + customerAmount >= finance.customerTotal;
 
     if (isFull) {
       // The promotion was never consumed, so give the use and budget back.
@@ -371,6 +436,171 @@ export class RefundService {
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
     return row?.total ?? 0;
+  }
+
+  /** Suma, cuenta por cuenta, lo que ya salió de cada bolsillo en reembolsos completados. */
+  async allocatedSoFar(orderId: string | Types.ObjectId): Promise<PriorAllocation> {
+    const [row] = await Refund.aggregate([
+      { $match: { orderId: new Types.ObjectId(String(orderId)), status: RefundStatus.COMPLETED } },
+      {
+        $group: {
+          _id: null,
+          fromMerchantPayout: { $sum: '$allocation.fromMerchantPayout' },
+          fromDriverPayout: { $sum: '$allocation.fromDriverPayout' },
+          fromCommission: { $sum: '$allocation.fromCommission' },
+          fromServiceFee: { $sum: '$allocation.fromServiceFee' },
+          fromDeliveryMargin: { $sum: '$allocation.fromDeliveryMargin' },
+          fromTax: { $sum: '$allocation.fromTax' },
+          fromPlatform: { $sum: '$allocation.fromPlatform' },
+        },
+      },
+    ]);
+    if (!row) return { ...ZERO_ALLOCATION };
+    return {
+      fromMerchantPayout: row.fromMerchantPayout ?? 0,
+      fromDriverPayout: row.fromDriverPayout ?? 0,
+      fromCommission: row.fromCommission ?? 0,
+      fromServiceFee: row.fromServiceFee ?? 0,
+      fromDeliveryMargin: row.fromDeliveryMargin ?? 0,
+      fromTax: row.fromTax ?? 0,
+      fromPlatform: row.fromPlatform ?? 0,
+    };
+  }
+
+  /**
+   * Reembolso ya ejecutado por fuera de ZIPP — típicamente desde el
+   * dashboard de Wompi, porque su API no admite reembolsos parciales
+   * (`wompi.provider.ts`). No llama a la pasarela: solo reparte
+   * contablemente exactamente igual que `issue()` y deja la referencia
+   * externa como evidencia de auditoría. Restringido a `requireFinanceAdmin`
+   * en la ruta porque, a diferencia de `issue()`, no hay confirmación del
+   * proveedor que lo respalde — es la palabra del administrador.
+   */
+  async issueExternal(params: {
+    orderId: string;
+    amount: number;
+    reason: string;
+    externalReference: string;
+    requestedBy: string;
+  }): Promise<IRefund> {
+    if (!params.externalReference?.trim()) {
+      throw new AppError('La referencia externa es obligatoria', 422);
+    }
+
+    // Normalizada (espacios fuera, mayúsculas): "T-123" y "t-123 " son la
+    // misma consignación para efectos de no cobrarla/registrarla dos veces.
+    const normalizedReference = params.externalReference.trim().toUpperCase();
+    if (!normalizedReference) {
+      throw new AppError('La referencia externa es obligatoria', 422);
+    }
+
+    // Clave de idempotencia por REFERENCIA, no por pedido: la reconciliación
+    // real es "esta consignación de Wompi ya se usó", sin importar con qué
+    // pedido se intentó asociar. Antes la clave incluía `orderId`, así que la
+    // misma referencia externa podía respaldar dos pedidos distintos sin que
+    // nada lo notara.
+    const idempotencyKey = `external:${normalizedReference}`;
+    const existing = await Refund.findOne({ idempotencyKey });
+    if (existing) {
+      if (existing.status === RefundStatus.PENDING) {
+        throw new AppError(
+          'Ya hay un reembolso externo en curso con esta referencia.',
+          409,
+          'REFUND_IN_FLIGHT'
+        );
+      }
+      // Reintento honesto: mismo pedido y mismo monto. Cualquier otra
+      // combinación es la misma referencia intentando respaldar un pedido o
+      // un monto distinto — un 409 explícito en vez de devolver el reembolso
+      // equivocado.
+      if (String(existing.orderId) === String(params.orderId) && existing.amount === params.amount) {
+        return existing;
+      }
+      throw new AppError(
+        'Esta referencia externa ya respalda otro pedido o un monto distinto.',
+        409,
+        'REFUND_REFERENCE_REUSED'
+      );
+    }
+
+    const order = await Order.findById(params.orderId);
+    if (!order) throw new AppError('Pedido no encontrado', 404);
+
+    const finance = order.finance;
+    if (!finance || !finance.customerTotal) {
+      throw new AppError('Este pedido no tiene un snapshot financiero para reversar', 409);
+    }
+
+    const payment = await Payment.findOne({ orderId: order._id, status: PaymentStatus.PAID });
+    if (!payment) {
+      // Un reembolso externo solo tiene sentido cuando de verdad se cobró
+      // por pasarela: es la reconciliación de un reembolso que Wompi ya
+      // ejecutó. Un pedido en efectivo o sin captura no tiene nada que
+      // reconciliar por esta vía.
+      throw new AppError(
+        'Este pedido no tiene un pago en línea cobrado para reembolsar externamente',
+        409
+      );
+    }
+    const captured = true;
+
+    const alreadyRefunded = await this.refundedTotal(order._id);
+    const refundable = finance.customerTotal - alreadyRefunded;
+    if (refundable <= 0) {
+      throw new AppError('Este pedido ya fue reembolsado en su totalidad', 409);
+    }
+
+    assertMoney(params.amount, 'reembolso');
+    if (params.amount > refundable) {
+      throw new AppError(
+        `El reembolso máximo disponible es $${refundable.toLocaleString('es-CO')}`,
+        422
+      );
+    }
+
+    const kind = RefundKind.EXTERNAL;
+    const prior = await this.allocatedSoFar(order._id);
+    const allocation = allocateRefund(finance, params.amount, kind, prior);
+
+    let refund: IRefund;
+    try {
+      refund = await Refund.create({
+        orderId: order._id,
+        paymentId: payment._id,
+        kind,
+        status: RefundStatus.PENDING,
+        amount: params.amount,
+        currency: finance.currency,
+        reason: `${params.reason} (externo, ref. ${normalizedReference})`,
+        allocation: {
+          fromMerchantPayout: allocation.fromMerchantPayout,
+          fromDriverPayout: allocation.fromDriverPayout,
+          fromCommission: allocation.fromCommission,
+          fromServiceFee: allocation.fromServiceFee,
+          fromDeliveryMargin: Math.max(0, allocation.fromDeliveryMargin),
+          fromTax: allocation.fromTax,
+          fromPlatform: allocation.fromPlatform,
+        },
+        idempotencyKey,
+        requestedBy: params.requestedBy,
+      });
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        const twin = await Refund.findOne({ idempotencyKey });
+        if (twin) return twin;
+        throw new AppError('Ya hay un reembolso en curso para este pedido.', 409, 'REFUND_IN_FLIGHT');
+      }
+      throw error;
+    }
+
+    await this.applyReversal(order, allocation, params.amount, kind, captured, String(refund._id));
+
+    refund.status = RefundStatus.COMPLETED;
+    refund.transactionId = `external:${normalizedReference}`;
+    refund.processedAt = new Date();
+    await refund.save();
+
+    return refund;
   }
 
   async listForOrder(orderId: string) {

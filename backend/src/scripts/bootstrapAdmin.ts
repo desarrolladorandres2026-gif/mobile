@@ -80,10 +80,8 @@ const bootstrapAdmin = async () => {
     role: UserRole.ADMIN,
     isActive: true,
     isVerified: true,
-    // Campo aparte de `role` a propósito: habilita precios, verificación de
-    // efectivo y liquidaciones. El primer admin lo necesita porque no hay
-    // nadie más que pueda concedérselo después.
-    isFinanceAdmin: true,
+    // Sin `isFinanceAdmin`: el poder viene del rol super_admin que asigna
+    // `migrateRbac` justo abajo.
   });
   console.log(`👤 Administrador creado: ${admin.name} (${admin.phone})`);
 

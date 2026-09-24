@@ -2,6 +2,8 @@ import { Pqrs, IPqrs } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { emitToUser } from '../sockets/emitter';
 import { pushService } from './push.service';
+import { businessDaysUntil } from '../utils';
+import { LEGAL_DUE_SOON_BUSINESS_DAYS } from './pqrs.service';
 
 /**
  * Centro de soporte.
@@ -135,27 +137,58 @@ export class SupportService {
    * es necesariamente lo que hay que atender primero, y ordenar por fecha
    * de llegada deja los urgentes debajo de una pila de sugerencias.
    */
-  async queue(options: { assignedTo?: string; onlyOverdue?: boolean } = {}) {
+  async queue(options: { assignedTo?: string; onlyOverdue?: boolean; onlyLegalOverdue?: boolean } = {}) {
     const filter: Record<string, unknown> = {
       status: { $in: ['received', 'in_review'] },
     };
 
     if (options.assignedTo) filter.assignedTo = options.assignedTo;
     if (options.onlyOverdue) filter.dueAt = { $lt: new Date() };
+    if (options.onlyLegalOverdue) filter.legalDueAt = { $lt: new Date() };
 
-    return Pqrs.find(filter)
+    const rows = await Pqrs.find(filter)
       .sort({ dueAt: 1, createdAt: 1 })
       .limit(100)
       .populate('userId', 'name phone email')
       .populate('assignedTo', 'name')
+      .populate('orderId', 'orderNumber status')
+      .populate('businessId', 'name')
+      .populate({ path: 'driverId', select: 'userId', populate: { path: 'userId', select: 'name' } })
       .lean();
+
+    const now = new Date();
+    const withLegal = rows.map((row: any) => {
+      const daysLeft = row.legalDueAt ? businessDaysUntil(row.legalDueAt, now) : null;
+      return {
+        ...row,
+        legalOverdue: daysLeft != null && daysLeft < 0,
+        legalDueSoon: daysLeft != null && daysLeft >= 0 && daysLeft <= LEGAL_DUE_SOON_BUSINESS_DAYS,
+      };
+    });
+
+    // El orden por defecto sigue siendo por `dueAt` (el SLA operativo), pero
+    // un caso con plazo LEGAL vencido o por vencer pasa al frente: perder un
+    // derecho de petición por Ley 1755 es un problema distinto —y peor— que
+    // llegar tarde al SLA interno.
+    withLegal.sort((a: any, b: any) => {
+      const rank = (r: any) => (r.legalOverdue ? 0 : r.legalDueSoon ? 1 : 2);
+      const ra = rank(a);
+      const rb = rank(b);
+      if (ra !== rb) return ra - rb;
+      const da = a.dueAt ? new Date(a.dueAt).getTime() : Infinity;
+      const db = b.dueAt ? new Date(b.dueAt).getTime() : Infinity;
+      if (da !== db) return da - db;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+    return withLegal;
   }
 
   /** Cuántos casos hay, cuántos vencidos y cuánto se tarda en contestar. */
   async metrics() {
     const now = new Date();
 
-    const [open, overdue, unassigned, responseRows] = await Promise.all([
+    const [open, overdue, unassigned, legalOverdue, legalDueSoonRows, responseRows] = await Promise.all([
       Pqrs.countDocuments({ status: { $in: ['received', 'in_review'] } }),
       Pqrs.countDocuments({
         status: { $in: ['received', 'in_review'] },
@@ -165,6 +198,18 @@ export class SupportService {
         status: { $in: ['received', 'in_review'] },
         assignedTo: null,
       }),
+      Pqrs.countDocuments({
+        status: { $in: ['received', 'in_review'] },
+        legalDueAt: { $lt: now },
+      }),
+      // "Por vencer" no es un rango de fechas fijo: un festivo puede meter
+      // 3 días hábiles en 5 o 6 días de calendario. Se trae lo que vence en
+      // los próximos 10 días de calendario (cota amplia de sobra para 3
+      // días hábiles) y se filtra con `businessDaysUntil`.
+      Pqrs.find({
+        status: { $in: ['received', 'in_review'] },
+        legalDueAt: { $gte: now, $lte: new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000) },
+      }).select('legalDueAt').lean(),
       Pqrs.aggregate([
         { $match: { firstResponseAt: { $ne: null } } },
         {
@@ -180,10 +225,16 @@ export class SupportService {
       ]),
     ]);
 
+    const legalDueSoon = legalDueSoonRows.filter(
+      (r: any) => businessDaysUntil(r.legalDueAt, now) <= LEGAL_DUE_SOON_BUSINESS_DAYS
+    ).length;
+
     return {
       open,
       overdue,
       unassigned,
+      legalOverdue,
+      legalDueSoon,
       averageFirstResponseMinutes: Math.round(responseRows[0]?.avgMinutes ?? 0),
     };
   }

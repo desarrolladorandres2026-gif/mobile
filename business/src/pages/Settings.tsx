@@ -95,7 +95,14 @@ export default function Settings() {
       // puede pisarle lo que está escribiendo.
       const business = await queryClient.fetchQuery({
         queryKey: qk.settings(businessId),
-        queryFn: async () => (await api.get(`/businesses/${businessId}`)).data.data,
+        // La ficha pública da 404 a un comercio aún no aprobado, que es justo
+        // quien más usa Ajustes; la ruta autenticada devuelve el suyo completo.
+        queryFn: async () => {
+          const { data } = await api.get('/businesses/my/businesses');
+          const found = (data.data as Array<{ _id: string }>).find((b) => b._id === businessId);
+          if (!found) throw new Error('No tienes acceso a los ajustes de este negocio.');
+          return found as typeof data.data;
+        },
         staleTime: 30_000,
       });
 

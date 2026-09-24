@@ -238,11 +238,70 @@ export type Daypart = 'madrugada' | 'manana' | 'tarde' | 'noche';
 
 export type ExploreEntry = HomeSection | PromoFeedEntry;
 
+// ── Explorar publicado desde el panel (constructor de Explorar) ──
+//
+// Espejo de `backend/src/services/exploreLayout.service.ts`. La fuente de
+// verdad es el validador del backend: aquí solo están los tipos que esta
+// versión de la app sabe pintar. Uno que no conozca se salta
+// (`lib/exploreSections.ts`), nunca rompe la pantalla.
+
+/** `auto` = el encabezado que la app ya asigna por la clave de la colección. */
+export type ExploreHeaderVariant =
+  | 'auto' | 'editorial' | 'numbered' | 'illustrated' | 'featured' | 'minimal' | 'trend' | 'commercial';
+
+export type ExploreProductCard = 'compact' | 'large' | 'horizontal' | 'featured' | 'price_focus';
+
+export type ExploreProductLayout =
+  | { kind: 'carousel'; rows: 1 | 2 | 3; card: ExploreProductCard }
+  | { kind: 'grid'; columns: 2 | 3 | 4; rows: number };
+
+interface ExploreSectionBase {
+  id: string;
+  title: string;
+  subtitle: string;
+  showTitle: boolean;
+  headerVariant: ExploreHeaderVariant;
+}
+
+export interface ExploreProductsSection extends ExploreSectionBase {
+  type: 'products';
+  layout: ExploreProductLayout;
+  /** Clave de la colección: decide ilustración y encabezado en `auto`. */
+  key: string;
+  illustration?: string;
+  displayVariant: HomeSectionDisplayVariant;
+  products: HomeSectionProduct[];
+  fromBand?: string;
+}
+
+export interface ExploreBusinessesSection extends ExploreSectionBase {
+  type: 'businesses';
+  layout: { kind: 'row' | 'spotlight' };
+  businesses: CuratedHomeBusiness[];
+}
+
+export interface ExplorePromoSection {
+  id: string;
+  type: 'promo';
+  includeAd: boolean;
+  banners: PromoBanner[];
+}
+
+export type ExploreSection = ExploreProductsSection | ExploreBusinessesSection | ExplorePromoSection;
+
 export interface ExploreFeed {
-  entries: ExploreEntry[];
+  /**
+   * La forma de siempre. Solo llega de un servidor anterior al constructor
+   * — la app la sigue sabiendo pintar (`ExploreCollections`).
+   */
+  entries?: ExploreEntry[];
+  /** El layout publicado desde el panel, ya resuelto y en orden. */
+  sections?: ExploreSection[];
   daypart: Daypart;
   /** Si el feed trae algo derivado de quien mira. */
   personalized: boolean;
+  /** 0 mientras el servidor sirve su layout por defecto. */
+  layoutVersion?: number;
 }
 
 export const exploreApi = {
@@ -253,9 +312,12 @@ export const exploreApi = {
    * de peticiones devuelva un 429, que desde el teléfono se lee exactamente
    * igual que "no tienes datos". El servidor manda la secuencia ya ordenada
    * y decide qué esconder.
+   *
+   * `layout=1` pide las secciones del constructor; un servidor que todavía
+   * no lo conoce lo ignora y responde `entries`, que también se pinta.
    */
   get: (params?: { lat?: number; lng?: number; maxDistance?: number; city?: string }): Promise<ExploreFeed> =>
-    api.get('/explore', { params }).then((r) => r.data.data),
+    api.get('/explore', { params: { ...params, layout: 1 } }).then((r) => r.data.data),
 };
 
 export const topSellersApi = {

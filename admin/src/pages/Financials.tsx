@@ -1,11 +1,15 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import {
-  Receipt, BadgePercent, AlertCircle, TicketPercent, Gauge,
+  Receipt, BadgePercent, X, TicketPercent, Gauge,
   CheckCircle2, ShieldAlert, Landmark, CreditCard
 } from 'lucide-react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
 import { apiMessage } from '../lib/apiError';
+import { day } from '../lib/drivers';
+import { useAuthStore } from '../stores/authStore';
+import { Permission } from '../lib/permissions';
+import type { PlatformResult } from '../lib/apiTypes';
 
 interface SummaryType {
   totalRevenue: number;
@@ -14,6 +18,7 @@ interface SummaryType {
   totalDriverPayouts: number;
   totalOrders: number;
   pendingDriverDebts: number;
+  platformResult?: PlatformResult;
 }
 
 interface PayoutSummary {
@@ -36,6 +41,33 @@ interface CashRow {
   amount: number;
   status: string;
   orderId?: { orderNumber: string };
+}
+
+interface PendingAccount {
+  businessId: string;
+  businessName: string;
+  ownerName?: string;
+  method: string;
+  accountMasked: string;
+  holderName: string;
+  updatedAt: string;
+  previousLast4?: string;
+  holderMatchesLegal: boolean | null;
+  sharedWithBusinesses?: number;
+  hasFreshBankCertificate?: boolean;
+}
+
+interface Clawback {
+  id: string;
+  orderId: string;
+  orderNumber?: string;
+  businessId?: string;
+  businessName?: string;
+  amount: number;
+  netAmount: number;
+  status: 'open' | 'collected' | 'written_off';
+  daysOpen: number;
+  createdAt: string;
 }
 
 interface IncidentRow {
@@ -67,6 +99,13 @@ const CUENTA_LABEL: Record<string, string> = {
   cash_shortage_expense: 'Faltantes de efectivo asumidos',
   refund: 'Reembolsos',
   chargeback: 'Contracargos',
+  errand_advance_payable: 'Compras de mandados por reembolsar',
+  payout_disbursement: 'Pagado a comercios y domiciliarios',
+  ad_spend_offset: 'Publicidad compensada en liquidaciones',
+  payout_offset_clearing: 'Arrastres en compensación (debe quedar en 0)',
+  driver_fee_absorbed_expense: 'Tarifas de domiciliario asumidas por reembolso',
+  bad_debt_expense: 'Arrastres incobrables',
+  loyalty_payable: 'Puntos por canjear (programa retirado)',
 };
 
 /**
@@ -98,16 +137,29 @@ const ESTADO_EFECTIVO: Record<string, { texto: string; clase: string }> = {
 };
 
 export default function Financials() {
+  const canManage = useAuthStore((s) => s.hasPermission(Permission.FINANCE_MANAGE));
+  const canProcessPayouts = useAuthStore((s) => s.hasPermission(Permission.PAYOUTS_PROCESS));
   const [period, setPeriod] = useState<'today' | 'week' | 'month'>('today');
   const [summary, setSummary] = useState<SummaryType | null>(null);
   const [payouts, setPayouts] = useState<{ business: PayoutSummary; driver: PayoutSummary } | null>(null);
-  const [ledger, setLedger] = useState<{ balances: LedgerBalance[]; balanced: boolean } | null>(null);
+  const [ledger, setLedger] = useState<{ balances: LedgerBalance[]; balanced: boolean; platformResult?: PlatformResult } | null>(null);
   const [cash, setCash] = useState<CashRow[]>([]);
   const [incidents, setIncidents] = useState<IncidentRow[]>([]);
   const [expandido, setExpandido] = useState<string | null>(null);
   const [notaAdmin, setNotaAdmin] = useState('');
   const [errorIncidencia, setErrorIncidencia] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [cashStatus, setCashStatus] = useState<string>('reported');
+  const [cashTotals, setCashTotals] = useState<Record<string, { count: number; amount: number }>>({});
+  const [verifying, setVerifying] = useState<CashRow | null>(null);
+  const [verifyForm, setVerifyForm] = useState({ reference: '', receiptUrl: '' });
+  const [verifyError, setVerifyError] = useState('');
+  const [clawbacks, setClawbacks] = useState<Clawback[]>([]);
+  const [clawbackAction, setClawbackAction] = useState<{ item: Clawback; kind: 'collect' | 'write-off' } | null>(null);
+  const [clawbackForm, setClawbackForm] = useState({ reference: '', receiptUrl: '', reason: '' });
+  const [clawbackError, setClawbackError] = useState('');
+  const [pendingAccounts, setPendingAccounts] = useState<PendingAccount[]>([]);
 
   // Dos tablas, dos paginadores independientes: no comparten contador de
   // página porque una persona puede estar en la página 3 de incidencias
@@ -129,10 +181,20 @@ export default function Financials() {
       const [resSummary, resPayouts, resLedger, resCash, resIncidents] = await Promise.all([
         api.get(`/admin/financials?period=${period}`),
         api.get('/finance/payouts/summary'),
-        api.get('/finance/ledger/summary'),
-        api.get('/finance/cash', { params: { page: cashPage, limit: PAGE_SIZE } }),
+        api.get('/finance/ledger/summary', { params: { period } }),
+        api.get('/finance/cash', { params: { page: cashPage, limit: PAGE_SIZE, status: cashStatus } }),
         api.get('/finance/cash/incidents', { params: { page: incidentsPage, limit: PAGE_SIZE } }),
       ]);
+      const [resTotals, resClawbacks] = await Promise.all([
+        api.get('/finance/cash/totals'),
+        api.get('/finance/clawbacks', { params: { status: 'open' } }),
+      ]);
+      setCashTotals(resTotals.data.data ?? {});
+      setClawbacks(resClawbacks.data.data ?? []);
+      if (canProcessPayouts) {
+        const resAccounts = await api.get('/finance/payout-accounts/pending');
+        setPendingAccounts(resAccounts.data.data ?? []);
+      }
       setSummary(resSummary.data.data);
       setPayouts(resPayouts.data.data);
       setLedger(resLedger.data.data);
@@ -140,42 +202,84 @@ export default function Financials() {
       if (resCash.data.meta) setCashMeta(resCash.data.meta);
       setIncidents(resIncidents.data.data);
       if (resIncidents.data.meta) setIncidentsMeta(resIncidents.data.meta);
+      setError('');
     } catch (err) {
       console.error('Error fetching financial data:', err);
+      setError(apiMessage(err, 'No se pudieron cargar las finanzas.'));
     } finally {
       setLoading(false);
     }
-  }, [period, cashPage, incidentsPage]);
+  }, [period, cashPage, incidentsPage, cashStatus, canProcessPayouts]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
   const cuenta = (nombre: string) => ledger?.balances.find((b) => b.account === nombre);
 
-  const ingresoBruto =
-    Math.abs(cuenta('commission_revenue')?.balance ?? 0) +
-    Math.abs(cuenta('service_fee_revenue')?.balance ?? 0) +
-    Math.abs(cuenta('delivery_margin_revenue')?.balance ?? 0);
-  const gastoPromocional = cuenta('promotion_expense')?.balance ?? 0;
-  // Un faltante perdonado es dinero que ZIPP puso, igual que una promoción:
-  // dejarlo fuera del margen haría que operar en efectivo pareciera más
-  // rentable de lo que es, que es justo la cifra que hay que vigilar para
-  // decidir si el método se mantiene.
-  const gastoFaltantes = cuenta('cash_shortage_expense')?.balance ?? 0;
-  const margenNeto = ingresoBruto - gastoPromocional - gastoFaltantes;
+  // Una sola definición de ingreso, la del servidor (libro mayor, hora de
+  // Colombia): la misma cifra que ven el Dashboard y el Resumen diario.
+  const resultado = ledger?.platformResult ?? summary?.platformResult;
+  const ingresoBruto = resultado?.grossRevenue ?? 0;
+  const gastoPromocional = resultado?.promotionExpense ?? 0;
+  const margenNeto = resultado?.netBeforeGatewayCosts ?? 0;
+  const periodoLabel = period === 'today' ? 'Hoy' : period === 'week' ? 'Últimos 7 días' : 'Últimos 30 días';
 
   const gmv = summary?.totalRevenue ?? 0;
   const pasivoComercios = payouts?.business.outstanding ?? 0;
   const pasivoRepartidores = payouts?.driver.outstanding ?? 0;
-  const efectivoPendiente = cash
-    .filter((c) => c.status !== 'settled')
-    .reduce((s, c) => s + c.amount, 0);
+  // Sobre el total del servidor, no sobre la página visible.
+  const efectivoPendiente = ['pending', 'reported', 'overdue'].reduce(
+    (sum, status) => sum + (cashTotals[status]?.amount ?? 0),
+    0
+  );
 
-  const verificar = async (ids: string[]) => {
+  const openClawback = (item: Clawback, kind: 'collect' | 'write-off') => {
+    setClawbackAction({ item, kind });
+    setClawbackForm({ reference: '', receiptUrl: '', reason: '' });
+    setClawbackError('');
+  };
+
+  const runClawback = async () => {
+    if (!clawbackAction) return;
+    const { item, kind } = clawbackAction;
+    let body: Record<string, string>;
+    if (kind === 'collect') {
+      const reference = clawbackForm.reference.trim();
+      const receiptUrl = clawbackForm.receiptUrl.trim();
+      if (reference.length < 3) return setClawbackError('Escribe la referencia del pago (mínimo 3 caracteres).');
+      if (!/^https?:\/\/\S+$/i.test(receiptUrl)) return setClawbackError('Pega el enlace del comprobante (debe empezar por http).');
+      body = { reference, receiptUrl };
+    } else {
+      const reason = clawbackForm.reason.trim();
+      if (reason.length < 5) return setClawbackError('Escribe el motivo del castigo (mínimo 5 caracteres).');
+      body = { reason };
+    }
     try {
-      await api.post('/finance/cash/verify', { ids });
+      await api.post(`/finance/clawbacks/${item.id}/${kind}`, body);
+      setClawbackAction(null);
       await cargar();
     } catch (err) {
-      console.error(err);
+      setClawbackError(apiMessage(err, 'No se pudo registrar.'));
+    }
+  };
+
+  const verificar = async () => {
+    if (!verifying) return;
+    const reference = verifyForm.reference.trim();
+    const receiptUrl = verifyForm.receiptUrl.trim();
+    if (reference.length < 4) {
+      setVerifyError('Escribe la referencia de la consignación (mínimo 4 caracteres).');
+      return;
+    }
+    if (!/^https?:\/\/\S+$/i.test(receiptUrl)) {
+      setVerifyError('Pega el enlace del comprobante (debe empezar por http).');
+      return;
+    }
+    try {
+      await api.post('/finance/cash/verify', { ids: [verifying._id], reference, receiptUrl, amount: verifying.amount });
+      setVerifying(null);
+      await cargar();
+    } catch (err) {
+      setVerifyError(apiMessage(err, 'No se pudo verificar el efectivo.'));
     }
   };
 
@@ -184,7 +288,7 @@ export default function Financials() {
       await api.post('/finance/cash/settle', { ids });
       await cargar();
     } catch (err) {
-      console.error(err);
+      setError(apiMessage(err, 'No se pudo liquidar el efectivo.'));
     }
   };
 
@@ -225,31 +329,27 @@ export default function Financials() {
       sub: `${summary?.totalOrders ?? 0} pedidos procesados`,
       icon: Receipt,
       color: 'text-[var(--color-text-main)]',
-      iconBg: 'bg-[var(--color-primary-bg)] text-[var(--color-primary)]',
     },
     {
       label: 'Ingreso Bruto ZIPP',
       value: money(ingresoBruto),
-      sub: 'Comisiones + tarifas servicio',
+      sub: `${periodoLabel} · comisiones, tarifas y margen de domicilio`,
       icon: BadgePercent,
       color: 'text-[var(--color-primary)]',
-      iconBg: 'bg-[var(--color-primary-bg)] text-[var(--color-primary)]',
     },
     {
       label: 'Gasto Promocional',
       value: `−${money(gastoPromocional)}`,
-      sub: 'Cupones pagados por ZIPP',
+      sub: `${periodoLabel} · cupones y beneficios que paga ZIPP`,
       icon: TicketPercent,
       color: 'text-[var(--color-warning)]',
-      iconBg: 'bg-[var(--color-warning-bg)] text-[var(--color-warning)]',
     },
     {
-      label: 'Margen Neto Estimado',
+      label: 'Resultado antes de pasarela',
       value: money(margenNeto),
-      sub: 'Utilidad bruta operacional',
+      sub: `${periodoLabel} · ${resultado?.incompleteReason ?? 'Falta la comisión de Wompi y el costo de transferencia'}`,
       icon: Gauge,
       color: margenNeto >= 0 ? 'text-[var(--color-primary)]' : 'text-[var(--color-danger)]',
-      iconBg: margenNeto >= 0 ? 'bg-[var(--color-primary-bg)] text-[var(--color-primary)]' : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]',
     },
   ];
 
@@ -265,9 +365,9 @@ export default function Financials() {
       detalle: `${money(payouts?.driver.payable ?? 0)} listo para giro`,
     },
     {
-      label: 'Impuestos retenidos',
+      label: 'Impuestos por pagar',
       value: Math.abs(cuenta('tax_payable')?.balance ?? 0),
-      detalle: 'Retención en la fuente',
+      detalle: 'Cobrados en los pedidos (no es retención)',
     },
     {
       label: 'Efectivo en calle',
@@ -277,7 +377,7 @@ export default function Financials() {
   ];
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       {/* Header */}
       <div className="page-header">
         <div>
@@ -300,6 +400,12 @@ export default function Financials() {
           ))}
         </div>
       </div>
+
+      {error && (
+        <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
+          <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+        </p>
+      )}
 
       {loading ? (
         <div className="table-container p-16 text-center text-[var(--color-text-secondary)] text-xs font-semibold">
@@ -328,12 +434,10 @@ export default function Financials() {
           )}
 
           {/* Main KPI Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pb-6 border-b border-[var(--color-border-light)]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pb-6 border-b border-[var(--color-border-light)]">
             {tarjetas.map((c) => (
               <div key={c.label} className="flex items-start gap-3">
-                <div className={`w-10 h-10 rounded-lg shrink-0 ${c.iconBg} flex items-center justify-center`}>
-                  <c.icon className="w-5 h-5" />
-                </div>
+                <c.icon className={`w-5 h-5 shrink-0 mt-0.5 ${c.color}`} />
                 <div>
                   <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{c.label}</p>
                   <p className={`kpi-value text-2xl mt-1 ${c.color}`}>{c.value}</p>
@@ -432,7 +536,7 @@ export default function Financials() {
 
                   return (
                     <div key={inc._id} className="p-3.5 px-5 hover:bg-[var(--color-bg)] transition-colors">
-                      <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start justify-between gap-2.5">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="text-xs font-bold text-[var(--color-text-main)]">
@@ -477,7 +581,7 @@ export default function Financials() {
 
                         <div className="flex items-center gap-3 shrink-0">
                           <span className="text-xs font-bold text-[#B91C1C]">{money(inc.amount)}</span>
-                          {decidible && !abierto && (
+                          {canManage && decidible && !abierto && (
                             <button
                               onClick={() => { setNotaAdmin(''); revisarIncidencia(inc._id); }}
                               className="px-3 py-1 rounded-md text-xs font-bold bg-[var(--color-sidebar-hover)] text-white uppercase tracking-wider hover:bg-[#2A3548] cursor-pointer shadow-xs"
@@ -495,7 +599,7 @@ export default function Financials() {
                         a secas no dice en qué dirección.
                       */}
                       {decidible && abierto && (
-                        <div className="mt-3 p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] space-y-2.5">
+                        <div className="mt-2 py-2 border-t border-[var(--color-border)] space-y-2">
                           <textarea
                             value={notaAdmin}
                             onChange={(e) => setNotaAdmin(e.target.value)}
@@ -553,21 +657,118 @@ export default function Financials() {
             </div>
           )}
 
-          {/* Cash settlement table */}
-          <div className="table-container">
-            <div className="px-5 py-4 border-b border-[var(--color-border-light)] bg-[var(--color-bg)] flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-[var(--color-text-main)]">Conciliación de Efectivo por Domiciliario</h3>
-                <p className="text-xs text-[var(--color-text-secondary)]">Verificación y liquidación de dinero en efectivo recaudado</p>
+          {/* Cuentas de pago pendientes de verificar */}
+          {pendingAccounts.length > 0 && (
+            <div className="border-t border-[var(--color-border-light)] pt-6">
+              <h3 className="text-sm font-bold text-[var(--color-text-main)]">Cuentas de pago sin verificar</h3>
+              <p className="pb-3 text-xs text-[var(--color-text-secondary)]">
+                Comercios ya aprobados con una cuenta nueva o cambiada. No se les puede liquidar hasta verificarla, en Verificar Comercios.
+              </p>
+              <div className="divide-y divide-[var(--color-border-light)] border-t border-[var(--color-border-light)]">
+                {pendingAccounts.map((a) => (
+                  <div key={a.businessId} className="flex flex-wrap items-center justify-between gap-3 py-3.5 text-xs">
+                    <div>
+                      <p className="font-bold text-[var(--color-text-main)]">
+                        {a.businessName}
+                        {a.holderMatchesLegal === false && (
+                          <span className="ml-2 font-bold text-[var(--color-warning)]">titular no coincide</span>
+                        )}
+                        {!!a.sharedWithBusinesses && a.sharedWithBusinesses > 1 && (
+                          <span className="ml-2 font-bold text-[var(--color-danger)]">cuenta usada en {a.sharedWithBusinesses} comercios</span>
+                        )}
+                      </p>
+                      <p className="text-[var(--color-text-secondary)]">
+                        {a.method} <span className="font-mono">{a.accountMasked}</span> · titular {a.holderName}
+                        {a.previousLast4 ? ` · antes terminaba en ${a.previousLast4}` : ''} · {day(a.updatedAt)}
+                        {a.hasFreshBankCertificate === false && ' · sin certificación bancaria vigente'}
+                      </p>
+                    </div>
+                    <a
+                      href="/business-approvals"
+                      className="shrink-0 rounded-md border border-[var(--color-border)] px-3 py-1 text-[11px] font-semibold text-[var(--color-text-main)]"
+                    >
+                      Revisar en Verificar Comercios
+                    </a>
+                  </div>
+                ))}
               </div>
-              <AlertCircle className="w-4 h-4 text-[var(--color-warning)]" />
+            </div>
+          )}
+
+          {/* Saldos en contra de comercios */}
+          {clawbacks.length > 0 && (
+            <div className="border-t border-[var(--color-border-light)] pt-6">
+              <h3 className="text-sm font-bold text-[var(--color-text-main)]">Saldos en contra de comercios</h3>
+              <p className="pb-3 text-xs text-[var(--color-text-secondary)]">
+                Reembolsos posteriores a la liquidación. Se descuentan solos de la siguiente liquidación; si el comercio no vuelve a vender,
+                se cobra con comprobante o se da por perdido con motivo.
+              </p>
+              <div className="divide-y divide-[var(--color-border-light)] border-t border-[var(--color-border-light)]">
+                {clawbacks.map((c) => (
+                  <div key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3.5">
+                    <div>
+                      <p className="text-xs font-bold text-[var(--color-text-main)]">{c.businessName ?? 'Comercio'}</p>
+                      <p className="font-mono text-[10px] text-[var(--color-text-secondary)]">
+                        Pedido #{c.orderNumber ?? 'N/A'} ·{' '}
+                        <span className={c.daysOpen > 14 ? 'font-bold text-[var(--color-danger)]' : ''}>
+                          {c.daysOpen} días abierto
+                        </span>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold text-[var(--color-warning)]">{money(Math.abs(c.netAmount || c.amount))}</span>
+                      {canManage && (<>
+                      <button
+                        onClick={() => openClawback(c, 'collect')}
+                        className="cursor-pointer rounded-md bg-[var(--color-primary)] px-3 py-1 text-xs font-bold uppercase tracking-wider text-white"
+                      >
+                        Cobrar
+                      </button>
+                      <button
+                        onClick={() => openClawback(c, 'write-off')}
+                        className="cursor-pointer rounded-md border border-[var(--color-border)] px-3 py-1 text-xs font-semibold text-[var(--color-text-main)]"
+                      >
+                        Dar por perdido
+                      </button>
+                      </>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Cash settlement table */}
+          <div className="border-t border-[var(--color-border-light)] pt-6">
+            <div className="flex flex-wrap items-end justify-between gap-3 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-[var(--color-text-main)]">Conciliación de efectivo por domiciliario</h3>
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                  Verificar exige la referencia de la consignación, el comprobante y que el monto consignado coincida
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(ESTADO_EFECTIVO).map(([status, estado]) => (
+                  <button
+                    key={status}
+                    onClick={() => { setCashStatus(status); setCashPage(1); }}
+                    className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer border-b-2 ${
+                      cashStatus === status
+                        ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                        : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
+                    }`}
+                  >
+                    {estado.texto} ({cashTotals[status]?.count ?? 0})
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="max-h-[300px] overflow-y-auto divide-y divide-[var(--color-border-light)]">
-              {cash.filter((c) => c.status !== 'settled').map((row) => {
+            <div className="divide-y divide-[var(--color-border-light)] border-t border-[var(--color-border-light)]">
+              {cash.map((row) => {
                 const estado = ESTADO_EFECTIVO[row.status] ?? ESTADO_EFECTIVO.pending;
                 return (
-                  <div key={row._id} className="flex items-center justify-between p-3.5 px-5 hover:bg-[var(--color-bg)] transition-colors">
+                  <div key={row._id} className="flex items-center justify-between py-3.5 hover:bg-[var(--color-bg)] transition-colors">
                     <div>
                       <p className="text-xs font-bold text-[var(--color-text-main)]">{row.driverId?.userId?.name || 'Domiciliario'}</p>
                       <p className="text-[10px] text-[var(--color-text-secondary)] font-mono">
@@ -577,29 +778,33 @@ export default function Financials() {
 
                     <div className="flex items-center gap-3">
                       <span className="text-xs font-bold text-[var(--color-warning)]">{money(row.amount)}</span>
-                      {row.status === 'verified' ? (
+                      {canManage && (row.status === 'verified' ? (
                         <button
                           onClick={() => liquidar([row._id])}
                           className="px-3 py-1 rounded-md text-xs font-bold bg-[var(--color-primary)] text-white uppercase tracking-wider hover:bg-[#8A5D08] cursor-pointer shadow-xs"
                         >
                           Liquidar
                         </button>
-                      ) : (
+                      ) : row.status !== 'settled' ? (
                         <button
-                          onClick={() => verificar([row._id])}
+                          onClick={() => {
+                            setVerifying(row);
+                            setVerifyForm({ reference: '', receiptUrl: '' });
+                            setVerifyError('');
+                          }}
                           className="px-3 py-1 rounded-md text-xs font-bold bg-[var(--color-primary)] text-white uppercase tracking-wider hover:bg-[#8A5D08] cursor-pointer shadow-xs"
                         >
                           Verificar
                         </button>
-                      )}
+                      ) : null)}
                     </div>
                   </div>
                 );
               })}
 
-              {cash.filter((c) => c.status !== 'settled').length === 0 && (
+              {cash.length === 0 && (
                 <div className="p-10 text-center text-[var(--color-text-muted)] text-xs font-medium">
-                  No hay efectivo pendiente por liquidar.
+                  No hay efectivo en este estado.
                 </div>
               )}
             </div>
@@ -610,6 +815,116 @@ export default function Financials() {
             />
           </div>
         </>
+      )}
+
+      {clawbackAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-fade-in">
+          <div className="zipp-modal w-full max-w-sm space-y-3 rounded-2xl p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-[var(--color-text-main)]">
+                  {clawbackAction.kind === 'collect' ? 'Cobrar saldo en contra' : 'Dar por perdido'}
+                </h3>
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                  {clawbackAction.item.businessName ?? 'Comercio'} · {money(Math.abs(clawbackAction.item.netAmount || clawbackAction.item.amount))}
+                </p>
+              </div>
+              <button onClick={() => setClawbackAction(null)} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-muted)]">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {clawbackAction.kind === 'collect' ? (
+              <>
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Referencia del pago</span>
+                  <input
+                    value={clawbackForm.reference}
+                    onChange={(e) => setClawbackForm((f) => ({ ...f, reference: e.target.value }))}
+                    maxLength={120}
+                    className="h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Enlace del comprobante</span>
+                  <input
+                    value={clawbackForm.receiptUrl}
+                    onChange={(e) => setClawbackForm((f) => ({ ...f, receiptUrl: e.target.value }))}
+                    placeholder="https://..."
+                    className="h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
+                  />
+                </label>
+              </>
+            ) : (
+              <label className="block space-y-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Motivo (queda en el libro)</span>
+                <textarea
+                  value={clawbackForm.reason}
+                  onChange={(e) => setClawbackForm((f) => ({ ...f, reason: e.target.value }))}
+                  rows={2}
+                  maxLength={500}
+                  placeholder="Ej. el comercio cerró y no responde desde hace 60 días"
+                  className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs outline-none focus:border-[var(--color-primary)]"
+                />
+              </label>
+            )}
+            {clawbackError && <p className="text-xs font-semibold text-[var(--color-danger)]">{clawbackError}</p>}
+            <button
+              onClick={runClawback}
+              className={`h-10 w-full cursor-pointer rounded-lg text-xs font-bold uppercase tracking-wider text-white ${
+                clawbackAction.kind === 'collect' ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-danger)]'
+              }`}
+            >
+              {clawbackAction.kind === 'collect' ? 'Registrar cobro' : 'Registrar pérdida'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {verifying && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-[var(--color-text-main)]">Verificar efectivo</h3>
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                  {verifying.driverId?.userId?.name ?? 'Domiciliario'} · {money(verifying.amount)} · pedido #{verifying.orderId?.orderNumber ?? 'N/A'}
+                </p>
+              </div>
+              <button onClick={() => setVerifying(null)} aria-label="Cerrar" className="p-1 text-[var(--color-text-muted)] cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <label className="block space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Referencia de la consignación</span>
+              <input
+                value={verifyForm.reference}
+                onChange={(e) => setVerifyForm((f) => ({ ...f, reference: e.target.value }))}
+                maxLength={120}
+                placeholder="Ej. Nequi 123456789"
+                className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Enlace del comprobante</span>
+              <input
+                value={verifyForm.receiptUrl}
+                onChange={(e) => setVerifyForm((f) => ({ ...f, receiptUrl: e.target.value }))}
+                placeholder="https://..."
+                className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
+              />
+            </label>
+            <p className="text-[11px] text-[var(--color-text-secondary)]">
+              Monto que debe coincidir con la consignación: <strong className="text-[var(--color-text-main)]">{money(verifying.amount)}</strong>. Si no coincide, el servidor lo rechaza.
+            </p>
+            {verifyError && <p className="text-xs font-semibold text-[var(--color-danger)]">{verifyError}</p>}
+            <button
+              onClick={verificar}
+              className="w-full h-10 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-white font-bold text-xs uppercase tracking-wider rounded-lg cursor-pointer"
+            >
+              Verificar
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

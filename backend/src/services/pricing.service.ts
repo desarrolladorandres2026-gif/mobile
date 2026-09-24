@@ -93,6 +93,13 @@ export interface DeliveryQuote {
   distanceKm: number;
   zoneId: Types.ObjectId | null;
   zoneName: string | null;
+  /**
+   * Versión de la tarifa de la zona con la que se cotizó (D9). El pedido la
+   * guarda junto a `zoneId` para poder explicarse después. `null` sin zona.
+   */
+  zoneVersion: number | null;
+  /** Pedido mínimo de la zona, leído del mismo documento que la tarifa. */
+  zoneMinOrder: number;
 }
 
 /**
@@ -156,6 +163,7 @@ export interface Quote {
   deliveryDistanceKm: number;
   zoneId: Types.ObjectId | null;
   zoneName: string | null;
+  zoneVersion: number | null;
   coupon: AppliedCoupon | null;
   /**
    * Solo cuando el carrito no trae cupón: el mejor que podría llevar. Se
@@ -513,6 +521,9 @@ export class PricingService {
       distanceKm: Number((distanceMeters / 1000).toFixed(2)),
       zoneId: zone ? (zone._id as Types.ObjectId) : null,
       zoneName: zone ? zone.name : null,
+      // Una zona anterior al versionado no trae `version`: es la 1.
+      zoneVersion: zone ? (zone.version ?? 1) : null,
+      zoneMinOrder: zone?.minOrder ?? 0,
     };
   }
 
@@ -609,10 +620,9 @@ export class PricingService {
     const delivery = await this.priceDelivery(business, destination, cfg);
     const eta = this.deliveryWindow(business, destination, maxPrepMinutes);
 
-    const zoneMinOrder = delivery.zoneId
-      ? (await Zone.findById(delivery.zoneId))?.minOrder ?? 0
-      : 0;
-    const minOrder = Math.max(business.minOrder || 0, zoneMinOrder);
+    // Sale del mismo documento de zona que la tarifa y la versión: una
+    // segunda lectura podía ver una zona editada a mitad de la cotización.
+    const minOrder = Math.max(business.minOrder || 0, delivery.zoneMinOrder);
 
     if (minOrder && productSubtotal < minOrder) {
       throw new AppError(`El pedido mínimo es $${minOrder.toLocaleString('es-CO')}`, 400);
@@ -799,6 +809,7 @@ export class PricingService {
       deliveryDistanceKm: delivery.distanceKm,
       zoneId: delivery.zoneId,
       zoneName: delivery.zoneName,
+      zoneVersion: delivery.zoneVersion,
       coupon,
       suggestedCoupon,
       minOrder,

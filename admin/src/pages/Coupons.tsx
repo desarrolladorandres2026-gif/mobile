@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Ticket, Plus, Search, X, AlertCircle, Pencil, Percent, Store,
   ToggleLeft, ToggleRight, Banknote, Truck, History, Building2, Landmark,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
+import { Permission } from '../lib/permissions';
+import { PermissionGate } from '../components/PermissionGate';
 import { fetchBusinessOptions } from '../lib/businessOptions';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
@@ -185,7 +188,13 @@ export default function Coupons() {
   const [businesses, setBusinesses] = useState<{ _id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
+  // La búsqueda global lleva aquí con `?search=<código>`.
+  const [urlParams] = useSearchParams();
+  const urlSearch = urlParams.get('search') ?? '';
+  const [search, setSearch] = useState(urlSearch);
+  useEffect(() => {
+    if (urlSearch) setSearch(urlSearch);
+  }, [urlSearch]);
   const [estadoFiltro, setEstadoFiltro] = useState<EstadoFiltro>('all');
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
@@ -354,12 +363,13 @@ export default function Coupons() {
   const exposicion = exposicionMaxima(form);
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       <div className="page-header">
         <div>
           <h1 className="page-title">Cupones y Promociones</h1>
           <p className="page-subtitle">Códigos de descuento, quién los financia y cuánto pueden costar</p>
         </div>
+        <PermissionGate permission={Permission.COUPONS_MANAGE}>
         <button
           onClick={openCreate}
           className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
@@ -367,9 +377,10 @@ export default function Coupons() {
           <Plus className="w-4 h-4" />
           <span>Nuevo Cupón</span>
         </button>
+        </PermissionGate>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
+      <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
           <input
@@ -419,7 +430,7 @@ export default function Coupons() {
           <p className="text-xs text-[var(--color-text-secondary)]">Crea uno nuevo o cambia el filtro.</p>
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-2.5">
           {filtered.map((c) => {
             const st = ESTADO_ESTILO[estadoDe(c) as Exclude<EstadoFiltro, 'all'>];
             const negocio = businesses.find((b) => b._id === c.businessId);
@@ -427,8 +438,8 @@ export default function Coupons() {
             const presupuestoPct = c.budgetLimit > 0 ? Math.min(100, (c.budgetSpent / c.budgetLimit) * 100) : 0;
 
             return (
-              <div key={c._id} className="zipp-card p-5 space-y-4">
-                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+              <div key={c._id} className="zipp-card p-5 space-y-2.5">
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-2.5">
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2.5">
                       <span className="font-mono text-sm font-bold text-[var(--color-primary)]">
@@ -469,6 +480,7 @@ export default function Coupons() {
                     >
                       <History className="w-4 h-4" />
                     </button>
+                    <PermissionGate permission={Permission.COUPONS_MANAGE}>
                     <button
                       onClick={() => openEdit(c)}
                       title="Editar"
@@ -476,6 +488,7 @@ export default function Coupons() {
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
+                    </PermissionGate>
                     <button
                       onClick={() => setConfirmToggle(c)}
                       title={c.isActive ? 'Desactivar' : 'Reactivar'}
@@ -489,7 +502,7 @@ export default function Coupons() {
                 </div>
 
                 {/* Consumo: lo que ya se gastó de la promoción. */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-[var(--color-border-light)]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-3 border-t border-[var(--color-border-light)]">
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-[11px] font-semibold">
                       <span className="text-[var(--color-text-secondary)]">Usos</span>
@@ -538,7 +551,7 @@ export default function Coupons() {
       {/* ── Historial de uso ── */}
       {historial && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="Zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-5 max-h-[85vh] overflow-y-auto">
+          <div className="Zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-3 max-h-[85vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
               <div className="flex items-center gap-2">
                 <History className="w-5 h-5 text-[var(--color-primary)]" />
@@ -551,7 +564,7 @@ export default function Coupons() {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pb-4 border-b border-[var(--color-border-light)]">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pb-4 border-b border-[var(--color-border-light)]">
               <div>
                 <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Canjes</p>
                 <p className="text-lg font-bold text-[var(--color-text-main)] font-mono">{historial.data.usedCount}</p>
@@ -571,9 +584,9 @@ export default function Coupons() {
                 Este cupón todavía no se ha usado.
               </p>
             ) : (
-              <div className="divide-y divide-[var(--color-border-light)] border border-[var(--color-border-light)] rounded-xl overflow-hidden">
+              <div className="divide-y divide-[var(--color-border-light)] border-y border-[var(--color-border-light)]">
                 {historial.data.redemptions.map((r) => (
-                  <div key={r._id} className="p-3.5 flex items-center justify-between gap-4 hover:bg-[var(--color-bg)] transition-colors">
+                  <div key={r._id} className="p-3.5 flex items-center justify-between gap-2.5 hover:bg-[var(--color-bg)] transition-colors">
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-[var(--color-text-main)] truncate">
                         {r.userId?.name || 'Usuario eliminado'}
@@ -596,7 +609,7 @@ export default function Coupons() {
       {/* ── Crear / editar ── */}
       {showModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="Zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="Zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
               <div className="flex items-center gap-2">
                 <Ticket className="w-5 h-5 text-[var(--color-primary)]" />
@@ -609,9 +622,9 @@ export default function Coupons() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-3">
               {/* Identidad */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className={labelClass}>Código</label>
                   <input
@@ -646,7 +659,7 @@ export default function Coupons() {
               </div>
 
               {/* Beneficio */}
-              <div className="space-y-4 pt-4 border-t border-[var(--color-border-light)]">
+              <div className="space-y-2.5 pt-4 border-t border-[var(--color-border-light)]">
                 <p className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Beneficio</p>
 
                 <div className="flex gap-1.5">
@@ -670,7 +683,7 @@ export default function Coupons() {
                 </div>
 
                 {form.type !== 'free_delivery' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
                       <label className={labelClass}>
                         {form.type === 'percentage' ? 'Porcentaje (1-100)' : 'Monto en pesos'}
@@ -715,7 +728,7 @@ export default function Coupons() {
               </div>
 
               {/* Financiación */}
-              <div className="space-y-4 pt-4 border-t border-[var(--color-border-light)]">
+              <div className="space-y-2.5 pt-4 border-t border-[var(--color-border-light)]">
                 <div>
                   <p className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Quién lo paga</p>
                   <p className="text-[11px] text-[var(--color-text-secondary)] mt-1">
@@ -754,7 +767,7 @@ export default function Coupons() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
                     <label className={labelClass}>Tope por canje</label>
                     <input
@@ -779,10 +792,10 @@ export default function Coupons() {
               </div>
 
               {/* Condiciones */}
-              <div className="space-y-4 pt-4 border-t border-[var(--color-border-light)]">
+              <div className="space-y-2.5 pt-4 border-t border-[var(--color-border-light)]">
                 <p className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Condiciones de uso</p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
                     <label className={labelClass}>Pedido mínimo</label>
                     <input
@@ -814,7 +827,7 @@ export default function Coupons() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
                     <label className={labelClass}>Válido desde</label>
                     <input
@@ -833,7 +846,7 @@ export default function Coupons() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
                     <label className={labelClass}>Desde la hora</label>
                     <input
@@ -881,7 +894,7 @@ export default function Coupons() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
                     <label className={labelClass}>Sólo en este comercio</label>
                     <select

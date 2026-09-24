@@ -7,6 +7,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { businessAccent } from '../../lib/business';
 import { categoryIllustration, contentIllustration } from '../illustrations';
 import { CollectionHeader } from './CollectionHeader';
+import { usePreviewMode } from './explore/PreviewContext';
 import { minutes } from '../../lib/format';
 import { tap } from '../../lib/haptics';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
@@ -25,11 +26,13 @@ export const BusinessCollectionRow = memo(function BusinessCollectionRow({
   entry,
 }: { entry: BusinessCollectionEntry }) {
   const router = useRouter();
+  const preview = usePreviewMode();
 
   const goToBusiness = useCallback((business: CuratedHomeBusiness) => {
+    if (preview) return;
     tap('medium');
     router.push(`/(client)/business/${business._id}`);
-  }, [router]);
+  }, [router, preview]);
 
   if (entry.businesses.length === 0) return null;
 

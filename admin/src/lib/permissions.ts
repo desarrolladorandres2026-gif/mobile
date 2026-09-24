@@ -79,6 +79,30 @@ export const Permission = {
 
   SETTINGS_VIEW: 'settings:view',
   SETTINGS_UPDATE: 'settings:update',
+
+  EXPLORE_VIEW: 'explore:view',
+  EXPLORE_MANAGE: 'explore:manage',
+  ZONES_VIEW: 'zones:view',
+  ZONES_MANAGE: 'zones:manage',
+  USERS_VIEW_SENSITIVE: 'users:view_sensitive',
+  EVIDENCES_VIEW: 'evidences:view',
+  PAYOUTS_REVEAL_ACCOUNT: 'payouts:reveal_account',
+  REFUNDS_VIEW: 'refunds:view',
+  REFUNDS_CREATE: 'refunds:create',
+  COUPONS_VIEW: 'coupons:view',
+  COUPONS_MANAGE: 'coupons:manage',
+  ADS_VIEW: 'ads:view',
+  ADS_MANAGE: 'ads:manage',
+  REVIEWS_VIEW: 'reviews:view',
+  REVIEWS_MODERATE: 'reviews:moderate',
+  CONTENT_VIEW: 'content:view',
+  CONTENT_MANAGE: 'content:manage',
+  SUPPORT_VIEW: 'support:view',
+  SUPPORT_MANAGE: 'support:manage',
+  LEGAL_VIEW: 'legal:view',
+  LEGAL_MANAGE: 'legal:manage',
+  SOS_VIEW: 'sos:view',
+  SOS_MANAGE: 'sos:manage',
 } as const;
 
 export type PermissionKey = (typeof Permission)[keyof typeof Permission];
@@ -103,6 +127,17 @@ export const MODULE_LABELS: Record<string, string> = {
   roles: 'Roles',
   reports: 'Reportes',
   settings: 'Configuración',
+  explore: 'Constructor de Explorar',
+  zones: 'Zonas',
+  evidences: 'Evidencias',
+  refunds: 'Reembolsos',
+  coupons: 'Cupones',
+  ads: 'Publicidad',
+  reviews: 'Reseñas',
+  content: 'Contenido de Inicio',
+  support: 'Soporte',
+  legal: 'Datos personales',
+  sos: 'SOS',
 };
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -133,6 +168,9 @@ export const ACTION_LABELS: Record<string, string> = {
   alerts_manage: 'Gestionar alertas',
   send: 'Enviar',
   export: 'Exportar',
+  view_sensitive: 'Ver datos sensibles',
+  reveal_account: 'Revelar cuenta',
+  moderate: 'Moderar',
 };
 
 export function moduleLabel(mod: string): string {

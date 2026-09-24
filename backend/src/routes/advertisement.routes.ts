@@ -3,10 +3,48 @@ import { advertisementController } from '../controllers';
 import { authenticate, authorize, validate } from '../middlewares';
 import { createAdvertisementSchema, updateAdvertisementSchema, adEventSchema } from '../validators';
 import { UserRole } from '../types';
+import { Permission } from '../security';
+import { requirePermission, adminRequires, can } from '../middlewares/auth';
 import { z } from 'zod';
 import { advertisementService } from '../services/advertisement.service';
+import { businessStaffService } from '../services/businessStaff.service';
 import { sendResponse, param } from '../utils';
-import { AdInvoice, Advertisement, AdPricingModel } from '../models';
+import { AdInvoice, Advertisement, AdPricingModel, BusinessPermission } from '../models';
+import { AppError } from '../middlewares';
+
+/**
+ * IDOR (S2): `authorize(UserRole.BUSINESS)` solo comprueba que quien pide es
+ * *algún* comercio, no que sea EL comercio de `:businessId` — cualquier
+ * cuenta de comercio podía leer la publicidad, las facturas y la deuda de
+ * otro con solo cambiar el id en la URL. Admin pasa siempre.
+ */
+async function assertOwnsBusinessOrAdmin(req: any, businessId: string): Promise<void> {
+  if (req.user?.role === UserRole.ADMIN) {
+    if (can(req, Permission.ADS_VIEW)) return;
+    throw new AppError('No tienes permisos suficientes para esta acción', 403);
+  }
+  const permissions = await businessStaffService.permissionsFor(req.user!._id.toString(), businessId);
+  if (permissions.length === 0) {
+    throw new AppError('No autorizado', 403);
+  }
+}
+
+/**
+ * M3: facturas y deuda de publicidad son dinero del negocio, no solo "sus
+ * campañas". El dueño lo ve siempre (`permissionsFor` le da todos los
+ * permisos); un empleado (mostrador, encargado) solo si tiene
+ * `SETTLEMENTS_VIEW` — el mismo permiso que ya protege las liquidaciones.
+ */
+async function assertCanViewBusinessSettlements(req: any, businessId: string): Promise<void> {
+  if (req.user?.role === UserRole.ADMIN) {
+    if (can(req, Permission.ADS_VIEW)) return;
+    throw new AppError('No tienes permisos suficientes para esta acción', 403);
+  }
+  const permissions = await businessStaffService.permissionsFor(req.user!._id.toString(), businessId);
+  if (!permissions.includes(BusinessPermission.SETTLEMENTS_VIEW)) {
+    throw new AppError('No autorizado', 403);
+  }
+}
 
 const router = Router();
 
@@ -28,6 +66,7 @@ router.post(
   '/upload',
   authenticate,
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.ADS_MANAGE),
   (req, res, next) => advertisementController.uploadFlyer(req, res, next)
 );
 
@@ -81,8 +120,10 @@ router.get(
   authorize(UserRole.BUSINESS, UserRole.ADMIN),
   async (req, res, next) => {
     try {
+      const businessId = param(req, 'businessId');
+      await assertOwnsBusinessOrAdmin(req, businessId);
       const campaigns = await Advertisement.find({
-        billedToBusinessId: param(req, 'businessId'),
+        billedToBusinessId: businessId,
       })
         .select('-internalNotes -pricePaid')
         .sort({ createdAt: -1 })
@@ -100,6 +141,7 @@ router.get(
   async (req, res, next) => {
     try {
       const businessId = param(req, 'businessId');
+      await assertCanViewBusinessSettlements(req, businessId);
       const [invoices, outstanding] = await Promise.all([
         AdInvoice.find({ businessId }).sort({ createdAt: -1 }).limit(50),
         advertisementService.outstandingForBusiness(businessId),
@@ -111,43 +153,48 @@ router.get(
 
 // ── Revisión y cierre, del admin ──────────────────────────────────
 
-router.patch('/:id/approve', authenticate, authorize(UserRole.ADMIN), async (req, res, next) => {
+router.patch('/:id/approve', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADS_MANAGE), async (req, res, next) => {
   try {
     sendResponse(res, 200, 'Campaña aprobada', await advertisementService.approve(param(req, 'id')));
   } catch (error) { next(error); }
 });
 
-router.patch('/:id/reject', authenticate, authorize(UserRole.ADMIN), async (req, res, next) => {
+router.patch('/:id/reject', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADS_MANAGE), async (req, res, next) => {
   try {
     const ad = await advertisementService.reject(param(req, 'id'), req.body?.reason);
     sendResponse(res, 200, 'Campaña rechazada', ad);
   } catch (error) { next(error); }
 });
 
-router.post('/:id/close', authenticate, authorize(UserRole.ADMIN), async (req, res, next) => {
+router.post('/:id/close', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADS_MANAGE), async (req, res, next) => {
   try {
+    // Cerrar y facturar mueve dinero del comercio: ademas de ads:manage exige finance:manage.
+    if (!can(req, Permission.FINANCE_MANAGE)) {
+      throw new AppError('Cerrar y facturar una campaña requiere permisos financieros', 403);
+    }
     const invoice = await advertisementService.closeAndInvoice(param(req, 'id'));
     sendResponse(res, 201, 'Campaña cerrada y facturada', invoice);
   } catch (error) { next(error); }
 });
 
-router.get('/', authenticate, authorize(UserRole.ADMIN), (req, res, next) =>
+router.get('/', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADS_VIEW), (req, res, next) =>
   advertisementController.list(req, res, next)
 );
 // Antes de `/:id`: si no, Express confundiría "stats" con un id de campaña.
-router.get('/stats/summary', authenticate, authorize(UserRole.ADMIN), (req, res, next) =>
+router.get('/stats/summary', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADS_VIEW), (req, res, next) =>
   advertisementController.getGlobalStats(req, res, next)
 );
-router.get('/:id', authenticate, authorize(UserRole.ADMIN), (req, res, next) =>
+router.get('/:id', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADS_VIEW), (req, res, next) =>
   advertisementController.get(req, res, next)
 );
-router.get('/:id/stats', authenticate, authorize(UserRole.ADMIN), (req, res, next) =>
+router.get('/:id/stats', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADS_VIEW), (req, res, next) =>
   advertisementController.getStats(req, res, next)
 );
 router.post(
   '/',
   authenticate,
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.ADS_MANAGE),
   validate(createAdvertisementSchema),
   (req, res, next) => advertisementController.create(req, res, next)
 );
@@ -155,6 +202,7 @@ router.patch(
   '/:id',
   authenticate,
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.ADS_MANAGE),
   validate(updateAdvertisementSchema),
   (req, res, next) => advertisementController.update(req, res, next)
 );
@@ -162,15 +210,17 @@ router.patch(
   '/:id/toggle',
   authenticate,
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.ADS_MANAGE),
   (req, res, next) => advertisementController.toggle(req, res, next)
 );
 router.patch(
   '/:id/cancel',
   authenticate,
   authorize(UserRole.ADMIN),
+  requirePermission(Permission.ADS_MANAGE),
   (req, res, next) => advertisementController.cancel(req, res, next)
 );
-router.delete('/:id', authenticate, authorize(UserRole.ADMIN), (req, res, next) =>
+router.delete('/:id', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADS_MANAGE), (req, res, next) =>
   advertisementController.remove(req, res, next)
 );
 

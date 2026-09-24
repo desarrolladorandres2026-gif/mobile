@@ -354,6 +354,8 @@ export class AuthService {
       ip,
       userAgent: ua,
       deviceId,
+      // S8: 8h/30min para staff, en vez de la sesión de cliente.
+      isStaff: user.role === UserRole.ADMIN,
     });
 
     const lastLoginAt = new Date();
@@ -1022,7 +1024,7 @@ export class AuthService {
     }
 
     const user = await User.findOne(identifierFilter)
-      .select('+password +twoFactorEnabled +twoFactorSecret +failedLoginAttempts +lastLoginIp');
+      .select('+password +twoFactorEnabled +twoFactorSecret +failedLoginAttempts +lastLoginIp +passwordExpiresAt');
 
     const passwordOk = !!user && (await user.comparePassword(input.password));
 
@@ -1049,6 +1051,18 @@ export class AuthService {
         throw new AppError(attempt.reason || 'Demasiados intentos. Intenta más tarde.', 429);
       }
       throw new AppError('Credenciales inválidas', 401);
+    }
+
+    // S10: una contraseña temporal generada por un admin caduca sola a las
+    // 24h (ver `admin.service.ts::resetUserPassword`). Vencida, ni siquiera
+    // sirve para entrar — evita que quede funcionando indefinidamente como
+    // una contraseña más si nadie la cambia.
+    if (user.passwordExpiresAt && user.passwordExpiresAt.getTime() < Date.now()) {
+      throw new AppError(
+        'Esta contraseña temporal venció. Pide a un administrador que te restablezca el acceso.',
+        403,
+        'TEMPORARY_PASSWORD_EXPIRED'
+      );
     }
 
     let outcome: AuthOutcome;
@@ -1390,6 +1404,11 @@ export class AuthService {
     user.phoneVerified = true;
     user.failedLoginAttempts = 0;
     user.lockedUntil = undefined;
+    // A5: esta contraseña es nueva y la puso el propio usuario — no hay
+    // razón para seguir exigiendo un cambio pendiente ni para que caduque
+    // a las 24h como si fuera la temporal que un admin le asignó.
+    user.mustChangePassword = false;
+    user.passwordExpiresAt = undefined;
     await user.save();
 
     // Revoke all existing sessions (password changed)
@@ -1911,6 +1930,10 @@ export class AuthService {
     }
 
     user.password = newPassword;
+    // Sale del estado "contraseña temporal de admin" (S10) en cuanto la
+    // persona pone la suya.
+    user.mustChangePassword = false;
+    user.passwordExpiresAt = undefined;
     await user.save();
 
     // Revoke all sessions: el cambio es la reacción de quien cree que le
@@ -1953,14 +1976,11 @@ export class AuthService {
   }
 
   /**
-   * Elimina (anonimiza) la propia cuenta. Exige reautenticación: la
-   * contraseña si la cuenta tiene una, o el OTP del celular si no.
+   * Reautenticación para acciones de alto riesgo (borrar la cuenta, cambiar
+   * la cuenta de pago): la contraseña si la cuenta tiene una, o el OTP del
+   * celular si no. Un token de acceso robado no basta.
    */
-  async deleteOwnAccount(
-    userId: string,
-    proof: { password?: string; otpCode?: string },
-    req?: Request
-  ): Promise<void> {
+  async assertReauth(userId: string, proof: { password?: string; otpCode?: string }): Promise<void> {
     const user = await User.findById(userId).select('+password');
     if (!user) throw new AppError('Usuario no encontrado', 404);
 
@@ -1973,6 +1993,38 @@ export class AuthService {
       const result = await checkOtp(User, { _id: user._id }, OTP_SLOTS.phone, proof.otpCode);
       if (result !== 'ok') throw otpError(result);
     }
+  }
+
+  /**
+   * Pide el OTP de reautenticación para cuentas sin contraseña (solo entran
+   * con OAuth). Mismo canal y mismo espaciado que el resto de OTP.
+   */
+  async requestReauthOtp(userId: string): Promise<{ channel: 'whatsapp' } | { channel: 'password' }> {
+    const user = await User.findById(userId).select('+password +otpExpires');
+    if (!user) throw new AppError('Usuario no encontrado', 404);
+    // Con contraseña no hay OTP que pedir: no se manda un código que no se usará.
+    if (user.password) return { channel: 'password' };
+    if (!user.phone || !user.phoneVerified) {
+      throw new AppError('Verifica tu celular para confirmar este cambio.', 400, 'PHONE_NOT_VERIFIED');
+    }
+    if (resendAllowed(user.otpExpires)) {
+      const code = generateOtpCode();
+      await User.updateOne({ _id: user._id }, { $set: otpSetFields(OTP_SLOTS.phone, code) });
+      await whatsappService.sendOTP(user.phone, code);
+    }
+    return { channel: 'whatsapp' };
+  }
+
+  /**
+   * Elimina (anonimiza) la propia cuenta. Exige reautenticación: la
+   * contraseña si la cuenta tiene una, o el OTP del celular si no.
+   */
+  async deleteOwnAccount(
+    userId: string,
+    proof: { password?: string; otpCode?: string },
+    req?: Request
+  ): Promise<void> {
+    await this.assertReauth(userId, proof);
 
     await anonymizeAccount(userId);
 

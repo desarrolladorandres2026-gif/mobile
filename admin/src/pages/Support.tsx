@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Inbox, RotateCw, UserCheck, Send, CheckCircle2, AlertTriangle, Timer,
+  Inbox, RotateCw, UserCheck, Send, CheckCircle2, AlertTriangle, Timer, Scale,
 } from 'lucide-react';
 import api from '../services/api';
+import { Permission } from '../lib/permissions';
+import { PermissionGate } from '../components/PermissionGate';
+import EntityLink from '../components/EntityLink';
+import { apiMessage } from '../lib/apiError';
 
 /**
  * Bandeja de soporte.
@@ -25,9 +29,16 @@ interface Ticket {
   status: 'received' | 'in_review' | 'answered' | 'closed';
   priority: 'low' | 'normal' | 'high' | 'urgent';
   dueAt?: string | null;
+  /** Plazo legal en días hábiles; distinto del SLA interno (`dueAt`). */
+  legalDueAt?: string | null;
+  legalOverdue?: boolean;
+  legalDueSoon?: boolean;
   firstResponseAt?: string | null;
   assignedTo?: { _id: string; name?: string } | string | null;
-  userId?: { name?: string; phone?: string } | string;
+  userId?: { _id?: string; name?: string; phone?: string } | string;
+  orderId?: { _id: string; orderNumber?: string; status?: string } | null;
+  businessId?: { _id: string; name?: string } | null;
+  driverId?: { _id: string; userId?: { _id: string; name?: string } } | null;
   responses?: Array<{ message: string; createdAt: string }>;
   createdAt: string;
 }
@@ -37,7 +48,12 @@ interface Metrics {
   overdue: number;
   unassigned: number;
   averageFirstResponseMinutes: number;
+  legalOverdue?: number;
+  legalDueSoon?: number;
 }
+
+const shortDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
 
 const TYPE_LABEL: Record<Ticket['type'], string> = {
   petition: 'Petición',
@@ -62,6 +78,10 @@ function dueLabel(dueAt?: string | null): { text: string; overdue: boolean } | n
   return diff < 0 ? { text: `vencido hace ${human}`, overdue: true } : { text: `vence en ${human}`, overdue: false };
 }
 
+/** Id del usuario cuando el ticket llega con `userId` poblado. */
+const userIdOf = (value: Ticket['userId']): string | undefined =>
+  value && typeof value === 'object' ? value._id : undefined;
+
 const nameOf = (value: Ticket['userId'] | Ticket['assignedTo']): string | null => {
   if (!value || typeof value === 'string') return null;
   return value.name ?? null;
@@ -72,6 +92,7 @@ export default function Support() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [onlyOverdue, setOnlyOverdue] = useState(false);
+  const [onlyLegalOverdue, setOnlyLegalOverdue] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [reply, setReply] = useState('');
   const [error, setError] = useState('');
@@ -80,18 +101,22 @@ export default function Support() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
+      const params: Record<string, string> = {};
+      if (onlyOverdue) params.overdue = 'true';
+      if (onlyLegalOverdue) params.legalOverdue = 'true';
       const [queue, totals] = await Promise.all([
-        api.get(`/pqrs/support/queue${onlyOverdue ? '?overdue=true' : ''}`),
+        api.get('/pqrs/support/queue', { params }),
         api.get('/pqrs/support/metrics'),
       ]);
       setTickets(queue.data.data ?? []);
       setMetrics(totals.data.data ?? null);
     } catch (err) {
       console.error(err);
+      setError(apiMessage(err, 'No se pudo cargar la bandeja de soporte.'));
     } finally {
       setLoading(false);
     }
-  }, [onlyOverdue]);
+  }, [onlyOverdue, onlyLegalOverdue]);
 
   useEffect(() => {
     load();
@@ -104,8 +129,8 @@ export default function Support() {
     try {
       await action();
       await load();
-    } catch (err: any) {
-      setError(err?.response?.data?.message ?? 'No se pudo completar la acción.');
+    } catch (err) {
+      setError(apiMessage(err, 'No se pudo completar la acción.'));
     } finally {
       setBusy(false);
     }
@@ -128,12 +153,12 @@ export default function Support() {
     });
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       <div className="page-header">
         <div>
           <h1 className="page-title">Soporte</h1>
           <p className="page-subtitle">
-            Ordenado por vencimiento, no por antigüedad: primero lo que se va a romper
+            PQRS de clientes en una sola bandeja. Primero lo que vence por ley, luego por SLA interno
           </p>
         </div>
         <button
@@ -146,10 +171,12 @@ export default function Support() {
       </div>
 
       {metrics ? (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
           {[
             { label: 'Abiertos', value: metrics.open, tone: '' },
-            { label: 'Vencidos', value: metrics.overdue, tone: 'text-[var(--color-danger)]' },
+            { label: 'Plazo legal vencido', value: metrics.legalOverdue ?? 0, tone: 'text-[var(--color-danger)]' },
+            { label: 'Vence por ley ≤ 3 días', value: metrics.legalDueSoon ?? 0, tone: 'text-[var(--color-warning)]' },
+            { label: 'SLA interno vencido', value: metrics.overdue, tone: 'text-[var(--color-danger)]' },
             { label: 'Sin asignar', value: metrics.unassigned, tone: 'text-[var(--color-warning)]' },
             {
               label: 'Primera respuesta (min)',
@@ -169,15 +196,26 @@ export default function Support() {
         </div>
       ) : null}
 
-      <label className="flex w-fit cursor-pointer items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
-        <input
-          type="checkbox"
-          checked={onlyOverdue}
-          onChange={(e) => setOnlyOverdue(e.target.checked)}
-          className="cursor-pointer accent-[var(--color-primary)]"
-        />
-        Solo lo vencido
-      </label>
+      <div className="flex flex-wrap gap-5">
+        <label className="flex w-fit cursor-pointer items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+          <input
+            type="checkbox"
+            checked={onlyLegalOverdue}
+            onChange={(e) => setOnlyLegalOverdue(e.target.checked)}
+            className="cursor-pointer accent-[var(--color-primary)]"
+          />
+          Solo plazo legal vencido
+        </label>
+        <label className="flex w-fit cursor-pointer items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
+          <input
+            type="checkbox"
+            checked={onlyOverdue}
+            onChange={(e) => setOnlyOverdue(e.target.checked)}
+            className="cursor-pointer accent-[var(--color-primary)]"
+          />
+          Solo SLA interno vencido
+        </label>
+      </div>
 
       {error ? (
         <p className="flex items-center gap-1.5 text-sm text-[var(--color-danger)]">
@@ -188,7 +226,7 @@ export default function Support() {
       {loading && tickets.length === 0 ? (
         <p className="text-sm text-[var(--color-text-muted)]">Cargando…</p>
       ) : tickets.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-[var(--color-border-light)] bg-[var(--color-surface)] py-16">
+        <div className="flex flex-col items-center gap-2 border-y border-[var(--color-border-light)] py-10">
           <Inbox className="h-8 w-8 text-[var(--color-success)]" />
           <p className="font-semibold text-[var(--color-text-main)]">La bandeja está vacía</p>
         </div>
@@ -215,6 +253,21 @@ export default function Support() {
                       >
                         {PRIORITY[ticket.priority].label}
                       </span>
+                      {ticket.legalDueAt ? (
+                        <span
+                          className={`flex items-center gap-1 text-[11px] font-bold ${
+                            ticket.legalOverdue
+                              ? 'text-[var(--color-danger)]'
+                              : ticket.legalDueSoon
+                                ? 'text-[var(--color-warning)]'
+                                : 'text-[var(--color-text-muted)]'
+                          }`}
+                        >
+                          <Scale className="h-3 w-3" />
+                          {ticket.legalOverdue ? 'Plazo legal vencido el ' : 'Plazo legal: '}
+                          {shortDate(ticket.legalDueAt)}
+                        </span>
+                      ) : null}
                       {due ? (
                         <span
                           className={`flex items-center gap-1 text-[11px] font-semibold ${
@@ -223,17 +276,48 @@ export default function Support() {
                               : 'text-[var(--color-text-muted)]'
                           }`}
                         >
-                          <Timer className="h-3 w-3" /> {due.text}
+                          <Timer className="h-3 w-3" /> SLA {due.text}
                         </span>
                       ) : null}
                     </div>
                     <p className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)]">
-                      {TYPE_LABEL[ticket.type]} · {nameOf(ticket.userId) ?? 'Usuario'} ·{' '}
+                      {TYPE_LABEL[ticket.type]} ·{' '}
+                      <EntityLink type="user" id={userIdOf(ticket.userId)}>{nameOf(ticket.userId) ?? 'Usuario'}</EntityLink> ·{' '}
                       {agent ? `lo lleva ${agent}` : 'sin asignar'}
                     </p>
+                    {(ticket.orderId || ticket.businessId || ticket.driverId) && (
+                      <p className="text-xs text-[var(--color-text-secondary)]">
+                        {ticket.orderId ? (
+                          <EntityLink type="order" id={ticket.orderId._id}>
+                            Pedido #{ticket.orderId.orderNumber ?? ticket.orderId._id.slice(-8)}
+                          </EntityLink>
+                        ) : null}
+                        {ticket.businessId?.name ? (
+                          <>
+                            {' · '}
+                            <EntityLink type="business" id={ticket.businessId._id}>{ticket.businessId.name}</EntityLink>
+                          </>
+                        ) : null}
+                        {ticket.driverId?.userId?.name ? (
+                          <>
+                            {' · domiciliario '}
+                            <EntityLink type="driver" id={ticket.driverId._id}>{ticket.driverId.userId.name}</EntityLink>
+                          </>
+                        ) : null}
+                      </p>
+                    )}
                   </div>
 
+                  <EntityLink
+                    type="user"
+                    id={userIdOf(ticket.userId)}
+                    hideWhenDenied
+                    className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] hover:no-underline"
+                  >
+                    Ver cliente
+                  </EntityLink>
                   {!agent ? (
+                    <PermissionGate permission={Permission.SUPPORT_MANAGE}>
                     <button
                       onClick={() => assignToMe(ticket._id)}
                       disabled={busy}
@@ -241,6 +325,7 @@ export default function Support() {
                     >
                       <UserCheck className="h-3.5 w-3.5" /> Asignármelo
                     </button>
+                    </PermissionGate>
                   ) : null}
                   <button
                     onClick={() => {
@@ -265,7 +350,7 @@ export default function Support() {
                         {ticket.responses.map((r, index) => (
                           <li
                             key={index}
-                            className="rounded-lg bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]"
+                            className="border-l-2 border-[var(--color-primary)] pl-3 text-sm text-[var(--color-text-main)]"
                           >
                             {r.message}
                             <span className="ml-2 text-[11px] text-[var(--color-text-muted)]">
@@ -285,6 +370,7 @@ export default function Support() {
                     />
 
                     <div className="flex justify-end gap-2">
+                      <PermissionGate permission={Permission.SUPPORT_MANAGE}>
                       <button
                         onClick={() => respond(ticket._id)}
                         disabled={busy}
@@ -292,6 +378,7 @@ export default function Support() {
                       >
                         <Send className="h-3.5 w-3.5" /> Responder
                       </button>
+                      </PermissionGate>
                       <button
                         onClick={() => close(ticket._id)}
                         disabled={busy}
@@ -307,6 +394,7 @@ export default function Support() {
           })}
         </ul>
       )}
+
     </div>
   );
 }

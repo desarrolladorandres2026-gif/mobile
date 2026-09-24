@@ -18,6 +18,24 @@ export const setIO = (server: SocketServer): void => {
 
 export const getIO = (): SocketServer | null => io;
 
+/**
+ * La sala `admin` única se dividió por permiso (Fase 1): quien la recibe lo
+ * decide `sockets/index.ts` al conectar (`orders:view_all`, `drivers:track`,
+ * `sos:view`). Los NOMBRES de evento no cambian.
+ */
+export type AdminScope = 'orders' | 'fleet' | 'sos';
+export const adminRoom = (scope: AdminScope): string => `admin:${scope}`;
+
+/** Emite a la sala de admin de ese ámbito. `target` puede ser el `io` de `req.app.get('io')`. */
+export const emitToAdmin = (
+  target: { to: SocketServer['to'] } | null | undefined,
+  scope: AdminScope,
+  event: string,
+  payload: unknown
+): void => {
+  target?.to(adminRoom(scope)).emit(event, payload);
+};
+
 /** Emite un evento a la sala personal de un usuario (`user:<id>`). */
 export const emitToUser = (
   userId: string,
@@ -80,7 +98,7 @@ export const emitDriverLocation = (
     recordedAt: (ping.recordedAt ?? new Date()).toISOString(),
   };
 
-  io.to('admin').emit('driver:location:update', payload);
+  io.to(adminRoom('fleet')).emit('driver:location:update', payload);
   io.to(`driver:tracking:${userId}`).emit('driver:location:update', payload);
   if (ping.orderId) io.to(`order:${ping.orderId}`).emit('driver:location:update', payload);
 };

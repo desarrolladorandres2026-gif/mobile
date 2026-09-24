@@ -166,6 +166,13 @@ export interface IOrder extends Document {
   /** Straight-line distance business → customer, used to price delivery. */
   deliveryDistanceKm?: number;
   zoneId?: Types.ObjectId | null;
+  /**
+   * Versión de la tarifa de la zona con la que se cotizó este pedido (D9).
+   * Junto a `zoneId` permite explicar el precio del domicilio meses después,
+   * aunque la zona haya cambiado. `null` en pedidos sin zona o anteriores al
+   * versionado.
+   */
+  zoneVersion?: number | null;
   /** Discount applied by a coupon. Always >= 0. */
   discount: number;
   couponId?: Types.ObjectId | null;
@@ -338,6 +345,7 @@ const orderSchema = new Schema<IOrder>(
     deliveryFee: { type: Number, required: true, min: 0 },
     deliveryDistanceKm: { type: Number, default: null, min: 0 },
     zoneId: { type: Schema.Types.ObjectId, ref: 'Zone', default: null },
+    zoneVersion: { type: Number, default: null, min: 1 },
     discount: { type: Number, default: 0, min: 0 },
     couponId: { type: Schema.Types.ObjectId, ref: 'Coupon', default: null },
     couponCode: { type: String, default: null, uppercase: true, trim: true },
@@ -384,8 +392,7 @@ const orderSchema = new Schema<IOrder>(
 orderSchema.pre('save', async function (next) {
   if (!this.orderNumber) {
     const seq = await getNextSequence('orderNumber');
-    const d = new Date();
-    this.orderNumber = `ZP${String(d.getFullYear()).slice(-2)}${String(d.getMonth() + 1).padStart(2, '0')}-${String(seq).padStart(5, '0')}`;
+    this.orderNumber = String(seq).padStart(6, '0');
   }
   next();
 });

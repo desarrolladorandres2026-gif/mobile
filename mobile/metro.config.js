@@ -74,6 +74,9 @@ const VARIANT_BLOCK = {
   driver: [
     own('app', '\\(client\\)'),
     ownFile('app', '\\(auth\\)', '(welcome|complete-profile)\\.tsx'),
+    // La vista previa del constructor de Explorar es del panel y de la web
+    // de clientes; la app de domiciliarios no pinta Explorar.
+    own('app', 'preview'),
   ],
 };
 

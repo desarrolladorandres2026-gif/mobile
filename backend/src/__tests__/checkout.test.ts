@@ -279,6 +279,6 @@ describe('POST /api/v1/orders', () => {
 
     expect(created.body.data.status).toBe(OrderStatus.PENDING);
     expect(created.body.data.driverId).toBeNull();
-    expect(created.body.data.orderNumber).toMatch(/^ZP\d{4}-\d{5}$/);
+    expect(created.body.data.orderNumber).toMatch(/^\d{6,}$/);
   });
 });

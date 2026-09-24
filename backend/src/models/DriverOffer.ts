@@ -91,6 +91,9 @@ schema.index({ driverId: 1, orderId: 1, round: 1 }, { unique: true });
 /** La consulta de las métricas: un domiciliario, una ventana de tiempo. */
 schema.index({ driverId: 1, offeredAt: -1 });
 
+/** La ficha del pedido (panel admin): todas las ofertas de un pedido, por ronda. */
+schema.index({ orderId: 1, round: 1 });
+
 /** El barrido que cierra las ofertas vencidas. */
 schema.index({ outcome: 1, expiresAt: 1 });
 

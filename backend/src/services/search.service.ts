@@ -5,6 +5,7 @@ import { normalize, escapeRegex } from '../utils/text';
 import { LatLng } from '../utils/geo';
 import {
   VISIBLE_BUSINESS,
+  PUBLIC_LIST_PROJECTION,
   withDistance,
   withinRadius,
 } from '../utils/catalogQuery';
@@ -87,6 +88,9 @@ async function searchBusinesses(
 
   const query = Business.find(match).limit(CANDIDATE_CAP);
 
+  // A2: misma lista blanca que el resto del catálogo público — sin esto,
+  // `$text` y el prefijo devolvían el documento crudo, con
+  // `commissionRate(Bps)` y `ownerId` incluidos.
   // El orden por relevancia solo existe si hubo búsqueda de texto; con
   // prefijos se cae al criterio de siempre. El `_id` al final de cada orden
   // desempata: sin él, dos negocios con el mismo rating (o el mismo
@@ -94,8 +98,11 @@ async function searchBusinesses(
   // siguiente —cada una es una consulta aparte—, y eso repite uno y se come
   // otro al deslizar.
   return usePrefix
-    ? query.sort({ isFeatured: -1, rating: -1, _id: 1 }).lean()
-    : query.select({ score: { $meta: 'textScore' } }).sort({ score: { $meta: 'textScore' }, _id: 1 }).lean();
+    ? query.select(PUBLIC_LIST_PROJECTION).sort({ isFeatured: -1, rating: -1, _id: 1 }).lean()
+    : query
+        .select({ ...PUBLIC_LIST_PROJECTION, score: { $meta: 'textScore' } })
+        .sort({ score: { $meta: 'textScore' }, _id: 1 })
+        .lean();
 }
 
 async function searchProducts(
@@ -109,10 +116,9 @@ async function searchProducts(
     ? { isAvailable: true, searchName: { $regex: `^${escapeRegex(normalize(term))}` } }
     : { isAvailable: true, $text: { $search: term } };
 
-  const businessMatch: Record<string, unknown> = {
-    'business.isActive': true,
-    'business.isApproved': true,
-  };
+  const businessMatch: Record<string, unknown> = Object.fromEntries(
+    Object.entries(VISIBLE_BUSINESS).map(([key, value]) => [`business.${key}`, value])
+  );
 
   // Aquí el radio va después del cruce, porque la ubicación es del negocio
   // y no del producto. Así no usa índice, pero a estas alturas del pipeline

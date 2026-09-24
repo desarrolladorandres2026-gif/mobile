@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import { cloudinary } from '../config';
 
 // ── Driver Verification Model ──
 
@@ -26,6 +27,9 @@ export interface IDriverVerification extends Document {
   status: VerificationStatus;
   /** Ausente mientras la verificación está solicitada y sin responder. */
   imageUrl?: string;
+  /** S16: `public_id` de Cloudinary cuando la selfie se sube `authenticated`. */
+  imageKey?: string;
+  isPrivate?: boolean;
   /** Plazo para responder una verificación solicitada. */
   dueAt?: Date;
   reviewedBy?: string;
@@ -55,6 +59,8 @@ const driverVerificationSchema = new Schema<IDriverVerification>(
     // haya foto, y es justo ese hueco —pedida y sin responder— el que
     // permite exigirla.
     imageUrl: { type: String },
+    imageKey: { type: String },
+    isPrivate: { type: Boolean, default: false },
     dueAt: { type: Date },
     reviewedBy: { type: String },
     reviewedAt: { type: Date },
@@ -171,30 +177,33 @@ export class DriverSecurityService {
     buffer: Buffer,
     metadata?: Record<string, any>
   ): Promise<IDriverVerification | null> {
-    const { cloudinary } = await import('../config');
-
-    const url = await new Promise<string>((resolve, reject) => {
+    // S16: `authenticated` — una selfie de verificación es tan sensible
+    // como el documento de identidad, así que ninguna URL pública debería
+    // existir para ella. Se guarda el `public_id`, no una URL: quien la
+    // lea la firma en el momento (`signedImageUrl`).
+    const publicId = await new Promise<string>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
           folder: 'zipp/verifications',
           resource_type: 'image',
+          type: 'authenticated',
           transformation: [
             { width: 800, height: 800, crop: 'limit' },
             { quality: 'auto', fetch_format: 'auto' },
           ],
         },
-        (error: unknown, result: { secure_url: string } | undefined) => {
+        (error: unknown, result: { public_id: string } | undefined) => {
           if (error || !result) {
             reject(new Error('No se pudo subir la imagen'));
             return;
           }
-          resolve(result.secure_url);
+          resolve(result.public_id);
         }
       );
       stream.end(buffer);
     });
 
-    return this.fulfillVerification(driverId, type, url, metadata);
+    return this.fulfillVerification(driverId, type, publicId, metadata, true);
   }
 
   /**
@@ -286,13 +295,38 @@ export class DriverSecurityService {
     driverId: string,
     type: VerificationType,
     imageUrl: string,
-    metadata?: Record<string, any>
+    metadata?: Record<string, any>,
+    // S16: `true` cuando `imageUrl` en realidad es un `public_id` de
+    // Cloudinary subido `authenticated` — se guarda como `imageKey`, nunca
+    // como `imageUrl`, para que la base no lleve ninguna URL utilizable.
+    isPrivate = false
   ): Promise<IDriverVerification | null> {
     return DriverVerification.findOneAndUpdate(
       { driverId, type, status: VerificationStatus.REQUESTED },
-      { status: VerificationStatus.PENDING, imageUrl, metadata },
+      isPrivate
+        ? { status: VerificationStatus.PENDING, imageKey: imageUrl, isPrivate: true, metadata }
+        : { status: VerificationStatus.PENDING, imageUrl, metadata },
       { new: true }
     );
+  }
+
+  /**
+   * URL firmada para ver una selfie de verificación (S16).
+   *
+   * Se calcula en cada lectura, nunca se persiste. Sin caducidad en el
+   * `sign_url` porque el token de acceso temporal de Cloudinary
+   * (`auth_token`) es un complemento de pago que este plan no tiene
+   * contratado — mismo compromiso que ya asume `orderEvidence.service.ts`
+   * para las evidencias de entrega.
+   */
+  signedImageUrl(verification: Pick<IDriverVerification, 'imageUrl' | 'imageKey' | 'isPrivate'>): string | undefined {
+    if (!verification.isPrivate || !verification.imageKey) return verification.imageUrl;
+    return cloudinary.url(verification.imageKey, {
+      type: 'authenticated',
+      resource_type: 'image',
+      sign_url: true,
+      secure: true,
+    });
   }
 
   /**
@@ -352,9 +386,12 @@ export class DriverSecurityService {
    * Get verification status for a driver
    */
   async getVerificationStatus(driverId: string): Promise<any[]> {
-    return DriverVerification.find({ driverId })
+    const verifications = await DriverVerification.find({ driverId })
       .sort({ createdAt: -1 })
       .lean();
+    // S16: el propio domiciliario puede ver su selfie, pero firmada al
+    // vuelo — nunca la URL cruda que quedó en `imageKey`.
+    return verifications.map((v) => ({ ...v, imageUrl: this.signedImageUrl(v) }));
   }
 }
 

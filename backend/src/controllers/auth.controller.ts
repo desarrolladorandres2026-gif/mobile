@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../services';
 import type { AuthOutcome } from '../services/auth.service';
-import { resolveAuthorization } from '../services/authorization.service';
+import { resolveAuthorization, authzContract } from '../services/authorization.service';
 import { sendResponse } from '../utils';
 import { AppError } from '../middlewares';
 import { uploadAvatarImage } from '../middlewares/upload';
@@ -29,14 +29,14 @@ async function sendAuthOutcome(
     });
   }
 
-  const { permissions, roleSlugs } = await resolveAuthorization(outcome.user);
+  const authz = await resolveAuthorization(outcome.user);
 
   return sendResponse(res, status, message, {
     user: outcome.user,
     ...outcome.tokens,
     isNewDevice: outcome.isNewDevice,
-    permissions,
-    roleSlugs,
+    ...authzContract(authz, outcome.user.role),
+    roleSlugs: authz.roleSlugs,
     ...extra,
   });
 }
@@ -313,7 +313,12 @@ export class AuthController {
       // sin depender de nada que el propio cliente hubiera podido alterar.
       sendResponse(res, 200, 'Perfil obtenido', {
         user: req.user,
-        permissions: req.permissions || [],
+        // `permissions` = estrictos; `authzMode` y `observedPermissions`
+        // (legacy − estrictos, solo admin en observación) son el contrato
+        // del panel para la Fase 1.
+        ...(req.authz
+          ? authzContract(req.authz, req.user!.role)
+          : { permissions: req.permissions || [], authzMode: 'enforce', observedPermissions: [] }),
         roleSlugs: req.roleSlugs || [],
         twoFactorSetupRequired: req.twoFactorSetupRequired === true,
         // La app decide con esto entre "cambiar contraseña" y "entras con

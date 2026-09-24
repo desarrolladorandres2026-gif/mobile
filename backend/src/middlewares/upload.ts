@@ -95,3 +95,31 @@ export const uploadProductImage = singleImageUpload(
  * archivo grande solo puede venir de una subida hecha por fuera.
  */
 export const uploadBusinessImage = singleImageUpload('image');
+
+/**
+ * Archivo de un documento del comercio (RUT, cámara de comercio, cédula del
+ * representante, certificación bancaria, concepto sanitario): imagen **o PDF**.
+ *
+ * `multer` solo conoce el `Content-Type` que declara el cliente; el servicio
+ * (`privateStorage.service.ts`) vuelve a comprobar la firma binaria del archivo
+ * antes de subirlo. Tope de 8 MB: un PDF escaneado a buena resolución pasa de
+ * los 5 MB generales.
+ */
+const DOCUMENT_MIME_TYPES = [...ALLOWED_MIME_TYPES, 'application/pdf'];
+export const BUSINESS_DOCUMENT_MAX_BYTES = 8 * 1024 * 1024;
+
+export const uploadBusinessDocumentFile = multer({
+  storage: multer.memoryStorage(),
+  // El archivo va a memoria: además del tamaño se acotan los campos de texto
+  // y las partes, que multer por defecto deja casi ilimitados (1000 campos de
+  // hasta 1 MB cada uno). El formulario real manda `type`, `reference` y
+  // `expiresAt`, más el archivo.
+  limits: { fileSize: BUSINESS_DOCUMENT_MAX_BYTES, files: 1, fields: 5, fieldSize: 2048, parts: 6 },
+  fileFilter: (_req, file, cb) => {
+    if (!DOCUMENT_MIME_TYPES.includes(file.mimetype)) {
+      cb(new Error('Formato no permitido. Sube una imagen (JPG, PNG, WEBP) o un PDF.'));
+      return;
+    }
+    cb(null, true);
+  },
+}).single('file');

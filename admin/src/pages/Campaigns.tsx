@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
+import { Permission } from '../lib/permissions';
+import { PermissionGate } from '../components/PermissionGate';
 import { sizedImage } from '../lib/cloudinary';
 import { fetchBusinessOptions } from '../lib/businessOptions';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -397,12 +399,13 @@ export default function Campaigns() {
   const labelClass = 'block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1.5';
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-3 animate-fade-in">
       <div className="page-header">
         <div>
           <h1 className="page-title">Publicidad Patrocinada</h1>
           <p className="page-subtitle">Campañas patrocinadas: pantalla de carga al abrir la app, o intercaladas en Explorar</p>
         </div>
+        <PermissionGate permission={Permission.ADS_MANAGE}>
         <button
           onClick={openCreate}
           className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
@@ -410,6 +413,7 @@ export default function Campaigns() {
           <Plus className="w-4 h-4" />
           <span>Nueva Campaña</span>
         </button>
+        </PermissionGate>
       </div>
 
       {globalStats && (
@@ -428,7 +432,7 @@ export default function Campaigns() {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row gap-4 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
+      <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
           <input
@@ -468,12 +472,12 @@ export default function Campaigns() {
           Cargando campañas...
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-2.5">
           {filtered.map((c) => {
             const st = STATUS_STYLES[c.status];
             return (
-              <div key={c._id} className="zipp-card p-5 flex flex-col md:flex-row md:items-center justify-between gap-5">
-                <div className="flex items-start gap-4 min-w-0">
+              <div key={c._id} className="zipp-card p-5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-start gap-2.5 min-w-0">
                   <button
                     onClick={() => setPreviewCampaign(c)}
                     className="w-20 h-14 rounded-lg overflow-hidden bg-[var(--color-bg)] border border-[var(--color-border)] flex-shrink-0 cursor-pointer"
@@ -516,7 +520,7 @@ export default function Campaigns() {
                         · tope ${c.budget.toLocaleString('es-CO')}
                       </p>
                     ) : null}
-                    <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--color-text-secondary)]">
+                    <div className="flex flex-wrap items-center gap-2.5 text-xs text-[var(--color-text-secondary)]">
                       <span>{new Date(c.startDate).toLocaleDateString('es-CO')} — {new Date(c.endDate).toLocaleDateString('es-CO')}</span>
                       <span className="px-2 py-0.5 rounded bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-primary)] font-mono font-bold text-[11px]">
                         Prioridad: {c.priority}
@@ -546,12 +550,14 @@ export default function Campaigns() {
                 <div className="flex items-center justify-between md:justify-end gap-2 border-t border-[var(--color-border-light)] md:border-0 pt-3 md:pt-0">
                   {c.approvalStatus === 'pending' ? (
                     <>
+                      <PermissionGate permission={Permission.ADS_MANAGE}>
                       <button
                         onClick={() => handleApprove(c)}
                         className="px-3 py-1.5 rounded-lg bg-[var(--color-primary)] text-white text-[11px] font-bold uppercase tracking-wider cursor-pointer"
                       >
                         Aprobar
                       </button>
+                      </PermissionGate>
                       <button
                         onClick={() => handleReject(c)}
                         className="px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-main)] text-[11px] font-bold uppercase tracking-wider cursor-pointer"
@@ -564,6 +570,7 @@ export default function Campaigns() {
                       canceló, y solo si nadie la ha facturado antes
                       —el índice único del servidor lo garantiza igual. */}
                   {(c.status === 'finished' || c.status === 'cancelled') && c.budget ? (
+                    <PermissionGate permission={Permission.ADS_MANAGE}>
                     <button
                       onClick={() => handleClose(c)}
                       className="px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-main)] text-[11px] font-bold uppercase tracking-wider cursor-pointer"
@@ -571,6 +578,7 @@ export default function Campaigns() {
                     >
                       Cerrar y facturar
                     </button>
+                    </PermissionGate>
                   ) : null}
                   <button
                     onClick={() => openStats(c)}
@@ -580,6 +588,7 @@ export default function Campaigns() {
                     <BarChart3 className="w-4 h-4" />
                   </button>
 
+                  <PermissionGate permission={Permission.ADS_MANAGE}>
                   <button
                     onClick={() => openEdit(c)}
                     className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
@@ -587,8 +596,10 @@ export default function Campaigns() {
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
+                  </PermissionGate>
 
                   {c.status !== 'cancelled' && c.status !== 'finished' && (
+                    <PermissionGate permission={Permission.ADS_MANAGE}>
                     <button
                       onClick={() => handleToggle(c)}
                       className="cursor-pointer hover:scale-105 transition-transform"
@@ -600,9 +611,11 @@ export default function Campaigns() {
                         <ToggleLeft className="w-8 h-8 text-[var(--color-text-muted)]" />
                       )}
                     </button>
+                    </PermissionGate>
                   )}
 
                   {c.status !== 'cancelled' && (
+                    <PermissionGate permission={Permission.ADS_MANAGE}>
                     <button
                       onClick={() => setConfirmCancel(c)}
                       className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
@@ -610,8 +623,10 @@ export default function Campaigns() {
                     >
                       <XOctagon className="w-4 h-4" />
                     </button>
+                    </PermissionGate>
                   )}
 
+                  <PermissionGate permission={Permission.ADS_MANAGE}>
                   <button
                     onClick={() => setConfirmDelete(c)}
                     className="p-2 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
@@ -619,6 +634,7 @@ export default function Campaigns() {
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
+                  </PermissionGate>
                 </div>
               </div>
             );
@@ -659,7 +675,7 @@ export default function Campaigns() {
           className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in"
           onClick={() => setStatsCampaign(null)}
         >
-          <div className="Zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-5" onClick={(e) => e.stopPropagation()}>
+          <div className="Zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 text-[var(--color-primary)]" />
@@ -680,7 +696,7 @@ export default function Campaigns() {
                   { label: 'Clics Totales', value: statsData.totalClicks },
                   { label: 'Clics Hoy', value: statsData.todayClicks },
                 ].map((kpi) => (
-                  <div key={kpi.label} className="rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)] p-4">
+                  <div key={kpi.label} className="border-b border-[var(--color-border)] py-2">
                     <p className="text-[10px] font-bold text-[var(--color-text-muted)] uppercase tracking-wider">{kpi.label}</p>
                     <p className="text-xl font-bold text-[var(--color-text-main)] mt-1">{kpi.value.toLocaleString('es-CO')}</p>
                   </div>
@@ -733,7 +749,7 @@ export default function Campaigns() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="Zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="Zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
               <div className="flex items-center gap-2">
                 <Megaphone className="w-5 h-5 text-[var(--color-primary)]" />
@@ -744,7 +760,7 @@ export default function Campaigns() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-2.5">
               <div>
                 <label className={labelClass}>Dónde Aparece</label>
                 <div className="flex gap-1.5">
@@ -823,7 +839,7 @@ export default function Campaigns() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className={labelClass}>Nombre de la Campaña</label>
                   <input type="text" required value={form.campaignName}
@@ -838,7 +854,7 @@ export default function Campaigns() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className={labelClass}>Fecha de Inicio</label>
                   <input type="datetime-local" required value={form.startDate}
@@ -853,7 +869,7 @@ export default function Campaigns() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className={labelClass}>Prioridad (0-100)</label>
                   <input type="number" min={0} max={100} required value={form.priority}
@@ -868,7 +884,7 @@ export default function Campaigns() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className={labelClass}>Duración en Pantalla (segundos)</label>
                   <input type="number" min={3} max={15} required value={form.durationSeconds}

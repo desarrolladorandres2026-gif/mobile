@@ -1265,7 +1265,7 @@ describe('8 · Efectivo contra entrega', () => {
     const record = await CashReconciliation.findOne({ orderId: order._id });
     const adminId = financeAdmin._id.toString();
 
-    await cashReconciliationService.verifyByAdmin([String(record!._id)], adminId, 'Depósito 991');
+    await cashReconciliationService.verifyByAdmin([String(record!._id)], adminId, 'Depósito 991', 'https://example.com/comprobante.jpg', record!.amount);
     await cashReconciliationService.settle([String(record!._id)], adminId);
 
     const settled = await CashReconciliation.findById(record!._id);

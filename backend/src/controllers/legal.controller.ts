@@ -5,15 +5,23 @@ import { anonymizeAccount } from '../services/accountDeletion.service';
 import { AppError } from '../middlewares';
 import { sendResponse, param } from '../utils';
 import { AuditAction, logAudit } from '../security';
+import { assertIsSuperAdmin } from '../services/authorization.service';
+import { computeDataRequestLegalDueAt, legalOverdueFlags } from '../services/legal.service';
 
 const hashIp = (ip: string) => crypto.createHash('sha256').update(ip).digest('hex').slice(0, 32);
 export class LegalController {
   async active(_req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'Documentos legales', await LegalDocument.find({ isActive: true }).select('kind version title content effectiveAt')); } catch (e) { next(e); } }
   async accept(req: Request, res: Response, next: NextFunction) { try { const doc = await LegalDocument.findOne({ _id: param(req, 'id'), isActive: true }); if (!doc) throw new AppError('Documento legal no encontrado', 404); const acceptance = await LegalAcceptance.findOneAndUpdate({ userId: req.user!._id, documentId: doc._id }, { version: doc.version, ipHash: hashIp(req.ip || ''), acceptedAt: new Date() }, { upsert: true, new: true, setDefaultsOnInsert: true }); sendResponse(res, 200, 'Aceptación registrada', acceptance); } catch (e) { next(e); } }
   async myAcceptances(req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'Aceptaciones', await LegalAcceptance.find({ userId: req.user!._id }).populate('documentId', 'kind title')); } catch (e) { next(e); } }
-  async createDataRequest(req: Request, res: Response, next: NextFunction) { try { const item = await DataRequest.create({ userId: req.user!._id, type: req.body.type, detail: req.body.detail }); sendResponse(res, 201, 'Solicitud de datos recibida', item); } catch (e) { next(e); } }
+  async createDataRequest(req: Request, res: Response, next: NextFunction) { try { const createdAt = new Date(); const item = await DataRequest.create({ userId: req.user!._id, type: req.body.type, detail: req.body.detail, legalDueAt: computeDataRequestLegalDueAt(req.body.type, createdAt), createdAt }); sendResponse(res, 201, 'Solicitud de datos recibida', item); } catch (e) { next(e); } }
   async myDataRequests(req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'Solicitudes de datos', await DataRequest.find({ userId: req.user!._id }).sort({ createdAt: -1 })); } catch (e) { next(e); } }
-  async adminDataRequests(_req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'Solicitudes de datos', await DataRequest.find().populate('userId', 'name email phone').sort({ createdAt: -1 })); } catch (e) { next(e); } }
+  async adminDataRequests(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const rows = await DataRequest.find().populate('userId', 'name email phone').sort({ createdAt: -1 }).lean();
+      const withLegal = rows.map((r: any) => ({ ...r, ...legalOverdueFlags(r.legalDueAt) }));
+      sendResponse(res, 200, 'Solicitudes de datos', withLegal);
+    } catch (e) { next(e); }
+  }
   /**
    * Resuelve una solicitud de datos. Con `anonymize` aplica la supresión por
    * `accountDeletion.service`, el mismo camino que el borrado desde la app:
@@ -22,6 +30,10 @@ export class LegalController {
    */
   async answerDataRequest(req: Request, res: Response, next: NextFunction) {
     try {
+      // Ley 1581: suprimir datos personales no es delegable (antes de tocar nada).
+      if (req.body.anonymize) {
+        await assertIsSuperAdmin(req.user!, 'Solo el Super Administrador puede anonimizar datos personales');
+      }
       const item = await DataRequest.findById(param(req, 'id'));
       if (!item) throw new AppError('Solicitud no encontrada', 404);
 

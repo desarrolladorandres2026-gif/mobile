@@ -1,34 +1,114 @@
 import { Request } from 'express';
 import crypto from 'crypto';
 import { User, IUser, Business, Order, Driver, Commission, DriverDebt, Payment, Position, Role } from '../models';
+import { platformResultService } from './platformResult.service';
+import {
+  periodRange,
+  isReportPeriod,
+  bogotaDateString,
+  bogotaDayRange,
+  shiftDateString,
+  type DateRange,
+  type ReportPeriod,
+} from '../utils/period';
 import { escapeRegex } from '../utils';
 import { AppError } from '../middlewares';
-import { OrderStatus, PaymentStatus, DebtStatus, CommissionStatus, UserRole } from '../types';
+import { businessService } from './business.service';
+import { OrderStatus, PaymentStatus, PaymentMethod, DebtStatus, CommissionStatus, UserRole } from '../types';
 import { logAudit, AuditAction, AuditSeverity, validatePasswordComplexity, clearAccountLocks } from '../security';
 import { sessionManager } from '../security/sessions';
 import {
   assertNotSelfTarget,
   assertCanAssignRoles,
+  assertTargetIsAdmin,
   assertCanModifyPrivilegedUser,
   assertCanTakeOverAccount,
+  assertIsSuperAdmin,
   getEffectivePermissions,
   getEffectiveRoles,
 } from './authorization.service';
+import { TERMINAL_ORDER_STATUSES } from './order.service';
+import { getIO } from '../sockets/emitter';
+
+/**
+ * Cambiar rol, cargo o roles cambia a qué salas de socket tiene derecho la
+ * persona (`admin:*`, tracking). Las salas se calculan al conectar, así que se
+ * corta la conexión para que el cliente reconecte y las recalcule.
+ */
+function disconnectUserSockets(userId: string): void {
+  getIO()?.in(`user:${userId}`).disconnectSockets(true);
+}
 import { normalizePhone } from '../utils/phone';
 import { maskEmail } from '../utils/mask';
 import { parseBirthDate, birthDateProblem } from '../utils/age';
 
+/**
+ * Agregados de pedidos de un periodo, calculados en la base sobre TODOS los
+ * pedidos del rango (antes el panel los sacaba de los 6 más recientes).
+ *
+ * - `paymentBreakdown` y `deliveryRate` cuentan eventos del periodo: un
+ *   pedido cuenta como entregado el día que se entregó y como cancelado el
+ *   día que se canceló, igual que el Resumen diario.
+ * - `ordersByStatus` es la cohorte creada en el periodo, con su estado actual.
+ *
+ * El dinero es el total que pagó el cliente (`finance.customerTotal`, con
+ * respaldo al campo plano `total` para pedidos anteriores a la migración).
+ * Es GMV: NO es ingreso de ZIPP; ese sale de `platformResultService`.
+ */
+async function getOrderPeriodStats(range: DateRange) {
+  const inRange = { $gte: range.from, $lte: range.to };
+  const deliveredInRange = { status: OrderStatus.DELIVERED, deliveredAt: inRange };
+
+  const [payments, cancelled, byStatus] = await Promise.all([
+    Order.aggregate([
+      { $match: deliveredInRange },
+      {
+        $group: {
+          _id: '$paymentMethod',
+          count: { $sum: 1 },
+          amount: { $sum: { $ifNull: ['$finance.customerTotal', { $ifNull: ['$total', 0] }] } },
+        },
+      },
+    ]),
+    Order.countDocuments({ status: OrderStatus.CANCELLED, cancelledAt: inRange }),
+    Order.aggregate([
+      { $match: { createdAt: inRange } },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]),
+  ]);
+
+  const bucket = (method: PaymentMethod) => {
+    const row = payments.find((p) => p._id === method);
+    return { count: row?.count ?? 0, amount: row?.amount ?? 0 };
+  };
+  const online = bucket(PaymentMethod.ONLINE);
+  const cash = bucket(PaymentMethod.CASH_ON_DELIVERY);
+
+  const delivered = payments.reduce((sum, p) => sum + p.count, 0);
+  const closed = delivered + cancelled;
+
+  const ordersByStatus = Object.fromEntries(
+    Object.values(OrderStatus).map((status) => [
+      status,
+      byStatus.find((r) => r._id === status)?.count ?? 0,
+    ])
+  ) as Record<OrderStatus, number>;
+
+  return {
+    paymentBreakdown: { online, cash },
+    /** Porcentaje 0–100 (un decimal); `null` si en el periodo no se cerró ningún pedido. */
+    deliveryRate: closed > 0 ? Math.round((delivered / closed) * 1000) / 10 : null,
+    deliveredCount: delivered,
+    cancelledCount: cancelled,
+    ordersByStatus,
+  };
+}
+
 export class AdminService {
   // ── Dashboard Stats ──
   async getDashboardStats() {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-
-    const weekStart = new Date();
-    weekStart.setDate(weekStart.getDate() - 7);
-    weekStart.setHours(0, 0, 0, 0);
+    const { from: todayStart, to: todayEnd } = periodRange('today');
+    const { from: weekStart } = periodRange('week');
 
     const [
       totalUsers,
@@ -40,7 +120,9 @@ export class AdminService {
       activeOrders,
       todayOrders,
       weekOrders,
-      todayRevenue,
+      todayGmv,
+      todayResult,
+      todayOrderStats,
     ] = await Promise.all([
       User.countDocuments({ isActive: true }),
       Business.countDocuments(),
@@ -53,8 +135,10 @@ export class AdminService {
       Order.countDocuments({ createdAt: { $gte: weekStart } }),
       Order.aggregate([
         { $match: { status: OrderStatus.DELIVERED, deliveredAt: { $gte: todayStart, $lte: todayEnd } } },
-        { $group: { _id: null, total: { $sum: '$total' }, commission: { $sum: '$platformCommission' } } },
+        { $group: { _id: null, total: { $sum: '$total' } } },
       ]),
+      platformResultService.forRange({ from: todayStart, to: todayEnd }),
+      getOrderPeriodStats({ from: todayStart, to: todayEnd }),
     ]);
 
     return {
@@ -67,30 +151,34 @@ export class AdminService {
       activeOrders,
       todayOrders,
       weekOrders,
-      todayRevenue: todayRevenue[0]?.total || 0,
-      todayCommission: todayRevenue[0]?.commission || 0,
+      /** GMV de los pedidos entregados hoy (lo que pagaron los clientes). No es ingreso de ZIPP. */
+      todayRevenue: todayGmv[0]?.total || 0,
+      /**
+       * @deprecated Alias de `platformResult.grossRevenue` (ingreso bruto de
+       * ZIPP según el libro mayor, NO solo la comisión del comercio). Se
+       * conserva un ciclo para que el panel actual no muestre 0; migrar a
+       * `platformResult` y retirar.
+       */
+      todayCommission: todayResult.grossRevenue,
+      // Agregados reales del día, calculados en la base sobre todos los pedidos.
+      platformResult: todayResult,
+      ...todayOrderStats,
     };
   }
 
   // ── Financial Summary ──
-  async getFinancialSummary(period: 'today' | 'week' | 'month' = 'today') {
-    const now = new Date();
-    let startDate: Date;
+  /**
+   * Resumen del periodo en hora de Colombia. El ingreso de ZIPP
+   * (`platformResult`) sale del libro mayor, con la misma función que usan
+   * el Dashboard, el Resumen diario y Finanzas: mismo periodo, mismo número.
+   * `totalRevenue` es GMV (lo que pagaron los clientes), no ingreso.
+   */
+  async getFinancialSummary(period: ReportPeriod = 'today') {
+    const range = periodRange(isReportPeriod(period) ? period : 'today');
 
-    if (period === 'today') {
-      startDate = new Date(now);
-      startDate.setHours(0, 0, 0, 0);
-    } else if (period === 'week') {
-      startDate = new Date(now);
-      startDate.setDate(startDate.getDate() - 7);
-    } else {
-      startDate = new Date(now);
-      startDate.setMonth(startDate.getMonth() - 1);
-    }
-
-    const [deliveredOrders, pendingDebts, settledCommissions] = await Promise.all([
+    const [deliveredOrders, pendingDebts, platformResult, orderStats] = await Promise.all([
       Order.aggregate([
-        { $match: { status: OrderStatus.DELIVERED, deliveredAt: { $gte: startDate } } },
+        { $match: { status: OrderStatus.DELIVERED, deliveredAt: { $gte: range.from, $lte: range.to } } },
         {
           $group: {
             _id: null,
@@ -106,46 +194,69 @@ export class AdminService {
         { $match: { status: DebtStatus.PENDING } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
-      Commission.aggregate([
-        { $match: { status: CommissionStatus.SETTLED, createdAt: { $gte: startDate } } },
-        { $group: { _id: null, total: { $sum: '$platformAmount' } } },
-      ]),
+      platformResultService.forRange(range),
+      getOrderPeriodStats(range),
     ]);
 
     const stats = deliveredOrders[0] || {};
 
+    // `settledCommissions` se retiró: salía de `Commission` con estado
+    // SETTLED, y ese modelo nunca pasa de PENDING (la liquidación real vive
+    // en `Payout` y en el libro), así que era un 0 permanente que parecía
+    // dato. Lo liquidado de verdad está en GET /finance/payouts/summary.
     return {
+      /** GMV de los pedidos entregados en el periodo (lo que pagaron los clientes). No es ingreso de ZIPP. */
       totalRevenue: stats.totalRevenue || 0,
-      platformEarnings: stats.platformEarnings || 0,
+      /**
+       * @deprecated Alias de `platformResult.grossRevenue` (ingreso bruto de
+       * ZIPP según el libro mayor). Antes era solo `platformCommission` de
+       * los pedidos. Migrar el panel a `platformResult` y retirar.
+       */
+      platformEarnings: platformResult.grossRevenue,
       totalBusinessPayouts: stats.businessPayouts || 0,
       totalDriverPayouts: stats.driverPayouts || 0,
       totalOrders: stats.count || 0,
       pendingDriverDebts: pendingDebts[0]?.total || 0,
-      settledCommissions: settledCommissions[0]?.total || 0,
       period,
+      from: range.from.toISOString(),
+      to: range.to.toISOString(),
+      platformResult,
+      ...orderStats,
     };
   }
 
-  // ── Revenue chart por día ──
+  // ── Revenue chart por día (días de Bogotá) ──
   async getRevenueChart(days = 30) {
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    startDate.setHours(0, 0, 0, 0);
+    const today = bogotaDateString();
+    const startDate = bogotaDayRange(shiftDateString(today, -(days - 1))).from;
+    const range = { from: startDate, to: bogotaDayRange(today).to };
 
-    const data = await Order.aggregate([
-      { $match: { status: OrderStatus.DELIVERED, deliveredAt: { $gte: startDate } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$deliveredAt' } },
-          revenue: { $sum: '$total' },
-          commission: { $sum: '$platformCommission' },
-          orders: { $sum: 1 },
+    const [orders, ledgerDays] = await Promise.all([
+      Order.aggregate([
+        { $match: { status: OrderStatus.DELIVERED, deliveredAt: { $gte: range.from, $lte: range.to } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$deliveredAt', timezone: '-05:00' } },
+            revenue: { $sum: '$total' },
+            orders: { $sum: 1 },
+          },
         },
-      },
-      { $sort: { _id: 1 } },
+      ]),
+      platformResultService.grossRevenueByDay(range),
     ]);
 
-    return data;
+    // Unión de los dos orígenes por día: un día con solo un reembolso (sin
+    // entregas) también tiene que aparecer, con su ingreso negativo.
+    const byDay = new Map<string, { _id: string; revenue: number; platformRevenue: number; orders: number }>();
+    const row = (id: string) => {
+      let r = byDay.get(id);
+      if (!r) byDay.set(id, (r = { _id: id, revenue: 0, platformRevenue: 0, orders: 0 }));
+      return r;
+    };
+    for (const o of orders) Object.assign(row(o._id), { revenue: o.revenue, orders: o.orders });
+    for (const l of ledgerDays) row(l._id).platformRevenue = l.grossRevenue;
+
+    return [...byDay.values()].sort((a, b) => (a._id < b._id ? -1 : 1));
   }
 
   // ── Users Management ──
@@ -214,10 +325,25 @@ export class AdminService {
     if (!user) throw new AppError('Usuario no encontrado', 404);
     await assertCanModifyPrivilegedUser(actor, user);
 
+    // S9: ascender a alguien a `admin` es la puerta de entrada al panel.
+    // Antes cualquier cuenta con `users:role_change` (todo ADMIN legacy)
+    // podía crear administradores nuevos con solo cambiar el rol.
+    if (newRole === UserRole.ADMIN && user.role !== UserRole.ADMIN) {
+      await assertIsSuperAdmin(actor, 'Solo un Super Administrador puede ascender una cuenta a administrador');
+    }
+
     const previousRole = user.role;
     user.role = newRole as UserRole;
     user.updatedBy = actor._id;
     await user.save();
+
+    // M1(a): un rol nuevo es un nivel de acceso nuevo. La sesión vieja
+    // quedaba viva con el rol viejo cacheado en su token hasta que
+    // caducara sola (hasta 8h de staff) — suficiente para que alguien
+    // recién ascendido a admin, o alguien recién degradado, siguiera
+    // operando con el permiso anterior.
+    await sessionManager.revokeAllSessions(userId, { reason: 'role_changed' });
+    disconnectUserSockets(userId);
 
     if (req) {
       await logAudit(req, {
@@ -248,16 +374,23 @@ export class AdminService {
     await assertCanModifyPrivilegedUser(actor, user);
 
     if (positionId) {
+      // Un Cargo solo se asigna a cuentas administrativas (quitarlo, a cualquiera).
+      assertTargetIsAdmin(user);
       const position = await Position.findById(positionId);
       if (!position) throw new AppError('Cargo no encontrado', 404);
-      // El Cargo trae Roles consigo: la misma guarda de SUPER_ADMIN aplica.
-      await assertCanAssignRoles(actor, position.roleIds);
+      // El Cargo trae Roles consigo: mismas guardas que al asignar Roles
+      // (SUPER_ADMIN y "no otorgar más de lo que posees"). Si el usuario ya
+      // tenía ese Cargo no se otorga nada nuevo.
+      if (user.positionId?.toString() !== position._id.toString()) {
+        await assertCanAssignRoles(actor, position.roleIds);
+      }
       user.positionId = position._id;
     } else {
       user.positionId = undefined;
     }
     user.updatedBy = actor._id;
     await user.save();
+    disconnectUserSockets(userId);
 
     if (req) {
       await logAudit(req, {
@@ -282,17 +415,23 @@ export class AdminService {
 
     const uniqueIds = Array.from(new Set(roleIds));
     if (uniqueIds.length > 0) {
+      // Los roles solo se asignan a cuentas administrativas (vaciarlos, a cualquiera).
+      assertTargetIsAdmin(user);
       const found = await Role.find({ _id: { $in: uniqueIds } }).select('_id');
       if (found.length !== uniqueIds.length) {
         throw new AppError('Uno o más roles seleccionados no existen', 400);
       }
     }
-    // Único punto que decide si esta asignación puede incluir SUPER_ADMIN.
-    await assertCanAssignRoles(actor, uniqueIds);
+    // Único punto que decide si esta asignación puede incluir SUPER_ADMIN o
+    // permisos que el actor no posee. Solo se evalúa lo que se AÑADE: los
+    // roles que el usuario ya tenía se conservan sin volver a exigirlos.
+    const current = new Set((user.roleIds || []).map((id) => id.toString()));
+    await assertCanAssignRoles(actor, uniqueIds.filter((id) => !current.has(String(id))));
 
     user.roleIds = uniqueIds as any;
     user.updatedBy = actor._id;
     await user.save();
+    disconnectUserSockets(userId);
 
     if (req) {
       await logAudit(req, {
@@ -343,6 +482,9 @@ export class AdminService {
     req?: Request
   ) {
     assertNotSelfTarget(actor._id.toString(), userId, 'No puedes cambiar el estado de tu propia cuenta');
+    // Decisión del dueño (2026-09-24): bloquear, desbloquear y activar/desactivar
+    // cuentas no es delegable; `users:block` no otorga esto.
+    await assertIsSuperAdmin(actor, 'Solo un Super Administrador puede bloquear, desbloquear o desactivar cuentas');
 
     const user = await User.findById(userId);
     if (!user) throw new AppError('Usuario no encontrado', 404);
@@ -413,6 +555,13 @@ export class AdminService {
     user.password = temporaryPassword;
     user.failedLoginAttempts = 0;
     user.lockedUntil = undefined;
+    // S10: no hay envío de correo/SMS en este repo, así que el panel sigue
+    // mostrando la temporal una vez — pero la cuenta queda obligada a
+    // cambiarla en su próximo login y la temporal caduca sola a las 24h
+    // (`auth.service.ts::assertAccountUsable`), en vez de servir
+    // indefinidamente como una contraseña más.
+    user.mustChangePassword = true;
+    user.passwordExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     user.updatedBy = actor._id;
     await user.save();
 
@@ -442,6 +591,10 @@ export class AdminService {
     actor: IUser,
     req?: Request
   ): Promise<IUser> {
+    // S9: crear una cuenta administrativa es crear acceso al panel — solo
+    // el Super Administrador, igual que ascender a alguien a `admin`.
+    await assertIsSuperAdmin(actor, 'Solo un Super Administrador puede crear cuentas de equipo');
+
     // El panel admin entra por correo (ver `auth.service.ts::login`), así
     // que toda cuenta creada desde aquí necesita uno; el celular queda
     // opcional, a diferencia de antes.
@@ -501,7 +654,7 @@ export class AdminService {
         entityId: user._id.toString(),
         severity: AuditSeverity.HIGH,
         description: `Cuenta administrativa creada: ${user.name} (${maskEmail(user.email)})`,
-        metadata: { positionId: data.positionId, roleIds },
+        metadata: { positionId: data.positionId, roleIds, withoutRole: roleIds.length === 0 && !data.positionId },
       });
     }
 
@@ -637,8 +790,13 @@ export class AdminService {
   }
 
   // ── Business Management ──
-  async getBusinesses(search?: string, category?: string, page = 1, limit = 20) {
-    const filter: Record<string, unknown> = {};
+  async getBusinesses(search?: string, category?: string, page = 1, limit = 20, archived = false) {
+    // Por defecto, el archivo (S11) queda fuera del listado normal del
+    // panel — es la lista aparte de "archivados" la que lo pide. `$ne`
+    // (no `isArchived: false`) porque un negocio de antes de este cambio
+    // no tiene el campo todavía, y una igualdad estricta lo dejaría fuera
+    // de los dos listados.
+    const filter: Record<string, unknown> = archived ? { isArchived: true } : { isArchived: { $ne: true } };
     if (category) filter.category = category;
     if (search) {
       filter.$or = [
@@ -654,27 +812,78 @@ export class AdminService {
     return { businesses, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
-  async toggleBusinessActive(businessId: string) {
+  /**
+   * A1: suspender/levantar suspensión, no `isActive`.
+   *
+   * `isActive` es el interruptor "abierto/cerrado" del propio dueño (su
+   * PUT normal). Lo que este botón del panel hace es distinto: ZIPP saca
+   * al negocio de la app por incumplimiento, fraude o disputa, y el dueño
+   * no puede revertirlo solo. El motivo es obligatorio al suspender —queda
+   * en el historial, no solo "quién y cuándo"— y no lo es al levantarla.
+   */
+  async toggleBusinessActive(businessId: string, reason: string | undefined, req?: Request) {
     const business = await Business.findById(businessId);
     if (!business) throw new AppError('Negocio no encontrado', 404);
-    business.isActive = !business.isActive;
+    const wasSuspended = business.isSuspended;
+    const willSuspend = !wasSuspended;
+
+    if (willSuspend && (!reason || !reason.trim())) {
+      throw new AppError('El motivo de la suspensión es obligatorio', 400);
+    }
+
+    business.isSuspended = willSuspend;
+    business.suspendedAt = willSuspend ? new Date() : null;
+    business.suspendedBy = willSuspend ? (req?.user?._id as any) ?? null : null;
+    business.suspensionReason = willSuspend ? reason!.trim() : null;
     await business.save();
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.BUSINESS_TOGGLED_ACTIVE,
+        entity: 'business',
+        entityId: businessId,
+        severity: AuditSeverity.HIGH,
+        description: `Negocio ${business.name} ${business.isSuspended ? 'suspendido' : 'reactivado'}${business.isSuspended && reason ? `: ${reason}` : ''}`,
+        metadata: { wasSuspended, isSuspended: business.isSuspended, reason },
+      });
+    }
+
     return business;
   }
 
-  async toggleBusinessFeatured(businessId: string) {
+  async toggleBusinessFeatured(businessId: string, req?: Request) {
     const business = await Business.findById(businessId);
     if (!business) throw new AppError('Negocio no encontrado', 404);
     business.isFeatured = !business.isFeatured;
     await business.save();
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.BUSINESS_TOGGLED_FEATURED,
+        entity: 'business',
+        entityId: businessId,
+        severity: AuditSeverity.LOW,
+        description: `Negocio ${business.name} ${business.isFeatured ? 'destacado' : 'quitado de destacados'}`,
+        metadata: { isFeatured: business.isFeatured },
+      });
+    }
+
     return business;
   }
 
-  async deleteBusiness(businessId: string) {
-    const business = await Business.findById(businessId);
-    if (!business) throw new AppError('Negocio no encontrado', 404);
-    await Business.findByIdAndDelete(businessId);
-    return { deleted: true };
+  /**
+   * S11: ya no borra. Archivar (`businessService.archive`) es el único
+   * camino — sale de la app y del catálogo, pero conserva pedidos,
+   * liquidaciones y reseñas, y es reversible con `restoreBusiness`.
+   */
+  async archiveBusiness(businessId: string, reason: string, actor: IUser, req?: Request) {
+    const business = await businessService.archive(businessId, actor._id.toString(), reason, req);
+    return { archived: true, business };
+  }
+
+  async restoreBusiness(businessId: string, req?: Request) {
+    const business = await businessService.restore(businessId, req);
+    return { restored: true, business };
   }
 
   // ── Orders Management ──
@@ -709,7 +918,12 @@ export class AdminService {
         .skip(skip).limit(limit)
         .sort({ createdAt: -1 })
         .populate('clientId', 'name phone')
-        .populate('businessId', 'name'),
+        .populate('businessId', 'name')
+        // O1: sin este populate, todo pedido asignado se veía como "Sin
+        // asignar" en el panel — `driverId` es un `Driver`, así que hace
+        // falta un segundo nivel para llegar al nombre/teléfono de la
+        // persona.
+        .populate({ path: 'driverId', select: 'userId vehicleType', populate: { path: 'userId', select: 'name phone' } }),
       Order.countDocuments(filter),
     ]);
     return { orders, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
@@ -748,19 +962,58 @@ export class AdminService {
   }
 
   // ── Driver Management ──
-  async suspendDriver(driverId: string) {
-    const driver = await Driver.findById(driverId);
-    if (!driver) throw new AppError('Domiciliario no encontrado', 404);
-    driver.isActive = false;
-    await driver.save();
+  async suspendDriver(driverId: string, req: Request) {
+    if (!(await Driver.exists({ _id: driverId }))) throw new AppError('Domiciliario no encontrado', 404);
+
+    // Suspender a mitad de una entrega deja al cliente y al comercio esperando
+    // a alguien que ya no puede repartir. `Order.driverId` guarda el _id del Driver.
+    const activeOrder = await Order.exists({
+      driverId,
+      status: { $nin: TERMINAL_ORDER_STATUSES },
+    });
+    if (activeOrder) {
+      throw new AppError(
+        'No se puede suspender: el domiciliario tiene un pedido en curso. Espera a que lo entregue o reasígnalo primero.',
+        409,
+        'DRIVER_HAS_ACTIVE_ORDER'
+      );
+    }
+
+    // Carrera residual: un pedido asignado justo después del chequeo no se detecta.
+    const driver = await Driver.findOneAndUpdate(
+      { _id: driverId, isActive: true },
+      { $set: { isActive: false } },
+      { new: true }
+    );
+    if (!driver) throw new AppError('El domiciliario ya está suspendido', 409);
+
+    void logAudit(req, {
+      action: AuditAction.DRIVER_SUSPENDED,
+      entity: 'driver',
+      entityId: driver._id.toString(),
+      severity: AuditSeverity.HIGH,
+      description: 'Domiciliario suspendido',
+    });
     return driver;
   }
 
-  async reactivateDriver(driverId: string) {
-    const driver = await Driver.findById(driverId);
-    if (!driver) throw new AppError('Domiciliario no encontrado', 404);
-    driver.isActive = true;
-    await driver.save();
+  async reactivateDriver(driverId: string, req: Request) {
+    if (!(await Driver.exists({ _id: driverId }))) throw new AppError('Domiciliario no encontrado', 404);
+
+    const driver = await Driver.findOneAndUpdate(
+      { _id: driverId, isActive: false },
+      { $set: { isActive: true } },
+      { new: true }
+    );
+    if (!driver) throw new AppError('El domiciliario ya está activo', 409);
+
+    void logAudit(req, {
+      action: AuditAction.DRIVER_REACTIVATED,
+      entity: 'driver',
+      entityId: driver._id.toString(),
+      severity: AuditSeverity.MEDIUM,
+      description: 'Domiciliario reactivado',
+    });
     return driver;
   }
 }

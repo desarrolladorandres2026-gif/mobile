@@ -667,7 +667,8 @@ describe('10 · Techo de efectivo sin rendir', () => {
     await cashReconciliationService.verifyByAdmin(
       [String(record!._id)],
       ctx.finance._id.toString(),
-      'Consignación 7781'
+      'Consignación 7781', 'https://example.com/comprobante.jpg',
+      record!.amount
     );
 
     const segundo = await createOrder(ctx, PaymentMethod.CASH_ON_DELIVERY);

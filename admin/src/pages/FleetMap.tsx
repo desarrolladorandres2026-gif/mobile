@@ -373,7 +373,7 @@ export default function FleetMap() {
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 lg:flex-row">
         <div
           ref={containerRef}
           className="zipp-card min-h-75 flex-1 overflow-hidden p-0"

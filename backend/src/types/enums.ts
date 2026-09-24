@@ -392,6 +392,45 @@ export enum LedgerAccount {
   REFUND = 'refund',
   /** Contra-revenue: forced reversal by the gateway. */
   CHARGEBACK = 'chargeback',
+  /**
+   * Activo: efectivo/banco que salió de tesorería al pagar una liquidación.
+   *
+   * Contrapartida del `DEBIT` que cancela `MERCHANT_PAYABLE`/`DRIVER_PAYABLE`
+   * cuando se registra el pago manual de una liquidación. Cuenta propia y no
+   * `CUSTOMER_PAYMENT` porque esa representa dinero que entra por la
+   * pasarela; esta es dinero que sale por transferencia/consignación manual,
+   * y mezclarlas taparía cuánto efectivo real ha desembolsado ZIPP.
+   */
+  PAYOUT_DISBURSEMENT = 'payout_disbursement',
+  /**
+   * Ingreso reconocido cuando una liquidación descuenta publicidad comprada
+   * por el comercio en vez de pagarla por pasarela. `AdInvoice` sigue siendo
+   * su propio modelo — esto solo registra, dentro del pedido que dejó de
+   * pagarse en efectivo, la parte que se compensó contra publicidad.
+   */
+  AD_SPEND_OFFSET = 'ad_spend_offset',
+  /**
+   * Cuenta puente: cuando un arrastre (`Payout.isClawback`) se cobra en una
+   * liquidación nueva, ese pedido nuevo la debita (parte de su neto no salió
+   * en efectivo) y el pedido viejo cuyo pasivo quedó negativo la acredita
+   * (cierra ese negativo a cero). Debe terminar en 0 tras cada liquidación
+   * pagada: es un cruce entre dos pedidos, no un saldo propio.
+   */
+  PAYOUT_OFFSET_CLEARING = 'payout_offset_clearing',
+  /**
+   * Gasto: la tarifa de un domiciliario en un pedido ya liquidado y luego
+   * reembolsado. Decisión de negocio: al domiciliario no se le arrastra —ya
+   * hizo el viaje—, así que ZIPP absorbe esa tarifa como costo en vez de
+   * dejar `DRIVER_PAYABLE` en negativo.
+   */
+  DRIVER_FEE_ABSORBED_EXPENSE = 'driver_fee_absorbed_expense',
+  /**
+   * Gasto: arrastre de comercio que finanzas dio por incobrable tras el
+   * seguimiento (`writeOffClawback`). Distinta de `CASH_SHORTAGE_EXPENSE`
+   * porque el origen es un reembolso tardío sobre un payout ya pagado, no un
+   * faltante de efectivo del domiciliario.
+   */
+  BAD_DEBT_EXPENSE = 'bad_debt_expense',
 }
 
 export enum LedgerDirection {
@@ -426,6 +465,14 @@ export enum LedgerEventType {
    * 007 para cerrar en cero cualquier pasivo `LOYALTY_PAYABLE` sobrante.
    */
   LOYALTY_REVERSED = 'loyalty_reversed',
+  /** Se registró el pago manual (transferencia/consignación) de una liquidación. */
+  SETTLEMENT_PAID = 'settlement_paid',
+  /** ZIPP asumió la tarifa de un domiciliario cuyo payout ya estaba pagado. */
+  DRIVER_FEE_ABSORBED = 'driver_fee_absorbed',
+  /** Un arrastre de comercio se cobró en una consignación bancaria propia. */
+  CLAWBACK_COLLECTED = 'clawback_collected',
+  /** Finanzas dio por incobrable un arrastre de comercio. */
+  CLAWBACK_WRITTEN_OFF = 'clawback_written_off',
 }
 
 /** Lifecycle of an amount the platform owes a merchant or a driver. */
@@ -438,6 +485,13 @@ export enum PayoutStatus {
   SETTLED = 'settled',
   /** Reversed by a cancellation, refund or chargeback. */
   REVERSED = 'reversed',
+  /**
+   * Solo para arrastres (`Payout.isClawback`): finanzas dio la deuda por
+   * incobrable tras el seguimiento. No es lo mismo que `REVERSED` — un
+   * arrastre revertido nunca existió como deuda real; este sí existió y se
+   * decidió no perseguirlo más.
+   */
+  WRITTEN_OFF = 'written_off',
 }
 
 export enum PayoutBeneficiary {
@@ -455,6 +509,27 @@ export enum RefundKind {
   FULL = 'full',
   PARTIAL = 'partial',
   CHARGEBACK = 'chargeback',
+  /**
+   * Reembolso ya ejecutado por fuera (dashboard de Wompi) porque la pasarela
+   * no admite reembolsos parciales por API. No llama al proveedor; solo
+   * reparte contablemente y deja auditoría de la referencia externa.
+   */
+  EXTERNAL = 'external',
+}
+
+/** Cómo se pagó manualmente una liquidación (Settlement). */
+export enum SettlementPaymentMethod {
+  BANK_TRANSFER = 'bank_transfer',
+  NEQUI = 'nequi',
+  DAVIPLATA = 'daviplata',
+  CASH = 'cash',
+  OTHER = 'other',
+}
+
+/** Estado de pago de una liquidación. Crearla no la paga. */
+export enum SettlementPaymentStatus {
+  PENDING = 'pending',
+  PAID = 'paid',
 }
 
 export enum NotificationType {

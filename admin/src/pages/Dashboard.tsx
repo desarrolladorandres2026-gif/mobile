@@ -2,9 +2,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   RefreshCw, ArrowUpRight,
-  CheckCircle2, CreditCard, Banknote
+  CheckCircle2, CreditCard, Banknote, AlertCircle
 } from 'lucide-react';
 import api from '../services/api';
+import { apiMessage } from '../lib/apiError';
 import { useAdminSocketEvents, useTrailingCallback } from '../hooks/useAdminSocket';
 import {
   PackageLogo, CashLogo, StoreLogo, DeliveryLogo,
@@ -37,8 +38,7 @@ export default function Dashboard() {
   const chartQuery = useQuery({
     queryKey: ['admin', 'dashboard', 'chart', days],
     queryFn: async () =>
-      ((await api.get(`/admin/revenue-chart?days=${days}`).catch(() => ({ data: { data: [] } }))).data.data ||
-        []) as RevenuePoint[],
+      ((await api.get(`/admin/revenue-chart?days=${days}`)).data.data || []) as RevenuePoint[],
     placeholderData: (previous) => previous,
   });
 
@@ -48,6 +48,8 @@ export default function Dashboard() {
   const revenueChartData = chartQuery.data ?? [];
   const loading = statsQuery.isPending;
   const refreshing = statsQuery.isFetching || financialsQuery.isFetching || recentQuery.isFetching;
+  const failedQuery = [statsQuery, financialsQuery, recentQuery, chartQuery].find((q) => q.isError);
+  const loadError = failedQuery ? apiMessage(failedQuery.error, 'No se pudieron cargar todas las métricas.') : '';
 
   const fetchDashboardData = () => {
     void queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
@@ -83,8 +85,8 @@ export default function Dashboard() {
     {
       title: 'Ventas de Hoy (GMV)',
       value: `$${(financials?.totalRevenue || stats?.todayRevenue || 0).toLocaleString('es-CO')}`,
-      sub: `Comisión ZIPP: $${(financials?.platformEarnings || stats?.todayCommission || 0).toLocaleString('es-CO')}`,
-      change: `COP`,
+      sub: `Ingreso ZIPP: $${(financials?.platformResult?.grossRevenue ?? stats?.platformResult?.grossRevenue ?? 0).toLocaleString('es-CO')}`,
+      change: financials?.platformResult?.incomplete ? 'Sin costos de pasarela' : `COP`,
       isPositive: true,
       Illustration: CashLogo,
     },
@@ -107,32 +109,38 @@ export default function Dashboard() {
   ];
 
   // 2. Real Payment Methods & Delivery stats
-  const totalRecent = recentOrders.length;
-  // El valor que guarda el backend es 'cash_on_delivery' (PaymentMethod).
-  // Comparar contra 'cash' nunca acertaba: el reparto entre efectivo y
-  // digital salía siempre 0 % / 100 %.
-  const cashCount = recentOrders.filter((o) => o.paymentMethod === 'cash_on_delivery').length;
-  const onlineCount = recentOrders.filter((o) => o.paymentMethod === 'online').length;
-  const deliveredCount = recentOrders.filter((o) => o.status === 'delivered').length;
-  const activeCount = recentOrders.filter((o) => ['pending', 'accepted', 'preparing', 'ready', 'picked_up', 'on_way'].includes(o.status)).length;
-  const deliveryRate = totalRecent > 0 ? ((deliveredCount / totalRecent) * 100).toFixed(1) : '0';
+  // Los agregados del día salen del servidor, sobre todos los pedidos del
+  // periodo. Antes se calculaban aquí sobre los 6 más recientes, y un "% de
+  // efectivo" de seis filas no decía nada del día.
+  const onlineCount = financials?.paymentBreakdown?.online.count ?? 0;
+  const cashCount = financials?.paymentBreakdown?.cash.count ?? 0;
+  const paidTotal = onlineCount + cashCount;
+  const deliveredCount = financials?.deliveredCount ?? 0;
+  const byStatus = financials?.ordersByStatus ?? {};
+  const activeCount = ['pending', 'accepted', 'preparing', 'ready', 'picked_up', 'on_way'].reduce(
+    (sum, status) => sum + (byStatus[status] ?? 0),
+    0
+  );
+  const activeTotal = activeCount + deliveredCount + (financials?.cancelledCount ?? 0);
+  const pct = (part: number, whole: number) => (whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : '0%');
+  const deliveryRate = (financials?.deliveryRate ?? 0).toFixed(1);
 
   const paymentBreakdown = [
     {
       name: 'Pago Digital / En Línea',
-      percent: totalRecent > 0 ? `${((onlineCount / totalRecent) * 100).toFixed(1)}%` : '0%',
-      count: `${onlineCount} pedidos`,
+      percent: pct(onlineCount, paidTotal),
+      count: `${onlineCount} pedidos hoy`,
       icon: CreditCard,
     },
     {
       name: 'Efectivo contra Entrega',
-      percent: totalRecent > 0 ? `${((cashCount / totalRecent) * 100).toFixed(1)}%` : '0%',
-      count: `${cashCount} pedidos`,
+      percent: pct(cashCount, paidTotal),
+      count: `${cashCount} pedidos hoy`,
       icon: Banknote,
     },
     {
       name: 'Pedidos en Curso',
-      percent: totalRecent > 0 ? `${((activeCount / totalRecent) * 100).toFixed(1)}%` : '0%',
+      percent: pct(activeCount, activeTotal),
       count: `${activeCount} activos`,
       icon: CheckCircle2,
     },
@@ -148,7 +156,8 @@ export default function Dashboard() {
   const chartData = revenueChartData.map((d: RevenuePoint) => ({
     date: d._id ? d._id.slice(5) : 'Día',
     orders: d.orders || 0,
-    revenue: d.revenue || 0,
+    // El gráfico muestra el ingreso de ZIPP (libro mayor), no el GMV.
+    revenue: d.platformRevenue ?? 0,
   }));
   const hasChartData = chartData.length > 0;
 
@@ -189,16 +198,22 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="animate-fade-in">
+      {loadError && (
+        <p className="mb-3 flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
+          <AlertCircle className="h-4 w-4 shrink-0" /> {loadError}
+          <button onClick={fetchDashboardData} className="cursor-pointer underline">Reintentar</button>
+        </p>
+      )}
       {/* ── ROW 1: 4 Top Real KPIs ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 pb-6 border-b border-[var(--color-border-light)] dark:border-[#232E46]">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-0 pb-3 border-b border-[var(--color-border)] sm:divide-x divide-[var(--color-border)]">
         {kpiCards.map((kpi, idx) => (
-          <div key={idx} className="flex items-start gap-3">
-            <kpi.Illustration size={34} />
+          <div key={idx} className="flex items-start gap-2.5 px-4 first:pl-0 py-1">
+            <kpi.Illustration size={28} />
             <div>
               <p className="text-xs font-semibold text-[var(--color-text-secondary)]">{kpi.title}</p>
-              <p className="kpi-value text-2xl font-bold text-[var(--color-text-main)] mt-0.5">{kpi.value}</p>
-              <div className="flex items-center gap-1.5 mt-1 text-[11px]">
+              <p className="kpi-value text-xl font-bold text-[var(--color-text-main)]">{kpi.value}</p>
+              <div className="flex items-center gap-1.5 text-[11px]">
                 <span className="font-bold text-[var(--color-primary)]">{kpi.change}</span>
                 <span className="text-[var(--color-text-muted)] font-medium">· {kpi.sub}</span>
               </div>
@@ -208,17 +223,17 @@ export default function Dashboard() {
       </div>
 
       {/* ── ROW 2: 3 Analytics & Performance Cards ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-0 py-3 border-b border-[var(--color-border)] lg:divide-x divide-[var(--color-border)]">
         {/* Card 1: Conversions / Entregas Efectivas (3 Cols) */}
-        <div className="lg:col-span-3 zipp-card p-5 flex flex-col justify-between">
+        <div className="lg:col-span-3 zipp-card pr-4 flex flex-col justify-between">
           <div>
             <h2 className="text-sm font-bold text-[var(--color-text-main)]">Efectividad Operativa</h2>
             <p className="text-[11px] text-[var(--color-text-muted)]">Tasa de pedidos entregados con éxito</p>
           </div>
 
           {/* Donut Progress Gauge */}
-          <div className="my-6 flex flex-col items-center justify-center relative">
-            <div className="relative w-40 h-40 flex items-center justify-center">
+          <div className="my-2 flex flex-col items-center justify-center relative">
+            <div className="relative w-28 h-28 flex items-center justify-center">
               <svg className="w-full h-full transform -rotate-90" viewBox="0 0 120 120">
                 <circle
                   cx="60"
@@ -242,20 +257,20 @@ export default function Dashboard() {
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-2">
-                <span className="text-2xl font-bold text-[var(--color-text-main)]">{deliveryRate}%</span>
+                <span className="text-xl font-bold text-[var(--color-text-main)]">{deliveryRate}%</span>
                 <span className="text-[10px] text-[var(--color-text-secondary)] font-medium leading-tight">Entregas Exitosas</span>
               </div>
             </div>
           </div>
 
           {/* Weekly Stats */}
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2 text-center pt-2 border-t border-[var(--color-border-light)]">
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2 text-center pt-2 border-t border-[var(--color-border)]">
               <div>
                 <p className="text-[11px] text-[var(--color-text-muted)]">Pedidos Hoy</p>
                 <p className="text-sm font-bold text-[var(--color-text-main)]">{stats?.todayOrders ?? 0}</p>
               </div>
-              <div className="border-l border-[var(--color-border-light)]">
+              <div className="border-l border-[var(--color-border)]">
                 <p className="text-[11px] text-[var(--color-text-muted)]">Esta Semana</p>
                 <p className="text-sm font-bold text-[var(--color-text-main)]">{stats?.weekOrders ?? 0}</p>
               </div>
@@ -263,7 +278,7 @@ export default function Dashboard() {
 
             <a
               href="/orders"
-              className="block w-full py-2 px-3 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] transition-colors text-center cursor-pointer"
+              className="block w-full py-1.5 px-3 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] transition-colors text-center cursor-pointer"
             >
               Ver Todos los Pedidos
             </a>
@@ -271,8 +286,8 @@ export default function Dashboard() {
         </div>
 
         {/* Card 2: Performance Chart (6 Cols) */}
-        <div className="lg:col-span-6 zipp-card p-5 flex flex-col justify-between">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+        <div className="lg:col-span-6 zipp-card px-4 flex flex-col justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
             <div>
               <h2 className="text-sm font-bold text-[var(--color-text-main)]">Rendimiento de Pedidos y Ventas</h2>
               <p className="text-[11px] text-[var(--color-text-muted)]">Evolución temporal de la demanda</p>
@@ -296,7 +311,7 @@ export default function Dashboard() {
           </div>
 
           {/* Alert Notice */}
-          <div className="mb-4 text-[11px] text-[#8A5D08] flex items-center justify-between">
+          <div className="mb-2 text-[11px] text-[#8A5D08] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-[var(--color-primary)] flex-shrink-0" />
               <span>Operación en tiempo real: {stats?.activeOrders ?? 0} pedidos procesándose en este momento.</span>
@@ -312,19 +327,19 @@ export default function Dashboard() {
 
           {/* Hybrid Bar (Teal Orders) + Spline Line (Blue Revenue) Chart */}
           {!hasChartData ? (
-            <div className="w-full h-56 flex items-center justify-center text-center text-[11px] text-[var(--color-text-muted)] font-medium">
+            <div className="w-full h-40 flex items-center justify-center text-center text-[11px] text-[var(--color-text-muted)] font-medium">
               Aún no hay datos de ventas para el periodo seleccionado.
             </div>
           ) : (
           <div className="w-full relative select-none">
-            <svg viewBox={`0 0 ${chartW + 40} ${chartH + 40}`} className="w-full h-56 overflow-visible">
+            <svg viewBox={`0 0 ${chartW + 40} ${chartH + 40}`} className="w-full h-40 overflow-visible">
               {/* Y Axis Gridlines */}
               {[4, 3, 2, 1, 0].map((step) => {
                 const val = Math.round((maxOrders / 4) * step);
                 const y = chartH - (step / 4) * chartH + 10;
                 return (
                   <g key={step}>
-                    <line x1="30" y1={y} x2={chartW + 30} y2={y} stroke="#EDF1F5" strokeDasharray="3 3" />
+                    <line x1="30" y1={y} x2={chartW + 30} y2={y} stroke="#E1E6ED" strokeDasharray="3 3" />
                     <text x="22" y={y + 3.5} textAnchor="end" fontSize="10" fill="#0B0F19" fontFamily="var(--font-sans)">
                       {val}
                     </text>
@@ -395,7 +410,7 @@ export default function Dashboard() {
           )}
 
           {/* Legend */}
-          <div className="flex items-center justify-center gap-6 mt-2 pt-3 border-t border-[var(--color-border-light)] text-xs">
+          <div className="flex items-center justify-center gap-3 mt-1 pt-2 border-t border-[var(--color-border)] text-xs">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-[var(--color-primary)]" />
               <span className="text-[var(--color-text-secondary)] text-[11px] font-medium">Volumen de Pedidos</span>
@@ -408,21 +423,21 @@ export default function Dashboard() {
         </div>
 
         {/* Card 3: Métodos de Pago y Canales (3 Cols) */}
-        <div className="lg:col-span-3 zipp-card p-5 flex flex-col justify-between">
+        <div className="lg:col-span-3 zipp-card pl-4 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-2">
               <h2 className="text-sm font-bold text-[var(--color-text-main)]">Canales y Métodos</h2>
             </div>
 
-            <div className="divide-y divide-[var(--color-border-light)] text-xs">
+            <div className="divide-y divide-[var(--color-border)] text-xs">
               {paymentBreakdown.map((b, idx) => (
-                <div key={idx} className="py-2.5 first:pt-0">
+                <div key={idx} className="py-1.5 first:pt-0">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[var(--color-text-main)] font-semibold flex items-center gap-1.5 truncate max-w-[130px]">
+                    <span className="text-[var(--color-text-main)] font-semibold flex items-center gap-1.5 min-w-0">
                       <b.icon className="w-3.5 h-3.5 text-[var(--color-primary)]" />
                       {b.name}
                     </span>
-                    <span className="text-[var(--color-primary)] font-bold">{b.percent}</span>
+                    <span className="text-[var(--color-primary)] font-bold flex-shrink-0 pl-2">{b.percent}</span>
                   </div>
                   <p className="text-[11px] text-[var(--color-text-secondary)]">{b.count}</p>
                 </div>
@@ -430,7 +445,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-[var(--color-border-light)] text-center">
+          <div className="mt-2 pt-2 border-t border-[var(--color-border)] text-center">
             <a href="/financials" className="text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] transition-colors">
               Ver Balances Financieros
             </a>
@@ -439,10 +454,10 @@ export default function Dashboard() {
       </div>
 
       {/* ── ROW 3: Últimos Pedidos en Vivo ── */}
-      <div className="grid grid-cols-1 gap-5">
+      <div className="grid grid-cols-1 pt-3">
         {/* Real Orders Table */}
-        <div className="zipp-card p-5 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-4">
+        <div className="zipp-card flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
             <div>
               <h2 className="text-sm font-bold text-[var(--color-text-main)]">Últimos Pedidos en Vivo</h2>
               <p className="text-[11px] text-[var(--color-text-muted)]">Actividad reciente de compras en la plataforma</p>
@@ -459,29 +474,29 @@ export default function Dashboard() {
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border-light)]">
-                  <th className="pb-2 font-semibold">ID Pedido</th>
-                  <th className="pb-2 font-semibold">Establecimiento</th>
-                  <th className="pb-2 font-semibold text-right">Total</th>
-                  <th className="pb-2 font-semibold text-right">Estado</th>
+                <tr className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
+                  <th className="pb-1.5 font-semibold">ID Pedido</th>
+                  <th className="pb-1.5 font-semibold">Establecimiento</th>
+                  <th className="pb-1.5 font-semibold text-right">Total</th>
+                  <th className="pb-1.5 font-semibold text-right">Estado</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[var(--color-bg)]">
+              <tbody className="divide-y divide-[var(--color-border)]">
                 {recentOrders.length > 0 ? (
                   recentOrders.slice(0, 5).map((o) => {
                     const st = getStatusBadge(o.status);
                     return (
                       <tr key={o._id} className="hover:bg-[var(--color-bg)] transition-colors">
-                        <td className="py-2.5 font-medium text-[var(--color-text-main)]">
+                        <td className="py-1.5 font-medium text-[var(--color-text-main)]">
                           <span className="font-mono text-[var(--color-primary)] font-bold">#{o._id.slice(-6).toUpperCase()}</span>
                         </td>
-                        <td className="py-2.5 text-[var(--color-text-main)] font-semibold truncate max-w-[140px]">
+                        <td className="py-1.5 text-[var(--color-text-main)] font-semibold truncate max-w-[140px]">
                           {o.businessId?.name || 'Establecimiento'}
                         </td>
-                        <td className="py-2.5 text-right font-bold text-[var(--color-text-main)]">
+                        <td className="py-1.5 text-right font-bold text-[var(--color-text-main)]">
                           ${(o.total || 0).toLocaleString('es-CO')}
                         </td>
-                        <td className="py-2.5 text-right">
+                        <td className="py-1.5 text-right">
                           <span className={`text-[10px] font-bold uppercase tracking-wide ${st.text}`}>
                             {st.label}
                           </span>
@@ -491,7 +506,7 @@ export default function Dashboard() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={4} className="py-8 text-center text-[var(--color-text-muted)] font-medium">
+                    <td colSpan={4} className="py-4 text-center text-[var(--color-text-muted)] font-medium">
                       No hay pedidos registrados todavía en el sistema.
                     </td>
                   </tr>
@@ -500,7 +515,7 @@ export default function Dashboard() {
             </table>
           </div>
 
-          <div className="mt-3 pt-2 text-right">
+          <div className="mt-2 pt-2 border-t border-[var(--color-border)] text-right">
             <span className="text-[11px] text-[var(--color-text-muted)]">Monitoreo central en vivo</span>
           </div>
         </div>
