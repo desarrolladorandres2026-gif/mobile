@@ -3,7 +3,9 @@ import {
   Inbox, RotateCw, UserCheck, Send, CheckCircle2, AlertTriangle, Timer, Scale,
 } from 'lucide-react';
 import api from '../services/api';
+import { Link } from 'react-router-dom';
 import { Permission } from '../lib/permissions';
+import { useAuthStore } from '../stores/authStore';
 import { PermissionGate } from '../components/PermissionGate';
 import EntityLink from '../components/EntityLink';
 import { apiMessage } from '../lib/apiError';
@@ -39,8 +41,16 @@ interface Ticket {
   orderId?: { _id: string; orderNumber?: string; status?: string } | null;
   businessId?: { _id: string; name?: string } | null;
   driverId?: { _id: string; userId?: { _id: string; name?: string } } | null;
+  requesterRole?: 'customer' | 'business' | 'driver';
   responses?: Array<{ message: string; createdAt: string }>;
   createdAt: string;
+}
+
+interface Macro {
+  _id: string;
+  title: string;
+  body: string;
+  appliesTo: Ticket['type'][];
 }
 
 interface Metrics {
@@ -61,6 +71,21 @@ const TYPE_LABEL: Record<Ticket['type'], string> = {
   claim: 'Reclamo',
   suggestion: 'Sugerencia',
 };
+
+const REQUESTER_LABEL: Record<NonNullable<Ticket['requesterRole']>, string> = {
+  customer: 'Cliente',
+  business: 'Comercio',
+  driver: 'Domiciliario',
+};
+
+/** Sustituye las variables de una respuesta predefinida con los datos del caso. */
+function fillMacro(body: string, ticket: Ticket, agent?: string): string {
+  const client = typeof ticket.userId === 'object' ? ticket.userId?.name : undefined;
+  return body
+    .replace(/\{\{cliente\}\}/g, client ?? '')
+    .replace(/\{\{pedido\}\}/g, ticket.orderId ? `#${ticket.orderId.orderNumber ?? ticket.orderId._id.slice(-8)}` : '')
+    .replace(/\{\{agente\}\}/g, agent ?? '');
+}
 
 const PRIORITY: Record<Ticket['priority'], { label: string; chip: string }> = {
   urgent: { label: 'Urgente', chip: 'bg-[var(--color-danger)] text-white' },
@@ -94,6 +119,13 @@ export default function Support() {
   const [onlyOverdue, setOnlyOverdue] = useState(false);
   const [onlyLegalOverdue, setOnlyLegalOverdue] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [view, setView] = useState<'open' | 'answered'>('open');
+  const [type, setType] = useState('');
+  const [requester, setRequester] = useState('');
+  const [search, setSearch] = useState('');
+  const [term, setTerm] = useState('');
+  const [macros, setMacros] = useState<Macro[]>([]);
+  const agentName = useAuthStore((state) => state.user?.name);
   const [reply, setReply] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -104,6 +136,10 @@ export default function Support() {
       const params: Record<string, string> = {};
       if (onlyOverdue) params.overdue = 'true';
       if (onlyLegalOverdue) params.legalOverdue = 'true';
+      if (view === 'answered') params.view = 'answered';
+      if (type) params.type = type;
+      if (requester) params.requesterRole = requester;
+      if (term) params.q = term;
       const [queue, totals] = await Promise.all([
         api.get('/pqrs/support/queue', { params }),
         api.get('/pqrs/support/metrics'),
@@ -116,11 +152,21 @@ export default function Support() {
     } finally {
       setLoading(false);
     }
-  }, [onlyOverdue, onlyLegalOverdue]);
+  }, [onlyOverdue, onlyLegalOverdue, view, type, requester, term]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // La búsqueda espera a que se deje de teclear: una consulta por letra es ruido.
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => {
+    api.get('/pqrs/macros').then((r) => setMacros(r.data.data ?? [])).catch(() => setMacros([]));
+  }, []);
 
   /** Envuelve una acción para que el error se vea en la pantalla, no en la consola. */
   const run = async (action: () => Promise<unknown>) => {
@@ -135,6 +181,9 @@ export default function Support() {
       setBusy(false);
     }
   };
+
+  const changePriority = (id: string, priority: string) =>
+    run(() => api.patch(`/pqrs/${id}/classify`, { priority }));
 
   const assignToMe = (id: string) => run(() => api.patch(`/pqrs/${id}/assign`, {}));
 
@@ -158,7 +207,7 @@ export default function Support() {
         <div>
           <h1 className="page-title">Soporte</h1>
           <p className="page-subtitle">
-            PQRS de clientes en una sola bandeja. Primero lo que vence por ley, luego por SLA interno
+            PQRS de clientes, comercios y domiciliarios en una sola bandeja. Primero lo que vence por ley, luego por SLA interno
           </p>
         </div>
         <button
@@ -196,7 +245,47 @@ export default function Support() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-5">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <div className="flex gap-4 border-b border-[var(--color-border-light)]">
+          {([['open', 'Por responder'], ['answered', 'Respondidos']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              className={`cursor-pointer pb-1.5 text-xs font-bold ${
+                view === key
+                  ? 'border-b-2 border-[var(--color-primary)] text-[var(--color-text-main)]'
+                  : 'text-[var(--color-text-muted)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+        >
+          <option value="">Todos los tipos</option>
+          {Object.entries(TYPE_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+        <select
+          value={requester}
+          onChange={(e) => setRequester(e.target.value)}
+          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+        >
+          <option value="">Quien lo abrió: todos</option>
+          {Object.entries(REQUESTER_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar en asunto o detalle"
+          className="w-56 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
+        />
+        <Link to="/support-macros" className="text-xs font-semibold text-[var(--color-primary)] underline">
+          Respuestas predefinidas
+        </Link>
         <label className="flex w-fit cursor-pointer items-center gap-2 text-xs font-semibold text-[var(--color-text-secondary)]">
           <input
             type="checkbox"
@@ -281,7 +370,7 @@ export default function Support() {
                       ) : null}
                     </div>
                     <p className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)]">
-                      {TYPE_LABEL[ticket.type]} ·{' '}
+                      {TYPE_LABEL[ticket.type]} · {REQUESTER_LABEL[ticket.requesterRole ?? 'customer']} ·{' '}
                       <EntityLink type="user" id={userIdOf(ticket.userId)}>{nameOf(ticket.userId) ?? 'Usuario'}</EntityLink> ·{' '}
                       {agent ? `lo lleva ${agent}` : 'sin asignar'}
                     </p>
@@ -314,7 +403,7 @@ export default function Support() {
                     hideWhenDenied
                     className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] hover:no-underline"
                   >
-                    Ver cliente
+                    Ver cuenta
                   </EntityLink>
                   {!agent ? (
                     <PermissionGate permission={Permission.SUPPORT_MANAGE}>
@@ -360,6 +449,35 @@ export default function Support() {
                         ))}
                       </ul>
                     ) : null}
+
+                    <PermissionGate permission={Permission.SUPPORT_MANAGE}>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const macro = macros.find((m) => m._id === e.target.value);
+                            if (macro) setReply(fillMacro(macro.body, ticket, agentName));
+                          }}
+                          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+                        >
+                          <option value="">Insertar respuesta predefinida…</option>
+                          {macros
+                            .filter((m) => m.appliesTo.length === 0 || m.appliesTo.includes(ticket.type))
+                            .map((m) => <option key={m._id} value={m._id}>{m.title}</option>)}
+                        </select>
+                        <label className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                          Prioridad
+                          <select
+                            value={ticket.priority}
+                            disabled={busy}
+                            onChange={(e) => changePriority(ticket._id, e.target.value)}
+                            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+                          >
+                            {Object.entries(PRIORITY).map(([key, { label }]) => <option key={key} value={key}>{label}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                    </PermissionGate>
 
                     <textarea
                       value={reply}

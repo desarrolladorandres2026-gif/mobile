@@ -81,6 +81,20 @@ interface DailySummary {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
+interface ZoneRow {
+  zoneId: string | null;
+  name: string;
+  city: string | null;
+  ordersCreated: number;
+  ordersDelivered: number;
+  ordersCancelled: number;
+  cancelRate: number | null;
+  avgDeliveryMinutes: number | null;
+  /** Ausentes sin `finance:view`. */
+  gmv?: number;
+  driverPayouts?: number;
+}
+
 const money = (v: number) => `$${Math.round(v ?? 0).toLocaleString('es-CO')}`;
 const num = (v: number) => (v ?? 0).toLocaleString('es-CO');
 
@@ -142,6 +156,7 @@ export default function DailySummary() {
   const [data, setData] = useState<DailySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [zones, setZones] = useState<ZoneRow[] | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -149,6 +164,10 @@ export default function DailySummary() {
       setLoadError('');
       const res = await api.get(`/admin/daily-summary?date=${date}`);
       setData(res.data.data);
+      // El corte por zona es un extra: si falla, el resumen del día sigue.
+      api.get(`/admin/daily-summary/zones?date=${date}`)
+        .then((z) => setZones(z.data.data.zones))
+        .catch(() => setZones(null));
     } catch (err) {
       console.error('Error cargando el resumen diario:', err);
       setLoadError(apiMessage(err, 'No se pudo cargar el resumen de este día.'));
@@ -331,6 +350,51 @@ export default function DailySummary() {
                 hint={money(t.refundsAmount)} />
             </div>
           </Card>
+
+          {zones && (
+            <Card title="Por zona de entrega">
+              {zones.length === 0 ? (
+                <p className="py-2 text-xs text-[var(--color-text-muted)]">Sin pedidos este día.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[520px] text-xs">
+                    <thead>
+                      <tr className="text-left text-[10px] uppercase tracking-wider text-[var(--color-text-muted)]">
+                        <th className="pb-1 font-semibold">Zona</th>
+                        <th className="pb-1 font-semibold text-right">Creados</th>
+                        <th className="pb-1 font-semibold text-right">Entregados</th>
+                        <th className="pb-1 font-semibold text-right">Cancelados</th>
+                        <th className="pb-1 font-semibold text-right">Minutos</th>
+                        {zones[0]?.gmv !== undefined && <th className="pb-1 font-semibold text-right">GMV</th>}
+                        {zones[0]?.driverPayouts !== undefined && <th className="pb-1 font-semibold text-right">A domiciliarios</th>}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--color-border)]">
+                      {zones.map((z) => (
+                        <tr key={z.zoneId ?? 'none'}>
+                          <td className="py-1 font-semibold text-[var(--color-text-main)] dark:text-[#EDF1F5]">
+                            {z.name}{z.city ? <span className="font-normal text-[var(--color-text-muted)]"> · {z.city}</span> : null}
+                          </td>
+                          <td className="py-1 text-right tabular">{num(z.ordersCreated)}</td>
+                          <td className="py-1 text-right tabular">{num(z.ordersDelivered)}</td>
+                          <td className="py-1 text-right tabular">
+                            {num(z.ordersCancelled)}
+                            {z.cancelRate != null && <span className="text-[var(--color-text-muted)]"> ({z.cancelRate}%)</span>}
+                          </td>
+                          <td className="py-1 text-right tabular">{z.avgDeliveryMinutes ?? '—'}</td>
+                          {z.gmv !== undefined && <td className="py-1 text-right tabular">{money(z.gmv)}</td>}
+                          {z.driverPayouts !== undefined && <td className="py-1 text-right tabular">{money(z.driverPayouts)}</td>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="mt-2 text-[10px] text-[var(--color-text-muted)]">
+                    “Sin zona” son mandados, recogida en local y pedidos anteriores a las zonas.
+                  </p>
+                </div>
+              )}
+            </Card>
+          )}
 
           <p className="text-[10px] text-[var(--color-text-muted)] text-right">
             Generado {new Date(data!.generatedAt).toLocaleString('es-CO')}

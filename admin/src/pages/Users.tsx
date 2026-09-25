@@ -230,16 +230,24 @@ export default function Users() {
   const saveAccess = async () => {
     if (!accessUser) return;
     setSaving(true);
+    // Uno tras otro y no en paralelo: el backend rechaza con 403 lo que dé
+    // más permisos de los que tiene quien asigna, y en paralelo podía
+    // guardarse el cargo y fallar los roles sin que el aviso lo dijera.
+    let positionSaved = false;
     try {
-      await Promise.all([
-        api.patch(`/admin/users/${accessUser._id}/position`, { positionId: accessForm.positionId || null }),
-        api.patch(`/admin/users/${accessUser._id}/roles`, { roleIds: accessForm.roleIds }),
-      ]);
+      await api.patch(`/admin/users/${accessUser._id}/position`, { positionId: accessForm.positionId || null });
+      positionSaved = true;
+      await api.patch(`/admin/users/${accessUser._id}/roles`, { roleIds: accessForm.roleIds });
       setToast({ message: 'Cargo y roles actualizados', type: 'success' });
       setAccessUser(null);
       fetchUsers();
     } catch (err) {
-      setToast({ message: apiMessage(err, 'Error al actualizar el acceso'), type: 'error' });
+      const reason = apiMessage(err, 'Error al actualizar el acceso');
+      setToast({
+        message: positionSaved ? `Se guardó el cargo, pero no los roles: ${reason}` : `No se guardó nada: ${reason}`,
+        type: 'error',
+      });
+      if (positionSaved) fetchUsers();
     } finally {
       setSaving(false);
     }

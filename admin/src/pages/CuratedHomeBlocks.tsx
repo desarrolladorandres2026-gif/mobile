@@ -24,7 +24,38 @@ interface CuratedBlock {
   isActive: boolean;
   startDate?: string;
   endDate?: string;
+  dayparts?: Daypart[];
+  weekdays?: number[];
 }
+
+type Daypart = 'madrugada' | 'manana' | 'tarde' | 'noche';
+
+interface OrderSlot {
+  order: number;
+  source: 'collection' | 'curated' | 'promo';
+  title: string;
+  live: boolean;
+  reason: string | null;
+  outranked: boolean;
+}
+
+const DAYPART_OPTIONS: { key: Daypart; label: string }[] = [
+  { key: 'madrugada', label: 'Madrugada (23–5 h)' },
+  { key: 'manana', label: 'Mañana (5–11 h)' },
+  { key: 'tarde', label: 'Tarde (11–18 h)' },
+  { key: 'noche', label: 'Noche (18–23 h)' },
+];
+
+const WEEKDAY_OPTIONS = [
+  { key: 1, label: 'Lun' }, { key: 2, label: 'Mar' }, { key: 3, label: 'Mié' },
+  { key: 4, label: 'Jue' }, { key: 5, label: 'Vie' }, { key: 6, label: 'Sáb' }, { key: 0, label: 'Dom' },
+];
+
+const SOURCE_LABEL: Record<OrderSlot['source'], string> = {
+  collection: 'Colección automática',
+  curated: 'Bloque curado',
+  promo: 'Banner anclado',
+};
 
 interface BlockForm {
   kind: BlockKind;
@@ -36,6 +67,8 @@ interface BlockForm {
   hasSchedule: boolean;
   startDate: string;
   endDate: string;
+  dayparts: Daypart[];
+  weekdays: number[];
 }
 
 interface PickerProduct { _id: string; name: string; imageUrl?: string; businessId?: string }
@@ -92,6 +125,8 @@ const emptyForm = (): BlockForm => ({
   hasSchedule: false,
   startDate: toDatetimeLocal(new Date().toISOString()),
   endDate: toDatetimeLocal(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()),
+  dayparts: [],
+  weekdays: [],
 });
 
 export default function CuratedHomeBlocks() {
@@ -101,6 +136,8 @@ export default function CuratedHomeBlocks() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [kindFilter, setKindFilter] = useState<'all' | BlockKind>('all');
+  const [orderMap, setOrderMap] = useState<OrderSlot[]>([]);
+  const [showOrderMap, setShowOrderMap] = useState(false);
 
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -120,12 +157,14 @@ export default function CuratedHomeBlocks() {
     try {
       setLoading(true);
       setError('');
-      const [resBlocks, resBiz] = await Promise.all([
+      const [resBlocks, resBiz, resMap] = await Promise.all([
         api.get('/curated-home-blocks?limit=100'),
         fetchBusinessOptions(queryClient),
+        api.get('/curated-home-blocks/order-map').catch(() => ({ data: { data: [] } })),
       ]);
       setBlocks(resBlocks.data.data);
       setBusinesses(resBiz.data.data);
+      setOrderMap(resMap.data.data ?? []);
     } catch (err) {
       console.error(err);
       setError('No se pudieron cargar los bloques curados.');
@@ -176,6 +215,8 @@ export default function CuratedHomeBlocks() {
       hasSchedule: !!(b.startDate || b.endDate),
       startDate: b.startDate ? toDatetimeLocal(b.startDate) : emptyForm().startDate,
       endDate: b.endDate ? toDatetimeLocal(b.endDate) : emptyForm().endDate,
+      dayparts: b.dayparts ?? [],
+      weekdays: b.weekdays ?? [],
     });
     setPickerSearch('');
     if (b.kind === 'productBanner') {
@@ -221,6 +262,8 @@ export default function CuratedHomeBlocks() {
       items: form.items,
       order: Number(form.order),
       isActive: form.isActive,
+      dayparts: form.dayparts,
+      weekdays: form.weekdays,
     };
     if (form.hasSchedule) {
       payload.startDate = new Date(form.startDate).toISOString();
@@ -302,6 +345,37 @@ export default function CuratedHomeBlocks() {
           <span>Crear bloque</span>
         </button>
         </PermissionGate>
+      </div>
+
+      <div className="border-b border-[var(--color-border-light)] pb-3">
+        <button
+          onClick={() => setShowOrderMap((v) => !v)}
+          className="cursor-pointer text-xs font-bold text-[var(--color-primary)]"
+        >
+          {showOrderMap ? 'Ocultar' : 'Ver'} el orden del Inicio
+        </button>
+        {showOrderMap && (
+          <div className="mt-3 space-y-2">
+            <p className="text-[11px] text-[var(--color-text-muted)]">
+              Colecciones automáticas, bloques curados y banners anclados comparten un mismo número de orden.
+              Si dos comparten el número, gana la colección automática, luego el bloque curado y por último el banner:
+              la que pierde sigue apareciendo, pero después. La publicidad de pago no ocupa huecos del Inicio (va en el splash y en Explorar).
+            </p>
+            <ul>
+              {orderMap.map((slot, i) => (
+                <li key={`${slot.source}-${i}`} className="flex flex-wrap items-baseline gap-x-4 border-b border-[var(--color-border-light)] py-1.5 text-xs">
+                  <span className="w-10 font-bold tabular-nums text-[var(--color-text-main)]">{slot.order}</span>
+                  <span className={`flex-1 font-semibold ${slot.live ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-muted)]'}`}>{slot.title}</span>
+                  <span className="text-[var(--color-text-secondary)]">{SOURCE_LABEL[slot.source]}</span>
+                  <span className="w-56 text-right text-[var(--color-text-muted)]">
+                    {!slot.live ? slot.reason : slot.outranked ? 'Comparte número: va después' : 'En el Inicio ahora'}
+                  </span>
+                </li>
+              ))}
+              {orderMap.length === 0 && <li className="py-3 text-xs text-[var(--color-text-muted)]">Sin datos.</li>}
+            </ul>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-1.5 overflow-x-auto pb-1">
@@ -603,6 +677,46 @@ export default function CuratedHomeBlocks() {
                     Sin fechas, el bloque queda siempre vigente mientras esté activo.
                   </p>
                 )}
+              </div>
+
+              <div>
+                <label className={labelClass}>Franja del día (hora de Bogotá)</label>
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                  {DAYPART_OPTIONS.map((d) => (
+                    <label key={d.key} className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-main)] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.dayparts.includes(d.key)}
+                        onChange={() => setForm((f) => ({
+                          ...f,
+                          dayparts: f.dayparts.includes(d.key) ? f.dayparts.filter((x) => x !== d.key) : [...f.dayparts, d.key],
+                        }))}
+                        className="w-4 h-4 rounded accent-[var(--color-primary)] cursor-pointer"
+                      />
+                      {d.label}
+                    </label>
+                  ))}
+                </div>
+                <label className={`${labelClass} mt-3`}>Días de la semana</label>
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                  {WEEKDAY_OPTIONS.map((d) => (
+                    <label key={d.key} className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-main)] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.weekdays.includes(d.key)}
+                        onChange={() => setForm((f) => ({
+                          ...f,
+                          weekdays: f.weekdays.includes(d.key) ? f.weekdays.filter((x) => x !== d.key) : [...f.weekdays, d.key],
+                        }))}
+                        className="w-4 h-4 rounded accent-[var(--color-primary)] cursor-pointer"
+                      />
+                      {d.label}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[11px] text-[var(--color-text-muted)]">
+                  Sin marcar nada, el bloque sale a cualquier hora y cualquier día. El cambio de franja tarda hasta un minuto en verse en la app.
+                </p>
               </div>
 
               <button

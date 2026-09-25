@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import {
   Percent, Bike, Receipt, History, Save, AlertTriangle, Lock, CheckCircle2,
-  MapPin, Wallet, Banknote
+  MapPin, Wallet, Banknote, CreditCard
 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage, apiStatus } from '../lib/apiError';
@@ -32,6 +32,15 @@ interface PricingConfig {
   defaultMinimumContributionMargin: number;
   cashOnDeliveryEnabled: boolean;
   cashOnDeliveryMaxAmount: number;
+  gatewayCardBps: number;
+  gatewayCardFixed: number;
+  gatewayPseBps: number;
+  gatewayPseFixed: number;
+  gatewayNequiBps: number;
+  gatewayNequiFixed: number;
+  gatewayOtherBps: number;
+  gatewayOtherFixed: number;
+  gatewayFeeVatBps: number;
   changeReason: string;
   updatedAt: string;
 }
@@ -362,6 +371,20 @@ export default function Pricing() {
         <>
           {campoToggle('cashOnDeliveryEnabled', 'Pago en Efectivo', 'Con esto apagado, el checkout rechaza cualquier intento de pagar contra entrega.')}
           {campoMoneda('cashOnDeliveryMaxAmount', 'Tope por Pedido en Efectivo', 'Un pedido que supere este total obliga a pagar en línea.')}
+        </>
+      ))}
+
+      {seccion(CreditCard, 'Comisión de la Pasarela (Wompi)', 'La tarifa de tu contrato con Wompi, por método. Cada cobro aprobado asienta esta comisión como gasto y el resultado de la plataforma la resta. En 0 significa sin configurar: no se asienta nada y las cifras de margen siguen marcadas como incompletas.', (
+        <>
+          {campoBps('gatewayCardBps', 'Tarjeta: Porcentaje')}
+          {campoMoneda('gatewayCardFixed', 'Tarjeta: Fijo por Cobro')}
+          {campoBps('gatewayPseBps', 'PSE: Porcentaje')}
+          {campoMoneda('gatewayPseFixed', 'PSE: Fijo por Cobro')}
+          {campoBps('gatewayNequiBps', 'Nequi: Porcentaje')}
+          {campoMoneda('gatewayNequiFixed', 'Nequi: Fijo por Cobro')}
+          {campoBps('gatewayOtherBps', 'Otros Métodos: Porcentaje', 'Bancolombia, Daviplata y cualquier otro carril de Wompi.')}
+          {campoMoneda('gatewayOtherFixed', 'Otros Métodos: Fijo por Cobro')}
+          {campoBps('gatewayFeeVatBps', 'IVA sobre la Comisión', 'El IVA que Wompi le suma a su propia comisión. Solo aplica si tu contrato lo cobra aparte.')}
         </>
       ))}
 

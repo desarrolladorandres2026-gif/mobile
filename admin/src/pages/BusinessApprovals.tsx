@@ -100,6 +100,8 @@ export default function BusinessApprovals() {
   const canProcessPayouts = useAuthStore((s) => s.hasPermission(Permission.PAYOUTS_PROCESS));
   const canRevealAccount = useAuthStore((s) => s.hasPermission(Permission.PAYOUTS_REVEAL_ACCOUNT));
   const [pending, setPending] = useState<PendingBusiness[]>([]);
+  const [search, setSearch] = useState('');
+  const [order, setOrder] = useState<'oldest' | 'newest' | 'missing'>('oldest');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [working, setWorking] = useState<string | null>(null);
@@ -200,6 +202,17 @@ export default function BusinessApprovals() {
     }
   };
 
+  const term = search.trim().toLowerCase();
+  const visible = pending
+    .filter((b) => !term || [b.name, b.city, b.ownerId?.name].some((v) => v?.toLowerCase().includes(term)))
+    .sort((a, b) =>
+      order === 'newest'
+        ? new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        : order === 'missing'
+          ? b.missingDocuments.length - a.missingDocuments.length
+          : new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+
   return (
     <div className="space-y-3">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
@@ -223,6 +236,26 @@ export default function BusinessApprovals() {
         </p>
       )}
 
+      {!loading && pending.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por comercio, ciudad o dueño"
+          className="w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
+        />
+          <select
+            value={order}
+            onChange={(e) => setOrder(e.target.value as typeof order)}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+          >
+            <option value="oldest">Los que más esperan primero</option>
+            <option value="newest">Los más recientes primero</option>
+            <option value="missing">Los que más documentos les faltan</option>
+          </select>
+        </div>
+      )}
+
       {loading ? (
         <p className="py-16 text-center text-xs font-semibold text-[var(--color-text-secondary)]">Cargando comercios...</p>
       ) : pending.length === 0 ? (
@@ -233,7 +266,7 @@ export default function BusinessApprovals() {
         </div>
       ) : (
         <ul>
-          {pending.map((business) => {
+          {visible.map((business) => {
             const open = openId === business._id;
             const fiscal = business.fiscal;
             const l = legal[business._id];

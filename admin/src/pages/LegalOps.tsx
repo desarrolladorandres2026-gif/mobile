@@ -23,6 +23,8 @@ interface DataRequest {
   response?: string;
   createdAt?: string;
   legalDueAt?: string | null;
+  extendedAt?: string | null;
+  extensionReason?: string;
   legalOverdue?: boolean;
   legalDueSoon?: boolean;
   userId?: { _id?: string; name?: string; email?: string } | string;
@@ -48,11 +50,15 @@ const day = (iso?: string | null) =>
 
 type Pending = { request: DataRequest; status: 'resolved' | 'rejected'; anonymize: boolean };
 
+/** Días hábiles que la ley permite añadir una sola vez: 5 a la consulta, 8 al reclamo. */
+const EXTENSION_DAYS: Record<DataRequest['type'], number> = { access: 5, rectify: 8, update: 8, delete: 8, revoke: 8 };
+
 export default function LegalOps() {
   const [requests, setRequests] = useState<DataRequest[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [extending, setExtending] = useState<DataRequest | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -82,6 +88,23 @@ export default function LegalOps() {
     }
   };
 
+  const act = async (action: () => Promise<unknown>, fallback: string) => {
+    try {
+      setError('');
+      await action();
+      await load();
+    } catch (err) {
+      setError(apiMessage(err, fallback));
+    }
+  };
+
+  const extend = (reason?: string) => {
+    const request = extending;
+    setExtending(null);
+    if (!request || !reason) return;
+    act(() => api.patch(`/legal/admin/data-requests/${request._id}/extend`, { reason }), 'No se pudo ampliar el plazo.');
+  };
+
   const open = requests.filter((r) => r.status === 'received' || r.status === 'in_review');
   const closed = requests.filter((r) => r.status === 'resolved' || r.status === 'rejected');
   const overdue = open.filter((r) => r.legalOverdue).length;
@@ -104,6 +127,9 @@ export default function LegalOps() {
         </td>
         <td className={`${cellClass} whitespace-nowrap`}>
           <p>Recibida {day(r.createdAt)}</p>
+          {r.extendedAt && (
+            <p className="text-[10px] font-semibold text-[var(--color-text-muted)]">Plazo ampliado {day(r.extendedAt)}</p>
+          )}
           {isOpen && r.legalDueAt && (
             <p
               className={`flex items-center gap-1 font-bold ${
@@ -124,6 +150,26 @@ export default function LegalOps() {
         <td className={`${cellClass} text-right`}>
           {isOpen && (
             <div className="flex flex-wrap justify-end gap-1.5">
+              {r.status === 'received' && (
+                <PermissionGate permission={Permission.LEGAL_MANAGE}>
+                <button
+                  onClick={() => act(() => api.patch(`/legal/admin/data-requests/${r._id}/take`), 'No se pudo tomar la solicitud.')}
+                  className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[11px] font-semibold"
+                >
+                  Tomar
+                </button>
+                </PermissionGate>
+              )}
+              {!r.extendedAt && !r.legalOverdue && (
+                <PermissionGate permission={Permission.LEGAL_MANAGE}>
+                <button
+                  onClick={() => setExtending(r)}
+                  className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[11px] font-semibold"
+                >
+                  Ampliar plazo
+                </button>
+                </PermissionGate>
+              )}
               <PermissionGate permission={Permission.LEGAL_MANAGE}>
               <button
                 onClick={() => setPending({ request: r, status: 'resolved', anonymize: false })}
@@ -207,6 +253,18 @@ export default function LegalOps() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {extending && (
+        <ConfirmDialog
+          title="Ampliar el plazo de la solicitud"
+          message={`La ley permite una sola prórroga de ${EXTENSION_DAYS[extending.type]} días hábiles, y hay que avisar al titular antes de que venza. Se le envía el motivo.`}
+          confirmLabel="Ampliar y avisar"
+          variant="warning"
+          reason={{ label: 'Motivo para el titular', placeholder: 'Por qué necesitamos más tiempo', minLength: 10 }}
+          onConfirm={extend}
+          onCancel={() => setExtending(null)}
+        />
       )}
 
       {pending && (

@@ -380,6 +380,12 @@ export default function BusinessProfile360({
                   </PermissionGate>
                 </div>
 
+                {b.suspendedBy && b.isSuspended && (
+                  <p className="text-[var(--color-text-muted)]">
+                    Suspendido por {b.suspendedBy.name}
+                    {b.suspendedAt ? ` el ${day(b.suspendedAt)}` : ''}.
+                  </p>
+                )}
                 {notice && <p className="font-semibold text-[#047857]">{notice}</p>}
                 {actionError && <ErrorLine>{actionError}</ErrorLine>}
 
@@ -504,10 +510,14 @@ export default function BusinessProfile360({
                           ? 'Verificada'
                           : data.payoutAccount.status === 'pendingVerification'
                             ? 'Por verificar'
-                            : data.payoutAccount.status
+                            : data.payoutAccount.status === 'none'
+                              ? 'Sin cuenta registrada'
+                              : data.payoutAccount.status
                       }
                     />
                     <Fact label="Banco" value={data.payoutAccount.bankName} />
+                    <Fact label="Tipo" value={data.payoutAccount.accountType} />
+                    <Fact label="Verificada" value={data.payoutAccount.verifiedAt ? day(data.payoutAccount.verifiedAt) : undefined} />
                     <Fact label="Terminada en" value={data.payoutAccount.last4} />
                   </div>
                 </Section>
@@ -567,6 +577,7 @@ export default function BusinessProfile360({
                           left={
                             <>
                               {m.name}
+                              {m.isActive === false ? ' (inactivo)' : ''}
                               {m.phone ? ` · ${m.phone}` : ''}
                               {m.createdAt ? ` · desde ${day(m.createdAt)}` : ''}
                             </>
@@ -667,7 +678,7 @@ export default function BusinessProfile360({
                           <Row
                             key={ad._id}
                             left={`${ad.title ?? 'Anuncio'}${ad.endDate ? ` · hasta ${day(ad.endDate)}` : ''}`}
-                            right={ad.status}
+                            right={ad.status === 'cancelled' ? 'Cancelado' : ad.status}
                           />
                         ))}
                       </ul>
@@ -679,7 +690,7 @@ export default function BusinessProfile360({
                         {data.ads.invoices.map((inv) => (
                           <Row
                             key={inv._id}
-                            left={`${day(inv.createdAt)} · ${inv.status ?? ''}`}
+                            left={`${day(inv.createdAt)} · ${inv.status === 'settled' ? 'Pagada' : inv.status === 'pending' ? 'Pendiente' : inv.status ?? ''}`}
                             right={inv.amount != null ? money(inv.amount) : undefined}
                           />
                         ))}

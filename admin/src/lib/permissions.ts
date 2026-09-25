@@ -101,6 +101,7 @@ export const Permission = {
   SUPPORT_MANAGE: 'support:manage',
   LEGAL_VIEW: 'legal:view',
   LEGAL_MANAGE: 'legal:manage',
+  LEGAL_PUBLISH: 'legal:publish',
   SOS_VIEW: 'sos:view',
   SOS_MANAGE: 'sos:manage',
 } as const;

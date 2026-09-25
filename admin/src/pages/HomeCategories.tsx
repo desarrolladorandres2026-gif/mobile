@@ -6,6 +6,7 @@ import {
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
+import { useAuthStore } from '../stores/authStore';
 import { sizedImage } from '../lib/cloudinary';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
@@ -34,6 +35,7 @@ interface CategoryForm {
 const emptyForm = (): CategoryForm => ({ key: '', name: '', imageUrl: '', color: '', status: 'active' });
 
 export default function HomeCategories() {
+  const canManage = useAuthStore((s) => s.hasPermission(Permission.CONTENT_MANAGE));
   const [categories, setCategories] = useState<HomeCategoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -191,7 +193,8 @@ export default function HomeCategories() {
     `${c.name} ${c.key}`.toLowerCase().includes(search.toLowerCase())
   );
 
-  const canDrag = search === '';
+  // Reordenar escribe: sin `content:manage` el backend respondería 403.
+  const canDrag = search === '' && canManage;
 
   const inputClass = 'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-muted)]';
   const labelClass = 'block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1.5';

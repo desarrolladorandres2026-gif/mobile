@@ -31,6 +31,9 @@ export interface PlatformResult {
   driverFeeAbsorbed: number;
   badDebt: number;
   netBeforeGatewayCosts: number;
+  /** Comisión estimada de Wompi asentada en el libro (0 si la tarifa está sin configurar). */
+  processingExpense?: number;
+  netAfterGatewayCosts?: number;
   incomplete: boolean;
   incompleteReason: string;
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { X, AlertTriangle, UserPlus, UserMinus, RefreshCw, Ban, RotateCcw, BellRing } from 'lucide-react';
 import api from '../../services/api';
-import { apiMessage } from '../../lib/apiError';
+import { apiErrorCode, apiMessage } from '../../lib/apiError';
 import { dateTime, money } from '../../lib/drivers';
 import type {
   CodeStatusView,
@@ -139,6 +139,7 @@ export default function OrderProfile360({
   const [data, setData] = useState<OrderProfile360Data | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [warning, setWarning] = useState('');
   const [actionError, setActionError] = useState('');
   const [panel, setPanel] = useState<Panel>(null);
   const [working, setWorking] = useState(false);
@@ -174,6 +175,7 @@ export default function OrderProfile360({
     setData(null);
     setPanel(null);
     setNotice('');
+    setWarning('');
     setActionError('');
     void load();
   }, [load]);
@@ -190,12 +192,26 @@ export default function OrderProfile360({
       setWorking(true);
       setActionError('');
       setNotice('');
-      await fn();
+      setWarning('');
+      const res = (await fn()) as { data?: { message?: string } } | undefined;
       setNotice(done);
+      // Cancelar un pedido pagado puede salir bien y fallar la reversión del cobro.
+      const message = res?.data?.message;
+      if (message && /pendiente para Finanzas/i.test(message)) setWarning(message);
       closePanel();
       await load();
     } catch (err) {
-      setActionError(apiMessage(err, fallback));
+      const code = apiErrorCode(err);
+      const text = apiMessage(err, fallback);
+      if (code === 'DRIVER_PAYOUT_LOCKED') {
+        setActionError(`${text} El pago del domiciliario ya está liquidado o tiene reversiones, por eso no se puede reasignar ni retirar.`);
+      } else if (code === 'ERRAND_ALREADY_PURCHASED') {
+        setActionError(`${text} El domiciliario ya compró el mandado, por eso no se puede reasignar ni retirar.`);
+      } else if (code === 'REFUND_PERMISSION_REQUIRED') {
+        setActionError('Este pedido ya está pagado y en preparación: cancelarlo devuelve el dinero al cliente y solo Finanzas puede hacerlo.');
+      } else {
+        setActionError(text);
+      }
     } finally {
       setWorking(false);
     }
@@ -354,6 +370,11 @@ export default function OrderProfile360({
               </div>
 
               {notice && <p className="font-semibold text-[#047857]">{notice}</p>}
+              {warning && (
+                <p className="flex items-start gap-1.5 font-semibold text-[var(--color-warning)]">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {warning}
+                </p>
+              )}
               {actionError && <ErrorLine>{actionError}</ErrorLine>}
 
               {panel === 'assign' && (
@@ -769,7 +790,8 @@ export default function OrderProfile360({
               <Sub title="Reseña" empty="Sin reseña.">
                 {data.after.review ? (
                   <p className="text-[var(--color-text-secondary)]">
-                    {data.after.review.rating}★{data.after.review.comment ? ` — ${data.after.review.comment}` : ''}
+                    {data.after.review.rating > 0 ? `${data.after.review.rating}★` : 'Sin calificación'}
+                    {data.after.review.comment ? ` — ${data.after.review.comment}` : ''}
                   </p>
                 ) : undefined}
               </Sub>

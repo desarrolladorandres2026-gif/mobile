@@ -56,6 +56,9 @@ export interface CodeStatusView {
   arrivedAt: string | null;
 }
 
+/** 'masked' por defecto; 'full' solo con `?view=full` y `users:view_sensitive`. */
+export type ProfileView = 'masked' | 'full';
+
 export interface OrderFinanceView {
   productSubtotal?: number;
   customerServiceFee?: number;
@@ -190,36 +193,39 @@ export interface BusinessProfile360Data {
     isSuspended: boolean;
     suspensionReason?: string | null;
     suspendedAt?: string | null;
+    suspendedBy?: { _id: string; name: string } | null;
     isArchived?: boolean;
     archivedReason?: string | null;
     createdAt?: string;
     rating?: number;
     totalReviews?: number;
-    /** Solo con `commissions:view`. Punto base: 1000 = 10 %. */
+    /** Clave AUSENTE sin `commissions:view`. Punto base: 1000 = 10 %. */
     commissionRateBps?: number | null;
   };
   owner: { _id: string; name: string } | null;
   legal?: {
     legalName?: string | null;
+    documentType?: string | null;
     nitMasked?: string | null;
     taxRegime?: string | null;
     complete?: boolean;
   } | null;
   /** null sin `finance:view`. */
   payoutAccount?: {
-    status?: string;
+    status?: 'pendingVerification' | 'verified' | 'none';
+    method?: string | null;
     bankName?: string | null;
     accountType?: string | null;
     last4?: string | null;
     verifiedAt?: string | null;
   } | null;
   documents?: BusinessDocumentRow[];
-  team?: Array<{ _id: string; name: string; role?: string; createdAt?: string; phone?: string | null }>;
-  menu?: { products: number; available: number; categories?: number };
+  team?: Array<{ _id: string; name: string; role?: string; isActive?: boolean; createdAt?: string; phone?: string | null }>;
+  menu?: { products: number; available: number };
   /** null sin `ads:view`. */
   ads?: {
-    advertisements: Array<{ _id: string; title?: string; status?: string; startDate?: string; endDate?: string }>;
-    invoices: Array<{ _id: string; amount?: number; status?: string; createdAt?: string }>;
+    advertisements: Array<{ _id: string; title?: string; status?: string; isActive?: boolean; startDate?: string; endDate?: string }>;
+    invoices: Array<{ _id: string; amount?: number; status?: 'settled' | 'pending' | string; createdAt?: string }>;
     outstanding?: number;
   } | null;
   /** null sin `coupons:view`; `cost30d` null sin `finance:view`. */
@@ -235,7 +241,7 @@ export interface BusinessProfile360Data {
   } | null;
   /** null sin `support:view`. */
   support?: Array<{ _id: string; subject?: string; status: string; createdAt: string }> | null;
-  history?: Array<{ _id: string; action: string; description?: string; createdAt: string; actorName?: string }>;
+  history?: Array<{ _id: string; action: string; description?: string; createdAt: string; actorName?: string; metadata?: unknown }>;
   notes?: NoteView[];
   masked?: { commissions?: boolean; finance?: boolean; sensitive?: boolean };
 }
@@ -280,14 +286,16 @@ export interface BusinessStatementData {
 
 export interface UserProfileExtras {
   /** 'masked' por defecto; 'full' solo con `?view=full` y `users:view_sensitive`. */
-  view?: 'masked' | 'full';
+  view: 'masked' | 'full';
   addresses?: Array<{
     _id: string;
     label?: string;
     neighborhood?: string;
     city?: string;
+    isDefault?: boolean;
     /** Solo en la vista completa. */
     address?: string;
+    apartment?: string;
   }>;
   savedCards?: Array<{
     _id: string;
@@ -295,6 +303,7 @@ export interface UserProfileExtras {
     last4?: string;
     expMonth?: number | string;
     expYear?: number | string;
+    lastUsedAt?: string | null;
   }>;
   pro?: {
     status?: string;
@@ -302,15 +311,16 @@ export interface UserProfileExtras {
     startedAt?: string;
     currentPeriodEnd?: string | null;
     cancelledAt?: string | null;
+    autoRenew?: boolean;
   } | null;
   consents?: {
     marketingConsent?: boolean | null;
     marketingConsentAt?: string | null;
-    legal?: Array<{ type?: string; documentType?: string; version?: string; acceptedAt?: string }>;
+    legal?: Array<{ type: string; version?: string; acceptedAt?: string }>;
   } | null;
   /** null sin `legal:view`. */
   dataRequests?: Array<{ _id: string; type?: string; status: string; createdAt: string; dueAt?: string | null }> | null;
-  actionsOnUser?: Array<{ _id: string; action: string; description?: string; createdAt: string; actorName?: string }>;
+  actionsOnUser?: Array<{ _id: string; action: string; description?: string; createdAt: string; actorName?: string; metadata?: unknown }>;
   /** null sin `refunds:view`. */
   refunds?: Array<{
     _id: string;
@@ -329,5 +339,6 @@ export interface UserProfileExtras {
     orderId?: string;
     createdAt: string;
   }>;
-  notes?: NoteView[];
+  /** null sin permiso de notas. */
+  notes?: NoteView[] | null;
 }

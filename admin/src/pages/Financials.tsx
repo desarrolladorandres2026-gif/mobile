@@ -105,6 +105,8 @@ const CUENTA_LABEL: Record<string, string> = {
   payout_offset_clearing: 'Arrastres en compensación (debe quedar en 0)',
   driver_fee_absorbed_expense: 'Tarifas de domiciliario asumidas por reembolso',
   bad_debt_expense: 'Arrastres incobrables',
+  payment_processing_expense: 'Comisión estimada de Wompi',
+  gateway_withheld: 'Retenido por Wompi (por conciliar)',
   loyalty_payable: 'Puntos por canjear (programa retirado)',
 };
 
@@ -220,7 +222,8 @@ export default function Financials() {
   const resultado = ledger?.platformResult ?? summary?.platformResult;
   const ingresoBruto = resultado?.grossRevenue ?? 0;
   const gastoPromocional = resultado?.promotionExpense ?? 0;
-  const margenNeto = resultado?.netBeforeGatewayCosts ?? 0;
+  const comisionPasarela = resultado?.processingExpense ?? 0;
+  const margenNeto = resultado?.netAfterGatewayCosts ?? resultado?.netBeforeGatewayCosts ?? 0;
   const periodoLabel = period === 'today' ? 'Hoy' : period === 'week' ? 'Últimos 7 días' : 'Últimos 30 días';
 
   const gmv = summary?.totalRevenue ?? 0;
@@ -345,9 +348,9 @@ export default function Financials() {
       color: 'text-[var(--color-warning)]',
     },
     {
-      label: 'Resultado antes de pasarela',
+      label: comisionPasarela > 0 ? 'Resultado tras pasarela' : 'Resultado antes de pasarela',
       value: money(margenNeto),
-      sub: `${periodoLabel} · ${resultado?.incompleteReason ?? 'Falta la comisión de Wompi y el costo de transferencia'}`,
+      sub: `${periodoLabel} · ${comisionPasarela > 0 ? `incluye −${money(comisionPasarela)} de comisión de Wompi · ` : ''}${resultado?.incompleteReason ?? 'Falta el costo de transferencia de los pagos'}`,
       icon: Gauge,
       color: margenNeto >= 0 ? 'text-[var(--color-primary)]' : 'text-[var(--color-danger)]',
     },

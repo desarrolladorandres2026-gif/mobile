@@ -136,6 +136,7 @@ function RejectForm({
 
 export default function DriverDocuments() {
   const [queue, setQueue] = useState<Queue>({ pending: [], expired: [], expiringSoon: [] });
+  const [search, setSearch] = useState('');
   const [checks, setChecks] = useState<IdentityCheck[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -319,6 +320,9 @@ export default function DriverDocuments() {
   const pendingChecks = checks.filter((c) => c.status === 'pending');
   const requestedChecks = checks.filter((c) => c.status === 'requested');
   const total = queue.pending.length + queue.expired.length + queue.expiringSoon.length + checks.length;
+  const term = search.trim().toLowerCase();
+  const matches = (d: DriverDocumentType) =>
+    !term || [d.driverId?.userId?.name, d.driverId?.licensePlate].some((v) => v?.toLowerCase().includes(term));
 
   return (
     <div className="space-y-3">
@@ -336,6 +340,13 @@ export default function DriverDocuments() {
           <RotateCw className="h-4 w-4 text-[var(--color-primary)]" /> Actualizar
         </button>
       </div>
+
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por domiciliario o placa"
+          className="w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
+        />
 
       {error && (
         <p className="flex items-start gap-2 text-xs font-semibold text-[var(--color-danger)]">
@@ -358,7 +369,7 @@ export default function DriverDocuments() {
           {section(
             'Documentos vencidos',
             'Estos domiciliarios ya no pueden trabajar. Van primero porque cada uno es una persona parada.',
-            queue.expired.map((d) => renderDocument(d, 'expired'))
+            queue.expired.filter(matches).map((d) => renderDocument(d, 'expired'))
           )}
           {section(
             'Verificaciones de identidad',
@@ -368,12 +379,12 @@ export default function DriverDocuments() {
           {section(
             'Documentos por revisar',
             'Enviados por el domiciliario y todavía sin verificar.',
-            queue.pending.map((d) => renderDocument(d, 'pending'))
+            queue.pending.filter(matches).map((d) => renderDocument(d, 'pending'))
           )}
           {section(
             'Documentos por vencer',
             'Siguen vigentes, pero caducan pronto. Avisar ahora evita la baja sorpresa.',
-            queue.expiringSoon.map((d) => renderDocument(d, 'soon'))
+            queue.expiringSoon.filter(matches).map((d) => renderDocument(d, 'soon'))
           )}
           {section(
             'Verificaciones solicitadas sin respuesta',

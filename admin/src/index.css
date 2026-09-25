@@ -228,3 +228,11 @@
 .dark .zipp-modal {
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
 }
+
+/* Un comprobante interno se imprime solo, sin la barra lateral ni la página de atrás. */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; inset: 0 auto auto 0; width: 100%; max-height: none; box-shadow: none; }
+  .no-print { display: none !important; }
+}

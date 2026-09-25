@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { X, AlertTriangle, CheckCircle, Ban, PlayCircle } from 'lucide-react';
+import { X, AlertTriangle, CheckCircle, Ban, PlayCircle, Eye, EyeOff, Camera } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from './ConfirmDialog';
 import EntityLink from './EntityLink';
 import InternalNotes from './InternalNotes';
 import { PermissionGate } from './PermissionGate';
+import type { NoteView, ProfileView } from '../lib/fichaTypes';
+import { useAuthStore } from '../stores/authStore';
 import { Permission } from '../lib/permissions';
 import { apiMessage } from '../lib/apiError';
 import {
@@ -29,7 +31,14 @@ import {
  * filtros del listado desde el que se llegó.
  */
 
-interface DriverDetail extends DriverListItem {
+interface DriverDetail extends Omit<DriverListItem, 'userId' | 'baseFund' | 'currentFund'> {
+  userId?: NonNullable<DriverListItem['userId']> & {
+    /** Sin `users:view_sensitive` no llega el número completo, solo los 4 últimos. */
+    documentNumberLast4?: string;
+  };
+  /** Ausentes sin `finance:view`. */
+  baseFund?: number;
+  currentFund?: number;
   emergencyContact?: { name: string; phone: string; relationship?: string };
   batteryLevel?: number;
   totalEarnings?: number;
@@ -46,6 +55,11 @@ interface Profile360 {
     status: string;
     reviewedAt?: string;
   }>;
+  /** null sin permiso de notas. */
+  notes?: NoteView[] | null;
+  /** 'masked' por defecto; 'full' solo con `?view=full` y `users:view_sensitive`. */
+  view: ProfileView;
+  masked?: { finance?: boolean; sensitive?: boolean };
   activity: {
     totals: { delivered: number; cancelled: number };
     recentOrders: Array<{
@@ -60,9 +74,9 @@ interface Profile360 {
   };
   /** null sin `finance:view`: la sección no se pinta. */
   finance: {
-    baseFund: number;
-    currentFund: number;
-    totalEarnings: number;
+    baseFund?: number;
+    currentFund?: number;
+    totalEarnings?: number;
     earningsLast30Days: number;
     payouts: Array<{ _id: string; amount: number; status: string; createdAt: string }>;
     settlements: Array<{ _id: string; periodStart: string; periodEnd: string; netAmount: number }>;
@@ -76,7 +90,6 @@ interface Profile360 {
     sos: Array<{ _id: string; status: string; note?: string; createdAt: string; resolution?: string }>;
     sanctions: Array<{ _id: string; action: string; description?: string; createdAt: string; actorName?: string }>;
     pqrs: Array<{ _id: string; subject?: string; status: string; createdAt: string }>;
-    notes: Array<{ _id: string; text: string; createdAt: string }>;
   };
 }
 
@@ -159,23 +172,56 @@ export default function DriverProfile360({
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
   const [confirmSuspend, setConfirmSuspend] = useState(false);
+  const canSeeSensitive = useAuthStore((s) => s.hasPermission(Permission.USERS_VIEW_SENSITIVE));
+  // Ver los datos completos es un acto deliberado y queda auditado en el servidor.
+  const [wantFull, setWantFull] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [viewError, setViewError] = useState('');
 
   const load = useCallback(() => {
     let cancelled = false;
+    setSwitching(true);
     api
-      .get(`/admin/drivers/${driverId}/profile-360`)
+      .get(`/admin/drivers/${driverId}/profile-360`, { params: wantFull ? { view: 'full' } : undefined })
       .then((res) => {
-        if (!cancelled) setData(res.data.data);
+        if (cancelled) return;
+        setData(res.data.data);
+        setError('');
       })
       .catch((err) => {
-        if (!cancelled) setError(apiMessage(err, 'No se pudo cargar el perfil del domiciliario.'));
+        if (cancelled) return;
+        const message = apiMessage(err, 'No se pudo cargar el perfil del domiciliario.');
+        if (wantFull) {
+          // Sin permiso o limitado: vuelve a la vista enmascarada y lo explica.
+          setViewError(message);
+          setWantFull(false);
+        } else {
+          setError(message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSwitching(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [driverId]);
+  }, [driverId, wantFull]);
 
   useEffect(() => load(), [load]);
+
+  const [actionNote, setActionNote] = useState('');
+
+  /** Pide una selfie en turno: le llega al domiciliario en vivo y queda en la cola de verificaciones. */
+  const requestSelfie = async (id: string) => {
+    try {
+      setActionError('');
+      setActionNote('');
+      await api.post(`/drivers/${id}/request-verification`, {});
+      setActionNote('Selfie solicitada. La revisas en Documentos cuando la envíe.');
+    } catch (err) {
+      setActionError(apiMessage(err, 'No se pudo pedir la selfie.'));
+    }
+  };
 
   const runAction = async (path: string, fallback: string) => {
     try {
@@ -189,6 +235,7 @@ export default function DriverProfile360({
   };
 
   const d = data?.driver;
+  const currentView = data?.view ?? 'masked';
   const account = d ? driverAccountState(d) : null;
   const availability = d ? availabilityStyles[d.status] ?? availabilityStyles.offline : null;
 
@@ -218,6 +265,35 @@ export default function DriverProfile360({
                     <span className={`h-1.5 w-1.5 rounded-full ${availability.dot}`} />
                     {availability.label}
                   </span>
+                </p>
+              )}
+              {data && (
+                <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[11px]">
+                  <span className="font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
+                    {currentView === 'full' ? 'Vista: datos completos' : 'Vista: enmascarada'}
+                  </span>
+                  {canSeeSensitive && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setViewError('');
+                        setWantFull(currentView !== 'full');
+                      }}
+                      className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-primary)]"
+                    >
+                      {currentView === 'full' ? (
+                        <><EyeOff className="h-3 w-3" /> Volver a la vista enmascarada</>
+                      ) : (
+                        <><Eye className="h-3 w-3" /> Ver datos completos</>
+                      )}
+                    </button>
+                  )}
+                  {switching && <span className="text-[var(--color-text-muted)]">Cargando…</span>}
+                </p>
+              )}
+              {viewError && (
+                <p className="mt-1 flex items-start gap-1.5 text-[11px] font-semibold text-[var(--color-danger)]">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {viewError}
                 </p>
               )}
             </div>
@@ -268,6 +344,17 @@ export default function DriverProfile360({
                   </button>
                 </PermissionGate>
               )}
+              {account === 'active' && (
+                <PermissionGate permission={Permission.DRIVERS_APPROVE}>
+                  <button
+                    onClick={() => requestSelfie(d._id)}
+                    className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]"
+                  >
+                    <Camera className="h-4 w-4" /> Pedir selfie
+                  </button>
+                </PermissionGate>
+              )}
+              {actionNote && <p className="font-semibold text-[var(--color-success)]">{actionNote}</p>}
               {actionError && (
                 <p className="flex items-center gap-1.5 font-semibold text-[var(--color-danger)]">
                   <AlertTriangle className="h-4 w-4 shrink-0" /> {actionError}
@@ -279,7 +366,12 @@ export default function DriverProfile360({
               <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3">
                 <Fact
                   label="Documento"
-                  value={[d.userId?.documentType, d.userId?.documentNumber].filter(Boolean).join(' ')}
+                  value={[
+                    d.userId?.documentType,
+                    d.userId?.documentNumber ?? (d.userId?.documentNumberLast4 ? `•••• ${d.userId.documentNumberLast4}` : ''),
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                 />
                 <Fact label="Teléfono" value={d.userId?.phone} />
                 <Fact label="Correo" value={d.userId?.email} />
@@ -388,11 +480,13 @@ export default function DriverProfile360({
             {data.finance && (
             <Section title="Finanzas">
               <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3">
-                <Fact label="Fondo base" value={money(data.finance.baseFund)} />
-                <Fact label="Fondo actual" value={money(data.finance.currentFund)} />
+                {d.baseFund != null && <Fact label="Fondo base" value={money(d.baseFund)} />}
+                {d.currentFund != null && <Fact label="Fondo actual" value={money(d.currentFund)} />}
                 <Fact label="Deuda pendiente" value={money(data.finance.pendingDebts.total)} />
                 <Fact label="Ganancias 30 días" value={money(data.finance.earningsLast30Days)} />
-                <Fact label="Ganancias acumuladas" value={money(data.finance.totalEarnings)} />
+                {(data.finance.totalEarnings ?? d.totalEarnings) != null && (
+                  <Fact label="Ganancias acumuladas" value={money(data.finance.totalEarnings ?? d.totalEarnings)} />
+                )}
               </div>
 
               <Sub title="Pagos al domiciliario" empty="Sin pagos registrados.">
@@ -472,9 +566,11 @@ export default function DriverProfile360({
 
             </Section>
 
-            <Section title="Notas internas">
-              <InternalNotes entityType="driver" entityId={driverId} />
-            </Section>
+            {data.notes !== null && (
+              <Section title="Notas internas">
+                <InternalNotes entityType="driver" entityId={driverId} />
+              </Section>
+            )}
           </div>
         )}
       </div>

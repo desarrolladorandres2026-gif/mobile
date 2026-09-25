@@ -132,7 +132,7 @@ export default function UserProfile360({
     };
   }, [userId, wantFull]);
 
-  const currentView = data?.view ?? (wantFull ? 'full' : 'masked');
+  const currentView = data?.view ?? 'masked';
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40">
@@ -313,7 +313,10 @@ export default function UserProfile360({
                     <li key={a._id} className="text-[var(--color-text-secondary)]">
                       <span className="font-semibold text-[var(--color-text-main)]">{a.label ?? 'Dirección'}</span>
                       {' · '}
-                      {a.address ?? [a.neighborhood, a.city].filter(Boolean).join(', ')}
+                      {a.address
+                        ? `${a.address}${a.apartment ? `, ${a.apartment}` : ''} · ${[a.neighborhood, a.city].filter(Boolean).join(', ')}`
+                        : [a.neighborhood, a.city].filter(Boolean).join(', ')}
+                      {a.isDefault ? ' · principal' : ''}
                     </li>
                   ))}
                 </ul>
@@ -327,6 +330,7 @@ export default function UserProfile360({
                     <li key={c._id} className="text-[var(--color-text-secondary)]">
                       {c.brand ?? 'Tarjeta'} terminada en {c.last4 ?? '····'}
                       {c.expMonth && c.expYear ? ` · vence ${c.expMonth}/${c.expYear}` : ''}
+                      {c.lastUsedAt ? ` · último uso ${day(c.lastUsedAt)}` : ''}
                     </li>
                   ))}
                 </ul>
@@ -342,6 +346,7 @@ export default function UserProfile360({
                     {data.pro.startedAt ? ` · desde ${day(data.pro.startedAt)}` : ''}
                     {data.pro.currentPeriodEnd ? ` · vigente hasta ${day(data.pro.currentPeriodEnd)}` : ''}
                     {data.pro.cancelledAt ? ` · cancelada ${day(data.pro.cancelledAt)}` : ''}
+                    {data.pro.autoRenew != null ? ` · ${data.pro.autoRenew ? 'renovación automática' : 'sin renovación'}` : ''}
                   </p>
                 )}
               </Section>
@@ -361,8 +366,8 @@ export default function UserProfile360({
                     </li>
                   )}
                   {data.consents.legal?.map((l, i) => (
-                    <li key={`${l.type ?? l.documentType}-${l.version}-${i}`} className="text-[var(--color-text-secondary)]">
-                      {l.type ?? l.documentType ?? 'Documento legal'}
+                    <li key={`${l.type}-${l.version}-${i}`} className="text-[var(--color-text-secondary)]">
+                      {l.type}
                       {l.version ? ` v${l.version}` : ''} · aceptado {day(l.acceptedAt)}
                     </li>
                   ))}
@@ -450,9 +455,11 @@ export default function UserProfile360({
               </Section>
             )}
 
-            <Section icon={StickyNote} title="Notas internas" empty={false}>
-              <InternalNotes entityType="user" entityId={userId} />
-            </Section>
+            {data.notes !== null && (
+              <Section icon={StickyNote} title="Notas internas" empty={false}>
+                <InternalNotes entityType="user" entityId={userId} />
+              </Section>
+            )}
           </div>
         )}
       </div>
