@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Alert } from 'react-native';
+import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
+import { IS_DRIVER_APP } from '../constants/variant';
+import { ROUTES } from '../lib/routing';
 import { socketService } from '../services/socket';
 import { useRealtimeStore } from '../stores/realtimeStore';
 import { useMyOrders } from './useApi';
@@ -78,12 +82,29 @@ export function useRealtimeOwner(enabled: boolean) {
 
     const onStatusChanged = () => refreshSoon(REFRESH_DEBOUNCE_MS);
 
+    /**
+     * Soporte, o el barrido de "no recogió a tiempo", le quitó un pedido al
+     * domiciliario. Antes el evento llegaba y nadie lo escuchaba: seguía
+     * yendo al local por un pedido que ya era de otro. Se refresca todo lo
+     * suyo (el fondo retenido también volvió) y se le dice en claro.
+     */
+    const onUnassigned = (data: { orderNumber?: string; reason?: string }) => {
+      refreshSoon(0);
+      queryClient.invalidateQueries({ queryKey: ['driver'] });
+      Alert.alert(
+        `Ya no tienes el pedido${data?.orderNumber ? ` #${data.orderNumber}` : ''}`,
+        `${data?.reason ? `${data.reason}. ` : ''}No vayas a recogerlo.`,
+        [{ text: 'Entendido', onPress: () => router.replace(ROUTES.home as never) }],
+      );
+    };
+
     if (!socket.connected) onDisconnect();
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('connect_error', onDisconnect);
     socket.on('order:status:changed', onStatusChanged);
+    if (IS_DRIVER_APP) socket.on('order:driver:unassigned', onUnassigned);
 
     /**
      * Antes esto se perdía: el usuario abría un PQRS, soporte respondía, y
@@ -105,6 +126,7 @@ export function useRealtimeOwner(enabled: boolean) {
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onDisconnect);
       socket.off('order:status:changed', onStatusChanged);
+      socket.off('order:driver:unassigned', onUnassigned);
     };
   }, [enabled]);
 }

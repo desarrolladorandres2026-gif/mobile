@@ -212,8 +212,9 @@ function DocumentSheet({
       <View style={styles.sheetBody}>
         {current?.status === 'rejected' ? (
           <Notice tone="error">
-            Este documento se rechazó. Revisa el número, vuelve a tomar la foto y
-            envíalo de nuevo.
+            {current.rejectionReason
+              ? `Este documento se rechazó: ${current.rejectionReason}. Corrígelo y envíalo de nuevo.`
+              : 'Este documento se rechazó. Revisa el número, vuelve a tomar la foto y envíalo de nuevo.'}
           </Notice>
         ) : null}
 

@@ -8,7 +8,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { productImageUri, productImagePlaceholder } from '../../lib/productImage';
 import { minutes } from '../../lib/format';
 import { BorderRadius, Spacing } from '../../theme/tokens';
-import type { ProductSearchHit, SearchSuggestion } from '../../services/endpoints';
+import type { ProductSearchHit, SearchRedirect, SearchSuggestion } from '../../services/endpoints';
 
 /** Cuántos fantasmas de fila caben antes de que haya que deslizar. */
 const SKELETON_ROWS = 7;
@@ -30,6 +30,9 @@ export interface SearchResultsProps {
   results: Business[];
   products: ProductSearchHit[];
   suggestedTerm?: string;
+  /** Destino que administración fijó para este término cuando no hay resultados. */
+  redirect?: SearchRedirect;
+  onFollowRedirect?: () => void;
   term: string;
   /** El nombre que administración le puso a cada categoría, para las filas. */
   categoryNames: Record<string, string>;
@@ -58,7 +61,7 @@ export const SearchResults = memo(function SearchResults({
   showSuggestions, typed, suggestions, onPickSuggestion, onSearchTyped,
   isError, onRetry,
   loading,
-  results, products, suggestedTerm, term, categoryNames, onOpenBusiness, onLoadMore,
+  results, products, suggestedTerm, redirect, onFollowRedirect, term, categoryNames, onOpenBusiness, onLoadMore,
   bottomSpace, outOfCoverage, activeFilters, onClearFilters, onChangeAddress,
 }: SearchResultsProps) {
   if (showSuggestions) {
@@ -153,12 +156,20 @@ export const SearchResults = memo(function SearchResults({
             icon="explorar"
             title="Nada con esa búsqueda"
             message={
-              activeFilters > 0
-                ? 'Prueba quitando algún filtro o busca otra cosa.'
-                : 'Revisa cómo lo escribiste o explora alguna de las categorías disponibles.'
+              redirect
+                ? 'Todavía no lo tenemos, pero quizá esto te sirva.'
+                : activeFilters > 0
+                  ? 'Prueba quitando algún filtro o busca otra cosa.'
+                  : 'Revisa cómo lo escribiste o explora alguna de las categorías disponibles.'
             }
-            actionLabel={activeFilters > 0 ? 'Limpiar filtros' : 'Volver a explorar'}
-            onAction={onClearFilters}
+            actionLabel={
+              redirect && onFollowRedirect
+                ? redirect.kind === 'category'
+                  ? `Ver ${categoryNames[redirect.category ?? ''] ?? 'la categoría'}`
+                  : `Abrir ${redirect.label ?? 'el negocio'}`
+                : activeFilters > 0 ? 'Limpiar filtros' : 'Volver a explorar'
+            }
+            onAction={redirect && onFollowRedirect ? onFollowRedirect : onClearFilters}
           />
         )
       }

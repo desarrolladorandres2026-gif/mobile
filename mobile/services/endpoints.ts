@@ -657,10 +657,20 @@ export interface SearchParams {
 export interface SearchResults {
   businesses: any[];
   products: ProductSearchHit[];
-  strategy: 'text' | 'prefix' | 'corrected';
-  /** El término que se buscó en realidad, si hubo que corregir un error. */
+  strategy: 'text' | 'prefix' | 'corrected' | 'synonym';
+  /** El término que se buscó en realidad, si hubo que corregir un error o aplicar un sinónimo. */
   suggestedTerm?: string;
+  /** A dónde ofrecer ir cuando no hubo nada: lo decide administración por término. */
+  redirect?: SearchRedirect;
   hasMore: boolean;
+}
+
+export interface SearchRedirect {
+  kind: 'category' | 'business';
+  category?: string;
+  businessId?: string;
+  /** Nombre del negocio, cuando el destino es uno. */
+  label?: string;
 }
 
 export interface SearchSuggestion {
@@ -945,6 +955,8 @@ export interface DriverDocumentRecord {
   reference: string;
   expiresAt?: string | null;
   status: 'pending' | 'approved' | 'rejected' | 'expired';
+  /** Por qué lo rechazó el equipo. Solo si `status` es `rejected`. */
+  rejectionReason?: string | null;
 }
 
 export const driverApi = {
@@ -1543,6 +1555,8 @@ export interface PlaceSuggestion extends GeocodedPlace {
 export const legalApi = {
   documents: () => api.get('/legal/documents').then((r) => r.data.data),
   accept: (id: string) => api.post(`/legal/documents/${id}/accept`).then((r) => r.data.data),
+  /** Términos y privacidad vigentes que esta persona aún no ha aceptado. */
+  pending: () => api.get('/legal/pending').then((r) => r.data.data),
   dataRequests: () => api.get('/legal/data-requests').then((r) => r.data.data),
   createDataRequest: (type: string, detail: string) => api.post('/legal/data-requests', { type, detail }).then((r) => r.data.data),
 };

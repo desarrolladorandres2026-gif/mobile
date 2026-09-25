@@ -164,6 +164,7 @@ export default function SearchScreen() {
     ? (pages[0]?.products ?? []).filter((p) => !category || p.businessCategory === category)
     : [];
   const suggestedTerm = hasTerm ? pages[0]?.suggestedTerm : undefined;
+  const redirect = hasTerm ? pages[0]?.redirect : undefined;
 
   const data: Business[] = hasTerm ? found : (listing.data ?? []);
   const isLoading = hasTerm ? catalog.isLoading : listing.isLoading;
@@ -287,6 +288,18 @@ export default function SearchScreen() {
     router.push(`/(client)/business/${id}`);
   }, [commitSearch, query, router]);
 
+  // El destino que administración fijó para un término sin resultados.
+  const followRedirect = useCallback(() => {
+    if (!redirect) return;
+    tap('select');
+    if (redirect.kind === 'category' && redirect.category) {
+      setQuery('');
+      setCategory(redirect.category);
+    } else if (redirect.kind === 'business' && redirect.businessId) {
+      openBusiness(redirect.businessId);
+    }
+  }, [redirect, openBusiness]);
+
   const pickSuggestion = useCallback((item: SearchSuggestion) => {
     if (item.type === 'term') { selectTerm(item.label); return; }
     if (item.id) openBusiness(item.id);
@@ -398,6 +411,8 @@ export default function SearchScreen() {
           results={results}
           products={products}
           suggestedTerm={suggestedTerm}
+          redirect={redirect}
+          onFollowRedirect={followRedirect}
           term={term}
           categoryNames={categoryNames}
           onOpenBusiness={openBusiness}

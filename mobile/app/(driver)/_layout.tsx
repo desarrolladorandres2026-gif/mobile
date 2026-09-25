@@ -3,6 +3,7 @@ import { Colors } from '../../constants';
 import { DriverTrackingProvider } from '../../hooks/useDriverTracking';
 import { OfferSheet } from '../../components/domain/OfferSheet';
 import { VerificationSheet } from '../../components/domain/VerificationSheet';
+import { LegalAcceptanceGate } from '../../components/domain/LegalAcceptanceGate';
 
 export default function DriverLayout() {
   return (
@@ -43,6 +44,8 @@ export default function DriverLayout() {
       */}
       <OfferSheet />
       <VerificationSheet />
+      {/* Encima de todo, pero sin desmontar el GPS ni la hoja de ofertas. */}
+      <LegalAcceptanceGate />
     </DriverTrackingProvider>
   );
 }

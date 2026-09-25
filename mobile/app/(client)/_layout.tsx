@@ -4,6 +4,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useTheme } from '../../hooks/useTheme';
 import { useFavoritesMigration } from '../../hooks/useFavorites';
 import { useCartAbandonment } from '../../hooks/useCartAbandonment';
+import { LegalAcceptanceGate } from '../../components/domain/LegalAcceptanceGate';
 
 export default function ClientLayout() {
   // Selectores y no el store entero: con `useAuthStore()` a secas, cada
@@ -29,6 +30,7 @@ export default function ClientLayout() {
   }, [isAuthenticated, user]);
 
   return (
+    <>
     <Stack
       screenOptions={{
         headerShown: false,
@@ -83,5 +85,8 @@ export default function ClientLayout() {
       <Stack.Screen name="account-2fa" />
       <Stack.Screen name="account-delete" />
     </Stack>
+    {/* Términos y privacidad vigentes sin aceptar: bloquea hasta aceptar. */}
+    <LegalAcceptanceGate />
+    </>
   );
 }
