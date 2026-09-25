@@ -759,6 +759,200 @@ Orden por riesgo y dependencia, no por vistosidad. Cada fase cierra con sus prue
 - Cambiar `rbac_enforce` corta los sockets admin y el panel reconecta de golpe.
 - Tope de reembolso por rol: fuera de esta fase.
 
+### Fase 2 · fichas y capa común (2026-09-24)
+
+**Hecho (sin commit):**
+- **Notas internas** (`InternalNote`): solo se añaden, permiso de ver el tipo de entidad, filtro de tarjetas, borrado lógico (autor 15 min o Super Administrador), 30 por minuto con contador atómico (`AdminThrottle`), sin texto en la auditoría.
+- **Búsqueda global** `GET /admin/search`: pedido, cliente, comercio, domiciliario y cupón; teléfono y correo solo exactos y enmascarados, auditoría con HMAC, sin cédula, 5 por tipo y sin totales.
+- **Bandeja de alertas** `GET /admin/alerts`: calculada, no guardada, con seis tipos nuevos sobre `incidentCenter`; solo "vista" se guarda por persona; sala `admin:alerts` con evento sin datos.
+- **Fichas 360** de pedido y comercio (nuevas), cliente (dos vistas: enmascarada y `?view=full` auditada) y domiciliario (mismas dos vistas; dinero solo con `finance:view`). Acciones: asignar, desasignar, cancelar con motivo, avisar con plantillas fijas, suspender idempotente, pedir documentos.
+- **Navegación cruzada** `?ficha=tipo:id` con `FichaHost` y `EntityLink`; búsqueda y bandeja en el Layout.
+- **Arreglos de dinero (revisados por zipp-finance):** H1 un mandado ya no se suelta ni deja el fondo descontado; el pago del domiciliario anterior se borra o se rechaza con 409; el fondo se devuelve una sola vez aunque el proceso caiga (marca `fundHoldReleasePending` y barrido). H2 cancelar como admin un pedido pagado en preparación exige `refunds:create`. H3, H4 y H5 cierran fugas de comisión, pago crudo y dinero del domiciliario. Si el reembolso falla al cancelar, la cancelación queda firme y la fila `Refund` FAILED alimenta la alerta `refund_failed`.
+- **Decisiones tomadas por defecto (D1-D6):** cancelar pedido pagado exige `refunds:create` desde PREPARING; sin búsqueda por cédula; notas sin editar; dirección exacta de un pedido cerrado solo con `users:view_sensitive`; reenviar aviso con 3 plantillas fijas; reasignar solo antes de la recogida. Teléfono del domiciliario visible con `drivers:view`.
+- Revisiones de zipp-security y zipp-finance corregidas: query de búsqueda fuera de los logs de acceso, vista completa del domiciliario deliberada, límites atómicos.
+
+**Migración manual opcional:** 021 `migrate:admin-fase2-indexes` (siempre `-- --dry-run` primero); los índices también los crea Mongoose al arrancar.
+
+**Pendientes anotados:**
+- La app del domiciliario no escucha `order:driver:unassigned` (socket.io ignora el evento, no rompe): hoy no se le avisa cuando le quitan un pedido. Trabajo de `mobile/`.
+- Un reembolso fallido tras cancelar no se reintenta solo con la misma clave (`refundService.issue` devuelve la fila FAILED): lo reintenta Finanzas con `RefundPanel`.
+- Los limitadores de búsqueda y avisos guardan su contador en memoria de proceso (una sola instancia PM2).
+- `onCancelled` aún usa `|| order.subtotal` (devuelve de más cuando `businessPayout` es 0): error previo, aparte.
+- Un payout bloqueado hace que el barrido de pedidos estancados registre un 409 en cada vuelta: solo ruido.
+- Sin probar en navegador contra un backend real.
+
+### Fase 3 · dinero operable, bloque P0 (2026-09-24)
+
+**Alcance de esta sesión (decidido con el dueño):** Liquidaciones, Comisiones y Reembolsos/contracargos. Wompi, Efectivo propio, exportes, facturas de publicidad y documentos fiscales quedan para los siguientes bloques de la fase.
+
+**Hecho (sin commit):**
+- **Bug real corregido:** `GET /finance/clawbacks` estaba registrada con un carácter de control en vez de la ruta, así que la lista de saldos en contra de Finanzas nunca cargaba en producción.
+- **Liquidaciones** (`/settlements`, permiso `finance:view`; actuar exige `payouts:process`):
+  - "Por liquidar": `GET /finance/payables`, por beneficiario, con arrastres restando y días de espera. Un neto <= 0 no ofrece botón: explica que se descuenta después.
+  - "Historial": `GET /finance/settlements` ahora pagina, filtra por estado de pago y trae el nombre. La cuenta de pago sigue sin salir en la lista.
+  - Modal de pago con referencia y comprobante obligatorios, "Ver la cuenta a la que se paga" (endpoint de revelar, auditado) y "Refrescar cuenta" cuando cambió.
+- **Comisiones** (`/commissions`): `Commission` por fin pasa a `SETTLED`, cuando ya no queda ningún payout del pedido por pagar (comercio y domiciliario). Totales por estado sobre todo el filtro.
+- **Reembolsos** (`/refunds`, `refunds:view`): `GET /payments/refunds` con "requieren atención" (fallidos y pendientes de más de 15 min), contracargos y totales. El botón de contracargo ya existía en `RefundPanel` dentro de la ficha del pedido; cada fila de la bandeja abre esa ficha.
+- **Auditoría:** el contracargo (`CHARGEBACK_RECORDED`) y el reembolso por pasarela no dejaban rastro; ahora sí, con severidad alta.
+- Tests: `financePhase3.test.ts` (6).
+
+**Bloque 2 (2026-09-25), la fase queda cerrada:**
+- **Comisión de Wompi (decisión 5):** 9 campos en Tarifas y Precios (porcentaje y fijo para tarjeta, PSE, Nequi y otros, más IVA de la comisión), todos en 0 hasta que el dueño llene su contrato. Cada cobro aprobado asienta `PAYMENT_PROCESSING_EXPENSE` contra `GATEWAY_WITHHELD` en el mismo asiento del cobro (idempotente con el webhook). `platformResult` suma `processingExpense` y `netAfterGatewayCosts`; sigue `incomplete` porque falta el costo de transferencia y la comisión de los cobros anteriores a configurarla. La comisión no se reversa con un reembolso (Wompi no la devuelve).
+- **Pagos en línea** (`/payments`): listado por estado y método con comisión estimada, y conciliación diaria (cobrado, comisión asentada y depósito esperado) para comparar con el reporte de desembolsos de Wompi.
+- **Efectivo** (`/cash`): sin rendir por domiciliario, con lo declarado y lo vencido. La verificación con referencia, monto y comprobante sigue en Finanzas.
+- **Facturas de publicidad** (`/ad-invoices`): por descontar, descontadas, por cobrar y cobradas; las vendidas por fuera se cobran con referencia y comprobante (antes quedaban abiertas para siempre).
+- **Exportes contables** (`/exports`): libro, liquidaciones, reembolsos, pagos, efectivo y comprobantes. Motivo y TOTP obligatorios, auditados; quien tenga `reports:export` + `finance:view` (no solo el Super Administrador, porque no llevan datos personales). La puerta se movió a `security/exportGate.ts` y la comparten los exportes con datos personales, que siguen siendo solo del Super Administrador.
+- **Comprobantes internos** (`/documents`): `FiscalDocument` con consecutivo `INT-`, inmutable, uno por liquidación pagada, fuera del libro. Se emite desde Liquidaciones y cada uno dice que no es factura. El PDF sale del "imprimir" del navegador; el paquete mensual, del exporte. Solo guarda los últimos 4 del documento.
+- Tests: `gatewayFee.test.ts` (7) y `financePhase3b.test.ts` (11).
+
+**Decisiones por defecto (reversibles):** sin librería de PDF (cero dependencias); comprobante a demanda y no automático al pagar; exporte contable sin exigir Super Administrador.
+
+**Pendientes anotados:**
+- Sin librería de PDF en el servidor: si el contador quiere el archivo generado, se añade `pdfkit` o similar.
+- Comprobantes de tarifa al cliente y de Zipp Pro: no se hicieron; dependen de la decisión 1 (mandatario o revendedor) y de la 2 (IVA).
+- Datos fiscales y bancarios de domiciliarios y clientes: solo los comercios los tienen estructurados. Los domiciliarios no tienen cuenta de pago, así que liquidarles funciona pero la pantalla no muestra a dónde pagar.
+- La comisión de Wompi es una estimación: ajustarla contra el reporte real queda manual (compárala en la conciliación diaria).
+- Sin plazo de disputa en los contracargos: la pasarela lo fija y aún no se guarda.
+- Filtrar el libro por periodo, zona y comercio, y el simulador con todos los costes, son de la Fase 8 / Tarifas.
+- Sin probar en navegador contra un backend real.
+
+### Fase 4 · soporte y legal (2026-09-25)
+
+**Lo que ya existía por la Fase 0/2:** plazo legal en días hábiles (`legalDueAt`, migración 013), cola con la ley primero, comercio/domiciliario/pedido en el caso, ficha 360 desde el ticket, alerta `pqrs_legal` y `data_request_legal`, anonimizar solo Super Administrador, Legal reducida a datos personales.
+
+**Hecho (sin commit):**
+- **SLA interno nunca se fijaba:** `createPqrs` no llamaba a `classify`, así que `dueAt` nacía `null` y el caso no vencía jamás. Ahora prioridad y `dueAt` se fijan al abrir (`SLA_HOURS` y `defaultPriority` pasaron a `pqrs.service`).
+- **Casos de comercios y domiciliarios:** `Pqrs.requesterRole` (`customer|business|driver`) sale del rol de la cuenta, nunca del cuerpo. Un comercio debe indicar un negocio suyo (dueño o staff activo); un domiciliario queda ligado a su perfil; y **el pedido adjunto debe ser del solicitante** (antes cualquiera colgaba su queja de un pedido ajeno y veía comercio y domiciliario en la ficha). El móvil ya lo permitía para domiciliarios; el panel de comercios estrena "Soporte".
+- **Bandeja:** pestañas Por responder / Respondidos, filtros por tipo, quien lo abrió y texto (escapado, sin regex del usuario), cambio de prioridad con `/classify` (que ya existía sin pantalla) y auditoría `PQRS_CLASSIFIED`.
+- **Macros:** `SupportMacro`, CRUD en `/pqrs/macros` (ver: `support:view`; gestionar: `support:manage`; auditado), pantalla "Respuestas predefinidas" y selector en cada caso. Variables `{{cliente}}`, `{{pedido}}`, `{{agente}}`. Son borradores editables, nada se envía solo.
+- **Documentos legales:** pantalla `/legal-documents` y rutas `/legal/admin/documents`. Publicar es **inmutable**: versión nueva, la anterior se archiva, `changeNote` obligatoria desde la 2.ª versión, versión duplicada da 409. Permiso nuevo `legal:publish` **sin rol base** (solo Super Administrador). La app recibe una sola versión vigente por tipo aunque un fallo dejara dos. Se ve cuántos aceptaron cada versión y quién (sin `ipHash`).
+- **Ley 1581:** prórroga única (`+5` días hábiles la consulta, `+8` el reclamo) solo antes del vencimiento y con motivo, atómica, auditada y avisada al titular por push; "Tomar" pasa a en revisión; `resolvedAt`; push al resolver; no se puede responder dos veces una solicitud cerrada.
+- **Revisión de zipp-security (sin críticos ni altos), corregida:** anonimizar una supresión ya rechazada (ahora se comprueba antes y el cierre es atómico), `classify` ya no regala plazo (el SLA cuenta desde la apertura y se audita de/a), publicaciones simultáneas no dejan el tipo sin vigente, reaceptar conserva la prueba original, límite de 5 casos/hora y 10 abiertos por persona, sin revelar si un pedido existe, el cliente no ve ids del personal ni SLA, `?all=true` de macros exige gestionar, `assign` solo a personal y auditado, aceptaciones con email enmascarado salvo `users:view_sensitive` y auditadas. Sigue abierto el `ipHash` sin sal (previo a la fase).
+- Tests: `supportLegalPhase4.test.ts` (20).
+
+**Decisiones por defecto (reversibles):** publicar documentos legales solo el Super Administrador; sin fecha de vigencia futura (rige al publicar); una macro archivada no se borra; el comercio no adjunta pedido desde el panel todavía.
+
+**Pendientes anotados:**
+- **Nadie acepta los documentos hoy:** la app móvil solo *lee* `/legal/documents`; ningún flujo (registro, cambio de versión) llama a `POST /legal/documents/:id/accept`, así que `LegalAcceptance` está vacía y la pantalla muestra 0. Exigir aceptación al registrarse y re-aceptación al publicar una versión nueva es cambio de móvil y de auth: decisión del dueño.
+- Adjuntar pedido desde el panel de comercios (necesita selector por número de pedido).
+- Respuesta formal en PDF (P2).
+- Los plazos y prórrogas de Ley 1480/1755/1581 siguen marcados "confirmar con asesor legal".
+- Sin probar en navegador contra un backend real.
+
+### Fase 5 · bloque 1: altas, vencimientos y selfies (2026-09-25)
+
+**Alcance decidido con el dueño:** solo este bloque. Decisión 18 (turnos): **no por ahora**. Decisión 3 (términos propios del domiciliario): **fuera de la Fase 5**, se decide con el asesor legal.
+
+**El plan estaba desactualizado:** O4 (subida de documentos del comercio), el historial de rechazos, el motivo de rechazo visible al comercio, la suspensión con motivo, las alertas de vencimiento y la cola de selfies ya existían. Tachar O4 en §1.3.
+
+**Hecho (sin commit):**
+- **Embudo de altas de domiciliarios** (`GET /drivers/onboarding-funnel`, `drivers:approve`; pantalla "Altas de domiciliarios"): sin perfil, sin documentos, rechazados sin reenviar, en revisión y listos para aprobar, con días de espera. Antes esa gente no aparecía en ninguna pantalla.
+- **Puerta de vencimiento para comercios:** un comercio con un papel `approved`/`expired` cuya vigencia pasó **no recibe pedidos** (`order.service.create`), igual que el domiciliario con `assertDocumentsCurrent`. Reenviar el papel (queda `pending`) lo reabre mientras se revisa. Es bloqueo, no suspensión: no toca `isSuspended`.
+- **Alerta que se esfumaba:** `business_document_expiring` y `driver_document_expiring` ahora cuentan también los `expired`, porque abrir la cola los pasaba a ese estado y la etapa "vencido" desaparecía sola.
+- **Motivo de rechazo en la app del domiciliario (O6):** el backend ya lo devolvía y la app mostraba un texto genérico; ahora lo muestra.
+- **"Pedir selfie"** en la ficha del domiciliario (`POST /drivers/:id/request-verification` ya existía sin botón).
+- **Búsqueda y orden** en Verificar comercios (por comercio, ciudad o dueño; por espera o faltantes) y búsqueda en Documentos de domiciliarios.
+- Tests: `phase5Block1.test.ts` (5). Suites de pedidos/checkout/comercios (260) en verde.
+
+**Decisión por defecto (reversible):** vencimiento de comercio = bloquear pedidos, no suspender.
+
+**Pendiente del bloque:** asignación por revisor (P2), aviso push antes del vencimiento a comercio y domiciliario (P2), N+1 de `pendingApprovals()` (P2). Selfie de un domiciliario en turno: nada las dispara solas todavía, solo el botón manual.
+**Pendiente de la fase (no tocado):** cambio de vehículo o placa, antifraude y SOS en el mapa, cobertura por zona, aceptación de ofertas.
+
+### Fase 6 · Crecimiento (2026-09-25)
+
+**Alcance decidido con el dueño:** bloque de P1 sin decisiones + decisión 23 = pantallas de envíos, referidos y Pro **ahora** (Pro con los valores de arranque de `config/pro.ts`, sin fijar el `TODO(negocio)`).
+
+**El plan estaba desactualizado:** ya existían permiso propio de cupones, historial de canjes por cupón, cerrar/facturar publicidad con `finance:manage`, listado de `AdInvoice` (Facturas de publicidad) y la alerta `ad_uninvoiced`. Nada de eso se tocó.
+
+**Hecho (sin commit):**
+- **Envíos dirigidos** (`/admin/growth/campaigns/*`, pantalla "Envíos dirigidos"): vista previa de alcance, confirmación con el alcance visto (si crece más de 10% se rechaza), historial (`CampaignSend`, nuevo), envío en segundo plano (antes corría dentro de la petición) y candado: no se acepta otro mientras hay uno `sending`. Cuerpo validado con zod (antes cualquier cosa; título/mensaje sin tope); solo clientes o domiciliarios. Las rutas viejas `/admin/campaigns/*` se eliminaron.
+- **Bug real del segmento por ciudad:** `User` no tiene `city` (vive en `Address`), así que el filtro no coincidía con nadie y el envío salía a cero. Ahora cruza con las direcciones. Además ciudad + comprador de un negocio ya se cruzan (el segundo pisaba al primero) y los cruces usan `Set`.
+- **Referidos** (`GET /admin/growth/referrals`, `coupons:view`): resumen, quien más invita, lista con pendiente / compró / bloqueada por abuso y el motivo. Solo nombre corto, sin email ni teléfono.
+- **Zipp Pro** (`GET /admin/growth/pro`, `finance:view`): miembros vigentes, ingreso mensual **bruto**, cancelados aún vigentes, renovaciones fallidas, últimas suscripciones. Solo lectura.
+- **Interruptores** (pantalla; el backend existía): la ruta `PUT /admin/feature-flags/:key` no validaba nada y, como `findOneAndUpdate` no corre los validadores del esquema, una audiencia inventada se guardaba tal cual. Ahora clave y audiencia validadas con zod. La pantalla avisa de `rbac_enforce` y no deja borrarlo.
+- Tests: `growthPhase6.test.ts`.
+
+**Decisiones por defecto (reversibles):** referidos bajo `coupons:view`, Pro bajo `finance:view`, envíos bajo `notifications:*` (hoy solo el Super Administrador lo tiene: ningún rol base lo incluye).
+
+**Pendientes anotados:**
+- **Coste de Pro sin registrar:** el pedido no guarda `proDeliveryDiscount` ni `proServiceFeeDiscount`; sin eso no se puede decir si el plan deja margen (regla financiera). Decisión de arquitectura: persistirlos en `Order.finance`.
+- Comisión de Wompi de la suscripción tampoco se resta del ingreso.
+- Referidos: el programa no paga recompensa; "cumplida" = primera compra. Coste separado de referidos y de Pro en el libro (decisión 8) sigue abierto.
+- Coste por financiador/campaña de cupones y reporte al anunciante (clic → pedido, `AdEvent` no lo liga) — P2/L, no tocado.
+- Editar precio/beneficios de Pro desde el panel: hoy solo en `config/pro.ts`.
+- Envíos: segmentar a domiciliarios sin más filtros que ciudad; el consentimiento se evalúa por `marketingConsent`, no por `marketingChannels`.
+- Sin probar en navegador contra un backend real.
+
+### Fase 7 · Contenido, bloque pequeño (2026-09-25)
+
+**Alcance decidido con el dueño:** solo lo pequeño y P1. Decisión 21 (búsquedas sin resultado): **sinónimos y redirección, ambos**. Quedan fuera Inicio dentro del constructor de Explorar (L), telemetría orgánica, antojos por etiqueta y CRUD de colecciones.
+
+**Hecho (sin commit):**
+- **Bloques curados: franja y día.** `dayparts` y `weekdays` (hora de Bogotá, mismas franjas que Explorar). Las fechas ya existían; faltaba la franja. El filtro es en JS al armar el Inicio y la caché de 60 s marca el retraso máximo.
+- **Bug real:** guardar un bloque sin rango de fechas devolvía 400. La pantalla manda `null` y `z.coerce.date()` lo convertía en 1970-01-01 en ambas fechas, y la regla "fin posterior a inicio" lo rechazaba. Ahora `null` limpia la fecha.
+- **Búsquedas accionables** (`SearchRule`, `/search/rules`, permisos `content:view/manage`, auditado):
+  - *Sinónimo*: si la búsqueda literal viene vacía, busca el término destino (antes de la corrección por letras). Nunca pisa un resultado. Se rechaza si el destino tampoco devuelve nada.
+  - *Redirección*: con resultados vacíos, la respuesta trae `redirect` (categoría o negocio) y la app ofrece ir ahí. Solo categoría y negocio: no existe pantalla de colección en la app.
+  - *Atendido*: saca el término de "buscado y no encontrado". Quitar la regla lo devuelve.
+  - "Sin resultado" ahora agrupa por término normalizado (antes "Sushi" y "sushi" eran dos filas).
+- **Orden del Inicio visible** (`GET /curated-home-blocks/order-map`): una lista con las tres fuentes que comparten el número de orden, si cada una está viva ahora y cuál queda desplazada. La regla de desempate ahora está escrita (`HOME_TIE_RANK`): colección automática, luego bloque curado, luego banner anclado. Ya era el comportamiento por accidente del orden del array. La publicidad de pago no ocupa huecos del Inicio.
+- Tests: `contentPhase7.test.ts` (9).
+
+**Pendientes anotados:**
+- Móvil: el destino de redirección abre la categoría o el negocio; hay que **recompilar** la app para verlo. Sin probar en dispositivo.
+- Sinónimos: una sola vía (término → término), sin cadenas ni sinónimos que mejoren resultados que ya existen. La caché de reglas tarda hasta 60 s.
+- Sin probar en navegador contra un backend real.
+- No tocado de la fase: Inicio en el constructor (decisión 19), programación de banners, antojos por etiqueta, CRUD de `DiscoveryCollection`, telemetría orgánica (decisión 22), un layout por municipio (decisión 20).
+
+### Fase 8 · Escala, solo lo que no depende del NIT (2026-09-25)
+
+**Alcance decidido con el dueño:** salud de la app y corte del Resumen diario por zona. Decisión 17: catálogo de municipios **al abrir el segundo** (hoy `city` sigue siendo texto libre). Quedan fuera facturación DIAN, certificados de retención y cierre de periodo (dependen del NIT, del proveedor y de las decisiones 1-4), y las métricas por municipio.
+
+**Hecho (sin commit):**
+- **Resumen diario por zona** (`GET /admin/daily-summary/zones`, `reports:view`; tabla "Por zona de entrega" en el Resumen diario): creados, entregados, cancelados con su tasa, minutos medios de entrega y, solo con `finance:view`, GMV y pago a domiciliarios. Sale de `Order.zoneId`. Los pedidos sin zona (mandados, recogida en local, anteriores a las zonas) van en una fila "Sin zona" para que la suma cuadre con el día. Una zona borrada se ve como "Zona eliminada".
+- **Salud de la app** (pantalla nueva, `reports:view`):
+  - `ClientError` solo tenía escritura. `GET /admin/health/crashes` agrupa por mensaje y versión: cuántas veces, cuántas fatales, cuántas personas, plataformas, primera y última vez, un pedido de muestra y la traza. **Nunca salen `userId` ni `deviceId`**. Ventana de 1 a 30 días (el TTL de la colección).
+  - La misma pantalla enseña por fin `/admin/image-processing/stats`: recortes facturables (la cifra a cuadrar contra la factura del proveedor), terminados, fallidos, tiempo medio y p95, por proveedor y comercios que más consumen.
+- Tests: `scalePhase8.test.ts` (5).
+
+**Pendientes anotados:**
+- El corte del Resumen diario solo cubre pedidos por zona. Sin zona por municipio: el "corte por municipio" espera al catálogo de municipios (decisión 17).
+- Las cifras por zona no traen ingreso de ZIPP ni margen: el libro mayor no está partido por zona. Si se necesita, es decisión de arquitectura.
+- Crashes: no hay estado "resuelto" ni alertas cuando una versión nueva dispara los fatales. La agrupación `$addToSet` de personas crece con el volumen de un grupo; a la escala actual es irrelevante.
+- Consumo de recorte: la ventana está fija en 30 días en la pantalla.
+- Sin probar en navegador contra un backend real.
+- **Bloqueado por el NIT:** factura electrónica de comisión y publicidad, documento soporte a domiciliarios, certificados de retención, cierre de periodo, paquete mensual para el contador.
+
+### Cierre de pendientes de las fases 0-8 (2026-09-25)
+
+**Alcance decidido con el dueño:** todo lo que no dependía de nadie, más cuatro pendientes con decisión (Pro, `order:incoming`, crashes resueltos, aviso de vencimiento) y la aceptación legal en la app (registro + versión nueva, términos y privacidad, pantalla que bloquea). Aviso de vencimiento: 30, 7 y 1 día antes y el día que vence; al comercio, push + línea en el panel.
+
+**Hecho (sin commit):**
+- **Dinero · fondo al cancelar (Fase 2):** `onCancelled` devolvía `businessPayout || subtotal`; con un pago al comercio de 0 no se había retenido nada y se le acreditaba el subtotal. Ahora devuelve exactamente lo retenido, con la misma fórmula de `assignDriver`.
+- **Recibo del mandado (Fase 0, S16):** `declareCost` aceptaba cualquier URL y guardaba en la auditoría la URL firmada (sin caducidad). Ahora exige una evidencia de recogida del pedido subida por ese domiciliario y la auditoría guarda solo `receiptEvidenceId`. El campo `receiptUrl` del cuerpo se acepta y se ignora (apps instaladas).
+- **`ipHash` con clave (Fase 4):** HMAC con la clave del servidor; el SHA-256 sin sal de una IPv4 se revertía por fuerza bruta.
+- **N+1 de `pendingApprovals()` (Fase 5):** dos consultas para toda la cola en vez de tres por negocio.
+- **Descuentos de Pro en el pedido (Fase 6):** `Order.finance.proDeliveryDiscount` y `proServiceFeeDiscount` (ya contados dentro de `platformFundedDiscount`, no se suman otra vez). La pantalla de Pro enseña los últimos 30 días: cobrado, comisión estimada de Wompi, envíos y tarifas regaladas, y el margen del plan; avisa si sale inflado (tarifa de Wompi en 0 o pedidos anteriores al campo).
+- **`order:incoming` al personal (Fase 0):** el dueño recibe el pedido entero; el personal (encargado y mostrador) sin el pago al domiciliario ni el margen de ZIPP (`merchantStaffOrderView`). La comisión se queda porque ya se deduce de `businessPayout`.
+- **Crashes resueltos (Fase 8):** `CrashResolution` por mensaje con las versiones vistas al resolver. Sigue resuelto si llega de una versión vieja y vuelve como **regresión** si aparece en una nueva. Marcar/reabrir exige `settings:update`.
+- **Aviso de vencimiento (Fase 5):** barrido cada hora (`documentExpiry.service`), una push por etapa con la marca `<expiresAt>:<etapa>` reclamada dentro del filtro; un papel renovado reinicia el ciclo solo. El panel de comercios enseña una línea arriba del Dashboard mientras haya algo vencido o por vencer.
+- **Aceptación legal en la app (Fase 4):** `GET /legal/pending` devuelve términos y privacidad vigentes sin aceptar. `LegalAcceptanceGate` es un `Modal` encima de la navegación en las dos apps (el GPS, la hoja de ofertas y el SOS siguen montados): "Aceptar y continuar" o cerrar sesión. Sin documentos publicados no aparece.
+- **Domiciliario desasignado (Fase 2):** el aviso sale ahora de `orderService.unassignDriver` (soporte y barrido de "no recogió a tiempo"), por socket y push; la app lo escucha, refresca y le dice que no vaya a recogerlo.
+- **Panel (Fase 1):** reordenar categorías y banners ya no se ofrece sin `content:manage`; asignar cargo y roles va en serie y el aviso dice si se guardó el cargo pero no los roles.
+- Tests nuevos o ampliados: `orderStatus`, `errands`, `legalAndDriver`, `growthPhase6`, `proSubscription`, `orderIdempotencyConcurrency`, `scalePhase8`, `documentExpiry`.
+
+**Pasos manuales:**
+- Publicar términos y privacidad en Documentos legales: hasta entonces la app no pide nada.
+- Llenar la tarifa de Wompi en Tarifas y Precios (sigue en 0): el margen de Pro sale inflado mientras tanto.
+- Recompilar la app móvil para la pantalla legal y el aviso de desasignación.
+
+**Pendientes que siguen abiertos:**
+- Los comercios (panel web) no aceptan documentos legales; solo clientes y domiciliarios en la app.
+- El personal de un comercio no puede usar `GET /orders/business/:id` (solo el dueño) y los pedidos programados solo avisan al dueño: el personal depende del socket. Revisar con zipp-merchant.
+- La migración 011 sigue sin script a propósito: renumera pedidos y es solo para dev.
+- Sin probar en navegador ni en dispositivo.
+
 ## Anexo A · Rutas que usa el panel sin `requirePermission`
 
 Solo exigen el rol admin:
