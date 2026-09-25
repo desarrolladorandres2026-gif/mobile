@@ -14,6 +14,39 @@ describe('Centro legal, derechos de datos y PQRS', () => {
     const record = await LegalAcceptance.findOne({ userId: user._id, documentId: document._id });
     expect(record?.version).toBe('2026.08');
     expect(record?.ipHash).not.toBe('');
+    // Con clave: no coincide con el SHA-256 sin sal de ninguna IP de prueba.
+    const crypto = await import('crypto');
+    for (const ip of ['::ffff:127.0.0.1', '127.0.0.1', '::1']) {
+      expect(record?.ipHash).not.toBe(crypto.createHash('sha256').update(ip).digest('hex').slice(0, 32));
+    }
+  });
+
+  it('pendientes: términos y privacidad vigentes sin aceptar, y otra vez al publicar versión nueva', async () => {
+    const user = await makeUser();
+    const header = await authHeader(user);
+    // Sin nada publicado, la app no pide nada.
+    expect((await request(app).get('/api/v1/legal/pending').set(header).expect(200)).body.data).toEqual([]);
+
+    const mk = (kind: string, version: string) =>
+      LegalDocument.create({ kind, version, title: kind, content: 'Texto de prueba suficientemente claro.', effectiveAt: new Date() });
+    const terms = await mk('terms', '1.0');
+    const privacy = await mk('privacy', '1.0');
+    await mk('promotions', '1.0'); // no exigido
+
+    let pending = (await request(app).get('/api/v1/legal/pending').set(header).expect(200)).body.data;
+    expect(pending.map((d: { kind: string }) => d.kind).sort()).toEqual(['privacy', 'terms']);
+    expect(pending.every((d: { isUpdate: boolean }) => d.isUpdate === false)).toBe(true);
+
+    await request(app).post(`/api/v1/legal/documents/${terms._id}/accept`).set(header).expect(200);
+    await request(app).post(`/api/v1/legal/documents/${privacy._id}/accept`).set(header).expect(200);
+    expect((await request(app).get('/api/v1/legal/pending').set(header).expect(200)).body.data).toEqual([]);
+
+    // Versión nueva de términos: la anterior se archiva y se vuelve a pedir, marcada como actualización.
+    await LegalDocument.updateOne({ _id: terms._id }, { $set: { isActive: false } });
+    await mk('terms', '2.0');
+    pending = (await request(app).get('/api/v1/legal/pending').set(header).expect(200)).body.data;
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ kind: 'terms', version: '2.0', isUpdate: true });
   });
 
   it('permite crear, consultar y responder una PQRS sin exponer la de otros usuarios', async () => {

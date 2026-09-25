@@ -22,6 +22,7 @@ import { couponService } from './coupon.service';
 import { cashReconciliationService } from './cashReconciliation.service';
 import { getPaymentProvider } from './payments';
 import { assertMoney } from '../utils';
+import { notifyAlertsChanged } from './alerts.service';
 
 export interface RefundAllocation {
   fromMerchantPayout: number;
@@ -305,6 +306,7 @@ export class RefundService {
         refund.status = RefundStatus.FAILED;
         refund.reason = `${params.reason} — falló en la pasarela: ${(error as Error).message}`;
         await refund.save();
+        void notifyAlertsChanged('refund_failed');
         throw new AppError(
           'El proveedor de pagos rechazó el reembolso. No se modificó ningún saldo.',
           502
@@ -605,6 +607,73 @@ export class RefundService {
 
   async listForOrder(orderId: string) {
     return Refund.find({ orderId }).sort({ createdAt: -1 });
+  }
+
+  /**
+   * Bandeja de reembolsos y contracargos de todos los pedidos, para finanzas.
+   *
+   * `attention` reúne lo que pide una decisión: fallidos (hay que reintentar o
+   * hacerlo por fuera) y pendientes de más de 15 minutos (un cerrojo que no
+   * se liberó). Los contracargos van siempre marcados aparte porque la
+   * pasarela fija un plazo para disputarlos.
+   */
+  async listAll(params: {
+    status?: RefundStatus;
+    kind?: RefundKind;
+    attention?: boolean;
+    page?: number;
+    limit?: number;
+  }) {
+    const filter: Record<string, unknown> = {};
+    if (params.status) filter.status = params.status;
+    if (params.kind) filter.kind = params.kind;
+    if (params.attention) {
+      filter.$or = [
+        { status: RefundStatus.FAILED },
+        { status: RefundStatus.PENDING, createdAt: { $lt: new Date(Date.now() - 15 * 60_000) } },
+      ];
+    }
+    const limit = params.limit ?? 25;
+    const page = Math.max(1, params.page ?? 1);
+    const [rows, total, summaryRows] = await Promise.all([
+      Refund.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate({ path: 'orderId', select: 'orderNumber total businessId', populate: { path: 'businessId', select: 'name' } })
+        .lean(),
+      Refund.countDocuments(filter),
+      Refund.aggregate([
+        { $group: { _id: { status: '$status', kind: '$kind' }, count: { $sum: 1 }, amount: { $sum: '$amount' } } },
+      ]),
+    ]);
+
+    const items = rows.map((r: any) => ({
+      _id: String(r._id),
+      orderId: r.orderId ? String(r.orderId._id ?? r.orderId) : null,
+      orderNumber: r.orderId?.orderNumber ?? null,
+      orderTotal: r.orderId?.total ?? null,
+      businessName: r.orderId?.businessId?.name ?? null,
+      kind: r.kind,
+      status: r.status,
+      amount: r.amount,
+      reason: r.reason,
+      transactionId: r.transactionId ?? null,
+      allocation: r.allocation,
+      processedAt: r.processedAt ?? null,
+      createdAt: r.createdAt,
+    }));
+
+    const totals = { chargebacks: { count: 0, amount: 0 }, failed: { count: 0, amount: 0 }, pending: { count: 0, amount: 0 }, completed: { count: 0, amount: 0 } };
+    for (const row of summaryRows) {
+      const bucket = totals[row._id.status as 'failed' | 'pending' | 'completed'];
+      if (bucket) { bucket.count += row.count; bucket.amount += row.amount; }
+      if (row._id.kind === RefundKind.CHARGEBACK && row._id.status !== 'failed') {
+        totals.chargebacks.count += row.count;
+        totals.chargebacks.amount += row.amount;
+      }
+    }
+    return { items, totals, meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
   }
 }
 

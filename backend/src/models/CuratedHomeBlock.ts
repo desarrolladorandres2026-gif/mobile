@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { cacheInvalidationPlugin, CachePrefix } from '../cache';
+import { DAYPARTS, type Daypart } from './DiscoveryCollection';
 
 /**
  * Bloques curados a mano por un administrador, intercalados entre las veinte
@@ -44,6 +45,10 @@ export interface ICuratedHomeBlock extends Document {
   isActive: boolean;
   startDate?: Date;
   endDate?: Date;
+  /** Franjas del día (hora de Bogotá) en que se muestra. Vacío = a cualquier hora. */
+  dayparts: Daypart[];
+  /** Días de la semana (0 = domingo) en que se muestra. Vacío = todos. */
+  weekdays: number[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -85,6 +90,19 @@ const curatedHomeBlockSchema = new Schema<ICuratedHomeBlock>(
     order: { type: Number, required: true, min: 0, max: 999 },
     isActive: { type: Boolean, default: true },
     startDate: { type: Date },
+    dayparts: {
+      type: [String],
+      default: [],
+      enum: { values: DAYPARTS, message: 'Franja horaria desconocida: {VALUE}' },
+    },
+    weekdays: {
+      type: [Number],
+      default: [],
+      validate: {
+        validator: (value: number[]) => value.every((d) => Number.isInteger(d) && d >= 0 && d <= 6),
+        message: 'Los días de la semana van de 0 (domingo) a 6 (sábado)',
+      },
+    },
     endDate: {
       type: Date,
       validate: {

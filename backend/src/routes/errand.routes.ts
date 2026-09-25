@@ -56,8 +56,12 @@ router.post(
 const costSchema = z.object({
   body: z.object({
     actualCost: z.number().int().min(0).max(2_000_000),
-    /** Foto del recibo. Sin ella esto sería un campo donde escribir cualquier número. */
-    receiptUrl: z.string().url().max(500),
+    /**
+     * Lo manda la app instalada, pero ya no se usa: el recibo se toma de la
+     * evidencia de recogida del pedido (`declareCost`), no de una URL que
+     * cualquiera puede escribir.
+     */
+    receiptUrl: z.string().max(2000).optional(),
   }),
 });
 
@@ -70,8 +74,7 @@ router.post(
       const order = await errandService.declareCost(
         param(req, 'id'),
         req.user!._id.toString(),
-        req.body.actualCost,
-        req.body.receiptUrl
+        req.body.actualCost
       );
       sendResponse(res, 200, 'Gasto registrado', order);
     } catch (error) { next(error); }

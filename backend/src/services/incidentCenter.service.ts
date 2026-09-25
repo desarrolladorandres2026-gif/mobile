@@ -134,77 +134,163 @@ export class IncidentCenterService {
       sos, fraud, cash, complaints, stalled, legalPqrs, legalDataRequests, overdueClawbacks,
       unassigned, cashOverdue, businessDocs, driverDocs, endedAds, failedRefunds,
     ] = await Promise.all([
-      gated('sos', () => SosAlert.find({ status: { $in: [SosStatus.ACTIVE, SosStatus.ACKNOWLEDGED] } })
-        .sort({ createdAt: -1 })
-        .limit(20)
-        .populate({ path: 'driverId', select: 'userId', populate: { path: 'userId', select: 'name' } })
-        .lean(),
+      gated('sos', () =>
+        SosAlert.find({ status: { $in: [SosStatus.ACTIVE, SosStatus.ACKNOWLEDGED] } })
+          .sort({ createdAt: -1 })
+          .limit(20)
+          .populate({ path: 'driverId', select: 'userId', populate: { path: 'userId', select: 'name' } })
+          .lean()
+      ),
 
-      FraudAlert.find({
-        status: { $in: [FraudAlertStatus.OPEN, FraudAlertStatus.INVESTIGATING] },
-        riskLevel: { $in: ['high', 'critical'] },
-      })
-        .sort({ createdAt: -1 })
-        .limit(30)
-        .lean(),
+      gated('fraud', () =>
+        FraudAlert.find({
+          status: { $in: [FraudAlertStatus.OPEN, FraudAlertStatus.INVESTIGATING] },
+          riskLevel: { $in: ['high', 'critical'] },
+        })
+          .sort({ createdAt: -1 })
+          .limit(30)
+          .lean()
+      ),
 
-      CashPaymentIncident.find({
-        status: { $in: [CashIncidentStatus.OPEN, CashIncidentStatus.UNDER_REVIEW] },
-      })
-        .sort({ createdAt: -1 })
-        .limit(30)
-        .lean(),
+      gated('cash', () =>
+        CashPaymentIncident.find({
+          status: { $in: [CashIncidentStatus.OPEN, CashIncidentStatus.UNDER_REVIEW] },
+        })
+          .sort({ createdAt: -1 })
+          .limit(30)
+          .lean()
+      ),
 
-      Pqrs.find({ type: 'claim', status: { $in: ['received', 'in_review'] } })
-        .sort({ createdAt: 1 })
-        .limit(30)
-        .lean(),
+      gated('complaint', () =>
+        Pqrs.find({ type: 'claim', status: { $in: ['received', 'in_review'] } })
+          .sort({ createdAt: 1 })
+          .limit(30)
+          .lean()
+      ),
 
-      Order.find({
-        status: { $in: [OrderStatus.PICKED_UP, OrderStatus.ON_WAY] },
-        updatedAt: { $lt: stalledSince },
-      })
-        .sort({ updatedAt: 1 })
-        .limit(20)
-        .select('orderNumber status clientId updatedAt')
-        .lean(),
+      gated('stalled_order', () =>
+        Order.find({
+          status: { $in: [OrderStatus.PICKED_UP, OrderStatus.ON_WAY] },
+          updatedAt: { $lt: stalledSince },
+        })
+          .sort({ updatedAt: 1 })
+          .limit(20)
+          .select('orderNumber status clientId updatedAt')
+          .lean()
+      ),
 
-      // Vencido o vencerá en los próximos 10 días de calendario (cota
-      // amplia; el filtro fino por días hábiles va abajo, al construir el
-      // incidente).
-      Pqrs.find({
-        status: { $in: ['received', 'in_review'] },
-        legalDueAt: { $lte: legalWindow },
-      })
-        .sort({ legalDueAt: 1 })
-        .limit(30)
-        .select('subject legalDueAt userId')
-        .lean(),
+      // Vencido o vencera en los proximos 10 dias de calendario (cota
+      // amplia; el filtro fino por dias habiles va abajo).
+      gated('pqrs_legal', () =>
+        Pqrs.find({
+          status: { $in: ['received', 'in_review'] },
+          legalDueAt: { $lte: legalWindow },
+        })
+          .sort({ legalDueAt: 1 })
+          .limit(30)
+          .select('subject legalDueAt userId')
+          .lean()
+      ),
 
-      DataRequest.find({
-        status: { $in: ['received', 'in_review'] },
-        legalDueAt: { $lte: legalWindow },
-      })
-        .sort({ legalDueAt: 1 })
-        .limit(30)
-        .select('type legalDueAt userId')
-        .lean(),
+      gated('data_request_legal', () =>
+        DataRequest.find({
+          status: { $in: ['received', 'in_review'] },
+          legalDueAt: { $lte: legalWindow },
+        })
+          .sort({ legalDueAt: 1 })
+          .limit(30)
+          .select('type legalDueAt userId')
+          .lean()
+      ),
 
-      // Arrastre de comercio (`Payout.isClawback`) sin cobrar hace más de 14
-      // días: nadie lo ve porque solo se cobra cuando el comercio vuelve a
-      // tener una liquidación, y un comercio que dejó de vender no vuelve a
-      // tener una.
-      Payout.find({
-        isClawback: true,
-        status: PayoutStatus.PAYABLE,
-        settlementId: null,
-        becamePayableAt: { $lt: clawbackOverdueSince },
-      })
-        .sort({ becamePayableAt: 1 })
-        .limit(30)
-        .populate('businessId', 'name')
-        .select('amount reversedAmount businessId orderId becamePayableAt')
-        .lean(),
+      // Arrastre de comercio sin cobrar hace mas de 14 dias: solo se cobra
+      // cuando el comercio vuelve a tener liquidacion, y uno que dejo de
+      // vender no vuelve a tener una.
+      gated('clawback_overdue', () =>
+        Payout.find({
+          isClawback: true,
+          status: PayoutStatus.PAYABLE,
+          settlementId: null,
+          becamePayableAt: { $lt: clawbackOverdueSince },
+        })
+          .sort({ becamePayableAt: 1 })
+          .limit(30)
+          .populate('businessId', 'name')
+          .select('amount reversedAmount businessId orderId becamePayableAt')
+          .lean()
+      ),
+
+      // Listo, sin domiciliario y con reparto agotado (vueltas) o quieto 10 min.
+      // Indice {status, driverId, dispatch.expiresAt}.
+      gated('unassigned_order', () =>
+        Order.find({
+          status: OrderStatus.READY,
+          driverId: null,
+          $or: [{ 'dispatch.cycle': { $gte: cyclesBeforeAlert } }, { updatedAt: { $lt: unassignedSince } }],
+        })
+          .sort({ updatedAt: 1 })
+          .limit(30)
+          .select('orderNumber clientId businessId dispatch updatedAt')
+          .lean()
+      ),
+
+      // Efectivo vencido que el domiciliario debe a ZIPP. Indice {status, dueAt}.
+      gated('cash_overdue', () =>
+        CashReconciliation.find({ status: CashReconciliationStatus.OVERDUE })
+          .sort({ dueAt: 1 })
+          .limit(30)
+          .select('driverId orderId amount dueAt')
+          .lean()
+      ),
+
+      // Documentos aprobados que caducan pronto o ya caducaron. `expired` cuenta: quien abre la cola
+      // los pasa a ese estado, y la alerta de "vencido" no debe esfumarse sola.
+      gated('business_document_expiring', () =>
+        BusinessDocument.find({ status: { $in: ['approved', 'expired'] }, expiresAt: { $lte: documentWindow } })
+          .sort({ expiresAt: 1 })
+          .limit(30)
+          .populate('businessId', 'name')
+          .select('businessId type expiresAt')
+          .lean()
+      ),
+
+      gated('driver_document_expiring', () =>
+        DriverDocument.find({ status: { $in: ['approved', 'expired'] }, expiresAt: { $lte: documentWindow } })
+          .sort({ expiresAt: 1 })
+          .limit(30)
+          .populate({ path: 'driverId', select: 'userId', populate: { path: 'userId', select: 'name' } })
+          .select('driverId type expiresAt')
+          .lean()
+      ),
+
+      // Campanas aprobadas, no canceladas y terminadas sin AdInvoice
+      // (closeAndInvoice es manual). Se miran las 200 mas recientes; se muestran 100.
+      gated('ad_uninvoiced', async () => {
+        const ended = await Advertisement.find({
+          endDate: { $lt: new Date() },
+          approvalStatus: AdApprovalStatus.APPROVED,
+          cancelledAt: null,
+        })
+          .sort({ endDate: -1 })
+          .limit(200)
+          .select('campaignName advertiserName endDate billedToBusinessId')
+          .lean();
+        if (!ended.length) return [];
+        const invoiced = await AdInvoice.find({ campaignId: { $in: ended.map((a) => a._id) } })
+          .select('campaignId')
+          .lean();
+        const done = new Set(invoiced.map((i) => String(i.campaignId)));
+        return ended.filter((a) => !done.has(String(a._id))).slice(0, 100);
+      }),
+
+      // Reembolsos que la pasarela rechazo. Indice {status}.
+      gated('refund_failed', () =>
+        Refund.find({ status: RefundStatus.FAILED })
+          .sort({ createdAt: -1 })
+          .limit(30)
+          .select('orderId amount reason createdAt')
+          .lean()
+      ),
     ]);
 
     const incidents: Incident[] = [
@@ -212,17 +298,21 @@ export class IncidentCenterService {
         kind: 'sos' as const,
         severity: 'critical' as const,
         id: String(a._id),
+        key: makeKey('sos', String(a._id), 'open'),
         title: 'Botón de pánico activado',
         detail: `${a.driverId?.userId?.name ?? 'Domiciliario'} pidió ayuda`,
         at: a.createdAt,
         userId: String(a.userId),
         orderId: a.orderId ? String(a.orderId) : undefined,
+        driverId: a.driverId?._id ? String(a.driverId._id) : undefined,
       })),
 
       ...fraud.map((a: any) => ({
         kind: 'fraud' as const,
         severity: (a.riskLevel === 'critical' ? 'critical' : 'high') as IncidentSeverity,
         id: String(a._id),
+        // El nivel de riesgo es el stage: si sube de high a critical vuelve a sonar.
+        key: makeKey('fraud', String(a._id), a.riskLevel === 'critical' ? 'critical' : 'high'),
         title: 'Alerta de fraude',
         detail: a.description,
         at: a.createdAt,
@@ -233,6 +323,7 @@ export class IncidentCenterService {
         kind: 'cash' as const,
         severity: 'high' as const,
         id: String(i._id),
+        key: makeKey('cash', String(i._id), 'open'),
         title: 'Faltante de efectivo',
         detail: `${i.type} por $${(i.amount ?? 0).toLocaleString('es-CO')}`,
         at: i.createdAt,
@@ -243,16 +334,21 @@ export class IncidentCenterService {
         kind: 'complaint' as const,
         severity: 'medium' as const,
         id: String(c._id),
+        key: makeKey('complaint', String(c._id), 'open'),
         title: 'Reclamo sin resolver',
         detail: c.subject,
         at: c.createdAt,
         userId: String(c.userId),
+        orderId: c.orderId ? String(c.orderId) : undefined,
+        businessId: c.businessId ? String(c.businessId) : undefined,
+        driverId: c.driverId ? String(c.driverId) : undefined,
       })),
 
       ...stalled.map((o: any) => ({
         kind: 'stalled_order' as const,
         severity: 'high' as const,
         id: String(o._id),
+        key: makeKey('stalled_order', String(o._id), 'stalled'),
         title: 'Pedido detenido',
         detail: `${o.orderNumber} lleva más de 45 minutos en ${o.status}`,
         at: o.updatedAt,
@@ -268,6 +364,7 @@ export class IncidentCenterService {
             kind: 'pqrs_legal' as const,
             severity: (daysLeft <= 1 ? 'critical' : 'high') as IncidentSeverity,
             id: String(p._id),
+            key: makeKey('pqrs_legal', String(p._id), daysLeft < 0 ? 'overdue' : 'due_soon'),
             title: daysLeft < 0 ? 'PQRS con plazo legal vencido' : 'PQRS por vencer (plazo legal)',
             detail: p.subject,
             at: p.legalDueAt,
@@ -283,6 +380,7 @@ export class IncidentCenterService {
             kind: 'data_request_legal' as const,
             severity: (daysLeft <= 1 ? 'critical' : 'high') as IncidentSeverity,
             id: String(d._id),
+            key: makeKey('data_request_legal', String(d._id), daysLeft < 0 ? 'overdue' : 'due_soon'),
             title: daysLeft < 0 ? 'Solicitud de datos personales vencida' : 'Solicitud de datos por vencer',
             detail: `Solicitud de ${d.type}`,
             at: d.legalDueAt,
@@ -297,12 +395,96 @@ export class IncidentCenterService {
           kind: 'clawback_overdue' as const,
           severity: 'medium' as const,
           id: String(c._id),
+          key: makeKey('clawback_overdue', String(c._id), 'overdue'),
           title: 'Arrastre sin cobrar hace más de 14 días',
           detail: `${c.businessId?.name ?? 'Comercio'} debe $${net.toLocaleString('es-CO')} (${days} días)`,
           at: c.becamePayableAt,
           orderId: c.orderId ? String(c.orderId) : undefined,
+          businessId: c.businessId?._id ? String(c.businessId._id) : undefined,
         };
       }),
+
+      ...unassigned.map((o: any) => {
+        const cycle: number = o.dispatch?.cycle ?? 0;
+        // El stage escala de cyclesBeforeAlert en cyclesBeforeAlert
+        // (cycle3, cycle6...): una vuelta mas no es escalada, tres si.
+        const bucket = Math.floor(cycle / cyclesBeforeAlert) * cyclesBeforeAlert;
+        const waitedMin = Math.floor((Date.now() - new Date(o.updatedAt).getTime()) / 60_000);
+        return {
+          kind: 'unassigned_order' as const,
+          severity: 'high' as IncidentSeverity,
+          id: String(o._id),
+          key: makeKey('unassigned_order', String(o._id), bucket > 0 ? `cycle${bucket}` : 'waiting'),
+          title: 'Pedido listo sin domiciliario',
+          detail: `${o.orderNumber} lleva ${cycle} vueltas de reparto y ${waitedMin} min sin quién lo recoja`,
+          at: o.updatedAt,
+          userId: String(o.clientId),
+          orderId: String(o._id),
+          businessId: o.businessId ? String(o.businessId) : undefined,
+        };
+      }),
+
+      ...cashOverdue.map((r: any) => ({
+        kind: 'cash_overdue' as const,
+        severity: 'high' as IncidentSeverity,
+        id: String(r._id),
+        key: makeKey('cash_overdue', String(r._id), 'overdue'),
+        title: 'Efectivo vencido sin entregar',
+        detail: `Un domiciliario debe ${money(r.amount)} a ZIPP desde ${new Date(r.dueAt).toLocaleDateString('es-CO')}`,
+        at: r.dueAt,
+        orderId: r.orderId ? String(r.orderId) : undefined,
+        driverId: r.driverId ? String(r.driverId) : undefined,
+      })),
+
+      ...businessDocs.map((d: any) => {
+        const expired = new Date(d.expiresAt).getTime() < Date.now();
+        return {
+          kind: 'business_document_expiring' as const,
+          severity: (expired ? 'high' : 'medium') as IncidentSeverity,
+          id: String(d._id),
+          key: makeKey('business_document_expiring', String(d._id), expired ? 'overdue' : 'due_soon'),
+          title: expired ? 'Documento de comercio vencido' : 'Documento de comercio por vencer',
+          detail: `${d.businessId?.name ?? 'Comercio'}: ${d.type} ${expiryPhrase(d.expiresAt)}`,
+          at: d.expiresAt,
+          businessId: d.businessId?._id ? String(d.businessId._id) : undefined,
+        };
+      }),
+
+      ...driverDocs.map((d: any) => {
+        const expired = new Date(d.expiresAt).getTime() < Date.now();
+        return {
+          kind: 'driver_document_expiring' as const,
+          severity: (expired ? 'high' : 'medium') as IncidentSeverity,
+          id: String(d._id),
+          key: makeKey('driver_document_expiring', String(d._id), expired ? 'overdue' : 'due_soon'),
+          title: expired ? 'Documento de domiciliario vencido' : 'Documento de domiciliario por vencer',
+          detail: `${d.driverId?.userId?.name ?? 'Domiciliario'}: ${DOC_LABEL[d.type] ?? d.type} ${expiryPhrase(d.expiresAt)}`,
+          at: d.expiresAt,
+          driverId: d.driverId?._id ? String(d.driverId._id) : undefined,
+        };
+      }),
+
+      ...endedAds.map((a: any) => ({
+        kind: 'ad_uninvoiced' as const,
+        severity: 'medium' as IncidentSeverity,
+        id: String(a._id),
+        key: makeKey('ad_uninvoiced', String(a._id), 'pending'),
+        title: 'Campaña terminada sin facturar',
+        detail: `${a.campaignName} (${a.advertiserName}) terminó el ${new Date(a.endDate).toLocaleDateString('es-CO')}`,
+        at: a.endDate,
+        businessId: a.billedToBusinessId ? String(a.billedToBusinessId) : undefined,
+      })),
+
+      ...failedRefunds.map((r: any) => ({
+        kind: 'refund_failed' as const,
+        severity: 'high' as IncidentSeverity,
+        id: String(r._id),
+        key: makeKey('refund_failed', String(r._id), 'failed'),
+        title: 'Reembolso rechazado por la pasarela',
+        detail: `${money(r.amount)}: ${r.reason || 'sin motivo'}`,
+        at: r.createdAt,
+        orderId: r.orderId ? String(r.orderId) : undefined,
+      })),
     ];
 
     const weight: Record<IncidentSeverity, number> = { critical: 0, high: 1, medium: 2 };
@@ -310,13 +492,12 @@ export class IncidentCenterService {
     return incidents
       .filter((i) => allows(INCIDENT_PERMISSION[i.kind]))
       .sort((a, b) => {
-      if (weight[a.severity] !== weight[b.severity]) {
-        return weight[a.severity] - weight[b.severity];
-      }
-      // Dentro de la misma gravedad, lo más antiguo primero: lo que lleva
-      // más tiempo sin atenderse es lo que más ha empeorado.
-      return a.at.getTime() - b.at.getTime();
-    });
+        if (weight[a.severity] !== weight[b.severity]) {
+          return weight[a.severity] - weight[b.severity];
+        }
+        // Dentro de la misma gravedad, lo mas antiguo primero.
+        return a.at.getTime() - b.at.getTime();
+      });
   }
 
   /** Los números de cabecera, para saber si hoy hay que preocuparse. */

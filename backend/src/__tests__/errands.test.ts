@@ -7,7 +7,13 @@ import { errandService } from '../services/errand.service';
 import { orderService } from '../services/order.service';
 import { ledgerService } from '../services/ledger.service';
 import { pricingConfigService } from '../services/pricingConfig.service';
-import { makeUser, makeDriver, makePricingConfig, GARZON, offsetKm, runDelivery } from './factories';
+import { makeUser, makeDriver, makePricingConfig, makeReceipt, GARZON, offsetKm, runDelivery } from './factories';
+import { AuditLog } from '../security/audit';
+
+const declareWithReceipt = async (orderId: string, driverUserId: string, cost: number) => {
+  await makeReceipt(orderId, driverUserId);
+  return errandService.declareCost(orderId, driverUserId, cost);
+};
 
 /**
  * Mandados.
@@ -205,11 +211,10 @@ describe('Mandados', () => {
     await Order.updateOne({ _id: order._id }, { status: OrderStatus.READY, paymentStatus: PaymentStatus.PAID });
     await orderService.assignDriver(order._id.toString(), driver._id.toString());
 
-    const updated = await errandService.declareCost(
+    const updated = await declareWithReceipt(
       order._id.toString(),
       driverUser._id.toString(),
-      38500,
-      'https://cdn.example.com/recibo.jpg'
+      38500
     );
 
     // El cliente paga lo que costó más el viaje, ni un peso más.
@@ -225,11 +230,10 @@ describe('Mandados', () => {
     // El cliente autorizó una cifra y nadie puede subirla por él desde la
     // calle.
     await expect(
-      errandService.declareCost(
+      declareWithReceipt(
         order._id.toString(),
         driverUser._id.toString(),
-        60000,
-        'https://cdn.example.com/recibo.jpg'
+        60000
       )
     ).rejects.toMatchObject({ statusCode: 422 });
   });
@@ -243,11 +247,10 @@ describe('Mandados', () => {
     await makeDriver(intrusoUser._id);
 
     await expect(
-      errandService.declareCost(
+      declareWithReceipt(
         order._id.toString(),
         intrusoUser._id.toString(),
-        30000,
-        'https://cdn.example.com/recibo.jpg'
+        30000
       )
     ).rejects.toMatchObject({ statusCode: 403 });
   });
@@ -257,11 +260,10 @@ describe('Mandados', () => {
     await Order.updateOne({ _id: order._id }, { status: OrderStatus.READY, paymentStatus: PaymentStatus.PAID });
     await orderService.assignDriver(order._id.toString(), driver._id.toString());
 
-    const updated = await errandService.declareCost(
+    const updated = await declareWithReceipt(
       order._id.toString(),
       driverUser._id.toString(),
-      50000,
-      'https://cdn.example.com/recibo.jpg'
+      50000
     );
 
     expect(updated.errand!.actualCost).toBe(50000);
@@ -269,13 +271,35 @@ describe('Mandados', () => {
 
   it('un pedido normal no se puede declarar como mandado', async () => {
     await expect(
-      errandService.declareCost(
+      declareWithReceipt(
         '507f1f77bcf86cd799439011',
         driverUser._id.toString(),
-        1000,
-        'https://cdn.example.com/recibo.jpg'
+        1000
       )
     ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('el gasto exige la foto del recibo de ESTE domiciliario y la auditoría no guarda URL', async () => {
+    const order = await createErrand({ estimatedCost: 40000, maxCost: 50000 });
+    await Order.updateOne({ _id: order._id }, { status: OrderStatus.READY, paymentStatus: PaymentStatus.PAID });
+    await orderService.assignDriver(order._id.toString(), driver._id.toString());
+    const id = order._id.toString();
+
+    await expect(errandService.declareCost(id, driverUser._id.toString(), 38500))
+      .rejects.toMatchObject({ statusCode: 422, code: 'ERRAND_RECEIPT_REQUIRED' });
+
+    // Una foto subida por otra persona no vale como recibo.
+    const other = await makeUser({ role: UserRole.DRIVER });
+    await makeReceipt(id, other._id);
+    await expect(errandService.declareCost(id, driverUser._id.toString(), 38500))
+      .rejects.toMatchObject({ code: 'ERRAND_RECEIPT_REQUIRED' });
+
+    const receipt = await makeReceipt(id, driverUser._id);
+    await errandService.declareCost(id, driverUser._id.toString(), 38500);
+
+    const audit = await AuditLog.findOne({ entityId: id, description: /gasto declarado/ }).lean();
+    expect((audit!.metadata as any).receiptEvidenceId).toBe(String(receipt._id));
+    expect(JSON.stringify(audit!.metadata)).not.toMatch(/https?:\/\//);
   });
 
   it('sin recibo no se puede marcar recogido', async () => {
@@ -330,11 +354,10 @@ describe('Mandados', () => {
     await Order.updateOne({ _id: order._id }, { status: OrderStatus.READY, paymentStatus: PaymentStatus.PAID });
     await orderService.assignDriver(order._id.toString(), driver._id.toString());
 
-    await errandService.declareCost(
+    await declareWithReceipt(
       order._id.toString(),
       driverUser._id.toString(),
-      38500,
-      'https://cdn.example.com/recibo.jpg'
+      38500
     );
 
     expect(await balanceOf(order._id, LedgerAccount.ERRAND_ADVANCE_PAYABLE)).toBe(-38500);
@@ -347,11 +370,10 @@ describe('Mandados', () => {
     await orderService.assignDriver(order._id.toString(), driver._id.toString());
 
     const declare = () =>
-      errandService.declareCost(
+      declareWithReceipt(
         order._id.toString(),
         driverUser._id.toString(),
-        38500,
-        'https://cdn.example.com/recibo.jpg'
+        38500
       );
 
     await declare();
@@ -380,11 +402,10 @@ describe('Mandados', () => {
 
     const before = await Driver.findById(driver._id);
     await orderService.assignDriver(order._id.toString(), driver._id.toString());
-    await errandService.declareCost(
+    await declareWithReceipt(
       order._id.toString(),
       driverUser._id.toString(),
-      38500,
-      'https://cdn.example.com/recibo.jpg'
+      38500
     );
     await runDelivery(order._id.toString(), driverUser);
 
@@ -400,11 +421,10 @@ describe('Mandados', () => {
     const order = await createErrand({ estimatedCost: 40000, maxCost: 50000 });
     await Order.updateOne({ _id: order._id }, { status: OrderStatus.READY, paymentStatus: PaymentStatus.PAID });
     await orderService.assignDriver(order._id.toString(), driver._id.toString());
-    await errandService.declareCost(
+    await declareWithReceipt(
       order._id.toString(),
       driverUser._id.toString(),
-      38500,
-      'https://cdn.example.com/recibo.jpg'
+      38500
     );
     await runDelivery(order._id.toString(), driverUser);
 
@@ -417,11 +437,10 @@ describe('Mandados', () => {
     const order = await createErrand({ estimatedCost: 40000, maxCost: 50000 });
     await Order.updateOne({ _id: order._id }, { status: OrderStatus.READY, paymentStatus: PaymentStatus.PAID });
     await orderService.assignDriver(order._id.toString(), driver._id.toString());
-    await errandService.declareCost(
+    await declareWithReceipt(
       order._id.toString(),
       driverUser._id.toString(),
-      38500,
-      'https://cdn.example.com/recibo.jpg'
+      38500
     );
     await runDelivery(order._id.toString(), driverUser);
 
@@ -481,11 +500,10 @@ describe('Mandados', () => {
     const order = await createErrand({ estimatedCost: 40000, maxCost: 50000 });
     await Order.updateOne({ _id: order._id }, { status: OrderStatus.READY, paymentStatus: PaymentStatus.PAID });
     await orderService.assignDriver(order._id.toString(), driver._id.toString());
-    await errandService.declareCost(
+    await declareWithReceipt(
       order._id.toString(),
       driverUser._id.toString(),
-      38500,
-      'https://cdn.example.com/recibo.jpg'
+      38500
     );
 
     // Cancelar significa "esto no ha pasado", y el mercado ya está pagado
@@ -509,11 +527,10 @@ describe('Mandados', () => {
     const order = await createErrand({ estimatedCost: 40000, maxCost: 50000 });
     await Order.updateOne({ _id: order._id }, { status: OrderStatus.READY, paymentStatus: PaymentStatus.PAID });
     await orderService.assignDriver(order._id.toString(), driver._id.toString());
-    await errandService.declareCost(
+    await declareWithReceipt(
       order._id.toString(),
       driverUser._id.toString(),
-      38500,
-      'https://cdn.example.com/recibo.jpg'
+      38500
     );
 
     // La excepción de soporte aquí no ahorra trabajo: lo esconde.

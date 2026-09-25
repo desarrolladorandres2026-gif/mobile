@@ -203,7 +203,30 @@ export class LedgerService {
     pricingConfigVersion: number;
     transactionId: string;
     currency?: string;
+    /**
+     * Comisión estimada de la pasarela. Va en el mismo asiento del cobro:
+     * así es idempotente con él (un webhook repetido no la duplica).
+     */
+    processingFee?: number;
   }) {
+    const fee = params.processingFee ?? 0;
+    const feeLines: LedgerLine[] =
+      fee > 0
+        ? [
+            {
+              account: LedgerAccount.PAYMENT_PROCESSING_EXPENSE,
+              direction: LedgerDirection.DEBIT,
+              amount: fee,
+              memo: 'Comisión estimada de la pasarela',
+            },
+            {
+              account: LedgerAccount.GATEWAY_WITHHELD,
+              direction: LedgerDirection.CREDIT,
+              amount: fee,
+              memo: 'Retenido por la pasarela al desembolsar',
+            },
+          ]
+        : [];
     return this.post(
       {
         orderId: params.orderId,
@@ -225,6 +248,7 @@ export class LedgerService {
           amount: params.amount,
           memo: 'Cancelación del cobro pendiente',
         },
+        ...feeLines,
       ]
     );
   }

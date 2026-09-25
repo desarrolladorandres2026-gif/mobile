@@ -164,10 +164,15 @@ describe('Pedidos — idempotencia y concurrencia', () => {
     const product = await makeProduct(business._id);
     await Product.updateOne({ _id: product._id }, { stock: 10 });
 
-    const emitted: string[] = [];
-    const room = { to: () => room, emit: (event: string) => { emitted.push(event); return true; } };
+    // Cada emisión recuerda a qué salas fue, a cuáles no y con qué forma.
+    const emitted: { event: string; to: string[]; except: string[]; payload: any }[] = [];
+    const chain = (to: string[], except: string[]): any => ({
+      to: (r: string) => chain([...to, r], except),
+      except: (r: string) => chain(to, [...except, r]),
+      emit: (event: string, payload: unknown) => { emitted.push({ event, to, except, payload }); return true; },
+    });
     const originalIo = app.get('io');
-    app.set('io', room);
+    app.set('io', chain([], []));
 
     try {
       const body = httpBody(product, { idempotencyKey: 'doble-toque' });
@@ -177,7 +182,21 @@ describe('Pedidos — idempotencia y concurrencia', () => {
       expect(second.body.data._id).toBe(first.body.data._id);
       expect(await Order.countDocuments()).toBe(1);
       expect(await stockOf(product)).toBe(9);
-      expect(emitted.filter((e) => e === 'order:incoming')).toHaveLength(1);
+
+      // Un aviso para el dueño y uno para su personal (sin el dueño), y
+      // ninguno más por la réplica.
+      const incoming = emitted.filter((e) => e.event === 'order:incoming');
+      expect(incoming).toHaveLength(2);
+      const owner = incoming.find((e) => e.to[0].startsWith('user:'))!;
+      const staff = incoming.find((e) => e.to[0].startsWith('business:'))!;
+      expect(staff.except).toEqual(owner.to);
+
+      // El personal no ve el pago al domiciliario ni el margen de ZIPP.
+      expect(owner.payload.finance.driverPayout).toBeDefined();
+      expect(staff.payload.finance.businessPayout).toBe(owner.payload.finance.businessPayout);
+      expect(staff.payload.finance.driverPayout).toBeUndefined();
+      expect(staff.payload.finance.platformGrossRevenue).toBeUndefined();
+      expect(staff.payload.driverPayout).toBeUndefined();
     } finally {
       app.set('io', originalIo);
     }

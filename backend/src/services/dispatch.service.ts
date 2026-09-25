@@ -1,8 +1,9 @@
 import { Types } from 'mongoose';
 import { Order, IOrder, DriverOffer, DeclineReason } from '../models';
-import { OrderStatus } from '../types';
+import { OrderStatus, OrderKind } from '../types';
 import { suggestDriverForOrder, NearestDriver } from './tracking.service';
 import { emitToUser, getIO, emitToAdmin } from '../sockets/emitter';
+import { notifyAlertsChanged } from './alerts.service';
 import { pushService } from './push.service';
 import { logSystemAudit, AuditAction, AuditSeverity } from '../security';
 import { config } from '../config';
@@ -394,6 +395,7 @@ async function restartCycle(order: IOrder): Promise<boolean> {
     };
 
     emitToAdmin(getIO(), 'orders', 'order:dispatch:stalled', stalled);
+    void notifyAlertsChanged('unassigned_order');
 
     /**
      * El cliente también se entera.
@@ -606,6 +608,8 @@ export async function reassignStalledPickups(): Promise<number> {
 
   const stalled = await Order.find({
     status: OrderStatus.READY,
+    // En un mandado READY significa "comprando": nunca se le quita al domiciliario por reloj.
+    kind: { $ne: OrderKind.ERRAND },
     driverId: { $ne: null },
     assignedAt: { $lte: cutoff },
   })
@@ -655,7 +659,8 @@ export async function runSweepOnce(): Promise<void> {
   // `if (!on) return`, así que con el interruptor apagado un pedido
   // programado nunca salía de PENDING.
   const { orderService } = await import('./order.service');
-  const tasks: Array<Promise<unknown>> = [orderService.activateScheduledOrders()];
+  // Termina devoluciones de fondo que una caída dejó a medias (aunque el reparto esté apagado).
+  const tasks: Array<Promise<unknown>> = [orderService.activateScheduledOrders(), orderService.retryPendingFundReleases()];
   if (on) tasks.push(sweepExpiredOffers(), reassignStalledPickups());
   await Promise.all(tasks);
 }

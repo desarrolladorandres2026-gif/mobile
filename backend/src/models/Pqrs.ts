@@ -9,6 +9,12 @@ export interface IPqrs extends Document { userId: Types.ObjectId; type: 'petitio
    */
   assignedTo?: Types.ObjectId | null;
   assignedAt?: Date | null;
+  /**
+   * Quién abrió el caso: cliente, comercio o domiciliario. Se deriva del rol
+   * de la cuenta en el servidor, nunca de lo que mande el cliente: es lo que
+   * decide a quién se le exigió ser parte del pedido.
+   */
+  requesterRole: 'customer' | 'business' | 'driver';
   /** Alto para lo que involucra dinero o seguridad; normal para el resto. */
   priority: 'low' | 'normal' | 'high' | 'urgent';
   /** El pedido del que se queja, si se queja de uno. */
@@ -39,6 +45,7 @@ const evidenceSchema = new Schema({ url: { type: String, required: true, maxleng
 const pqrsSchema = new Schema<IPqrs>({ userId: { type: Schema.Types.ObjectId, ref: 'User', required: true }, type: { type: String, enum: ['petition','complaint','claim','suggestion'], required: true }, subject: { type: String, required: true, trim: true, maxlength: 160 }, detail: { type: String, required: true, maxlength: 4000 }, status: { type: String, enum: ['received','in_review','answered','closed'], default: 'received' }, evidence: { type: [evidenceSchema], default: [] }, responses: { type: [responseSchema], default: [] },
   assignedTo: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   assignedAt: { type: Date, default: null },
+  requesterRole: { type: String, enum: ['customer','business','driver'], default: 'customer' },
   priority: { type: String, enum: ['low','normal','high','urgent'], default: 'normal' },
   orderId: { type: Schema.Types.ObjectId, ref: 'Order', default: null },
   businessId: { type: Schema.Types.ObjectId, ref: 'Business', default: null },

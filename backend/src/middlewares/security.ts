@@ -248,6 +248,15 @@ export const orderEvidenceRateLimiter = rateLimit({
  * activo puede generar entregando de verdad — sirve para frenar un script,
  * no a alguien calificando pedidos reales.
  */
+/** Abrir casos de soporte: 5 por hora por IP. Un reclamo nace con prioridad alta; sin tope, una cuenta hunde la cola real. */
+export const pqrsCreateRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(5),
+  message: { success: false, message: 'Has abierto muchos casos seguidos. Espera un rato antes de abrir otro.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export const reviewCreateRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: limitFor(20),
@@ -422,50 +431,56 @@ export const exploreLayoutPreviewRateLimiter = rateLimit({
  * sesión robada. Al alcanzar el tope queda una alerta HIGH en la auditoría,
  * porque es una señal, no solo un 429.
  */
-export const adminSearchRateLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: limitFor(60),
-  message: {
-    success: false,
-    message: 'Demasiadas búsquedas seguidas. Espera un minuto antes de volver a buscar.',
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
-  handler: (req, res, _next, options) => {
-    void logAudit(req, {
-      action: AuditAction.SUSPICIOUS_ACTIVITY,
-      entity: 'admin_search',
-      severity: AuditSeverity.HIGH,
-      description: 'Tope de búsquedas del panel admin alcanzado',
-      metadata: { limit: options.limit },
-    });
-    res.status(options.statusCode).json(options.message);
-  },
-});
+// Limitación conocida: el contador es del store en memoria por defecto de express-rate-limit (se reinicia con PM2 y no se comparte); ningún otro limitador del repo usa store compartido.
+export const createAdminSearchRateLimiter = (max: number = limitFor(60)) =>
+  rateLimit({
+    windowMs: 60 * 1000,
+    max,
+    message: {
+      success: false,
+      message: 'Demasiadas búsquedas seguidas. Espera un minuto antes de volver a buscar.',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+    handler: (req, res, _next, options) => {
+      void logAudit(req, {
+        action: AuditAction.SUSPICIOUS_ACTIVITY,
+        entity: 'admin_search',
+        severity: AuditSeverity.HIGH,
+        description: 'Tope de búsquedas del panel admin alcanzado',
+        metadata: { limit: options.limit },
+        // `originalUrl` traería `?q=` con el teléfono o correo buscado.
+        pathOverride: '/api/v1/admin/search',
+      });
+      res.status(options.statusCode).json(options.message);
+    },
+  });
+
+export const adminSearchRateLimiter = createAdminSearchRateLimiter();
 
 /**
  * Reenviar aviso de un pedido desde el panel admin — 3 por pedido cada 10 min.
  *
- * La clave es usuario + pedido: reenviar a un pedido no agota el cupo de
- * otro. Solo hay plantillas fijas, así que esto frena el spam de push al
- * cliente, no el phishing. Ha de montarse en una ruta con `:id` (o
- * `:orderId`) para que `req.params` ya exista.
+ * La clave es SOLO el pedido: con clave usuario+pedido, tres admins podían
+ * mandar nueve avisos al mismo cliente. Solo hay plantillas fijas, así que
+ * esto frena el spam de push, no el phishing. Ha de montarse en una ruta con
+ * `:id` (o `:orderId`) para que `req.params` ya exista.
  */
-export const orderNotifyRateLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: limitFor(3),
-  message: {
-    success: false,
-    message: 'Ya reenviaste varios avisos de este pedido. Espera unos minutos.',
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    const orderId = req.params?.id ?? req.params?.orderId ?? 'none';
-    return req.user ? `user:${req.user._id}:order:${orderId}` : `anon:${req.ip}:order:${orderId}`;
-  },
-});
+export const createOrderNotifyRateLimiter = (max: number = limitFor(3)) =>
+  rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max,
+    message: {
+      success: false,
+      message: 'Ya se reenviaron varios avisos de este pedido. Espera unos minutos.',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `order:${req.params?.id ?? req.params?.orderId ?? `anon:${req.ip}`}`,
+  });
+
+export const orderNotifyRateLimiter = createOrderNotifyRateLimiter();
 
 /**
  * Límite por usuario autenticado, complementario al límite global por IP.
@@ -581,7 +596,7 @@ export const auditMiddleware = async (req: Request, _res: Response, next: NextFu
         action: AuditAction.SETTINGS_CHANGED,
         entity: req.baseUrl + req.path,
         severity: AuditSeverity.LOW,
-        description: `${req.method} ${req.originalUrl}`,
+        description: `${req.method} ${req.originalUrl.split('?')[0]}`,
         metadata: {
           method: req.method,
           contentLength: req.headers['content-length'],

@@ -32,8 +32,13 @@ const blockFields = {
   items: z.array(objectId()).min(3).max(20),
   order: z.number().int().min(0).max(999),
   isActive: z.boolean().optional(),
-  startDate: z.coerce.date().optional(),
-  endDate: z.coerce.date().optional(),
+  // `null` limpia la fecha. Con `z.coerce.date()` a secas, `null` se volvía
+  // 1970-01-01 en las dos y la regla "fin posterior a inicio" rechazaba
+  // guardar un bloque sin rango de fechas.
+  startDate: z.union([z.null(), z.coerce.date()]).optional(),
+  endDate: z.union([z.null(), z.coerce.date()]).optional(),
+  dayparts: z.array(z.enum(['madrugada', 'manana', 'tarde', 'noche'])).max(4).optional(),
+  weekdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
 };
 
 const createBody = z

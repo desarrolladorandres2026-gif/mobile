@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { adminController } from '../controllers/admin.controller';
 import { authenticate, authorize, requirePermission, requireAnyPermission, validate } from '../middlewares';
 import { UserRole } from '../types';
@@ -9,6 +10,7 @@ import adminAlertsRouter from './adminAlerts.routes';
 import adminSearchRouter from './adminSearch.routes';
 import adminOrdersRouter from './adminOrders.routes';
 import adminBusinessesRouter from './adminBusinesses.routes';
+import adminGrowthRouter from './adminGrowth.routes';
 
 const router = Router();
 
@@ -20,19 +22,40 @@ router.get('/dashboard', requirePermission(Permission.ORDERS_VIEW_ALL), (req, re
 router.get('/financials', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => adminController.getFinancials(req, res, next));
 router.get('/revenue-chart', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => adminController.getRevenueChart(req, res, next));
 router.get('/daily-summary', requirePermission(Permission.REPORTS_VIEW), (req, res, next) => adminController.getDailySummary(req, res, next));
+router.get('/daily-summary/zones', requirePermission(Permission.REPORTS_VIEW), (req, res, next) => adminController.getDailySummaryByZone(req, res, next));
+// Salud de la app: crashes agrupados de los teléfonos (`ClientError`).
+router.get('/health/crashes', requirePermission(Permission.REPORTS_VIEW), (req, res, next) => adminController.getCrashes(req, res, next));
+// Marcar o reabrir un error. Es una decisión técnica ("ya está arreglado"),
+// por eso pide `settings:update` y no el permiso de solo ver reportes.
+const crashMessageSchema = z.object({
+  body: z.object({
+    message: z.string().min(1).max(500),
+    note: z.string().trim().max(300).optional(),
+  }).strict(),
+});
+router.post('/health/crashes/resolve', requirePermission(Permission.SETTINGS_UPDATE), validate(crashMessageSchema), (req, res, next) => adminController.resolveCrash(req, res, next));
+router.post('/health/crashes/reopen', requirePermission(Permission.SETTINGS_UPDATE), validate(crashMessageSchema), (req, res, next) => adminController.reopenCrash(req, res, next));
 
-// ── Envíos dirigidos ──
-// El preview va antes del envío a propósito: enseñar "esto llega a 240
-// personas" es la diferencia entre una herramienta y una escopeta.
-router.post('/campaigns/preview', requirePermission(Permission.NOTIFICATIONS_SEND), (req, res, next) => adminController.previewCampaign(req, res, next));
-router.post('/campaigns/send', requirePermission(Permission.NOTIFICATIONS_SEND), (req, res, next) => adminController.sendCampaign(req, res, next));
+// Envíos dirigidos, referidos y Zipp Pro viven en `adminGrowth.routes.ts` (/growth).
 
 // ── Interruptores de funcionalidad ──
 // Separan publicar código de encender comportamiento. Ver
 // `featureFlag.service.ts` para por qué existen.
 router.get('/feature-flags', requirePermission(Permission.SETTINGS_VIEW), (req, res, next) => adminController.listFeatureFlags(req, res, next));
-router.put('/feature-flags/:key', requirePermission(Permission.SETTINGS_UPDATE), (req, res, next) => adminController.saveFeatureFlag(req, res, next));
-router.delete('/feature-flags/:key', requirePermission(Permission.SETTINGS_UPDATE), (req, res, next) => adminController.deleteFeatureFlag(req, res, next));
+// Sin esto, `findOneAndUpdate` no corre los validadores del esquema y una
+// audiencia inventada quedaba guardada como estaba escrita.
+const flagKeySchema = z.string().regex(/^[a-z][a-z0-9._-]{1,59}$/, 'La clave usa minúsculas, números, punto, guion y guion bajo');
+const saveFlagSchema = z.object({
+  params: z.object({ key: flagKeySchema }),
+  body: z.object({
+    description: z.string().trim().min(1).max(300).optional(),
+    audience: z.enum(['off', 'all', 'staff', 'percentage']).optional(),
+    percentage: z.number().int().min(0).max(100).optional(),
+  }).strict(),
+});
+const deleteFlagSchema = z.object({ params: z.object({ key: flagKeySchema }) });
+router.put('/feature-flags/:key', requirePermission(Permission.SETTINGS_UPDATE), validate(saveFlagSchema), (req, res, next) => adminController.saveFeatureFlag(req, res, next));
+router.delete('/feature-flags/:key', requirePermission(Permission.SETTINGS_UPDATE), validate(deleteFlagSchema), (req, res, next) => adminController.deleteFeatureFlag(req, res, next));
 
 // ── Informes descargables ──
 // El permiso existía en el RBAC sin nada que lo usara; estos son sus dos
@@ -108,5 +131,6 @@ router.patch('/drivers/:id/reactivate', requirePermission(Permission.DRIVERS_SUS
 router.use('/notes', adminNotesRouter);
 router.use('/alerts', adminAlertsRouter);
 router.use('/search', adminSearchRouter);
+router.use('/growth', adminGrowthRouter);
 
 export default router;

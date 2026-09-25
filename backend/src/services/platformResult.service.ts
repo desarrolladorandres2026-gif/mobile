@@ -36,7 +36,7 @@ import type { DateRange } from '../utils/period';
  */
 
 export const PLATFORM_RESULT_INCOMPLETE_REASON =
-  'Falta la comisión de Wompi y el costo de transferencia';
+  'Falta el costo de transferencia de los pagos y la comisión de Wompi de los cobros anteriores a configurarla';
 
 export interface PlatformResult {
   /** Comisión + tarifa de servicio + margen de domicilio, netos de reversos. COP entero. */
@@ -45,8 +45,12 @@ export interface PlatformResult {
   cashShortageExpense: number;
   driverFeeAbsorbed: number;
   badDebt: number;
+  /** Comisión estimada de la pasarela (0 mientras la tarifa esté sin configurar). */
+  processingExpense: number;
   /** grossRevenue − todos los gastos anteriores. Puede ser negativo. */
   netBeforeGatewayCosts: number;
+  /** `netBeforeGatewayCosts` − comisión estimada de la pasarela. */
+  netAfterGatewayCosts: number;
   incomplete: true;
   incompleteReason: string;
   /** El periodo consultado; `null` en ambos extremos = todo el histórico. */
@@ -64,6 +68,7 @@ const EXPENSE_ACCOUNTS = [
   LedgerAccount.CASH_SHORTAGE_EXPENSE,
   LedgerAccount.DRIVER_FEE_ABSORBED_EXPENSE,
   LedgerAccount.BAD_DEBT_EXPENSE,
+  LedgerAccount.PAYMENT_PROCESSING_EXPENSE,
 ] as const;
 
 export const platformResultService = {
@@ -124,6 +129,7 @@ export const platformResultService = {
     const cashShortageExpense = balance(LedgerAccount.CASH_SHORTAGE_EXPENSE);
     const driverFeeAbsorbed = balance(LedgerAccount.DRIVER_FEE_ABSORBED_EXPENSE);
     const badDebt = balance(LedgerAccount.BAD_DEBT_EXPENSE);
+    const processingExpense = balance(LedgerAccount.PAYMENT_PROCESSING_EXPENSE);
 
     return {
       // `+ 0` evita un `-0` cuando no hay asientos.
@@ -132,8 +138,11 @@ export const platformResultService = {
       cashShortageExpense,
       driverFeeAbsorbed,
       badDebt,
+      processingExpense,
       netBeforeGatewayCosts:
         grossRevenue - promotionExpense - cashShortageExpense - driverFeeAbsorbed - badDebt + 0,
+      netAfterGatewayCosts:
+        grossRevenue - promotionExpense - cashShortageExpense - driverFeeAbsorbed - badDebt - processingExpense + 0,
       incomplete: true,
       incompleteReason: PLATFORM_RESULT_INCOMPLETE_REASON,
       range: {

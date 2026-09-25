@@ -7,6 +7,7 @@ import {
   Pqrs,
   Refund,
   CashReconciliation,
+  Zone,
 } from '../models';
 import { OrderStatus, PaymentMethod, UserRole } from '../types';
 import { platformResultService, PlatformResult } from './platformResult.service';
@@ -137,6 +138,27 @@ export interface DailySummary {
   cashByStatus: CashByStatus[];
   /** Pedidos sin cerrar en este momento. Solo se calcula si la fecha es hoy. */
   ordersInProgressNow: number | null;
+}
+
+export interface ZoneRow {
+  /** `null` = pedidos sin zona (mandados, recogida en local, anteriores a las zonas). */
+  zoneId: string | null;
+  name: string;
+  city: string | null;
+  ordersCreated: number;
+  ordersDelivered: number;
+  ordersCancelled: number;
+  /** % de cancelados sobre creados ese día. `null` si no hubo pedidos. */
+  cancelRate: number | null;
+  avgDeliveryMinutes: number | null;
+  /** Solo con `finance:view`. */
+  gmv: number;
+  driverPayouts: number;
+}
+
+export interface ZoneSummary {
+  date: string;
+  zones: ZoneRow[];
 }
 
 // ── Límites del día ──────────────────────────────────────────────────
@@ -546,6 +568,74 @@ function todayStr(): string {
 }
 
 export const dailySummaryService = {
+  /**
+   * El mismo día, partido por zona de entrega (`Order.zoneId`).
+   *
+   * Los pedidos sin zona —mandados, recogida en local, pedidos anteriores a
+   * las zonas— van en una fila aparte: repartirlos entre las demás o
+   * esconderlos haría que la suma no cuadre con el resumen del día.
+   */
+  async byZone(dateInput?: string): Promise<ZoneSummary> {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(dateInput || '') ? dateInput! : todayStr();
+    const { start, end } = dayBounds(date);
+    const inDay = { $gte: start, $lte: end };
+
+    const [created, cancelled, delivered] = await Promise.all([
+      Order.aggregate([{ $match: { createdAt: inDay } }, { $group: { _id: '$zoneId', count: { $sum: 1 } } }]),
+      Order.aggregate([
+        { $match: { status: OrderStatus.CANCELLED, cancelledAt: inDay } },
+        { $group: { _id: '$zoneId', count: { $sum: 1 } } },
+      ]),
+      Order.aggregate([
+        { $match: { status: OrderStatus.DELIVERED, deliveredAt: inDay } },
+        {
+          $group: {
+            _id: '$zoneId',
+            count: { $sum: 1 },
+            gmv: { $sum: F('customerTotal', 'total') },
+            driverPayouts: { $sum: F('driverPayout', 'driverPayout') },
+            avgMs: { $avg: { $subtract: ['$deliveredAt', '$createdAt'] } },
+          },
+        },
+      ]),
+    ]);
+
+    const key = (id: unknown) => (id ? String(id) : 'none');
+    const createdBy = new Map(created.map((r) => [key(r._id), r.count as number]));
+    const cancelledBy = new Map(cancelled.map((r) => [key(r._id), r.count as number]));
+    const deliveredBy = new Map(delivered.map((r) => [key(r._id), r]));
+
+    const keys = new Set([...createdBy.keys(), ...cancelledBy.keys(), ...deliveredBy.keys()]);
+    const realIds = [...keys].filter((k) => k !== 'none');
+    const zones = realIds.length
+      ? await Zone.find({ _id: { $in: realIds } }).select('name city').lean()
+      : [];
+    const zoneOf = new Map(zones.map((z) => [String(z._id), z]));
+
+    const rows: ZoneRow[] = [...keys].map((k) => {
+      const d = deliveredBy.get(k);
+      const made = createdBy.get(k) ?? 0;
+      const cancelledCount = cancelledBy.get(k) ?? 0;
+      const deliveredCount = (d?.count as number | undefined) ?? 0;
+      return {
+        zoneId: k === 'none' ? null : k,
+        name: k === 'none' ? 'Sin zona' : zoneOf.get(k)?.name ?? 'Zona eliminada',
+        city: k === 'none' ? null : zoneOf.get(k)?.city ?? null,
+        ordersCreated: made,
+        ordersDelivered: deliveredCount,
+        ordersCancelled: cancelledCount,
+        // Sobre lo creado ese día: si nadie pidió, no hay tasa que calcular.
+        cancelRate: made > 0 ? Math.round((cancelledCount / made) * 1000) / 10 : null,
+        avgDeliveryMinutes: d?.avgMs ? Math.round(d.avgMs / 60000) : null,
+        gmv: (d?.gmv as number | undefined) ?? 0,
+        driverPayouts: (d?.driverPayouts as number | undefined) ?? 0,
+      };
+    });
+    rows.sort((a, b) => b.ordersCreated - a.ordersCreated);
+
+    return { date, zones: rows };
+  },
+
   async generate(dateInput?: string): Promise<DailySummary> {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(dateInput || '') ? dateInput! : todayStr();
     const baselineDate = shiftDays(date, -7);

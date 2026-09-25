@@ -11,6 +11,7 @@ import {
 } from '../utils/catalogQuery';
 import { withProductImages } from '../utils/productImageUrls';
 import { searchDictionaryService } from './searchDictionary.service';
+import { searchRuleService, type RuleView } from './searchRule.service';
 
 /**
  * Búsqueda del catálogo: negocios y productos a la vez.
@@ -31,13 +32,15 @@ export interface SearchOptions {
   lng?: number;
   maxDistance?: number;
   sort?: SortKey;
+  /** Ignora las reglas del panel. Lo usa la propia validación de una regla. */
+  skipRules?: boolean;
 }
 
 export interface SearchResults {
   businesses: unknown[];
   products: unknown[];
   /** Qué estrategia respondió. Útil para depurar por qué salió lo que salió. */
-  strategy: 'text' | 'prefix' | 'corrected';
+  strategy: 'text' | 'prefix' | 'corrected' | 'synonym';
   /**
    * El término que se buscó en realidad, cuando hubo que corregirlo.
    *
@@ -45,6 +48,11 @@ export interface SearchResults {
    * salida a quien sabía perfectamente lo que estaba escribiendo.
    */
   suggestedTerm?: string;
+  /**
+   * A dónde ofrecer ir cuando no hubo nada. Solo viaja con resultados
+   * vacíos y una regla `redirect` del panel para este término.
+   */
+  redirect?: NonNullable<RuleView['redirect']>;
   hasMore: boolean;
 }
 
@@ -240,7 +248,23 @@ export async function search(
     found = await run(clean, true);
   }
 
-  if (!found.businesses.length && !found.products.length) {
+  const empty = () => !found.businesses.length && !found.products.length;
+
+  // Las reglas del panel solo actúan cuando la búsqueda vendría vacía, y
+  // van antes de la corrección: un sinónimo puesto a mano es más fiable
+  // que una corrección por parecido de letras.
+  const rule = options.skipRules ? null : await searchRuleService.ruleFor(clean);
+
+  if (empty() && rule?.kind === 'synonym' && rule.synonymOf) {
+    const rescued = await run(rule.synonymOf, false);
+    if (rescued.businesses.length || rescued.products.length) {
+      strategy = 'synonym';
+      suggestedTerm = rule.synonymOf;
+      found = rescued;
+    }
+  }
+
+  if (empty()) {
     const corrected = await searchDictionaryService.correct(clean);
     if (corrected) {
       const rescued = await run(corrected, false);
@@ -263,6 +287,7 @@ export async function search(
     products: withDistance(found.products, coords, 'businessLocation'),
     strategy,
     ...(suggestedTerm ? { suggestedTerm } : {}),
+    ...(empty() && rule?.kind === 'redirect' && rule.redirect ? { redirect: rule.redirect } : {}),
     hasMore: ranked.length > start + limit,
   };
 }
@@ -461,7 +486,7 @@ async function categoryLabels(keys: string[]): Promise<Record<string, string>> {
 export interface SearchInsights {
   top: { term: string; count: number }[];
   /** Lo que se buscó y no había. La lista de qué falta en el catálogo. */
-  empty: { term: string; count: number; lastAt: Date }[];
+  empty: { term: string; key: string; count: number; lastAt: Date; rule: RuleView | null }[];
   days: number;
 }
 
@@ -475,6 +500,7 @@ export interface SearchInsights {
  */
 export async function insights(limit = 25): Promise<SearchInsights> {
   const from = since(INSIGHT_DAYS);
+  const handled = await searchRuleService.handledTerms();
 
   const [top, empty] = await Promise.all([
     SearchLog.aggregate([
@@ -483,17 +509,29 @@ export async function insights(limit = 25): Promise<SearchInsights> {
       { $sort: { count: -1 } },
       { $limit: limit },
     ]),
+    // Se agrupa por el término normalizado: "Sushi" y "sushi" son la misma
+    // demanda, y las reglas se guardan por esa misma clave.
     SearchLog.aggregate([
-      { $match: { createdAt: { $gte: from }, resultCount: 0 } },
-      { $group: { _id: '$termRaw', count: { $sum: 1 }, lastAt: { $max: '$createdAt' } } },
+      { $match: { createdAt: { $gte: from }, resultCount: 0, term: { $nin: handled } } },
+      { $group: { _id: '$term', label: { $first: '$termRaw' }, count: { $sum: 1 }, lastAt: { $max: '$createdAt' } } },
       { $sort: { count: -1 } },
       { $limit: limit },
     ]),
   ]);
 
+  // La regla que ya tiene cada término sin resultado, para que el panel
+  // enseñe "ya redirigido a…" y no vuelva a ofrecerlo como pendiente.
+  const rules = await Promise.all(empty.map((row) => searchRuleService.ruleFor(row._id)));
+
   return {
     top: top.map((row) => ({ term: row._id, count: row.count })),
-    empty: empty.map((row) => ({ term: row._id, count: row.count, lastAt: row.lastAt })),
+    empty: empty.map((row, i) => ({
+      term: row.label as string,
+      key: row._id as string,
+      count: row.count,
+      lastAt: row.lastAt,
+      rule: rules[i],
+    })),
     days: INSIGHT_DAYS,
   };
 }

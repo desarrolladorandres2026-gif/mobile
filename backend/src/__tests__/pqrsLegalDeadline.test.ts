@@ -25,7 +25,7 @@ describe('Plazo legal de PQRS y solicitudes de datos (O7)', () => {
     });
 
     expect(claim.legalDueAt).not.toBeNull();
-    expect(claim.dueAt).toBeNull(); // dueAt lo fija classify(), no create()
+    expect(claim.dueAt).not.toBeNull(); // el SLA interno se fija al abrir (Fase 4)
     expect(claim.legalDueAt!.getTime()).toBe(
       addBusinessDays(claim.createdAt, PQRS_LEGAL_BUSINESS_DAYS.claim!).getTime()
     );

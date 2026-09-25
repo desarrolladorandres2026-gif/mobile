@@ -23,6 +23,7 @@ import { startDispatchSweeper, stopDispatchSweeper } from './services/dispatch.s
 import { startCartAbandonmentSweeper, stopCartAbandonmentSweeper } from './services/cartActivity.service';
 import { startProRenewalSweeper, stopProRenewalSweeper } from './services/pro.service';
 import { startCashOverdueSweeper } from './services/cashReconciliation.service';
+import { startDocumentExpirySweeper, stopDocumentExpirySweeper } from './services/documentExpiry.service';
 import { startPendingPaymentSweeper, stopPendingPaymentSweeper } from './services/payments';
 import { startBackgroundRemovalSweeper, stopBackgroundRemovalSweeper } from './services/backgroundRemoval.service';
 import { initCache, closeCache } from './cache';
@@ -141,7 +142,9 @@ app.use(compression());
 if (config.nodeEnv === 'development') {
   app.use(morgan('dev'));
 } else if (!config.isTest) {
-  app.use(morgan(':remote-addr - :method :url :status :res[content-length] - :response-time ms'));
+  // `:url` traería `?q=` (teléfono o correo buscado en el panel) al log de acceso: se registra solo la ruta.
+  morgan.token('path', (req) => ((req as { originalUrl?: string }).originalUrl ?? req.url ?? '').split('?')[0]);
+  app.use(morgan(':remote-addr - :method :path :status :res[content-length] - :response-time ms'));
 }
 
 // ── Routes ──
@@ -249,6 +252,7 @@ const start = async () => {
   startPendingPaymentSweeper();
   startBackgroundRemovalSweeper();
   startCashOverdueSweeper();
+  startDocumentExpirySweeper();
 
   httpServer.listen(config.port, '0.0.0.0', () => {
     console.log(`\n🚀 ZIPP API en puerto ${config.port}`);
@@ -270,6 +274,7 @@ const shutdown = async (signal: string) => {
   stopProRenewalSweeper();
   stopPendingPaymentSweeper();
   stopBackgroundRemovalSweeper();
+  stopDocumentExpirySweeper();
   httpServer.close(async () => {
     await closeCache();
     try {

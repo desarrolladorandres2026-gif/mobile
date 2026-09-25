@@ -415,7 +415,7 @@ describe('Ficha 360 (GET /admin/drivers/:id/profile-360)', () => {
     expect(p.driver.userId.name).toBe('Perfil Completo');
 
     expect(p.documents).toHaveLength(1);
-    expect(p.documents[0]).toMatchObject({ type: 'soat', reference: 'SOAT-1', status: 'approved' });
+    expect(p.documents[0]).toMatchObject({ type: 'soat', reference: 'AT-1', status: 'approved' });
 
     expect(p.activity.totals).toEqual({ delivered: 5, cancelled: 1 });
     expect(p.activity.recentOrders.length).toBeLessThanOrEqual(10);
@@ -438,7 +438,7 @@ describe('Ficha 360 (GET /admin/drivers/:id/profile-360)', () => {
     expect(p.incidents.sos).toHaveLength(1);
     expect(p.incidents.sos[0]).toMatchObject({ status: 'active', note: 'Ayuda' });
     expect(p.incidents.pqrs.map((x: any) => x.subject)).toEqual(['Pedido frío']);
-    expect(p.incidents.notes).toEqual([]);
+    expect(p.notes).toEqual([]);
     expect(p.incidents.sanctions).toHaveLength(1);
     expect(p.incidents.sanctions[0]).toMatchObject({
       action: AuditAction.DRIVER_SUSPENDED,
@@ -453,7 +453,7 @@ describe('Ficha 360 (GET /admin/drivers/:id/profile-360)', () => {
 
     expect(raw).not.toMatch(/reputationScore|reputationUpdatedAt/);
     expect(raw).not.toMatch(/password|twoFactorSecret|recoveryCodes/i);
-    expect(Object.keys(res.body.data).sort()).toEqual(['activity', 'documents', 'driver', 'finance', 'incidents']);
+    expect(Object.keys(res.body.data).sort()).toEqual(['activity', 'documents', 'driver', 'finance', 'incidents', 'masked', 'notes', 'view']);
   });
 
   it('un domiciliario sin historial devuelve secciones vacías, no error', async () => {

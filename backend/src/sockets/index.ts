@@ -46,6 +46,8 @@ export function adminRoomsFor(authz: ResolvedAuthorization | undefined): string[
   if (perms.includes(Permission.ORDERS_VIEW_ALL)) rooms.push(adminRoom('orders'));
   if (perms.includes(Permission.DRIVERS_TRACK)) rooms.push(adminRoom('fleet'));
   if (perms.includes(Permission.SOS_VIEW)) rooms.push(adminRoom('sos'));
+  // Bandeja de alertas: el evento no lleva datos, cada admin los pide por REST ya filtrados.
+  if (perms.includes(Permission.ADMIN_PANEL)) rooms.push(adminRoom('alerts'));
   return rooms;
 }
 

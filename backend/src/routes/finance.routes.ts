@@ -11,6 +11,14 @@ import {
   cashIncidentIdSchema,
   resolveCashIncidentSchema,
   listClawbacksSchema,
+  listSettlementsSchema,
+  listPayablesSchema,
+  listPaymentsSchema,
+  paymentsDailySchema,
+  financeExportSchema,
+  listAdInvoicesSchema,
+  listFiscalDocumentsSchema,
+  collectAdInvoiceSchema,
   collectClawbackSchema,
   writeOffClawbackSchema,
 } from '../validators/finance.validator';
@@ -34,16 +42,79 @@ router.get('/config/audit', requirePermission(Permission.FINANCE_VIEW), (req, re
 router.get('/payouts/summary', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
   financeController.payoutSummary(req, res, next)
 );
-router.get('/settlements', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
-  financeController.listSettlements(req, res, next)
+router.get(
+  '/settlements',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate(listSettlementsSchema),
+  (req, res, next) => financeController.listSettlements(req, res, next)
+);
+// Exportes contables: `reports:export` + ver finanzas, y además motivo y TOTP en el cuerpo.
+router.post(
+  '/exports/:kind',
+  requirePermission(Permission.REPORTS_EXPORT),
+  requirePermission(Permission.FINANCE_VIEW),
+  validate(financeExportSchema),
+  (req, res, next) => financeController.exportFinance(req, res, next)
+);
+// Comprobantes internos (INT-): emitir es finanzas; leer, cualquiera con finance:view.
+router.post(
+  '/settlements/:id/document',
+  requirePermission(Permission.FINANCE_MANAGE),
+  validate(settlementIdParamSchema),
+  (req, res, next) => financeController.issueSettlementDocument(req, res, next)
 );
 router.get(
-  '',
+  '/documents',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate(listFiscalDocumentsSchema),
+  (req, res, next) => financeController.listFiscalDocuments(req, res, next)
+);
+router.get(
+  '/documents/:id',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate(settlementIdParamSchema),
+  (req, res, next) => financeController.getFiscalDocument(req, res, next)
+);
+router.get(
+  '/ad-invoices',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate(listAdInvoicesSchema),
+  (req, res, next) => financeController.listAdInvoices(req, res, next)
+);
+router.post(
+  '/ad-invoices/:id/collect',
+  requirePermission(Permission.FINANCE_MANAGE),
+  validate(collectAdInvoiceSchema),
+  (req, res, next) => financeController.collectAdInvoice(req, res, next)
+);
+router.get(
+  '/payments',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate(listPaymentsSchema),
+  (req, res, next) => financeController.listPayments(req, res, next)
+);
+router.get(
+  '/payments/daily',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate(paymentsDailySchema),
+  (req, res, next) => financeController.paymentsDaily(req, res, next)
+);
+router.get(
+  '/payables',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate(listPayablesSchema),
+  (req, res, next) => financeController.listPayables(req, res, next)
+);
+router.get(
+  '/clawbacks',
   requirePermission(Permission.FINANCE_VIEW),
   validate(listClawbacksSchema),
   (req, res, next) => financeController.listClawbacks(req, res, next)
 );
 router.get('/cash', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => financeController.listCash(req, res, next));
+router.get('/cash/by-driver', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
+  financeController.cashByDriver(req, res, next)
+);
 router.get('/cash/totals', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => financeController.cashTotals(req, res, next));
 // Los faltantes de efectivo. Solo lectura para cualquier administrador:
 // verlos es supervisión, decidirlos es finanzas (ver más abajo).

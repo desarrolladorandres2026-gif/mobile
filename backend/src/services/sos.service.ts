@@ -4,6 +4,7 @@ import { OrderStatus } from '../types';
 import { AppError } from '../middlewares/errorHandler';
 import { getIO, emitToUser, emitToAdmin } from '../sockets/emitter';
 import { logSystemAudit, AuditAction, AuditSeverity } from '../security';
+import { notifyAlertsChanged } from './alerts.service';
 
 /**
  * Botón de pánico del domiciliario.
@@ -66,6 +67,7 @@ export class SosService {
     });
 
     this.broadcast(alert, 'sos:triggered');
+    void notifyAlertsChanged('sos');
 
     await logSystemAudit({
       userId,
@@ -114,6 +116,7 @@ export class SosService {
     );
 
     if (!alert) throw new AppError('Alerta no encontrada o ya atendida', 404);
+    void notifyAlertsChanged('sos');
 
     // El domiciliario tiene que saber que alguien la vio. Es la diferencia
     // entre pulsar un botón y pulsar un botón que sirve para algo.
@@ -143,6 +146,7 @@ export class SosService {
     );
 
     if (!alert) throw new AppError('Alerta no encontrada', 404);
+    void notifyAlertsChanged('sos');
 
     emitToUser(alert.userId.toString(), 'sos:resolved', {
       alertId: alert._id.toString(),

@@ -52,6 +52,11 @@ export interface IAdInvoice extends Document {
   settledAgainstPayout: boolean;
   settledAt?: Date | null;
 
+  /** Cobro por fuera (`settledAgainstPayout: false`): con qué se pagó y quién lo registró. */
+  collectionReference?: string | null;
+  collectionReceiptUrl?: string | null;
+  collectedBy?: Types.ObjectId | null;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -83,6 +88,10 @@ const adInvoiceSchema = new Schema<IAdInvoice>(
 
     settledAgainstPayout: { type: Boolean, default: false },
     settledAt: { type: Date, default: null },
+
+    collectionReference: { type: String, default: null, maxlength: 120 },
+    collectionReceiptUrl: { type: String, default: null, maxlength: 500 },
+    collectedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true }
 );

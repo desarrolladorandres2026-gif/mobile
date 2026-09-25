@@ -1429,9 +1429,18 @@ export class PaymentService {
     const { ledgerService } = await import('../ledger.service');
     const { payoutService } = await import('../payout.service');
 
+    const { pricingConfigService } = await import('../pricingConfig.service');
+    const { estimateGatewayFee } = await import('../../utils/gatewayFee');
+    const processingFee = estimateGatewayFee(
+      await pricingConfigService.getCurrent(),
+      payment.paymentMethodType,
+      payment.amount
+    );
+
     await ledgerService.recordPaymentCaptured({
       orderId: order._id,
       amount: payment.amount,
+      processingFee,
       pricingConfigVersion: order.finance?.pricingConfigVersion ?? 0,
       transactionId: payment.transactionId ?? key,
       currency: order.finance?.currency,

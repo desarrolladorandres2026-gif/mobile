@@ -10,7 +10,7 @@ import {
   paymentWebhookRateLimiter,
   paymentOtpRateLimiter,
 } from '../middlewares';
-import { refundSchema, externalRefundSchema } from '../validators/finance.validator';
+import { refundSchema, externalRefundSchema, listAllRefundsSchema } from '../validators/finance.validator';
 import {
   initiatePaymentSchema,
   payNativeSchema,
@@ -141,6 +141,14 @@ router.get('/orders/:orderId', authenticate, validate(orderPaymentsSchema), (req
 
 // ── Finance admin ──
 // Refunds and chargebacks move real money: `refunds:create` (rol Finanzas).
+router.get(
+  '/refunds',
+  authenticate,
+  authorize(UserRole.ADMIN),
+  requirePermission(Permission.REFUNDS_VIEW),
+  validate(listAllRefundsSchema),
+  (req, res, next) => paymentController.listAllRefunds(req, res, next)
+);
 router.post(
   '/orders/:orderId/refund',
   authenticate,

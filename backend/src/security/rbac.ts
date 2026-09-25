@@ -119,6 +119,8 @@ export enum Permission {
   SUPPORT_MANAGE = 'support:manage',
   LEGAL_VIEW = 'legal:view',
   LEGAL_MANAGE = 'legal:manage',
+  // Publicar una versión nueva de un documento legal. Sin rol base: solo el Super Administrador.
+  LEGAL_PUBLISH = 'legal:publish',
   SOS_VIEW = 'sos:view',
   SOS_MANAGE = 'sos:manage',
 }

@@ -73,8 +73,10 @@ export {
 } from './CashPaymentIncident';
 export { Refund, IRefund, ProcessedWebhook, IProcessedWebhook } from './Refund';
 export { SavedCard, ISavedCard, toPublicCard } from './SavedCard';
-export { LegalDocument, ILegalDocument, LegalAcceptance, ILegalAcceptance, DataRequest, IDataRequest } from './Legal';
+export { LegalDocument, ILegalDocument, LegalDocumentKind, LegalAcceptance, ILegalAcceptance, DataRequest, IDataRequest } from './Legal';
 export { Pqrs, IPqrs } from './Pqrs';
+export { SupportMacro, ISupportMacro } from './SupportMacro';
+export { CampaignSend, ICampaignSend, CampaignSendStatus } from './CampaignSend';
 export { DriverDocument, IDriverDocument } from './DriverDocument';
 export { DriverOffer, IDriverOffer, OfferOutcome, DeclineReason } from './DriverOffer';
 export {
@@ -82,6 +84,7 @@ export {
   AdPricingModel, AdApprovalStatus, AdPlacement,
 } from './Advertisement';
 export { AdInvoice, IAdInvoice } from './AdInvoice';
+export { FiscalDocument, IFiscalDocument } from './FiscalDocument';
 export { AdEvent, IAdEvent, AdEventType } from './AdEvent';
 export {
   PromotionBanner,
@@ -152,7 +155,9 @@ export {
 
 export { SosAlert, ISosAlert, SosStatus } from './SosAlert';
 export { SearchLog, ISearchLog } from './SearchLog';
+export { SearchRule, ISearchRule, SearchRuleKind, SearchRedirectKind, SEARCH_RULE_KINDS } from './SearchRule';
 export { ClientError, IClientError } from './ClientError';
+export { CrashResolution, ICrashResolution } from './CrashResolution';
 
 export {
   ProSubscription,

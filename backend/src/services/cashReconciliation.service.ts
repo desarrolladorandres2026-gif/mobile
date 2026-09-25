@@ -470,6 +470,50 @@ export class CashReconciliationService {
     }
     return byStatus;
   }
+
+  /**
+   * Lo que cada domiciliario tiene sin rendir (pendiente, reportado o
+   * vencido), de mayor deuda a menor: la pantalla de Efectivo empieza por
+   * "a quién le tengo que cobrar", no por una lista de pedidos.
+   * `reported` ya lo declaró el domiciliario pero nadie lo ha verificado.
+   */
+  async outstandingByDriver() {
+    const open = [CashReconciliationStatus.PENDING, CashReconciliationStatus.REPORTED, CashReconciliationStatus.OVERDUE];
+    const now = new Date();
+    const rows = await CashReconciliation.aggregate([
+      { $match: { status: { $in: open } } },
+      {
+        $group: {
+          _id: '$driverId',
+          count: { $sum: 1 },
+          amount: { $sum: '$amount' },
+          reportedAmount: { $sum: { $cond: [{ $eq: ['$status', CashReconciliationStatus.REPORTED] }, '$amount', 0] } },
+          overdueCount: { $sum: { $cond: [{ $or: [{ $eq: ['$status', CashReconciliationStatus.OVERDUE] }, { $lt: ['$dueAt', now] }] }, 1, 0] } },
+          overdueAmount: { $sum: { $cond: [{ $or: [{ $eq: ['$status', CashReconciliationStatus.OVERDUE] }, { $lt: ['$dueAt', now] }] }, '$amount', 0] } },
+          oldestDueAt: { $min: '$dueAt' },
+        },
+      },
+      { $sort: { amount: -1 } },
+      { $limit: 200 },
+    ]);
+
+    const drivers = await Driver.find({ _id: { $in: rows.map((r) => r._id) } })
+      .select('userId')
+      .populate('userId', 'name')
+      .lean();
+    const nameOf = new Map(drivers.map((d: any) => [String(d._id), (d.userId?.name as string) ?? null]));
+
+    return rows.map((r) => ({
+      driverId: String(r._id),
+      name: nameOf.get(String(r._id)) ?? null,
+      count: r.count as number,
+      amount: r.amount as number,
+      reportedAmount: r.reportedAmount as number,
+      overdueCount: r.overdueCount as number,
+      overdueAmount: r.overdueAmount as number,
+      oldestDueAt: r.oldestDueAt as Date,
+    }));
+  }
 }
 
 export const cashReconciliationService = new CashReconciliationService();

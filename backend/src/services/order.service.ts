@@ -1,4 +1,5 @@
-import { Order, IOrder, IOrderFinance, Business, Commission, Driver, Product, User } from '../models';
+import mongoose from 'mongoose';
+import { Order, IOrder, IOrderFinance, Business, Commission, Driver, Product, User, Payout, BusinessDocument } from '../models';
 import { AppError } from '../middlewares';
 import {
   OrderStatus,
@@ -14,6 +15,8 @@ import {
   CancellationReason,
   CancelledBy,
   DriverStatus,
+  PayoutStatus,
+  PayoutBeneficiary,
 } from '../types';
 import { OrderSecurity } from '../security/orderSecurity';
 import { emitToUser } from '../sockets/emitter';
@@ -26,6 +29,7 @@ import { payoutService } from './payout.service';
 import { cashReconciliationService } from './cashReconciliation.service';
 import { pricingConfigService } from './pricingConfig.service';
 import { refundService, allocateRefund } from './refund.service';
+import { errandService } from './errand.service';
 import { orderSecurityService } from './orderSecurity.service';
 import { orderTimelineService, TimelineContext } from './orderTimeline.service';
 import { isOpenAt } from '../utils/businessHours';
@@ -47,6 +51,9 @@ const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 /** Estados sin salida en `VALID_TRANSITIONS`: el pedido ya no necesita a nadie. */
 export const TERMINAL_ORDER_STATUSES: OrderStatus[] = (Object.keys(VALID_TRANSITIONS) as OrderStatus[])
   .filter((s) => VALID_TRANSITIONS[s].length === 0);
+
+/** Estados en los que aún se puede soltar al domiciliario (nunca tras la recogida). */
+const UNASSIGNABLE_STATUSES: OrderStatus[] = [OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY];
 
 // Rol → estados que puede establecer
 const ROLE_ALLOWED_STATUSES: Record<string, OrderStatus[]> = {
@@ -103,6 +110,8 @@ function toFinanceSnapshot(quote: Quote): IOrderFinance {
     tip: quote.tip,
     merchantFundedDiscount: quote.merchantFundedDiscount,
     platformFundedDiscount: quote.platformFundedDiscount,
+    proDeliveryDiscount: quote.proDeliveryDiscount,
+    proServiceFeeDiscount: quote.proServiceFeeDiscount,
     taxPayable: quote.taxPayable,
     businessPayout: quote.businessPayout,
     driverPayout: quote.driverPayout,
@@ -300,6 +309,12 @@ export class OrderService {
       business.isArchived ||
       business.isSuspended
     ) {
+      throw new AppError('Negocio no encontrado o inactivo', 404);
+    }
+
+    // Un comercio con un papel obligatorio vencido no recibe pedidos hasta renovarlo (mismo criterio
+    // que el domiciliario con `assertDocumentsCurrent`). Un reenvío pendiente de revisión lo reabre.
+    if (await BusinessDocument.exists({ businessId: business._id, status: { $in: ['approved', 'expired'] }, expiresAt: { $lt: new Date() } })) {
       throw new AppError('Negocio no encontrado o inactivo', 404);
     }
 
@@ -689,7 +704,8 @@ export class OrderService {
     userRole: string,
     cancellationReason?: string,
     context: TimelineContext = {},
-    cancellationCode?: CancellationReason
+    cancellationCode?: CancellationReason,
+    opts: { canRefund?: boolean } = {}
   ): Promise<IOrder> {
     const order = await Order.findById(orderId);
     if (!order) throw new AppError('Pedido no encontrado', 404);
@@ -752,6 +768,26 @@ export class OrderService {
           'Resuélvelo con un reembolso, no con una cancelación.',
         409,
         'ERRAND_ALREADY_PURCHASED'
+      );
+    }
+
+    // ── Cancelar un pedido pagado emite un reembolso completo (D1) ──
+    //
+    // Con solo `orders:cancel`, Operaciones movería dinero por la pasarela.
+    // Desde PREPARING el reembolso lo decide Finanzas (`refunds:create`);
+    // en PENDING/ACCEPTED basta cancelar. El reembolso sigue saliendo solo de
+    // `onCancelled`: no hay otra vía, así que no hay doble reembolso.
+    if (
+      userRole === UserRole.ADMIN &&
+      status === OrderStatus.CANCELLED &&
+      order.paymentStatus === PaymentStatus.PAID &&
+      [OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.ON_WAY].includes(order.status) &&
+      !opts.canRefund
+    ) {
+      throw new AppError(
+        'Cancelar este pedido pagado reembolsa al cliente y exige el permiso de reembolsos. Pide a Finanzas que lo cancele.',
+        403,
+        'REFUND_PERMISSION_REQUIRED'
       );
     }
 
@@ -877,7 +913,9 @@ export class OrderService {
     }
 
     const claimed = await Order.findOneAndUpdate(
-      { _id: order._id, status: previousStatus },
+      // `paymentStatus` viaja en el filtro: no puede cambiar entre la
+      // comprobación de arriba y la escritura.
+      { _id: order._id, status: previousStatus, paymentStatus: order.paymentStatus },
       { $set: patch },
       { new: true }
     );
@@ -921,14 +959,37 @@ export class OrderService {
     }
 
     if (status === OrderStatus.CANCELLED) {
-      await this.onCancelled(claimed);
       // Un pedido cancelado deja de buscar domiciliario. Sin esto, el
-      // barrido seguiría ofreciéndolo hasta que alguien lo aceptara.
+      // barrido seguiría ofreciéndolo hasta que alguien lo aceptara. Va
+      // ANTES de la contabilidad: el cambio de estado ya es un hecho y un
+      // fallo del reembolso no puede dejar el pedido en oferta ni con
+      // códigos vivos.
       const { stopDispatch } = await import('./dispatch.service');
       await stopDispatch(claimed._id.toString());
       // Un código sigue sirviendo hasta que algo lo invalida: sin esto, un
       // pedido cancelado podría cerrarse como entregado un rato después.
       await orderSecurityService.voidCodes(claimed._id.toString());
+
+      // La cancelación ya está confirmada: un fallo aquí no se propaga como
+      // si el estado no hubiera cambiado. Queda auditado y, si fue el
+      // reembolso, con su fila `Refund` FAILED/PENDING (alerta `refund_failed`)
+      // para que Finanzas lo reintente desde el panel.
+      try {
+        await this.onCancelled(claimed);
+      } catch (err) {
+        (claimed.$locals as Record<string, unknown>).cancelSideEffectsFailed = true;
+        console.error('[Order] Falló un efecto de la cancelación:', err);
+        await logSystemAudit({
+          userId,
+          role: userRole,
+          action: AuditAction.SUSPICIOUS_ACTIVITY,
+          entity: 'order',
+          entityId: claimed._id.toString(),
+          severity: AuditSeverity.HIGH,
+          description: `Pedido ${claimed.orderNumber} cancelado, pero falló la reversión (reembolso/stock/fondo): ${(err as Error).message}`,
+          metadata: { orderId: claimed._id.toString(), paymentStatus: claimed.paymentStatus },
+        });
+      }
     }
 
     // La bitácora se escribe *después* de que el cambio sea un hecho en la
@@ -1013,51 +1074,189 @@ export class OrderService {
    * `onCancelled`: es dinero de una persona, apartado por un pedido que ya
    * no va a repartir.
    */
-  async unassignDriver(orderId: string, reason: string): Promise<IOrder | null> {
+  async unassignDriver(
+    orderId: string,
+    reason: string,
+    actor: { userId: string; role: string } = { userId: 'system', role: 'system' }
+  ): Promise<IOrder | null> {
     const order = await Order.findById(orderId);
     if (!order?.driverId) return null;
 
-    // Solo antes de recoger. Después el pedido ya está en la moto y
-    // quitárselo por reloj sería inventar un problema peor.
-    if (order.status !== OrderStatus.READY) return null;
+    // Solo antes de recoger (D6). Después el pedido ya está en la moto y
+    // quitárselo sería inventar un problema peor.
+    if (!UNASSIGNABLE_STATUSES.includes(order.status)) return null;
 
+    // Un mandado con el gasto declarado ya está comprado con dinero del
+    // domiciliario: soltarlo le devolvería el tope por unas compras que sigue
+    // teniendo encima.
+    if (order.errand?.actualCost != null) {
+      throw new AppError(
+        'Este mandado ya está comprado por el domiciliario. Resuélvelo con un reembolso.',
+        409,
+        'ERRAND_ALREADY_PURCHASED'
+      );
+    }
+
+    // Lo que `assignDriver` le descontó: el tope del mandado y/o el pago al
+    // comercio en efectivo.
+    const hold =
+      errandService.reservationFor(order) +
+      (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY
+        ? order.finance?.businessPayout ?? order.businessPayout ?? 0
+        : 0);
+
+    // ── El devengo del domiciliario anterior ──
+    //
+    // Se elimina ANTES del reclamo para que, si no se puede, no se toque
+    // nada. Un payout de pedido en línea nace PAYABLE y `settle()` lo reclama
+    // sin mirar el estado del pedido, así que puede estar ya liquidado, o con
+    // reversiones: en ese caso soltar al domiciliario le dejaría cobrando un
+    // viaje que no hizo (`accrueForOrder` reutiliza el payout existente y el
+    // nuevo se quedaría sin ninguno). No se reasigna en sitio porque no se
+    // sabe todavía quién será el nuevo; se borra y `accrueForOrder` lo crea.
+    const payoutFilter = {
+      orderId: order._id,
+      beneficiary: PayoutBeneficiary.DRIVER,
+      driverId: order.driverId,
+    };
+    const removed = await Payout.deleteOne({
+      ...payoutFilter,
+      settlementId: null,
+      reversedAmount: 0,
+      status: { $in: [PayoutStatus.ACCRUED, PayoutStatus.PAYABLE] },
+    });
+    if (removed.deletedCount === 0 && (await Payout.exists(payoutFilter))) {
+      throw new AppError(
+        'No se puede soltar al domiciliario: su pago de este pedido ya está en una liquidación, tiene reversiones o no es eliminable.',
+        409,
+        'DRIVER_PAYOUT_LOCKED'
+      );
+    }
+
+    // La condición va dentro del filtro: dos desasignaciones simultáneas →
+    // solo una la aplica (y solo una devuelve el fondo). La devolución
+    // pendiente viaja en la MISMA escritura: si el proceso cae antes del
+    // `$inc`, un barrido la termina (`retryPendingFundReleases`).
+    const token = new mongoose.Types.ObjectId().toString();
     const released = await Order.findOneAndUpdate(
-      { _id: order._id, driverId: order.driverId, status: OrderStatus.READY },
-      { $set: { driverId: null, assignedAt: null } },
+      {
+        _id: order._id,
+        driverId: order.driverId,
+        status: { $in: UNASSIGNABLE_STATUSES },
+        'errand.actualCost': null,
+      },
+      {
+        $set: {
+          driverId: null,
+          assignedAt: null,
+          fundHoldReleasePending: hold > 0 ? { driverId: order.driverId, amount: hold, token } : null,
+        },
+      },
       { new: true }
     );
 
-    if (!released) return null;
-
-    if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
-      await Driver.updateOne(
-        { _id: order.driverId },
-        { $inc: { currentFund: order.finance?.businessPayout ?? order.businessPayout } }
-      );
+    if (!released) {
+      // Perdió la carrera: el devengo borrado se recrea si el pedido sigue
+      // teniendo domiciliario (idempotente).
+      if (removed.deletedCount) {
+        const fresh = await Order.findById(order._id);
+        if (fresh?.driverId) await payoutService.accrueForOrder(fresh);
+      }
+      return null;
     }
+
+    if (hold > 0) await this.applyFundHoldRelease(released._id, order.driverId, hold, token);
 
     // Vuelve a la cascada: el pedido que lo tenía ocupado ya no es suyo.
     await Driver.updateOne({ _id: order.driverId }, { $set: { status: DriverStatus.AVAILABLE } });
 
+    // Avisarle, por los dos caminos que lo sueltan (soporte y el barrido de
+    // "no recogió a tiempo"). Antes solo lo hacía el de soporte y solo por
+    // socket, que la app ni escuchaba: seguía yendo al local por un pedido
+    // que ya no era suyo. La push cubre la app en segundo plano.
+    const releasedDriver = await Driver.findById(order.driverId).select('userId').lean();
+    if (releasedDriver?.userId) {
+      const driverUserId = String(releasedDriver.userId);
+      emitToUser(driverUserId, 'order:driver:unassigned', {
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        reason,
+      });
+      import('./push.service')
+        .then(({ pushService }) =>
+          pushService.sendToUser(driverUserId, {
+            title: `Ya no tienes el pedido #${order.orderNumber}`,
+            body: `${reason}. No vayas a recogerlo.`,
+            data: { type: 'order_unassigned', orderId: order._id.toString() },
+          })
+        )
+        .catch(console.error);
+    }
+
+    const isSystem = actor.role === 'system';
     await logSystemAudit({
-      userId: 'system',
-      role: 'system',
-      action: AuditAction.SUSPICIOUS_ACTIVITY,
+      userId: actor.userId,
+      role: actor.role,
+      action: isSystem ? AuditAction.SUSPICIOUS_ACTIVITY : AuditAction.ORDER_DRIVER_UNASSIGNED,
       entity: 'order',
       entityId: order._id.toString(),
       severity: AuditSeverity.MEDIUM,
       description: `Domiciliario liberado del pedido ${order.orderNumber}: ${reason}`,
-      metadata: { driverId: order.driverId.toString(), reason },
+      metadata: { driverId: order.driverId.toString(), reason, previousStatus: order.status, refundedHold: hold },
     });
 
     orderTimelineService
       .record(order._id.toString(), OrderTimelineAction.DRIVER_UNASSIGNED, {
-        userId: 'system',
-        role: 'system',
+        userId: actor.userId,
+        role: actor.role,
       })
       .catch(console.error);
 
     return released;
+  }
+
+  /**
+   * Devuelve al fondo lo retenido, una sola vez.
+   *
+   * El token viaja dentro de la misma escritura que el `$inc` (y el filtro
+   * exige que no esté ya): si el proceso cae después del `$inc` y antes de
+   * limpiar la marca del pedido, el reintento del barrido no acredita dos
+   * veces.
+   */
+  private async applyFundHoldRelease(
+    orderId: unknown,
+    driverId: unknown,
+    amount: number,
+    token: string
+  ): Promise<void> {
+    await Driver.updateOne(
+      { _id: driverId, fundReleaseTokens: { $ne: token } },
+      { $inc: { currentFund: amount }, $push: { fundReleaseTokens: { $each: [token], $slice: -100 } } }
+    );
+    await Order.updateOne(
+      { _id: orderId, 'fundHoldReleasePending.token': token },
+      { $set: { fundHoldReleasePending: null } }
+    );
+  }
+
+  /** Barrido: termina las devoluciones de fondo que un caído dejó a medias. */
+  async retryPendingFundReleases(limit = 20): Promise<number> {
+    const pending = await Order.find({ fundHoldReleasePending: { $ne: null } })
+      .select('+fundHoldReleasePending')
+      .limit(limit)
+      .lean();
+    let done = 0;
+    for (const o of pending) {
+      const p = o.fundHoldReleasePending;
+      if (!p?.driverId || !p.token) continue;
+      try {
+        await this.applyFundHoldRelease(o._id, p.driverId, p.amount, p.token);
+        done++;
+      } catch (err) {
+        console.error('[Order] Falló el reintento de devolución de fondo:', err);
+      }
+    }
+    return done;
   }
 
   /**
@@ -1224,10 +1423,15 @@ export class OrderService {
     if (order.driverId && order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
       // Atómico por la misma razón que en `onDelivered`: es dinero de una
       // persona y no puede depender de qué proceso guarde el último.
-      await Driver.updateOne(
-        { _id: order.driverId },
-        { $inc: { currentFund: finance.businessPayout || order.subtotal } }
-      );
+      //
+      // Se devuelve exactamente lo que se retuvo al asignar, con la misma
+      // fórmula. Antes era `businessPayout || subtotal`: con un pago al
+      // comercio de 0 (pedido cubierto entero por un descuento) no se había
+      // retenido nada y se le acreditaba el subtotal completo.
+      const held = order.finance?.businessPayout ?? order.businessPayout ?? 0;
+      if (held > 0) {
+        await Driver.updateOne({ _id: order.driverId }, { $inc: { currentFund: held } });
+      }
     }
 
     // Lo mismo para el mandado: se le retuvo el tope al aceptarlo y aquí se

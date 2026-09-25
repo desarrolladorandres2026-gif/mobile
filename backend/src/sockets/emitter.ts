@@ -23,7 +23,7 @@ export const getIO = (): SocketServer | null => io;
  * decide `sockets/index.ts` al conectar (`orders:view_all`, `drivers:track`,
  * `sos:view`). Los NOMBRES de evento no cambian.
  */
-export type AdminScope = 'orders' | 'fleet' | 'sos';
+export type AdminScope = 'orders' | 'fleet' | 'sos' | 'alerts';
 export const adminRoom = (scope: AdminScope): string => `admin:${scope}`;
 
 /** Emite a la sala de admin de ese ámbito. `target` puede ser el `io` de `req.app.get('io')`. */

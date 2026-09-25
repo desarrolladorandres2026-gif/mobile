@@ -314,4 +314,27 @@ describe('OrderService.assignDriver', () => {
     expect(refreshed!.currentFund).toBe(50000 - order.finance.businessPayout);
     expect(order.finance.businessPayout).toBe(18000);
   });
+
+  it('cancelar devuelve al fondo exactamente lo retenido, también cuando fue 0', async () => {
+    const { Driver } = await import('../models');
+
+    // Con retención normal: vuelve a donde estaba.
+    const { client, order } = await createOrder();
+    const driver = await makeDriver((await makeUser({ role: UserRole.DRIVER }))._id, { currentFund: 50000 });
+    await orderService.assignDriver(order._id.toString(), driver._id.toString());
+    await orderService.updateStatus(order._id.toString(), OrderStatus.CANCELLED, client._id.toString(), UserRole.CLIENT);
+    expect((await Driver.findById(driver._id))!.currentFund).toBe(50000);
+
+    // Pago al comercio de 0: no se retuvo nada y no se acredita nada. Antes
+    // se le sumaba el subtotal entero (`businessPayout || subtotal`).
+    const second = await createOrder();
+    await Order.updateOne({ _id: second.order._id }, { $set: { 'finance.businessPayout': 0, businessPayout: 0 } });
+    const other = await makeDriver((await makeUser({ role: UserRole.DRIVER }))._id, { currentFund: 50000 });
+    await orderService.assignDriver(second.order._id.toString(), other._id.toString());
+    expect((await Driver.findById(other._id))!.currentFund).toBe(50000);
+    await orderService.updateStatus(
+      second.order._id.toString(), OrderStatus.CANCELLED, second.client._id.toString(), UserRole.CLIENT
+    );
+    expect((await Driver.findById(other._id))!.currentFund).toBe(50000);
+  });
 });

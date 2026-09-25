@@ -50,6 +50,17 @@ export const updatePricingConfigSchema = z.object({
       // 0 desactiva el techo. Se admite a propósito: apagar la regla no
       // debería exigir un despliegue.
       maxDriverCashDebt: money.optional(),
+
+      // Comisión de la pasarela por método (contrato con Wompi).
+      gatewayCardBps: bps.optional(),
+      gatewayCardFixed: money.optional(),
+      gatewayPseBps: bps.optional(),
+      gatewayPseFixed: money.optional(),
+      gatewayNequiBps: bps.optional(),
+      gatewayNequiFixed: money.optional(),
+      gatewayOtherBps: bps.optional(),
+      gatewayOtherFixed: money.optional(),
+      gatewayFeeVatBps: bps.optional(),
     })
     .strict()
     .refine(
@@ -82,6 +93,90 @@ export const settleSchema = z.object({
       path: ['driverId'],
     }),
   query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+export const listSettlementsSchema = z.object({
+  body: z.object({}).strict().optional(),
+  query: z.object({
+    beneficiary: z.enum(['business', 'driver']).optional(),
+    businessId: objectId.optional(),
+    driverId: objectId.optional(),
+    paymentStatus: z.enum(['pending', 'paid']).optional(),
+    page: z.coerce.number().int().min(1).max(10_000).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  }),
+  params: z.object({}).optional(),
+});
+
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (AAAA-MM-DD)');
+
+export const listPaymentsSchema = z.object({
+  body: z.object({}).strict().optional(),
+  query: z.object({
+    status: z.enum(['pending', 'paid', 'refunded', 'failed']).optional(),
+    methodType: z.string().trim().max(40).regex(/^[A-Za-z_]+$/).optional(),
+    from: isoDay.optional(),
+    to: isoDay.optional(),
+    page: z.coerce.number().int().min(1).max(10_000).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  }),
+  params: z.object({}).optional(),
+});
+
+export const paymentsDailySchema = z.object({
+  body: z.object({}).strict().optional(),
+  query: z.object({ from: isoDay.optional(), to: isoDay.optional() }),
+  params: z.object({}).optional(),
+});
+
+export const financeExportSchema = z.object({
+  body: z
+    .object({
+      reason: z.string().trim().min(5, 'Indica el motivo del exporte').max(300),
+      totpToken: z.string().trim().min(6).max(12),
+      from: isoDay.optional(),
+      to: isoDay.optional(),
+    })
+    .strict(),
+  query: z.object({}).optional(),
+  params: z.object({ kind: z.enum(['ledger', 'settlements', 'refunds', 'payments', 'cash', 'documents']) }),
+});
+
+export const listAdInvoicesSchema = z.object({
+  body: z.object({}).strict().optional(),
+  query: z.object({
+    view: z.enum(['to_deduct', 'deducted', 'to_collect', 'collected']).optional(),
+    page: z.coerce.number().int().min(1).max(10_000).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  }),
+  params: z.object({}).optional(),
+});
+
+export const collectAdInvoiceSchema = z.object({
+  body: z
+    .object({
+      reference: z.string().trim().min(3).max(120),
+      receiptUrl: z.string().trim().url().max(500),
+    })
+    .strict(),
+  query: z.object({}).optional(),
+  params: z.object({ id: objectId }),
+});
+
+export const listFiscalDocumentsSchema = z.object({
+  body: z.object({}).strict().optional(),
+  query: z.object({
+    month: z.string().regex(/^\d{4}-\d{2}$/, 'Mes inválido (AAAA-MM)').optional(),
+    page: z.coerce.number().int().min(1).max(10_000).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  }),
+  params: z.object({}).optional(),
+});
+
+export const listPayablesSchema = z.object({
+  body: z.object({}).strict().optional(),
+  query: z.object({ beneficiary: z.enum(['business', 'driver']).optional() }),
   params: z.object({}).optional(),
 });
 
@@ -230,4 +325,16 @@ export const refundSchema = z.object({
     .strict(),
   query: z.object({}).optional(),
   params: z.object({ orderId: objectId }),
+});
+
+export const listAllRefundsSchema = z.object({
+  body: z.object({}).strict().optional(),
+  query: z.object({
+    status: z.enum(['pending', 'completed', 'failed']).optional(),
+    kind: z.enum(['full', 'partial', 'chargeback', 'external']).optional(),
+    attention: z.enum(['true', 'false']).optional(),
+    page: z.coerce.number().int().min(1).max(10_000).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  }),
+  params: z.object({}).optional(),
 });

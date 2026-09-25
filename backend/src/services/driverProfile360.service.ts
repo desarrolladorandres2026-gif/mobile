@@ -4,6 +4,9 @@ import { OrderStatus, PayoutBeneficiary, CashReconciliationStatus } from '../typ
 import { AuditLog, AuditAction } from '../security';
 import { AppError } from '../middlewares/errorHandler';
 import { driverService, DriverDetail } from './driver.service';
+import { internalNoteService, NoteActor, NoteView } from './internalNote.service';
+import { Permission } from '../security/rbac';
+import { maskLast4 } from './profileMasking';
 
 /**
  * Todo lo que se sabe de un domiciliario, en una sola llamada.
@@ -41,6 +44,7 @@ export interface DriverProfile360 {
     /** Aproximación: destino de los últimos ~100 pedidos entregados (zona, o ciudad si no hay zona). */
     coverageZones: Array<{ zone: string; count: number }>;
   };
+  /** null sin `finance:view`. */
   finance: {
     baseFund: number;
     currentFund: number;
@@ -60,7 +64,7 @@ export interface DriverProfile360 {
         dueAt: Date;
       }>;
     };
-  };
+  } | null;
   incidents: {
     sos: Array<{
       _id: string;
@@ -78,9 +82,19 @@ export interface DriverProfile360 {
       actorName?: string;
     }>;
     pqrs: Array<{ _id: string; subject?: string; status: string; createdAt: Date }>;
-    /** Todavía no hay modelo de notas internas. */
-    notes: never[];
   };
+  /** null sin `drivers:view` (o sin actor). */
+  notes: NoteView[] | null;
+  masked: { finance: boolean; sensitive: boolean };
+  view: 'masked' | 'full';
+}
+
+export interface DriverProfile360Options {
+  /** `finance:view`. Sin él `finance` es null y `driver` no trae fondo ni ganancias. */
+  finance?: boolean;
+  /** Vista completa (`?view=full`, exige `users:view_sensitive`). Sin ella: cédula y teléfonos enmascarados, `documents.reference` a 4 dígitos. */
+  sensitive?: boolean;
+  noteActor?: NoteActor;
 }
 
 const DAY_MS = 86_400_000;
@@ -88,7 +102,9 @@ const DAY_MS = 86_400_000;
 const PQRS_ORDER_WINDOW = 50;
 const ZONE_ORDER_WINDOW = 100;
 
-export async function profile360(driverId: string): Promise<DriverProfile360> {
+export async function profile360(driverId: string, options: DriverProfile360Options = {}): Promise<DriverProfile360> {
+  const withFinance = options.finance === true;
+  const sensitive = options.sensitive === true;
   if (!Types.ObjectId.isValid(driverId)) {
     throw new AppError('Identificador de domiciliario inválido', 400);
   }
@@ -131,6 +147,7 @@ export async function profile360(driverId: string): Promise<DriverProfile360> {
     debtTotals,
     sos,
     sanctionRows,
+    notes,
   ] = await Promise.all([
     recentOrdersP,
     pqrsP,
@@ -155,7 +172,7 @@ export async function profile360(driverId: string): Promise<DriverProfile360> {
       .select('zoneId city')
       .lean(),
     // Igual que `getEarningsRange`: tarifa garantizada + propina, enteros COP.
-    Order.aggregate([
+    !withFinance ? Promise.resolve([]) : Order.aggregate([
       {
         $match: {
           driverId: id,
@@ -177,12 +194,12 @@ export async function profile360(driverId: string): Promise<DriverProfile360> {
         },
       },
     ]),
-    Payout.find({ driverId: id, beneficiary: PayoutBeneficiary.DRIVER })
+    !withFinance ? Promise.resolve([]) : Payout.find({ driverId: id, beneficiary: PayoutBeneficiary.DRIVER })
       .sort({ createdAt: -1 })
       .limit(10)
       .select('orderId amount status createdAt')
       .lean(),
-    Settlement.find({ driverId: id })
+    !withFinance ? Promise.resolve([]) : Settlement.find({ driverId: id })
       .sort({ createdAt: -1 })
       .limit(5)
       .select('periodStart periodEnd netAmount createdAt')
@@ -191,7 +208,7 @@ export async function profile360(driverId: string): Promise<DriverProfile360> {
     // efectivo real vive en `CashReconciliation` (ver `outstandingFor`).
     // PENDING/REPORTED/OVERDUE son estados vivos; VERIFIED y SETTLED ya no
     // son deuda.
-    CashReconciliation.find({
+    !withFinance ? Promise.resolve([]) : CashReconciliation.find({
       driverId: id,
       status: {
         $in: [
@@ -205,7 +222,7 @@ export async function profile360(driverId: string): Promise<DriverProfile360> {
       .limit(10)
       .select('orderId amount createdAt status dueAt')
       .lean(),
-    CashReconciliation.aggregate([
+    !withFinance ? Promise.resolve([]) : CashReconciliation.aggregate([
       {
         $match: {
           driverId: id,
@@ -235,6 +252,9 @@ export async function profile360(driverId: string): Promise<DriverProfile360> {
       .sort({ timestamp: -1 })
       .limit(20)
       .lean(),
+    options.noteActor && options.noteActor.permissions.includes(Permission.DRIVERS_VIEW)
+      ? internalNoteService.listFor({ entityType: 'driver', entityId: driverId, limit: 20, actor: options.noteActor }).then((r) => r.items)
+      : Promise.resolve(null),
   ]);
 
   const countOf = (status: OrderStatus) =>
@@ -265,9 +285,25 @@ export async function profile360(driverId: string): Promise<DriverProfile360> {
   const actors = actorIds.length ? await User.find({ _id: { $in: actorIds } }).select('name').lean() : [];
   const actorName = new Map(actors.map((u) => [u._id.toString(), u.name]));
 
+  // Enmascarado en el servidor. Sin `finance:view` el fondo y las ganancias
+  // tampoco salen por `driver`; sin `users:view_sensitive`, ni cédula completa.
+  const safeDriver: Record<string, any> = { ...driver };
+  if (!withFinance) {
+    delete safeDriver.baseFund;
+    delete safeDriver.currentFund;
+    delete safeDriver.totalEarnings;
+  }
+  if (!sensitive) {
+    // Solo la cédula se enmascara: Soporte necesita llamar al domiciliario y a su contacto.
+    const { documentNumber, ...userRest } = (safeDriver.userId ?? {}) as Record<string, any>;
+    safeDriver.userId = { ...userRest, documentNumberLast4: maskLast4(documentNumber) };
+  }
+
   return {
-    driver,
-    documents: documents as unknown as DriverProfile360['documents'],
+    driver: safeDriver as DriverDetail,
+    documents: (documents as unknown as DriverProfile360['documents']).map((d) =>
+      sensitive ? d : { ...d, reference: maskLast4(d.reference) ?? undefined }
+    ),
     activity: {
       totals: { delivered: countOf(OrderStatus.DELIVERED), cancelled: countOf(OrderStatus.CANCELLED) },
       recentOrders: recentOrders.slice(0, 10) as unknown as DriverProfile360['activity']['recentOrders'],
@@ -279,17 +315,17 @@ export async function profile360(driverId: string): Promise<DriverProfile360> {
       })),
       coverageZones,
     },
-    finance: {
+    finance: !withFinance ? null : {
       baseFund: driver.baseFund,
       currentFund: driver.currentFund,
       totalEarnings: driver.totalEarnings ?? 0,
       earningsLast30Days: earningsRows[0]?.total ?? 0,
-      payouts: payouts as unknown as DriverProfile360['finance']['payouts'],
-      settlements: settlements as unknown as DriverProfile360['finance']['settlements'],
+      payouts: payouts as unknown as NonNullable<DriverProfile360['finance']>['payouts'],
+      settlements: settlements as unknown as NonNullable<DriverProfile360['finance']>['settlements'],
       pendingDebts: {
         count: debtTotals[0]?.count ?? 0,
         total: debtTotals[0]?.total ?? 0,
-        items: debtItems as unknown as DriverProfile360['finance']['pendingDebts']['items'],
+        items: debtItems as unknown as NonNullable<DriverProfile360['finance']>['pendingDebts']['items'],
       },
     },
     incidents: {
@@ -302,8 +338,10 @@ export async function profile360(driverId: string): Promise<DriverProfile360> {
         actorName: s.userId ? actorName.get(s.userId) : undefined,
       })),
       pqrs: pqrs as unknown as DriverProfile360['incidents']['pqrs'],
-      notes: [],
     },
+    notes,
+    masked: { finance: !withFinance, sensitive: !sensitive },
+    view: sensitive ? 'full' : 'masked',
   };
 }
 

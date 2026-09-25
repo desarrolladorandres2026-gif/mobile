@@ -3,9 +3,10 @@ import { paymentService, isOnlinePaymentAvailable, refundService } from '../serv
 import { toClientStatus, nativeCapabilities } from '../services/payments';
 import { Order, Payment, toPublicCard } from '../models';
 import { AppError } from '../middlewares';
-import { sendResponse, param } from '../utils';
-import { RefundKind, UserRole } from '../types';
-import { AuditAction, AuditSeverity, logAudit } from '../security';
+import { sendResponse, param, query, clampLimit } from '../utils';
+import { RefundKind, RefundStatus, UserRole } from '../types';
+import { AuditAction, AuditSeverity, logAudit, Permission } from '../security';
+import { can } from '../middlewares/auth';
 
 export class PaymentController {
   /** Lets checkout know whether to offer online payment at all. */
@@ -376,6 +377,11 @@ export class PaymentController {
         // un pedido ajeno.
         throw new AppError('Pedido no encontrado', 404);
       }
+      // H4: el Payment crudo (metadata, transactionId, reference) es dinero.
+      // El panel admin no consume este endpoint, así que sin `finance:view` se niega.
+      if (req.user!.role === UserRole.ADMIN && !can(req, Permission.FINANCE_VIEW)) {
+        throw new AppError('No tienes permiso para ver los pagos de este pedido', 403);
+      }
       const payments = await paymentService.getForOrder(order._id.toString());
       sendResponse(res, 200, 'Pagos del pedido', payments);
     } catch (error) { next(error); }
@@ -392,6 +398,14 @@ export class PaymentController {
         kind: req.body.amount ? RefundKind.PARTIAL : RefundKind.FULL,
         requestedBy: req.user!._id.toString(),
         idempotencyKey: req.body.idempotencyKey,
+      });
+      void logAudit(req, {
+        action: AuditAction.REFUND_ISSUED,
+        entity: 'order',
+        entityId: param(req, 'orderId'),
+        severity: AuditSeverity.HIGH,
+        description: `Reembolso por pasarela de $${refund.amount.toLocaleString('es-CO')} (${refund.status})`,
+        metadata: { refundId: String(refund._id), amount: refund.amount, status: refund.status },
       });
       sendResponse(res, 201, 'Reembolso procesado', refund);
     } catch (error) { next(error); }
@@ -412,7 +426,29 @@ export class PaymentController {
         amount: req.body.amount,
         reference: req.body.reference,
       });
+      void logAudit(req, {
+        action: AuditAction.CHARGEBACK_RECORDED,
+        entity: 'order',
+        entityId: param(req, 'orderId'),
+        severity: AuditSeverity.HIGH,
+        description: `Contracargo registrado por $${refund.amount.toLocaleString('es-CO')}, ref. ${req.body.reference}`,
+        metadata: { refundId: String(refund._id), reference: req.body.reference, amount: refund.amount },
+      });
       sendResponse(res, 201, 'Contracargo registrado', refund);
+    } catch (error) { next(error); }
+  }
+
+  /** Bandeja de reembolsos y contracargos de toda la plataforma. */
+  async listAllRefunds(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await refundService.listAll({
+        status: query(req, 'status') as RefundStatus | undefined,
+        kind: query(req, 'kind') as RefundKind | undefined,
+        attention: query(req, 'attention') === 'true',
+        page: Number(query(req, 'page')) || 1,
+        limit: clampLimit(query(req, 'limit'), 100, 25),
+      });
+      sendResponse(res, 200, 'Reembolsos', { items: result.items, totals: result.totals }, result.meta);
     } catch (error) { next(error); }
   }
 

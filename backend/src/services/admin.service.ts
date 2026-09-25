@@ -1,5 +1,6 @@
 import { Request } from 'express';
 import crypto from 'crypto';
+import { Types } from 'mongoose';
 import { User, IUser, Business, Order, Driver, Commission, DriverDebt, Payment, Position, Role } from '../models';
 import { platformResultService } from './platformResult.service';
 import {
@@ -39,7 +40,9 @@ function disconnectUserSockets(userId: string): void {
   getIO()?.in(`user:${userId}`).disconnectSockets(true);
 }
 import { normalizePhone } from '../utils/phone';
+import { auditSensitiveSearch } from './adminSearch.service';
 import { maskEmail } from '../utils/mask';
+import { customerFinanceView } from './profileMasking';
 import { parseBirthDate, birthDateProblem } from '../utils/age';
 
 /**
@@ -260,10 +263,12 @@ export class AdminService {
   }
 
   // ── Users Management ──
-  async getUsers(role?: string, search?: string, page = 1, limit = 20) {
+  async getUsers(role?: string, search?: string, page = 1, limit = 20, req?: Request) {
     const filter: Record<string, unknown> = {};
     if (role) filter.role = role;
     if (search) {
+      // Buscar por teléfono o correo deja huella (hash, nunca el término).
+      if (req) await auditSensitiveSearch(req, search, '/api/v1/admin/users', true);
       filter.$or = [
         { name: { $regex: escapeRegex(search), $options: 'i' } },
         { phone: { $regex: escapeRegex(search), $options: 'i' } },
@@ -888,6 +893,8 @@ export class AdminService {
 
   // ── Orders Management ──
   async getAllOrders(filters: {
+    /** Sin `commissions:view`, `finance` sale reducido a lo que el cliente ya vio (H3). */
+    maskCommissions?: boolean;
     status?: string;
     city?: string;
     dateFrom?: string;
@@ -896,7 +903,7 @@ export class AdminService {
     page?: number;
     limit?: number;
   } = {}) {
-    const { status, city, dateFrom, dateTo, search, page = 1, limit = 20 } = filters;
+    const { status, city, dateFrom, dateTo, search, page = 1, limit = 20, maskCommissions = false } = filters;
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
     if (city) filter.city = city;
@@ -926,23 +933,56 @@ export class AdminService {
         .populate({ path: 'driverId', select: 'userId vehicleType', populate: { path: 'userId', select: 'name phone' } }),
       Order.countDocuments(filter),
     ]);
+    if (maskCommissions) {
+      const masked = orders.map((o) => {
+        const plain = o.toObject();
+        (plain as any).finance = customerFinanceView(plain.finance);
+        return plain;
+      });
+      return { orders: masked as unknown as typeof orders, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    }
     return { orders, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
   // ── Commissions ──
-  async getCommissions(status?: string, page = 1, limit = 20) {
+  async getCommissions(status?: string, page = 1, limit = 20, businessId?: string) {
+    if (businessId && !Types.ObjectId.isValid(businessId)) throw new AppError('Comercio inválido', 400);
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
+    if (businessId) filter.businessId = businessId;
     const skip = (page - 1) * limit;
-    const [commissions, total] = await Promise.all([
+    const [commissions, total, totalsRows] = await Promise.all([
       Commission.find(filter)
         .skip(skip).limit(limit)
         .sort({ createdAt: -1 })
         .populate('orderId', 'orderNumber total')
         .populate('businessId', 'name'),
       Commission.countDocuments(filter),
+      // Totales de todo el filtro, no de la página: lo que la pantalla enseña
+      // arriba tiene que cuadrar con lo que hay debajo aunque se pagine.
+      Commission.aggregate([
+        { $match: businessId ? { businessId: new Types.ObjectId(businessId) } : {} },
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 },
+            platformAmount: { $sum: '$platformAmount' },
+            businessAmount: { $sum: '$businessAmount' },
+            driverAmount: { $sum: '$driverAmount' },
+          },
+        },
+      ]),
     ]);
-    return { commissions, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    const totals: Record<string, { count: number; platformAmount: number; businessAmount: number; driverAmount: number }> = {};
+    for (const row of totalsRows) {
+      totals[row._id as string] = {
+        count: row.count,
+        platformAmount: row.platformAmount,
+        businessAmount: row.businessAmount,
+        driverAmount: row.driverAmount,
+      };
+    }
+    return { commissions, totals, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
   // ── Driver Debts ──
@@ -1015,6 +1055,49 @@ export class AdminService {
       description: 'Domiciliario reactivado',
     });
     return driver;
+  }
+
+  /**
+   * Suspender o levantar la suspensión indicando el estado DESEADO (H6): el
+   * toggle viejo (`findById → save`) hacía que dos clics simultáneos se
+   * anularan. Aquí la condición va en el filtro; si el estado ya es el pedido
+   * responde idempotente (`changed: false`) sin duplicar auditoría. Igual que
+   * el toggle, no tiene más efectos colaterales que el propio estado.
+   */
+  async setBusinessSuspension(businessId: string, suspended: boolean, reason: string | undefined, req: Request) {
+    const trimmed = reason?.trim();
+    if (suspended && (!trimmed || trimmed.length < 5 || trimmed.length > 300)) {
+      throw new AppError('El motivo de la suspensión es obligatorio (5 a 300 caracteres)', 400);
+    }
+    if (!(await Business.exists({ _id: businessId }))) throw new AppError('Negocio no encontrado', 404);
+
+    const updated = await Business.findOneAndUpdate(
+      { _id: businessId, isSuspended: suspended ? { $ne: true } : true },
+      {
+        $set: {
+          isSuspended: suspended,
+          suspendedAt: suspended ? new Date() : null,
+          suspendedBy: suspended ? (req.user?._id as any) ?? null : null,
+          suspensionReason: suspended ? trimmed! : null,
+        },
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      const current = await Business.findById(businessId);
+      return { business: current!, changed: false };
+    }
+
+    await logAudit(req, {
+      action: AuditAction.BUSINESS_SUSPENSION_SET,
+      entity: 'business',
+      entityId: businessId,
+      severity: AuditSeverity.HIGH,
+      description: `Negocio ${updated.name} ${suspended ? 'suspendido' : 'reactivado'}${suspended ? `: ${trimmed}` : ''}`,
+      metadata: { suspended, reason: suspended ? trimmed : undefined },
+    });
+    return { business: updated, changed: true };
   }
 }
 

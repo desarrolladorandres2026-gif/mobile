@@ -84,6 +84,24 @@ export interface IPlatformPricingConfig extends Document {
    */
   maxDriverCashDebt: number;
 
+  // ── Comisión de la pasarela (Wompi) ──
+  /**
+   * Tarifa contratada por método, en bps sobre el cobro + un fijo en COP.
+   * Todo en 0 significa "sin configurar": no se asienta gasto y el resultado
+   * de la plataforma sigue marcado como incompleto. El dueño la llena con su
+   * contrato; ninguna cifra viene inventada.
+   */
+  gatewayCardBps: number;
+  gatewayCardFixed: number;
+  gatewayPseBps: number;
+  gatewayPseFixed: number;
+  gatewayNequiBps: number;
+  gatewayNequiFixed: number;
+  gatewayOtherBps: number;
+  gatewayOtherFixed: number;
+  /** IVA que la pasarela le suma a su propia comisión. */
+  gatewayFeeVatBps: number;
+
   // ── Provenance ──
   createdBy?: Types.ObjectId | null;
   changeReason: string;
@@ -143,6 +161,16 @@ const platformPricingConfigSchema = new Schema<IPlatformPricingConfig>(
     cashOnDeliveryEnabled: { type: Boolean, default: false },
     cashOnDeliveryMaxAmount: { ...money, default: 150000 },
     maxDriverCashDebt: { ...money, default: 50000 },
+
+    gatewayCardBps: { ...bps, default: 0 },
+    gatewayCardFixed: { ...money, default: 0 },
+    gatewayPseBps: { ...bps, default: 0 },
+    gatewayPseFixed: { ...money, default: 0 },
+    gatewayNequiBps: { ...bps, default: 0 },
+    gatewayNequiFixed: { ...money, default: 0 },
+    gatewayOtherBps: { ...bps, default: 0 },
+    gatewayOtherFixed: { ...money, default: 0 },
+    gatewayFeeVatBps: { ...bps, default: 0 },
 
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     changeReason: { type: String, default: 'Configuración inicial', maxlength: 300 },

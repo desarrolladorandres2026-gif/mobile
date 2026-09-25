@@ -66,6 +66,32 @@ export function customerFinanceView(finance: unknown): Record<string, unknown> |
   return pick(finance, CUSTOMER_FINANCE_FIELDS);
 }
 
+/**
+ * Lista blanca de `finance` para el personal de un comercio (encargado y
+ * mostrador). Lo que el cliente vio más lo que el propio comercio cobra por
+ * el pedido. La comisión se queda porque ya se deduce de `businessPayout`
+ * (subtotal − descuento del comercio − comisión): quitarla no escondería nada
+ * y el panel la pintaría como $0. Fuera: el pago al domiciliario y todo el
+ * margen de ZIPP (ingreso bruto y neto, margen del envío, gasto de promoción,
+ * descuentos de Pro).
+ */
+export const MERCHANT_STAFF_FINANCE_FIELDS = [
+  ...CUSTOMER_FINANCE_FIELDS,
+  'merchantCommission',
+  'businessPayout',
+] as const;
+
+/** El pedido tal como lo recibe el personal de un comercio por socket. */
+export function merchantStaffOrderView<T extends object>(order: T): T {
+  const plain: Record<string, unknown> =
+    typeof (order as { toObject?: () => unknown }).toObject === 'function'
+      ? ((order as { toObject: () => Record<string, unknown> }).toObject())
+      : { ...(order as Record<string, unknown>) };
+  plain.finance = pick(plain.finance, MERCHANT_STAFF_FINANCE_FIELDS);
+  delete plain.driverPayout;
+  return plain as T;
+}
+
 /** Últimos 4 caracteres (cédula, NIT, cuenta, referencia); `null` si no hay valor. */
 export function maskLast4(value: string | number | null | undefined): string | null {
   if (value === null || value === undefined || value === '') return null;

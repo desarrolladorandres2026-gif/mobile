@@ -21,6 +21,7 @@ import {
 import { AuditAction, AuditSeverity, logSystemAudit } from '../security';
 import { cashReconciliationService } from './cashReconciliation.service';
 import { notificationService } from './notification.service';
+import { notifyAlertsChanged } from './alerts.service';
 import { usersWithPermission } from './authorization.service';
 import { Permission } from '../security/rbac';
 
@@ -106,6 +107,7 @@ export class CashIncidentService {
     // pero nadie se enteraría hasta abrir el panel por su cuenta, que es
     // lo mismo que no tener escalado.
     this.notifyFinanceAdmins(order, incident).catch(console.error);
+    void notifyAlertsChanged('cash');
 
     return incident;
   }
@@ -150,6 +152,7 @@ export class CashIncidentService {
     this.assertTransition(incident.status, CashIncidentStatus.UNDER_REVIEW);
     incident.status = CashIncidentStatus.UNDER_REVIEW;
     await incident.save();
+    void notifyAlertsChanged('cash');
 
     logSystemAudit({
       userId: adminUserId,
@@ -258,6 +261,7 @@ export class CashIncidentService {
     }).catch(console.error);
 
     this.notifyDriver(incident).catch(console.error);
+    void notifyAlertsChanged('cash');
 
     return incident;
   }

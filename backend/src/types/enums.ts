@@ -403,6 +403,25 @@ export enum LedgerAccount {
    */
   PAYOUT_DISBURSEMENT = 'payout_disbursement',
   /**
+   * Gasto: comisión que la pasarela se queda por procesar un cobro.
+   *
+   * Estimada al capturar con la tarifa por método de `PlatformPricingConfig`
+   * (el dueño la llena con su contrato de Wompi). Cuenta propia y no dentro
+   * de `PROMOTION_EXPENSE` porque responde a otra pregunta: cuánto cuesta
+   * cobrar en línea frente a cobrar en efectivo.
+   */
+  PAYMENT_PROCESSING_EXPENSE = 'payment_processing_expense',
+  /**
+   * Contrapartida de la comisión de la pasarela: lo que Wompi retiene de lo
+   * que desembolsa. Se concilia contra su reporte de desembolsos; el saldo
+   * de esta cuenta es la comisión total estimada por revisar.
+   *
+   * Es una cuenta aparte y no un crédito a `CUSTOMER_PAYMENT` para no
+   * cambiar el significado de esa cuenta ("lo que el cliente pagó"), que
+   * usan los reembolsos y contracargos.
+   */
+  GATEWAY_WITHHELD = 'gateway_withheld',
+  /**
    * Ingreso reconocido cuando una liquidación descuenta publicidad comprada
    * por el comercio en vez de pagarla por pasarela. `AdInvoice` sigue siendo
    * su propio modelo — esto solo registra, dentro del pedido que dejó de

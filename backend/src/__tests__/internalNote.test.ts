@@ -156,18 +156,13 @@ describe('Notas internas', () => {
       expect(containsCardNumber('4111111111111111')).toBe(true);
     });
 
-    it(`429 al pasar de ${NOTE_RATE_LIMIT_PER_MINUTE} notas por minuto (contado en Mongo)`, async () => {
+    it(`429 al pasar de ${NOTE_RATE_LIMIT_PER_MINUTE} notas por minuto (contador atómico)`, async () => {
       const admin = await makeUser({ role: UserRole.ADMIN });
       const orderId = await makeOrderId();
       const other = await makeUser({ role: UserRole.ADMIN });
-      const docs = Array.from({ length: NOTE_RATE_LIMIT_PER_MINUTE }, (_, i) => ({
-        entityType: 'order',
-        entityId: new Types.ObjectId(orderId),
-        authorId: admin._id,
-        authorName: admin.name,
-        body: `n${i}`,
-      }));
-      await InternalNote.insertMany(docs);
+      for (let i = 0; i < NOTE_RATE_LIMIT_PER_MINUTE; i++) {
+        await internalNoteService.create({ entityType: 'order', entityId: orderId, body: `n${i}`, actor: actorOf(admin) });
+      }
 
       await expect(
         internalNoteService.create({ entityType: 'order', entityId: orderId, body: 'una más', actor: actorOf(admin) })

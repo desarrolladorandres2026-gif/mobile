@@ -34,9 +34,11 @@ export interface IDriverDocument extends Document {
    * ciegas: no había forma de decirle qué corregir del documento.
    */
   rejectionReason?: string;
+  /** Avisos de vencimiento ya enviados, `<expiresAt ISO>:<etapa>` (ver `documentExpiry.service`). */
+  expiryRemindersSent?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
-const schema = new Schema<IDriverDocument>({ driverId: { type: Schema.Types.ObjectId, ref: 'Driver', required: true }, type: { type: String, enum: ['identity','license','soat','technical_review','vehicle_registration'], required: true }, reference: { type: String, required: true, trim: true, maxlength: 500 }, imageUrl: { type: String, trim: true }, imageKey: { type: String, trim: true }, isPrivate: { type: Boolean, default: false }, expiresAt: Date, status: { type: String, enum: ['pending','approved','rejected','expired'], default: 'pending' }, reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' }, reviewedAt: Date, rejectionReason: { type: String, trim: true, maxlength: 300 } }, { timestamps: true });
+const schema = new Schema<IDriverDocument>({ driverId: { type: Schema.Types.ObjectId, ref: 'Driver', required: true }, type: { type: String, enum: ['identity','license','soat','technical_review','vehicle_registration'], required: true }, reference: { type: String, required: true, trim: true, maxlength: 500 }, imageUrl: { type: String, trim: true }, imageKey: { type: String, trim: true }, isPrivate: { type: Boolean, default: false }, expiresAt: Date, status: { type: String, enum: ['pending','approved','rejected','expired'], default: 'pending' }, reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' }, reviewedAt: Date, rejectionReason: { type: String, trim: true, maxlength: 300 }, expiryRemindersSent: { type: [String], default: undefined, select: false } }, { timestamps: true });
 schema.index({ driverId: 1, type: 1 }, { unique: true }); schema.index({ expiresAt: 1, status: 1 });
 export const DriverDocument = mongoose.model<IDriverDocument>('DriverDocument', schema);

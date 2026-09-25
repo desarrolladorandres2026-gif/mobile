@@ -41,6 +41,8 @@ export interface IDriver extends Document {
   batteryLevel?: number;
   baseFund: number;
   currentFund: number;
+  /** Últimos tokens de devoluciones de fondo aplicadas (idempotencia de `unassignDriver`). No sale en respuestas. */
+  fundReleaseTokens?: string[];
   rating: number;
   /** Cuántas reseñas de clientes alimentan `rating`. Antes no se contaba. */
   totalReviews: number;
@@ -119,6 +121,7 @@ const driverSchema = new Schema<IDriver>(
       default: 50000,
       min: 0,
     },
+    fundReleaseTokens: { type: [String], default: [], select: false },
     rating: {
       type: Number,
       default: 5,

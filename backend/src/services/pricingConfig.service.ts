@@ -36,6 +36,15 @@ export const EDITABLE_PRICING_FIELDS = [
   'cashOnDeliveryEnabled',
   'cashOnDeliveryMaxAmount',
   'maxDriverCashDebt',
+  'gatewayCardBps',
+  'gatewayCardFixed',
+  'gatewayPseBps',
+  'gatewayPseFixed',
+  'gatewayNequiBps',
+  'gatewayNequiFixed',
+  'gatewayOtherBps',
+  'gatewayOtherFixed',
+  'gatewayFeeVatBps',
 ] as const;
 
 export type EditablePricingField = (typeof EDITABLE_PRICING_FIELDS)[number];

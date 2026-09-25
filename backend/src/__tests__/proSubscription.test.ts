@@ -103,6 +103,26 @@ describe('El trato de Zipp Pro en el precio', () => {
     expect(quote.proDeliveryDiscount).toBeGreaterThan(0);
   });
 
+  it('el pedido guarda lo que regaló la membresía, dentro del subsidio de plataforma', async () => {
+    await makeMember(client._id.toString());
+    const { orderService } = await import('../services/order.service');
+
+    const order = await orderService.create({
+      clientId: client._id.toString(),
+      businessId: business._id.toString(),
+      items: [{ productId: product._id.toString(), quantity: 5 }],
+      paymentMethod: PaymentMethod.ONLINE,
+      deliveryAddress: 'Calle 5 # 3-21',
+      deliveryLatitude: GARZON.lat,
+      deliveryLongitude: GARZON.lng,
+    } as never);
+
+    const f = order.finance;
+    expect(f.proDeliveryDiscount).toBeGreaterThan(0);
+    // No es un gasto aparte: ya está contado en el subsidio de plataforma.
+    expect(f.platformFundedDiscount).toBeGreaterThanOrEqual(f.proDeliveryDiscount! + f.proServiceFeeDiscount!);
+  });
+
   it('por debajo del mínimo, la membresía no regala el envío', async () => {
     await makeMember(client._id.toString());
 

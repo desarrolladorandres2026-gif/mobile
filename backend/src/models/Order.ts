@@ -40,6 +40,14 @@ export interface IOrderFinance {
   tip: number;
   merchantFundedDiscount: number;
   platformFundedDiscount: number;
+  /**
+   * Lo que Zipp Pro le quitó a este pedido. Ya está DENTRO de
+   * `platformFundedDiscount` (no se suma otra vez): se guarda aparte para
+   * poder decir cuánto cuestan los beneficios frente a lo que se cobra de
+   * membresía. Pedidos anteriores a este campo no lo tienen.
+   */
+  proDeliveryDiscount?: number;
+  proServiceFeeDiscount?: number;
   taxPayable: number;
   businessPayout: number;
   driverPayout: number;
@@ -191,6 +199,12 @@ export interface IOrder extends Document {
   estimatedDelivery?: Date;
   /** Cuándo se asignó el domiciliario. Sin esto no se puede saber si tarda. */
   assignedAt?: Date;
+  /**
+   * Devolución de fondo pendiente tras soltar al domiciliario: se escribe en
+   * la misma operación atómica que la desasignación y se limpia cuando el
+   * `$inc` del fondo ya se aplicó. Un barrido reintenta las que queden.
+   */
+  fundHoldReleasePending?: { driverId: Types.ObjectId; amount: number; token: string } | null;
   acceptedAt?: Date;
   preparedAt?: Date;
   pickedUpAt?: Date;
@@ -262,6 +276,8 @@ const orderFinanceSchema = new Schema<IOrderFinance>(
     tip: intMoney,
     merchantFundedDiscount: intMoney,
     platformFundedDiscount: intMoney,
+    proDeliveryDiscount: intMoney,
+    proServiceFeeDiscount: intMoney,
     taxPayable: intMoney,
     businessPayout: intMoney,
     driverPayout: intMoney,
@@ -360,6 +376,10 @@ const orderSchema = new Schema<IOrder>(
     notes: { type: String, default: '' },
     estimatedDelivery: Date,
     assignedAt: Date,
+    fundHoldReleasePending: {
+      type: new Schema({ driverId: { type: Schema.Types.ObjectId, ref: 'Driver' }, amount: { type: Number, min: 0 }, token: String }, { _id: false }),
+      select: false,
+    },
     acceptedAt: Date,
     preparedAt: Date,
     pickedUpAt: Date,

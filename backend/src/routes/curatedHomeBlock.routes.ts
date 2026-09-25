@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { sendResponse } from '../utils';
 import { curatedHomeBlockController } from '../controllers';
 import { authenticate, authorize, validate } from '../middlewares';
 import {
@@ -18,6 +19,13 @@ const router = Router();
 router.use(authenticate, authorize(UserRole.ADMIN));
 
 router.get('/options', requirePermission(Permission.CONTENT_VIEW), (req, res, next) => curatedHomeBlockController.options(req, res, next));
+
+router.get('/order-map', requirePermission(Permission.CONTENT_VIEW), async (_req, res, next) => {
+  try {
+    const { homeOrderMap } = await import('../services/homeOrderMap.service');
+    sendResponse(res, 200, 'Orden del inicio', await homeOrderMap());
+  } catch (error) { next(error); }
+});
 
 router.get('/', requirePermission(Permission.CONTENT_VIEW), (req, res, next) => curatedHomeBlockController.list(req, res, next));
 router.post('/', requirePermission(Permission.CONTENT_MANAGE), validate(createCuratedHomeBlockSchema), (req, res, next) =>

@@ -90,6 +90,7 @@ export enum AuditAction {
   CASH_INCIDENT_RESOLVED = 'cash_incident_resolved',
   CASH_DEBT_LIMIT_BLOCKED = 'cash_debt_limit_blocked',
   REFUND_ISSUED = 'refund_issued',
+  CHARGEBACK_RECORDED = 'chargeback_recorded',
   COMMISSION_ADJUSTED = 'commission_adjusted',
   PAYOUT_PROCESSED = 'payout_processed',
   SETTLEMENT_PAYMENT_REGISTERED = 'settlement_payment_registered',
@@ -161,6 +162,17 @@ export enum AuditAction {
   DOCUMENT_REVIEWED = 'document_reviewed',
   PQRS_ANSWERED = 'pqrs_answered',
   DATA_REQUEST_RESOLVED = 'data_request_resolved',
+
+  // ── Panel admin, Fase 4: soporte y legal ──
+  DATA_REQUEST_EXTENDED = 'data_request_extended',
+  LEGAL_DOCUMENT_PUBLISHED = 'legal_document_published',
+  SUPPORT_MACRO_CREATED = 'support_macro_created',
+  SUPPORT_MACRO_UPDATED = 'support_macro_updated',
+  SUPPORT_MACRO_DELETED = 'support_macro_deleted',
+  PQRS_CLASSIFIED = 'pqrs_classified',
+  PQRS_ASSIGNED = 'pqrs_assigned',
+  DATA_REQUEST_TAKEN = 'data_request_taken',
+  LEGAL_ACCEPTANCES_VIEWED = 'legal_acceptances_viewed',
 
   // ── Panel admin, Fase 2: fichas y capa común ──
   // Las notas internas se auditan sin su texto (el log rota y no debe copiar
@@ -273,7 +285,8 @@ export async function logAudit(req: Request, entry: AuditEntry): Promise<void> {
       metadata: {
         ...entry.metadata,
         method: req.method,
-        path: entry.pathOverride ?? req.originalUrl,
+        // Sin query: `?q=`/`?search=` traen teléfonos y correos buscados.
+      path: entry.pathOverride ?? (req.originalUrl ?? '').split('?')[0],
       },
       sessionId: (req as any).sessionId,
     });

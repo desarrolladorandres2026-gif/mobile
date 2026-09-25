@@ -1,11 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { orderService, driverService } from '../services';
 import { sendResponse, param, query, clientIp, userAgent, clampLimit } from '../utils';
-import { OrderStatus, UserRole } from '../types';
+import { OrderStatus, UserRole, CancellationReason } from '../types';
 import { Business, Driver } from '../models';
 import { AppError } from '../middlewares';
 import { can } from '../middlewares/auth';
 import { Permission } from '../security';
+import { customerFinanceView, merchantStaffOrderView } from '../services/profileMasking';
 import { emitToAdmin } from '../sockets/emitter';
 
 /**
@@ -78,13 +79,17 @@ export class OrderController {
           // refrescar. Empujar un pedido incompleto no es empujar nada.
           const payload = await orderService.getById(order._id.toString());
 
-          // Las dos salas en una sola emisión. El socket de un comercio
-          // está en las dos —la personal y la del negocio—, y dos `emit`
-          // encadenados le entregaban el pedido por duplicado; Socket.IO
-          // solo deduplica dentro de una misma emisión.
-          io.to(`user:${business.ownerId.toString()}`)
-            .to(`business:${order.businessId!.toString()}`)
-            .emit('order:incoming', payload);
+          // El dueño recibe el pedido entero; el personal (encargado y
+          // mostrador, que no tienen `settlements:view`), sin el pago al
+          // domiciliario ni el margen de ZIPP. Son dos emisiones y no una
+          // para poder mandar dos formas distintas; `except` saca al dueño
+          // de la segunda, porque su socket también está en la sala del
+          // negocio y si no le llegaría el pedido dos veces.
+          const ownerRoom = `user:${business.ownerId.toString()}`;
+          io.to(ownerRoom).emit('order:incoming', payload);
+          io.to(`business:${order.businessId!.toString()}`)
+            .except(ownerRoom)
+            .emit('order:incoming', merchantStaffOrderView(payload));
         }
         // Notify drivers and admin
         io.to('drivers').emit('order:available', { orderId: order._id.toString(), city: order.city });
@@ -103,6 +108,12 @@ export class OrderController {
       const isDriver = order.driverId && (order.driverId as any).userId?._id?.toString?.() === user._id.toString();
       const isBusiness = user.role === UserRole.BUSINESS && (await Business.exists({ _id: (order.businessId as any)._id ?? order.businessId, ownerId: user._id }));
       if (user.role !== UserRole.ADMIN && !isClient && !isDriver && !isBusiness) throw new AppError('No autorizado para ver este pedido', 403);
+      // H3: el margen de ZIPP solo para quien ve comisiones.
+      if (user.role === UserRole.ADMIN && !can(req, Permission.COMMISSIONS_VIEW)) {
+        const plain = typeof (order as any).toObject === 'function' ? (order as any).toObject() : { ...(order as any) };
+        plain.finance = customerFinanceView(plain.finance);
+        return sendResponse(res, 200, 'Pedido obtenido', plain);
+      }
       sendResponse(res, 200, 'Pedido obtenido', order);
     } catch (error) { next(error); }
   }
@@ -206,6 +217,17 @@ export class OrderController {
         if (target === OrderStatus.CANCELLED && !can(req, Permission.ORDERS_CANCEL)) {
           throw new AppError('No tienes permiso para cancelar pedidos', 403);
         }
+        if (target === OrderStatus.CANCELLED) {
+          if (!req.body.cancellationCode) {
+            throw new AppError('Indica el motivo de la cancelación (cancellationCode)', 400);
+          }
+          if (
+            req.body.cancellationCode === CancellationReason.OTHER &&
+            String(req.body.cancellationReason ?? '').trim().length < 10
+          ) {
+            throw new AppError('Con el motivo "otro" describe la razón en al menos 10 caracteres', 400);
+          }
+        }
         if (
           (target === OrderStatus.PICKED_UP || target === OrderStatus.DELIVERED) &&
           !can(req, Permission.ORDERS_MODIFY)
@@ -220,7 +242,8 @@ export class OrderController {
         req.user!.role,
         req.body.cancellationReason,
         { ip: clientIp(req), userAgent: userAgent(req) },
-        req.body.cancellationCode
+        req.body.cancellationCode,
+        { canRefund: req.user!.role === UserRole.ADMIN && can(req, Permission.REFUNDS_CREATE) }
       );
 
       const io = req.app.get('io');
@@ -245,7 +268,13 @@ export class OrderController {
         emitToAdmin(io, 'orders', 'order:status:changed', payload);
       }
 
-      sendResponse(res, 200, 'Estado actualizado', order);
+      const partial = Boolean((order.$locals as Record<string, unknown> | undefined)?.cancelSideEffectsFailed);
+      sendResponse(
+        res,
+        200,
+        partial ? 'Pedido cancelado, pero falló la reversión del cobro: queda pendiente para Finanzas' : 'Estado actualizado',
+        order
+      );
     } catch (error) { next(error); }
   }
 

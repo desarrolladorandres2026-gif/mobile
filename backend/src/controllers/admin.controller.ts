@@ -10,6 +10,7 @@ import { OrderEvent, AuditAction, AuditSeverity, logAudit } from '../security';
 import { AppError } from '../middlewares';
 import { can } from '../middlewares/auth';
 import { Permission } from '../security';
+import { assertExportAuthorized } from '../security/exportGate';
 
 /** Hasta medio año: es lo que guarda la colección de eventos. */
 const IMAGE_STATS_MAX_RANGE_MS = 180 * 24 * 60 * 60_000;
@@ -127,10 +128,30 @@ export class AdminController {
   async userProfile360(req: Request, res: Response, next: NextFunction) {
     try {
       const { userProfile360Service } = await import('../services/userProfile360.service');
+      // Todos reciben la vista enmascarada por defecto; la completa es un acto deliberado.
+      const view = query(req, 'view') ?? 'masked';
+      if (view !== 'masked' && view !== 'full') throw new AppError('Parámetro "view" inválido', 400);
+      if (view === 'full' && !can(req, Permission.USERS_VIEW_SENSITIVE)) {
+        throw new AppError('No tienes permisos para ver la ficha completa', 403);
+      }
+      const { internalNoteService } = await import('../services/internalNote.service');
       const profile = await userProfile360Service.profile360(param(req, 'id'), {
-        sensitive: can(req, Permission.USERS_VIEW_SENSITIVE),
+        sensitive: view === 'full',
         commissions: can(req, Permission.COMMISSIONS_VIEW),
+        refunds: can(req, Permission.REFUNDS_VIEW),
+        legal: can(req, Permission.LEGAL_VIEW),
+        noteActor: await internalNoteService.noteActorFromRequest(req),
       });
+      if (view === 'full') {
+        void logAudit(req, {
+          action: AuditAction.PROFILE_VIEWED,
+          entity: 'user',
+          entityId: param(req, 'id'),
+          severity: AuditSeverity.MEDIUM,
+          description: 'Ficha 360 de cliente consultada en vista completa',
+          metadata: { view: 'full' },
+        });
+      }
       // S14: quién abrió la ficha 360 de un cliente queda auditado — es
       // dirección, pagos, riesgo y sesiones de una persona real.
       void logAudit(req, {
@@ -139,6 +160,7 @@ export class AdminController {
         entityId: param(req, 'id'),
         severity: AuditSeverity.LOW,
         description: 'Ficha 360 de cliente consultada',
+        metadata: { view },
       });
       sendResponse(res, 200, 'Historial del usuario', profile);
     } catch (error) { next(error); }
@@ -147,31 +169,6 @@ export class AdminController {
   // ── Envíos dirigidos ──
 
   /** Cuánta gente alcanza un segmento, sin mandar nada todavía. */
-  async previewCampaign(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { campaignService } = await import('../services/campaign.service');
-      const reach = await campaignService.preview(req.body.segment ?? {});
-      sendResponse(res, 200, 'Alcance del segmento', { reach });
-    } catch (error) { next(error); }
-  }
-
-  async sendCampaign(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { campaignService } = await import('../services/campaign.service');
-      const result = await campaignService.send(req.body.segment ?? {}, req.body.message);
-
-      void logAudit(req, {
-        action: AuditAction.SUSPICIOUS_ACTIVITY,
-        entity: 'campaign',
-        entityId: 'push',
-        description: `Envío dirigido a ${result.targeted} personas: "${req.body.message.title}"`,
-        metadata: { segment: req.body.segment, ...result },
-      });
-
-      sendResponse(res, 200, 'Notificaciones enviadas', result);
-    } catch (error) { next(error); }
-  }
-
   // ── Interruptores de funcionalidad ──
   async listFeatureFlags(req: Request, res: Response, next: NextFunction) {
     try {
@@ -217,58 +214,9 @@ export class AdminController {
     } catch (error) { next(error); }
   }
 
-  /**
-   * Puerta común de los exportes (S9, S14): solo el Super Administrador,
-   * con un motivo escrito y el código TOTP de la petición verificado — no
-   * basta con haber pasado ya el 2FA de la sesión, porque descargar datos
-   * personales de miles de personas es una acción puntual que merece su
-   * propia confirmación, igual que aprobar un pago grande.
-   */
-  private async assertExportAuthorized(req: Request, reason: unknown, totpToken: unknown): Promise<void> {
-    const { actorIsSuperAdmin } = await import('../services/authorization.service');
-    if (!(await actorIsSuperAdmin(req.user!))) {
-      throw new AppError('Solo un Super Administrador puede exportar estos datos', 403, 'PRIVILEGE_ESCALATION_BLOCKED');
-    }
-    if (typeof reason !== 'string' || reason.trim().length < 5) {
-      throw new AppError('Indica el motivo del exporte (mínimo 5 caracteres)', 400);
-    }
-    if (typeof totpToken !== 'string' || !totpToken.trim()) {
-      throw new AppError('Confirma con tu código de verificación en dos pasos', 401, 'MFA_CODE_REQUIRED');
-    }
-
-    // M2: el TOTP de un exporte no tenía tope de intentos — se podía probar
-    // el código a fuerza bruta contra un endpoint que, si acierta, entrega
-    // datos personales masivos. Reutiliza el mismo contador que el login
-    // (5 fallos por cuenta) y, al llegar al tope, además revoca la sesión
-    // actual: un TOTP fallando repetido aquí huele más a sesión robada que
-    // a una persona que se equivocó de dígito.
-    const { checkBruteForce, recordFailedAttempt, clearAttempts } = await import('../security/bruteforce');
-    const actorId = req.user!._id.toString();
-    const bruteKey = `export:${actorId}`;
-    const ip = clientIp(req);
-    const bruteCheck = await checkBruteForce(ip, bruteKey);
-    if (!bruteCheck.allowed) {
-      throw new AppError(bruteCheck.reason || 'Demasiados intentos. Intenta más tarde.', 429);
-    }
-
-    const { verifySecondFactor } = await import('../services/mfa.service');
-    if (!(await verifySecondFactor(req.user!._id, totpToken.trim()))) {
-      const attempt = await recordFailedAttempt(ip, bruteKey);
-      if (!attempt.allowed) {
-        const { sessionManager } = await import('../security/sessions');
-        const sessionId = req.sessionId;
-        if (sessionId) await sessionManager.revokeSession(sessionId, actorId, 'reuse_detected');
-        await logAudit(req, {
-          action: AuditAction.TOTP_FAILED,
-          entity: 'user',
-          entityId: actorId,
-          severity: AuditSeverity.CRITICAL,
-          description: `5 códigos TOTP inválidos seguidos en un exporte — sesión revocada`,
-        });
-      }
-      throw new AppError('Código de verificación en dos pasos inválido', 401, 'MFA_CODE_INVALID');
-    }
-    await clearAttempts(ip, bruteKey);
+  /** Puerta común de los exportes con datos personales: solo Super Administrador, con motivo y TOTP. */
+  private assertExportAuthorized(req: Request, reason: unknown, totpToken: unknown): Promise<void> {
+    return assertExportAuthorized(req, reason, totpToken);
   }
 
   async exportOrders(req: Request, res: Response, next: NextFunction) {
@@ -400,6 +348,56 @@ export class AdminController {
     } catch (error) { next(error); }
   }
 
+  /** El día partido por zona de entrega. El dinero solo con `finance:view`. */
+  async getDailySummaryByZone(req: Request, res: Response, next: NextFunction) {
+    try {
+      const summary = await dailySummaryService.byZone(query(req, 'date'));
+      const zones = can(req, Permission.FINANCE_VIEW)
+        ? summary.zones
+        : summary.zones.map(({ gmv: _gmv, driverPayouts: _payouts, ...rest }) => rest);
+      sendResponse(res, 200, 'Resumen diario por zona', { ...summary, zones });
+    } catch (error) { next(error); }
+  }
+
+  async getCrashes(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { appHealthService, CRASH_DEFAULT_DAYS } = await import('../services/appHealth.service');
+      const days = Number(query(req, 'days')) || CRASH_DEFAULT_DAYS;
+      sendResponse(res, 200, 'Crashes de la app', await appHealthService.crashes(days));
+    } catch (error) { next(error); }
+  }
+
+  async resolveCrash(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { appHealthService } = await import('../services/appHealth.service');
+      const resolution = await appHealthService.resolve(req.body.message, req.user!._id.toString(), req.body.note);
+      void logAudit(req, {
+        action: AuditAction.SETTINGS_UPDATED,
+        entity: 'crash_resolution',
+        entityId: String(resolution!._id),
+        severity: AuditSeverity.LOW,
+        description: 'Error de la app marcado como resuelto',
+        metadata: { versions: resolution!.versions },
+      });
+      sendResponse(res, 200, 'Marcado como resuelto', resolution);
+    } catch (error) { next(error); }
+  }
+
+  async reopenCrash(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { appHealthService } = await import('../services/appHealth.service');
+      const removed = await appHealthService.reopen(req.body.message);
+      void logAudit(req, {
+        action: AuditAction.SETTINGS_UPDATED,
+        entity: 'crash_resolution',
+        entityId: String(removed._id),
+        severity: AuditSeverity.LOW,
+        description: 'Error de la app reabierto',
+      });
+      sendResponse(res, 200, 'Reabierto');
+    } catch (error) { next(error); }
+  }
+
   // ── Users ──
 
   async getUsers(req: Request, res: Response, next: NextFunction) {
@@ -408,7 +406,8 @@ export class AdminController {
         query(req, 'role'),
         query(req, 'search'),
         Number(query(req, 'page')) || 1,
-        clampLimit(query(req, 'limit'))
+        clampLimit(query(req, 'limit')),
+        req
       );
       sendResponse(res, 200, 'Usuarios obtenidos', result.users, result.meta);
     } catch (error) { next(error); }
@@ -556,6 +555,7 @@ export class AdminController {
   async getAllOrders(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await adminService.getAllOrders({
+        maskCommissions: !can(req, Permission.COMMISSIONS_VIEW),
         status: query(req, 'status'),
         city: query(req, 'city'),
         dateFrom: query(req, 'dateFrom'),
@@ -632,9 +632,10 @@ export class AdminController {
       const result = await adminService.getCommissions(
         query(req, 'status'),
         Number(query(req, 'page')) || 1,
-        clampLimit(query(req, 'limit'))
+        clampLimit(query(req, 'limit')),
+        query(req, 'businessId')
       );
-      sendResponse(res, 200, 'Comisiones obtenidas', result.commissions, result.meta);
+      sendResponse(res, 200, 'Comisiones obtenidas', { items: result.commissions, totals: result.totals }, result.meta);
     } catch (error) { next(error); }
   }
 
@@ -660,13 +661,35 @@ export class AdminController {
   async driverProfile360(req: Request, res: Response, next: NextFunction) {
     try {
       const { driverProfile360Service } = await import('../services/driverProfile360.service');
-      const profile = await driverProfile360Service.profile360(param(req, 'id'));
+      // Igual que la ficha del cliente: enmascarada por defecto; la completa es deliberada y auditada.
+      const view = query(req, 'view') ?? 'masked';
+      if (view !== 'masked' && view !== 'full') throw new AppError('Parámetro "view" inválido', 400);
+      if (view === 'full' && !can(req, Permission.USERS_VIEW_SENSITIVE)) {
+        throw new AppError('No tienes permisos para ver la ficha completa', 403);
+      }
+      const { internalNoteService } = await import('../services/internalNote.service');
+      const profile = await driverProfile360Service.profile360(param(req, 'id'), {
+        finance: can(req, Permission.FINANCE_VIEW),
+        sensitive: view === 'full',
+        noteActor: await internalNoteService.noteActorFromRequest(req),
+      });
+      if (view === 'full') {
+        void logAudit(req, {
+          action: AuditAction.PROFILE_VIEWED,
+          entity: 'driver',
+          entityId: param(req, 'id'),
+          severity: AuditSeverity.MEDIUM,
+          description: 'Ficha 360 de domiciliario consultada en vista completa',
+          metadata: { view: 'full' },
+        });
+      }
       void logAudit(req, {
         action: AuditAction.PROFILE_VIEWED,
         entity: 'driver',
         entityId: param(req, 'id'),
         severity: AuditSeverity.LOW,
         description: 'Ficha 360 de domiciliario consultada',
+        metadata: { view },
       });
       sendResponse(res, 200, 'Ficha del domiciliario', profile);
     } catch (error) { next(error); }

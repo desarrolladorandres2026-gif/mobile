@@ -1,8 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { Pqrs } from '../models'; import { AppError } from '../middlewares'; import { sendResponse, param } from '../utils'; import { AuditAction, logAudit } from '../security'; import { createPqrs } from '../services/pqrs.service'; import { supportService } from '../services/support.service';
+/** Lo que ve quien abrió el caso: sin ids del personal, prioridad ni SLA internos. */
+const OWN_FIELDS = '-assignedTo -assignedAt -priority -dueAt -responses.userId';
 export class PqrsController {
-  async create(req: Request, res: Response, next: NextFunction) { try { const item = await createPqrs({ userId: req.user!._id.toString(), type: req.body.type, subject: req.body.subject, detail: req.body.detail, orderId: req.body.orderId }); sendResponse(res, 201, 'PQRS recibida', item); } catch (e) { next(e); } }
-  async mine(req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'PQRS', await Pqrs.find({ userId: req.user!._id }).sort({ createdAt: -1 })); } catch (e) { next(e); } }
+  async create(req: Request, res: Response, next: NextFunction) { try { const item = await createPqrs({ userId: req.user!._id.toString(), type: req.body.type, subject: req.body.subject, detail: req.body.detail, orderId: req.body.orderId, businessId: req.body.businessId, role: req.user!.role }); sendResponse(res, 201, 'PQRS recibida', await Pqrs.findById(item._id).select(OWN_FIELDS).lean()); } catch (e) { next(e); } }
+  async mine(req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'PQRS', await Pqrs.find({ userId: req.user!._id }).select(OWN_FIELDS).sort({ createdAt: -1 }).lean()); } catch (e) { next(e); } }
   async addEvidence(req: Request, res: Response, next: NextFunction) { try { const item = await Pqrs.findOneAndUpdate({ _id: param(req, 'id'), userId: req.user!._id, status: { $nin: ['closed'] } }, { $push: { evidence: { url: req.body.url, name: req.body.name } } }, { new: true, runValidators: true }); if (!item) throw new AppError('PQRS no encontrada o cerrada', 404); sendResponse(res, 201, 'Evidencia registrada', item); } catch (e) { next(e); } }
   async list(_req: Request, res: Response, next: NextFunction) { try { sendResponse(res, 200, 'PQRS', await Pqrs.find().populate('userId', 'name email phone').sort({ createdAt: -1 })); } catch (e) { next(e); } }
   /**

@@ -108,6 +108,14 @@ router.post('/:id/request-verification', authenticate, authorize(UserRole.ADMIN)
 // S16: solo quien aprueba domiciliarios puede ver la cola de documentos y
 // los documentos de uno en concreto — no cualquier admin. `authorize(ADMIN)`
 // por sí solo no distinguía entre roles de admin con permisos distintos.
+// Quién se quedó a medias en el alta, por etapa (no aparece en la cola de documentos).
+router.get('/onboarding-funnel', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), async (_req, res, next) => {
+  try {
+    const { driverFunnel } = await import('../services/driverFunnel.service');
+    const { sendResponse } = await import('../utils');
+    sendResponse(res, 200, 'Embudo de alta de domiciliarios', await driverFunnel());
+  } catch (error) { next(error); }
+});
 router.get('/documents/queue', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), (req, res, next) => driverController.documentQueue(req, res, next));
 router.get('/:id/documents', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), (req, res, next) => driverController.listDriverDocuments(req, res, next));
 router.patch(

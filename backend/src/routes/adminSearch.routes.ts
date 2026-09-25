@@ -1,8 +1,19 @@
 import { Router } from 'express';
+import { requirePermission, validate } from '../middlewares';
+import { adminSearchRateLimiter } from '../middlewares/security';
+import { Permission } from '../security';
+import { adminSearchController } from '../controllers/adminSearch.controller';
+import { adminSearchSchema } from '../validators/adminSearch.validator';
 
-// Dueño: B3 (Fase 2 del panel admin). Rutas relativas a /admin/search (GET /).
-// Se monta con router.use() dentro de admin.routes.ts, así que hereda
-// authenticate + authorize(ADMIN); cada handler añade su requirePermission.
+// /admin/search. El permiso de cada tipo se comprueba en el servicio con can().
 const router = Router();
+
+router.get(
+  '/',
+  requirePermission(Permission.ADMIN_PANEL),
+  adminSearchRateLimiter,
+  validate(adminSearchSchema),
+  (req, res, next) => adminSearchController.search(req, res, next)
+);
 
 export default router;

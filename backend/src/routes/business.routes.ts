@@ -74,7 +74,7 @@ router.delete('/:id/image/:slot', authenticate, authorize(UserRole.BUSINESS, Use
 // ── Documentos del comercio (O4) ──
 // La subida es multipart: el archivo y sus campos los lee multer dentro del
 // controlador, después de comprobar el acceso. Nunca `validate(body)` aquí.
-router.get('/:id/documents', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(idParamSchema), (req, res, next) => businessController.listDocuments(req, res, next));
+router.get('/:id/documents', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_APPROVE), validate(idParamSchema), (req, res, next) => businessController.listDocuments(req, res, next));
 router.post('/:id/documents', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), businessDocumentUploadRateLimiter, validate(idParamSchema), (req, res, next) => businessController.submitDocument(req, res, next));
 router.patch('/documents/:documentId/review', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.BUSINESSES_APPROVE), validate(reviewBusinessDocumentSchema), (req, res, next) => businessController.reviewDocument(req, res, next));
 router.patch('/:id/approve', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.BUSINESSES_APPROVE), validate(idParamSchema), (req, res, next) => businessController.approve(req, res, next));

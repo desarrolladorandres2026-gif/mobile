@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { Payout, Settlement, IOrder, IPayout, ISettlement, ISettlementPayoutAccount, AdInvoice, LedgerEntry, Business } from '../models';
+import { Payout, Settlement, IOrder, IPayout, ISettlement, ISettlementPayoutAccount, AdInvoice, LedgerEntry, Business, Commission, Driver } from '../models';
 import { AppError } from '../middlewares';
 import { config } from '../config';
 import {
@@ -8,6 +8,7 @@ import {
   PaymentStatus,
   SettlementPaymentStatus,
   SettlementPaymentMethod,
+  CommissionStatus,
   LedgerAccount,
   LedgerDirection,
   LedgerEventType,
@@ -803,6 +804,7 @@ export class PayoutService {
     );
 
     await this.postSettlementLedgerEntries(settlement, payouts);
+    await this.settleCommissions(payouts.filter((p) => !p.isClawback).map((p) => p.orderId));
 
     return settlement;
   }
@@ -1221,11 +1223,9 @@ export class PayoutService {
         PayoutService.totalsStage(),
       ]),
 
-      this.listSettlements({
-        beneficiary: PayoutBeneficiary.BUSINESS,
-        businessId: params.businessId,
-        limit: 20,
-      }),
+      Settlement.find({ beneficiary: PayoutBeneficiary.BUSINESS, businessId: params.businessId })
+        .sort({ createdAt: -1 })
+        .limit(20),
     ]);
 
     const toPeriod = (row: any): StatementPeriod => ({
@@ -1328,14 +1328,122 @@ export class PayoutService {
     beneficiary?: PayoutBeneficiary;
     businessId?: string;
     driverId?: string;
+    paymentStatus?: SettlementPaymentStatus;
+    page?: number;
     limit?: number;
   }) {
     const filter: Record<string, unknown> = {};
     if (params.beneficiary) filter.beneficiary = params.beneficiary;
     if (params.businessId) filter.businessId = params.businessId;
     if (params.driverId) filter.driverId = params.driverId;
+    if (params.paymentStatus) filter.paymentStatus = params.paymentStatus;
 
-    return Settlement.find(filter).sort({ createdAt: -1 }).limit(params.limit ?? 50);
+    const limit = params.limit ?? 50;
+    const page = Math.max(1, params.page ?? 1);
+    const [rows, total] = await Promise.all([
+      Settlement.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate('businessId', 'name')
+        .populate({ path: 'driverId', select: 'userId', populate: { path: 'userId', select: 'name' } })
+        .lean(),
+      Settlement.countDocuments(filter),
+    ]);
+
+    // `payoutAccount` es `select: false` y aquí no se pide: la cuenta solo sale
+    // por el endpoint de revelar, que audita.
+    const items = rows.map((r: any) => ({
+      ...r,
+      businessName: r.businessId?.name ?? null,
+      driverName: r.driverId?.userId?.name ?? null,
+      businessId: r.businessId ? String(r.businessId._id ?? r.businessId) : null,
+      driverId: r.driverId ? String(r.driverId._id ?? r.driverId) : null,
+    }));
+    return { items, meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
+  }
+
+  /**
+   * Lo que ya se puede liquidar, por beneficiario: la lista de trabajo de
+   * finanzas cada semana. Solo `PAYABLE` sin liquidación; un arrastre resta.
+   * Un neto de 0 o negativo aparece igual (con `net` <= 0): es un saldo que
+   * hay que ver, aunque `settle()` no pague nada por él.
+   */
+  async listPayables(params: { beneficiary?: PayoutBeneficiary } = {}) {
+    const match: Record<string, unknown> = { status: PayoutStatus.PAYABLE, settlementId: null };
+    if (params.beneficiary) match.beneficiary = params.beneficiary;
+
+    const groups = await Payout.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: { beneficiary: '$beneficiary', businessId: '$businessId', driverId: '$driverId' },
+          count: { $sum: 1 },
+          net: {
+            $sum: {
+              $cond: [
+                '$isClawback',
+                { $subtract: [0, { $subtract: ['$amount', '$reversedAmount'] }] },
+                { $subtract: ['$amount', '$reversedAmount'] },
+              ],
+            },
+          },
+          clawbackCount: { $sum: { $cond: ['$isClawback', 1, 0] } },
+          oldest: { $min: { $ifNull: ['$becamePayableAt', '$createdAt'] } },
+        },
+      },
+      { $sort: { oldest: 1 } },
+      { $limit: 500 },
+    ]);
+
+    const businessIds = groups.map((g) => g._id.businessId).filter(Boolean);
+    const driverIds = groups.map((g) => g._id.driverId).filter(Boolean);
+    const [businesses, drivers] = await Promise.all([
+      businessIds.length ? Business.find({ _id: { $in: businessIds } }).select('name').lean() : [],
+      driverIds.length
+        ? Driver.find({ _id: { $in: driverIds } })
+            .select('userId')
+            .populate('userId', 'name')
+            .lean()
+        : [],
+    ]);
+    const businessName = new Map(businesses.map((b: any) => [String(b._id), b.name as string]));
+    const driverName = new Map(drivers.map((d: any) => [String(d._id), (d.userId?.name as string) ?? null]));
+
+    const now = Date.now();
+    return groups.map((g) => ({
+      beneficiary: g._id.beneficiary as PayoutBeneficiary,
+      businessId: g._id.businessId ? String(g._id.businessId) : null,
+      driverId: g._id.driverId ? String(g._id.driverId) : null,
+      name: g._id.businessId
+        ? businessName.get(String(g._id.businessId)) ?? null
+        : driverName.get(String(g._id.driverId)) ?? null,
+      count: g.count as number,
+      clawbackCount: g.clawbackCount as number,
+      net: g.net as number,
+      oldestAt: g.oldest as Date,
+      daysWaiting: Math.max(0, Math.floor((now - new Date(g.oldest).getTime()) / 86_400_000)),
+    }));
+  }
+
+  /**
+   * Una `Commission` pasa a `SETTLED` cuando ya no queda ningún payout del
+   * pedido por pagar (ni el del comercio ni el del domiciliario). Antes nada
+   * la cerraba nunca. Idempotente: se puede llamar de nuevo sin efecto.
+   */
+  private async settleCommissions(orderIds: Array<Types.ObjectId | string>): Promise<void> {
+    if (orderIds.length === 0) return;
+    const stillOpen = await Payout.distinct('orderId', {
+      orderId: { $in: orderIds },
+      status: { $in: [PayoutStatus.ACCRUED, PayoutStatus.PAYABLE] },
+    });
+    const open = new Set(stillOpen.map(String));
+    const done = orderIds.filter((id) => !open.has(String(id)));
+    if (done.length === 0) return;
+    await Commission.updateMany(
+      { orderId: { $in: done }, status: CommissionStatus.PENDING },
+      { $set: { status: CommissionStatus.SETTLED, settledAt: new Date() } }
+    );
   }
 
   // ── Arrastres fuera de una liquidación ──────────────────────────────

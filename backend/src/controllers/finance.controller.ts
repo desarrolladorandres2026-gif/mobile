@@ -7,11 +7,16 @@ import {
   ledgerService,
   businessService,
 } from '../services';
-import { sendResponse, param, query, clampLimit } from '../utils';
+import { sendResponse, param, query, clampLimit, toCsv, csvFilename } from '../utils';
+import { assertExportAuthorized } from '../security/exportGate';
+import { financeExportService, type FinanceExportKind } from '../services/financeExport.service';
 import { AppError } from '../middlewares';
 import { platformResultService } from '../services/platformResult.service';
+import { paymentReportService } from '../services/paymentReport.service';
+import { fiscalDocumentService } from '../services/fiscalDocument.service';
+import { adInvoiceService, type AdInvoiceView } from '../services/adInvoice.service';
 import { periodRange, isReportPeriod, customRange, type DateRange } from '../utils/period';
-import { PayoutBeneficiary, LedgerAccount, CashIncidentResolution } from '../types';
+import { PayoutBeneficiary, LedgerAccount, CashIncidentResolution, SettlementPaymentStatus, PaymentStatus } from '../types';
 import { AuditAction, AuditSeverity, logAudit } from '../security';
 
 export class FinanceController {
@@ -111,13 +116,145 @@ export class FinanceController {
 
   async listSettlements(req: Request, res: Response, next: NextFunction) {
     try {
-      const settlements = await payoutService.listSettlements({
+      const result = await payoutService.listSettlements({
         beneficiary: query(req, 'beneficiary') as PayoutBeneficiary | undefined,
         businessId: query(req, 'businessId'),
         driverId: query(req, 'driverId'),
-        limit: clampLimit(query(req, 'limit'), 100, 50),
+        paymentStatus: query(req, 'paymentStatus') as SettlementPaymentStatus | undefined,
+        page: Number(query(req, 'page')) || 1,
+        limit: clampLimit(query(req, 'limit'), 100, 25),
       });
-      sendResponse(res, 200, 'Liquidaciones', settlements);
+      sendResponse(res, 200, 'Liquidaciones', result.items, result.meta);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Exporte contable en CSV (libro, liquidaciones, reembolsos, pagos, efectivo).
+   * Motivo y TOTP obligatorios; queda en la auditoría con el rango y las filas.
+   */
+  async exportFinance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const kind = param(req, 'kind') as FinanceExportKind;
+      const { reason, totpToken, from, to } = req.body ?? {};
+      await assertExportAuthorized(req, reason, totpToken, { superAdminOnly: false });
+
+      const range = paymentReportService.parseRange(from, to, 30);
+      const result = await financeExportService.build(kind, range);
+
+      void logAudit(req, {
+        action: AuditAction.DATA_EXPORTED,
+        entity: result.entity,
+        severity: AuditSeverity.HIGH,
+        description: `Exporte contable "${kind}" (${result.rows.length} filas): ${String(reason).trim()}`,
+        metadata: { kind, from, to, rows: result.rows.length, reason: String(reason).trim() },
+      });
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${csvFilename(result.prefix)}"`);
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(toCsv(result.rows, result.columns));
+    } catch (error) { next(error); }
+  }
+
+  /** Emite (una sola vez) el comprobante interno de una liquidación pagada. */
+  async issueSettlementDocument(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { document, created } = await fiscalDocumentService.issueForSettlement(param(req, 'id'), req.user!._id.toString());
+      if (created) {
+        void logAudit(req, {
+          action: AuditAction.PAYOUT_PROCESSED,
+          entity: 'fiscal_document',
+          entityId: String(document._id),
+          severity: AuditSeverity.MEDIUM,
+          description: `Comprobante interno ${document.number} emitido`,
+          metadata: { settlementId: param(req, 'id'), number: document.number },
+        });
+      }
+      sendResponse(res, created ? 201 : 200, created ? 'Comprobante emitido' : 'El comprobante ya existía', document);
+    } catch (error) { next(error); }
+  }
+
+  async listFiscalDocuments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await fiscalDocumentService.list({
+        month: query(req, 'month'),
+        page: Number(query(req, 'page')) || 1,
+        limit: clampLimit(query(req, 'limit'), 100, 25),
+      });
+      sendResponse(res, 200, 'Comprobantes internos', result.items, result.meta);
+    } catch (error) { next(error); }
+  }
+
+  async getFiscalDocument(req: Request, res: Response, next: NextFunction) {
+    try {
+      sendResponse(res, 200, 'Comprobante interno', await fiscalDocumentService.getById(param(req, 'id')));
+    } catch (error) { next(error); }
+  }
+
+  /** Facturas de publicidad por estado de cobro. */
+  async listAdInvoices(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await adInvoiceService.list({
+        view: query(req, 'view') as AdInvoiceView | undefined,
+        page: Number(query(req, 'page')) || 1,
+        limit: clampLimit(query(req, 'limit'), 100, 25),
+      });
+      sendResponse(res, 200, 'Facturas de publicidad', { items: result.items, totals: result.totals }, result.meta);
+    } catch (error) { next(error); }
+  }
+
+  /** Registra el cobro por fuera de una factura de publicidad sin comercio. */
+  async collectAdInvoice(req: Request, res: Response, next: NextFunction) {
+    try {
+      const invoice = await adInvoiceService.collect({
+        invoiceId: param(req, 'id'),
+        reference: req.body.reference,
+        receiptUrl: req.body.receiptUrl,
+        collectedBy: req.user!._id.toString(),
+      });
+      void logAudit(req, {
+        action: AuditAction.PAYOUT_PROCESSED,
+        entity: 'ad_invoice',
+        entityId: param(req, 'id'),
+        severity: AuditSeverity.HIGH,
+        description: `Factura de publicidad cobrada por fuera, ref. ${req.body.reference}`,
+        metadata: { amount: invoice.amount, campaignName: invoice.campaignName, reference: req.body.reference },
+      });
+      sendResponse(res, 200, 'Cobro de publicidad registrado', invoice);
+    } catch (error) { next(error); }
+  }
+
+  /** Cobros en línea por estado y método, con la comisión estimada de la pasarela. */
+  async listPayments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const from = query(req, 'from');
+      const to = query(req, 'to');
+      const result = await paymentReportService.list({
+        status: query(req, 'status') as PaymentStatus | undefined,
+        methodType: query(req, 'methodType'),
+        range: from || to ? paymentReportService.parseRange(from, to) : undefined,
+        page: Number(query(req, 'page')) || 1,
+        limit: clampLimit(query(req, 'limit'), 100, 25),
+      });
+      sendResponse(res, 200, 'Pagos', { items: result.items, totals: result.totals }, result.meta);
+    } catch (error) { next(error); }
+  }
+
+  /** Conciliación diaria: cobrado, comisión asentada y depósito esperado de Wompi. */
+  async paymentsDaily(req: Request, res: Response, next: NextFunction) {
+    try {
+      const range = paymentReportService.parseRange(query(req, 'from'), query(req, 'to'));
+      sendResponse(res, 200, 'Conciliación diaria de pagos', await paymentReportService.daily(range));
+    } catch (error) { next(error); }
+  }
+
+  /** Beneficiarios con dinero listo para liquidar: la lista de trabajo semanal. */
+  async listPayables(req: Request, res: Response, next: NextFunction) {
+    try {
+      const payables = await payoutService.listPayables({
+        beneficiary: query(req, 'beneficiary') as PayoutBeneficiary | undefined,
+      });
+      sendResponse(res, 200, 'Pendiente de liquidar', payables);
     } catch (error) { next(error); }
   }
 
@@ -246,6 +383,13 @@ export class FinanceController {
     try {
       const totals = await cashReconciliationService.totals();
       sendResponse(res, 200, 'Totales de efectivo', totals);
+    } catch (error) { next(error); }
+  }
+
+  /** Efectivo sin rendir por domiciliario, con lo vencido y lo ya reportado. */
+  async cashByDriver(_req: Request, res: Response, next: NextFunction) {
+    try {
+      sendResponse(res, 200, 'Efectivo por domiciliario', await cashReconciliationService.outstandingByDriver());
     } catch (error) { next(error); }
   }
 

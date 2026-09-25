@@ -1,5 +1,5 @@
-import { Order, IOrder, IOrderFinance, Driver } from '../models';
-import { OrderKind, OrderStatus, PaymentMethod, PaymentStatus } from '../types';
+import { Order, IOrder, IOrderFinance, Driver, OrderEvidence } from '../models';
+import { OrderEvidenceType, OrderKind, OrderStatus, PaymentMethod, PaymentStatus } from '../types';
 import { AppError } from '../middlewares/errorHandler';
 import { pricingService } from './pricing.service';
 import { pricingConfigService } from './pricingConfig.service';
@@ -186,16 +186,14 @@ export class ErrandService {
    * El domiciliario declara lo que gastó de verdad.
    *
    * Sin evidencia esto sería un campo donde escribir cualquier número, así
-   * que se exige la referencia de la foto del recibo. El tope es un límite
-   * duro: el cliente autorizó una cifra y nadie puede subirla por él desde
-   * la calle.
+   * que se exige la foto del recibo: una evidencia de recogida de ESTE
+   * pedido subida por ESTE domiciliario. Antes bastaba con mandar cualquier
+   * URL, y la que llegaba —firmada y sin caducidad— se guardaba en la
+   * auditoría. Ahora se guarda solo el id de la evidencia. El tope es un
+   * límite duro: el cliente autorizó una cifra y nadie puede subirla por él
+   * desde la calle.
    */
-  async declareCost(
-    orderId: string,
-    driverUserId: string,
-    actualCost: number,
-    receiptUrl: string
-  ): Promise<IOrder> {
+  async declareCost(orderId: string, driverUserId: string, actualCost: number): Promise<IOrder> {
     const order = await Order.findById(orderId);
     if (!order || order.kind !== OrderKind.ERRAND) {
       throw new AppError('Mandado no encontrado', 404);
@@ -220,6 +218,18 @@ export class ErrandService {
     // expediente y su propia devolución—, no una corrección.
     if (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.CANCELLED) {
       throw new AppError('Este mandado ya se cerró: el ajuste va por soporte', 409);
+    }
+
+    const receipt = await OrderEvidence.findOne({
+      orderId: order._id,
+      type: OrderEvidenceType.PICKUP,
+      uploadedBy: driverUserId,
+    })
+      .sort({ uploadedAt: -1 })
+      .select('_id')
+      .lean();
+    if (!receipt) {
+      throw new AppError('Falta la foto del recibo: tómala antes de registrar el gasto', 422, 'ERRAND_RECEIPT_REQUIRED');
     }
 
     // Lo que estaba reconocido hasta ahora. La primera declaración corrige
@@ -261,14 +271,9 @@ export class ErrandService {
         actualCost,
         estimatedCost: order.errand!.estimatedCost,
         maxCost: order.errand!.maxCost,
-        // S16: antes se guardaba aquí la URL firmada del recibo, que queda
-        // leíble en el historial de auditoría para siempre — justo lo que
-        // firmar al momento de leer trata de evitar. Solo se conserva la
-        // referencia (la URL que mandó el domiciliario, ya validada como
-        // evidencia por el endpoint de subida); quien necesite volver a
-        // verla la resuelve desde ahí, no desde este log.
-        hasReceipt: !!receiptUrl,
-        receiptRef: receiptUrl,
+        // S16: ninguna URL en la auditoría (la firma no caduca). Quien
+        // necesite ver el recibo lo abre desde las evidencias del pedido.
+        receiptEvidenceId: String(receipt._id),
       },
     });
 

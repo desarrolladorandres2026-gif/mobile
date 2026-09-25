@@ -461,6 +461,28 @@ async function handOver(orderId: string, driverUser: any, kind: OrderCodeKind) {
   );
 }
 
+/**
+ * Foto del recibo de un mandado: evidencia de recogida subida por quien
+ * declara el gasto. `errandService.declareCost` la exige.
+ */
+export async function makeReceipt(orderId: string, driverUserId: unknown) {
+  const [{ OrderEvidence, Order }, crypto] = await Promise.all([import('../models'), import('crypto')]);
+  const order = await Order.findById(orderId).select('driverId status clientId').lean();
+  return OrderEvidence.create({
+    orderId,
+    type: OrderEvidenceType.PICKUP,
+    storageKey: `test/${orderId}/recibo-${crypto.randomBytes(4).toString('hex')}`,
+    imageUrl: `https://evidencias.test/${orderId}-recibo.jpg`,
+    isPrivate: true,
+    uploadedBy: driverUserId,
+    uploadedByRole: UserRole.DRIVER,
+    driverId: order?.driverId ?? null,
+    customerId: order?.clientId ?? null,
+    orderStatus: order?.status ?? OrderStatus.READY,
+    metadata: { bytes: 1024, format: 'jpg', checksum: crypto.randomBytes(32).toString('hex') },
+  });
+}
+
 /** El domiciliario recoge el pedido en el local (evidencia + código). */
 export function pickUpOrder(orderId: string, driverUser: any) {
   return handOver(orderId, driverUser, OrderCodeKind.PICKUP);

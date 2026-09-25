@@ -1,10 +1,14 @@
 import { Router, Request } from 'express';
+import { z } from 'zod';
 import { searchService, SortKey } from '../services/search.service';
 import { authenticate, authorize, identifyIfPossible, viewerId } from '../middlewares';
 import { requirePermission } from '../middlewares/auth';
 import { Permission } from '../security';
 import { UserRole } from '../types';
-import { sendResponse, sendError, query } from '../utils';
+import { sendResponse, sendError, query, param } from '../utils';
+import { validate } from '../middlewares';
+import { AuditAction, AuditSeverity, logAudit } from '../security';
+import { searchRuleService } from '../services/searchRule.service';
 
 const router = Router();
 
@@ -98,6 +102,84 @@ router.get(
   async (req, res, next) => {
     try {
       sendResponse(res, 200, 'Búsquedas', await searchService.insights(num(req, 'limit') ?? 25));
+    } catch (error) { next(error); }
+  }
+);
+
+// ── Reglas de búsqueda (sinónimo, redirección, atendido) ──
+
+const ruleSchema = z.object({
+  body: z
+    .object({
+      term: z.string().trim().min(2).max(100),
+      kind: z.enum(['synonym', 'redirect', 'handled']),
+      synonymOf: z.string().trim().min(2).max(100).optional(),
+      redirect: z
+        .object({
+          kind: z.enum(['category', 'business']),
+          category: z.string().max(40).optional(),
+          businessId: z.string().max(24).optional(),
+        })
+        .strict()
+        .optional(),
+      note: z.string().trim().max(200).optional(),
+    })
+    .strict(),
+});
+
+const ruleIdSchema = z.object({ params: z.object({ id: z.string().regex(/^[a-f\d]{24}$/i) }) });
+
+router.get(
+  '/rules',
+  authenticate,
+  authorize(UserRole.ADMIN),
+  requirePermission(Permission.CONTENT_VIEW),
+  async (_req, res, next) => {
+    try {
+      sendResponse(res, 200, 'Reglas de búsqueda', await searchRuleService.listRules());
+    } catch (error) { next(error); }
+  }
+);
+
+router.put(
+  '/rules',
+  authenticate,
+  authorize(UserRole.ADMIN),
+  requirePermission(Permission.CONTENT_MANAGE),
+  validate(ruleSchema),
+  async (req, res, next) => {
+    try {
+      const rule = await searchRuleService.upsertRule(req.body, req.user!._id.toString());
+      void logAudit(req, {
+        action: AuditAction.SETTINGS_UPDATED,
+        entity: 'search_rule',
+        entityId: String(rule._id),
+        severity: AuditSeverity.MEDIUM,
+        description: `Regla de búsqueda "${rule.termRaw}": ${rule.kind}`,
+        metadata: { kind: rule.kind, synonymOf: rule.synonymOf, redirect: rule.redirect },
+      });
+      sendResponse(res, 200, 'Regla guardada', rule);
+    } catch (error) { next(error); }
+  }
+);
+
+router.delete(
+  '/rules/:id',
+  authenticate,
+  authorize(UserRole.ADMIN),
+  requirePermission(Permission.CONTENT_MANAGE),
+  validate(ruleIdSchema),
+  async (req, res, next) => {
+    try {
+      await searchRuleService.removeRule(param(req, 'id'));
+      void logAudit(req, {
+        action: AuditAction.SETTINGS_UPDATED,
+        entity: 'search_rule',
+        entityId: param(req, 'id'),
+        severity: AuditSeverity.MEDIUM,
+        description: 'Regla de búsqueda eliminada',
+      });
+      sendResponse(res, 200, 'Regla eliminada');
     } catch (error) { next(error); }
   }
 );

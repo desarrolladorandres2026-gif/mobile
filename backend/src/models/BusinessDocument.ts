@@ -89,6 +89,8 @@ export interface IBusinessDocument extends Document {
    */
   submittedBy?: Types.ObjectId | null;
   history: IBusinessDocumentHistoryEntry[];
+  /** Avisos de vencimiento ya enviados, `<expiresAt ISO>:<etapa>` (ver `documentExpiry.service`). */
+  expiryRemindersSent?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -133,6 +135,7 @@ const schema = new Schema<IBusinessDocument>(
     submittedAt: { type: Date, default: null },
     submittedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     history: { type: [historyEntrySchema], default: [] },
+    expiryRemindersSent: { type: [String], default: undefined, select: false },
   },
   { timestamps: true }
 );

@@ -3,7 +3,7 @@ import { AppError } from '../middlewares/errorHandler';
 import { emitToUser } from '../sockets/emitter';
 import { pushService } from './push.service';
 import { businessDaysUntil } from '../utils';
-import { LEGAL_DUE_SOON_BUSINESS_DAYS } from './pqrs.service';
+import { LEGAL_DUE_SOON_BUSINESS_DAYS, SLA_HOURS, defaultPriority, PqrsPriority } from './pqrs.service';
 
 /**
  * Centro de soporte.
@@ -17,31 +17,17 @@ import { LEGAL_DUE_SOON_BUSINESS_DAYS } from './pqrs.service';
  * los mismos tres casos fáciles y nadie tocando el difícil.
  */
 
-export type Priority = 'low' | 'normal' | 'high' | 'urgent';
+export type Priority = PqrsPriority;
 
-/**
- * Cuánto se tarda como máximo en responder, por prioridad.
- *
- * Son horas, no días: en una operación de comida a domicilio, un reclamo
- * de ayer ya no tiene arreglo — la comida se comió o se tiró.
- */
-const SLA_HOURS: Record<Priority, number> = {
-  urgent: 1,
-  high: 4,
-  normal: 24,
-  low: 72,
-};
-
-/**
- * Qué se considera urgente sin que nadie lo decida a mano.
- *
- * Un reclamo es dinero en disputa y una queja es una experiencia mala:
- * ambas escuecen, pero solo una tiene un plazo real detrás.
- */
-function defaultPriority(type: IPqrs['type']): Priority {
-  if (type === 'claim') return 'high';
-  if (type === 'complaint') return 'normal';
-  return 'low';
+export interface QueueOptions {
+  assignedTo?: string;
+  onlyOverdue?: boolean;
+  onlyLegalOverdue?: boolean;
+  /** `open` (por defecto): sin responder. `answered`: respondidos. `done`: respondidos y cerrados. */
+  view?: 'open' | 'answered' | 'done';
+  type?: IPqrs['type'];
+  requesterRole?: IPqrs['requesterRole'];
+  q?: string;
 }
 
 export class SupportService {
@@ -53,12 +39,21 @@ export class SupportService {
     const level = priority ?? defaultPriority(ticket.type);
 
     ticket.priority = level;
-    // El plazo se fija al abrir y no se recalcula: uno que se ajusta
-    // después es un plazo que se mueve para no incumplirlo.
-    ticket.dueAt = new Date(Date.now() + SLA_HOURS[level] * 60 * 60 * 1000);
+    // El plazo cuenta desde que se abrió el caso, no desde ahora: si no,
+    // reclasificar un caso vencido a "baja" le regalaba 72 h y lo sacaba de
+    // los vencidos. Subir la prioridad sí adelanta el plazo.
+    ticket.dueAt = new Date(ticket.createdAt.getTime() + SLA_HOURS[level] * 60 * 60 * 1000);
 
     await ticket.save();
     return ticket;
+  }
+
+  /** Igual que `classify`, devolviendo cómo estaba antes para auditar el cambio. */
+  async classifyWithPrevious(pqrsId: string, priority?: Priority) {
+    const before = await Pqrs.findById(pqrsId).select('priority dueAt').lean();
+    if (!before) throw new AppError('Caso no encontrado', 404);
+    const ticket = await this.classify(pqrsId, priority);
+    return { ticket, previous: { priority: before.priority, dueAt: before.dueAt ?? null } };
   }
 
   async assign(pqrsId: string, agentId: string): Promise<IPqrs> {
@@ -137,14 +132,22 @@ export class SupportService {
    * es necesariamente lo que hay que atender primero, y ordenar por fecha
    * de llegada deja los urgentes debajo de una pila de sugerencias.
    */
-  async queue(options: { assignedTo?: string; onlyOverdue?: boolean; onlyLegalOverdue?: boolean } = {}) {
+  async queue(options: QueueOptions = {}) {
+    const view = options.view ?? 'open';
     const filter: Record<string, unknown> = {
-      status: { $in: ['received', 'in_review'] },
+      status: view === 'open' ? { $in: ['received', 'in_review'] } : view === 'answered' ? 'answered' : { $in: ['answered', 'closed'] },
     };
 
     if (options.assignedTo) filter.assignedTo = options.assignedTo;
     if (options.onlyOverdue) filter.dueAt = { $lt: new Date() };
     if (options.onlyLegalOverdue) filter.legalDueAt = { $lt: new Date() };
+    if (options.type) filter.type = options.type;
+    if (options.requesterRole) filter.requesterRole = options.requesterRole;
+    if (options.q) {
+      // El término del usuario nunca entra crudo en una expresión regular.
+      const rx = new RegExp(options.q.trim().slice(0, 60).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [{ subject: rx }, { detail: rx }];
+    }
 
     const rows = await Pqrs.find(filter)
       .sort({ dueAt: 1, createdAt: 1 })

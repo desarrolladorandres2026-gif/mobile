@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import { notifyAlertsChanged } from '../services/alerts.service';
 
 // ── Risk Score Levels ──
 export enum RiskLevel {
@@ -443,6 +444,7 @@ export class AntiFraudService {
    */
   async createAlert(alertData: Partial<IFraudAlert>): Promise<IFraudAlert> {
     const alert = await FraudAlert.create(alertData);
+    void notifyAlertsChanged('fraud');
 
     // Update risk profile
     if (alertData.userId) {
@@ -522,6 +524,7 @@ export class AntiFraudService {
     // El perfil de riesgo solo se recalcula al abrir una alerta nueva.
     // Rehacerlo en cada repetición sería la misma inundación que este
     // método existe para evitar, con el coste añadido de una agregación.
+    if (isNew) void notifyAlertsChanged('fraud');
     if (isNew) await this.assessUserRisk(userId);
 
     return { alert: saved, isNew };
@@ -535,6 +538,7 @@ export class AntiFraudService {
     actionTaken: string,
     status: FraudAlertStatus = FraudAlertStatus.RESOLVED
   ): Promise<IFraudAlert | null> {
+    void notifyAlertsChanged('fraud');
     return FraudAlert.findByIdAndUpdate(
       alertId,
       {

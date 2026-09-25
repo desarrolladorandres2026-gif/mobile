@@ -2,6 +2,8 @@ import { Product, Business, CuratedHomeBlock, PromotionBanner, BannerPlacement }
 import { Types } from 'mongoose';
 import { productImageUrls } from '../utils/productImageUrls';
 import { cache, CachePrefix } from '../cache';
+import { daypartAt } from '../models/DiscoveryCollection';
+import { weekdayAt } from './discovery.service';
 import type { DisplayVariant } from '../models';
 import {
   buildDiscoveryFeed,
@@ -151,13 +153,24 @@ export function toCuratedBusiness(b: {
  */
 async function getCuratedBlocks(): Promise<HomeFeedEntry[]> {
   const now = new Date();
-  const blocks = await CuratedHomeBlock.find({
+  const allBlocks = await CuratedHomeBlock.find({
     isActive: true,
     $and: [
       { $or: [{ startDate: { $exists: false } }, { startDate: null }, { startDate: { $lte: now } }] },
       { $or: [{ endDate: { $exists: false } }, { endDate: null }, { endDate: { $gte: now } }] },
     ],
   }).sort({ order: 1 });
+
+  // La franja y el día se filtran en JS, como las fechas: son opcionales y
+  // el conjunto es de unas pocas docenas. La caché de 60 s marca el retraso
+  // máximo con el que un bloque entra o sale al cambiar de franja.
+  const daypart = daypartAt(now);
+  const weekday = weekdayAt(now);
+  const blocks = allBlocks.filter(
+    (b) =>
+      (!b.dayparts?.length || b.dayparts.includes(daypart)) &&
+      (!b.weekdays?.length || b.weekdays.includes(weekday))
+  );
 
   if (blocks.length === 0) return [];
 
@@ -249,6 +262,20 @@ async function getPositionedPromoBlocks(): Promise<HomeFeedEntry[]> {
 
 const BLOCKS_CACHE_TTL_SECONDS = 60;
 
+/**
+ * Quién gana el hueco cuando dos entradas del inicio comparten `order`.
+ * Menor gana (va primero): colección automática, luego bloque curado, luego
+ * banner promocional anclado. Es el comportamiento que ya tenía la
+ * concatenación; escrito aquí para que el panel pueda enseñarlo.
+ */
+export const HOME_TIE_RANK: Record<string, number> = {
+  collection: 0,
+  productBanner: 1,
+  businessBanner: 1,
+  businessCollection: 1,
+  promo: 2,
+};
+
 /** Una entrada cualquiera de la secuencia fusionada del inicio. */
 export type HomeFeedEntry =
   | {
@@ -300,8 +327,12 @@ export async function getHomeSections(options: HomeSectionsOptions = {}) {
     products: entry.products,
   }));
 
-  // Todo fusionado y ordenado por `order` ascendente.
-  return [...autoSections, ...curatedBlocks, ...promoBlocks].sort((a, b) => a.order - b.order);
+  // Todo fusionado y ordenado por `order` ascendente. Con el mismo `order`
+  // manda `HOME_TIE_RANK`: es la regla que el panel enseña en "Orden del
+  // inicio", y por eso está escrita aquí y no depende del orden del array.
+  return [...autoSections, ...curatedBlocks, ...promoBlocks].sort(
+    (a, b) => a.order - b.order || HOME_TIE_RANK[a.kind] - HOME_TIE_RANK[b.kind]
+  );
 }
 
 export const homeSectionsService = { getHomeSections };

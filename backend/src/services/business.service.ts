@@ -183,10 +183,18 @@ export class BusinessService {
       { $set: { status: 'expired' } }
     );
 
-    const required = [...REQUIRED_BUSINESS_DOCUMENTS];
-    if (FOOD_CATEGORIES.includes(business.category)) required.push('health_permit');
-
     const documents = await BusinessDocument.find({ businessId });
+    return this.missingFrom(business.category, documents, now);
+  }
+
+  /** Lo que le falta a un negocio, con sus documentos ya leídos (sin tocar la base). */
+  private missingFrom(
+    category: string,
+    documents: Array<{ type: string; status: string; expiresAt?: Date | null }>,
+    now: Date
+  ): BusinessDocumentType[] {
+    const required = [...REQUIRED_BUSINESS_DOCUMENTS];
+    if (FOOD_CATEGORIES.includes(category as never)) required.push('health_permit');
 
     return required.filter(
       (type) =>
@@ -537,27 +545,42 @@ export class BusinessService {
       .populate('ownerId', 'name phone email')
       .lean();
 
-    return Promise.all(
-      businesses.map(async (business) => {
-        // Se sacan de la respuesta: la cola muestra un resumen, no el número
-        // de cuenta cifrado ni los datos tributarios enteros.
-        const { legal, payoutAccount, ...rest } = business as typeof business & {
-          legal?: IBusinessLegal;
-          payoutAccount?: IBusinessPayoutAccount;
-        };
-        const documents = await BusinessDocument.find({ businessId: business._id }).lean();
+    // Dos consultas para toda la cola, no tres por negocio: con 40 negocios
+    // esperando eran 120 viajes a Atlas en cada apertura de la pantalla.
+    const ids = businesses.map((b) => b._id);
+    const now = new Date();
+    await BusinessDocument.updateMany(
+      { businessId: { $in: ids }, expiresAt: { $lt: now }, status: { $ne: 'expired' } },
+      { $set: { status: 'expired' } }
+    );
+    const allDocuments = await BusinessDocument.find({ businessId: { $in: ids } }).lean();
+    const byBusiness = new Map<string, typeof allDocuments>();
+    for (const doc of allDocuments) {
+      const key = String(doc.businessId);
+      const list = byBusiness.get(key);
+      if (list) list.push(doc);
+      else byBusiness.set(key, [doc]);
+    }
 
-        return {
-          ...rest,
-          missingDocuments: await this.missingDocuments(business._id.toString()),
-          documents: documents.map((doc) => this.documentView(doc)),
-          fiscal: {
-            legalComplete: isLegalComplete(plainLegal(legal, business._id)),
-            payoutAccountStatus: (payoutAccount ? payoutAccount.verificationStatus : 'none') as PayoutAccountState,
-          },
-        };
-      })
-    ) as unknown as PendingApproval[];
+    return businesses.map((business) => {
+      // Se sacan de la respuesta: la cola muestra un resumen, no el número
+      // de cuenta cifrado ni los datos tributarios enteros.
+      const { legal, payoutAccount, ...rest } = business as typeof business & {
+        legal?: IBusinessLegal;
+        payoutAccount?: IBusinessPayoutAccount;
+      };
+      const documents = byBusiness.get(String(business._id)) ?? [];
+
+      return {
+        ...rest,
+        missingDocuments: this.missingFrom(business.category, documents, now),
+        documents: documents.map((doc) => this.documentView(doc)),
+        fiscal: {
+          legalComplete: isLegalComplete(plainLegal(legal, business._id)),
+          payoutAccountStatus: (payoutAccount ? payoutAccount.verificationStatus : 'none') as PayoutAccountState,
+        },
+      };
+    }) as unknown as PendingApproval[];
   }
 
   // ── Datos legales y cuenta de pago ──

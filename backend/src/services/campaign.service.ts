@@ -1,8 +1,9 @@
 import { Types } from 'mongoose';
-import { User, Order, Business } from '../models';
+import { User, Order, Business, Address, CampaignSend } from '../models';
 import { OrderStatus, UserRole } from '../types';
 import { pushService } from './push.service';
 import { AppError } from '../middlewares/errorHandler';
+import { escapeRegex } from '../utils/text';
 
 /**
  * Envíos dirigidos.
@@ -48,20 +49,33 @@ export class CampaignService {
     if (segment.role) filter.role = segment.role;
     else filter.role = UserRole.CLIENT;
 
-    if (segment.city) filter.city = segment.city;
-
     let ids: Types.ObjectId[] | null = null;
+
+    if (segment.city) {
+      // La ciudad vive en las direcciones guardadas, no en el usuario: un
+      // filtro `city` sobre User no coincidía con nadie y el envío salía
+      // a cero personas sin avisar.
+      const cityUsers = await Address.find({
+        city: new RegExp(`^${escapeRegex(segment.city)}$`, 'i'),
+      }).distinct('userId');
+      ids = cityUsers as Types.ObjectId[];
+    }
 
     if (segment.boughtFromBusinessId) {
       const business = await Business.findById(segment.boughtFromBusinessId).select('_id');
       if (!business) throw new AppError('Negocio no encontrado', 404);
 
-      const buyers = await Order.find({
+      const buyers = (await Order.find({
         businessId: business._id,
         status: OrderStatus.DELIVERED,
-      }).distinct('clientId');
+      }).distinct('clientId')) as Types.ObjectId[];
 
-      ids = buyers as Types.ObjectId[];
+      if (ids) {
+        const buyerSet = new Set(buyers.map(String));
+        ids = ids.filter((id) => buyerSet.has(id.toString()));
+      } else {
+        ids = buyers;
+      }
     }
 
     if (segment.minDeliveredOrders) {
@@ -71,9 +85,9 @@ export class CampaignService {
         { $match: { count: { $gte: segment.minDeliveredOrders } } },
       ]);
 
-      const frequent = rows.map((r) => r._id.toString());
+      const frequent = new Set(rows.map((r) => r._id.toString()));
       ids = ids
-        ? ids.filter((id) => frequent.includes(id.toString()))
+        ? ids.filter((id) => frequent.has(id.toString()))
         : rows.map((r) => r._id);
     }
 
@@ -128,6 +142,57 @@ export class CampaignService {
 
     return { targeted: userIds.length, sent };
   }
+
+  /**
+   * Lanza un envío en segundo plano y devuelve el registro.
+   *
+   * Un push serial a miles de personas tarda minutos: hacerlo dentro de la
+   * petición la deja colgada hasta el timeout del proxy y el panel cree que
+   * falló. El registro nace en `sending`, y sirve de candado: mientras haya
+   * uno en marcha (o uno de hace menos de 15 min que se quedó a medias)
+   * no se acepta otro.
+   */
+  async launch(
+    sentBy: string,
+    segment: Segment,
+    message: { title: string; body: string }
+  ) {
+    const stale = new Date(Date.now() - 15 * 60 * 1000);
+    const running = await CampaignSend.exists({ status: 'sending', createdAt: { $gte: stale } });
+    if (running) {
+      throw new AppError('Ya hay un envío en curso. Espera a que termine.', 409);
+    }
+
+    const record = await CampaignSend.create({
+      sentBy,
+      segment: segment as Record<string, unknown>,
+      title: message.title,
+      body: message.body,
+    });
+
+    void this.run(String(record._id), segment, message);
+    return record;
+  }
+
+  private async run(
+    recordId: string,
+    segment: Segment,
+    message: { title: string; body: string }
+  ): Promise<void> {
+    try {
+      const { targeted, sent } = await this.send(segment, message);
+      await CampaignSend.updateOne(
+        { _id: recordId },
+        { $set: { status: 'done', targeted, sent, failed: targeted - sent, finishedAt: new Date() } }
+      );
+    } catch {
+      await CampaignSend.updateOne(
+        { _id: recordId },
+        { $set: { status: 'failed', finishedAt: new Date() } }
+      );
+    }
+  }
 }
+
 
 export const campaignService = new CampaignService();

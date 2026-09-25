@@ -6,6 +6,7 @@ import { Permission } from '../security/rbac';
 import { logAudit, logSystemAudit, AuditAction, AuditSeverity } from '../security/audit';
 import { AppError } from '../middlewares/errorHandler';
 import { actorIsSuperAdmin } from './authorization.service';
+import { adminThrottleService } from './adminThrottle.service';
 
 /**
  * Notas internas del equipo sobre pedidos, comercios, domiciliarios, clientes
@@ -271,13 +272,11 @@ export async function create(input: CreateInput): Promise<NoteView> {
     throw new AppError('El elemento al que quieres anotar no existe', 404);
   }
 
-  // Tope por persona, contado en Mongo (índice {authorId, createdAt}). Cuenta
-  // también las notas borradas: borrar y reescribir no burla el tope.
-  const recent = await InternalNote.countDocuments({
-    authorId: new Types.ObjectId(actor.userId),
-    createdAt: { $gte: new Date(Date.now() - 60 * 1000) },
-  });
-  if (recent >= NOTE_RATE_LIMIT_PER_MINUTE) {
+  // Tope por persona y minuto con contador atómico (AdminThrottle): el
+  // `countDocuments` + `create` anterior dejaba pasar ráfagas simultáneas.
+  // Cuenta también los intentos que fallan después, y borrar y reescribir no burla el tope.
+  const used = await adminThrottleService.hit(`note:${actor.userId}`, 60 * 1000);
+  if (used > NOTE_RATE_LIMIT_PER_MINUTE) {
     throw new AppError('Demasiadas notas seguidas. Espera un momento.', 429);
   }
 
