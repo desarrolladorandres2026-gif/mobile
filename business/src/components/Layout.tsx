@@ -27,6 +27,7 @@ const nav = [
   { path: '/reviews', Illustration: RatingLogo, label: 'Reseñas' },
   { path: '/staff', Illustration: RestaurantLogo, label: 'Equipo' },
   { path: '/documents', Illustration: PackageLogo, label: 'Documentos' },
+  { path: '/support', Illustration: RatingLogo, label: 'Soporte' },
   { path: '/settings', Illustration: PrepTimeLogo, label: 'Ajustes' },
 ];
 

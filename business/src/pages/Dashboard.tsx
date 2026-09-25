@@ -12,6 +12,7 @@ import {
   PackageLogo, CashLogo, WalletLogo, PrepTimeLogo,
 } from '../components/logos';
 import PickupHandoff from '../components/PickupHandoff';
+import DocumentExpiryNotice from '../components/DocumentExpiryNotice';
 import OrderDetailPanel from '../components/OrderDetailPanel';
 import RejectOrderDialog from '../components/RejectOrderDialog';
 import {
@@ -236,6 +237,8 @@ export default function Dashboard() {
           Refrescar
         </button>
       </div>
+
+      <DocumentExpiryNotice businessId={businessId!} />
 
       {(error || loadError) && (
         <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">

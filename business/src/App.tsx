@@ -21,6 +21,7 @@ const Dashboard = lazyPage(() => import('./pages/Dashboard'), '/');
 const OrdersPage = lazyPage(() => import('./pages/Orders'), '/orders');
 const MenuPage = lazyPage(() => import('./pages/Menu'), '/menu');
 const ReviewsPage = lazyPage(() => import('./pages/Reviews'), '/reviews');
+const SupportPage = lazyPage(() => import('./pages/Support'), '/support');
 const SettingsPage = lazyPage(() => import('./pages/Settings'), '/settings');
 const PromotionsPage = lazyPage(() => import('./pages/Promotions'), '/promotions');
 const AdvertisingPage = lazyPage(() => import('./pages/Advertising'), '/advertising');
@@ -78,6 +79,7 @@ function App() {
               <Route path="settlements" element={<SettlementsPage />} />
               <Route path="menu" element={<MenuPage />} />
               <Route path="reviews" element={<ReviewsPage />} />
+              <Route path="support" element={<SupportPage />} />
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="promotions" element={<PromotionsPage />} />
               <Route path="advertising" element={<AdvertisingPage />} />

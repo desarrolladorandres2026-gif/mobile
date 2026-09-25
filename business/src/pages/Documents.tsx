@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, CheckCircle2, FileText } from 'lucide-react';
 import api from '../services/api';
+import { qk } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 
@@ -80,6 +82,7 @@ function DocumentRow({ businessId, type, doc, onDone }: { businessId: string; ty
   const [expiresAt, setExpiresAt] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const queryClient = useQueryClient();
 
   const submit = async () => {
     if (!file) return setError('Elige el archivo (JPG, PNG, WEBP o PDF de hasta 8 MB).');
@@ -95,6 +98,8 @@ function DocumentRow({ businessId, type, doc, onDone }: { businessId: string; ty
       // Sin esto axios manda el FormData como JSON: la instancia del panel
       // declara 'application/json' por defecto.
       await api.post(`/businesses/${businessId}/documents`, form, { headers: { 'Content-Type': undefined } });
+      // El aviso de vencimiento del Dashboard lee la misma lista.
+      void queryClient.invalidateQueries({ queryKey: qk.documents(businessId) });
       setOpen(false);
       setFile(null);
       setReference('');
