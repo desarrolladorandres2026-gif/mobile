@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { AlertCircle, Check, Clock, Store, Truck, Save, Image as ImageIcon } from 'lucide-react';
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
@@ -8,6 +9,8 @@ import { BRAND_COLORS } from '../lib/brandColors';
 import BusinessImageField from '../components/BusinessImageField';
 import type { LatLng } from '../components/BusinessLocationField';
 import { qk } from '../lib/queryKeys';
+import AuthenticatorMark from '../components/AuthenticatorMark';
+import ActiveSessions from '../components/ActiveSessions';
 
 // Leaflet (el mapa del punto de recogida) solo lo usa esta pantalla y pesa
 // más que el resto del panel junto: se descarga al abrir Ajustes.
@@ -54,6 +57,7 @@ const INPUT =
 export default function Settings() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const setSelectedBusiness = useAuthStore((s) => s.setSelectedBusiness);
+  const twoFactorEnabled = useAuthStore((s) => !!s.user?.twoFactorEnabled);
   const businessId = selectedBusiness?._id;
 
   const queryClient = useQueryClient();
@@ -514,6 +518,31 @@ export default function Settings() {
           </div>
         </div>
       )}
+
+      {/* ── Seguridad de la cuenta ── Es de la persona, no del local: no depende de cargar el negocio. */}
+      <section className="border-t border-[var(--color-border)] pt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <AuthenticatorMark className="w-6 h-6 shrink-0 mt-0.5" />
+          <div>
+            <h2 className="text-sm font-bold text-[var(--color-text-main)]">Verificación en dos pasos</h2>
+            <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+              {twoFactorEnabled
+                ? 'Activa. Al entrar te pedimos el código de Google Authenticator.'
+                : 'Sin activar. Con ella, tu contraseña sola ya no basta para entrar a tu panel.'}
+            </p>
+          </div>
+        </div>
+        {!twoFactorEnabled && (
+          <Link
+            to="/setup-2fa"
+            className="self-start sm:self-auto px-4 py-2 rounded-lg bg-[var(--color-text-main)] text-[var(--color-surface)] font-bold text-xs uppercase tracking-wider hover:opacity-90 transition-opacity"
+          >
+            Activar
+          </Link>
+        )}
+      </section>
+
+      <ActiveSessions />
     </div>
   );
 }

@@ -29,8 +29,27 @@ export async function assertExportAuthorized(
       throw new AppError('Solo un Super Administrador puede exportar estos datos', 403, 'PRIVILEGE_ESCALATION_BLOCKED');
     }
   }
+  await assertStepUpAuthorized(req, reason, totpToken, 'del exporte', 'en un exporte');
+}
+
+/**
+ * La misma prueba —motivo escrito y TOTP de la petición, con tope de
+ * intentos— para cualquier acción puntual de alto impacto, no solo exportes:
+ * p. ej. cerrar todas las sesiones de un comercio desde el centro de
+ * seguridad. Comparte contador con los exportes a propósito: probar códigos
+ * en una acción no regala cinco intentos más en la otra.
+ */
+export async function assertStepUpAuthorized(
+  req: Request,
+  reason: unknown,
+  totpToken: unknown,
+  /** "del exporte", "de la revocación"… */
+  what = 'de la acción',
+  /** Para la auditoría: "en un exporte", "al revocar sesiones"… */
+  where = 'en una acción sensible'
+): Promise<void> {
   if (typeof reason !== 'string' || reason.trim().length < 5) {
-    throw new AppError('Indica el motivo del exporte (mínimo 5 caracteres)', 400);
+    throw new AppError(`Indica el motivo ${what} (mínimo 5 caracteres)`, 400);
   }
   if (typeof totpToken !== 'string' || !totpToken.trim()) {
     throw new AppError('Confirma con tu código de verificación en dos pasos', 401, 'MFA_CODE_REQUIRED');
@@ -63,7 +82,7 @@ export async function assertExportAuthorized(
         entity: 'user',
         entityId: actorId,
         severity: AuditSeverity.CRITICAL,
-        description: `5 códigos TOTP inválidos seguidos en un exporte — sesión revocada`,
+        description: `5 códigos TOTP inválidos seguidos ${where} — sesión revocada`,
       });
     }
     throw new AppError('Código de verificación en dos pasos inválido', 401, 'MFA_CODE_INVALID');

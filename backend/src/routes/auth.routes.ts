@@ -2,13 +2,13 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authController } from '../controllers';
 import {
-  authenticate, validate, authRateLimiter, otpRateLimiter, sensitiveRateLimiter, refreshRateLimiter,
+  authenticate, validate, authRateLimiter, otpRateLimiter, sensitiveRateLimiter, refreshRateLimiter, twoFactorSetupRateLimiter,
 } from '../middlewares';
 import {
   phoneStatusSchema, registerSendOtpSchema, registerVerifyOtpSchema, registerCompleteSchema, loginSchema,
   mfaChallengeSchema, googleLoginSchema, appleLoginSchema, facebookLoginSchema, sendOtpSchema, verifyOtpSchema, sendEmailOtpSchema,
   verifyEmailOtpSchema, refreshTokenSchema, logoutSchema, resetPasswordSchema, updateProfileSchema,
-  verifyPhoneSchema, changePasswordSchema, twoFactorTokenSchema, revokeAllSessionsSchema, deleteAccountSchema,
+  verifyPhoneSchema, changePasswordSchema, twoFactorTokenSchema, twoFactorSetupSchema, revokeAllSessionsSchema, deleteAccountSchema,
 } from '../validators';
 
 const router = Router();
@@ -63,7 +63,7 @@ router.patch('/marketing-preferences', authenticate, validate(z.object({ body: z
 router.post('/change-password', authenticate, sensitiveRateLimiter, validate(changePasswordSchema), (req, res, next) => authController.changePassword(req, res, next));
 
 // ── 2FA routes ──
-router.post('/2fa/setup', authenticate, sensitiveRateLimiter, (req, res, next) => authController.setup2FA(req, res, next));
+router.post('/2fa/setup', authenticate, twoFactorSetupRateLimiter, validate(twoFactorSetupSchema), (req, res, next) => authController.setup2FA(req, res, next));
 router.post('/2fa/verify', authenticate, authRateLimiter, validate(twoFactorTokenSchema), (req, res, next) => authController.verify2FA(req, res, next));
 router.post('/2fa/disable', authenticate, sensitiveRateLimiter, validate(twoFactorTokenSchema), (req, res, next) => authController.disable2FA(req, res, next));
 

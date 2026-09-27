@@ -19,4 +19,7 @@ export const qk = {
   advertising: (id: string | undefined) => ['business', id, 'advertising'] as const,
   staff: (id: string | undefined) => ['business', id, 'staff'] as const,
   settings: (id: string | undefined) => ['business', id, 'settings'] as const,
+  // De la persona y no del local: no cuelgan de `['business', id]`.
+  accountSessions: () => ['account', 'sessions'] as const,
+  accountNotifications: () => ['account', 'notifications'] as const,
 };

@@ -78,6 +78,30 @@ describe('authenticateSocket: el handshake del socket', () => {
     });
   });
 
+  describe('2FA del comercio (TOTP_REQUIRED_BUSINESS)', () => {
+    afterEach(() => {
+      config.security.twoFactor.requiredForBusiness = false;
+      config.security.twoFactor.requiredForBusinessFrom = null;
+    });
+
+    it('un comercio sin TOTP no lo satisface con el flag encendido; un cliente sí', async () => {
+      config.security.twoFactor.requiredForBusiness = true;
+      const owner = await makeUser({ role: UserRole.BUSINESS });
+      const client = await makeUser({ role: UserRole.CLIENT });
+
+      expect((await authenticateSocket(await signFor(owner._id.toString(), 'business'))).twoFactorSatisfied).toBe(false);
+      expect((await authenticateSocket(await signFor(client._id.toString(), 'client'))).twoFactorSatisfied).toBe(true);
+    });
+
+    it('antes de la fecha de corte, el comercio sin TOTP todavía lo satisface', async () => {
+      config.security.twoFactor.requiredForBusiness = true;
+      config.security.twoFactor.requiredForBusinessFrom = new Date(Date.now() + 60 * 60 * 1000);
+      const owner = await makeUser({ role: UserRole.BUSINESS });
+
+      expect((await authenticateSocket(await signFor(owner._id.toString(), 'business'))).twoFactorSatisfied).toBe(true);
+    });
+  });
+
   it('rechaza a un usuario borrado aunque su token siga siendo válido', async () => {
     const user = await makeUser({ role: UserRole.DRIVER });
     const token = await signFor(user._id.toString(), 'driver');

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+﻿import { useCallback, useEffect, useRef } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
@@ -24,31 +24,31 @@ let closeTimer: ReturnType<typeof setTimeout> | null = null;
 const IDLE_CLOSE_MS = 30_000;
 
 function acquire(): Socket | null {
-  if (!localStorage.getItem('admin_token')) return null;
-  if (closeTimer) {
-    clearTimeout(closeTimer);
-    closeTimer = null;
-  }
-  if (!socket) {
-    socket = io(SOCKET_URL, {
-      auth: (cb) => cb({ token: localStorage.getItem('admin_token') }),
-      transports: ['websocket'],
-    });
-  }
-  users++;
-  return socket;
+ if (!localStorage.getItem('admin_token')) return null;
+ if (closeTimer) {
+ clearTimeout(closeTimer);
+ closeTimer = null;
+ }
+ if (!socket) {
+ socket = io(SOCKET_URL, {
+ auth: (cb) => cb({ token: localStorage.getItem('admin_token') }),
+ transports: ['websocket'],
+ });
+ }
+ users++;
+ return socket;
 }
 
 function release(): void {
-  users = Math.max(0, users - 1);
-  if (users > 0 || closeTimer) return;
-  closeTimer = setTimeout(() => {
-    closeTimer = null;
-    if (users === 0) {
-      socket?.disconnect();
-      socket = null;
-    }
-  }, IDLE_CLOSE_MS);
+ users = Math.max(0, users - 1);
+ if (users > 0 || closeTimer) return;
+ closeTimer = setTimeout(() => {
+ closeTimer = null;
+ if (users === 0) {
+ socket?.disconnect();
+ socket = null;
+ }
+ }, IDLE_CLOSE_MS);
 }
 
 /**
@@ -60,26 +60,26 @@ function release(): void {
 // `never` como parámetro: acepta manejadores con el tipo de payload de cada
 // evento sin tener que abrirlo a `any`.
 export function useAdminSocketEvents(handlers: Record<string, (payload: never) => void>): void {
-  const latest = useRef(handlers);
-  useEffect(() => {
-    latest.current = handlers;
-  });
+ const latest = useRef(handlers);
+ useEffect(() => {
+ latest.current = handlers;
+ });
 
-  const events = Object.keys(handlers).sort().join('|');
+ const events = Object.keys(handlers).sort().join('|');
 
-  useEffect(() => {
-    const s = acquire();
-    if (!s) return;
-    const bound = events.split('|').filter(Boolean).map((event) => {
-      const fn = (payload: unknown) => latest.current[event]?.(payload as never);
-      s.on(event, fn);
-      return [event, fn] as const;
-    });
-    return () => {
-      for (const [event, fn] of bound) s.off(event, fn);
-      release();
-    };
-  }, [events]);
+ useEffect(() => {
+ const s = acquire();
+ if (!s) return;
+ const bound = events.split('|').filter(Boolean).map((event) => {
+ const fn = (payload: unknown) => latest.current[event]?.(payload as never);
+ s.on(event, fn);
+ return [event, fn] as const;
+ });
+ return () => {
+ for (const [event, fn] of bound) s.off(event, fn);
+ release();
+ };
+ }, [events]);
 }
 
 /**
@@ -91,19 +91,19 @@ export function useAdminSocketEvents(handlers: Record<string, (payload: never) =
  * Dashboard entero (cuatro consultas, una de ellas un agregado).
  */
 export function useTrailingCallback(fn: () => void, waitMs: number): () => void {
-  const latest = useRef(fn);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    latest.current = fn;
-  });
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
-  return useCallback(() => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      latest.current();
-    }, waitMs);
-  }, [waitMs]);
+ const latest = useRef(fn);
+ const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+ useEffect(() => {
+ latest.current = fn;
+ });
+ useEffect(() => () => {
+ if (timer.current) clearTimeout(timer.current);
+ }, []);
+ return useCallback(() => {
+ if (timer.current) clearTimeout(timer.current);
+ timer.current = setTimeout(() => {
+ timer.current = null;
+ latest.current();
+ }, waitMs);
+ }, [waitMs]);
 }

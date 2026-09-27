@@ -20,6 +20,7 @@ export enum AuditAction {
   TOTP_DISABLED = 'totp_disabled',
   TOTP_VERIFIED = 'totp_verified',
   TOTP_FAILED = 'totp_failed',
+  TOTP_RESET_BY_ADMIN = 'totp_reset_by_admin',
 
   // Session events
   SESSION_CREATED = 'session_created',

@@ -385,6 +385,84 @@ export const payoutAccountRevealRateLimiter = rateLimit({
 });
 
 /**
+ * Restablecer el 2FA de otra cuenta (`POST /admin/users/:id/reset-2fa`).
+ *
+ * Por actor y detrás del permiso, no por IP: el limitador sensible general
+ * cuenta por IP y lo comparte todo el que esté en el mismo Wi-Fi, así que un
+ * día de onboarding en la oficina dejaba sin cupo al Super Administrador, y
+ * cualquier admin sin el permiso se lo gastaba con respuestas 403. Llegar al
+ * tope es una señal (resets en serie), y queda en la auditoría.
+ */
+export const twoFactorResetRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(10),
+  message: {
+    success: false,
+    message: 'Demasiados restablecimientos de verificación en dos pasos. Intenta más tarde.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+  handler: (req, res, _next, options) => {
+    void logAudit(req, {
+      action: AuditAction.SUSPICIOUS_ACTIVITY,
+      entity: 'user',
+      severity: AuditSeverity.HIGH,
+      description: 'Tope de restablecimientos de 2FA alcanzado',
+      metadata: { limit: options.limit },
+    });
+    res.status(options.statusCode).json(options.message);
+  },
+});
+
+/**
+ * Generar el QR del 2FA (`POST /auth/2fa/setup`). Por usuario: recargar la
+ * pantalla de activación cinco veces ya no deja al comercio una hora fuera
+ * del panel por compartir contador con toda su IP. Como la activación pide
+ * la contraseña en cuentas de panel, este tope también frena adivinarla.
+ */
+export const twoFactorSetupRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(10),
+  message: {
+    success: false,
+    message: 'Demasiados intentos de activar la verificación en dos pasos. Intenta más tarde.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+});
+
+/**
+ * Acciones del centro de seguridad de comercios (cerrar sesiones, exportar
+ * el historial) — 30 por hora por admin. Por cuenta y no por IP, igual que
+ * el reset de 2FA: la oficina comparte IP. Cerrar sesiones en serie es
+ * justo lo que haría una cuenta admin robada, así que el tope queda en la
+ * auditoría.
+ */
+export const securityCenterActionRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(30),
+  message: {
+    success: false,
+    message: 'Demasiadas acciones de seguridad seguidas. Espera un momento antes de continuar.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+  handler: (req, res, _next, options) => {
+    void logAudit(req, {
+      action: AuditAction.SUSPICIOUS_ACTIVITY,
+      entity: 'business',
+      severity: AuditSeverity.HIGH,
+      description: 'Tope de acciones del centro de seguridad de comercios alcanzado',
+      metadata: { limit: options.limit },
+    });
+    res.status(options.statusCode).json(options.message);
+  },
+});
+
+/**
  * Deja que el panel admin —y solo él— embeba la vista previa de Explorar.
  *
  * El resto de la PWA sigue sin poder ir dentro de un iframe (clickjacking):

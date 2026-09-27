@@ -10,6 +10,9 @@ export enum Permission {
   USERS_DELETE = 'users:delete',
   USERS_BLOCK = 'users:block',
   USERS_ROLE_CHANGE = 'users:role_change',
+  // Quitar el 2FA de una cuenta que perdió el celular y sus códigos. No está
+  // en ningún rol base: solo Super Administrador, salvo Rol explícito.
+  USERS_RESET_2FA = 'users:reset_2fa',
 
   // Order management
   ORDERS_VIEW_OWN = 'orders:view_own',

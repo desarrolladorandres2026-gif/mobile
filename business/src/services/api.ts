@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { useAuthStore } from '../stores/authStore';
-import { apiStatus } from '../lib/apiError';
+import { apiErrorCode, apiStatus } from '../lib/apiError';
+import { getDeviceId } from '../lib/deviceId';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
 
@@ -17,6 +18,8 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // El centro de seguridad reconoce este navegador por aquí (ver lib/deviceId).
+  config.headers['X-Device-ID'] = getDeviceId();
   return config;
 }, (error) => {
   return Promise.reject(error);
@@ -38,7 +41,7 @@ async function refreshAccessToken(): Promise<string> {
   const refreshToken = useAuthStore.getState().refreshToken;
   if (!refreshToken) throw new Error('No refresh token');
 
-  const { data } = await axios.post(`${API_BASE}/auth/refresh-token`, { refreshToken });
+  const { data } = await axios.post(`${API_BASE}/auth/refresh-token`, { refreshToken }, { headers: { 'X-Device-ID': getDeviceId() } });
   const tokens = data.data as { accessToken: string; refreshToken: string };
   useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
   return tokens.accessToken;
@@ -64,6 +67,16 @@ api.interceptors.response.use(
         window.location.href = '/login';
         return Promise.reject(error);
       }
+    }
+    // Con `TOTP_REQUIRED_BUSINESS` encendido, un comercio sin 2FA solo puede
+    // configurarlo: el backend responde 403 a todo lo demás. Se le lleva a
+    // la pantalla de activación en vez de dejarle un panel vacío.
+    if (
+      apiStatus(error) === 403 &&
+      apiErrorCode(error) === 'TWO_FACTOR_SETUP_REQUIRED' &&
+      window.location.pathname !== '/setup-2fa'
+    ) {
+      window.location.href = '/setup-2fa';
     }
     return Promise.reject(error);
   }

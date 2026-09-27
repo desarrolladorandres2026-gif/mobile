@@ -5,10 +5,11 @@ export {
   logAudit, logSystemAudit
 } from './audit';
 export {
-  Session, ISession, SESSION_PUBLIC_FIELDS, SessionRevokeReason, RotationResult,
+  Session, ISession, SESSION_PUBLIC_FIELDS, SESSION_ADMIN_FIELDS, SessionRevokeReason, RotationResult,
+  SessionStatus, activeSessionFilter, sessionStatus,
   DeviceFingerprint, IDeviceFingerprint,
   SessionManager, sessionManager,
-  generateDeviceId
+  generateDeviceId, normalizeClientDeviceId, parseUserAgent
 } from './sessions';
 export {
   generateTOTPSecret, verifyTOTP, matchTOTPStep, sealTotpSecret, openTotpSecret,

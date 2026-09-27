@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
-  AlertCircle, LogOut, Store, Menu, X,
+  AlertCircle, LogOut, Menu, X,
   Volume2, VolumeX, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useState } from 'react';
@@ -9,26 +9,28 @@ import { useAuthStore } from '../stores/authStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { ThemeToggle } from './ThemeToggle';
 import ConfirmDialog from './ConfirmDialog';
-import {
-  DashboardLogo, PackageLogo, RestaurantLogo, WalletLogo,
-  RatingLogo, PrepTimeLogo, CashLogo,
-} from './logos';
 import { apiMessage } from '../lib/apiError';
+import OrderNotifications from './OrderNotifications';
 import { preloadOn } from '../lib/lazyPage';
+import {
+  GridRegular, BoxRegular, WalletRegular, DataUsageRegular,
+  FoodRegular, TagRegular, MegaphoneRegular, StarRegular,
+  PeopleRegular, DocumentRegular, ChatRegular, SettingsRegular,
+} from '@fluentui/react-icons';
 
 const nav = [
-  { path: '/', Illustration: DashboardLogo, label: 'Dashboard' },
-  { path: '/orders', Illustration: PackageLogo, label: 'Pedidos' },
-  { path: '/settlements', Illustration: WalletLogo, label: 'Liquidaciones' },
-  { path: '/analytics', Illustration: DashboardLogo, label: 'Analíticas' },
-  { path: '/menu', Illustration: RestaurantLogo, label: 'Menú & Catálogo' },
-  { path: '/promotions', Illustration: CashLogo, label: 'Promociones' },
-  { path: '/advertising', Illustration: CashLogo, label: 'Publicidad' },
-  { path: '/reviews', Illustration: RatingLogo, label: 'Reseñas' },
-  { path: '/staff', Illustration: RestaurantLogo, label: 'Equipo' },
-  { path: '/documents', Illustration: PackageLogo, label: 'Documentos' },
-  { path: '/support', Illustration: RatingLogo, label: 'Soporte' },
-  { path: '/settings', Illustration: PrepTimeLogo, label: 'Ajustes' },
+  { path: '/', Icon: GridRegular, label: 'Resumen General' },
+  { path: '/orders', Icon: BoxRegular, label: 'Pedidos' },
+  { path: '/settlements', Icon: WalletRegular, label: 'Liquidaciones' },
+  { path: '/analytics', Icon: DataUsageRegular, label: 'Analíticas' },
+  { path: '/menu', Icon: FoodRegular, label: 'Menú & Catálogo' },
+  { path: '/promotions', Icon: TagRegular, label: 'Promociones' },
+  { path: '/advertising', Icon: MegaphoneRegular, label: 'Publicidad' },
+  { path: '/reviews', Icon: StarRegular, label: 'Reseñas' },
+  { path: '/staff', Icon: PeopleRegular, label: 'Equipo' },
+  { path: '/documents', Icon: DocumentRegular, label: 'Documentos' },
+  { path: '/support', Icon: ChatRegular, label: 'Soporte' },
+  { path: '/settings', Icon: SettingsRegular, label: 'Ajustes' },
 ];
 
 export default function Layout() {
@@ -41,9 +43,9 @@ export default function Layout() {
   const logout = useAuthStore((s) => s.logout);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [businessesError, setBusinessesError] = useState('');
   const [pausing, setPausing] = useState(false);
   const [pauseError, setPauseError] = useState('');
-  const [businessesError, setBusinessesError] = useState('');
   const [loadingBusinesses, setLoadingBusinesses] = useState(false);
   const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
   const toggleSound = usePreferencesStore((s) => s.toggleSound);
@@ -118,20 +120,15 @@ export default function Layout() {
     <div className="flex h-screen bg-[var(--color-bg)] dark:bg-[#080B11] text-[var(--color-text-main)] dark:text-[var(--color-bg)] overflow-hidden font-sans transition-colors duration-200">
       {/* ── Sidebar (Índigo profundo — paleta ink) ── */}
     <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-[var(--color-sidebar)] border-r border-[var(--color-sidebar-border)] flex flex-col
+        fixed inset-y-0 left-0 z-50 w-64 bg-linear-to-b from-[var(--color-sidebar-deep)] from-35% to-[var(--color-sidebar-glow)] border-r border-[var(--color-sidebar-border)] flex flex-col
         transform transition-transform duration-300 ease-out
         lg:translate-x-0 lg:static lg:inset-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         {/* Brand Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-sidebar-border)]/70">
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-primary)]/20 text-[var(--color-primary-light)] border border-[var(--color-primary)]/30">
-              BUSINESS
-            </span>
-          </div>
+        <div className="flex lg:hidden justify-end px-6 py-4">
           <button
-            className="lg:hidden text-[var(--color-sidebar-text)] hover:text-white transition-colors cursor-pointer"
+            className="text-[var(--color-sidebar-text)] hover:text-white transition-colors cursor-pointer"
             onClick={() => setSidebarOpen(false)}
           >
             <X className="w-5 h-5" />
@@ -140,16 +137,12 @@ export default function Layout() {
 
         {/* Business Selector */}
         {businesses.length > 0 && (
-          <div className="px-4 py-3 border-b border-[var(--color-sidebar-border)]/70 bg-[var(--color-sidebar-deep)]">
-            <label className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--color-sidebar-text)] uppercase tracking-wider mb-1.5">
-              <Store className="w-3.5 h-3.5 text-[var(--color-primary)]" />
-              Establecimiento Activo
-            </label>
+          <div className="px-4 py-3">
             <div className="relative">
               <select
                 value={selectedBusiness?._id || ''}
                 onChange={handleBusinessChange}
-                className="w-full h-9 rounded-lg bg-[var(--color-sidebar)] border border-[var(--color-sidebar-border)] px-3 text-xs font-semibold text-white hover:border-[var(--color-primary)]/40 focus:border-[var(--color-primary)] focus:outline-none transition-all cursor-pointer appearance-none shadow-xs"
+                className="w-full h-9 bg-transparent pl-0 pr-6 text-xs font-semibold text-white focus:outline-none cursor-pointer appearance-none"
               >
                 {businesses.map((bus) => (
                   <option key={bus._id} value={bus._id} className="bg-[var(--color-sidebar)] text-white">
@@ -157,13 +150,13 @@ export default function Layout() {
                   </option>
                 ))}
               </select>
-              <ChevronDown className="w-3.5 h-3.5 text-[var(--color-sidebar-text)] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-[var(--color-sidebar-text)] absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
           </div>
         )}
 
         {/* Estado del local y aviso sonoro */}
-        <div className="px-4 py-3 border-b border-[var(--color-sidebar-border)]/50 space-y-2">
+        <div className="px-4 py-3 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <button
               onClick={toggleStore}
@@ -174,15 +167,13 @@ export default function Layout() {
                   ? 'Tu local está recibiendo pedidos. Púlsalo para dejar de recibirlos.'
                   : 'Tu local no recibe pedidos. Púlsalo para volver a abrir.'
               }
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border cursor-pointer transition-all disabled:opacity-60 disabled:cursor-wait ${
-                isStoreOpen
-                  ? 'bg-[var(--color-primary-bg)]/20 text-[var(--color-primary-light)] border-[var(--color-primary)]/40'
-                  : 'bg-[var(--color-danger-bg)]/20 text-[var(--color-danger)] border-[var(--color-danger)]/40'
+              className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wider cursor-pointer transition-all disabled:opacity-60 disabled:cursor-wait ${
+                isStoreOpen ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'
               }`}
             >
               <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  isStoreOpen ? 'bg-[var(--color-accent)] animate-pulse' : 'bg-[var(--color-danger)]'
+                className={`w-2.5 h-2.5 rounded-full ${
+                  isStoreOpen ? 'bg-[var(--color-success)] animate-pulse' : 'bg-[var(--color-danger)]'
                 }`}
               />
               <span>{pausing ? 'Guardando…' : isStoreOpen ? 'Abierto' : 'Cerrado'}</span>
@@ -191,7 +182,7 @@ export default function Layout() {
             <button
               onClick={toggleSound}
               aria-pressed={soundEnabled}
-              className="p-1.5 rounded-lg bg-[var(--color-sidebar-hover)] border border-[var(--color-sidebar-border)] text-[var(--color-sidebar-text)] hover:text-white transition-all cursor-pointer"
+              className="p-1.5 text-[var(--color-sidebar-text)] hover:text-white transition-all cursor-pointer"
               title={
                 soundEnabled
                   ? 'Suena un aviso al entrar un pedido. Púlsalo para silenciarlo.'
@@ -237,33 +228,31 @@ export default function Layout() {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto sidebar-scroll px-3 py-3">
-          <p className="text-xs font-bold tracking-wider text-[var(--color-sidebar-text)] uppercase px-3 mb-1">
+          <p className="text-xs font-bold tracking-wider text-white uppercase px-3 mb-1">
             OPERACIONES
           </p>
           <div className="space-y-0">
             {nav.map((item) => {
               const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
               return (
-                <NavLink
-                  key={item.path}
-                  to={item.path}
-                  end={item.path === '/'}
-                  onClick={() => setSidebarOpen(false)}
-                  // El archivo de la pagina se pide al apuntar, no al pulsar:
-                  // para cuando llega el clic ya esta descargado y no hay
-                  // spinner. Ver `preloadOn`.
-                  {...preloadOn(item.path)}
-                  className={`relative flex items-center gap-3 px-3 py-0.5 rounded-xl text-xs font-medium transition-all duration-150 ${isActive
-                      ? 'bg-[var(--color-primary)]/20 text-white font-semibold shadow-sm border border-[var(--color-primary)]/30'
-                      : 'text-[var(--color-sidebar-text)] hover:text-white hover:bg-[var(--color-sidebar-hover)]'
-                    }`}
-                >
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-full bg-[var(--color-primary-light)]" />
-                  )}
-                  <item.Illustration size={26} />
-                  <span className="truncate">{item.label}</span>
-                </NavLink>
+                <div key={item.path} className="ml-6 border-b border-white/10">
+                  <NavLink
+                    to={item.path}
+                    end={item.path === '/'}
+                    onClick={() => setSidebarOpen(false)}
+                    {...preloadOn(item.path)}
+                    className={`relative flex items-center gap-3 px-3 py-0.5 rounded-lg text-xs font-medium transition-all duration-150 ${isActive
+                        ? 'bg-[#1B2437] text-white font-semibold shadow-sm'
+                        : 'text-[var(--color-sidebar-text)] hover:text-white hover:bg-[#1B2437]/60'
+                      }`}
+                  >
+                    {isActive && (
+                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-full bg-[var(--color-primary)]" />
+                    )}
+                    <item.Icon fontSize={20} style={{ color: 'white' }} />
+                    <span className="truncate">{item.label}</span>
+                  </NavLink>
+                </div>
               );
             })}
           </div>
@@ -295,6 +284,7 @@ export default function Layout() {
 
       {/* ── Main Content Area ── */}
       <main className="flex-1 overflow-y-auto flex flex-col min-w-0 bg-[var(--color-bg)] dark:bg-[#080B11] transition-colors duration-200">
+        <OrderNotifications />
         {/* Top Header */}
         <header className="sticky top-0 z-30 bg-white dark:bg-[var(--color-sidebar)] border-b border-[var(--color-border-light)] dark:border-[var(--color-sidebar-border)]/80 px-6 lg:px-8 h-16 flex items-center justify-between gap-4 shadow-xs transition-colors duration-200">
           <div className="flex items-center gap-4 flex-1">
@@ -383,4 +373,3 @@ export default function Layout() {
     </div>
   );
 }
-

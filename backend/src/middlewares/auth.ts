@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import { config } from '../config';
 import { User, IUser } from '../models';
 import { AppError } from './errorHandler';
 import { UserRole } from '../types';
@@ -9,6 +8,7 @@ import {
   resolveAuthorization,
   type ResolvedAuthorization,
 } from '../services/authorization.service';
+import { twoFactorSetupPending } from '../services/mfa.service';
 import { cache } from '../cache';
 
 // Extend Express Request. `declare global { namespace Express {...} } ` is
@@ -131,11 +131,14 @@ export const authenticate = async (
     // `TOTP_REQUIRED_ADMINS` existía en la configuración y nada lo aplicaba:
     // un administrador con permisos sobre dinero y usuarios entraba solo con
     // contraseña. Ahora, sin 2FA, solo alcanza las rutas para configurarlo.
-    if (config.security.twoFactor.requiredForAdmins && user.role === UserRole.ADMIN && !user.twoFactorEnabled) {
+    // Lo mismo para comercios con `TOTP_REQUIRED_BUSINESS`.
+    if (twoFactorSetupPending(user)) {
       req.twoFactorSetupRequired = true;
       if (!TWO_FACTOR_SETUP_PATHS.has(requestPath(req))) {
         throw new AppError(
-          'Activa la verificación en dos pasos para usar el panel de administración.',
+          user.role === UserRole.BUSINESS
+            ? 'Activa la verificación en dos pasos para usar el panel de comercios.'
+            : 'Activa la verificación en dos pasos para usar el panel de administración.',
           403,
           'TWO_FACTOR_SETUP_REQUIRED'
         );

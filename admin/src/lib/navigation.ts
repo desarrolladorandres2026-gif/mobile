@@ -1,11 +1,26 @@
-import { Permission } from './permissions';
+﻿import { Permission } from './permissions';
+import type { FluentIcon } from '@fluentui/react-icons';
 import {
-  DashboardLogo, PackageLogo, DeliveryLogo, StoreLogo,
-  PeopleLogo, PricingLogo, CouponLogo, LocationLogo,
-  BannerLogo, CategoriesLogo, MegaphoneLogo, SecurityLogo,
-  WalletLogo, LegalLogo, CalendarLogo, EvidenceLogo,
-  PositionsLogo, RolesLogo, ExploreLogo,
-} from '../components/logos';
+  GridRegular,
+  CalendarRegular,
+  BoxRegular,
+  CameraRegular,
+  VehicleMotorcycleRegular,
+  DocumentRegular,
+  LocationRegular,
+  BuildingShopRegular,
+  PeopleRegular,
+  TagRegular,
+  TicketDiagonalRegular,
+  ImageRegular,
+  AppsListRegular,
+  MegaphoneRegular,
+  ShieldRegular,
+  WalletRegular,
+  PersonTagRegular,
+  KeyRegular,
+  CompassNorthwestRegular,
+} from '@fluentui/react-icons';
 
 /**
  * Única tabla de navegación del panel: la leen la barra lateral (Layout) y
@@ -14,7 +29,7 @@ import {
  */
 export interface NavItem {
   path: string;
-  Illustration: typeof DashboardLogo;
+  Icon: FluentIcon;
   label: string;
   permission: string;
 }
@@ -26,75 +41,71 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
   {
-    category: 'MENU',
+    category: 'MENÚ',
     items: [
-      { path: '/', Illustration: DashboardLogo, label: 'Dashboard', permission: Permission.ORDERS_VIEW_ALL },
-      { path: '/daily-summary', Illustration: CalendarLogo, label: 'Resumen Diario', permission: Permission.REPORTS_VIEW },
+      { path: '/', Icon: GridRegular, label: 'Resumen General', permission: Permission.ORDERS_VIEW_ALL },
+      { path: '/daily-summary', Icon: CalendarRegular, label: 'Resumen Diario', permission: Permission.REPORTS_VIEW },
     ],
   },
   {
-    category: 'APPS',
+    category: 'APLICACIONES',
     items: [
-      { path: '/orders', Illustration: PackageLogo, label: 'Pedidos', permission: Permission.ORDERS_VIEW_ALL },
-      { path: '/evidences', Illustration: EvidenceLogo, label: 'Evidencias', permission: Permission.EVIDENCES_VIEW },
-      { path: '/drivers', Illustration: DeliveryLogo, label: 'Domiciliarios', permission: Permission.DRIVERS_VIEW },
-      { path: '/driver-onboarding', Illustration: DeliveryLogo, label: 'Altas de domiciliarios', permission: Permission.DRIVERS_APPROVE },
-      { path: '/driver-documents', Illustration: LegalLogo, label: 'Documentos', permission: Permission.DRIVERS_VIEW },
-      { path: '/fleet', Illustration: LocationLogo, label: 'Flota en Vivo', permission: Permission.DRIVERS_TRACK },
+      { path: '/orders', Icon: BoxRegular, label: 'Pedidos', permission: Permission.ORDERS_VIEW_ALL },
+      { path: '/evidences', Icon: CameraRegular, label: 'Evidencias', permission: Permission.EVIDENCES_VIEW },
+      { path: '/drivers', Icon: VehicleMotorcycleRegular, label: 'Domiciliarios', permission: Permission.DRIVERS_VIEW },
+      { path: '/driver-onboarding', Icon: VehicleMotorcycleRegular, label: 'Altas de domiciliarios', permission: Permission.DRIVERS_APPROVE },
+      { path: '/driver-documents', Icon: DocumentRegular, label: 'Documentos', permission: Permission.DRIVERS_VIEW },
+      { path: '/fleet', Icon: LocationRegular, label: 'Flota en Vivo', permission: Permission.DRIVERS_TRACK },
     ],
   },
   {
-    category: 'CUSTOM',
+    category: 'COMERCIOS Y CONTENIDO',
     items: [
-      { path: '/businesses', Illustration: StoreLogo, label: 'Negocios', permission: Permission.BUSINESSES_VIEW },
-      { path: '/business-approvals', Illustration: LegalLogo, label: 'Verificar Comercios', permission: Permission.BUSINESSES_VIEW },
-      { path: '/reviews', Illustration: PeopleLogo, label: 'Reseñas', permission: Permission.REVIEWS_VIEW },
-      { path: '/pricing', Illustration: PricingLogo, label: 'Tarifas y Precios', permission: Permission.FINANCE_VIEW },
-      { path: '/coupons', Illustration: CouponLogo, label: 'Cupones', permission: Permission.COUPONS_VIEW },
-      { path: '/zones', Illustration: LocationLogo, label: 'Zonas', permission: Permission.ZONES_VIEW },
-      { path: '/home-banners', Illustration: BannerLogo, label: 'Banners de Inicio', permission: Permission.CONTENT_VIEW },
-      { path: '/home-categories', Illustration: CategoriesLogo, label: 'Categorías de Inicio', permission: Permission.CONTENT_VIEW },
-      { path: '/curated-home-blocks', Illustration: BannerLogo, label: 'Bloques Curados de Inicio', permission: Permission.CONTENT_VIEW },
-      { path: '/campaigns', Illustration: MegaphoneLogo, label: 'Publicidad', permission: Permission.ADS_VIEW },
-      { path: '/targeted-sends', Illustration: MegaphoneLogo, label: 'Envíos dirigidos', permission: Permission.NOTIFICATIONS_VIEW },
-      { path: '/referrals', Illustration: PeopleLogo, label: 'Referidos', permission: Permission.COUPONS_VIEW },
-      { path: '/pro', Illustration: WalletLogo, label: 'Zipp Pro', permission: Permission.FINANCE_VIEW },
-      { path: '/search-insights', Illustration: CategoriesLogo, label: 'Búsquedas', permission: Permission.CONTENT_VIEW },
-      { path: '/explore-builder', Illustration: ExploreLogo, label: 'Constructor de Explorar', permission: Permission.EXPLORE_VIEW },
+      { path: '/businesses', Icon: BuildingShopRegular, label: 'Negocios', permission: Permission.BUSINESSES_VIEW },
+      { path: '/business-approvals', Icon: DocumentRegular, label: 'Verificar Comercios', permission: Permission.BUSINESSES_VIEW },
+      { path: '/reviews', Icon: PeopleRegular, label: 'Reseñas', permission: Permission.REVIEWS_VIEW },
+      { path: '/pricing', Icon: TagRegular, label: 'Tarifas y Precios', permission: Permission.FINANCE_VIEW },
+      { path: '/coupons', Icon: TicketDiagonalRegular, label: 'Cupones', permission: Permission.COUPONS_VIEW },
+      { path: '/zones', Icon: LocationRegular, label: 'Zonas', permission: Permission.ZONES_VIEW },
+      { path: '/home-banners', Icon: ImageRegular, label: 'Banners de Inicio', permission: Permission.CONTENT_VIEW },
+      { path: '/home-categories', Icon: AppsListRegular, label: 'Categorías de Inicio', permission: Permission.CONTENT_VIEW },
+      { path: '/curated-home-blocks', Icon: AppsListRegular, label: 'Bloques Curados de Inicio', permission: Permission.CONTENT_VIEW },
+      { path: '/campaigns', Icon: MegaphoneRegular, label: 'Publicidad', permission: Permission.ADS_VIEW },
+      { path: '/targeted-sends', Icon: MegaphoneRegular, label: 'Envíos dirigidos', permission: Permission.NOTIFICATIONS_VIEW },
+      { path: '/referrals', Icon: PeopleRegular, label: 'Referidos', permission: Permission.COUPONS_VIEW },
+      { path: '/pro', Icon: WalletRegular, label: 'Zipp Pro', permission: Permission.FINANCE_VIEW },
+      { path: '/search-insights', Icon: AppsListRegular, label: 'Búsquedas', permission: Permission.CONTENT_VIEW },
+      { path: '/explore-builder', Icon: CompassNorthwestRegular, label: 'Constructor de Explorar', permission: Permission.EXPLORE_VIEW },
     ],
   },
   {
-    // Sección "Seguridad y Acceso": Usuarios, Cargos, Roles se administran
-    // aquí; Permisos/Auditoría/Sesiones viven como pestañas dentro de
-    // "Seguridad" (misma página, `/security`).
     category: 'SEGURIDAD Y ACCESO',
     items: [
-      { path: '/users', Illustration: PeopleLogo, label: 'Usuarios', permission: Permission.USERS_VIEW },
-      { path: '/positions', Illustration: PositionsLogo, label: 'Cargos', permission: Permission.POSITIONS_VIEW },
-      { path: '/roles', Illustration: RolesLogo, label: 'Roles', permission: Permission.ROLES_VIEW },
-      { path: '/app-health', Illustration: DashboardLogo, label: 'Salud de la app', permission: Permission.REPORTS_VIEW },
-      { path: '/feature-flags', Illustration: RolesLogo, label: 'Interruptores', permission: Permission.SETTINGS_VIEW },
-      { path: '/security', Illustration: SecurityLogo, label: 'Seguridad', permission: Permission.SECURITY_VIEW },
-      // El centro de incidentes filtra cada tipo por su permiso en el backend.
-      { path: '/incidents', Illustration: EvidenceLogo, label: 'Incidentes', permission: Permission.ADMIN_PANEL },
+      { path: '/users', Icon: PeopleRegular, label: 'Usuarios', permission: Permission.USERS_VIEW },
+      { path: '/positions', Icon: PersonTagRegular, label: 'Cargos', permission: Permission.POSITIONS_VIEW },
+      { path: '/roles', Icon: KeyRegular, label: 'Roles', permission: Permission.ROLES_VIEW },
+      { path: '/app-health', Icon: GridRegular, label: 'Salud de la app', permission: Permission.REPORTS_VIEW },
+      { path: '/feature-flags', Icon: KeyRegular, label: 'Interruptores', permission: Permission.SETTINGS_VIEW },
+      { path: '/security', Icon: ShieldRegular, label: 'Seguridad', permission: Permission.SECURITY_VIEW },
+      { path: '/incidents', Icon: CameraRegular, label: 'Incidentes', permission: Permission.ADMIN_PANEL },
     ],
   },
   {
-    category: 'COMPONENTS',
+    category: 'FINANZAS Y SOPORTE',
     items: [
-      { path: '/financials', Illustration: WalletLogo, label: 'Finanzas', permission: Permission.FINANCE_VIEW },
-      { path: '/settlements', Illustration: WalletLogo, label: 'Liquidaciones', permission: Permission.FINANCE_VIEW },
-      { path: '/commissions', Illustration: PricingLogo, label: 'Comisiones', permission: Permission.COMMISSIONS_VIEW },
-      { path: '/payments', Illustration: WalletLogo, label: 'Pagos en línea', permission: Permission.FINANCE_VIEW },
-      { path: '/ad-invoices', Illustration: MegaphoneLogo, label: 'Facturas de publicidad', permission: Permission.FINANCE_VIEW },
-      { path: '/cash', Illustration: WalletLogo, label: 'Efectivo', permission: Permission.FINANCE_VIEW },
-      { path: '/documents', Illustration: LegalLogo, label: 'Comprobantes', permission: Permission.FINANCE_VIEW },
-      { path: '/exports', Illustration: PricingLogo, label: 'Exportes', permission: Permission.REPORTS_EXPORT },
-      { path: '/refunds', Illustration: EvidenceLogo, label: 'Reembolsos', permission: Permission.REFUNDS_VIEW },
-      { path: '/legal', Illustration: LegalLogo, label: 'Datos personales', permission: Permission.LEGAL_VIEW },
-      { path: '/legal-documents', Illustration: LegalLogo, label: 'Documentos legales', permission: Permission.LEGAL_VIEW },
-      { path: '/support', Illustration: PeopleLogo, label: 'Soporte', permission: Permission.SUPPORT_VIEW },
-      { path: '/support-macros', Illustration: PeopleLogo, label: 'Respuestas predefinidas', permission: Permission.SUPPORT_VIEW },
+      { path: '/financials', Icon: WalletRegular, label: 'Finanzas', permission: Permission.FINANCE_VIEW },
+      { path: '/settlements', Icon: WalletRegular, label: 'Liquidaciones', permission: Permission.FINANCE_VIEW },
+      { path: '/commissions', Icon: TagRegular, label: 'Comisiones', permission: Permission.COMMISSIONS_VIEW },
+      { path: '/payments', Icon: WalletRegular, label: 'Pagos en línea', permission: Permission.FINANCE_VIEW },
+      { path: '/ad-invoices', Icon: MegaphoneRegular, label: 'Facturas de publicidad', permission: Permission.FINANCE_VIEW },
+      { path: '/cash', Icon: WalletRegular, label: 'Efectivo', permission: Permission.FINANCE_VIEW },
+      { path: '/documents', Icon: DocumentRegular, label: 'Comprobantes', permission: Permission.FINANCE_VIEW },
+      { path: '/exports', Icon: TagRegular, label: 'Exportes', permission: Permission.REPORTS_EXPORT },
+      { path: '/refunds', Icon: BoxRegular, label: 'Reembolsos', permission: Permission.REFUNDS_VIEW },
+      { path: '/legal', Icon: DocumentRegular, label: 'Datos personales', permission: Permission.LEGAL_VIEW },
+      { path: '/legal-documents', Icon: DocumentRegular, label: 'Documentos legales', permission: Permission.LEGAL_VIEW },
+      { path: '/support', Icon: PeopleRegular, label: 'Soporte', permission: Permission.SUPPORT_VIEW },
+      { path: '/support-macros', Icon: PeopleRegular, label: 'Respuestas predefinidas', permission: Permission.SUPPORT_VIEW },
     ],
   },
 ];

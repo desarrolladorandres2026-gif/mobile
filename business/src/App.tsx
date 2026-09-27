@@ -17,6 +17,7 @@ import { lazyPage } from './lib/lazyPage';
  * cocina. Ahora el primer pintado solo lleva el Layout y la página abierta.
  */
 const Login = lazyPage(() => import('./pages/Login'), '/login');
+const TwoFactorSetup = lazyPage(() => import('./pages/TwoFactorSetup'), '/setup-2fa');
 const Dashboard = lazyPage(() => import('./pages/Dashboard'), '/');
 const OrdersPage = lazyPage(() => import('./pages/Orders'), '/orders');
 const MenuPage = lazyPage(() => import('./pages/Menu'), '/menu');
@@ -73,6 +74,8 @@ function App() {
 
           {/* Rutas protegidas — requieren sesión activa */}
           <Route element={<PrivateRoute />}>
+            {/* Fuera del Layout: con el 2FA pendiente, todo lo que el Layout pide responde 403. */}
+            <Route path="/setup-2fa" element={<TwoFactorSetup />} />
             <Route path="/" element={<Layout />}>
               <Route index element={<Dashboard />} />
               <Route path="orders" element={<OrdersPage />} />

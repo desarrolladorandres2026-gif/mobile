@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+﻿import type { ComponentType } from 'react';
 import paquete from '../assets/logos/paquete.png';
 import efectivo from '../assets/logos/efectivo.png';
 import negocio from '../assets/logos/negocio.png';
@@ -37,17 +37,17 @@ const LOGO_SCALE = 0.8;
 type LogoProps = { size?: number };
 
 function logo(src: string): ComponentType<LogoProps> {
-  return function Logo({ size = 44 }: LogoProps) {
-    const inner = Math.round(size * LOGO_SCALE);
-    return (
-      <span
-        style={{ width: size, height: size }}
-        className="inline-flex flex-shrink-0 items-center justify-center"
-      >
-        <img src={src} width={inner} height={inner} alt="" draggable={false} />
-      </span>
-    );
-  };
+ return function Logo({ size = 44 }: LogoProps) {
+ const inner = Math.round(size * LOGO_SCALE);
+ return (
+ <span
+ style={{ width: size, height: size }}
+ className="inline-flex flex-shrink-0 items-center justify-center"
+ >
+ <img src={src} width={inner} height={inner} alt="" draggable={false} />
+ </span>
+ );
+ };
 }
 
 export const PackageLogo = logo(paquete);
@@ -72,13 +72,13 @@ export const RolesLogo = logo(roles);
 export const ExploreLogo = logo(explorar);
 
 const CATEGORY_LOGOS: Record<string, ComponentType<LogoProps>> = {
-  restaurant: logo(restaurant),
-  fast_food: logo(fastFood),
-  pharmacy: logo(pharmacy),
-  cafe: logo(cafe),
-  supermarket: logo(supermarket),
+ restaurant: logo(restaurant),
+ fast_food: logo(fastFood),
+ pharmacy: logo(pharmacy),
+ cafe: logo(cafe),
+ supermarket: logo(supermarket),
 };
 
 /** Logo por clave de categoría de negocio; una clave desconocida cae en la tienda. */
 export const categoryLogo = (key: string): ComponentType<LogoProps> =>
-  CATEGORY_LOGOS[key] ?? StoreLogo;
+ CATEGORY_LOGOS[key] ?? StoreLogo;

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { adminController } from '../controllers/admin.controller';
-import { authenticate, authorize, requirePermission, requireAnyPermission, validate } from '../middlewares';
+import { authenticate, authorize, requirePermission, requireAnyPermission, validate, twoFactorResetRateLimiter } from '../middlewares';
 import { UserRole } from '../types';
 import { Permission } from '../security';
 import { driverIdParamSchema } from '../validators/driver.validator';
@@ -87,6 +87,7 @@ router.get('/users/:id/profile-360', requirePermission(Permission.USERS_VIEW), (
 router.get('/users/:id/access', requirePermission(Permission.USERS_VIEW), (req, res, next) => adminController.getEffectiveAccess(req, res, next));
 router.patch('/users/:id/status', requireAnyPermission(Permission.USERS_UPDATE, Permission.USERS_BLOCK), (req, res, next) => adminController.setUserStatus(req, res, next));
 router.post('/users/:id/reset-password', requirePermission(Permission.USERS_UPDATE), (req, res, next) => adminController.resetUserPassword(req, res, next));
+router.post('/users/:id/reset-2fa', requirePermission(Permission.USERS_RESET_2FA), twoFactorResetRateLimiter, (req, res, next) => adminController.resetUserTwoFactor(req, res, next));
 
 // Business management
 //

@@ -44,15 +44,18 @@ import {
   otpIssuedAt,
   otpSetFields,
 } from '../security';
-import { hashToken } from '../security/sessions';
+import { hashToken, normalizeClientDeviceId } from '../security/sessions';
 import {
   FirstFactor,
   hasTwoFactor,
+  twoFactorSetupPending,
   openMfaChallenge,
   resolveMfaChallenge,
   verifySecondFactor,
 } from './mfa.service';
 import { anonymizeAccount, deletionBlocker } from './accountDeletion.service';
+import { SecurityEventType } from '../models';
+import { recordSecurityEvent, recordSessionIpChange, recordSessionStarted } from './securityEvent.service';
 
 interface LoginInput {
   phone?: string;
@@ -102,6 +105,17 @@ function resendAllowed(expires: Date | null | undefined): boolean {
 
 const requestIp = (req?: Request) => (req ? clientIp(req) : 'unknown');
 const requestUa = (req?: Request) => (req?.headers['user-agent'] as string) || 'unknown';
+
+/**
+ * El identificador de dispositivo que mandó el cliente: en el cuerpo del
+ * login o en la cabecera `X-Device-ID` (así llega también en Google, Apple
+ * y el reto 2FA sin tocar sus esquemas). Se valida en `createSession`.
+ */
+const requestDeviceId = (req?: Request, explicit?: string | null): string | null => {
+  if (explicit) return explicit;
+  const header = req?.headers['x-device-id'];
+  return typeof header === 'string' ? header : null;
+};
 
 // ── Verificación de identidad de Google y Apple ───────────────────────
 
@@ -340,22 +354,45 @@ export class AuthService {
     if (!user.isActive) throw new AppError('Tu cuenta está desactivada', 403, 'ACCOUNT_INACTIVE');
   }
 
-  /** Crea la sesión y firma sus tokens con el mismo `sid`. */
-  private async startSession(user: IUser, req?: Request, deviceId?: string) {
+  /**
+   * Crea la sesión y firma sus tokens con el mismo `sid`. Es el único punto
+   * por el que pasan todos los inicios de sesión (contraseña, Google, Apple,
+   * OTP, reto 2FA, restablecimiento), así que el historial de seguridad se
+   * escribe aquí y no en cada camino.
+   */
+  private async startSession(
+    user: IUser,
+    req: Request | undefined,
+    options: { method: string; mfa: boolean; deviceId?: string | null }
+  ) {
     const sessionId = new Types.ObjectId();
     const tokens = this.generateTokens(user, sessionId);
     const ip = requestIp(req);
     const ua = requestUa(req);
 
-    const { isNewDevice } = await sessionManager.createSession({
+    const { session, isNewDevice, identified, evictedSessionIds } = await sessionManager.createSession({
       userId: user._id.toString(),
       sessionId,
       refreshToken: tokens.refreshToken,
       ip,
       userAgent: ua,
-      deviceId,
+      deviceId: requestDeviceId(req, options.deviceId),
       // S8: 8h/30min para staff, en vez de la sesión de cliente.
       isStaff: user.role === UserRole.ADMIN,
+      authMethod: options.method,
+      mfa: options.mfa,
+    });
+
+    await recordSessionStarted({
+      user,
+      req,
+      sessionId: sessionId.toString(),
+      deviceId: session.deviceId,
+      identified,
+      isNewDevice,
+      method: options.method,
+      mfa: options.mfa,
+      evictedSessionIds,
     });
 
     const lastLoginAt = new Date();
@@ -400,32 +437,99 @@ export class AuthService {
             metadata: { method: options.method },
           });
         }
+        await recordSecurityEvent({
+          userId: user._id,
+          role: user.role,
+          req,
+          type: SecurityEventType.TWO_FACTOR_FAILED,
+          result: 'failure',
+          metadata: { method: options.method },
+        });
         throw new AppError('Código 2FA inválido', 401, 'MFA_CODE_INVALID');
       }
     }
 
-    const session = await this.startSession(user, req, options.deviceId);
+    const session = await this.startSession(user, req, {
+      method: options.method,
+      mfa: hasTwoFactor(user),
+      deviceId: options.deviceId,
+    });
     return { requiresTOTP: false, user, method: options.method, ...session };
   }
 
   /** Segundo paso de cualquier login con 2FA. */
-  async completeMfaChallenge(challengeToken: string, code: string, req?: Request): Promise<AuthOutcome & { requiresTOTP: false }> {
-    const { user, method } = await resolveMfaChallenge(challengeToken, code);
+  async completeMfaChallenge(
+    challengeToken: string,
+    code: string,
+    req?: Request,
+    deviceId?: string
+  ): Promise<AuthOutcome & { requiresTOTP: false }> {
+    let resolved: Awaited<ReturnType<typeof resolveMfaChallenge>>;
+    try {
+      resolved = await resolveMfaChallenge(challengeToken, code);
+    } catch (error) {
+      // Solo se atribuye a la cuenta cuando el reto era auténtico y falló el
+      // código. Con un reto inválido, el id del token lo escribió quien llama
+      // y no demuestra nada: registrarlo dejaría ensuciar el historial ajeno.
+      if (error instanceof AppError && (error.code === 'MFA_CODE_INVALID' || error.code === 'MFA_LOCKED')) {
+        const [userId] = challengeToken.split('.');
+        await recordSecurityEvent({
+          userId,
+          req,
+          type: SecurityEventType.TWO_FACTOR_FAILED,
+          result: 'failure',
+          metadata: { locked: error.code === 'MFA_LOCKED' },
+        });
+      }
+      throw error;
+    }
+    const { user, method } = resolved;
     this.assertAccountUsable(user);
 
-    const session = await this.startSession(user, req);
+    // Antes este camino abría la sesión sin el identificador del dispositivo
+    // y sin pasar por el aviso de nuevo dispositivo ni por el antifraude: con
+    // 2FA activo, la detección simplemente no existía.
+    const session = await this.startSession(user, req, { method, mfa: true, deviceId });
 
     if (req) {
+      await this.recordLoginChecks(user, req, session.isNewDevice, deviceId);
       await logAudit(req, {
         action: AuditAction.LOGIN_SUCCESS,
         entity: 'user',
         entityId: user._id.toString(),
         description: 'Login con verificación en dos pasos',
-        metadata: { method, mfa: true, role: user.role },
+        metadata: { method, mfa: true, role: user.role, isNewDevice: session.isNewDevice },
       });
     }
 
     return { requiresTOTP: false, user, method, ...session };
+  }
+
+  /**
+   * Aviso de nuevo dispositivo en la auditoría y cruce antifraude de cuentas
+   * que comparten equipo o IP. Lo comparten el login por contraseña y el
+   * segundo paso del 2FA.
+   */
+  private async recordLoginChecks(user: IUser, req: Request, isNewDevice: boolean, deviceId?: string): Promise<void> {
+    const ip = requestIp(req);
+    const identifierMask = user.email ? maskEmail(user.email) : maskPhone(user.phone);
+    if (isNewDevice) {
+      await logAudit(req, {
+        action: AuditAction.NEW_DEVICE_DETECTED,
+        entity: 'user',
+        entityId: user._id.toString(),
+        severity: AuditSeverity.MEDIUM,
+        description: `Nuevo dispositivo detectado para ${identifierMask}`,
+      });
+    }
+
+    // Normalizado: con el valor crudo, uno distinto por cuenta esquivaba el
+    // cruce de multicuenta, y reusar el de otra persona la ligaba en falso.
+    const fraudDeviceId = generateDeviceId(requestUa(req), ip, normalizeClientDeviceId(requestDeviceId(req, deviceId)) ?? undefined);
+    const fraudCheck = await antiFraudService.checkMultipleAccounts(user._id.toString(), fraudDeviceId, ip);
+    if (fraudCheck.suspicious && fraudCheck.alert) {
+      await antiFraudService.createAlert(fraudCheck.alert);
+    }
   }
 
   // ── Google, Apple y Facebook ─────────────────────────────────────────
@@ -1045,6 +1149,14 @@ export class AuthService {
             description: `Login fallido para ${identifierMask}`,
           });
         }
+        await recordSecurityEvent({
+          userId: user._id,
+          role: user.role,
+          req,
+          type: SecurityEventType.LOGIN_FAILED,
+          result: 'failure',
+          reason: attempt.allowed ? 'bad_password' : 'locked',
+        });
       }
 
       if (!attempt.allowed) {
@@ -1087,21 +1199,7 @@ export class AuthService {
     await User.updateOne({ _id: user._id }, { $set: { failedLoginAttempts: 0, isVerified: true }, $unset: { lockedUntil: 1 } });
 
     if (req) {
-      if (outcome.isNewDevice) {
-        await logAudit(req, {
-          action: AuditAction.NEW_DEVICE_DETECTED,
-          entity: 'user',
-          entityId: user._id.toString(),
-          severity: AuditSeverity.MEDIUM,
-          description: `Nuevo dispositivo detectado para ${identifierMask}`,
-        });
-      }
-
-      const deviceId = generateDeviceId(requestUa(req), ip, input.deviceId);
-      const fraudCheck = await antiFraudService.checkMultipleAccounts(user._id.toString(), deviceId, ip);
-      if (fraudCheck.suspicious && fraudCheck.alert) {
-        await antiFraudService.createAlert(fraudCheck.alert);
-      }
+      await this.recordLoginChecks(user, req, outcome.isNewDevice, input.deviceId);
 
       await logAudit(req, {
         action: AuditAction.LOGIN_SUCCESS,
@@ -1142,7 +1240,7 @@ export class AuthService {
     if (!user) throw new AppError('Refresh token inválido', 401, 'REFRESH_INVALID');
 
     const tokens = this.generateTokens(user, sessionRef._id.toString());
-    const rotation = await sessionManager.rotateRefreshToken(refreshToken, tokens.refreshToken);
+    const rotation = await sessionManager.rotateRefreshToken(refreshToken, tokens.refreshToken, requestIp(req));
 
     if (rotation.status === 'race') {
       throw new AppError('La sesión se está renovando en otra petición. Reintenta.', 409, 'REFRESH_IN_PROGRESS');
@@ -1158,6 +1256,14 @@ export class AuthService {
           description: `Reuso de refresh token detectado. ${rotation.revokedCount} sesiones revocadas.`,
         });
       }
+      await recordSecurityEvent({
+        userId: rotation.userId,
+        req,
+        type: SecurityEventType.SESSION_REVOKED,
+        result: 'failure',
+        reason: 'reuse_detected',
+        metadata: { count: rotation.revokedCount },
+      });
       throw new AppError('Sesión comprometida. Todas las sesiones han sido cerradas por seguridad.', 401, 'REFRESH_REUSED');
     }
 
@@ -1171,6 +1277,14 @@ export class AuthService {
       await sessionManager.revokeSession(rotation.session._id!.toString(), user._id.toString(), 'admin');
       throw new AppError('Tu cuenta no está disponible.', 401, 'ACCOUNT_UNAVAILABLE');
     }
+
+    await recordSessionIpChange({
+      user,
+      req,
+      sessionId: String(rotation.session._id),
+      deviceId: rotation.session.deviceId,
+      previousIp: rotation.previousIp,
+    });
 
     return tokens;
   }
@@ -1342,6 +1456,14 @@ export class AuthService {
         metadata: { revoked },
       });
     }
+    await recordSecurityEvent({
+      userId,
+      role: req?.user?.role,
+      req,
+      type: SecurityEventType.LOGOUT,
+      sessionId: req?.sessionId ?? null,
+      reason: 'logout',
+    });
 
     return { revoked };
   }
@@ -1415,8 +1537,17 @@ export class AuthService {
     await sessionManager.revokeAllSessions(user._id.toString(), { reason: 'password_changed' });
     await clearAttempts(ip, phone);
 
+    await recordSecurityEvent({
+      userId: user._id,
+      role: user.role,
+      req,
+      type: SecurityEventType.PASSWORD_CHANGED,
+      reason: 'password_changed',
+      metadata: { how: 'reset' },
+    });
+
     // El segundo factor, si hacía falta, ya se verificó arriba.
-    const session = await this.startSession(user, req);
+    const session = await this.startSession(user, req, { method: 'password_reset', mfa: twoFactor });
 
     if (req) {
       await logAudit(req, {
@@ -1746,7 +1877,7 @@ export class AuthService {
 
   // ── 2FA ──────────────────────────────────────────────────────────────
 
-  async setup2FA(userId: string, req?: Request): Promise<{
+  async setup2FA(userId: string, req?: Request, currentPassword?: string): Promise<{
     secret: string;
     /**
      * En el móvil el QR no sirve: no se puede escanear la pantalla del mismo
@@ -1757,11 +1888,23 @@ export class AuthService {
     qrCodeDataUrl: string;
     recoveryCodes: string[];
   }> {
-    const user = await User.findById(userId).select('twoFactorEnabled email phone');
+    const user = await User.findById(userId).select('+password twoFactorEnabled email phone role');
     if (!user) throw new AppError('Usuario no encontrado', 404);
 
     if (user.twoFactorEnabled) {
-      throw new AppError('2FA ya está habilitado', 400);
+      throw new AppError('2FA ya está habilitado', 400, 'TWO_FACTOR_ALREADY_ENABLED');
+    }
+
+    // Cuentas de panel: la sesión sola no basta para enrolar un autenticador.
+    // Sin esto, una sesión olvidada en el PC del local (o el refresh token de
+    // un exempleado) registraba su propio Google Authenticator, y
+    // `verify2FASetup` expulsaba al dueño. 400 y no 401: el interceptor de
+    // los paneles trata un 401 como sesión vencida y cerraría la sesión.
+    const isPanelAccount = user.role === UserRole.ADMIN || user.role === UserRole.BUSINESS;
+    if (isPanelAccount && user.password) {
+      const ok = typeof currentPassword === 'string' && currentPassword.length > 0
+        && (await user.comparePassword(currentPassword));
+      if (!ok) throw new AppError('La contraseña no es correcta', 400, 'REAUTH_INVALID');
     }
 
     const result = await generateTOTPSecret(user.email || user.phone || user._id.toString());
@@ -1779,7 +1922,7 @@ export class AuthService {
       { $set: { twoFactorSecret: sealTotpSecret(result.secret), recoveryCodes: hashRecoveryCodes(result.recoveryCodes) } }
     );
     if (update.matchedCount === 0) {
-      throw new AppError('2FA ya está habilitado', 400);
+      throw new AppError('2FA ya está habilitado', 400, 'TWO_FACTOR_ALREADY_ENABLED');
     }
 
     if (req) {
@@ -1829,6 +1972,14 @@ export class AuthService {
         description: '2FA habilitado exitosamente',
       });
     }
+    await recordSecurityEvent({
+      userId,
+      role: user.role,
+      req,
+      type: SecurityEventType.SECURITY_SETTINGS_CHANGED,
+      reason: 'two_factor_enabled',
+      sessionId: req?.sessionId ?? null,
+    });
 
     return true;
   }
@@ -1839,6 +1990,14 @@ export class AuthService {
 
     if (!user.twoFactorEnabled) {
       throw new AppError('2FA no está habilitado', 400);
+    }
+
+    // Donde el 2FA es obligatorio, quitarlo no tiene sentido: la siguiente
+    // petición lo exigiría de nuevo, y mientras tanto el socket ya abierto
+    // seguiría recibiendo pedidos en vivo. Se pierde el celular → reset desde
+    // el panel admin.
+    if (twoFactorSetupPending({ role: user.role, twoFactorEnabled: false })) {
+      throw new AppError('La verificación en dos pasos es obligatoria para tu cuenta', 409, 'TWO_FACTOR_REQUIRED');
     }
 
     // TOTP (sin repetición) o código de recuperación (se consume).
@@ -1864,6 +2023,14 @@ export class AuthService {
         description: '2FA deshabilitado',
       });
     }
+    await recordSecurityEvent({
+      userId,
+      role: req?.user?.role,
+      req,
+      type: SecurityEventType.SECURITY_SETTINGS_CHANGED,
+      reason: 'two_factor_disabled',
+      sessionId: req?.sessionId ?? null,
+    });
 
     return true;
   }
@@ -1891,6 +2058,17 @@ export class AuthService {
         description: 'Sesión revocada remotamente',
       });
     }
+    if (result) {
+      await recordSecurityEvent({
+        userId,
+        role: req?.user?.role,
+        req,
+        type: SecurityEventType.REMOTE_LOGOUT,
+        sessionId,
+        reason: 'user_revoked',
+        metadata: { count: 1, fromSessionId: req?.sessionId ?? null },
+      });
+    }
 
     return result;
   }
@@ -1909,6 +2087,17 @@ export class AuthService {
         entityId: userId,
         severity: AuditSeverity.HIGH,
         description: `${count} sesiones revocadas`,
+      });
+    }
+    if (count > 0) {
+      await recordSecurityEvent({
+        userId,
+        role: req?.user?.role,
+        req,
+        type: SecurityEventType.REMOTE_LOGOUT,
+        sessionId: req?.sessionId ?? null,
+        reason: 'revoke_all',
+        metadata: { count },
       });
     }
 
@@ -1938,7 +2127,16 @@ export class AuthService {
 
     // Revoke all sessions: el cambio es la reacción de quien cree que le
     // robaron la cuenta.
-    await sessionManager.revokeAllSessions(userId, { reason: 'password_changed' });
+    const revokedCount = await sessionManager.revokeAllSessions(userId, { reason: 'password_changed' });
+    await recordSecurityEvent({
+      userId,
+      role: user.role,
+      req,
+      type: SecurityEventType.PASSWORD_CHANGED,
+      reason: 'password_changed',
+      sessionId: req?.sessionId ?? null,
+      metadata: { how: 'change', sessionsRevoked: revokedCount },
+    });
 
     if (req) {
       await logAudit(req, {

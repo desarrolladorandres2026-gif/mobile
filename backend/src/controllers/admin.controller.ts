@@ -475,6 +475,13 @@ export class AdminController {
     } catch (error) { next(error); }
   }
 
+  async resetUserTwoFactor(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { temporaryPassword } = await adminService.resetUserTwoFactor(param(req, 'id'), req.body?.reason, req.user!, req);
+      sendResponse(res, 200, 'Verificación en dos pasos y contraseña restablecidas', { temporaryPassword });
+    } catch (error) { next(error); }
+  }
+
   async overrideUserContact(req: Request, res: Response, next: NextFunction) {
     try {
       const { phone, email } = req.body;

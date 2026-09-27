@@ -1,18 +1,17 @@
 import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Store, RefreshCw, Play, Check, Eye, ArrowUpRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 import { useTrailingCallback } from '../hooks/useTrailingCallback';
 import { useAuthStore } from '../stores/authStore';
-import { usePreferencesStore } from '../stores/preferencesStore';
 import { useBusinessEvent, useRealtime } from '../hooks/realtimeContext';
 import {
   PackageLogo, CashLogo, WalletLogo, PrepTimeLogo,
 } from '../components/logos';
 import PickupHandoff from '../components/PickupHandoff';
 import DocumentExpiryNotice from '../components/DocumentExpiryNotice';
+import NewDeviceNotice from '../components/NewDeviceNotice';
 import OrderDetailPanel from '../components/OrderDetailPanel';
 import RejectOrderDialog from '../components/RejectOrderDialog';
 import {
@@ -58,7 +57,6 @@ export default function Dashboard() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
   const { connected } = useRealtime();
-  const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
 
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
@@ -131,9 +129,6 @@ export default function Dashboard() {
     const ref = incoming?.businessId;
     const from = typeof ref === 'object' && ref !== null ? ref._id : ref;
     if (!from || String(from) !== businessId) return;
-    // El interruptor del menú lateral silencia esto de verdad; antes solo
-    // cambiaba su propio icono.
-    if (soundEnabled) playChime();
     queryClient.setQueryData<BusinessOrder[]>(qk.activeOrders(businessId), (previous = []) =>
       // Un pedido puede llegar dos veces si el socket reconecta justo
       // después de crearse; insertarlo sin comprobar duplicaría la fila.
@@ -166,7 +161,6 @@ export default function Dashboard() {
   if (!selectedBusiness) {
     return (
       <div className="py-20 text-center space-y-2">
-        <Store className="w-8 h-8 text-[var(--color-primary)] mx-auto" />
         <p className="font-bold text-[var(--color-text-main)] text-base">
           Sin establecimiento seleccionado
         </p>
@@ -233,16 +227,15 @@ export default function Dashboard() {
           onClick={load}
           className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer flex items-center justify-center gap-2"
         >
-          <RefreshCw className="w-3.5 h-3.5 text-[var(--color-primary)]" />
           Refrescar
         </button>
       </div>
 
       <DocumentExpiryNotice businessId={businessId!} />
+      <NewDeviceNotice />
 
       {(error || loadError) && (
         <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
-          <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="flex-1 text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
         </div>
       )}
@@ -275,7 +268,7 @@ export default function Dashboard() {
             to="/settlements"
             className="text-[11px] font-semibold text-[var(--color-primary)] hover:underline flex items-center gap-1"
           >
-            Ver el detalle <ArrowUpRight className="w-3 h-3" />
+            Ver el detalle
           </Link>
         </h2>
 
@@ -394,8 +387,6 @@ export default function Dashboard() {
                           disabled={busy}
                           className="px-3.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider text-white bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                         >
-                          {order.status === 'accepted' && <Play className="w-3.5 h-3.5" />}
-                          {order.status === 'preparing' && <Check className="w-3.5 h-3.5" />}
                           {busy ? 'Un momento…' : step.label}
                         </button>
                       )}
@@ -403,9 +394,9 @@ export default function Dashboard() {
                       <button
                         onClick={() => setDetailOrder(order)}
                         aria-label={`Ver el detalle del pedido ${order.orderNumber ?? ''}`}
-                        className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
                       >
-                        <Eye className="w-4 h-4" />
+                        Ver detalle
                       </button>
                     </div>
                   </div>
@@ -437,22 +428,6 @@ export default function Dashboard() {
       )}
     </div>
   );
-}
-
-/**
- * Aviso sonoro del pedido nuevo.
- *
- * Envuelto porque los navegadores bloquean el audio hasta que alguien
- * interactúa con la página, y esa excepción no puede tumbar la llegada
- * del pedido: el sonido es un extra, la comanda no.
- */
-function playChime() {
-  try {
-    const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav');
-    audio.play().catch(() => {});
-  } catch {
-    /* sin sonido, el pedido igual aparece */
-  }
 }
 
 function MoneyRow({

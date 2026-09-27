@@ -385,6 +385,8 @@ recompilar nada ni publicar una versión de la app.
 - [ ] `backend/.env`: `NODE_ENV=production`, 4 secretos largos y distintos,
       `MONGODB_URI` de Atlas, 3 URLs de CORS con `https://`, `chmod 600`.
 - [ ] `TOTP_REQUIRED_ADMINS=true` (2FA obligatorio para admins).
+- [ ] `TOTP_REQUIRED_BUSINESS`: `false` hasta avisar a los comercios; luego `true` (2FA obligatorio en el panel de comercios). Con `TOTP_REQUIRED_BUSINESS_FROM=2026-10-05T06:00:00-05:00` el bloqueo empieza a esa hora y no en medio del servicio.
+- [ ] Si el único Super Admin pierde el celular y sus códigos: `EMAIL="..." REASON="..." npm run emergency:reset-2fa` en `backend/` (quita el 2FA, rota la contraseña, cierra sesiones y audita). Verificar la identidad antes.
 - [ ] `.env.production` de los 3 frontends con el dominio real.
 - [ ] `verify_and_maybe_rollback()` implementada.
 - [ ] `deploy.sh all` termina en verde.

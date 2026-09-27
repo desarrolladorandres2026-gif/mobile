@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
@@ -17,38 +17,38 @@ import { money, dateTime } from '../lib/drivers';
  */
 
 interface PaymentRow {
-  _id: string;
-  orderId: string | null;
-  orderNumber: string | null;
-  type: string;
-  status: 'pending' | 'paid' | 'refunded' | 'failed';
-  methodType: string | null;
-  amount: number;
-  estimatedFee: number;
-  reference: string | null;
-  createdAt: string;
+ _id: string;
+ orderId: string | null;
+ orderNumber: string | null;
+ type: string;
+ status: 'pending' | 'paid' | 'refunded' | 'failed';
+ methodType: string | null;
+ amount: number;
+ estimatedFee: number;
+ reference: string | null;
+ createdAt: string;
 }
 
 interface DailyRow {
-  date: string;
-  count: number;
-  gross: number;
-  bookedFee: number;
-  expectedDeposit: number;
-  byMethod: Record<string, { count: number; amount: number }>;
+ date: string;
+ count: number;
+ gross: number;
+ bookedFee: number;
+ expectedDeposit: number;
+ byMethod: Record<string, { count: number; amount: number }>;
 }
 
 interface Daily {
-  items: DailyRow[];
-  totals: { count: number; gross: number; bookedFee: number; expectedDeposit: number };
-  feeConfigured: boolean;
+ items: DailyRow[];
+ totals: { count: number; gross: number; bookedFee: number; expectedDeposit: number };
+ feeConfigured: boolean;
 }
 
 const STATUS_LABEL: Record<PaymentRow['status'], { text: string; className: string }> = {
-  paid: { text: 'Aprobado', className: 'text-[var(--color-success)]' },
-  refunded: { text: 'Reembolsado', className: 'text-[var(--color-warning)]' },
-  pending: { text: 'Pendiente', className: 'text-[var(--color-text-secondary)]' },
-  failed: { text: 'Fallido', className: 'text-[var(--color-danger)]' },
+ paid: { text: 'Aprobado', className: 'text-[var(--color-success)]' },
+ refunded: { text: 'Reembolsado', className: 'text-[var(--color-warning)]' },
+ pending: { text: 'Pendiente', className: 'text-[var(--color-text-main)]' },
+ failed: { text: 'Fallido', className: 'text-[var(--color-danger)]' },
 };
 
 const METHOD_LABEL: Record<string, string> = { card: 'Tarjeta', pse: 'PSE', nequi: 'Nequi', other: 'Otros' };
@@ -56,183 +56,183 @@ const METHOD_LABEL: Record<string, string> = { card: 'Tarjeta', pse: 'PSE', nequ
 type Tab = 'payments' | 'daily';
 
 export default function Payments() {
-  const [tab, setTab] = useState<Tab>('payments');
-  const [status, setStatus] = useState('');
-  const [methodType, setMethodType] = useState('');
-  const [items, setItems] = useState<PaymentRow[]>([]);
-  const [totals, setTotals] = useState<Record<string, { count: number; amount: number }>>({});
-  const [daily, setDaily] = useState<Daily | null>(null);
-  const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+ const [tab, setTab] = useState<Tab>('payments');
+ const [status, setStatus] = useState('');
+ const [methodType, setMethodType] = useState('');
+ const [items, setItems] = useState<PaymentRow[]>([]);
+ const [totals, setTotals] = useState<Record<string, { count: number; amount: number }>>({});
+ const [daily, setDaily] = useState<Daily | null>(null);
+ const [page, setPage] = useState(1);
+ const [meta, setMeta] = useState({ total: 0, totalPages: 1, limit: 25 });
+ const [loading, setLoading] = useState(true);
+ const [error, setError] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      if (tab === 'payments') {
-        const { data } = await api.get('/finance/payments', {
-          params: { page, limit: 25, ...(status ? { status } : {}), ...(methodType ? { methodType } : {}) },
-        });
-        setItems(data.data?.items ?? []);
-        setTotals(data.data?.totals ?? {});
-        setMeta(data.meta ?? { total: 0, totalPages: 1, limit: 25 });
-      } else {
-        const { data } = await api.get('/finance/payments/daily');
-        setDaily(data.data);
-      }
-    } catch (err) {
-      setError(apiMessage(err, 'No se pudieron cargar los pagos.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [tab, page, status, methodType]);
+ const load = useCallback(async () => {
+ setLoading(true);
+ setError('');
+ try {
+ if (tab === 'payments') {
+ const { data } = await api.get('/finance/payments', {
+ params: { page, limit: 25, ...(status ? { status } : {}), ...(methodType ? { methodType } : {}) },
+ });
+ setItems(data.data?.items ?? []);
+ setTotals(data.data?.totals ?? {});
+ setMeta(data.meta ?? { total: 0, totalPages: 1, limit: 25 });
+ } else {
+ const { data } = await api.get('/finance/payments/daily');
+ setDaily(data.data);
+ }
+ } catch (err) {
+ setError(apiMessage(err, 'No se pudieron cargar los pagos.'));
+ } finally {
+ setLoading(false);
+ }
+ }, [tab, page, status, methodType]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+ useEffect(() => {
+ load();
+ }, [load]);
 
-  const select =
-    'h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs font-semibold text-[var(--color-text-main)]';
+ const select =
+ 'h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs font-semibold text-[var(--color-text-main)]';
 
-  return (
-    <div className="space-y-4 animate-fade-in">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Pagos en línea</h1>
-          <p className="page-subtitle">Cobros de Wompi por estado y método, y la conciliación diaria contra sus desembolsos</p>
-        </div>
-        <div className="flex gap-1">
-          {(['payments', 'daily'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => { setTab(t); setPage(1); }}
-              className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${
-                tab === t
-                  ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
-                  : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
-              }`}
-            >
-              {t === 'payments' ? 'Pagos' : 'Conciliación diaria'}
-            </button>
-          ))}
-        </div>
-      </div>
+ return (
+ <div className="space-y-4 animate-fade-in">
+ <div className="page-header">
+ <div>
+ <h1 className="page-title">Pagos en línea</h1>
+ <p className="page-subtitle">Cobros de Wompi por estado y método, y la conciliación diaria contra sus desembolsos</p>
+ </div>
+ <div className="flex gap-1">
+ {(['payments', 'daily'] as const).map((t) => (
+ <button
+ key={t}
+ onClick={() => { setTab(t); setPage(1); }}
+ className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${
+ tab === t
+ ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
+ }`}
+ >
+ {t === 'payments' ? 'Pagos' : 'Conciliación diaria'}
+ </button>
+ ))}
+ </div>
+ </div>
 
-      {error && (
-        <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
-          <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
-        </p>
-      )}
+ {error && (
+ <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
+ <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+ </p>
+ )}
 
-      {tab === 'payments' ? (
-        <>
-          <div className="flex flex-wrap items-center gap-3">
-            <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className={select} aria-label="Estado">
-              <option value="">Todos los estados</option>
-              <option value="paid">Aprobados</option>
-              <option value="pending">Pendientes</option>
-              <option value="failed">Fallidos</option>
-              <option value="refunded">Reembolsados</option>
-            </select>
-            <select value={methodType} onChange={(e) => { setMethodType(e.target.value); setPage(1); }} className={select} aria-label="Método">
-              <option value="">Todos los métodos</option>
-              <option value="CARD">Tarjeta</option>
-              <option value="PSE">PSE</option>
-              <option value="NEQUI">Nequi</option>
-              <option value="BANCOLOMBIA_TRANSFER">Bancolombia</option>
-              <option value="DAVIPLATA">Daviplata</option>
-            </select>
-            <span className="text-xs text-[var(--color-text-secondary)]">
-              {Object.entries(totals).map(([k, v]) => `${STATUS_LABEL[k as PaymentRow['status']]?.text ?? k}: ${money(v.amount)} (${v.count})`).join(' · ')}
-            </span>
-          </div>
+ {tab === 'payments' ? (
+ <>
+ <div className="flex flex-wrap items-center gap-3">
+ <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className={select} aria-label="Estado">
+ <option value="">Todos los estados</option>
+ <option value="paid">Aprobados</option>
+ <option value="pending">Pendientes</option>
+ <option value="failed">Fallidos</option>
+ <option value="refunded">Reembolsados</option>
+ </select>
+ <select value={methodType} onChange={(e) => { setMethodType(e.target.value); setPage(1); }} className={select} aria-label="Método">
+ <option value="">Todos los métodos</option>
+ <option value="CARD">Tarjeta</option>
+ <option value="PSE">PSE</option>
+ <option value="NEQUI">Nequi</option>
+ <option value="BANCOLOMBIA_TRANSFER">Bancolombia</option>
+ <option value="DAVIPLATA">Daviplata</option>
+ </select>
+ <span className="text-xs text-[var(--color-text-main)]">
+ {Object.entries(totals).map(([k, v]) => `${STATUS_LABEL[k as PaymentRow['status']]?.text ?? k}: ${money(v.amount)} (${v.count})`).join(' · ')}
+ </span>
+ </div>
 
-          {loading ? (
-            <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-secondary)]">Cargando…</p>
-          ) : items.length === 0 ? (
-            <p className="py-10 text-center text-xs text-[var(--color-text-muted)]">No hay pagos con este filtro.</p>
-          ) : (
-            <>
-              <div className="divide-y divide-[var(--color-border-light)]">
-                {items.map((p) => (
-                  <div key={p._id} className="flex flex-wrap items-start justify-between gap-3 py-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-[var(--color-text-main)]">
-                        {p.orderId ? (
-                          <EntityLink type="order" id={p.orderId}>Pedido #{p.orderNumber ?? 'N/A'}</EntityLink>
-                        ) : (
-                          'Membresía Zipp Pro'
-                        )}
-                      </p>
-                      <p className="text-[11px] text-[var(--color-text-secondary)]">
-                        {p.methodType ?? 'Sin método'} · {dateTime(p.createdAt)}
-                      </p>
-                      <p className="break-all font-mono text-[10px] text-[var(--color-text-muted)]">{p.reference}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-[var(--color-text-main)]">{money(p.amount)}</p>
-                      <p className={`text-[10px] font-bold uppercase tracking-wider ${STATUS_LABEL[p.status].className}`}>{STATUS_LABEL[p.status].text}</p>
-                      {p.estimatedFee > 0 && (
-                        <p className="text-[10px] text-[var(--color-text-muted)]">comisión est. {money(p.estimatedFee)}</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
-            </>
-          )}
-        </>
-      ) : loading || !daily ? (
-        <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-secondary)]">Cargando…</p>
-      ) : (
-        <>
-          {!daily.feeConfigured && (
-            <p className="text-xs font-semibold text-[var(--color-warning)]">
-              La tarifa de Wompi está sin configurar (Tarifas y Precios): la comisión asentada es 0 y el depósito esperado es igual a lo cobrado.
-            </p>
-          )}
-          <div className="grid grid-cols-2 gap-4 border-b border-[var(--color-border-light)] pb-4 lg:grid-cols-4">
-            {[
-              { label: 'Cobros (14 días)', value: String(daily.totals.count) },
-              { label: 'Cobrado', value: money(daily.totals.gross) },
-              { label: 'Comisión asentada', value: money(daily.totals.bookedFee) },
-              { label: 'Depósito esperado', value: money(daily.totals.expectedDeposit) },
-            ].map((k) => (
-              <div key={k.label}>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">{k.label}</p>
-                <p className="kpi-value mt-1 text-xl text-[var(--color-text-main)]">{k.value}</p>
-              </div>
-            ))}
-          </div>
-          {daily.items.length === 0 ? (
-            <p className="py-10 text-center text-xs text-[var(--color-text-muted)]">No hubo cobros aprobados en este periodo.</p>
-          ) : (
-            <div className="divide-y divide-[var(--color-border-light)]">
-              {daily.items.map((d) => (
-                <div key={d.date} className="flex flex-wrap items-start justify-between gap-3 py-3">
-                  <div>
-                    <p className="text-sm font-bold text-[var(--color-text-main)]">{d.date}</p>
-                    <p className="text-[11px] text-[var(--color-text-secondary)]">
-                      {d.count} {d.count === 1 ? 'cobro' : 'cobros'} ·{' '}
-                      {Object.entries(d.byMethod).map(([m, v]) => `${METHOD_LABEL[m] ?? m} ${money(v.amount)}`).join(' · ')}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-[var(--color-text-main)]">Depósito esperado {money(d.expectedDeposit)}</p>
-                    <p className="text-[11px] text-[var(--color-text-muted)]">cobrado {money(d.gross)} − comisión {money(d.bookedFee)}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="text-[11px] text-[var(--color-text-muted)]">
-            Compara el depósito esperado de cada día con el reporte de desembolsos de Wompi. Una diferencia es una tarifa mal cargada o un cobro que Wompi no liquidó.
-          </p>
-        </>
-      )}
-    </div>
-  );
+ {loading ? (
+ <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ ) : items.length === 0 ? (
+ <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay pagos con este filtro.</p>
+ ) : (
+ <>
+ <div className="divide-y divide-[var(--color-border-light)]">
+ {items.map((p) => (
+ <div key={p._id} className="flex flex-wrap items-start justify-between gap-3 py-3">
+ <div className="min-w-0">
+ <p className="text-sm font-bold text-[var(--color-text-main)]">
+ {p.orderId ? (
+ <EntityLink type="order" id={p.orderId}>Pedido #{p.orderNumber ?? 'N/A'}</EntityLink>
+ ) : (
+ 'Membresía Zipp Pro'
+ )}
+ </p>
+ <p className="text-[11px] text-[var(--color-text-main)]">
+ {p.methodType ?? 'Sin método'} · {dateTime(p.createdAt)}
+ </p>
+ <p className="break-all font-mono text-[10px] text-[var(--color-text-main)]">{p.reference}</p>
+ </div>
+ <div className="text-right">
+ <p className="text-sm font-bold text-[var(--color-text-main)]">{money(p.amount)}</p>
+ <p className={`text-[10px] font-bold uppercase tracking-wider ${STATUS_LABEL[p.status].className}`}>{STATUS_LABEL[p.status].text}</p>
+ {p.estimatedFee > 0 && (
+ <p className="text-[10px] text-[var(--color-text-main)]">comisión est. {money(p.estimatedFee)}</p>
+ )}
+ </div>
+ </div>
+ ))}
+ </div>
+ <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
+ </>
+ )}
+ </>
+ ) : loading || !daily ? (
+ <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ ) : (
+ <>
+ {!daily.feeConfigured && (
+ <p className="text-xs font-semibold text-[var(--color-warning)]">
+ La tarifa de Wompi está sin configurar (Tarifas y Precios): la comisión asentada es 0 y el depósito esperado es igual a lo cobrado.
+ </p>
+ )}
+ <div className="grid grid-cols-2 gap-4 border-b border-[var(--color-border-light)] pb-4 lg:grid-cols-4">
+ {[
+ { label: 'Cobros (14 días)', value: String(daily.totals.count) },
+ { label: 'Cobrado', value: money(daily.totals.gross) },
+ { label: 'Comisión asentada', value: money(daily.totals.bookedFee) },
+ { label: 'Depósito esperado', value: money(daily.totals.expectedDeposit) },
+ ].map((k) => (
+ <div key={k.label}>
+ <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{k.label}</p>
+ <p className="kpi-value mt-1 text-xl text-[var(--color-text-main)]">{k.value}</p>
+ </div>
+ ))}
+ </div>
+ {daily.items.length === 0 ? (
+ <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hubo cobros aprobados en este periodo.</p>
+ ) : (
+ <div className="divide-y divide-[var(--color-border-light)]">
+ {daily.items.map((d) => (
+ <div key={d.date} className="flex flex-wrap items-start justify-between gap-3 py-3">
+ <div>
+ <p className="text-sm font-bold text-[var(--color-text-main)]">{d.date}</p>
+ <p className="text-[11px] text-[var(--color-text-main)]">
+ {d.count} {d.count === 1 ? 'cobro' : 'cobros'} ·{' '}
+ {Object.entries(d.byMethod).map(([m, v]) => `${METHOD_LABEL[m] ?? m} ${money(v.amount)}`).join(' · ')}
+ </p>
+ </div>
+ <div className="text-right">
+ <p className="text-sm font-bold text-[var(--color-text-main)]">Depósito esperado {money(d.expectedDeposit)}</p>
+ <p className="text-[11px] text-[var(--color-text-main)]">cobrado {money(d.gross)} − comisión {money(d.bookedFee)}</p>
+ </div>
+ </div>
+ ))}
+ </div>
+ )}
+ <p className="text-[11px] text-[var(--color-text-main)]">
+ Compara el depósito esperado de cada día con el reporte de desembolsos de Wompi. Una diferencia es una tarifa mal cargada o un cobro que Wompi no liquidó.
+ </p>
+ </>
+ )}
+ </div>
+ );
 }

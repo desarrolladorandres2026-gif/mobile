@@ -82,6 +82,8 @@ export const mfaChallengeSchema = z.object({
   body: z.object({
     challengeToken: z.string().min(20).max(200),
     code: secondFactorSchema,
+    // Opcional: también llega en la cabecera `X-Device-ID`.
+    deviceId: z.string().trim().min(1).max(128).optional(),
   }),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
@@ -260,6 +262,23 @@ export const changePasswordSchema = z.object({
     currentPassword: z.string().min(1, 'La contraseña actual es requerida').max(128),
     newPassword: z.string().min(1, 'La contraseña nueva es requerida').max(128),
   }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+/**
+ * Generar el QR del 2FA. Las cuentas de panel (admin y comercio) con
+ * contraseña la confirman aquí: una sesión olvidada en el PC del local no
+ * basta para enrolar un autenticador ajeno y expulsar al dueño. Opcional en
+ * el esquema porque la app móvil (clientes y repartidores) no la manda; la
+ * exigencia real está en `authService.setup2FA`.
+ */
+export const twoFactorSetupSchema = z.object({
+  body: z
+    .object({
+      currentPassword: z.string().min(1).max(128).optional(),
+    })
+    .optional(),
   query: z.object({}).optional(),
   params: z.object({}).optional(),
 });

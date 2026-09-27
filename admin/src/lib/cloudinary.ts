@@ -1,4 +1,4 @@
-/**
+﻿/**
  * La misma foto de Cloudinary, al ancho que de verdad se pinta.
  *
  * Las listas del panel pintan banners, categorías y flyers en miniatura:
@@ -9,6 +9,6 @@
  * evidencias de entrega: van firmadas y cambiar la URL rompe la firma.
  */
 export function sizedImage<T extends string | null | undefined>(url: T, width: number): T {
-  if (!url || !url.includes('res.cloudinary.com') || !url.includes('/image/upload/')) return url;
-  return url.replace('/image/upload/', `/image/upload/c_limit,w_${Math.round(width)},q_auto,f_auto/`) as T;
+ if (!url || !url.includes('res.cloudinary.com') || !url.includes('/image/upload/')) return url;
+ return url.replace('/image/upload/', `/image/upload/c_limit,w_${Math.round(width)},q_auto,f_auto/`) as T;
 }

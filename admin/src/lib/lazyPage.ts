@@ -1,4 +1,4 @@
-import { lazy, type ComponentType } from 'react';
+﻿import { lazy, type ComponentType } from 'react';
 
 const RELOAD_FLAG = 'zipp:chunk-reload-at';
 
@@ -16,7 +16,7 @@ const loaders = new Map<string, () => void>();
 
 /** Pide el archivo de una pagina sin navegar a ella. Repetirlo no cuesta. */
 export function preloadPage(path: string): void {
-  loaders.get(path)?.();
+ loaders.get(path)?.();
 }
 
 /**
@@ -33,31 +33,31 @@ const HOVER_DWELL_MS = 120;
 let dwell: ReturnType<typeof setTimeout> | null = null;
 
 function cancelDwell() {
-  if (dwell) clearTimeout(dwell);
-  dwell = null;
+ if (dwell) clearTimeout(dwell);
+ dwell = null;
 }
 
 /** Props para un enlace del menu: pide su pagina en cuanto hay intencion. */
 export function preloadOn(path: string) {
-  return {
-    onMouseEnter: () => {
-      cancelDwell();
-      dwell = setTimeout(() => preloadPage(path), HOVER_DWELL_MS);
-    },
-    onMouseLeave: cancelDwell,
-    onFocus: () => preloadPage(path),
-    onTouchStart: () => preloadPage(path),
-  };
+ return {
+ onMouseEnter: () => {
+ cancelDwell();
+ dwell = setTimeout(() => preloadPage(path), HOVER_DWELL_MS);
+ },
+ onMouseLeave: cancelDwell,
+ onFocus: () => preloadPage(path),
+ onTouchStart: () => preloadPage(path),
+ };
 }
 
 
 /** Cuándo fue la última recarga por esto, o `null` si no se puede saber. */
 function lastReloadAt(): number | null {
-  try {
-    return Number(sessionStorage.getItem(RELOAD_FLAG)) || 0;
-  } catch {
-    return null;
-  }
+ try {
+ return Number(sessionStorage.getItem(RELOAD_FLAG)) || 0;
+ } catch {
+ return null;
+ }
 }
 
 /**
@@ -73,38 +73,38 @@ function lastReloadAt(): number | null {
  * almacenamiento disponible no se arriesga la recarga.
  */
 export function lazyPage<T extends ComponentType<object>>(
-  load: () => Promise<{ default: T }>,
-  /** Ruta con la que se registra para `preloadPage`. Ver `loaders`. */
-  path?: string,
+ load: () => Promise<{ default: T }>,
+ /** Ruta con la que se registra para `preloadPage`. Ver `loaders`. */
+ path?: string,
 ) {
-  if (path) {
-    let started: Promise<unknown> | null = null;
-    // El propio empaquetador cachea el `import()`, pero guardar la promesa
-    // evita rehacer el trabajo en cada `mouseenter` del mismo enlace.
-    loaders.set(path, () => {
-      started ??= load().catch(() => {
-        // Que falle la precarga no es un error del usuario: no ha pedido
-        // nada todavia. Si luego navega de verdad, `lazyPage` reintenta y
-        // ahi si hay a quien contarselo.
-        started = null;
-      });
-    });
-  }
+ if (path) {
+ let started: Promise<unknown> | null = null;
+ // El propio empaquetador cachea el `import()`, pero guardar la promesa
+ // evita rehacer el trabajo en cada `mouseenter` del mismo enlace.
+ loaders.set(path, () => {
+ started ??= load().catch(() => {
+ // Que falle la precarga no es un error del usuario: no ha pedido
+ // nada todavia. Si luego navega de verdad, `lazyPage` reintenta y
+ // ahi si hay a quien contarselo.
+ started = null;
+ });
+ });
+ }
 
-  return lazy(async () => {
-    try {
-      return await load();
-    } catch (error) {
-      const last = lastReloadAt();
-      if (last === null || Date.now() - last <= 10_000) throw error;
-      try {
-        sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
-      } catch {
-        throw error;
-      }
-      window.location.reload();
-      // La recarga ya está en camino; esto solo evita pintar el error.
-      return new Promise<never>(() => {});
-    }
-  });
+ return lazy(async () => {
+ try {
+ return await load();
+ } catch (error) {
+ const last = lastReloadAt();
+ if (last === null || Date.now() - last <= 10_000) throw error;
+ try {
+ sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
+ } catch {
+ throw error;
+ }
+ window.location.reload();
+ // La recarga ya está en camino; esto solo evita pintar el error.
+ return new Promise<never>(() => {});
+ }
+ });
 }

@@ -96,7 +96,7 @@ export class AuthController {
   /** Segundo paso de cualquier login en una cuenta con 2FA. */
   async mfaChallenge(req: Request, res: Response, next: NextFunction) {
     try {
-      const outcome = await authService.completeMfaChallenge(req.body.challengeToken, req.body.code, req);
+      const outcome = await authService.completeMfaChallenge(req.body.challengeToken, req.body.code, req, req.body.deviceId);
       const needsPhone = outcome.method === 'google' || outcome.method === 'apple' || outcome.method === 'facebook'
         ? !outcome.user.phone || !outcome.user.phoneVerified
         : undefined;
@@ -333,7 +333,7 @@ export class AuthController {
 
   async setup2FA(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await authService.setup2FA(req.user!._id.toString(), req);
+      const result = await authService.setup2FA(req.user!._id.toString(), req, req.body?.currentPassword);
       sendResponse(res, 200, 'Configuración 2FA generada', result);
     } catch (error) { next(error); }
   }

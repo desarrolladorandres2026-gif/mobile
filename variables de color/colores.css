@@ -24,6 +24,9 @@
   --color-sidebar: #0E131E;
   --color-sidebar-deep: #080B11;
   --color-sidebar-hover: #141B2A;
+  /* Índigo profundo al pie del difuminado de la barra lateral de admin y
+     business (sube desde --color-sidebar-deep). Solo paneles: mobile no tiene barra. */
+  --color-sidebar-glow: #15183F;
   --color-sidebar-border: #232E46;
   --color-sidebar-text: #7184A8;
   --color-sidebar-text-active: #E5B242;

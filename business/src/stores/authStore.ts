@@ -5,6 +5,7 @@ interface User {
   name: string;
   phone: string;
   role: string;
+  twoFactorEnabled?: boolean;
 }
 
 interface Business {
@@ -56,6 +57,7 @@ interface AuthState {
 
   setAuth: (user: User, token: string, refreshToken: string) => void;
   setTokens: (token: string, refreshToken: string) => void;
+  markTwoFactorEnabled: () => void;
   setBusinesses: (businesses: Business[]) => void;
   setSelectedBusiness: (business: Business | null) => void;
   logout: () => void;
@@ -95,6 +97,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.setItem('business_token', token);
     localStorage.setItem('business_refresh_token', refreshToken);
     set({ token, refreshToken });
+  },
+
+  markTwoFactorEnabled: () => {
+    const user = get().user;
+    if (!user) return;
+    const next = { ...user, twoFactorEnabled: true };
+    localStorage.setItem('business_user', JSON.stringify(next));
+    set({ user: next });
   },
 
   setSelectedBusiness: (business) => {

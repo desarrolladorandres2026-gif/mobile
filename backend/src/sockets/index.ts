@@ -16,6 +16,7 @@ import { emitDriverLocation, adminRoom } from './emitter';
 import { resolveAuthorization, type ResolvedAuthorization } from '../services/authorization.service';
 import { Permission } from '../security';
 import { assertOrderAdminAccess } from '../services/orderAccess.service';
+import { twoFactorSetupPending } from '../services/mfa.service';
 
 export interface SocketIdentity {
   userId: string;
@@ -112,9 +113,9 @@ export async function authenticateSocket(token: unknown): Promise<SocketIdentity
   // sin 2FA fuera de las rutas para activarlo cuando
   // `TOTP_REQUIRED_ADMINS`/`requiredForAdmins` está encendido. El socket no
   // tenía el mismo requisito: un admin sin TOTP entraba igual a la sala
-  // `admin` y recibía ubicación de flota, SOS y pedidos en vivo.
-  const twoFactorSatisfied =
-    !(config.security.twoFactor.requiredForAdmins && user.role === 'admin' && !user.twoFactorEnabled);
+  // `admin` y recibía ubicación de flota, SOS y pedidos en vivo. El comercio
+  // con `TOTP_REQUIRED_BUSINESS` sigue la misma regla.
+  const twoFactorSatisfied = !twoFactorSetupPending(user);
 
   // Las salas de admin se calculan aquí, al conectar: un cambio de roles
   // desconecta sus sockets (admin.service) y el reconectar las recalcula.
@@ -149,7 +150,8 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
       // ninguna otra — antes solo se le negaba `admin`, pero `track:driver`
       // y `order:join` seguían aceptando su conexión (S5 a medias). Misma
       // regla que la API REST: sin 2FA, el handshake entero se rechaza.
-      if (identity.role === 'admin' && !identity.twoFactorSatisfied) {
+      // Solo admin y comercio pueden quedar sin satisfacerlo.
+      if (!identity.twoFactorSatisfied) {
         throw new Error('Verificación en dos pasos requerida');
       }
       (socket as any).userId = identity.userId;

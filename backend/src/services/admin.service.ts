@@ -18,6 +18,8 @@ import { businessService } from './business.service';
 import { OrderStatus, PaymentStatus, PaymentMethod, DebtStatus, CommissionStatus, UserRole } from '../types';
 import { logAudit, AuditAction, AuditSeverity, validatePasswordComplexity, clearAccountLocks } from '../security';
 import { sessionManager } from '../security/sessions';
+import { SecurityEventType } from '../models/SecurityEvent';
+import { recordSecurityEvent } from './securityEvent.service';
 import {
   assertNotSelfTarget,
   assertCanAssignRoles,
@@ -29,6 +31,7 @@ import {
   getEffectiveRoles,
 } from './authorization.service';
 import { TERMINAL_ORDER_STATUSES } from './order.service';
+import { clearTwoFactor } from './mfa.service';
 import { getIO } from '../sockets/emitter';
 
 /**
@@ -105,6 +108,70 @@ async function getOrderPeriodStats(range: DateRange) {
     cancelledCount: cancelled,
     ordersByStatus,
   };
+}
+
+/**
+ * Pone una contraseña temporal a la cuenta y cierra todas sus sesiones. La
+ * comparten el reset de contraseña, el de 2FA y el script de emergencia
+ * (`scripts/emergencyReset2fa.ts`). El valor en claro solo existe en el
+ * retorno: no se persiste ni va a la auditoría.
+ */
+export async function issueTemporaryPassword(user: IUser, updatedBy?: Types.ObjectId, req?: Request): Promise<string> {
+  const temporaryPassword = crypto.randomBytes(9).toString('base64url') + 'Aa1!';
+  const check = validatePasswordComplexity(temporaryPassword);
+  if (!check.valid) throw new AppError('No se pudo generar una contraseña temporal válida', 500);
+
+  user.password = temporaryPassword; // el hook pre-save la hashea
+  user.failedLoginAttempts = 0;
+  user.lockedUntil = undefined;
+  // S10: no hay envío de correo/SMS en este repo, así que quien restablece
+  // ve la temporal una vez — pero la temporal caduca sola a las 24h
+  // (`auth.service.ts::assertAccountUsable`), en vez de servir
+  // indefinidamente como una contraseña más.
+  user.mustChangePassword = true;
+  user.passwordExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  if (updatedBy) user.updatedBy = updatedBy;
+  await user.save();
+
+  const sessionsRevoked = await sessionManager.revokeAllSessions(user._id.toString(), {
+    reason: 'admin',
+    revokedBy: updatedBy ? String(updatedBy) : null,
+  });
+  if (user.phone) await clearAccountLocks(user.phone);
+  await recordSecurityEvent({
+    userId: user._id,
+    role: user.role,
+    req,
+    type: SecurityEventType.PASSWORD_CHANGED,
+    reason: 'admin_reset',
+    actorId: updatedBy ?? null,
+    metadata: { how: 'admin_reset', sessionsRevoked },
+  });
+  return temporaryPassword;
+}
+
+/**
+ * Deja en el historial de seguridad (si es una cuenta de comercio) que un
+ * administrador le cerró las sesiones al cambiarle el estado, el rol o el
+ * contacto. Sin esto el comercio veía sus sesiones desaparecer sin rastro.
+ */
+async function recordAdminRevocation(
+  user: IUser,
+  actor: IUser,
+  reason: string,
+  count: number,
+  req?: Request
+): Promise<void> {
+  if (count === 0) return;
+  await recordSecurityEvent({
+    userId: user._id,
+    role: user.role,
+    req,
+    type: SecurityEventType.ADMIN_SESSION_REVOCATION,
+    reason,
+    actorId: actor._id,
+    metadata: { scope: 'user', count },
+  });
 }
 
 export class AdminService {
@@ -301,7 +368,8 @@ export class AdminService {
     await user.save();
 
     if (!user.isActive) {
-      await sessionManager.revokeAllSessions(userId, { reason: 'admin' });
+      const count = await sessionManager.revokeAllSessions(userId, { reason: 'admin', revokedBy: actor._id.toString() });
+      await recordAdminRevocation(user, actor, 'account_deactivated', count, req);
     }
 
     if (req) {
@@ -347,7 +415,11 @@ export class AdminService {
     // caducara sola (hasta 8h de staff) — suficiente para que alguien
     // recién ascendido a admin, o alguien recién degradado, siguiera
     // operando con el permiso anterior.
-    await sessionManager.revokeAllSessions(userId, { reason: 'role_changed' });
+    const revokedByRoleChange = await sessionManager.revokeAllSessions(userId, {
+      reason: 'role_changed',
+      revokedBy: actor._id.toString(),
+    });
+    await recordAdminRevocation(user, actor, 'role_changed', revokedByRoleChange, req);
     disconnectUserSockets(userId);
 
     if (req) {
@@ -514,7 +586,8 @@ export class AdminService {
     await user.save();
 
     if (status !== 'active') {
-      await sessionManager.revokeAllSessions(userId, { reason: 'admin' });
+      const count = await sessionManager.revokeAllSessions(userId, { reason: 'admin', revokedBy: actor._id.toString() });
+      await recordAdminRevocation(user, actor, status === 'blocked' ? 'account_blocked' : 'account_deactivated', count, req);
     }
 
     if (req) {
@@ -553,25 +626,7 @@ export class AdminService {
     // eso es tomarla, así que exige Super Administrador.
     await assertCanTakeOverAccount(actor, user);
 
-    const temporaryPassword = crypto.randomBytes(9).toString('base64url') + 'Aa1!';
-    const check = validatePasswordComplexity(temporaryPassword);
-    if (!check.valid) throw new AppError('No se pudo generar una contraseña temporal válida', 500);
-
-    user.password = temporaryPassword;
-    user.failedLoginAttempts = 0;
-    user.lockedUntil = undefined;
-    // S10: no hay envío de correo/SMS en este repo, así que el panel sigue
-    // mostrando la temporal una vez — pero la cuenta queda obligada a
-    // cambiarla en su próximo login y la temporal caduca sola a las 24h
-    // (`auth.service.ts::assertAccountUsable`), en vez de servir
-    // indefinidamente como una contraseña más.
-    user.mustChangePassword = true;
-    user.passwordExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    user.updatedBy = actor._id;
-    await user.save();
-
-    await sessionManager.revokeAllSessions(userId, { reason: 'admin' });
-    if (user.phone) await clearAccountLocks(user.phone);
+    const temporaryPassword = await issueTemporaryPassword(user, actor._id, req);
 
     if (req) {
       await logAudit(req, {
@@ -584,6 +639,69 @@ export class AdminService {
     }
 
     return { user, temporaryPassword };
+  }
+
+  /**
+   * Quita el 2FA de una cuenta que perdió el celular y sus códigos de
+   * recuperación. Sin esto, un comercio con 2FA obligatorio que cambia de
+   * teléfono quedaba fuera para siempre y dejaba de recibir pedidos.
+   *
+   * Es un segundo factor que se cae, así que: permiso propio
+   * (`users:reset_2fa`), motivo obligatorio, la misma guarda que tomar una
+   * cuenta (nunca la propia; sobre un admin, solo Super Administrador).
+   *
+   * Y rota la contraseña en la misma acción. Sin eso, la cuenta quedaba con
+   * un solo factor y era de quien se enrolara primero: quien tuviera la
+   * contraseña robada llamaba a soporte "porque perdió el celular" y, en
+   * cuanto el login dejaba de pedir el código, registraba SU autenticador.
+   * La temporal se entrega por el canal donde se verificó la identidad.
+   */
+  async resetUserTwoFactor(
+    userId: string,
+    reason: unknown,
+    actor: IUser,
+    req?: Request
+  ): Promise<{ temporaryPassword: string }> {
+    const cleanReason = typeof reason === 'string' ? reason.trim() : '';
+    if (cleanReason.length < 10 || cleanReason.length > 500) {
+      throw new AppError('Escribe el motivo del restablecimiento (entre 10 y 500 caracteres)', 400);
+    }
+    if (!Types.ObjectId.isValid(userId)) throw new AppError('Usuario no encontrado', 404);
+
+    const user = await User.findById(userId);
+    if (!user) throw new AppError('Usuario no encontrado', 404);
+    await assertCanTakeOverAccount(actor, user);
+
+    // Primero el 2FA, que es la compuerta atómica: dos clics simultáneos no
+    // pueden rotar dos veces la contraseña y dejar inválida la que el panel
+    // ya mostró.
+    const notEnabled = new AppError('Esta cuenta no tiene la verificación en dos pasos activa', 409);
+    if (!user.twoFactorEnabled || !(await clearTwoFactor(user._id, actor._id))) throw notEnabled;
+
+    // También revoca todas las sesiones.
+    const temporaryPassword = await issueTemporaryPassword(user, actor._id, req);
+    await recordSecurityEvent({
+      userId: user._id,
+      role: user.role,
+      req,
+      type: SecurityEventType.SECURITY_SETTINGS_CHANGED,
+      reason: 'two_factor_reset_by_admin',
+      note: cleanReason,
+      actorId: actor._id,
+    });
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.TOTP_RESET_BY_ADMIN,
+        entity: 'user',
+        entityId: userId,
+        severity: AuditSeverity.CRITICAL,
+        description: `Verificación en dos pasos y contraseña de ${user.name} restablecidas por un administrador: ${cleanReason}`,
+        metadata: { reason: cleanReason, targetRole: user.role, passwordRotated: true },
+      });
+    }
+
+    return { temporaryPassword };
   }
 
   /**
@@ -778,7 +896,11 @@ export class AdminService {
     await user.save();
     if (Object.keys(unset).length) await User.updateOne({ _id: user._id }, { $unset: unset });
 
-    const revokedSessions = await sessionManager.revokeAllSessions(userId, { reason: 'contact_changed' });
+    const revokedSessions = await sessionManager.revokeAllSessions(userId, {
+      reason: 'contact_changed',
+      revokedBy: actor._id.toString(),
+    });
+    await recordAdminRevocation(user, actor, 'contact_changed', revokedSessions, req);
 
     if (req) {
       await logAudit(req, {

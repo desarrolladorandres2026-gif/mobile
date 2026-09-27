@@ -111,6 +111,28 @@ function requireValue(name: string, fallbackForDev: string): string {
   return '';
 }
 
+/**
+ * `TOTP_REQUIRED_BUSINESS_FROM`: desde cuándo el 2FA de comercios bloquea.
+ * Exige zona horaria explícita (`2026-10-05T06:00:00-05:00`): sin ella, la
+ * fecha se leería en la hora del servidor (UTC) y el corte caería cinco
+ * horas antes de lo que se creyó programar, en pleno servicio. Una fecha mal
+ * escrita no arranca en producción: un corte que no se sabe cuándo ocurre es
+ * peor que no tenerlo.
+ */
+function parseTotpCutoff(name: string): Date | null {
+  const value = process.env[name]?.trim();
+  if (!value) return null;
+  const date = new Date(value);
+  const hasZone = /(Z|[+-]\d{2}:\d{2})$/.test(value);
+  if (!hasZone || Number.isNaN(date.getTime())) {
+    const message = `${name} no es una fecha ISO con zona horaria (ej. 2026-10-05T06:00:00-05:00): "${value}".`;
+    if (isDev || isTest) console.warn(`[SECURITY] ${message}`);
+    else startupErrors.push(message);
+    return null;
+  }
+  return date;
+}
+
 // Ports Expo/Metro actually bind to in local development. Shared between
 // the CORS allowlist and the payment redirect allowlist below, so both stay
 // in sync instead of drifting into two slightly different lists of "the
@@ -942,6 +964,14 @@ export const config = {
       // `src/__tests__/adminTwoFactorEnforcement.test.ts` — activando el
       // flag explícitamente dentro de ese archivo.
       requiredForAdmins: !isTest && process.env.TOTP_REQUIRED_ADMINS !== 'false',
+      // Mismo guardia para las cuentas de comercio, pero al revés: apagado
+      // salvo que se encienda a propósito. Encenderlo frena a cada comercio
+      // en su siguiente petición hasta escanear el QR, así que se activa
+      // después de avisarles, no con el despliegue.
+      requiredForBusiness: !isTest && process.env.TOTP_REQUIRED_BUSINESS === 'true',
+      // Opcional: con el flag encendido, el bloqueo empieza aquí y no al
+      // reiniciar (para no cortar a los comercios en medio del servicio).
+      requiredForBusinessFrom: parseTotpCutoff('TOTP_REQUIRED_BUSINESS_FROM') as Date | null,
       issuer: process.env.TOTP_ISSUER || 'ZIPP',
     },
 

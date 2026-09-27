@@ -4,6 +4,7 @@ import { User, IUser } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { config } from '../config';
 import { matchTOTPStep, verifyRecoveryCode } from '../security';
+import { UserRole } from '../types';
 
 /**
  * Segundo factor, en un solo sitio.
@@ -31,6 +32,24 @@ export type FirstFactor = 'password' | 'google' | 'apple' | 'facebook' | 'otp' |
 export const hasTwoFactor = (user: Pick<IUser, 'twoFactorEnabled' | 'twoFactorSecret'>): boolean =>
   !!user.twoFactorEnabled;
 
+/**
+ * ¿La cuenta tiene que activar el 2FA antes de usar su panel? Admin con
+ * `TOTP_REQUIRED_ADMINS`, comercio con `TOTP_REQUIRED_BUSINESS`. Lo leen el
+ * middleware REST y el handshake del socket: si solo uno lo aplicara, el
+ * otro sería la puerta trasera (S5).
+ */
+export function twoFactorSetupPending(user: Pick<IUser, 'role' | 'twoFactorEnabled'>, now = new Date()): boolean {
+  if (user.twoFactorEnabled) return false;
+  const { requiredForAdmins, requiredForBusiness, requiredForBusinessFrom } = config.security.twoFactor;
+  // `TOTP_REQUIRED_BUSINESS_FROM`: antes del corte, el comercio sigue entrando
+  // sin 2FA aunque el flag esté encendido.
+  const businessCutoffReached = !requiredForBusinessFrom || now >= requiredForBusinessFrom;
+  return (
+    (requiredForAdmins && user.role === UserRole.ADMIN) ||
+    (requiredForBusiness && businessCutoffReached && user.role === UserRole.BUSINESS)
+  );
+}
+
 function hmac(value: string): string {
   return crypto.createHmac('sha256', config.security.encryptionKey).update(`zipp:mfa:v1:${value}`).digest('hex');
 }
@@ -40,6 +59,33 @@ function sameHex(a: string, b: string | undefined | null): boolean {
   const x = Buffer.from(a, 'hex');
   const y = Buffer.from(b, 'hex');
   return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+/**
+ * Quita el 2FA de una cuenta: secreto, códigos de recuperación, último paso
+ * y cualquier reto de login pendiente. Condicionado a que siga activo, así
+ * dos restablecimientos simultáneos no se cuentan dos veces: devuelve false
+ * si ya no lo estaba. No toca sesiones ni contraseña; eso es de quien llama
+ * (reset desde el panel y `scripts/emergencyReset2fa.ts`).
+ */
+export async function clearTwoFactor(userId: Types.ObjectId | string, updatedBy?: Types.ObjectId): Promise<boolean> {
+  const result = await User.updateOne(
+    { _id: userId, twoFactorEnabled: true },
+    {
+      $set: { twoFactorEnabled: false, ...(updatedBy ? { updatedBy } : {}) },
+      $unset: {
+        twoFactorSecret: 1,
+        recoveryCodes: 1,
+        twoFactorVerifiedAt: 1,
+        twoFactorLastStep: 1,
+        mfaChallengeHash: 1,
+        mfaChallengeExpires: 1,
+        mfaChallengeAttempts: 1,
+        mfaChallengeMethod: 1,
+      },
+    }
+  );
+  return result.modifiedCount === 1;
 }
 
 /** Abre (o reemplaza) el reto pendiente de un usuario y devuelve el token para el cliente. */
@@ -108,11 +154,14 @@ export async function resolveMfaChallenge(challengeToken: string, code: string):
   const [userId, secret] = typeof challengeToken === 'string' ? challengeToken.split('.') : [];
   if (!userId || !secret || !Types.ObjectId.isValid(userId)) throw invalid;
 
-  // Reserva un intento de forma atómica, solo si el reto sigue vivo.
+  // Reserva un intento de forma atómica, solo si el reto sigue vivo Y el
+  // secreto es el suyo. Antes el hash se comprobaba después de gastar el
+  // intento: con el id de la víctima (que va en claro en el token) y cinco
+  // peticiones inventadas se le cerraba el reto en pleno login.
   const reserved = await User.findOneAndUpdate(
     {
       _id: userId,
-      mfaChallengeHash: { $type: 'string' },
+      mfaChallengeHash: hmac(secret),
       mfaChallengeExpires: { $gt: new Date() },
       $or: [{ mfaChallengeAttempts: { $exists: false } }, { mfaChallengeAttempts: { $lt: MFA_MAX_ATTEMPTS } }],
     },

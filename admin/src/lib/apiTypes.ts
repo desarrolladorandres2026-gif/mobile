@@ -1,8 +1,8 @@
-/**
+﻿/**
  * Las formas que devuelve la API, escritas una vez.
  *
  * Estaban como `any` repartido por doce pantallas. `any` no significa
- * "todavía no sé la forma": significa "compilador, no mires", y lo que
+ *"todavía no sé la forma": significa"compilador, no mires", y lo que
  * dejaba pasar aquí eran erratas silenciosas — `stats?.todayComission`
  * con una eme compila igual de bien que la correcta y pinta un hueco en
  * el panel sin que nada avise, ni en desarrollo ni en producción.
@@ -14,211 +14,211 @@
 
 /** Un usuario tal y como lo devuelven los listados del panel. */
 export interface AdminUser {
-  _id: string;
-  name?: string;
-  phone?: string;
-  email?: string;
-  role?: string;
-  avatar?: string;
+ _id: string;
+ name?: string;
+ phone?: string;
+ email?: string;
+ role?: string;
+ avatar?: string;
 }
 
 /** Tarjetas de cabecera del dashboard. */
-/** Resultado de la plataforma según el libro mayor: la única definición de "ingreso". */
+/** Resultado de la plataforma según el libro mayor: la única definición de"ingreso". */
 export interface PlatformResult {
-  grossRevenue: number;
-  promotionExpense: number;
-  cashShortageExpense: number;
-  driverFeeAbsorbed: number;
-  badDebt: number;
-  netBeforeGatewayCosts: number;
-  /** Comisión estimada de Wompi asentada en el libro (0 si la tarifa está sin configurar). */
-  processingExpense?: number;
-  netAfterGatewayCosts?: number;
-  incomplete: boolean;
-  incompleteReason: string;
+ grossRevenue: number;
+ promotionExpense: number;
+ cashShortageExpense: number;
+ driverFeeAbsorbed: number;
+ badDebt: number;
+ netBeforeGatewayCosts: number;
+ /** Comisión estimada de Wompi asentada en el libro (0 si la tarifa está sin configurar). */
+ processingExpense?: number;
+ netAfterGatewayCosts?: number;
+ incomplete: boolean;
+ incompleteReason: string;
 }
 
 /** Agregados de los pedidos del periodo, calculados en la base (no sobre una muestra). */
 export interface OrderAggregates {
-  paymentBreakdown?: {
-    online: { count: number; amount: number };
-    cash: { count: number; amount: number };
-  };
-  /** Porcentaje 0-100; null si no se cerró ningún pedido. */
-  deliveryRate?: number | null;
-  deliveredCount?: number;
-  cancelledCount?: number;
-  ordersByStatus?: Record<string, number>;
+ paymentBreakdown?: {
+ online: { count: number; amount: number };
+ cash: { count: number; amount: number };
+ };
+ /** Porcentaje 0-100; null si no se cerró ningún pedido. */
+ deliveryRate?: number | null;
+ deliveredCount?: number;
+ cancelledCount?: number;
+ ordersByStatus?: Record<string, number>;
 }
 
 export interface DashboardStats extends OrderAggregates {
-  platformResult?: PlatformResult;
-  totalOrders?: number;
-  todayOrders?: number;
-  weekOrders?: number;
-  activeOrders?: number;
-  todayRevenue?: number;
-  todayCommission?: number;
-  totalBusinesses?: number;
-  activeBusinesses?: number;
-  totalDrivers?: number;
-  approvedDrivers?: number;
+ platformResult?: PlatformResult;
+ totalOrders?: number;
+ todayOrders?: number;
+ weekOrders?: number;
+ activeOrders?: number;
+ todayRevenue?: number;
+ todayCommission?: number;
+ totalBusinesses?: number;
+ activeBusinesses?: number;
+ totalDrivers?: number;
+ approvedDrivers?: number;
 }
 
 export interface DashboardFinancials extends OrderAggregates {
-  totalRevenue?: number;
-  platformResult?: PlatformResult;
-  from?: string;
-  to?: string;
+ totalRevenue?: number;
+ platformResult?: PlatformResult;
+ from?: string;
+ to?: string;
 }
 
 /** Una barra del gráfico de ingresos. */
 export interface RevenuePoint {
-  /** Cubo de fecha del `$group` del backend, en formato `YYYY-MM-DD`. */
-  _id?: string;
-  date?: string;
-  label?: string;
-  /** GMV del día. */
-  revenue?: number;
-  /** Ingreso de ZIPP del día, del libro mayor. */
-  platformRevenue?: number;
-  orders?: number;
+ /** Cubo de fecha del `$group` del backend, en formato `YYYY-MM-DD`. */
+ _id?: string;
+ date?: string;
+ label?: string;
+ /** GMV del día. */
+ revenue?: number;
+ /** Ingreso de ZIPP del día, del libro mayor. */
+ platformRevenue?: number;
+ orders?: number;
 }
 
-/** Fila de la tabla "últimos pedidos". */
+/** Fila de la tabla"últimos pedidos". */
 export interface RecentOrder {
-  _id: string;
-  orderNumber?: string;
-  /** Obligatorio: la tabla lo usa para la pastilla de estado sin guarda. */
-  status: string;
-  paymentMethod?: 'online' | 'cash_on_delivery';
-  total?: number;
-  createdAt?: string;
-  // El listado del dashboard llega con las dos referencias pobladas
-  // (`AdminService.dashboard`), así que el tipo no las declara como
-  // union con `string`: una rama que nunca se toma solo obliga a
-  // escribir guardas muertas en la tabla.
-  clientId?: AdminUser | null;
-  businessId?: { _id?: string; name?: string } | null;
+ _id: string;
+ orderNumber?: string;
+ /** Obligatorio: la tabla lo usa para la pastilla de estado sin guarda. */
+ status: string;
+ paymentMethod?: 'online' | 'cash_on_delivery';
+ total?: number;
+ createdAt?: string;
+ // El listado del dashboard llega con las dos referencias pobladas
+ // (`AdminService.dashboard`), así que el tipo no las declara como
+ // union con `string`: una rama que nunca se toma solo obliga a
+ // escribir guardas muertas en la tabla.
+ clientId?: AdminUser | null;
+ businessId?: { _id?: string; name?: string } | null;
 }
 
 /** Un canje de cupón, con usuario y pedido poblados. */
 export interface CouponRedemption {
-  _id: string;
-  discountAmount: number;
-  createdAt: string;
-  userId?: AdminUser | null;
-  orderId?: { _id?: string; orderNumber?: string } | null;
+ _id: string;
+ discountAmount: number;
+ createdAt: string;
+ userId?: AdminUser | null;
+ orderId?: { _id?: string; orderNumber?: string } | null;
 }
 
 export interface CouponHistory {
-  redemptions: CouponRedemption[];
-  usedCount: number;
-  totalDiscounted: number;
-  budgetSpent: number;
+ redemptions: CouponRedemption[];
+ usedCount: number;
+ totalDiscounted: number;
+ budgetSpent: number;
 }
 
 /** Una PQRS en la bandeja legal. */
 export interface PqrsItem {
-  _id: string;
-  type: string;
-  subject: string;
-  status: string;
-  createdAt?: string;
+ _id: string;
+ type: string;
+ subject: string;
+ status: string;
+ createdAt?: string;
 }
 
 /** Una solicitud de habeas data. */
 export interface DataRequest {
-  _id: string;
-  kind?: string;
-  type?: string;
-  status: string;
-  detail?: string;
-  createdAt?: string;
+ _id: string;
+ kind?: string;
+ type?: string;
+ status: string;
+ detail?: string;
+ createdAt?: string;
 }
 
 /** Posición en vivo que llega por socket desde la flota. */
 export interface DriverLocationUpdate {
-  driverId?: string;
-  location?: { lat: number; lng: number };
-  heading?: number | null;
+ driverId?: string;
+ location?: { lat: number; lng: number };
+ heading?: number | null;
 }
 
 /** Búsqueda global: `GET /admin/search`. Cada lista solo llega si el permiso lo permite. */
 export interface SearchOrderHit {
-  _id: string;
-  orderNumber: string;
-  status: string;
-  kind?: 'delivery' | 'errand';
-  createdAt: string;
-  businessName?: string;
+ _id: string;
+ orderNumber: string;
+ status: string;
+ kind?: 'delivery' | 'errand';
+ createdAt: string;
+ businessName?: string;
 }
 
 export interface SearchUserHit {
-  _id: string;
-  name: string;
-  role: string;
-  phoneMasked?: string;
-  emailMasked?: string;
-  isActive: boolean;
+ _id: string;
+ name: string;
+ role: string;
+ phoneMasked?: string;
+ emailMasked?: string;
+ isActive: boolean;
 }
 
 export interface SearchBusinessHit {
-  _id: string;
-  name: string;
-  city?: string;
-  isApproved: boolean;
-  isSuspended?: boolean;
-  isArchived?: boolean;
+ _id: string;
+ name: string;
+ city?: string;
+ isApproved: boolean;
+ isSuspended?: boolean;
+ isArchived?: boolean;
 }
 
 export interface SearchDriverHit {
-  _id: string;
-  name: string;
-  licensePlate?: string;
-  status?: string;
-  isApproved: boolean;
+ _id: string;
+ name: string;
+ licensePlate?: string;
+ status?: string;
+ isApproved: boolean;
 }
 
 export interface SearchCouponHit {
-  _id: string;
-  code: string;
-  isActive: boolean;
-  validUntil?: string | null;
-  businessId?: string | null;
+ _id: string;
+ code: string;
+ isActive: boolean;
+ validUntil?: string | null;
+ businessId?: string | null;
 }
 
 export interface AdminSearchResults {
-  orders?: SearchOrderHit[];
-  users?: SearchUserHit[];
-  businesses?: SearchBusinessHit[];
-  drivers?: SearchDriverHit[];
-  coupons?: SearchCouponHit[];
+ orders?: SearchOrderHit[];
+ users?: SearchUserHit[];
+ businesses?: SearchBusinessHit[];
+ drivers?: SearchDriverHit[];
+ coupons?: SearchCouponHit[];
 }
 
 /** Bandeja de alertas: `GET /admin/alerts`. */
 export type AlertSeverity = 'critical' | 'high' | 'medium';
 
 export interface AdminAlertItem {
-  /** `kind:id:stage`: estable mientras dure la alerta; una escalada cambia el `stage`. */
-  key: string;
-  kind: string;
-  severity: AlertSeverity;
-  title: string;
-  detail: string;
-  at: string;
-  links: {
-    orderId?: string;
-    userId?: string;
-    businessId?: string;
-    driverId?: string;
-  };
-  seen: boolean;
+ /** `kind:id:stage`: estable mientras dure la alerta; una escalada cambia el `stage`. */
+ key: string;
+ kind: string;
+ severity: AlertSeverity;
+ title: string;
+ detail: string;
+ at: string;
+ links: {
+ orderId?: string;
+ userId?: string;
+ businessId?: string;
+ driverId?: string;
+ };
+ seen: boolean;
 }
 
 export interface AdminAlertsResponse {
-  items: AdminAlertItem[];
-  unseen: number;
-  generatedAt: string;
-  truncated: boolean;
+ items: AdminAlertItem[];
+ unseen: number;
+ generatedAt: string;
+ truncated: boolean;
 }

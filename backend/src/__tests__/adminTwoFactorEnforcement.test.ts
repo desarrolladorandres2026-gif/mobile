@@ -36,7 +36,7 @@ describe('Administradores sin 2FA cuando TOTP_REQUIRED_ADMINS está activo', () 
     // Pero las rutas para configurarlo, y para cerrar sesión, siguen abiertas.
     await request(app).get('/api/v1/auth/me').set(header).expect(200);
 
-    const setup = await request(app).post('/api/v1/auth/2fa/setup').set(header).expect(200);
+    const setup = await request(app).post('/api/v1/auth/2fa/setup').set(header).send({ currentPassword: 'Clave.Segura123' }).expect(200);
     const { secret } = setup.body.data;
     const token = speakeasy.totp({ secret, encoding: 'base32' });
 
@@ -52,7 +52,7 @@ describe('Administradores sin 2FA cuando TOTP_REQUIRED_ADMINS está activo', () 
     const admin = await makeUser({ role: UserRole.ADMIN });
     const header = await authHeader(admin);
 
-    const setup = await request(app).post('/api/v1/auth/2fa/setup').set(header).expect(200);
+    const setup = await request(app).post('/api/v1/auth/2fa/setup').set(header).send({ currentPassword: 'Clave.Segura123' }).expect(200);
     const token = speakeasy.totp({ secret: setup.body.data.secret, encoding: 'base32' });
     await request(app).post('/api/v1/auth/2fa/verify').set(header).send({ token }).expect(200);
 

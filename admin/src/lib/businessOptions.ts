@@ -1,4 +1,4 @@
-import type { QueryClient } from '@tanstack/react-query';
+﻿import type { QueryClient } from '@tanstack/react-query';
 import api from '../services/api';
 
 /**
@@ -12,10 +12,10 @@ import api from '../services/api';
  * `api.get` (`{ data: cuerpo }`) para que quien la usa no cambie.
  */
 export async function fetchBusinessOptions(queryClient: QueryClient) {
-  const body = await queryClient.fetchQuery({
-    queryKey: ['admin', 'business-options'],
-    queryFn: async () => (await api.get('/businesses?limit=100')).data,
-    staleTime: 5 * 60_000,
-  });
-  return { data: body };
+ const body = await queryClient.fetchQuery({
+ queryKey: ['admin', 'business-options'],
+ queryFn: async () => (await api.get('/businesses?limit=100')).data,
+ staleTime: 5 * 60_000,
+ });
+ return { data: body };
 }

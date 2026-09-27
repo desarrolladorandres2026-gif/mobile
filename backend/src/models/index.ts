@@ -189,3 +189,13 @@ export {
   NOTE_MAX_LENGTH,
 } from './InternalNote';
 export { AlertReceipt, IAlertReceipt, ALERT_RECEIPT_TTL_SECONDS } from './AlertReceipt';
+
+// ── Centro de seguridad de comercios ─────────────────────────────────
+export {
+  SecurityEvent,
+  ISecurityEvent,
+  SecurityEventType,
+  SecurityEventResult,
+  SECURITY_EVENT_TYPES,
+  SECURITY_EVENT_RETENTION_DAYS,
+} from './SecurityEvent';
