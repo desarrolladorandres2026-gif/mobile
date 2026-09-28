@@ -675,7 +675,7 @@ export default function Campaigns() {
  className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in"
  onClick={() => setStatsCampaign(null)}
  >
- <div className="Zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-3" onClick={(e) => e.stopPropagation()}>
+ <div className="zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-3" onClick={(e) => e.stopPropagation()}>
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
  <BarChart3 className="w-5 h-5 text-[var(--color-primary)]" />
@@ -749,7 +749,7 @@ export default function Campaigns() {
 
  {showModal && (
  <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="Zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
+ <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
  <Megaphone className="w-5 h-5 text-[var(--color-primary)]" />

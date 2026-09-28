@@ -47,7 +47,13 @@
   }
 
   h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
     letter-spacing: -0.02em;
+  }
+
+  button, label {
+    font-weight: 600;
   }
 
   ::selection {

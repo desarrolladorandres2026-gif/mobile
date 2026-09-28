@@ -19,7 +19,7 @@ import {
 import { CollectionHeader, type HeaderVariant } from './CollectionHeader';
 import { usePreviewMode } from './explore/PreviewContext';
 import { BorderRadius, Shadow, Spacing } from '../../theme/tokens';
-import { FontFamily } from '../../theme/typography';
+import { FontFamily, FontWeight } from '../../theme/typography';
 import type {
   ExploreHeaderVariant, ExploreProductLayout, HomeSection, HomeSectionDisplayVariant, HomeSectionProduct,
 } from '../../services/endpoints';
@@ -898,7 +898,7 @@ const styles = StyleSheet.create({
   businessName: { flex: 1 },
   rating: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   name: {},
-  nameMedium: { fontFamily: FontFamily.medium },
+  nameMedium: { fontFamily: FontFamily.medium, fontWeight: FontWeight.medium },
   priceRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginTop: 2 },
   priceStrong: { fontWeight: '700' },
   strike: { textDecorationLine: 'line-through' },

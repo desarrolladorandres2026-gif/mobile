@@ -23,11 +23,11 @@ const PaymentReturn = lazyPage(() => import('./pages/PaymentReturn'));
  *   que "auto" deja mandar al `scroll-behavior` de CSS, y `index.css` pone
  *   `scroll-behavior: smooth` en `html`. Hay que pedir `'instant'` explícito
  *   para saltar ahí mismo, sin animación.
- * - La variable de Inter carga async y, como los títulos son grandes, el
- *   cambio de fuente reflowa la página justo después del primer render — si
+ * - Las rutas lazy (`LegalDocument`, `BusinessShare`, `PaymentReturn`) y las
+ *   imágenes de la página siguen reflowando después del primer render — si
  *   el scroll se hace una sola vez de inmediato, puede quedar apuntando a la
  *   posición vieja. Por eso reintenta tras el primer paint y una vez más
- *   200ms después.
+ *   1500ms después.
  */
 function ScrollToHash() {
   const { hash, pathname } = useLocation();
@@ -45,7 +45,7 @@ function ScrollToHash() {
     };
 
     // Reintenta tras el primer pintado y una vez más un poco después, para
-    // aterrizar bien aunque el reflow de la fuente variable llegue tarde.
+    // aterrizar bien aunque el reflow de una ruta lazy o una imagen llegue tarde.
     const raf = requestAnimationFrame(() => requestAnimationFrame(scroll));
     const timeout = setTimeout(scroll, 1500);
 

@@ -431,7 +431,7 @@ export default function ExploreBuilder() {
 
  {publishOpen ? (
  <div className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in" onClick={() => setPublishOpen(false)}>
- <div className="Zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5" onClick={(e) => e.stopPropagation()}>
+ <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5" onClick={(e) => e.stopPropagation()}>
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Publicar Explorar</h3>
  <p className="text-xs text-[var(--color-text-main)]">
  {dirty ? 'Se guarda el borrador y ' : ''}la app muestra esta versión en menos de un minuto. Siempre podrás volver a una anterior desde el historial.

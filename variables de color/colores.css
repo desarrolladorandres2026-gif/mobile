@@ -31,10 +31,16 @@
   --color-sidebar-text: #7184A8;
   --color-sidebar-text-active: #E5B242;
 
-  /* ── Typography Colors ── */
+  /* ── Typography Colors ──
+   * `secondary`/`muted` volvieron a un gris real el 2026-09-27: entre
+   * 2026-09-19 y 2026-09-27 quedaron igualados a `main` (mismo negro), lo
+   * que dejaba la jerarquía tipográfica sin apoyo de color — placeholders
+   * indistinguibles del valor escrito, subtítulos con el mismo peso visual
+   * que el título. Vuelven a existir tres niveles de contraste en modo
+   * claro, espejo de los que ya tenía `.dark` (línea ~113). */
   --color-text-main: #0B0F19;
-  --color-text-secondary: #0B0F19;
-  --color-text-muted: #0B0F19;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748B;
 
   /* ── Brand Accent (Oro Champagne Zipp & Acento Cromo) ── */
   --color-primary: #D69E26;
@@ -62,10 +68,14 @@
   --color-info: #D69E26;
   --color-info-bg: #FDF7E7;
 
-  /* ── Typography ── */
-  --font-display: 'Inter Variable', system-ui, -apple-system, sans-serif;
-  --font-sans: 'Inter Variable', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Inter Variable', system-ui, -apple-system, sans-serif;
+  /* ── Typography ──
+   * Segoe UI Variable (Fluent Design) primero; no se empaqueta porque es
+   * propietaria de Microsoft y solo viene instalada de fábrica en Windows
+   * 11. Fuera de Windows cae a la fuente nativa del sistema visitante
+   * (system-ui/-apple-system/Roboto), nunca a un archivo descargado. */
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
+  --font-sans: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
+  --font-mono: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, Arial, sans-serif;
 }
 
 :root {

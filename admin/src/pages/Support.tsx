@@ -53,15 +53,6 @@ interface Macro {
  appliesTo: Ticket['type'][];
 }
 
-interface Metrics {
- open: number;
- overdue: number;
- unassigned: number;
- averageFirstResponseMinutes: number;
- legalOverdue?: number;
- legalDueSoon?: number;
-}
-
 const shortDate = (iso: string) =>
  new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
 
@@ -87,11 +78,11 @@ function fillMacro(body: string, ticket: Ticket, agent?: string): string {
  .replace(/\{\{agente\}\}/g, agent ?? '');
 }
 
-const PRIORITY: Record<Ticket['priority'], { label: string; chip: string }> = {
- urgent: { label: 'Urgente', chip: 'bg-[var(--color-danger)] text-white' },
- high: { label: 'Alta', chip: 'bg-[var(--color-warning)] text-white' },
- normal: { label: 'Normal', chip: 'bg-[var(--color-bg-alt)] text-[var(--color-text-main)]' },
- low: { label: 'Baja', chip: 'bg-[var(--color-bg-alt)] text-[var(--color-text-main)]' },
+const PRIORITY: Record<Ticket['priority'], { label: string; tone: string }> = {
+ urgent: { label: 'Urgente', tone: 'text-[var(--color-danger)]' },
+ high: { label: 'Alta', tone: 'text-[var(--color-warning)]' },
+ normal: { label: 'Normal', tone: 'text-[var(--color-text-main)]' },
+ low: { label: 'Baja', tone: 'text-[var(--color-text-main)]' },
 };
 
 /** Cuánto queda o cuánto lleva vencido. El signo es el dato. */
@@ -114,7 +105,6 @@ const nameOf = (value: Ticket['userId'] | Ticket['assignedTo']): string | null =
 
 export default function Support() {
  const [tickets, setTickets] = useState<Ticket[]>([]);
- const [metrics, setMetrics] = useState<Metrics | null>(null);
  const [loading, setLoading] = useState(true);
  const [onlyOverdue, setOnlyOverdue] = useState(false);
  const [onlyLegalOverdue, setOnlyLegalOverdue] = useState(false);
@@ -140,12 +130,8 @@ export default function Support() {
  if (type) params.type = type;
  if (requester) params.requesterRole = requester;
  if (term) params.q = term;
- const [queue, totals] = await Promise.all([
- api.get('/pqrs/support/queue', { params }),
- api.get('/pqrs/support/metrics'),
- ]);
+ const queue = await api.get('/pqrs/support/queue', { params });
  setTickets(queue.data.data ?? []);
- setMetrics(totals.data.data ?? null);
  } catch (err) {
  console.error(err);
  setError(apiMessage(err, 'No se pudo cargar la bandeja de soporte.'));
@@ -212,38 +198,12 @@ export default function Support() {
  </div>
  <button
  onClick={load}
- className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-xs font-semibold text-[var(--color-text-main)] shadow-xs transition-all hover:bg-[var(--color-bg)]"
+ className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
  >
- <RotateCw className="h-4 w-4 text-[var(--color-primary)]" />
+ <RotateCw className="h-3.5 w-3.5" />
  <span>Actualizar</span>
  </button>
  </div>
-
- {metrics ? (
- <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
- {[
- { label: 'Abiertos', value: metrics.open, tone: '' },
- { label: 'Plazo legal vencido', value: metrics.legalOverdue ?? 0, tone: 'text-[var(--color-danger)]' },
- { label: 'Vence por ley ≤ 3 días', value: metrics.legalDueSoon ?? 0, tone: 'text-[var(--color-warning)]' },
- { label: 'SLA interno vencido', value: metrics.overdue, tone: 'text-[var(--color-danger)]' },
- { label: 'Sin asignar', value: metrics.unassigned, tone: 'text-[var(--color-warning)]' },
- {
- label: 'Primera respuesta (min)',
- value: Math.round(metrics.averageFirstResponseMinutes || 0),
- tone: '',
- },
- ].map((kpi) => (
- <div key={kpi.label}>
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
- {kpi.label}
- </p>
- <p className={`text-2xl font-bold ${kpi.tone || 'text-[var(--color-text-main)]'}`}>
- {kpi.value}
- </p>
- </div>
- ))}
- </div>
- ) : null}
 
  <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
  <div className="flex gap-4 border-b border-[var(--color-border-light)]">
@@ -336,9 +296,7 @@ export default function Support() {
  <div className="flex flex-wrap items-center gap-2">
  <p className="font-bold text-[var(--color-text-main)]">{ticket.subject}</p>
  <span
- className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
- PRIORITY[ticket.priority].chip
- }`}
+ className={`text-[11px] font-bold uppercase tracking-wider ${PRIORITY[ticket.priority].tone}`}
  >
  {PRIORITY[ticket.priority].label}
  </span>

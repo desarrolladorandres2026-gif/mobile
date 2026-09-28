@@ -5,16 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
-import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
-
-import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  Inter_800ExtraBold,
-} from '@expo-google-fonts/inter';
 
 import { useAuthStore } from '../stores/authStore';
 import { useTheme } from '../hooks/useTheme';
@@ -132,14 +123,6 @@ function RootLayoutContent() {
   // El socket, una sola vez para toda la app (ver `useRealtimeOwner`).
   useRealtimeOwner(realtimeEnabled);
 
-  const [fontsLoaded] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    Inter_800ExtraBold,
-  });
-
   useEffect(() => {
     // Antes que nada: a partir de aquí, un fallo en un `setTimeout`, en un
     // listener del socket o en una promesa suelta deja rastro. `ErrorBoundary`
@@ -186,7 +169,7 @@ function RootLayoutContent() {
     animation: 'slide_from_right' as const,
   }), [c.background]);
 
-  const booted = !isLoading && fontsLoaded;
+  const booted = !isLoading;
 
   useEffect(() => {
     // Se oculta solo cuando ya hay algo que enseñar debajo. Ocultarlo antes
@@ -236,15 +219,6 @@ const previewQueryClient = new QueryClient({ defaultOptions: { queries: { retry:
  * necesario para pintar (fuentes, gestos y un QueryClient en memoria).
  */
 function PreviewRoot() {
-  const [fontsLoaded] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    Inter_800ExtraBold,
-  });
-  if (!fontsLoaded) return null;
-
   return (
     <GestureHandlerRootView style={styles.root}>
       <QueryClientProvider client={previewQueryClient}>

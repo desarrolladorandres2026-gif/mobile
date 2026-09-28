@@ -32,7 +32,7 @@ export function VersionHistory({ onClose, onRestore, canManage }: {
  return (
  <div className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-xs flex justify-end animate-fade-in" onClick={onClose}>
  <aside
- className="Zipp-modal h-full w-full max-w-md p-6 overflow-y-auto space-y-5"
+ className="zipp-modal h-full w-full max-w-md p-6 overflow-y-auto space-y-5"
  onClick={(e) => e.stopPropagation()}
  aria-label="Historial de publicaciones"
  >

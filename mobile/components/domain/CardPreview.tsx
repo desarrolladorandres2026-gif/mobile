@@ -9,7 +9,7 @@ import { Text } from '../ui';
 import { CardBrandLogo } from '../brand/CardBrandLogo';
 import { cardNumberSlots, detectBrand, type CardBrand, type CardFormValues } from '../../lib/card';
 import { BorderRadius, Motion, Spacing } from '../../theme/tokens';
-import { FontFamily } from '../../theme/typography';
+import { FontFamily, FontWeight } from '../../theme/typography';
 
 export type CardField = keyof CardFormValues;
 
@@ -218,14 +218,14 @@ const styles = StyleSheet.create({
 
   numberRow: { flexDirection: 'row', gap: 10, alignSelf: 'flex-start', marginLeft: -6 },
   group: { flexDirection: 'row' },
-  digit: { fontFamily: FontFamily.dataBold, fontSize: 19, width: 12, textAlign: 'center' },
+  digit: { fontFamily: FontFamily.dataBold, fontWeight: FontWeight.dataBold, fontSize: 19, width: 12, textAlign: 'center' },
 
   bottomRow: { flexDirection: 'row', alignItems: 'flex-end', gap: Spacing.md, marginHorizontal: -6 },
-  caption: { fontFamily: FontFamily.semibold, fontSize: 9, letterSpacing: 1 },
-  value: { fontFamily: FontFamily.dataBold, fontSize: 14, letterSpacing: 0.5, marginTop: 2 },
+  caption: { fontFamily: FontFamily.semibold, fontWeight: FontWeight.semibold, fontSize: 9, letterSpacing: 1 },
+  value: { fontFamily: FontFamily.dataBold, fontWeight: FontWeight.dataBold, fontSize: 14, letterSpacing: 0.5, marginTop: 2 },
 
   amexCvc: { position: 'absolute', right: Spacing.lg - 6, top: '42%' },
-  cvcText: { fontFamily: FontFamily.dataBold, fontSize: 15, letterSpacing: 2 },
+  cvcText: { fontFamily: FontFamily.dataBold, fontWeight: FontWeight.dataBold, fontSize: 15, letterSpacing: 2 },
 
   stripe: { height: 44, marginTop: Spacing.xl, backgroundColor: '#0B0B0D' },
   signatureRow: { flexDirection: 'row', alignItems: 'center', marginTop: Spacing.lg, marginHorizontal: Spacing.lg },

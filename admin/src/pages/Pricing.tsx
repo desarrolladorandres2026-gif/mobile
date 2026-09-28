@@ -1,8 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import {
- Percent, Bike, Receipt, History, Save, AlertTriangle, Lock, CheckCircle2,
- MapPin, Wallet, Banknote, CreditCard
-} from 'lucide-react';
+import { Save, AlertTriangle, Lock, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage, apiStatus } from '../lib/apiError';
 
@@ -235,27 +232,18 @@ export default function Pricing() {
  );
 
  const seccion = (
- icono: typeof Percent,
  titulo: string,
  descripcion: string,
  contenido: React.ReactNode
- ) => {
- const Icono = icono;
- return (
- <div className="zipp-card p-5 space-y-2.5">
- <div className="flex items-start gap-3 border-b border-[var(--color-border-light)] pb-3">
- <div className="w-9 h-9 rounded-lg bg-[var(--color-primary-bg)] text-[var(--color-primary)] flex items-center justify-center">
- <Icono className="w-5 h-5" />
- </div>
+ ) => (
+ <div className="pt-6 first:pt-0 border-t border-[var(--color-border-light)] first:border-t-0 space-y-3">
  <div>
- <h3 className="text-sm font-bold text-[var(--color-text-main)]">{titulo}</h3>
- <p className="text-xs text-[var(--color-text-main)]">{descripcion}</p>
- </div>
+ <h3 className="text-sm font-semibold text-[var(--color-text-main)]">{titulo}</h3>
+ <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{descripcion}</p>
  </div>
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">{contenido}</div>
  </div>
  );
- };
 
  return (
  <div className="space-y-3 animate-fade-in pb-28">
@@ -265,8 +253,9 @@ export default function Pricing() {
  <h1 className="page-title">Tarifas y Monetización</h1>
  <p className="page-subtitle">Parámetros de cobro de domicilios, comisiones e incentivos</p>
  </div>
- <div className="px-3 py-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-primary)] font-mono text-xs font-bold shadow-xs">
- Versión Activa: v{config.version}
+ <div className="text-right">
+ <p className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider">Versión activa</p>
+ <p className="text-sm font-bold text-[var(--color-primary)] font-mono">v{config.version}</p>
  </div>
  </div>
 
@@ -277,7 +266,7 @@ export default function Pricing() {
  </p>
  </div>
 
- {seccion(Percent, 'Comisión de Comercios', 'Reglas de comisión sobre ventas aplicadas a los negocios aliados.', (
+ {seccion('Comisión de Comercios', 'Reglas de comisión sobre ventas aplicadas a los negocios aliados.', (
  <>
  {campoBps('merchantCommissionBps', 'Comisión Global ZIPP', 'Aplica a establecimientos sin tarifa personalizada.')}
  <label className="block space-y-1.5">
@@ -328,7 +317,7 @@ export default function Pricing() {
  </>
  ))}
 
- {seccion(Bike, 'Tarifas de Domicilio', 'Costo de carrera para el repartidor y cliente final.', (
+ {seccion('Tarifas de Domicilio', 'Costo de carrera para el repartidor y cliente final.', (
  <>
  {campoMoneda('driverBaseFee', 'Tarifa Base Repartidor')}
  {campoMoneda('driverPerKm', 'Valor por Kilómetro')}
@@ -341,7 +330,7 @@ export default function Pricing() {
  </>
  ))}
 
- {seccion(Receipt, 'Fee de Servicio', 'Cargos operativos adicionales por procesamiento digital.', (
+ {seccion('Fee de Servicio', 'Cargos operativos adicionales por procesamiento digital.', (
  <>
  {campoMoneda('serviceFeeFixed', 'Fee Fijo por Pedido')}
  {campoBps('serviceFeeBps', 'Fee Porcentual Servicio')}
@@ -350,7 +339,7 @@ export default function Pricing() {
  </>
  ))}
 
- {seccion(MapPin, 'Cobertura, Propina e Impuesto', 'Límites geográficos y de cobro que aplican a todo pedido, más el redondeo con el que el cliente ve el domicilio.', (
+ {seccion('Cobertura, Propina e Impuesto', 'Límites geográficos y de cobro que aplican a todo pedido, más el redondeo con el que el cliente ve el domicilio.', (
  <>
  {campoEntero('maxRadiusMeters', 'Radio Máximo de Cobertura', 'm', 'Distancia desde el negocio a partir de la cual la dirección queda"fuera de cobertura".')}
  {campoMoneda('deliveryRoundingStep', 'Paso de Redondeo del Domicilio', 'El domicilio final siempre cae en un múltiplo de este valor.')}
@@ -359,7 +348,7 @@ export default function Pricing() {
  </>
  ))}
 
- {seccion(Wallet, 'Promociones: Subsidio y Presupuesto', 'Techos que protegen el margen de la plataforma frente a cupones y campañas financiadas por ZIPP.', (
+ {seccion('Promociones: Subsidio y Presupuesto', 'Techos que protegen el margen de la plataforma frente a cupones y campañas financiadas por ZIPP.', (
  <>
  {campoMoneda('couponSubsidyLimit', 'Tope de Subsidio por Cupón', 'Ningún cupón financiado por ZIPP puede descontar más que esto en un solo pedido, sin importar lo que el cupón permita.')}
  {campoMoneda('campaignBudgetTotal', 'Presupuesto Total de Campañas', 'Techo agregado para todas las campañas activas financiadas por la plataforma. 0 = sin techo agregado.')}
@@ -367,14 +356,14 @@ export default function Pricing() {
  </>
  ))}
 
- {seccion(Banknote, 'Pago Contra Entrega', 'Enciende o apaga el efectivo en toda la plataforma. Requiere un proceso de rendición de cuentas funcionando.', (
+ {seccion('Pago Contra Entrega', 'Enciende o apaga el efectivo en toda la plataforma. Requiere un proceso de rendición de cuentas funcionando.', (
  <>
  {campoToggle('cashOnDeliveryEnabled', 'Pago en Efectivo', 'Con esto apagado, el checkout rechaza cualquier intento de pagar contra entrega.')}
  {campoMoneda('cashOnDeliveryMaxAmount', 'Tope por Pedido en Efectivo', 'Un pedido que supere este total obliga a pagar en línea.')}
  </>
  ))}
 
- {seccion(CreditCard, 'Comisión de la Pasarela (Wompi)', 'La tarifa de tu contrato con Wompi, por método. Cada cobro aprobado asienta esta comisión como gasto y el resultado de la plataforma la resta. En 0 significa sin configurar: no se asienta nada y las cifras de margen siguen marcadas como incompletas.', (
+ {seccion('Comisión de la Pasarela (Wompi)', 'La tarifa de tu contrato con Wompi, por método. Cada cobro aprobado asienta esta comisión como gasto y el resultado de la plataforma la resta. En 0 significa sin configurar: no se asienta nada y las cifras de margen siguen marcadas como incompletas.', (
  <>
  {campoBps('gatewayCardBps', 'Tarjeta: Porcentaje')}
  {campoMoneda('gatewayCardFixed', 'Tarjeta: Fijo por Cobro')}
@@ -390,9 +379,8 @@ export default function Pricing() {
 
  {/* History */}
  <div className="table-container">
- <div className="px-5 py-3.5 border-b border-[var(--color-border-light)] bg-[var(--color-bg)] flex items-center gap-2">
- <History className="w-4 h-4 text-[var(--color-primary)]" />
- <h3 className="text-sm font-bold text-[var(--color-text-main)]">Auditoría de Cambios de Tarifas</h3>
+ <div className="px-5 py-3.5 border-b border-[var(--color-border-light)]">
+ <h3 className="text-sm font-semibold text-[var(--color-text-main)]">Auditoría de cambios de tarifas</h3>
  </div>
 
  <div className="max-h-[300px] overflow-y-auto divide-y divide-[var(--color-border-light)]">

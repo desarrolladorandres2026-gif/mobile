@@ -235,17 +235,15 @@ export default function Dashboard() {
       <NewDeviceNotice />
 
       {(error || loadError) && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
-          <p className="flex-1 text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
-        </div>
+        <p className="text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
       )}
 
       {/* ── Cifras ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-[var(--color-border-light)] border-y border-[var(--color-border-light)]">
         {kpis.map((kpi) => (
           <div key={kpi.title} className="py-4 px-1 sm:px-5 flex items-start justify-between gap-3">
-            <span className="w-11 h-11 shrink-0 rounded-xl bg-[var(--color-bg)] flex items-center justify-center">
-              <kpi.Illustration size={34} />
+            <span className="shrink-0">
+              <kpi.Illustration size={38} />
             </span>
             <div className="text-right min-w-0">
               <p className="text-xs font-semibold text-[var(--color-text-secondary)]">{kpi.title}</p>
@@ -308,7 +306,7 @@ export default function Dashboard() {
 
       {/* ── Cola de cocina ── */}
       <section className="table-container">
-        <header className="px-5 py-4 border-b border-[var(--color-border-light)] bg-[var(--color-bg)] flex items-center justify-between gap-3">
+        <header className="px-5 py-4 border-b border-[var(--color-border-light)] flex items-center justify-between gap-3">
           <h2 className="text-sm font-bold text-[var(--color-text-main)]">
             Comandas activas
           </h2>

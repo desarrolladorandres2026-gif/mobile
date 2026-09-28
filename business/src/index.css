@@ -24,31 +24,26 @@
 
   body {
     font-family: var(--font-sans);
-    background-color: #F6F8FA;
-    color: #0B0F19;
+    background-color: var(--color-bg);
+    color: var(--color-text-main);
     min-height: 100dvh;
     -webkit-font-smoothing: antialiased;
     transition: background-color 0.2s ease, color 0.2s ease;
-  }
-
-  .dark body {
-    background-color: #080B11;
-    color: #F6F8FA;
   }
 
   h1,
   h2,
   h3,
   h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
     letter-spacing: -0.02em;
-    color: #0B0F19;
+    color: var(--color-text-main);
   }
 
-  .dark h1,
-  .dark h2,
-  .dark h3,
-  .dark h4 {
-    color: #ffffff;
+  button,
+  label {
+    font-weight: 600;
   }
 
   button:not(:disabled) {
@@ -123,11 +118,7 @@
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.1;
-  color: #0B0F19;
-}
-
-.dark .kpi-value {
-  color: #ffffff;
+  color: var(--color-text-main);
 }
 
 .tabular {
@@ -151,7 +142,7 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7184A8;
+  color: var(--color-sidebar-text);
   padding: 14px 16px 6px;
 }
 
@@ -181,79 +172,56 @@
 .page-title {
   font-size: 1.35rem;
   font-weight: 700;
-  color: #0B0F19;
+  color: var(--color-text-main);
   letter-spacing: -0.02em;
   line-height: 1.2;
 }
 
-.dark .page-title {
-  color: #ffffff;
-}
-
 .page-subtitle {
   font-size: 0.8125rem;
-  color: #475569;
+  color: var(--color-text-secondary);
   margin-top: 0.25rem;
 }
 
-.dark .page-subtitle {
-  color: #7184A8;
-}
-
-/* Tablas Zipp */
+/* Tabla plana Zipp: antes era una tarjeta (fondo blanco, radio, sombra)
+   mientras que admin ya usaba esta misma clase sin superficie propia desde
+   antes — ver regla "sin cajas". Se alinea aquí para que ambos paneles
+   compartan un único lenguaje de tabla. */
 .table-container {
-  border: 1px solid #E1E6ED;
-  border-radius: 0.875rem;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
   overflow: hidden;
-  background-color: #ffffff;
-  box-shadow: 0 1px 3px 0 rgba(8, 11, 17, 0.03);
-}
-
-.dark .table-container {
-  background-color: #141B2A;
-  border-color: #232E46;
-  box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.5);
+  background-color: transparent;
 }
 
 .table-header-cell {
-  padding: 0.875rem 1.25rem;
-  font-size: 0.72rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.68rem;
   font-weight: 600;
-  color: #475569;
+  color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background-color: #F6F8FA;
-  border-bottom: 1px solid #E1E6ED;
-}
-
-.dark .table-header-cell {
-  background-color: #0E131E;
-  color: #7184A8;
-  border-bottom-color: #232E46;
+  background-color: transparent;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .table-body-cell {
-  padding: 0.95rem 1.25rem;
+  padding: 0.85rem 1rem;
   font-size: 0.8125rem;
   vertical-align: middle;
-  color: #0B0F19;
-  border-bottom: 1px solid #E1E6ED;
+  color: var(--color-text-main);
+  border-bottom: 1px solid var(--color-border);
 }
 
-.dark .table-body-cell {
-  color: #A4B3CD;
-  border-bottom-color: #232E46;
-}
-
-/* Modal Zipp */
+/* Modal Zipp: única superficie elevada legítima (confirmaciones, formularios
+   aislados) — ver regla "sin cajas". */
 .zipp-modal {
-  background: #ffffff;
-  border: 1px solid #E1E6ED;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   box-shadow: 0 25px 50px -12px rgba(8, 11, 17, 0.12);
 }
 
 .dark .zipp-modal {
-  background: #141B2A;
-  border-color: #232E46;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
 }
