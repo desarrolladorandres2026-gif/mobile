@@ -308,6 +308,8 @@ export async function makeCoupon(overrides: Partial<{
   validFromTime: string;
   validUntilTime: string;
   restrictedToUserId: any;
+  autoApply: boolean;
+  productIds: any[];
 }> = {}) {
   const type = overrides.type ?? CouponType.PERCENTAGE;
 
@@ -346,6 +348,8 @@ export async function makeCoupon(overrides: Partial<{
     validFromTime: overrides.validFromTime ?? '',
     validUntilTime: overrides.validUntilTime ?? '',
     restrictedToUserId: overrides.restrictedToUserId ?? null,
+    autoApply: overrides.autoApply ?? false,
+    productIds: overrides.productIds ?? [],
   });
 }
 

@@ -4,28 +4,9 @@ import { BellRing, PackageCheck, X } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { useBusinessEvent } from '../hooks/realtimeContext';
+import { playNotificationSound, primeNotificationSound } from '../lib/notificationSound';
 
 type Notice = { id: string; title: string; detail: string; tone: 'new' | 'cancelled' };
-
-function chime() {
-  try {
-    const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
-    const context = new AudioCtx();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(880, context.currentTime);
-    oscillator.frequency.exponentialRampToValueAtTime(1320, context.currentTime + 0.16);
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.38);
-    oscillator.connect(gain).connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.4);
-    oscillator.addEventListener('ended', () => void context.close());
-  } catch { /* El banner sigue siendo el aviso principal. */ }
-}
 
 /** Avisos globales: no dependen de que la persona esté en el Dashboard. */
 export default function OrderNotifications() {
@@ -51,17 +32,43 @@ export default function OrderNotifications() {
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
+  // Los navegadores exigen una interacción antes de permitir audio. Queda
+  // habilitado tras el primer clic o tecla de la sesión, sin pedir permisos.
+  useEffect(() => {
+    const unlock = () => primeNotificationSound();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
+
   useBusinessEvent('order:incoming', (order) => {
     const ref = order.businessId;
     const orderBusinessId = typeof ref === 'object' && ref !== null ? ref._id : ref;
     if (!businessId || String(orderBusinessId) !== String(businessId)) return;
-    if (soundEnabled) chime();
+    if (soundEnabled) playNotificationSound('new');
     show({ id: `incoming:${order._id}`, title: '¡Nuevo pedido!', detail: `Pedido #${order.orderNumber ?? order._id.slice(-6)} listo para revisar.`, tone: 'new' });
   });
 
   useBusinessEvent('order:status:changed', (order) => {
-    if (order.status !== 'cancelled') return;
-    show({ id: `cancelled:${order.orderId}`, title: 'Pedido cancelado', detail: `El pedido #${order.orderNumber} fue cancelado${order.cancellationReason ? `: ${order.cancellationReason}` : '.'}`, tone: 'cancelled' });
+    if (soundEnabled) playNotificationSound(order.status === 'cancelled' ? 'attention' : 'update');
+    if (order.status === 'cancelled') {
+      show({ id: `cancelled:${order.orderId}`, title: 'Pedido cancelado', detail: `El pedido #${order.orderNumber} fue cancelado${order.cancellationReason ? `: ${order.cancellationReason}` : '.'}`, tone: 'cancelled' });
+      return;
+    }
+    show({ id: `status:${order.orderId}:${order.status}`, title: 'Pedido actualizado', detail: `El pedido #${order.orderNumber} cambió a ${order.status}.`, tone: 'new' });
+  });
+
+  useBusinessEvent('order:driver:assigned', (order) => {
+    if (soundEnabled) playNotificationSound('update');
+    show({ id: `driver:${order.orderId}`, title: 'Domiciliario asignado', detail: `Un domiciliario fue asignado al pedido #${order.orderNumber}.`, tone: 'new' });
+  });
+
+  useBusinessEvent('order:driver:arrived', (order) => {
+    if (soundEnabled) playNotificationSound('attention');
+    show({ id: `arrived:${order.orderId}:${order.stage}`, title: order.stage === 'pickup' ? 'Domiciliario en el local' : 'Pedido en destino', detail: `Actualización del pedido #${order.orderNumber}.`, tone: 'new' });
   });
 
   if (!notices.length) return null;

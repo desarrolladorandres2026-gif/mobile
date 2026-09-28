@@ -410,7 +410,10 @@ export class RefundService {
 
     if (isFull) {
       // The promotion was never consumed, so give the use and budget back.
-      if (order.couponId) await couponService.release(order._id.toString());
+      // Incondicional: `release()` ya resuelve todas las filas de este
+      // pedido —cupón de código, promociones automáticas, o ninguna—, así
+      // que no hace falta que `order.couponId` esté puesto para intentarlo.
+      await couponService.release(order._id.toString());
 
       if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
         await cashReconciliationService.void(order._id);

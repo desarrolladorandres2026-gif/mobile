@@ -5,7 +5,7 @@ import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 
 /**
- * Una línea arriba del Dashboard mientras haya un papel vencido o por vencer
+ * Una línea arriba de cada página mientras haya un papel vencido o por vencer
  * en 30 días. El panel web no recibe push, así que esto es lo que ve el
  * dueño que no tiene la app; la push (`documentExpiry.service`) le llega a
  * quien sí la tiene.

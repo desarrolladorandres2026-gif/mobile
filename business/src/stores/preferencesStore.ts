@@ -22,7 +22,7 @@ function readSound(): boolean {
 }
 
 interface PreferencesState {
-  /** Si suena el aviso al entrar un pedido nuevo. */
+  /** Si suenan los avisos en vivo de pedidos y seguridad. */
   soundEnabled: boolean;
   toggleSound: () => void;
 }

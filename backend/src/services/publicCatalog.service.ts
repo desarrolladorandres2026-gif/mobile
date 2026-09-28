@@ -1,10 +1,14 @@
 import { Types } from 'mongoose';
-import { IBusiness } from '../models';
+import { IBusiness, IProduct } from '../models';
 import { cache, CachePrefix } from '../cache';
 import { businessService } from './business.service';
 import { categoryService } from './category.service';
 import { productService } from './product.service';
 import { pricingService } from './pricing.service';
+import { withEffectiveFreeDelivery } from '../utils/catalogQuery';
+import { couponService } from './coupon.service';
+import { pricingConfigService } from './pricingConfig.service';
+import { resolveEffectiveDiscount } from './productPromotion.service';
 
 /**
  * Lo que la app lee de un negocio sin sesión —ficha, secciones, carta, los
@@ -48,7 +52,24 @@ const cacheable = (id: string | undefined) => !!id && Types.ObjectId.isValid(id)
  */
 async function withDeliveryFloor(business: IBusiness) {
   const deliveryFeeFrom = await pricingService.minimumDeliveryFee(business);
-  return { ...business.toJSON(), deliveryFeeFrom };
+  return { ...withEffectiveFreeDelivery(business.toJSON()), deliveryFeeFrom };
+}
+
+/**
+ * Sustituye `discountPrice` por el precio efectivo cuando una promoción
+ * automática cubre el producto — la misma precedencia con la que se cobra.
+ * Una sola consulta (`autoPromotionsFor`), no una por producto.
+ */
+async function withEffectivePromotions(businessId: string, products: IProduct[]) {
+  const promotions = await couponService.autoPromotionsFor(businessId, new Date());
+  if (promotions.size === 0) return products.map((p) => p.toJSON());
+
+  const cfg = await pricingConfigService.getCurrent();
+  return products.map((product) => {
+    const promo = promotions.get(product._id.toString());
+    const effective = resolveEffectiveDiscount(product, promo, cfg);
+    return { ...product.toJSON(), discountPrice: effective.discountPrice };
+  });
 }
 
 export const publicCatalogService = {
@@ -76,9 +97,18 @@ export const publicCatalogService = {
     return cache.wrap(`${CachePrefix.business(businessId)}categories`, MENU_TTL_SECONDS, load);
   },
 
-  /** La carta que ve el cliente: solo lo disponible. */
+  /**
+   * La carta que ve el cliente: solo lo disponible, y con el precio ya
+   * resuelto — una promoción automática activa gana sobre el
+   * `discountPrice` manual, la misma precedencia con la que se cobra en el
+   * checkout (ver `pricing.service.ts::applyAutoPromotions`). Una sola
+   * consulta extra por lote, no una por producto.
+   */
   async products(businessId: string, categoryId?: string) {
-    const load = () => productService.getByBusiness(businessId, categoryId, false);
+    const load = async () => {
+      const products = await productService.getByBusiness(businessId, categoryId, false);
+      return withEffectivePromotions(businessId, products);
+    };
     if (!cacheable(businessId) || (categoryId && !cacheable(categoryId))) return load();
     return cache.wrap(
       `${CachePrefix.business(businessId)}products:${categoryId || 'all'}`,

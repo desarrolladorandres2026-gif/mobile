@@ -12,6 +12,9 @@ import {
 import { withProductImages } from '../utils/productImageUrls';
 import { searchDictionaryService } from './searchDictionary.service';
 import { searchRuleService, type RuleView } from './searchRule.service';
+import { couponService } from './coupon.service';
+import { pricingConfigService } from './pricingConfig.service';
+import { resolveEffectiveDiscount } from './productPromotion.service';
 
 /**
  * Búsqueda del catálogo: negocios y productos a la vez.
@@ -175,7 +178,25 @@ async function searchProducts(
     },
   ];
 
-  return (await Product.aggregate(pipeline)).map(withProductImages);
+  const rows = await Product.aggregate(pipeline);
+
+  // La promoción automática gana sobre `discountPrice` manual — misma
+  // precedencia que el checkout y el resto de listados. Una consulta extra
+  // por búsqueda, no una por producto.
+  const promotions = await couponService.activeAutoPromotionsAcrossBusinesses(new Date());
+  const withPromotions = promotions.size === 0
+    ? rows
+    : await (async () => {
+        const cfg = await pricingConfigService.getCurrent();
+        return rows.map((row) => {
+          const promo = promotions.get(String(row._id));
+          if (!promo) return row;
+          const effective = resolveEffectiveDiscount(row, promo, cfg);
+          return { ...row, discountPrice: effective.discountPrice };
+        });
+      })();
+
+  return withPromotions.map(withProductImages);
 }
 
 /**

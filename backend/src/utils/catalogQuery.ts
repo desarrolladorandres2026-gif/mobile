@@ -1,4 +1,6 @@
 import { fromGeoPoint, haversineMeters, LatLng } from './geo';
+import { effectiveFreeDeliveryThreshold } from './freeDeliveryWindow';
+import { config as envConfig } from '../config';
 
 /**
  * Las piezas que comparten búsqueda y ofertas.
@@ -38,6 +40,8 @@ export const VISIBLE_BUSINESS = {
 export const PUBLIC_BUSINESS_FIELDS =
   'name slug description logo coverImage brandColor category address phone ' +
   'rating totalReviews deliveryTime minOrder freeDeliveryThreshold ' +
+  'freeDeliveryValidFrom freeDeliveryValidUntil freeDeliveryValidDays ' +
+  'freeDeliveryValidFromTime freeDeliveryValidUntilTime ' +
   'showPromoBanner schedule city isActive location';
 
 /** El listado público lleva además `isFeatured`, que la app usa para ordenar y marcar. */
@@ -63,6 +67,30 @@ export function withinRadius(coords: LatLng | null, maxDistance: number) {
       },
     },
   };
+}
+
+/**
+ * Resuelve `freeDeliveryThreshold` a su valor vigente ahora mismo (0 si
+ * está fuera de su ventana de fecha/horario) y quita del objeto los cinco
+ * campos crudos de vigencia — el cliente nunca necesita saber cuándo
+ * empieza o termina, solo si aplica ahora. `PUBLIC_BUSINESS_FIELDS` los
+ * trae porque hace falta leerlos para este cálculo, no para exponerlos.
+ */
+export function withEffectiveFreeDelivery<T extends Record<string, any>>(row: T): T {
+  const threshold = effectiveFreeDeliveryThreshold(
+    row as any,
+    new Date(),
+    envConfig.settlement.timezone
+  );
+  const {
+    freeDeliveryValidFrom,
+    freeDeliveryValidUntil,
+    freeDeliveryValidDays,
+    freeDeliveryValidFromTime,
+    freeDeliveryValidUntilTime,
+    ...rest
+  } = row;
+  return { ...rest, freeDeliveryThreshold: threshold } as unknown as T;
 }
 
 /** Adjunta la distancia real a cada fila que tenga ubicación utilizable. */

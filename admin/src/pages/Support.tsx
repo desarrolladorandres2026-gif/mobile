@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
  Inbox, RotateCw, UserCheck, Send, CheckCircle2, AlertTriangle, Timer, Scale,
 } from 'lucide-react';
@@ -11,16 +11,13 @@ import EntityLink from '../components/EntityLink';
 import { apiMessage } from '../lib/apiError';
 
 /**
- * Bandeja de soporte.
+ * Bandeja de soporte al estilo de un cliente de correo: una fila por caso
+ * (remitente, asunto y extracto en una sola línea, fecha a la derecha) y, al
+ * hacer clic, la fila da paso a la vista completa del caso — igual que un
+ * correo se abre reemplazando la lista, no al lado de ella.
  *
- * `Pqrs` ya guardaba tipo, estado, evidencias y respuestas: era una lista.
- * Lo que la convierte en una cola de trabajo son las tres cosas que aquí se
- * pintan y se pueden cambiar — quién lo tiene, cuándo vence y cuánto se
- * tardó en contestar.
- *
- * La cola llega ordenada por vencimiento y no por antigüedad, que es la
- * diferencia entre atender lo urgente y atender lo que llegó primero: en
- * comida a domicilio, un reclamo de ayer ya no tiene arreglo.
+ * La cola llega ordenada por vencimiento y no por antigüedad: en comida a
+ * domicilio, un reclamo de ayer ya no tiene arreglo.
  */
 
 interface Ticket {
@@ -108,7 +105,7 @@ export default function Support() {
  const [loading, setLoading] = useState(true);
  const [onlyOverdue, setOnlyOverdue] = useState(false);
  const [onlyLegalOverdue, setOnlyLegalOverdue] = useState(false);
- const [openId, setOpenId] = useState<string | null>(null);
+ const [selectedId, setSelectedId] = useState<string | null>(null);
  const [view, setView] = useState<'open' | 'answered'>('open');
  const [type, setType] = useState('');
  const [requester, setRequester] = useState('');
@@ -154,6 +151,13 @@ export default function Support() {
  api.get('/pqrs/macros').then((r) => setMacros(r.data.data ?? [])).catch(() => setMacros([]));
  }, []);
 
+ // Si el filtro cambia y el caso abierto ya no está en la lista, cierra el detalle.
+ useEffect(() => {
+ if (selectedId && !tickets.some((t) => t._id === selectedId)) setSelectedId(null);
+ }, [tickets, selectedId]);
+
+ const selected = tickets.find((t) => t._id === selectedId) ?? null;
+
  /** Envuelve una acción para que el error se vea en la pantalla, no en la consola. */
  const run = async (action: () => Promise<unknown>) => {
  setError('');
@@ -166,6 +170,12 @@ export default function Support() {
  } finally {
  setBusy(false);
  }
+ };
+
+ const openTicket = (id: string) => {
+ setSelectedId(id === selectedId ? null : id);
+ setReply('');
+ setError('');
  };
 
  const changePriority = (id: string, priority: string) =>
@@ -184,11 +194,191 @@ export default function Support() {
  run(async () => {
  await api.patch(`/pqrs/${id}/close`, reply.trim() ? { message: reply.trim() } : {});
  setReply('');
- setOpenId(null);
+ setSelectedId(null);
  });
 
+ if (selected) {
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="animate-fade-in space-y-4">
+ <button
+ onClick={() => setSelectedId(null)}
+ className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
+ >
+ ‹ Volver a la bandeja
+ </button>
+
+ {error ? (
+ <p className="flex items-center gap-1.5 text-sm text-[var(--color-danger)]">
+ <AlertTriangle className="h-4 w-4" /> {error}
+ </p>
+ ) : null}
+
+ <div className="max-w-2xl space-y-4">
+ <div className="space-y-1.5">
+ <div className="flex flex-wrap items-center gap-2">
+ <h2 className="text-lg font-bold text-[var(--color-text-main)]">{selected.subject}</h2>
+ <span className={`text-[11px] font-bold uppercase tracking-wider ${PRIORITY[selected.priority].tone}`}>
+ {PRIORITY[selected.priority].label}
+ </span>
+ </div>
+ <p className="text-xs uppercase tracking-wider text-[var(--color-text-main)] opacity-70">
+ {TYPE_LABEL[selected.type]} · {REQUESTER_LABEL[selected.requesterRole ?? 'customer']} ·{' '}
+ <EntityLink type="user" id={userIdOf(selected.userId)}>{nameOf(selected.userId) ?? 'Usuario'}</EntityLink> ·{' '}
+ {nameOf(selected.assignedTo) ? `lo lleva ${nameOf(selected.assignedTo)}` : 'sin asignar'}
+ </p>
+ <div className="flex flex-wrap items-center gap-3 text-xs">
+ {selected.legalDueAt ? (
+ <span
+ className={`flex items-center gap-1 font-bold ${
+ selected.legalOverdue
+ ? 'text-[var(--color-danger)]'
+ : selected.legalDueSoon
+ ? 'text-[var(--color-warning)]'
+ : 'text-[var(--color-text-main)]'
+ }`}
+ >
+ <Scale className="h-3.5 w-3.5" />
+ {selected.legalOverdue ? 'Plazo legal vencido el ' : 'Plazo legal: '}
+ {shortDate(selected.legalDueAt)}
+ </span>
+ ) : null}
+ {dueLabel(selected.dueAt) ? (
+ <span
+ className={`flex items-center gap-1 font-semibold ${
+ dueLabel(selected.dueAt)!.overdue ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'
+ }`}
+ >
+ <Timer className="h-3.5 w-3.5" /> SLA {dueLabel(selected.dueAt)!.text}
+ </span>
+ ) : null}
+ </div>
+ {(selected.orderId || selected.businessId || selected.driverId) && (
+ <p className="text-xs text-[var(--color-text-main)]">
+ {selected.orderId ? (
+ <EntityLink type="order" id={selected.orderId._id}>
+ Pedido #{selected.orderId.orderNumber ?? selected.orderId._id.slice(-8)}
+ </EntityLink>
+ ) : null}
+ {selected.businessId?.name ? (
+ <>
+ {' · '}
+ <EntityLink type="business" id={selected.businessId._id}>{selected.businessId.name}</EntityLink>
+ </>
+ ) : null}
+ {selected.driverId?.userId?.name ? (
+ <>
+ {' · domiciliario '}
+ <EntityLink type="driver" id={selected.driverId._id}>{selected.driverId.userId.name}</EntityLink>
+ </>
+ ) : null}
+ </p>
+ )}
+ </div>
+
+ <div className="flex flex-wrap items-center gap-2 border-y border-[var(--color-border-light)] py-2">
+ <EntityLink
+ type="user"
+ id={userIdOf(selected.userId)}
+ hideWhenDenied
+ className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] hover:no-underline"
+ >
+ Ver cuenta
+ </EntityLink>
+ {!nameOf(selected.assignedTo) ? (
+ <PermissionGate permission={Permission.SUPPORT_MANAGE}>
+ <button
+ onClick={() => assignToMe(selected._id)}
+ disabled={busy}
+ className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ >
+ <UserCheck className="h-3.5 w-3.5" /> Asignármelo
+ </button>
+ </PermissionGate>
+ ) : null}
+ <PermissionGate permission={Permission.SUPPORT_MANAGE}>
+ <label className="flex items-center gap-2 text-xs text-[var(--color-text-main)]">
+ Prioridad
+ <select
+ value={selected.priority}
+ disabled={busy}
+ onChange={(e) => changePriority(selected._id, e.target.value)}
+ className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ >
+ {Object.entries(PRIORITY).map(([key, { label }]) => <option key={key} value={key}>{label}</option>)}
+ </select>
+ </label>
+ </PermissionGate>
+ </div>
+
+ <p className="whitespace-pre-wrap text-sm text-[var(--color-text-main)]">
+ {selected.detail}
+ </p>
+
+ {selected.responses?.length ? (
+ <ul className="space-y-2">
+ {selected.responses.map((r, index) => (
+ <li
+ key={index}
+ className="border-l-2 border-[var(--color-primary)] pl-3 text-sm text-[var(--color-text-main)]"
+ >
+ {r.message}
+ <span className="ml-2 text-[11px] text-[var(--color-text-main)] opacity-70">
+ {new Date(r.createdAt).toLocaleString('es-CO')}
+ </span>
+ </li>
+ ))}
+ </ul>
+ ) : null}
+
+ <div className="space-y-2 border-t border-[var(--color-border-light)] pt-4">
+ <PermissionGate permission={Permission.SUPPORT_MANAGE}>
+ <select
+ value=""
+ onChange={(e) => {
+ const macro = macros.find((m) => m._id === e.target.value);
+ if (macro) setReply(fillMacro(macro.body, selected, agentName));
+ }}
+ className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ >
+ <option value="">Insertar respuesta predefinida…</option>
+ {macros
+ .filter((m) => m.appliesTo.length === 0 || m.appliesTo.includes(selected.type))
+ .map((m) => <option key={m._id} value={m._id}>{m.title}</option>)}
+ </select>
+
+ <textarea
+ value={reply}
+ onChange={(e) => setReply(e.target.value)}
+ rows={4}
+ placeholder="Lamentamos lo ocurrido. Ya le reembolsamos el pedido completo."
+ className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]"
+ />
+
+ <div className="flex justify-end gap-2">
+ <button
+ onClick={() => respond(selected._id)}
+ disabled={busy}
+ className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ >
+ <Send className="h-3.5 w-3.5" /> Responder
+ </button>
+ <button
+ onClick={() => close(selected._id)}
+ disabled={busy}
+ className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--color-success)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+ >
+ <CheckCircle2 className="h-3.5 w-3.5" /> Responder y cerrar
+ </button>
+ </div>
+ </PermissionGate>
+ </div>
+ </div>
+ </div>
+ );
+ }
+
+ return (
+ <div className="animate-fade-in space-y-3">
  <div className="page-header">
  <div>
  <h1 className="page-title">Soporte</h1>
@@ -205,8 +395,8 @@ export default function Support() {
  </button>
  </div>
 
- <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
- <div className="flex gap-4 border-b border-[var(--color-border-light)]">
+ <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-[var(--color-border-light)] pb-3">
+ <div className="flex gap-4">
  {([['open', 'Por responder'], ['answered', 'Respondidos']] as const).map(([key, label]) => (
  <button
  key={key}
@@ -218,6 +408,9 @@ export default function Support() {
  }`}
  >
  {label}
+ {view === key && tickets.length > 0 ? (
+ <span className="ml-1.5 font-normal text-[var(--color-text-main)] opacity-70">{tickets.length}</span>
+ ) : null}
  </button>
  ))}
  </div>
@@ -267,210 +460,63 @@ export default function Support() {
  </div>
 
  {error ? (
- <p className="flex items-center gap-1.5 text-sm text-[var(--color-danger)]">
+ <p className="mt-2 flex shrink-0 items-center gap-1.5 text-sm text-[var(--color-danger)]">
  <AlertTriangle className="h-4 w-4" /> {error}
  </p>
  ) : null}
 
  {loading && tickets.length === 0 ? (
- <p className="text-sm text-[var(--color-text-main)]">Cargando…</p>
+ <p className="mt-3 text-sm text-[var(--color-text-main)]">Cargando…</p>
  ) : tickets.length === 0 ? (
- <div className="flex flex-col items-center gap-2 border-y border-[var(--color-border-light)] py-10">
+ <div className="flex flex-col items-center gap-2 py-16">
  <Inbox className="h-8 w-8 text-[var(--color-success)]" />
  <p className="font-semibold text-[var(--color-text-main)]">La bandeja está vacía</p>
  </div>
  ) : (
- <ul className="space-y-2">
+ <ul>
  {tickets.map((ticket) => {
  const due = dueLabel(ticket.dueAt);
  const agent = nameOf(ticket.assignedTo);
- const isOpen = openId === ticket._id;
+ const unanswered = ticket.status === 'received' || ticket.status === 'in_review';
+ const from = nameOf(ticket.userId) ?? REQUESTER_LABEL[ticket.requesterRole ?? 'customer'];
 
  return (
- <li
- key={ticket._id}
- className="border-b border-[var(--color-border-light)] pb-4"
+ <li key={ticket._id} className="border-b border-[var(--color-border-light)]">
+ <button
+ onClick={() => openTicket(ticket._id)}
+ className="flex w-full cursor-pointer items-center gap-4 px-2 py-2.5 text-left hover:bg-[var(--color-border-light)]/40"
  >
- <div className="flex flex-wrap items-start gap-3">
- <div className="min-w-0 flex-1">
- <div className="flex flex-wrap items-center gap-2">
- <p className="font-bold text-[var(--color-text-main)]">{ticket.subject}</p>
- <span
- className={`text-[11px] font-bold uppercase tracking-wider ${PRIORITY[ticket.priority].tone}`}
- >
+ <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${unanswered ? 'bg-[var(--color-primary)]' : 'bg-transparent'}`} />
+ <span className={`w-40 shrink-0 truncate text-sm ${unanswered ? 'font-bold' : 'font-medium'} text-[var(--color-text-main)]`}>
+ {from}
+ </span>
+ <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-text-main)]">
+ <span className={unanswered ? 'font-semibold' : ''}>{ticket.subject}</span>
+ <span className="opacity-60"> — {ticket.detail}</span>
+ </span>
+ <span className={`shrink-0 text-[11px] font-bold uppercase tracking-wider ${PRIORITY[ticket.priority].tone}`}>
  {PRIORITY[ticket.priority].label}
  </span>
- {ticket.legalDueAt ? (
- <span
- className={`flex items-center gap-1 text-[11px] font-bold ${
- ticket.legalOverdue
- ? 'text-[var(--color-danger)]'
- : ticket.legalDueSoon
- ? 'text-[var(--color-warning)]'
- : 'text-[var(--color-text-main)]'
- }`}
- >
- <Scale className="h-3 w-3" />
- {ticket.legalOverdue ? 'Plazo legal vencido el ' : 'Plazo legal: '}
- {shortDate(ticket.legalDueAt)}
+ {ticket.legalOverdue ? (
+ <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-[var(--color-danger)]">
+ <Scale className="h-3 w-3" /> plazo legal
  </span>
- ) : null}
- {due ? (
- <span
- className={`flex items-center gap-1 text-[11px] font-semibold ${
- due.overdue
- ? 'text-[var(--color-danger)]'
- : 'text-[var(--color-text-main)]'
- }`}
- >
- <Timer className="h-3 w-3" /> SLA {due.text}
+ ) : due?.overdue ? (
+ <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-[var(--color-danger)]">
+ <Timer className="h-3 w-3" /> SLA vencido
  </span>
+ ) : agent ? (
+ <span className="shrink-0 text-[11px] text-[var(--color-text-main)] opacity-60">{agent}</span>
  ) : null}
- </div>
- <p className="text-[11px] uppercase tracking-wider text-[var(--color-text-main)]">
- {TYPE_LABEL[ticket.type]} · {REQUESTER_LABEL[ticket.requesterRole ?? 'customer']} ·{' '}
- <EntityLink type="user" id={userIdOf(ticket.userId)}>{nameOf(ticket.userId) ?? 'Usuario'}</EntityLink> ·{' '}
- {agent ? `lo lleva ${agent}` : 'sin asignar'}
- </p>
- {(ticket.orderId || ticket.businessId || ticket.driverId) && (
- <p className="text-xs text-[var(--color-text-main)]">
- {ticket.orderId ? (
- <EntityLink type="order" id={ticket.orderId._id}>
- Pedido #{ticket.orderId.orderNumber ?? ticket.orderId._id.slice(-8)}
- </EntityLink>
- ) : null}
- {ticket.businessId?.name ? (
- <>
- {' · '}
- <EntityLink type="business" id={ticket.businessId._id}>{ticket.businessId.name}</EntityLink>
- </>
- ) : null}
- {ticket.driverId?.userId?.name ? (
- <>
- {' · domiciliario '}
- <EntityLink type="driver" id={ticket.driverId._id}>{ticket.driverId.userId.name}</EntityLink>
- </>
- ) : null}
- </p>
- )}
- </div>
-
- <EntityLink
- type="user"
- id={userIdOf(ticket.userId)}
- hideWhenDenied
- className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] hover:no-underline"
- >
- Ver cuenta
- </EntityLink>
- {!agent ? (
- <PermissionGate permission={Permission.SUPPORT_MANAGE}>
- <button
- onClick={() => assignToMe(ticket._id)}
- disabled={busy}
- className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
- >
- <UserCheck className="h-3.5 w-3.5" /> Asignármelo
- </button>
- </PermissionGate>
- ) : null}
- <button
- onClick={() => {
- setOpenId(isOpen ? null : ticket._id);
- setReply('');
- setError('');
- }}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
- >
- {isOpen ? 'Cerrar detalle' : 'Abrir'}
- </button>
- </div>
-
- {isOpen ? (
- <div className="mt-3 space-y-3 border-t border-[var(--color-border-light)] pt-3">
- <p className="whitespace-pre-wrap text-sm text-[var(--color-text-main)]">
- {ticket.detail}
- </p>
-
- {ticket.responses?.length ? (
- <ul className="space-y-1.5">
- {ticket.responses.map((r, index) => (
- <li
- key={index}
- className="border-l-2 border-[var(--color-primary)] pl-3 text-sm text-[var(--color-text-main)]"
- >
- {r.message}
- <span className="ml-2 text-[11px] text-[var(--color-text-main)]">
- {new Date(r.createdAt).toLocaleString('es-CO')}
+ <span className="w-14 shrink-0 text-right text-[11px] text-[var(--color-text-main)] opacity-70">
+ {shortDate(ticket.createdAt)}
  </span>
- </li>
- ))}
- </ul>
- ) : null}
-
- <PermissionGate permission={Permission.SUPPORT_MANAGE}>
- <div className="flex flex-wrap items-center gap-3">
- <select
- value=""
- onChange={(e) => {
- const macro = macros.find((m) => m._id === e.target.value);
- if (macro) setReply(fillMacro(macro.body, ticket, agentName));
- }}
- className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
- >
- <option value="">Insertar respuesta predefinida…</option>
- {macros
- .filter((m) => m.appliesTo.length === 0 || m.appliesTo.includes(ticket.type))
- .map((m) => <option key={m._id} value={m._id}>{m.title}</option>)}
- </select>
- <label className="flex items-center gap-2 text-xs text-[var(--color-text-main)]">
- Prioridad
- <select
- value={ticket.priority}
- disabled={busy}
- onChange={(e) => changePriority(ticket._id, e.target.value)}
- className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
- >
- {Object.entries(PRIORITY).map(([key, { label }]) => <option key={key} value={key}>{label}</option>)}
- </select>
- </label>
- </div>
- </PermissionGate>
-
- <textarea
- value={reply}
- onChange={(e) => setReply(e.target.value)}
- rows={3}
- placeholder="Lamentamos lo ocurrido. Ya le reembolsamos el pedido completo."
- className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]"
- />
-
- <div className="flex justify-end gap-2">
- <PermissionGate permission={Permission.SUPPORT_MANAGE}>
- <button
- onClick={() => respond(ticket._id)}
- disabled={busy}
- className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
- >
- <Send className="h-3.5 w-3.5" /> Responder
  </button>
- </PermissionGate>
- <button
- onClick={() => close(ticket._id)}
- disabled={busy}
- className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--color-success)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
- >
- <CheckCircle2 className="h-3.5 w-3.5" /> Responder y cerrar
- </button>
- </div>
- </div>
- ) : null}
  </li>
  );
  })}
  </ul>
  )}
-
  </div>
  );
 }

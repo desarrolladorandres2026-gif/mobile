@@ -6,7 +6,7 @@ import UpdateBanner from './components/UpdateBanner';
 import Layout from './components/Layout';
 import { lazyPage } from './lib/lazyPage';
 import RequireAccess, { NoRoleScreen } from './components/RequireAccess';
-import { findNavItem, hasAnyAccess } from './lib/navigation';
+import { findNavItem, hasAnyAccess, firstAccessiblePath } from './lib/navigation';
 import { useAuthStore } from './stores/authStore';
 import { Permission } from './lib/permissions';
 
@@ -23,7 +23,6 @@ import { Permission } from './lib/permissions';
  */
 const Login = lazyPage(() => import('./pages/Login'), '/login');
 const TwoFactorSetup = lazyPage(() => import('./pages/TwoFactorSetup'), '/setup-2fa');
-const Dashboard = lazyPage(() => import('./pages/Dashboard'), '/');
 const DailySummary = lazyPage(() => import('./pages/DailySummary'), '/daily-summary');
 const Orders = lazyPage(() => import('./pages/Orders'), '/orders');
 const Evidences = lazyPage(() => import('./pages/Evidences'), '/evidences');
@@ -88,6 +87,14 @@ function guard(path: string, element: React.ReactNode) {
  );
 }
 
+/** Ruta índice: no es una pantalla propia, lleva a la primera a la que el usuario tenga acceso. */
+function Home() {
+ const hasPermission = useAuthStore((s) => s.hasPermission);
+ useAuthStore((s) => s.permissions);
+ const first = firstAccessiblePath(hasPermission);
+ return first ? <Navigate to={first} replace /> : null;
+}
+
 /** Sin ningún permiso no hay panel que mostrar: pide un rol. */
 function AccessLayout() {
  const user = useAuthStore((s) => s.user);
@@ -113,7 +120,7 @@ function App() {
  <Route path="/login" element={<Suspense fallback={null}><Login /></Suspense>} />
  <Route path="/setup-2fa" element={<Suspense fallback={null}><TwoFactorSetup /></Suspense>} />
  <Route path="/" element={<AccessLayout />}>
- <Route index element={guard('/', <Dashboard />)} />
+ <Route index element={<Home />} />
  <Route path="daily-summary" element={guard('/daily-summary', <DailySummary />)} />
  <Route path="orders" element={guard('/orders', <Orders />)} />
  <Route path="evidences" element={guard('/evidences', <Evidences />)} />

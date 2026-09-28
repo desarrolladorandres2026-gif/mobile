@@ -1,11 +1,18 @@
-import { PipelineStage } from 'mongoose';
+import { PipelineStage, Types } from 'mongoose';
 import { Product, Business, ICoupon } from '../models';
 import { CouponFundedBy } from '../types';
 import { LatLng } from '../utils/geo';
-import { VISIBLE_BUSINESS, PUBLIC_LIST_PROJECTION, withDistance, withinRadius } from '../utils/catalogQuery';
+import {
+  VISIBLE_BUSINESS,
+  PUBLIC_LIST_PROJECTION,
+  withDistance,
+  withinRadius,
+  withEffectiveFreeDelivery,
+} from '../utils/catalogQuery';
 import { withProductImages } from '../utils/productImageUrls';
 import { couponService, PublicCoupon } from './coupon.service';
 import { pricingConfigService } from './pricingConfig.service';
+import { resolveEffectiveDiscount } from './productPromotion.service';
 
 /**
  * Todo lo que está en oferta, en una sola respuesta.
@@ -127,11 +134,21 @@ export class OffersService {
    * primero significaría resolver el negocio de cada producto en oferta
    * para descartar la mayoría acto seguido.
    */
-  private async discountedProducts(
+  /**
+   * Productos con precio de descuento manual (`Product.discountPrice`).
+   *
+   * Excluye los que además tienen una promoción automática activa: esos
+   * los resuelve `autoPromotedProducts`, que calcula el precio con la
+   * promoción — la que gana por precedencia — en vez del `discountPrice`
+   * que pudo quedar desactualizado desde antes de que la promoción
+   * empezara.
+   */
+  private async staticDiscountedProducts(
     coords: LatLng | null,
     maxDistance: number,
     city: string | undefined,
-    limit: number
+    limit: number,
+    excludeProductIds: string[]
   ): Promise<Record<string, unknown>[]> {
     const businessMatch = joinedBusinessMatch();
     if (coords) {
@@ -148,6 +165,9 @@ export class OffersService {
           // paso descarta los productos de precio cero, que provocarían
           // una división por cero en la etapa siguiente.
           $expr: { $lt: ['$discountPrice', '$price'] },
+          ...(excludeProductIds.length > 0
+            ? { _id: { $nin: excludeProductIds.map((id) => new Types.ObjectId(id)) } }
+            : {}),
         },
       },
       {
@@ -202,6 +222,100 @@ export class OffersService {
   }
 
   /**
+   * Productos cubiertos por una promoción automática activa, sin
+   * `discountPrice` propio (o con uno desactualizado — la promoción gana
+   * de todas formas). Dos consultas en total, sin importar cuántos
+   * productos tenga el catálogo: los cupones activos, y los productos que
+   * cubren.
+   */
+  private async autoPromotedProducts(
+    coords: LatLng | null,
+    maxDistance: number,
+    city: string | undefined,
+    limit: number,
+    promotions: Map<string, ICoupon>
+  ): Promise<Record<string, unknown>[]> {
+    if (promotions.size === 0) return [];
+
+    const cfg = await pricingConfigService.getCurrent();
+    const businessMatch = joinedBusinessMatch();
+    if (coords) businessMatch['business.location'] = withinRadius(coords, maxDistance).location;
+    if (city) businessMatch['business.city'] = city;
+
+    const pipeline: PipelineStage[] = [
+      {
+        $match: {
+          _id: { $in: [...promotions.keys()].map((id) => new Types.ObjectId(id)) },
+          isAvailable: true,
+        },
+      },
+      {
+        $lookup: {
+          from: 'businesses',
+          localField: 'businessId',
+          foreignField: '_id',
+          as: 'business',
+        },
+      },
+      { $unwind: '$business' },
+      { $match: businessMatch },
+      {
+        $project: {
+          name: 1,
+          description: 1,
+          price: 1,
+          discountPrice: 1,
+          image: 1,
+          imageAsset: 1,
+          isAvailable: 1,
+          businessId: '$business._id',
+          businessName: '$business.name',
+          businessCategory: '$business.category',
+          businessRating: '$business.rating',
+          businessDeliveryTime: '$business.deliveryTime',
+          businessLocation: '$business.location',
+        },
+      },
+    ];
+
+    const rows = await Product.aggregate(pipeline);
+
+    const withDiscount = rows
+      .map((row) => {
+        const promo = promotions.get(row._id.toString());
+        const effective = resolveEffectiveDiscount(row, promo, cfg);
+        if (effective.discountPercent === null || effective.discountPercent < MIN_DISCOUNT_PERCENT) {
+          return null;
+        }
+        return { ...row, discountPrice: effective.discountPrice, discountPercent: effective.discountPercent };
+      })
+      .filter((row): row is Record<string, unknown> => row !== null)
+      .sort((a, b) => Number(b.discountPercent) - Number(a.discountPercent))
+      .slice(0, limit);
+
+    return withDiscount.map(withProductImages);
+  }
+
+  /** Descuentos de producto, manuales y automáticos, mezclados por porcentaje. */
+  private async discountedProducts(
+    coords: LatLng | null,
+    maxDistance: number,
+    city: string | undefined,
+    limit: number
+  ): Promise<Record<string, unknown>[]> {
+    const promotions = await couponService.activeAutoPromotionsAcrossBusinesses(new Date());
+
+    const [staticList, promoList] = await Promise.all([
+      this.staticDiscountedProducts(coords, maxDistance, city, limit, [...promotions.keys()]),
+      this.autoPromotedProducts(coords, maxDistance, city, limit, promotions),
+    ]);
+
+    return [...staticList, ...promoList]
+      .sort((a, b) => Number(b.discountPercent ?? 0) - Number(a.discountPercent ?? 0))
+      .slice(0, limit);
+  }
+
+  /**
    * Negocios con algo que anunciar, con el motivo ya resuelto.
    *
    * El motivo lo decide el servidor y no cada pantalla: si la app lo
@@ -238,22 +352,30 @@ export class OffersService {
     // el documento crudo con `commissionRate(Bps)` y `ownerId`.
     const rows = await Business.find(filter).select(PUBLIC_LIST_PROJECTION).limit(limit).lean();
 
-    const withOffer = rows.map((row) => {
-      const percent = bestDiscount.get(row._id.toString());
+    const withOffer = rows
+      .map((row) => {
+        const percent = bestDiscount.get(row._id.toString());
+        // El filtro que trajo esta fila mira el umbral crudo, sin vigencia:
+        // una franja horaria que ya cerró puede dejar un negocio aquí sin
+        // nada real que anunciar si tampoco tiene descuento.
+        const resolved = withEffectiveFreeDelivery(row);
 
-      // El descuento manda sobre el envío gratis: es el número más grande
-      // de la tarjeta. "Hasta" y no "-40%" a secas porque el porcentaje es
-      // el del mejor producto, no el de la carta entera, y prometer lo
-      // segundo se descubre nada más abrir el menú.
-      const offer: BusinessOffer = percent
-        ? { kind: 'discount', label: `Hasta -${percent}%` }
-        : {
-            kind: 'free_delivery',
-            label: `Envío gratis desde ${shortMoney(row.freeDeliveryThreshold)}`,
-          };
+        if (!percent && resolved.freeDeliveryThreshold <= 0) return null;
 
-      return { ...row, offer, bestDiscountPercent: percent ?? 0 };
-    });
+        // El descuento manda sobre el envío gratis: es el número más grande
+        // de la tarjeta. "Hasta" y no "-40%" a secas porque el porcentaje es
+        // el del mejor producto, no el de la carta entera, y prometer lo
+        // segundo se descubre nada más abrir el menú.
+        const offer: BusinessOffer = percent
+          ? { kind: 'discount', label: `Hasta -${percent}%` }
+          : {
+              kind: 'free_delivery',
+              label: `Envío gratis desde ${shortMoney(resolved.freeDeliveryThreshold)}`,
+            };
+
+        return { ...resolved, offer, bestDiscountPercent: percent ?? 0 };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
 
     const located = withDistance(withOffer, coords, 'location');
 

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, CheckCircle2, FileText } from 'lucide-react';
-import api from '../services/api';
-import { qk } from '../lib/queryKeys';
-import { useAuthStore } from '../stores/authStore';
-import { apiMessage } from '../lib/apiError';
+import api from '../../services/api';
+import { qk } from '../../lib/queryKeys';
+import { useAuthStore } from '../../stores/authStore';
+import { apiMessage } from '../../lib/apiError';
 
 /**
- * Documentos y datos para cobrar.
+ * Pestaña "Documentos y pagos" del perfil.
  *
  * ZIPP no aprueba un comercio ni le paga sin: sus papeles (RUT, Cámara de
  * Comercio, cédula del representante, certificación bancaria y, si vende
@@ -116,7 +116,7 @@ function DocumentRow({ businessId, type, doc, onDone }: { businessId: string; ty
   const canReplace = !doc || doc.status !== 'approved' || open;
 
   return (
-    <li className="space-y-3 border-t border-[var(--color-border-light)] py-4">
+    <li className="space-y-3 border-t border-[var(--color-border-light)] first:border-t-0 py-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <FileText className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" />
@@ -190,7 +190,7 @@ function DocumentRow({ businessId, type, doc, onDone }: { businessId: string; ty
   );
 }
 
-export default function Documents() {
+export default function DocumentsTab() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
   const needsHealthPermit = FOOD_CATEGORIES.includes(selectedBusiness?.category ?? '');
@@ -330,9 +330,8 @@ export default function Documents() {
   const approved = types.filter((t) => docs.find((d) => d.type === t)?.status === 'approved').length;
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
       <div>
-        <h1 className="page-title">Documentos y datos para cobrar</h1>
         <p className="page-subtitle">
           {approved} de {types.length} documentos aprobados ·{' '}
           {legal?.complete ? 'datos fiscales completos' : 'faltan datos fiscales'} ·{' '}
@@ -359,9 +358,9 @@ export default function Documents() {
       {loading ? (
         <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-secondary)]">Cargando…</p>
       ) : (
-        <>
+        <div className="cols3">
           <section>
-            <h2 className="pb-2 text-sm font-bold text-[var(--color-text-main)]">Documentos</h2>
+            <h2 className="col-title">Documentos</h2>
             <ul>
               {types.map((type) => (
                 <DocumentRow key={type} businessId={businessId} type={type} doc={docs.find((d) => d.type === type)} onDone={load} />
@@ -369,12 +368,12 @@ export default function Documents() {
             </ul>
           </section>
 
-          <section className="space-y-4 border-t border-[var(--color-border-light)] pt-6">
+          <section className="space-y-4">
             <div>
-              <h2 className="text-sm font-bold text-[var(--color-text-main)]">Datos fiscales</h2>
+              <h2 className="col-title">Datos fiscales</h2>
               <p className="text-xs text-[var(--color-text-secondary)]">Con estos datos ZIPP te emite los comprobantes de tus liquidaciones.</p>
             </div>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 grid-cols-2">
               <label>
                 <span className={labelClass}>Tipo de documento</span>
                 <select value={legalForm.documentType} onChange={(e) => setLegalForm({ ...legalForm, documentType: e.target.value })} className={fieldClass}>
@@ -415,9 +414,9 @@ export default function Documents() {
             </button>
           </section>
 
-          <section className="space-y-4 border-t border-[var(--color-border-light)] pt-6">
+          <section className="space-y-4">
             <div>
-              <h2 className="text-sm font-bold text-[var(--color-text-main)]">Cuenta para recibir tus pagos</h2>
+              <h2 className="col-title">Cuenta para recibir tus pagos</h2>
               {payout ? (
                 <p className="text-xs text-[var(--color-text-secondary)]">
                   Registrada: <strong className="text-[var(--color-text-main)]">{payout.method === 'bank' ? payout.bankName : payout.method}</strong>{' '}
@@ -433,7 +432,7 @@ export default function Documents() {
                 </p>
               )}
             </div>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 grid-cols-2">
               <label>
                 <span className={labelClass}>Medio</span>
                 <select value={payoutForm.method} onChange={(e) => setPayoutForm({ ...payoutForm, method: e.target.value })} className={fieldClass}>
@@ -483,7 +482,7 @@ export default function Documents() {
                     value={reauthProof}
                     onChange={(e) => setReauthProof(e.target.value)}
                     autoFocus
-                    className={`${fieldClass} w-56`}
+                    className={`${fieldClass} w-full`}
                     placeholder={reauth.channel === 'password' ? 'Contraseña' : 'Código de 6 dígitos'}
                   />
                   <button onClick={savePayout} className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white">
@@ -502,7 +501,7 @@ export default function Documents() {
             )}
             {formError && <p className="text-xs font-semibold text-[var(--color-danger)]">{formError}</p>}
           </section>
-        </>
+        </div>
       )}
     </div>
   );

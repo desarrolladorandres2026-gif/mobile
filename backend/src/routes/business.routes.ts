@@ -106,6 +106,7 @@ router.post('/:id/staff', authenticate, authorize(UserRole.BUSINESS, UserRole.AD
 router.delete('/:id/staff/:staffId', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => businessController.removeStaff(req, res, next));
 router.get('/:id/my-permissions', authenticate, (req, res, next) => businessController.myPermissions(req, res, next));
 
+router.get('/:id/daily-summary', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.FINANCE_VIEW), validate(idParamSchema), (req, res, next) => businessController.dailySummary(req, res, next));
 router.get('/:id/analytics', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_VIEW), (req, res, next) => businessController.analytics(req, res, next));
 router.get('/:id/statement/export', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.FINANCE_VIEW), (req, res, next) => businessController.exportSales(req, res, next));
 router.get('/:id/statement', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.FINANCE_VIEW), (req, res, next) => businessController.getStatement(req, res, next));

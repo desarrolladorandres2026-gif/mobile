@@ -53,4 +53,11 @@ export interface Product {
    */
   stock?: number | null;
   lowStockThreshold?: number;
+  /**
+   * Id de la promoción automática activa que cubre este producto, o `null`.
+   * Solo lo trae la vista del panel (`includeUnavailable=true`) — sirve
+   * para bloquear el precio con descuento manual mientras la promoción
+   * esté vigente, nunca para calcular nada.
+   */
+  promotedBy?: string | null;
 }

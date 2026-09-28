@@ -531,6 +531,35 @@ export class OrderService {
       }
     }
 
+    // Igual que el cupón de código, pero una vez por cada promoción
+    // automática que aplicó — rarísimo que se agote justo entre cotizar y
+    // crear, pero el mismo rollback aplica si pasa: mejor que confirmar un
+    // pedido con un descuento que ya no tiene presupuesto ni cupo.
+    for (const promo of quote.appliedAutoPromotions) {
+      const redeemed = await couponService.redeem(
+        promo.couponId,
+        input.clientId,
+        order._id.toString(),
+        promo.discountAmount,
+        // Siempre financiada por el comercio: forzado por el modelo.
+        0
+      );
+
+      if (!redeemed) {
+        await couponService.release(order._id.toString());
+        await Order.deleteOne({ _id: order._id });
+        await this.undoReservation(reservedStock);
+        throw new AppError('Una promoción se agotó mientras confirmabas el pedido', 409);
+      }
+    }
+
+    if (quote.appliedAutoPromotions.length > 0) {
+      order.appliedPromotionIds = quote.appliedAutoPromotions.map(
+        (p) => new mongoose.Types.ObjectId(p.couponId)
+      );
+      await order.save();
+    }
+
     // Recognise the order in the books straight away. Revenue and payables
     // are booked against a receivable, so a later capture only converts the
     // receivable to cash rather than recognising anything twice.
@@ -553,7 +582,10 @@ export class OrderService {
       }
     } catch (error) {
       // Never leave an order without its books. Roll back and surface it.
-      if (quote.coupon) await couponService.release(order._id.toString());
+      // Incondicional: `release()` ya resuelve todas las filas de este
+      // pedido —código, automáticas, o ninguna— así que no hace falta
+      // saber de antemano cuál de ellas se canjeó.
+      await couponService.release(order._id.toString());
       const { Payment } = await import('../models');
       await Payment.deleteMany({ orderId: order._id });
       await Order.deleteOne({ _id: order._id });
@@ -1454,7 +1486,7 @@ export class OrderService {
 
     if (!finance?.customerTotal) {
       // Legacy order with no snapshot: only the coupon can be unwound.
-      if (order.couponId) await couponService.release(order._id.toString());
+      await couponService.release(order._id.toString());
       return;
     }
 

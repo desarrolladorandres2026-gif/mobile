@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { productService, publicCatalogService } from '../services';
+import { productService, publicCatalogService, couponService } from '../services';
 import { MulterError } from 'multer';
 import { config } from '../config';
 import { productImageService } from '../services/productImage.service';
@@ -74,10 +74,28 @@ export class ProductController {
       // Con lo no disponible es la vista del panel del comercio: siempre
       // fresca y fuera de cualquier caché compartida.
       const includeUnavailable = query(req, 'includeUnavailable') === 'true';
-      const products = includeUnavailable
-        ? await productService.getByBusiness(param(req, 'businessId'), query(req, 'categoryId'), true)
-        : await publicCatalogService.products(param(req, 'businessId'), query(req, 'categoryId'));
-      cacheHeaders(res, includeUnavailable ? 'none' : 'revalidate');
+
+      if (includeUnavailable) {
+        const businessId = param(req, 'businessId');
+        const raw = await productService.getByBusiness(businessId, query(req, 'categoryId'), true);
+
+        // `promotedBy`: solo para que el panel sepa que el precio con
+        // descuento manual está bloqueado mientras dure la promoción — el
+        // valor de `discountPrice` que ve el comercio aquí sigue siendo el
+        // suyo, sin resolver, porque este es el formulario donde lo edita.
+        const promotions = await couponService.autoPromotionsFor(businessId, new Date());
+        const products = raw.map((product) => ({
+          ...product.toJSON(),
+          promotedBy: promotions.get(product._id.toString())?._id.toString() ?? null,
+        }));
+
+        cacheHeaders(res, 'none');
+        sendResponse(res, 200, 'Productos obtenidos', products);
+        return;
+      }
+
+      const products = await publicCatalogService.products(param(req, 'businessId'), query(req, 'categoryId'));
+      cacheHeaders(res, 'revalidate');
       sendResponse(res, 200, 'Productos obtenidos', products);
     } catch (error) { next(error); }
   }

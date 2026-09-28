@@ -1,11 +1,16 @@
 import { Router } from 'express';
 import { couponController } from '../controllers';
 import { authenticate, authorize, validate } from '../middlewares';
-import { validateCouponSchema, createCouponSchema, updateCouponSchema } from '../validators';
+import {
+  validateCouponSchema,
+  createCouponSchema,
+  updateCouponSchema,
+  businessCouponSchema,
+  updateBusinessCouponSchema,
+} from '../validators';
 import { UserRole } from '../types';
 import { Permission } from '../security';
 import { requirePermission, adminRequires, can } from '../middlewares/auth';
-import { z } from 'zod';
 
 const router = Router();
 
@@ -37,26 +42,6 @@ router.post(
 // Van antes de `/:id` para que "business" no se lea como el id de un cupón.
 // El servicio fuerza quién financia, de qué negocio es y que no puede
 // autoaprobarse el margen: eso no se lee de la petición.
-const businessCouponSchema = z.object({
-  body: z.object({
-    code: z.string().trim().min(3).max(20),
-    title: z.string().trim().min(3).max(80),
-    description: z.string().trim().max(200).optional(),
-    type: z.enum(['percentage', 'fixed', 'free_delivery']),
-    scope: z.enum(['product', 'delivery']).optional(),
-    value: z.number().min(0),
-    maxDiscount: z.number().min(0).optional(),
-    minOrderAmount: z.number().min(0).optional(),
-    budgetLimit: z.number().min(0).optional(),
-    usageLimit: z.number().int().min(0).optional(),
-    perUserLimit: z.number().int().min(0).optional(),
-    firstOrderOnly: z.boolean().optional(),
-    validFrom: z.coerce.date().optional(),
-    validUntil: z.coerce.date(),
-    isPublic: z.boolean().optional(),
-  }),
-});
-
 router.get('/business/:businessId', authenticate, authorize(UserRole.BUSINESS), (req, res, next) =>
   couponController.listMine(req, res, next)
 );
@@ -67,8 +52,21 @@ router.post(
   validate(businessCouponSchema),
   (req, res, next) => couponController.createMine(req, res, next)
 );
+router.patch(
+  '/business/:id',
+  authenticate,
+  authorize(UserRole.BUSINESS),
+  validate(updateBusinessCouponSchema),
+  (req, res, next) => couponController.updateMine(req, res, next)
+);
 router.patch('/business/:id/deactivate', authenticate, authorize(UserRole.BUSINESS), (req, res, next) =>
   couponController.deactivateMine(req, res, next)
+);
+router.patch('/business/:id/reactivate', authenticate, authorize(UserRole.BUSINESS), (req, res, next) =>
+  couponController.reactivateMine(req, res, next)
+);
+router.delete('/business/:id', authenticate, authorize(UserRole.BUSINESS), (req, res, next) =>
+  couponController.deleteMine(req, res, next)
 );
 
 // Admin — CRUD

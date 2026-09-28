@@ -1,11 +1,14 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
+import { usePreferencesStore } from '../stores/preferencesStore';
+import { playNotificationSound } from '../lib/notificationSound';
 
 /**
- * Una línea arriba del Dashboard cuando se abrió la cuenta desde un
+ * Una línea arriba de cada página cuando se abrió la cuenta desde un
  * dispositivo que no se había visto. El aviso lo guarda el servidor al
  * iniciar sesión (`securityEvent.service.ts`) como notificación, así que
  * también lo ve quien no tenía el panel abierto en ese momento.
@@ -24,6 +27,7 @@ interface NotificationItem {
 
 export default function NewDeviceNotice() {
   const queryClient = useQueryClient();
+  const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
   const { data: notice } = useQuery({
     queryKey: qk.accountNotifications(),
     queryFn: async () => (await api.get('/notifications', { params: { limit: 20 } })).data.data as NotificationItem[],
@@ -36,6 +40,18 @@ export default function NewDeviceNotice() {
     mutationFn: async (id: string) => api.patch(`/notifications/${id}/read`),
     onSettled: () => queryClient.invalidateQueries({ queryKey: qk.accountNotifications() }),
   });
+
+  useEffect(() => {
+    if (!notice || !soundEnabled) return;
+    const key = `business_notification_sound:${notice._id}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, 'played');
+    } catch {
+      // Si el navegador bloquea storage, el sonido sigue siendo opcional.
+    }
+    playNotificationSound('attention');
+  }, [notice, soundEnabled]);
 
   if (!notice) return null;
 

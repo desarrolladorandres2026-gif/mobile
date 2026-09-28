@@ -155,6 +155,19 @@ export interface IBusiness extends Document {
    * un gasto de ZIPP.
    */
   freeDeliveryThreshold: number;
+  /**
+   * Vigencia del envío gratis. Por defecto cubre todo el tiempo (desde el
+   * pasado remoto hasta un futuro lejano), así que un negocio sin fechas
+   * configuradas se comporta exactamente como antes de que estos campos
+   * existieran. Se resuelve con `couponAvailability()` —la misma función
+   * que ya decide la franja de un cupón— construyendo un `CouponTiming`
+   * sintético desde estos cinco campos (ver `freeDeliveryWindow.ts`).
+   */
+  freeDeliveryValidFrom: Date;
+  freeDeliveryValidUntil: Date;
+  freeDeliveryValidDays: number[];
+  freeDeliveryValidFromTime?: string;
+  freeDeliveryValidUntilTime?: string;
   isApproved: boolean;
   approvedAt?: Date | null;
   approvedBy?: Types.ObjectId | null;
@@ -388,6 +401,18 @@ const businessSchema = new Schema<IBusiness>(
       default: true,
     },
     freeDeliveryThreshold: { type: Number, default: 0, min: 0 },
+    freeDeliveryValidFrom: { type: Date, default: () => new Date(0) },
+    freeDeliveryValidUntil: { type: Date, default: () => new Date('2999-12-31') },
+    freeDeliveryValidDays: {
+      type: [Number],
+      default: [],
+      validate: {
+        validator: (v: number[]) => v.every((d) => Number.isInteger(d) && d >= 0 && d <= 6),
+        message: 'Días de envío gratis inválidos',
+      },
+    },
+    freeDeliveryValidFromTime: { type: String, default: '' },
+    freeDeliveryValidUntilTime: { type: String, default: '' },
     isApproved: {
       type: Boolean,
       default: false,

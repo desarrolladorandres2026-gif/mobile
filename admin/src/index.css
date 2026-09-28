@@ -27,6 +27,21 @@
   --color-text-muted: #000000;
 }
 
+/* Admin conserva el dorado de la identidad ZIPP; Business usa verde. */
+:root {
+  --color-primary: #D69E26;
+  --color-primary-light: #E5B242;
+  --color-primary-dark: #9C6E0E;
+  --color-primary-bg: #FDF7E7;
+}
+
+.dark {
+  --color-primary: #E5B242;
+  --color-primary-light: #F3CE72;
+  --color-primary-dark: #D69E26;
+  --color-primary-bg: rgba(229, 178, 66, 0.12);
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -103,6 +118,19 @@
 
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
   background: #2E3D5C;
+}
+
+.admin-sidebar-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+
+.admin-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #c5c5c5;
+  border-radius: 999px;
+}
+
+.admin-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 
 /* ── Animations ── */

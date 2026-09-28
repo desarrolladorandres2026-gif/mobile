@@ -66,3 +66,71 @@ export const updateCouponSchema = z.object({
   query: z.object({}).optional(),
   params: z.object({ id: z.string() }),
 });
+
+// ── Promociones que crea el propio comercio ──
+//
+// Subconjunto reducido: `fundedBy`, `businessId` y `campaignApproved` nunca
+// se leen del body (el servicio los fuerza), así que ni siquiera se
+// declaran aquí — no hay forma de que la petición los cuele.
+const businessCouponBody = z
+  .object({
+    // Con código: requerido. Automática (`autoApply: true`): ausente, el
+    // servicio genera uno sintético que el panel nunca muestra.
+    code: z.string().trim().min(3).max(20).optional(),
+    title: z.string().trim().min(3).max(80),
+    description: z.string().trim().max(200).optional(),
+    type: z.enum(['percentage', 'fixed', 'free_delivery']),
+    scope: z.enum(['product', 'delivery']).optional(),
+    value: z.number().min(0),
+    maxDiscount: z.number().min(0).optional(),
+    maxDiscountAmount: z.number().int().min(0).optional(),
+    minOrderAmount: z.number().min(0).optional(),
+    budgetLimit: z.number().min(0).optional(),
+    usageLimit: z.number().int().min(0).optional(),
+    perUserLimit: z.number().int().min(0).optional(),
+    firstOrderOnly: z.boolean().optional(),
+    validFrom: z.coerce.date().optional(),
+    validUntil: z.coerce.date(),
+    isPublic: z.boolean().optional(),
+    /** Sin código: se aplica sola cuando el carrito trae alguno de `productIds`. */
+    autoApply: z.boolean().optional(),
+    productIds: z.array(z.string()).max(50).optional(),
+  })
+  .refine((body) => !body.autoApply || (body.productIds && body.productIds.length > 0), {
+    message: 'Una promoción automática debe cubrir al menos un producto',
+    path: ['productIds'],
+  })
+  .refine((body) => (body.productIds?.length ?? 0) === 0 || body.autoApply === true, {
+    message: 'Solo una promoción automática puede tener productos asociados',
+    path: ['autoApply'],
+  })
+  .refine((body) => body.autoApply || (body.code && body.code.length >= 3), {
+    message: 'El código es requerido',
+    path: ['code'],
+  });
+
+export const businessCouponSchema = z.object({
+  body: businessCouponBody,
+  query: z.object({}).optional(),
+  params: z.object({ businessId: z.string() }),
+});
+
+export const updateBusinessCouponSchema = z.object({
+  body: z.object({
+    title: z.string().trim().min(3).max(80).optional(),
+    description: z.string().trim().max(200).optional(),
+    value: z.number().min(0).optional(),
+    maxDiscount: z.number().min(0).optional(),
+    maxDiscountAmount: z.number().int().min(0).optional(),
+    minOrderAmount: z.number().min(0).optional(),
+    budgetLimit: z.number().min(0).optional(),
+    usageLimit: z.number().int().min(0).optional(),
+    perUserLimit: z.number().int().min(0).optional(),
+    validFrom: z.coerce.date().optional(),
+    validUntil: z.coerce.date().optional(),
+    productIds: z.array(z.string()).max(50).optional(),
+    isActive: z.boolean().optional(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({ id: z.string() }),
+});

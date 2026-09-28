@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import request from 'supertest';
 import app from '../app';
 import { Order, Coupon, CouponRedemption } from '../models';
-import { CouponType, OrderStatus, UserRole } from '../types';
+import { CouponType, CouponFundedBy, CouponScope, OrderStatus, PaymentMethod, UserRole } from '../types';
+import { orderService } from '../services/order.service';
 import {
   GARZON, offsetKm, makeUser, makeBusiness, makeProduct, makeCoupon, authHeader,
   makePricingConfig,
@@ -193,6 +194,99 @@ describe('POST /api/v1/orders', () => {
 
     expect((await Coupon.findById(coupon._id))!.usedCount).toBe(1);
     expect(await CouponRedemption.countDocuments({ couponId: coupon._id })).toBe(1);
+  });
+
+  it('una promoción automática se cobra sin código, y coexiste con el cupón de código', async () => {
+    const { client, business, product } = await scenario({ price: 30000 });
+    await makeCoupon({
+      type: CouponType.FIXED,
+      value: 6000,
+      fundedBy: CouponFundedBy.BUSINESS,
+      scope: CouponScope.PRODUCT,
+      businessId: business._id,
+      autoApply: true,
+      productIds: [product._id],
+    });
+    const codeCoupon = await makeCoupon({
+      code: 'ENCIMA',
+      type: CouponType.FIXED,
+      value: 3000,
+      fundedBy: CouponFundedBy.PLATFORM,
+    });
+
+    const body = orderBody(business, product, { items: [{ productId: product._id.toString(), quantity: 1 }], couponCode: 'ENCIMA' });
+
+    const quoted = await request(app)
+      .post('/api/v1/orders/quote')
+      .set(await authHeader(client))
+      .send(body)
+      .expect(200);
+
+    const created = await request(app)
+      .post('/api/v1/orders')
+      .set(await authHeader(client))
+      .send(body)
+      .expect(201);
+
+    // Cobra exactamente lo cotizado: automática (6.000) + código (3.000).
+    expect(created.body.data.total).toBe(quoted.body.data.total);
+    expect(created.body.data.discount).toBe(9000);
+
+    // Dos filas de canje para el mismo pedido: una por cada promoción.
+    const redemptions = await CouponRedemption.find({ orderId: created.body.data._id });
+    expect(redemptions).toHaveLength(2);
+    expect((await Coupon.findById(codeCoupon._id))!.usedCount).toBe(1);
+  });
+
+  it('cancelar libera tanto el cupón de código como la promoción automática', async () => {
+    await makePricingConfig({ driverBaseFee: 4300, driverMinFee: 4300 });
+    const client = await makeUser({ role: UserRole.CLIENT });
+    const owner = await makeUser({ role: UserRole.BUSINESS });
+    const business = await makeBusiness(owner._id, { commissionRateBps: 1000 });
+    const product = await makeProduct(business._id, { price: 30000 });
+
+    const autoPromo = await makeCoupon({
+      type: CouponType.FIXED,
+      value: 6000,
+      fundedBy: CouponFundedBy.BUSINESS,
+      scope: CouponScope.PRODUCT,
+      businessId: business._id,
+      autoApply: true,
+      productIds: [product._id],
+    });
+    const codeCoupon = await makeCoupon({
+      type: CouponType.FIXED,
+      value: 3000,
+      fundedBy: CouponFundedBy.PLATFORM,
+      budgetLimit: 100000,
+      campaignApproved: true,
+    });
+
+    const order = await orderService.create({
+      clientId: client._id.toString(),
+      businessId: business._id.toString(),
+      items: [{ productId: product._id.toString(), quantity: 1 }],
+      paymentMethod: PaymentMethod.ONLINE,
+      deliveryAddress: 'Cra 10 #5-23',
+      deliveryLatitude: DESTINATION.lat,
+      deliveryLongitude: DESTINATION.lng,
+      couponCode: codeCoupon.code,
+    });
+
+    expect(await CouponRedemption.countDocuments({ orderId: order._id })).toBe(2);
+
+    await orderService.updateStatus(
+      order._id.toString(),
+      OrderStatus.CANCELLED,
+      client._id.toString(),
+      UserRole.CLIENT,
+      'Cancelado'
+    );
+
+    expect(await CouponRedemption.countDocuments({ orderId: order._id })).toBe(0);
+    expect((await Coupon.findById(autoPromo._id))!.usedCount).toBe(0);
+    expect((await Coupon.findById(codeCoupon._id))!.usedCount).toBe(0);
+    expect((await Coupon.findById(codeCoupon._id))!.budgetSpent).toBe(0);
   });
 
   it('guarda la propina y la suma al total', async () => {

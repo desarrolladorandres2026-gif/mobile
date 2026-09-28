@@ -1,8 +1,7 @@
-import { Suspense, useEffect } from 'react';
+import { Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
-import { useThemeStore } from './stores/themeStore';
 import { RealtimeProvider } from './hooks/RealtimeProvider';
 import UpdateBanner from './components/UpdateBanner';
 import PrivateRoute from './components/PrivateRoute';
@@ -18,18 +17,23 @@ import { lazyPage } from './lib/lazyPage';
  */
 const Login = lazyPage(() => import('./pages/Login'), '/login');
 const TwoFactorSetup = lazyPage(() => import('./pages/TwoFactorSetup'), '/setup-2fa');
-const Dashboard = lazyPage(() => import('./pages/Dashboard'), '/');
+const DailySummaryPage = lazyPage(() => import('./pages/DailySummary'), '/');
 const OrdersPage = lazyPage(() => import('./pages/Orders'), '/orders');
 const MenuPage = lazyPage(() => import('./pages/Menu'), '/menu');
 const ReviewsPage = lazyPage(() => import('./pages/Reviews'), '/reviews');
 const SupportPage = lazyPage(() => import('./pages/Support'), '/support');
-const SettingsPage = lazyPage(() => import('./pages/Settings'), '/settings');
 const PromotionsPage = lazyPage(() => import('./pages/Promotions'), '/promotions');
 const AdvertisingPage = lazyPage(() => import('./pages/Advertising'), '/advertising');
-const AnalyticsPage = lazyPage(() => import('./pages/Analytics'), '/analytics');
-const StaffPage = lazyPage(() => import('./pages/Staff'), '/staff');
 const SettlementsPage = lazyPage(() => import('./pages/Settlements'), '/settlements');
-const DocumentsPage = lazyPage(() => import('./pages/Documents'), '/documents');
+// El perfil del negocio vive en un único archivo (cabecera + pestañas) pero
+// cuelga de cuatro rutas reales, una por pestaña, para que la barra lateral
+// siga resaltando el ítem activo y cada pestaña tenga su propia URL. Cada
+// `lazyPage` se registra con su propia ruta para que `preloadOn` funcione
+// desde cualquiera de los cuatro enlaces; el `import()` es el mismo chunk.
+const ProfileInfoPage = lazyPage(() => import('./pages/Profile'), '/settings');
+const ProfileDocumentsPage = lazyPage(() => import('./pages/Profile'), '/documents');
+const ProfileStaffPage = lazyPage(() => import('./pages/Profile'), '/staff');
+const ProfileSecurityPage = lazyPage(() => import('./pages/Profile'), '/security');
 
 /**
  * Caché de lecturas del panel. 30 s de frescura: ir de Pedidos a la cocina
@@ -51,12 +55,6 @@ function PageLoading() {
 }
 
 function App() {
-  const initTheme = useThemeStore((s) => s.initTheme);
-
-  useEffect(() => {
-    initTheme();
-  }, [initTheme]);
-
   return (
     <QueryClientProvider client={queryClient}>
     <BrowserRouter>
@@ -77,18 +75,18 @@ function App() {
             {/* Fuera del Layout: con el 2FA pendiente, todo lo que el Layout pide responde 403. */}
             <Route path="/setup-2fa" element={<TwoFactorSetup />} />
             <Route path="/" element={<Layout />}>
-              <Route index element={<Dashboard />} />
+              <Route index element={<DailySummaryPage />} />
               <Route path="orders" element={<OrdersPage />} />
               <Route path="settlements" element={<SettlementsPage />} />
               <Route path="menu" element={<MenuPage />} />
               <Route path="reviews" element={<ReviewsPage />} />
               <Route path="support" element={<SupportPage />} />
-              <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="promotions" element={<PromotionsPage />} />
               <Route path="advertising" element={<AdvertisingPage />} />
-              <Route path="staff" element={<StaffPage />} />
-              <Route path="documents" element={<DocumentsPage />} />
-              <Route path="settings" element={<SettingsPage />} />
+              <Route path="staff" element={<ProfileStaffPage />} />
+              <Route path="documents" element={<ProfileDocumentsPage />} />
+              <Route path="settings" element={<ProfileInfoPage />} />
+              <Route path="security" element={<ProfileSecurityPage />} />
             </Route>
           </Route>
 

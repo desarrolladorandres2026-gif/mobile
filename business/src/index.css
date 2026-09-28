@@ -1,21 +1,29 @@
 @import "tailwindcss";
 
 /**
- * Tailwind v4 activa `dark:` por `prefers-color-scheme` a menos que se
- * redefina el variant. ThemeToggle/themeStore controlan el tema alternando
- * la clase `.dark` en <html> (modo manual + "Automático"), así que `dark:`
- * debe engancharse a esa clase y no solo al SO — si no, elegir "Modo claro"
- * u "Oscuro" a mano no tiene efecto en ningún elemento que use `dark:`.
- */
-@custom-variant dark (&:where(.dark, .dark *));
-
-/**
  * ZIPP Business — Zipp Design System "El Trazo"
  *
  * Las variables de color viven en /variables de color/colores.css (fuente
  * única para admin, business y mobile). No dupliques valores hex aquí.
  */
 @import "../../variables de color/colores.css";
+
+/* Business usa el dorado de la identidad ZIPP como acento de producto. */
+:root {
+  --color-primary: #D69E26;
+  --color-primary-light: #E5B242;
+  --color-primary-dark: #9C6E0E;
+  --color-primary-bg: #FDF7E7;
+  --color-chart-blue: #D69E26;
+}
+
+.dark {
+  --color-primary: #E5B242;
+  --color-primary-light: #F3CE72;
+  --color-primary-dark: #D69E26;
+  --color-primary-bg: rgba(229, 178, 66, 0.12);
+  --color-chart-blue: #E5B242;
+}
 
 @layer base {
   html {
@@ -70,16 +78,8 @@
   border-radius: 4px;
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background: #232E46;
-}
-
 ::-webkit-scrollbar-thumb:hover {
   background: #7C8BA1;
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #2E3D5C;
 }
 
 .sidebar-scroll::-webkit-scrollbar {
@@ -93,6 +93,22 @@
 
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
   background: #2E3D5C;
+}
+
+/* La navegación compacta usa el gris y el acento verde de la referencia.
+   La barra sigue siendo desplazable cuando un comercio tiene todos sus
+   módulos habilitados, pero sin introducir el scroll oscuro anterior. */
+.business-sidebar-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+
+.business-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #c5c5c5;
+  border-radius: 999px;
+}
+
+.business-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
 }
 
 /* ── Animations ── */
@@ -126,14 +142,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Sección plana Zipp: reemplaza la antigua tarjeta con fondo/borde por
-   espacio en blanco. Se mantiene el nombre de la clase para no tocar los
-   archivos que la usan; ver regla "sin cajas". */
+/* Superficie de workspace Business: los módulos comparten una elevación
+   sutil, borde suave y radio amplio, como el nuevo Resumen General. */
 .zipp-card {
-  background-color: transparent;
-  border-radius: 0;
-  border: none;
-  box-shadow: none;
+  background-color: var(--color-surface);
+  border-radius: 1rem;
+  border: 1px solid var(--color-border);
+  box-shadow: 0 8px 20px rgba(20, 20, 20, 0.055);
 }
 
 /* Sidebar Labels */
@@ -155,10 +170,12 @@
 }
 
 .page-header {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--color-border);
 }
 
 @media (min-width: 640px) {
@@ -169,30 +186,64 @@
   }
 }
 
-.page-title {
-  font-size: 1.35rem;
+/* Pantalla en tres columnas sin scroll de página: en escritorio la rejilla
+   ocupa el alto visible (barra superior 5rem + padding + cabecera) y cada
+   columna desplaza por dentro lo que no quepa. En móvil vuelve a apilarse. */
+.cols3 {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2rem;
+}
+
+@media (min-width: 1024px) {
+  .cols3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    height: calc(100dvh - var(--cols3-offset, 15.5rem));
+    min-height: 26rem;
+  }
+  .cols3 > * {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 1.5rem;
+    border-left: 1px solid var(--color-border);
+  }
+  .cols3 > *:first-child { padding-left: 0; border-left: 0; }
+  .cols3 > *:last-child { padding-right: 0; }
+  .cols3 > .span2 { grid-column: span 2 / span 2; }
+}
+
+.col-title {
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.4rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: var(--color-text-main);
-  letter-spacing: -0.02em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.page-title {
+  font-size: 1.65rem;
+  font-weight: 600;
+  color: var(--color-text-main);
+  letter-spacing: -0.035em;
   line-height: 1.2;
 }
 
 .page-subtitle {
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: var(--color-text-secondary);
-  margin-top: 0.25rem;
+  margin-top: 0.4rem;
 }
 
-/* Tabla plana Zipp: antes era una tarjeta (fondo blanco, radio, sombra)
-   mientras que admin ya usaba esta misma clase sin superficie propia desde
-   antes — ver regla "sin cajas". Se alinea aquí para que ambos paneles
-   compartan un único lenguaje de tabla. */
+/* Tablas del workspace: conservan mucha densidad operativa pero viven en
+   una superficie elevada en lugar de perderse sobre el lienzo gris. */
 .table-container {
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-  border-radius: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
   overflow: hidden;
-  background-color: transparent;
+  background-color: var(--color-surface);
+  box-shadow: 0 8px 20px rgba(20, 20, 20, 0.055);
 }
 
 .table-header-cell {
@@ -202,7 +253,7 @@
   color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background-color: transparent;
+  background-color: var(--color-bg-alt);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -214,14 +265,30 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+/* Acciones y campos de todos los módulos: mismos bordes y foco verde que
+   usa el dashboard. No altera colores semánticos de peligro/advertencia. */
+.page-container input:not([type='checkbox']):not([type='radio']),
+.page-container select,
+.page-container textarea {
+  border-radius: 0.75rem;
+}
+
+.page-container input:focus,
+.page-container select:focus,
+.page-container textarea:focus {
+  border-color: #D69E26;
+  box-shadow: 0 0 0 3px rgba(118, 185, 0, 0.14);
+}
+
+.dark .zipp-card,
+.dark .table-container {
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
 /* Modal Zipp: única superficie elevada legítima (confirmaciones, formularios
    aislados) — ver regla "sin cajas". */
 .zipp-modal {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   box-shadow: 0 25px 50px -12px rgba(8, 11, 17, 0.12);
-}
-
-.dark .zipp-modal {
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
 }

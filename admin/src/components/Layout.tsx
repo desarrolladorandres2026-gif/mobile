@@ -1,7 +1,7 @@
 ﻿import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
- LogOut, Menu,
- ChevronDown, ChevronRight, RefreshCw,
+ LogOut, Menu, ArrowLeft, ArrowRight, Home,
+ ChevronDown, RefreshCw,
 } from 'lucide-react';
 import { Suspense, useEffect, useState } from 'react';
 import { ThemeToggle } from './ThemeToggle';
@@ -13,6 +13,7 @@ import FichaHost from './fichas/FichaHost';
 import { useAuthStore } from '../stores/authStore';
 import { NAV_GROUPS } from '../lib/navigation';
 import { preloadOn } from '../lib/lazyPage';
+import { ZippMark } from './ZippMark';
 /** Lo que se ve el instante en que llega el archivo de una página. */
 function PageLoading() {
  return (
@@ -119,29 +120,36 @@ export default function Layout() {
 
  return (
  <div className="flex h-screen bg-[var(--color-bg)] dark:bg-[#080B11] text-[var(--color-text-main)] overflow-hidden font-sans transition-colors duration-200">
- {/* ── Sidebar (Dark Slate Zipp Theme) ── */}
+ {/* ── Navegación compacta, compartida con Business ── */}
  <aside className={`
- fixed inset-y-0 left-0 z-50 w-64 bg-linear-to-b from-[var(--color-sidebar-deep)] from-35% to-[var(--color-sidebar-glow)] border-r border-[var(--color-sidebar-border)] flex flex-col
+ admin-sidebar fixed inset-y-0 left-0 z-50 w-30 bg-[#f1f1f1] border-r border-[#d7d7d7] flex flex-col shadow-[1px_0_3px_rgba(0,0,0,0.08)]
  transform transition-transform duration-300 ease-out
  lg:translate-x-0 lg:static lg:inset-0
  ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
  `}>
+ <div className="relative h-14 shrink-0 border-b border-[#d7d7d7] flex items-center justify-center gap-2">
+ <ZippMark size={25} mono="#D69E26" />
+ <span className="text-[15px] font-semibold tracking-tight text-[#4b4b4b]">ZIPP</span>
+ <button aria-label="Cerrar menú" className="absolute right-2 top-2 p-1 text-[#555] hover:text-[#111] lg:hidden" onClick={() => setSidebarOpen(false)}>
+ <Menu className="w-4 h-4" />
+ </button>
+ </div>
  {/* Navigation Categories */}
- <nav className="flex-1 overflow-y-auto sidebar-scroll px-3 py-3 space-y-3">
+ <nav aria-label="Navegación principal" className="flex-1 overflow-y-auto admin-sidebar-scroll py-1">
  {NAV_GROUPS.map((group) => {
  const visibleItems = group.items.filter((item) => hasPermission(item.permission));
  if (visibleItems.length === 0) return null;
  return (
- <div key={group.category}>
- <p className="text-xs font-bold tracking-wider text-white uppercase px-3 mb-1">
+ <div key={group.category} className="border-b border-[#dedede] last:border-b-0 pb-1">
+ <p className="px-2 pt-3 pb-1 text-center text-[8px] font-bold tracking-[0.12em] text-[#8a8a8a] uppercase">
  {group.category}
  </p>
- <div className="space-y-0">
+ <div className="flex flex-col">
  {visibleItems.map((item) => {
  const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
  return (
- <div key={item.path} className="ml-6">
  <NavLink
+ key={item.path}
  to={item.path}
  end={item.path === '/'}
  onClick={() => setSidebarOpen(false)}
@@ -149,18 +157,19 @@ export default function Layout() {
  // pulsar: para cuando llega el clic ya esta descargado
  // y no hay spinner. Ver `preloadOn`.
  {...preloadOn(item.path)}
- className={`relative flex items-center gap-3 px-3 py-0.5 rounded-lg text-xs font-medium transition-all duration-150 ${isActive
- ? 'bg-[#1B2437] text-white font-semibold shadow-sm'
- : 'text-[var(--color-sidebar-text)] hover:text-white hover:bg-[#1B2437]/60'
+ title={item.label}
+ aria-label={item.label}
+ className={`relative flex flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium tracking-wide transition-colors duration-150 ${isActive
+ ? 'text-[#161616] font-semibold'
+ : 'text-[#555] hover:text-[#161616] hover:bg-black/4'
  }`}
  >
  {isActive && (
- <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-full bg-[var(--color-primary)]" />
+ <span className="absolute left-0 top-1/2 -translate-y-1/2 h-12 w-1 rounded-r-full bg-[#D69E26]" />
  )}
- <item.Icon fontSize={20} style={{ color: 'white' }} />
- <span className="truncate">{item.label}</span>
+ <item.Icon fontSize={24} style={{ color: isActive ? '#292929' : 'currentColor' }} />
+ <span className="w-full truncate text-center leading-tight">{item.label}</span>
  </NavLink>
- </div>
  );
  })}
  </div>
@@ -170,17 +179,14 @@ export default function Layout() {
  </nav>
 
  {/* Sidebar Footer */}
- <div className="px-3 py-3 border-t border-[var(--color-sidebar-border)]/70">
+ <div className="px-2 py-2 border-t border-[#d7d7d7]">
  <button
  onClick={() => setShowLogoutModal(true)}
- className="group flex items-center gap-3 w-full px-1 py-1 cursor-pointer"
+ title="Cerrar sesión"
+ className="group flex flex-col items-center gap-1 w-full py-1 text-[#555] hover:text-[var(--color-danger)] cursor-pointer"
  >
- <LogOut className="w-4 h-4 shrink-0 text-[var(--color-danger)]" strokeWidth={1.8} />
- <span className="flex-1 min-w-0 text-left">
- <p className="text-xs font-bold text-[var(--color-danger)] leading-tight">Cerrar sesión</p>
- <p className="text-[10px] text-[var(--color-sidebar-text)] leading-tight mt-0.5">Salir del panel de administración</p>
- </span>
- <ChevronRight className="w-4 h-4 text-[var(--color-danger)] opacity-45 shrink-0 transition-transform group-hover:translate-x-0.5" />
+ <LogOut className="w-5 h-5" strokeWidth={1.8} />
+ <span className="text-[10px] font-medium">Salir</span>
  </button>
  </div>
  </aside>
@@ -196,44 +202,46 @@ export default function Layout() {
  {/* ── Main Content Area ── */}
  <main className="flex-1 overflow-y-auto flex flex-col min-w-0 bg-[var(--color-bg)] dark:bg-[#080B11] transition-colors duration-200">
  <OrderNotifications />
- {/* Top Header */}
- <header className="sticky top-0 z-30 bg-[var(--color-surface)] dark:bg-[#1B2437] border-b border-[var(--color-border)] dark:border-slate-800/80 px-6 lg:px-8 h-16 flex items-center justify-between gap-4 shadow-xs transition-colors duration-200">
- <div className="flex items-center gap-4 flex-1">
+ {/* Barra superior tipo Spotify, con búsqueda global existente. */}
+ <header className="sticky top-0 z-30 h-20 bg-[#f1f1f1] border-b border-[#d7d7d7] px-4 sm:px-6 flex items-center gap-3 sm:gap-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+ <div className="flex items-center gap-2 sm:gap-3 shrink-0">
  <button
- className="lg:hidden p-2 rounded-lg text-slate-900 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+ aria-label="Abrir menú"
+ className="lg:hidden p-2 rounded-full text-[#444] hover:bg-[#dedede] transition-colors cursor-pointer"
  onClick={() => setSidebarOpen(true)}
  >
  <Menu className="w-5 h-5" />
  </button>
-
- {/* Búsqueda global: pedidos, clientes, comercios, domiciliarios, cupones */}
- <GlobalSearch />
+ <button aria-label="Página anterior" onClick={() => navigate(-1)} className="hidden sm:grid w-9 h-9 place-items-center rounded-full text-[#777] hover:text-[#222] hover:bg-[#dedede] cursor-pointer"><ArrowLeft className="w-5 h-5" strokeWidth={2.4} /></button>
+ <button aria-label="Página siguiente" onClick={() => navigate(1)} className="hidden sm:grid w-9 h-9 place-items-center rounded-full text-[#999] hover:text-[#222] hover:bg-[#dedede] cursor-pointer"><ArrowRight className="w-5 h-5" strokeWidth={2.4} /></button>
+ <button aria-label="Ir al resumen diario" onClick={() => navigate('/daily-summary')} className="grid w-12 h-12 place-items-center rounded-full bg-[#303030] text-white hover:scale-105 hover:bg-[#D69E26] cursor-pointer"><Home className="w-6 h-6 fill-current" strokeWidth={2.2} /></button>
  </div>
 
+ {/* Búsqueda global: pedidos, clientes, comercios, domiciliarios, cupones */}
+ <div className="hidden md:block flex-1 max-w-2xl"><GlobalSearch /></div>
+
  {/* Right Header Actions */}
- <div className="flex items-center gap-2 sm:gap-3">
+ <div className="ml-auto flex items-center gap-2 sm:gap-3 shrink-0">
  {/* Theme Toggle (Claro / Oscuro / Automático) */}
  <ThemeToggle />
 
  {/* Bandeja de alertas */}
  <AlertsTray />
 
- <div className="w-px h-6 bg-slate-200 dark:bg-slate-800" />
-
  {/* User Profile */}
  <div className="relative">
  <button
  onClick={() => setUserMenuOpen(!userMenuOpen)}
- className="flex items-center gap-2.5 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all cursor-pointer"
+ className="flex items-center gap-2 rounded-full bg-white border border-[#d7d7d7] p-1 pr-3 hover:bg-[#fafafa] transition-all cursor-pointer"
  >
- <div className="w-8 h-8 rounded-full bg-[var(--color-sidebar-hover)] border border-slate-300 dark:border-slate-700 flex items-center justify-center text-xs font-bold text-white shadow-xs">
+ <div className="w-10 h-10 rounded-full bg-[#D69E26] flex items-center justify-center text-sm font-bold text-white ring-3 ring-white">
  {user?.name?.charAt(0)?.toUpperCase() || 'A'}
  </div>
- <div className="text-left hidden sm:block">
- <p className="text-xs font-bold text-slate-800 dark:text-slate-100 leading-none">{user?.name || 'Administrador'}</p>
- <p className="text-[10px] text-slate-900 dark:text-slate-400 mt-0.5 leading-none">{positionName || 'Sin cargo asignado'}</p>
+ <div className="text-left hidden xl:block max-w-36">
+ <p className="text-xs font-bold text-[#333] leading-none truncate">{user?.name || 'Administrador'}</p>
+ <p className="text-[10px] text-[#777] mt-1 leading-none truncate">{positionName || 'Sin cargo asignado'}</p>
  </div>
- <ChevronDown className="w-3.5 h-3.5 text-slate-900 hidden sm:block" />
+ <ChevronDown className="w-3.5 h-3.5 text-[#666] hidden sm:block" />
  </button>
 
  {userMenuOpen && (

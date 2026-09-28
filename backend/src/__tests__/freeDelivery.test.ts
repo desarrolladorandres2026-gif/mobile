@@ -117,3 +117,57 @@ describe('Envío gratis financiado por el comercio', () => {
     expect(quote.merchantFundedDiscount).toBe(quote.deliveryCustomerFee);
   });
 });
+
+describe('Envío gratis con vigencia', () => {
+  let client: any;
+  let business: any;
+  let product: any;
+
+  const quoteFor = (quantity: number) =>
+    pricingService.quote({
+      userId: client._id.toString(),
+      businessId: business._id.toString(),
+      items: [{ productId: product._id.toString(), quantity }],
+      paymentMethod: PaymentMethod.ONLINE,
+      deliveryLatitude: GARZON.lat,
+      deliveryLongitude: GARZON.lng,
+    } as never);
+
+  beforeEach(async () => {
+    await makePricingConfig();
+    client = await makeUser({ role: UserRole.CLIENT });
+    const owner = await makeUser({ role: UserRole.BUSINESS });
+    business = await makeBusiness(owner._id, { lat: GARZON.lat, lng: GARZON.lng });
+    product = await makeProduct(business._id, { price: 10000 });
+  });
+
+  it('fuera de la ventana de fechas, no aplica aunque el umbral esté configurado', async () => {
+    await Business.updateOne(
+      { _id: business._id },
+      {
+        freeDeliveryThreshold: 30000,
+        freeDeliveryValidFrom: new Date(Date.now() + 24 * 3600_000),
+        freeDeliveryValidUntil: new Date(Date.now() + 7 * 24 * 3600_000),
+      }
+    );
+
+    const quote = await quoteFor(5);
+    expect(quote.freeDeliveryApplied).toBe(false);
+    expect(quote.deliveryPayable).toBeGreaterThan(0);
+  });
+
+  it('dentro de la ventana de fechas, aplica igual que siempre', async () => {
+    await Business.updateOne(
+      { _id: business._id },
+      {
+        freeDeliveryThreshold: 30000,
+        freeDeliveryValidFrom: new Date(Date.now() - 24 * 3600_000),
+        freeDeliveryValidUntil: new Date(Date.now() + 7 * 24 * 3600_000),
+      }
+    );
+
+    const quote = await quoteFor(5);
+    expect(quote.freeDeliveryApplied).toBe(true);
+    expect(quote.deliveryPayable).toBe(0);
+  });
+});

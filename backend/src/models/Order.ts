@@ -185,6 +185,13 @@ export interface IOrder extends Document {
   discount: number;
   couponId?: Types.ObjectId | null;
   couponCode?: string;
+  /**
+   * Promociones automáticas por producto que aplicaron a este pedido, sin
+   * código. A diferencia de `couponId` (uno solo, el que el cliente
+   * escribió), aquí puede haber varias: una por cada producto o grupo de
+   * productos distinto que tuviera una promoción activa en el carrito.
+   */
+  appliedPromotionIds?: Types.ObjectId[];
   /** Goes entirely to the driver, on top of driverPayout. */
   tip: number;
   tax: number;
@@ -365,6 +372,7 @@ const orderSchema = new Schema<IOrder>(
     discount: { type: Number, default: 0, min: 0 },
     couponId: { type: Schema.Types.ObjectId, ref: 'Coupon', default: null },
     couponCode: { type: String, default: null, uppercase: true, trim: true },
+    appliedPromotionIds: { type: [Schema.Types.ObjectId], ref: 'Coupon', default: [] },
     tip: { type: Number, default: 0, min: 0 },
     tax: { type: Number, default: 0, min: 0 },
     platformCommission: { type: Number, required: true, min: 0 },

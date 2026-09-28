@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, AlertCircle,
-  UtensilsCrossed, RefreshCw, Store, Info, Clock,
-} from 'lucide-react';
+import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, Tag } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
@@ -404,155 +401,164 @@ export default function Menu() {
 
   const catalogList = useMemo(
     () => (
-    <div className="space-y-6">
-      {categories.map((category) => {
-        const items = products.filter((product) => product.categoryId === category._id);
-        return (
-          <section key={category._id} className="table-container">
-            <header className="px-5 py-3.5 border-b border-[var(--color-border-light)] bg-[var(--color-bg)] flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <UtensilsCrossed className="w-4 h-4 text-[var(--color-primary)] shrink-0" />
-                <h2 className="text-sm font-bold text-[var(--color-text-main)] truncate">
-                  {category.name}
-                </h2>
-                <button
-                  onClick={() => actions.current.deleteCategory(category._id)}
-                  title="Eliminar categoría"
-                  aria-label={`Eliminar la categoría ${category.name}`}
-                  className="p-1 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors cursor-pointer shrink-0"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)] px-2.5 py-0.5 rounded-md bg-[var(--color-primary-bg)] border border-[var(--color-primary)]/30 shrink-0">
-                {items.length} producto(s)
-              </span>
-            </header>
+      <div className="space-y-8">
+        {categories.map((category) => {
+          const items = products.filter((product) => product.categoryId === category._id);
+          return (
+            <section key={category._id}>
+              <header className="mb-3 pb-2 flex items-center justify-between gap-3 border-b border-[var(--color-border)]">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <h2 className="text-sm font-bold text-[var(--color-text-main)] truncate">
+                    {category.name}
+                  </h2>
+                  <button
+                    onClick={() => actions.current.deleteCategory(category._id)}
+                    title="Eliminar categoría"
+                    aria-label={`Eliminar la categoría ${category.name}`}
+                    className="p-1 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors cursor-pointer shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)] px-2.5 py-0.5 rounded-md bg-[var(--color-primary-bg)] border border-[var(--color-primary)]/30 shrink-0">
+                  {items.length} producto(s)
+                </span>
+              </header>
 
-            <ul className="divide-y divide-[var(--color-border-light)]">
-              {items.map((product) => (
-                <li
-                  key={product._id}
-                  className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:bg-[var(--color-surface-hover)] transition-colors"
-                >
-                  {/*
-                    Tamaño fijo y cuadrado: es lo que impide que una foto
-                    enorme rompa la fila, y el hueco está reservado antes
-                    de que la imagen llegue.
-                  */}
-                  <SmartImage
-                    images={product.images}
-                    alt={product.name}
-                    base="thumb"
-                    sizes="56px"
-                    className="w-14 h-14 rounded-xl shrink-0"
-                  />
-
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <h3 className="text-sm font-bold text-[var(--color-text-main)]">
-                        {product.name}
-                      </h3>
-                      {!product.isAvailable && (
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger)]/30">
-                          Agotado
-                        </span>
-                      )}
-                      {!product.images && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[var(--color-warning-bg)] text-[var(--color-warning)] border border-[var(--color-warning)]/30">
-                          Sin foto
-                        </span>
-                      )}
-                      {product.requiresAgeVerification ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[var(--color-bg-alt)] text-[var(--color-text-main)] border border-[var(--color-border)]">
-                          +18
-                        </span>
-                      ) : null}
-                      {product.prepTimeMinutes ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] border border-[var(--color-border)]">
-                          <Clock className="w-3 h-3" />
-                          {product.prepTimeMinutes} min
-                        </span>
-                      ) : null}
-                      {/* Solo aparece si el negocio lleva la cuenta.
-                          `null` es "no lo cuento" y no se muestra. */}
-                      {typeof product.stock === 'number' && (
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                            product.stock === 0
-                              ? 'bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger)]/30'
-                              : product.stock <= (product.lowStockThreshold || 3)
-                                ? 'bg-[var(--color-warning-bg)] text-[var(--color-warning)] border-[var(--color-warning)]/30'
-                                : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)] border-[var(--color-border)]'
-                          }`}
-                        >
-                          {product.stock === 0 ? 'Sin unidades' : `Quedan ${product.stock}`}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-[var(--color-text-secondary)] truncate">
-                      {product.description || 'Sin descripción'}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between sm:justify-end gap-5 w-full sm:w-auto shrink-0">
-                    <div className="text-left sm:text-right">
-                      {product.discountPrice ? (
-                        <>
-                          <p className="text-[10px] text-[var(--color-text-muted)] line-through tabular">
-                            {money(product.price)}
-                          </p>
-                          <p className="kpi-value text-sm text-[var(--color-primary)] tabular">
-                            {money(product.discountPrice)}
-                          </p>
-                        </>
-                      ) : (
-                        <p className="kpi-value text-sm tabular">{money(product.price)}</p>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => actions.current.toggle(product)}
-                        title={product.isAvailable ? 'Marcar como agotado' : 'Volver a ofrecerlo'}
-                        aria-label={`Cambiar disponibilidad de ${product.name}`}
-                        className="cursor-pointer hover:scale-105 transition-transform"
-                      >
-                        {product.isAvailable ? (
-                          <ToggleRight className="w-7 h-7 text-[var(--color-primary)]" />
-                        ) : (
-                          <ToggleLeft className="w-7 h-7 text-[var(--color-text-muted)]" />
-                        )}
-                      </button>
-                      <button
-                        onClick={() => actions.current.edit(product)}
-                        aria-label={`Editar ${product.name}`}
-                        className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
-                      >
-                        <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => actions.current.deleteProduct(product._id)}
-                        aria-label={`Eliminar ${product.name}`}
-                        className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </li>
-              ))}
-
-              {items.length === 0 && (
-                <li className="p-6 text-center text-xs font-medium text-[var(--color-text-muted)]">
+              {items.length === 0 ? (
+                <p className="py-6 text-center text-xs font-medium text-[var(--color-text-muted)]">
                   No hay productos en esta categoría.
-                </li>
+                </p>
+              ) : (
+                <div className="grid gap-2.5 grid-cols-4 sm:grid-cols-6 lg:grid-cols-8">
+                  {items.map((product) => (
+                    <div
+                      key={product._id}
+                      className="group relative flex flex-col gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 hover:border-[var(--color-primary)]/40 hover:shadow-[0_6px_14px_rgba(20,20,20,0.08)] transition-all"
+                    >
+                      <div className="flex items-start gap-1.5">
+                        {/* Miniatura pequeña, no toda la tarjeta: lo que
+                            hace falta ver es la información, no la foto. */}
+                        <SmartImage
+                          images={product.images}
+                          alt={product.name}
+                          base="thumb"
+                          sizes="40px"
+                          className="w-8 h-8 rounded-md shrink-0"
+                        />
+                        <h3 className="flex-1 min-w-0 text-[10px] font-bold text-[var(--color-text-main)] leading-tight">
+                          {product.name}
+                        </h3>
+                        <button
+                          onClick={() => actions.current.toggle(product)}
+                          title={product.isAvailable ? 'Marcar como agotado' : 'Volver a ofrecerlo'}
+                          aria-label={`Cambiar disponibilidad de ${product.name}`}
+                          className="cursor-pointer shrink-0 hover:scale-105 transition-transform"
+                        >
+                          {product.isAvailable ? (
+                            <ToggleRight className="w-4 h-4 text-[var(--color-primary)]" />
+                          ) : (
+                            <ToggleLeft className="w-4 h-4 text-[var(--color-text-muted)]" />
+                          )}
+                        </button>
+                      </div>
+
+                      {product.description && (
+                        <p className="text-[8px] leading-snug text-[var(--color-text-secondary)] line-clamp-2">
+                          {product.description}
+                        </p>
+                      )}
+
+                      <div className="flex flex-wrap gap-0.5">
+                        {product.promotedBy && (
+                          <a
+                            href={`/promotions?productId=${product._id}`}
+                            className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[var(--color-info-bg)] text-[var(--color-info)] flex items-center gap-0.5"
+                          >
+                            <Tag className="w-2 h-2" />
+                            En promoción
+                          </a>
+                        )}
+                        {!product.isAvailable && (
+                          <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[var(--color-danger-bg)] text-[var(--color-danger)]">
+                            Agotado
+                          </span>
+                        )}
+                        {!product.images && (
+                          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-[var(--color-warning-bg)] text-[var(--color-warning)]">
+                            Sin foto
+                          </span>
+                        )}
+                        {product.requiresAgeVerification ? (
+                          <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-[var(--color-bg-alt)] text-[var(--color-text-main)] border border-[var(--color-border)]">
+                            +18
+                          </span>
+                        ) : null}
+                        {product.prepTimeMinutes ? (
+                          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)]">
+                            {product.prepTimeMinutes} min
+                          </span>
+                        ) : null}
+                        {/* Solo aparece si el negocio lleva la cuenta.
+                            `null` es "no lo cuento" y no se muestra. */}
+                        {typeof product.stock === 'number' && (
+                          <span
+                            className={`text-[8px] font-bold px-1 py-0.5 rounded ${
+                              product.stock === 0
+                                ? 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]'
+                                : product.stock <= (product.lowStockThreshold || 3)
+                                  ? 'bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
+                                  : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)]'
+                            }`}
+                          >
+                            {product.stock === 0 ? 'Sin unidades' : `Quedan ${product.stock}`}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="mt-auto flex items-end justify-between gap-1 pt-0.5">
+                        <div>
+                          {product.discountPrice ? (
+                            <>
+                              <p className="text-[8px] text-[var(--color-text-muted)] line-through tabular">
+                                {money(product.price)}
+                              </p>
+                              <p className="text-xs font-bold text-[var(--color-primary)] tabular">
+                                {money(product.discountPrice)}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-xs font-bold text-[var(--color-text-main)] tabular">
+                              {money(product.price)}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => actions.current.edit(product)}
+                            aria-label={`Editar ${product.name}`}
+                            className="p-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
+                          >
+                            <Edit className="w-2.5 h-2.5" />
+                          </button>
+                          <button
+                            onClick={() => actions.current.deleteProduct(product._id)}
+                            aria-label={`Eliminar ${product.name}`}
+                            className="p-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-            </ul>
-          </section>
-        );
-      })}
-    </div>
+            </section>
+          );
+        })}
+      </div>
     ),
     [categories, products]
   );
@@ -560,7 +566,6 @@ export default function Menu() {
   if (!selectedBusiness) {
     return (
       <div className="py-20 text-center space-y-2">
-        <Store className="w-8 h-8 text-[var(--color-primary)] mx-auto" />
         <p className="font-bold text-[var(--color-text-main)] text-base">
           Sin establecimiento seleccionado
         </p>
@@ -585,7 +590,7 @@ export default function Menu() {
         <div className="flex items-center justify-center gap-2.5">
           <button
             onClick={() => setShowCategoryModal(true)}
-            className="px-3.5 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1 px-1 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] transition-colors cursor-pointer"
           >
             + Nueva categoría
           </button>
@@ -600,18 +605,16 @@ export default function Menu() {
           */}
           <button
             onClick={startNewProduct}
-            className="px-4 py-2 rounded-lg bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] text-xs font-bold text-white transition-colors cursor-pointer flex items-center gap-1.5"
+            className="px-1 py-2 text-xs font-bold text-[var(--color-primary-dark)] hover:text-[var(--color-primary)] transition-colors cursor-pointer"
           >
-            <Plus className="w-4 h-4" />
-            Nuevo producto
+            + Nuevo producto
           </button>
         </div>
       </div>
 
       {(error || loadError) && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
-          <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
-          <p className="flex-1 text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
+        <div className="rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
+          <p className="text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
         </div>
       )}
 
@@ -622,7 +625,6 @@ export default function Menu() {
       */}
       {!loading && noCategories && (
         <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-primary)]/30 bg-[var(--color-primary-bg)] p-3.5">
-          <Info className="w-4 h-4 text-[var(--color-primary)] shrink-0 mt-0.5" />
           <div className="flex-1">
             <p className="text-xs font-bold text-[var(--color-text-main)]">
               Empieza creando una categoría
@@ -643,7 +645,6 @@ export default function Menu() {
 
       {loading ? (
         <div className="table-container p-16 text-center">
-          <RefreshCw className="w-6 h-6 text-[var(--color-primary)] animate-spin mx-auto mb-2" />
           <p className="text-xs font-semibold text-[var(--color-text-secondary)]">
             Cargando catálogo…
           </p>
@@ -836,18 +837,27 @@ export default function Menu() {
                   />
                 </Field>
 
-                <Field label="Precio con descuento (opcional)" htmlFor="product-discount">
+                <Field
+                  label="Precio con descuento (opcional)"
+                  htmlFor="product-discount"
+                  hint={
+                    editingProduct?.promotedBy
+                      ? 'Bloqueado: hay una promoción automática vigente sobre este producto. Edítala en Promociones.'
+                      : undefined
+                  }
+                >
                   <input
                     id="product-discount"
                     type="number"
                     min={1}
                     step={1}
                     value={productForm.discountPrice}
+                    disabled={!!editingProduct?.promotedBy}
                     onChange={(event) =>
                       setProductForm({ ...productForm, discountPrice: event.target.value })
                     }
                     placeholder="20000"
-                    className={`${inputClass} tabular font-bold text-[var(--color-primary)]`}
+                    className={`${inputClass} tabular font-bold text-[var(--color-primary)] disabled:opacity-50`}
                   />
                 </Field>
               </div>
@@ -956,11 +966,7 @@ export default function Menu() {
               />
 
               {modalError && (
-                <p
-                  role="alert"
-                  className="flex items-start gap-1.5 text-[11px] font-semibold text-[var(--color-danger)]"
-                >
-                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                <p role="alert" className="text-[11px] font-semibold text-[var(--color-danger)]">
                   {modalError}
                 </p>
               )}
@@ -988,11 +994,12 @@ const inputClass =
   'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-semibold text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors';
 
 function Field({
-  label, htmlFor, children,
+  label, htmlFor, children, hint,
 }: {
   label: string;
   htmlFor: string;
   children: React.ReactNode;
+  hint?: string;
 }) {
   return (
     <div>
@@ -1003,6 +1010,7 @@ function Field({
         {label}
       </label>
       {children}
+      {hint && <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">{hint}</p>}
     </div>
   );
 }

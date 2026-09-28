@@ -43,7 +43,6 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     category: 'MENÚ',
     items: [
-      { path: '/', Icon: GridRegular, label: 'Resumen General', permission: Permission.ORDERS_VIEW_ALL },
       { path: '/daily-summary', Icon: CalendarRegular, label: 'Resumen Diario', permission: Permission.REPORTS_VIEW },
     ],
   },

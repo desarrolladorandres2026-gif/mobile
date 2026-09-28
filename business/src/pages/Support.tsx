@@ -70,14 +70,15 @@ export default function Support() {
     'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
 
   return (
-    <div className="space-y-8">
-      <div>
+    <div className="space-y-6 animate-fade-in">
+      <div className="page-header">
         <h1 className="page-title">Soporte</h1>
         <p className="page-subtitle">Cuéntanos qué pasa y te respondemos por aquí</p>
       </div>
 
-      <section className="space-y-3 max-w-2xl">
-        <h2 className="text-sm font-bold text-[var(--color-text-main)]">Nuevo caso</h2>
+      <div className="cols3">
+      <section className="space-y-4">
+        <h2 className="col-title">Nuevo caso</h2>
         <select value={type} onChange={(e) => setType(e.target.value as CaseType)} className={fieldClass}>
           {Object.entries(TYPE_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </select>
@@ -91,7 +92,7 @@ export default function Support() {
         <textarea
           value={detail}
           onChange={(e) => setDetail(e.target.value)}
-          rows={5}
+          rows={6}
           maxLength={4000}
           placeholder="Explica qué ocurrió. Si es sobre un pedido, incluye su número."
           className={fieldClass}
@@ -101,7 +102,7 @@ export default function Support() {
             <AlertCircle className="w-4 h-4" /> {error}
           </p>
         )}
-        <div className="flex items-center justify-end gap-3">
+        <div className="flex flex-col items-end gap-2">
           {!ready && (
             <span className="text-xs text-[var(--color-text-muted)]">
               Escribe un asunto y al menos 10 caracteres de detalle.
@@ -117,36 +118,45 @@ export default function Support() {
         </div>
       </section>
 
-      <section className="space-y-1 max-w-2xl">
-        <h2 className="text-sm font-bold text-[var(--color-text-main)]">Tus casos</h2>
-        {tickets.isError ? (
-          <p className="text-xs font-semibold text-[var(--color-danger)]">
-            {apiMessage(tickets.error, 'No se pudieron cargar tus casos.')}
-          </p>
-        ) : tickets.isPending ? (
-          <p className="text-xs text-[var(--color-text-muted)]">Cargando…</p>
-        ) : tickets.data.length === 0 ? (
-          <p className="py-6 text-xs text-[var(--color-text-muted)]">Todavía no has abierto casos.</p>
-        ) : (
-          <ul>
-            {tickets.data.map((t) => (
-              <li key={t._id} className="border-b border-[var(--color-border-light)] py-4">
-                <p className="font-bold text-[var(--color-text-main)]">{t.subject}</p>
-                <p className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)]">
-                  {TYPE_LABEL[t.type]} · {STATUS_LABEL[t.status]} · {dateTime(t.createdAt)}
+      {([
+        ['Abiertos', (st: Ticket['status']) => st === 'received' || st === 'in_review'],
+        ['Respondidos y cerrados', (st: Ticket['status']) => st === 'answered' || st === 'closed'],
+      ] as const).map(([title, match]) => {
+        const list = tickets.data?.filter((t) => match(t.status)) ?? [];
+        return (
+          <section key={title}>
+            <h2 className="col-title">{title}{tickets.data ? ` · ${list.length}` : ''}</h2>
+            {tickets.isError ? (
+              <p className="text-xs font-semibold text-[var(--color-danger)]">
+                {apiMessage(tickets.error, 'No se pudieron cargar tus casos.')}
+              </p>
+            ) : tickets.isPending ? (
+              <p className="text-xs text-[var(--color-text-muted)]">Cargando…</p>
+            ) : list.length === 0 ? (
+              <p className="text-xs text-[var(--color-text-muted)]">Sin casos aquí.</p>
+            ) : (
+              <ul className="divide-y divide-[var(--color-border-light)]">
+                {list.map((t) => (
+              <li key={t._id} className="py-4">
+              <p className="font-bold text-[var(--color-text-main)]">{t.subject}</p>
+              <p className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)]">
+                {TYPE_LABEL[t.type]} · {STATUS_LABEL[t.status]} · {dateTime(t.createdAt)}
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--color-text-secondary)]">{t.detail}</p>
+              {t.responses?.map((r, i) => (
+                <p key={i} className="mt-2 border-l-2 border-[var(--color-primary)] pl-3 text-sm text-[var(--color-text-main)]">
+                  {r.message}
+                  <span className="ml-2 text-[11px] text-[var(--color-text-muted)]">{dateTime(r.createdAt)}</span>
                 </p>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--color-text-secondary)]">{t.detail}</p>
-                {t.responses?.map((r, i) => (
-                  <p key={i} className="mt-2 border-l-2 border-[var(--color-primary)] pl-3 text-sm text-[var(--color-text-main)]">
-                    {r.message}
-                    <span className="ml-2 text-[11px] text-[var(--color-text-muted)]">{dateTime(r.createdAt)}</span>
-                  </p>
+              ))}
+            </li>
                 ))}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              </ul>
+            )}
+          </section>
+        );
+      })}
+      </div>
     </div>
   );
 }

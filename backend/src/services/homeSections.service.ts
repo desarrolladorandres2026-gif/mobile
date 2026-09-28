@@ -10,6 +10,9 @@ import {
   DEFAULT_MAX_DISTANCE,
   type PublicSectionProduct,
 } from './discovery.service';
+import { couponService } from './coupon.service';
+import { pricingConfigService } from './pricingConfig.service';
+import { resolveEffectiveDiscount } from './productPromotion.service';
 
 /**
  * El feed del inicio.
@@ -189,6 +192,22 @@ async function getCuratedBlocks(): Promise<HomeFeedEntry[]> {
       : Promise.resolve([]),
     businessIds.length ? Business.find({ _id: { $in: businessIds } }) : Promise.resolve([]),
   ]);
+
+  // La promoción automática gana sobre `discountPrice` manual, igual que
+  // en el resto de listados — estos bloques los cura un admin a mano, así
+  // que son a lo sumo unas decenas de productos, una consulta más.
+  if (products.length > 0) {
+    const promotions = await couponService.activeAutoPromotionsAcrossBusinesses(new Date());
+    if (promotions.size > 0) {
+      const cfg = await pricingConfigService.getCurrent();
+      for (const product of products as any[]) {
+        const promo = promotions.get(String(product._id));
+        if (!promo) continue;
+        const effective = resolveEffectiveDiscount(product, promo, cfg);
+        product.discountPrice = effective.discountPrice;
+      }
+    }
+  }
 
   const productById = new Map(products.map((p: any) => [String(p._id), p]));
   const businessById = new Map(businesses.map((b: any) => [String(b._id), b]));

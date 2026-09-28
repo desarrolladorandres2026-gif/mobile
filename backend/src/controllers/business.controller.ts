@@ -159,6 +159,24 @@ export class BusinessController {
     } catch (error) { next(error); }
   }
 
+  /** Cierre del día del comercio: ventas, neto, pagos, top productos y comparación con -7 días. */
+  async dailySummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      const user = req.user!;
+
+      if (user.role !== UserRole.ADMIN) {
+        const { Business } = await import('../models');
+        const owns = await Business.exists({ _id: businessId, ownerId: user._id });
+        if (!owns) throw new AppError('No autorizado', 403);
+      }
+
+      const { businessDailySummaryService } = await import('../services/businessDailySummary.service');
+      const data = await businessDailySummaryService.summaryFor(businessId, query(req, 'date'));
+      sendResponse(res, 200, 'Resumen del día', data);
+    } catch (error) { next(error); }
+  }
+
   // ── Alta y verificación documental ──
 
   /** Cola de negocios esperando revisión, con lo que le falta a cada uno. */

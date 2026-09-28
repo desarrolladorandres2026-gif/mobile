@@ -462,6 +462,155 @@ describe('4 · Cupón de comercio', () => {
   });
 });
 
+describe('4b · Promoción automática por producto', () => {
+  /**
+   * Misma forma que "4 · Cupón de comercio", pero sin `couponCode`: la
+   * promoción se resuelve sola porque el producto está en `productIds`. Es
+   * la prueba de regresión del bug real que se encontró leyendo
+   * `settleDiscounts` a mano: si `commissionBase` no restara también
+   * `autoPromotionMerchantFunded`, ZIPP le cobraría al comercio comisión
+   * sobre los 6.000 que nunca cobró — el mismo cálculo que ya hace bien
+   * para el cupón de comercio, verificado aquí para la promoción
+   * automática.
+   */
+  it('el descuento reduce el payout del comercio, sin código', async () => {
+    const { client, business, product } = await baseScenario({
+      driverBaseFee: 4300,
+      driverMinFee: 4300,
+    });
+
+    await makeCoupon({
+      type: CouponType.FIXED,
+      value: 6000,
+      fundedBy: CouponFundedBy.BUSINESS,
+      scope: CouponScope.PRODUCT,
+      businessId: business._id,
+      autoApply: true,
+      productIds: [product._id],
+    });
+
+    const quote = await pricingService.quote(
+      quoteInput(client._id.toString(), business._id.toString(), product._id.toString())
+    );
+
+    expect(quote.appliedAutoPromotions).toHaveLength(1);
+    expect(quote.promotionDiscount).toBe(6000);
+    expect(quote.merchantFundedDiscount).toBe(6000);
+    expect(quote.platformFundedDiscount).toBe(0);
+    expect(quote.platformPromotionExpense).toBe(0);
+
+    // Comisión sobre 24.000, no sobre 30.000: es el fix — sin él este
+    // número saldría 3.000 y el comercio perdería 600 de más.
+    expect(quote.merchantCommission).toBe(2400);
+    expect(quote.businessPayout).toBe(30000 - 6000 - 2400);
+
+    expect(quote.driverPayout).toBe(4300);
+    expectBalanced(quote);
+  });
+
+  it('funciona porcentual, con tope, y coexiste con un cupón de plataforma sobre el neto', async () => {
+    const { client, business, product } = await baseScenario({
+      driverBaseFee: 4300,
+      driverMinFee: 4300,
+    });
+
+    // 20% de 30.000 = 6.000, financiado por el comercio.
+    await makeCoupon({
+      type: CouponType.PERCENTAGE,
+      value: 20,
+      fundedBy: CouponFundedBy.BUSINESS,
+      scope: CouponScope.PRODUCT,
+      businessId: business._id,
+      autoApply: true,
+      productIds: [product._id],
+    });
+
+    // 10% adicional, de plataforma, sobre el neto de la automática (24.000).
+    const platformCoupon = await makeCoupon({
+      type: CouponType.PERCENTAGE,
+      value: 10,
+      fundedBy: CouponFundedBy.PLATFORM,
+      scope: CouponScope.PRODUCT,
+      campaignApproved: true,
+    });
+
+    const quote = await pricingService.quote(
+      quoteInput(client._id.toString(), business._id.toString(), product._id.toString(), {
+        couponCode: platformCoupon.code,
+      })
+    );
+
+    expect(quote.promotionDiscount).toBe(6000);
+    // 10% de (30.000 - 6.000) = 2.400, no de 30.000.
+    expect(quote.coupon?.productDiscount).toBe(2400);
+    expect(quote.merchantFundedDiscount).toBe(6000);
+    expect(quote.platformFundedDiscount).toBe(2400);
+    expectBalanced(quote);
+  });
+
+  it('dos productos con promociones distintas en el mismo carrito se descuentan los dos', async () => {
+    const { client, business, product: productA } = await baseScenario({
+      driverBaseFee: 4300,
+      driverMinFee: 4300,
+    });
+    const productB = await makeProduct(business._id, { price: 10000 });
+
+    await makeCoupon({
+      type: CouponType.FIXED, value: 5000, fundedBy: CouponFundedBy.BUSINESS,
+      scope: CouponScope.PRODUCT, businessId: business._id, autoApply: true, productIds: [productA._id],
+    });
+    await makeCoupon({
+      type: CouponType.FIXED, value: 2000, fundedBy: CouponFundedBy.BUSINESS,
+      scope: CouponScope.PRODUCT, businessId: business._id, autoApply: true, productIds: [productB._id],
+    });
+
+    const quote = await pricingService.quote({
+      userId: client._id.toString(),
+      businessId: business._id.toString(),
+      items: [
+        { productId: productA._id.toString(), quantity: 1 },
+        { productId: productB._id.toString(), quantity: 1 },
+      ],
+      deliveryLatitude: DESTINATION.lat,
+      deliveryLongitude: DESTINATION.lng,
+      paymentMethod: PaymentMethod.ONLINE,
+    });
+
+    expect(quote.appliedAutoPromotions).toHaveLength(2);
+    expect(quote.promotionDiscount).toBe(7000);
+    expect(quote.merchantFundedDiscount).toBe(7000);
+    expectBalanced(quote);
+  });
+
+  it('fuera de vigencia no descuenta', async () => {
+    const { client, business, product } = await baseScenario({
+      driverBaseFee: 4300,
+      driverMinFee: 4300,
+    });
+
+    await makeCoupon({
+      type: CouponType.FIXED,
+      value: 6000,
+      fundedBy: CouponFundedBy.BUSINESS,
+      scope: CouponScope.PRODUCT,
+      businessId: business._id,
+      autoApply: true,
+      productIds: [product._id],
+      validFrom: new Date(Date.now() + 24 * 3600_000),
+      validUntil: new Date(Date.now() + 7 * 24 * 3600_000),
+    });
+
+    const quote = await pricingService.quote(
+      quoteInput(client._id.toString(), business._id.toString(), product._id.toString())
+    );
+
+    expect(quote.appliedAutoPromotions).toHaveLength(0);
+    expect(quote.promotionDiscount).toBe(0);
+    expect(quote.merchantFundedDiscount).toBe(0);
+    expectBalanced(quote);
+  });
+});
+
 describe('5 · Envío gratis', () => {
   it('el repartidor conserva su tarifa y ZIPP registra la promoción', async () => {
     const { client, business, product } = await baseScenario({

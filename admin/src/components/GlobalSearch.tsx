@@ -283,8 +283,8 @@ export default function GlobalSearch() {
  const stale = loading && searchedFor !== term;
 
  return (
- <div ref={rootRef} className="relative w-full max-w-xs md:max-w-sm">
- <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-main)]" />
+ <div ref={rootRef} className="relative w-full max-w-2xl">
+ <Search className="pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#666]" />
  <input
  ref={inputRef}
  type="text"
@@ -300,8 +300,8 @@ export default function GlobalSearch() {
  }}
  onFocus={() => setIsOpen(true)}
  onKeyDown={onKeyDown}
- placeholder="Buscar pedido, cliente, comercio…"
- className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] py-1.5 pl-9 pr-14 text-xs text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] transition-all focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none"
+ placeholder="¿Qué quieres encontrar?"
+ className="h-12 w-full rounded-full border border-[#d7d7d7] bg-white py-2 pl-12 pr-14 text-sm font-medium text-[#292929] placeholder:text-[#777] transition-all focus:border-[#D69E26] focus:ring-2 focus:ring-[#D69E26]/20 focus:outline-none"
  />
  {loading ? (
  <RefreshCw className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-[var(--color-primary)]" />

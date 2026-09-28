@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Star, AlertCircle, MessageSquare, Send, RefreshCw } from 'lucide-react';
+import { Star, AlertCircle, Send, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
@@ -94,6 +94,77 @@ export default function Reviews() {
     : 0;
   const unanswered = rated.filter((r) => !r.businessReply).length;
 
+  // Función, no componente: un componente declarado dentro del render se
+  // remonta en cada tecla y el campo de respuesta perdería el foco.
+  const renderReview = (review: (typeof rated)[number]) => (
+            <li key={review._id} className="py-4 space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2.5">
+            <h3 className="text-sm font-bold text-[var(--color-text-main)]">
+              {review.userId?.name ?? 'Cliente'}
+            </h3>
+            <Stars value={review.businessRating ?? 0} />
+          </div>
+          <p className="text-xs text-[var(--color-text-muted)] font-medium">
+            {dateTime(review.createdAt)}
+          </p>
+        </div>
+      </div>
+
+      {review.comment ? (
+        <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+          {review.comment}
+        </p>
+      ) : (
+        <p className="text-xs text-[var(--color-text-muted)] italic">
+          Calificó sin dejar comentario.
+        </p>
+      )}
+
+      {review.businessReply ? (
+        <div className="pl-3 border-l-2 border-[var(--color-primary)] space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)]">
+            Tu respuesta
+          </p>
+          <p className="text-sm text-[var(--color-text-secondary)]">{review.businessReply}</p>
+          {review.businessRepliedAt && (
+            <p className="text-xs text-[var(--color-text-muted)]">
+              {dateTime(review.businessRepliedAt)}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <input
+            value={drafts[review._id] ?? ''}
+            onChange={(e) =>
+              setDrafts((prev) => ({ ...prev, [review._id]: e.target.value }))
+            }
+            onKeyDown={(e) => { if (e.key === 'Enter') sendReply(review._id); }}
+            maxLength={500}
+            placeholder="Responde a este cliente…"
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
+          />
+          <button
+            onClick={() => sendReply(review._id)}
+            className="px-3.5 py-2 rounded-lg bg-[var(--color-primary)] text-white font-bold text-xs uppercase tracking-wider hover:bg-[#8A5D08] transition-all cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            <Send className="w-4 h-4" />
+            {sending === review._id ? 'Enviando…' : 'Responder'}
+          </button>
+        </div>
+      )}
+
+      {/* Solo se puede responder una vez: se avisa antes, no después. */}
+      {!review.businessReply && (
+        <p className="text-xs text-[var(--color-text-muted)]">
+          La respuesta es pública y no se puede editar después.
+        </p>
+      )}
+    </li>
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -123,29 +194,19 @@ export default function Reviews() {
         </div>
       </div>
 
-      {unanswered > 0 && (
-        <div className="bg-[var(--color-warning-bg)] text-[var(--color-warning)] text-xs p-4 rounded-xl flex items-start gap-3 font-semibold">
-          <MessageSquare className="w-4 h-4 shrink-0 mt-0.5" />
-          <p className="flex-1">
-            {unanswered} {unanswered === 1 ? 'reseña sin responder' : 'reseñas sin responder'}.
-            Contestar, sobre todo a las malas, es lo que ven los siguientes clientes.
-          </p>
-        </div>
-      )}
-
       {(error || loadError) && (
-        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs p-4 rounded-xl flex items-start gap-3">
+        <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error || loadError}</p>
         </div>
       )}
 
       {loading ? (
-        <div className="table-container p-16 text-center text-[var(--color-text-secondary)] text-xs font-semibold">
+        <p className="py-16 text-center text-[var(--color-text-secondary)] text-xs font-semibold">
           Cargando reseñas...
-        </div>
+        </p>
       ) : rated.length === 0 ? (
-        <div className="table-container p-16 text-center space-y-2">
+        <div className="py-16 text-center space-y-2">
           <Star className="w-8 h-8 text-[var(--color-text-muted)] mx-auto" />
           <p className="text-sm font-bold text-[var(--color-text-main)]">Todavía no hay reseñas</p>
           <p className="text-xs text-[var(--color-text-secondary)] font-medium">
@@ -153,75 +214,57 @@ export default function Reviews() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-4">
-          {rated.map((review) => (
-            <div key={review._id} className="zipp-card p-5 space-y-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2.5">
-                    <h3 className="text-sm font-bold text-[var(--color-text-main)]">
-                      {review.userId?.name ?? 'Cliente'}
-                    </h3>
-                    <Stars value={review.businessRating ?? 0} />
-                  </div>
-                  <p className="text-xs text-[var(--color-text-muted)] font-medium">
-                    {dateTime(review.createdAt)}
-                  </p>
-                </div>
-              </div>
+        <div className="cols3">
+          <section>
+            <h2 className="col-title">Calificación</h2>
+            <p className="text-4xl font-semibold tracking-[-0.03em] tabular text-[var(--color-text-main)]">
+              {average ? average.toFixed(1) : '—'}
+            </p>
+            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">{rated.length} reseña(s)</p>
+            <ul className="mt-4 space-y-1.5">
+              {[5, 4, 3, 2, 1].map((n) => {
+                const count = rated.filter((r) => Math.round(r.businessRating ?? 0) === n).length;
+                return (
+                  <li key={n} className="flex items-center gap-3 text-xs">
+                    <span className="w-6 tabular text-[var(--color-text-secondary)]">{n}★</span>
+                    <span className="flex-1 h-1.5 bg-[var(--color-border)]">
+                      <span className="block h-full bg-[var(--color-warning)]" style={{ width: `${(count / rated.length) * 100}%` }} />
+                    </span>
+                    <span className="w-6 text-right tabular font-semibold text-[var(--color-text-main)]">{count}</span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-5 text-xs text-[var(--color-text-secondary)]">
+              Contestar, sobre todo a las malas, es lo que ven los siguientes clientes.
+            </p>
+          </section>
 
-              {review.comment ? (
-                <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-                  {review.comment}
-                </p>
-              ) : (
-                <p className="text-xs text-[var(--color-text-muted)] italic">
-                  Calificó sin dejar comentario.
-                </p>
-              )}
+          <section>
+            <h2 className="col-title">Sin responder · {unanswered}</h2>
+            {unanswered === 0 ? (
+              <p className="py-2 text-xs text-[var(--color-text-muted)]">Todas tienen respuesta.</p>
+            ) : (
+              <ul className="divide-y divide-[var(--color-border)]">
+                {rated.filter((r) => !r.businessReply).map((review) => (
+                  renderReview(review)
+                ))}
+              </ul>
+            )}
+          </section>
 
-              {review.businessReply ? (
-                <div className="p-3 rounded-lg bg-[var(--color-bg)] border-l-2 border-[var(--color-primary)] space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)]">
-                    Tu respuesta
-                  </p>
-                  <p className="text-sm text-[var(--color-text-secondary)]">{review.businessReply}</p>
-                  {review.businessRepliedAt && (
-                    <p className="text-xs text-[var(--color-text-muted)]">
-                      {dateTime(review.businessRepliedAt)}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <input
-                    value={drafts[review._id] ?? ''}
-                    onChange={(e) =>
-                      setDrafts((prev) => ({ ...prev, [review._id]: e.target.value }))
-                    }
-                    onKeyDown={(e) => { if (e.key === 'Enter') sendReply(review._id); }}
-                    maxLength={500}
-                    placeholder="Responde a este cliente…"
-                    className="flex-1 px-3 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
-                  />
-                  <button
-                    onClick={() => sendReply(review._id)}
-                    className="px-3.5 py-2 rounded-lg bg-[var(--color-primary)] text-white font-bold text-xs uppercase tracking-wider hover:bg-[#8A5D08] transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <Send className="w-4 h-4" />
-                    {sending === review._id ? 'Enviando…' : 'Responder'}
-                  </button>
-                </div>
-              )}
-
-              {/* Solo se puede responder una vez: se avisa antes, no después. */}
-              {!review.businessReply && (
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  La respuesta es pública y no se puede editar después.
-                </p>
-              )}
-            </div>
-          ))}
+          <section>
+            <h2 className="col-title">Respondidas · {rated.length - unanswered}</h2>
+            {rated.length === unanswered ? (
+              <p className="py-2 text-xs text-[var(--color-text-muted)]">Aún no has respondido ninguna.</p>
+            ) : (
+              <ul className="divide-y divide-[var(--color-border)]">
+                {rated.filter((r) => r.businessReply).map((review) => (
+                  renderReview(review)
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
       )}
     </div>

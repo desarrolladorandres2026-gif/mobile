@@ -40,4 +40,5 @@ export { addBusinessDays, businessDaysUntil, nationalHolidays } from './business
 export { isOpenAt, localClock, localInstant } from './businessHours';
 export { couponAvailability } from './couponWindow';
 export type { CouponAvailability, CouponState, CouponWindow, CouponTiming } from './couponWindow';
+export { freeDeliveryTiming, effectiveFreeDeliveryThreshold } from './freeDeliveryWindow';
 export type { BusinessBrandColor } from './businessBrand';

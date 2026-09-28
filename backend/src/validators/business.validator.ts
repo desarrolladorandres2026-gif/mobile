@@ -82,6 +82,18 @@ export const updateBusinessSchema = z.object({
       freeDeliveryThreshold: z.number().int().min(0).max(1_000_000).optional(),
 
       /**
+       * Vigencia del envío gratis — mismas reglas que la franja de un
+       * cupón (`Coupon.validDays/validFromTime/validUntilTime`), resuelta
+       * con la misma función (`couponAvailability`). Vacío/ausente
+       * significa "siempre", no "nunca".
+       */
+      freeDeliveryValidFrom: z.coerce.date().optional(),
+      freeDeliveryValidUntil: z.coerce.date().optional(),
+      freeDeliveryValidDays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+      freeDeliveryValidFromTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).or(z.literal('')).optional(),
+      freeDeliveryValidUntilTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).or(z.literal('')).optional(),
+
+      /**
        * Horario semanal. El servidor decide si está abierto, así que un
        * horario mal puesto cierra la tienda de verdad.
        */

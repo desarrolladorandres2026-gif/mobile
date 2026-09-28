@@ -1,11 +1,15 @@
 import { useRef, useState } from 'react';
-import { ImagePlus, Pencil, Trash2, AlertCircle, RefreshCw } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ImagePlus, Pencil, Trash2, AlertCircle, X } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import ImageEditor, { type Aspect } from './ImageEditor';
+import ConfirmDialog from './ConfirmDialog';
 
 /**
- * El logo o la portada del comercio, de principio a fin.
+ * El logo o la portada del comercio, editados sobre la propia cabecera del
+ * perfil — donde el comercio ya los está viendo — y no en una segunda copia
+ * dentro del formulario.
  *
  * Sube al momento y no al guardar el formulario, igual que la foto de un
  * producto: una imagen es un cambio que el comercio quiere **ver** antes de
@@ -14,41 +18,60 @@ import ImageEditor, { type Aspect } from './ImageEditor';
  * porque no parecía haber pasado nada.
  *
  * El recorte es obligatorio y su proporción la fija la pantalla de destino,
- * no el comercio. Ver la cabecera de `ImageEditor`.
+ * no el comercio. Ver la cabecera de `ImageEditor`. El encuadre va en un
+ * modal porque el hueco de la cabecera es demasiado chico para recortar.
  */
 
 export type ImageSlot = 'logo' | 'cover';
 
-const SLOT: Record<ImageSlot, { aspect: Aspect; endpoint: string; frame: string }> = {
+const SLOT: Record<ImageSlot, { aspect: Aspect; endpoint: string; noun: string; hint: string }> = {
   // El logo se pinta en un círculo dentro de la app, así que se recorta
   // cuadrado: cualquier otra proporción perdería los bordes al enmascararla.
-  logo: { aspect: { w: 1, h: 1 }, endpoint: 'logo', frame: 'w-24 h-24 rounded-full' },
-  cover: { aspect: { w: 16, h: 9 }, endpoint: 'cover', frame: 'w-full aspect-video rounded-xl' },
+  logo: {
+    aspect: { w: 1, h: 1 },
+    endpoint: 'logo',
+    noun: 'logo',
+    hint: 'En la app se muestra dentro de un círculo: deja lo importante en el centro.',
+  },
+  cover: {
+    aspect: { w: 16, h: 9 },
+    endpoint: 'cover',
+    noun: 'portada',
+    hint: 'Lo que quede dentro del marco es exactamente lo que sale en la app.',
+  },
 };
 
 interface Props {
   businessId: string;
   slot: ImageSlot;
-  label: string;
-  hint: string;
   /** URL actual, o null si no hay ninguna puesta. */
   value: string | null;
   onChange: (url: string | null) => void;
+  /** Errores de quitar la imagen: se pintan en la pantalla, no aquí. */
+  onError: (message: string) => void;
+  className?: string;
 }
 
 export default function BusinessImageField({
-  businessId, slot, label, hint, value, onChange,
+  businessId, slot, value, onChange, onError, className = '',
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [picked, setPicked] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [uploadError, setUploadError] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
-  const { aspect, endpoint, frame } = SLOT[slot];
+  const { aspect, endpoint, noun, hint } = SLOT[slot];
+
+  const openPicker = () => {
+    setMenuOpen(false);
+    inputRef.current?.click();
+  };
 
   const choose = (file: File | undefined) => {
     if (!file) return;
-    setError('');
+    setUploadError('');
     setPicked(file);
     // Sin esto, elegir el mismo archivo dos veces seguidas —después de
     // cancelar el recorte— no dispara `change` y parece que el botón
@@ -59,7 +82,7 @@ export default function BusinessImageField({
   const upload = async (cropped: Blob) => {
     try {
       setBusy(true);
-      setError('');
+      setUploadError('');
 
       const form = new FormData();
       form.append('image', cropped, `${slot}.${cropped.type === 'image/png' ? 'png' : 'jpg'}`);
@@ -76,88 +99,155 @@ export default function BusinessImageField({
       onChange(data.data?.logo ?? data.data?.coverImage ?? null);
       setPicked(null);
     } catch (err) {
-      setError(apiMessage(err, 'No se pudo subir la imagen.'));
+      setUploadError(apiMessage(err, 'No se pudo subir la imagen.'));
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async () => {
+    setConfirmRemove(false);
     try {
       setBusy(true);
-      setError('');
       await api.delete(`/businesses/${businessId}/image/${slot}`);
       onChange(null);
     } catch (err) {
-      setError(apiMessage(err, 'No se pudo quitar la imagen.'));
+      onError(apiMessage(err, 'No se pudo quitar la imagen.'));
     } finally {
       setBusy(false);
     }
   };
 
-  if (picked) {
-    return (
-      <div className="space-y-2">
-        <p className="text-xs font-bold text-[var(--color-text-main)]">{label}</p>
-        <ImageEditor
-          file={picked}
-          aspect={aspect}
-          busy={busy}
-          onCancel={() => setPicked(null)}
-          onConfirm={upload}
-        />
-        {error && <FieldError message={error} />}
-      </div>
-    );
-  }
+  // Sin imagen, el botón abre directo el selector: no hay nada que quitar,
+  // así que un menú de una sola opción sería un clic de más.
+  const onTrigger = () => (value ? setMenuOpen((v) => !v) : openPicker());
 
   return (
-    <div className="space-y-2">
-      <p className="text-xs font-bold text-[var(--color-text-main)]">{label}</p>
-
-      <div className="flex items-start gap-4">
-        <div
-          className={`${frame} shrink-0 overflow-hidden bg-[var(--color-bg-alt)] border border-[var(--color-border)] grid place-items-center`}
+    <div className={className}>
+      {slot === 'cover' ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onTrigger}
+          className="flex items-center gap-1.5 rounded-lg bg-black/55 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm hover:bg-black/70 cursor-pointer disabled:opacity-60"
         >
-          {value ? (
-            <img src={value} alt="" className="w-full h-full object-cover" />
-          ) : busy ? (
-            <RefreshCw className="w-5 h-5 text-[var(--color-primary)] animate-spin" />
-          ) : (
-            <ImagePlus className="w-5 h-5 text-[var(--color-text-muted)]" />
-          )}
-        </div>
+          {value ? <Pencil className="h-3.5 w-3.5" /> : <ImagePlus className="h-3.5 w-3.5" />}
+          {busy ? 'Subiendo…' : value ? 'Editar portada' : 'Subir portada'}
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onTrigger}
+          aria-label={value ? 'Editar logo' : 'Subir logo'}
+          title={value ? 'Editar logo' : 'Subir logo'}
+          className="grid h-8 w-8 place-items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] shadow-md hover:text-[var(--color-text-main)] cursor-pointer disabled:opacity-60"
+        >
+          {value ? <Pencil className="h-3.5 w-3.5" /> : <ImagePlus className="h-3.5 w-3.5" />}
+        </button>
+      )}
 
-        <div className="flex-1 space-y-2 min-w-0">
-          <p className="text-xs text-[var(--color-text-secondary)]">{hint}</p>
-
-          <div className="flex flex-wrap gap-2">
+      {menuOpen && (
+        <>
+          <button
+            type="button"
+            aria-label="Cerrar menú"
+            onClick={() => setMenuOpen(false)}
+            className="fixed inset-0 z-40 cursor-default"
+          />
+          <div
+            role="menu"
+            className={`absolute z-50 mt-1.5 w-44 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-xl ${
+              slot === 'cover' ? 'right-0' : 'left-0'
+            }`}
+          >
             <button
               type="button"
-              disabled={busy}
-              onClick={() => inputRef.current?.click()}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              role="menuitem"
+              onClick={openPicker}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
             >
-              <Pencil className="w-3.5 h-3.5" />
-              {value ? 'Cambiar' : 'Subir'}
+              <Pencil className="h-3.5 w-3.5" />
+              Cambiar {noun}
             </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => { setMenuOpen(false); setConfirmRemove(true); }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Quitar {noun}
+            </button>
+          </div>
+        </>
+      )}
 
-            {value && (
+      {/* Portal: la cabecera tiene `overflow-hidden` y la página entra con
+          una animación que deja un `transform` puesto — cualquiera de los
+          dos encierra a un `fixed` dentro de la portada. */}
+      {picked && createPortal(
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Cancelar"
+            onClick={() => !busy && setPicked(null)}
+            className="absolute inset-0 bg-black/50 backdrop-blur-[2px] cursor-default"
+          />
+          <div
+            role="dialog"
+            aria-label={`Encuadrar ${noun}`}
+            className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-2xl animate-fade-in space-y-4"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-[var(--color-text-main)]">Encuadra tu {noun}</h3>
+                <p className="mt-1 text-xs text-[var(--color-text-secondary)]">{hint}</p>
+              </div>
               <button
                 type="button"
+                onClick={() => setPicked(null)}
                 disabled={busy}
-                onClick={remove}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[var(--color-border)] text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                aria-label="Cerrar"
+                className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer shrink-0"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                Quitar
+                <X className="h-4 w-4" />
               </button>
+            </div>
+
+            <ImageEditor
+              file={picked}
+              aspect={aspect}
+              busy={busy}
+              onCancel={() => setPicked(null)}
+              onConfirm={upload}
+            />
+
+            {uploadError && (
+              <p className="text-xs font-semibold text-[var(--color-danger)] flex items-start gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                {uploadError}
+              </p>
             )}
           </div>
+        </div>,
+        document.body
+      )}
 
-          {error && <FieldError message={error} />}
-        </div>
-      </div>
+      {confirmRemove && createPortal(
+        <ConfirmDialog
+          title={`¿Quitar tu ${noun}?`}
+          message={
+            slot === 'cover'
+              ? 'Tu ficha en la app mostrará el color del encabezado en su lugar.'
+              : 'Tu ficha en la app quedará sin logo hasta que subas otro.'
+          }
+          confirmLabel="Quitar"
+          onConfirm={remove}
+          onCancel={() => setConfirmRemove(false)}
+        />,
+        document.body
+      )}
 
       <input
         ref={inputRef}
@@ -167,14 +257,5 @@ export default function BusinessImageField({
         onChange={(event) => choose(event.target.files?.[0])}
       />
     </div>
-  );
-}
-
-function FieldError({ message }: { message: string }) {
-  return (
-    <p className="text-xs font-semibold text-[var(--color-danger)] flex items-start gap-1.5">
-      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-      {message}
-    </p>
   );
 }

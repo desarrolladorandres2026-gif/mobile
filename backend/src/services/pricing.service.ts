@@ -12,6 +12,7 @@ import {
   applyBps,
   clampMoney,
   assertMoney,
+  effectiveFreeDeliveryThreshold,
   LatLng,
 } from '../utils';
 import { estimateRoute } from './mapbox.service';
@@ -171,6 +172,14 @@ export interface Quote {
    * el cliente, no nosotros.
    */
   suggestedCoupon: SuggestedCoupon | null;
+  /**
+   * Promociones automáticas por producto que aplicaron a este carrito, sin
+   * que el cliente escribiera ningún código. `order.service.ts` las canjea
+   * una por una tras crear el pedido.
+   */
+  appliedAutoPromotions: Array<{ couponId: string; discountAmount: number }>;
+  /** Suma de `appliedAutoPromotions`, para que el checkout la enseñe sin saber qué es una promoción automática. */
+  promotionDiscount: number;
   minOrder: number;
   /** Cash a driver would have to remit. 0 for digital orders. */
   cashToRemit: number;
@@ -374,6 +383,68 @@ export class PricingService {
     const requiresAgeVerification = products.some((p) => p.requiresAgeVerification === true);
 
     return { pricedItems, subtotal: assertMoney(subtotal, 'subtotal'), maxPrepMinutes, requiresAgeVerification };
+  }
+
+  /**
+   * Resuelve las promociones automáticas por producto contra el carrito ya
+   * cotizado, sin código.
+   *
+   * A propósito no vive dentro de `priceItems()`: hornear el descuento en
+   * `unitPrice` ahí reduciría `productSubtotal`, y `merchantFundedDiscount`
+   * lo volvería a restar de `businessPayout` más abajo — cobrándole al
+   * comercio el mismo descuento dos veces. En vez de eso, se trata como un
+   * descuento paralelo al cupón de código, con la misma aritmética pura
+   * (`computeDiscount`) y el mismo reparto financiero.
+   *
+   * Una promoción puede cubrir varias líneas del carrito (dos productos
+   * distintos con la misma promoción): se agrupan por cupón y el
+   * porcentaje/valor se calcula contra la suma de esas líneas, no línea por
+   * línea, para que un tope (`maxDiscountAmount`) se aplique al conjunto y
+   * no se triplique si el cliente pidió tres unidades en líneas separadas.
+   */
+  private applyAutoPromotions(
+    pricedItems: PricedItem[],
+    autoPromotions: Map<string, ICoupon>,
+    input: { userId: string; businessId: string },
+    cfg: IPlatformPricingConfig
+  ): { appliedAutoPromotions: Array<{ couponId: string; discountAmount: number }>; autoPromotionDiscount: number } {
+    const groups = new Map<string, { coupon: ICoupon; base: number }>();
+
+    for (const item of pricedItems) {
+      const promo = autoPromotions.get(item.productId.toString());
+      if (!promo) continue;
+
+      const key = promo._id.toString();
+      const group = groups.get(key);
+      if (group) group.base += item.totalPrice;
+      else groups.set(key, { coupon: promo, base: item.totalPrice });
+    }
+
+    const appliedAutoPromotions: Array<{ couponId: string; discountAmount: number }> = [];
+    let autoPromotionDiscount = 0;
+
+    for (const { coupon, base } of groups.values()) {
+      const applied = couponService.computeDiscount(
+        coupon,
+        {
+          userId: input.userId,
+          businessId: input.businessId,
+          subtotal: base,
+          deliveryFee: 0,
+          serviceFee: 0,
+        },
+        cfg
+      );
+      if (applied.productDiscount <= 0) continue;
+
+      appliedAutoPromotions.push({ couponId: coupon._id.toString(), discountAmount: applied.productDiscount });
+      autoPromotionDiscount += applied.productDiscount;
+    }
+
+    return {
+      appliedAutoPromotions,
+      autoPromotionDiscount: assertMoney(autoPromotionDiscount, 'descuento de promociones automáticas'),
+    };
   }
 
   /**
@@ -617,6 +688,21 @@ export class PricingService {
       input.items
     );
 
+    // ── Promociones automáticas por producto ──
+    //
+    // Sin código: se resuelven solas contra lo que hay en el carrito, antes
+    // de saber si el cliente trae un cupón. `priceItems()` no sabe nada de
+    // esto a propósito — ver la nota en `applyAutoPromotions`.
+    const autoPromos = await couponService.autoPromotionsFor(input.businessId, new Date());
+    const { appliedAutoPromotions, autoPromotionDiscount } = this.applyAutoPromotions(
+      pricedItems,
+      autoPromos,
+      input,
+      cfg
+    );
+    // Forzado por el modelo: `autoApply` solo admite `fundedBy: BUSINESS`.
+    const autoPromotionMerchantFunded = autoPromotionDiscount;
+
     const delivery = await this.priceDelivery(business, destination, cfg);
     const eta = this.deliveryWindow(business, destination, maxPrepMinutes);
 
@@ -636,6 +722,12 @@ export class PricingService {
     );
 
     // ── Coupon ──
+    //
+    // Sobre el subtotal ya neto de las promociones automáticas: un
+    // porcentual de código no descuenta dos veces la misma plata, igual que
+    // ya pasa hoy con `discountPrice`, que tampoco vuelve a subir la base.
+    const subtotalAfterAutoPromotions = Math.max(0, productSubtotal - autoPromotionDiscount);
+
     let coupon: AppliedCoupon | null = null;
     if (input.couponCode) {
       coupon = await couponService.validate(
@@ -644,7 +736,7 @@ export class PricingService {
           userId: input.userId,
           businessId: input.businessId,
           city: business.city,
-          subtotal: productSubtotal,
+          subtotal: subtotalAfterAutoPromotions,
           deliveryFee: delivery.customerFee,
           serviceFee: customerServiceFee,
           zoneId: delivery.zoneId?.toString() ?? null,
@@ -658,7 +750,7 @@ export class PricingService {
     const deliveryDiscount = coupon?.deliveryDiscount ?? 0;
     const serviceFeeDiscount = coupon?.serviceFeeDiscount ?? 0;
 
-    const payableSubtotal = productSubtotal - productDiscount;
+    const payableSubtotal = productSubtotal - productDiscount - autoPromotionDiscount;
 
     const appliedCommissionBps = this.resolveCommissionBps(business, cfg);
 
@@ -681,10 +773,11 @@ export class PricingService {
     } = this.settleDiscounts({
       coupon,
       productSubtotal,
+      autoPromotionMerchantFunded,
       deliveryCustomerFee: delivery.customerFee,
       deliveryMargin: delivery.margin,
       customerServiceFee,
-      freeDeliveryThreshold: business.freeDeliveryThreshold,
+      freeDeliveryThreshold: effectiveFreeDeliveryThreshold(business, new Date(), envConfig.settlement.timezone),
       appliedCommissionBps,
       cfg,
       pro,
@@ -756,12 +849,15 @@ export class PricingService {
           userId: input.userId,
           businessId: input.businessId,
           city: business.city,
-          productSubtotal,
+          // Neto de promociones automáticas: lo que sugiere debe ahorrar
+          // exactamente lo que ahorraría si de verdad se aplicara.
+          productSubtotal: subtotalAfterAutoPromotions,
+          autoPromotionMerchantFunded,
           deliveryCustomerFee: delivery.customerFee,
           deliveryMargin: delivery.margin,
           customerServiceFee,
           zoneId: delivery.zoneId?.toString() ?? null,
-          freeDeliveryThreshold: business.freeDeliveryThreshold,
+          freeDeliveryThreshold: effectiveFreeDeliveryThreshold(business, new Date(), envConfig.settlement.timezone),
           appliedCommissionBps,
           cfg,
           pro,
@@ -812,6 +908,8 @@ export class PricingService {
       zoneVersion: delivery.zoneVersion,
       coupon,
       suggestedCoupon,
+      appliedAutoPromotions,
+      promotionDiscount: autoPromotionDiscount,
       minOrder,
       cashToRemit,
       requiresAgeVerification,
@@ -861,6 +959,8 @@ export class PricingService {
     businessId: string;
     city?: string;
     productSubtotal: number;
+    /** Ya neto de promociones automáticas — constante frente a cualquier cupón candidato. */
+    autoPromotionMerchantFunded: number;
     deliveryCustomerFee: number;
     deliveryMargin: number;
     customerServiceFee: number;
@@ -893,6 +993,7 @@ export class PricingService {
       this.settleDiscounts({
         coupon,
         productSubtotal: parts.productSubtotal,
+        autoPromotionMerchantFunded: parts.autoPromotionMerchantFunded,
         deliveryCustomerFee: parts.deliveryCustomerFee,
         deliveryMargin: parts.deliveryMargin,
         customerServiceFee: parts.customerServiceFee,
@@ -993,6 +1094,13 @@ export class PricingService {
   private settleDiscounts(parts: {
     coupon: AppliedCoupon | null;
     productSubtotal: number;
+    /**
+     * Lo que descontó una promoción automática por producto, ya resuelto
+     * por `applyAutoPromotions`. Siempre financiado por el comercio: el
+     * modelo `Coupon` obliga a que `autoApply` sea `scope: PRODUCT` y
+     * excluye por eso mismo `fundedBy: PLATFORM` para este modo.
+     */
+    autoPromotionMerchantFunded: number;
     deliveryCustomerFee: number;
     deliveryMargin: number;
     customerServiceFee: number;
@@ -1039,9 +1147,11 @@ export class PricingService {
       ? Math.max(0, deliveryAfterCoupon)
       : 0;
 
-    // Lo que el comercio termina financiando: su cupón más el envío que
-    // regaló. Sale entero de su liquidación.
-    const merchantFundedDiscount = couponMerchantFunded + freeDeliveryDiscount;
+    // Lo que el comercio termina financiando: su cupón, el envío que
+    // regaló, y cualquier promoción automática por producto que haya
+    // aplicado. Sale entero de su liquidación.
+    const merchantFundedDiscount =
+      couponMerchantFunded + freeDeliveryDiscount + parts.autoPromotionMerchantFunded;
 
     // ── El trato de Zipp Pro ──
     //
@@ -1074,12 +1184,16 @@ export class PricingService {
     // it, and only when finance has configured it that way.
     //
     // Solo el descuento sobre PRODUCTO puede reducir la base: ahí el
-    // comercio vendió más barato. El envío que regala lo paga aparte, con
-    // los productos vendidos a precio completo, así que descontarlo aquí le
-    // rebajaría también la comisión y ZIPP acabaría pagando parte de una
-    // promoción que no decidió.
+    // comercio vendió más barato — el cupón de código y la promoción
+    // automática son la misma categoría de descuento, así que restan los
+    // dos. El envío que regala lo paga aparte, con los productos vendidos a
+    // precio completo, así que descontarlo aquí le rebajaría también la
+    // comisión y ZIPP acabaría pagando parte de una promoción que no
+    // decidió. Sin este descuento, ZIPP le cobraría al comercio comisión
+    // sobre dinero que nunca recibió: la promoción bajó lo que cobró, y la
+    // comisión tiene que bajar con ella.
     const commissionBase = cfg.commissionAfterMerchantDiscount
-      ? productSubtotal - couponMerchantFunded
+      ? productSubtotal - couponMerchantFunded - parts.autoPromotionMerchantFunded
       : productSubtotal;
     const merchantCommission = applyBps(Math.max(0, commissionBase), parts.appliedCommissionBps);
 

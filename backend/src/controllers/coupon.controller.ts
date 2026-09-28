@@ -55,7 +55,34 @@ export class CouponController {
         param(req, 'businessId'),
         req.body
       );
+      void logAudit(req, {
+        action: AuditAction.PROMOTION_CREATED,
+        entity: 'coupon',
+        entityId: coupon._id.toString(),
+        severity: AuditSeverity.MEDIUM,
+        description: 'Promoción de comercio creada',
+        metadata: { businessId: param(req, 'businessId'), autoApply: coupon.autoApply },
+      });
       sendResponse(res, 201, 'Promoción creada', coupon);
+    } catch (error) { next(error); }
+  }
+
+  async updateMine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const coupon = await couponService.updateForBusiness(
+        req.user!._id.toString(),
+        param(req, 'id'),
+        req.body
+      );
+      void logAudit(req, {
+        action: AuditAction.PROMOTION_UPDATED,
+        entity: 'coupon',
+        entityId: coupon._id.toString(),
+        severity: AuditSeverity.MEDIUM,
+        description: 'Promoción de comercio editada',
+        metadata: { changes: Object.keys(req.body) },
+      });
+      sendResponse(res, 200, 'Promoción actualizada', coupon);
     } catch (error) { next(error); }
   }
 
@@ -65,7 +92,46 @@ export class CouponController {
         req.user!._id.toString(),
         param(req, 'id')
       );
+      void logAudit(req, {
+        action: AuditAction.PROMOTION_UPDATED,
+        entity: 'coupon',
+        entityId: coupon._id.toString(),
+        severity: AuditSeverity.MEDIUM,
+        description: 'Promoción de comercio desactivada',
+      });
       sendResponse(res, 200, 'Promoción desactivada', coupon);
+    } catch (error) { next(error); }
+  }
+
+  async reactivateMine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const coupon = await couponService.reactivateForBusiness(
+        req.user!._id.toString(),
+        param(req, 'id')
+      );
+      void logAudit(req, {
+        action: AuditAction.PROMOTION_UPDATED,
+        entity: 'coupon',
+        entityId: coupon._id.toString(),
+        severity: AuditSeverity.MEDIUM,
+        description: 'Promoción de comercio reactivada',
+      });
+      sendResponse(res, 200, 'Promoción reactivada', coupon);
+    } catch (error) { next(error); }
+  }
+
+  async deleteMine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const couponId = param(req, 'id');
+      await couponService.deleteForBusiness(req.user!._id.toString(), couponId);
+      void logAudit(req, {
+        action: AuditAction.PROMOTION_UPDATED,
+        entity: 'coupon',
+        entityId: couponId,
+        severity: AuditSeverity.MEDIUM,
+        description: 'Promoción de comercio eliminada',
+      });
+      sendResponse(res, 200, 'Promoción eliminada', null);
     } catch (error) { next(error); }
   }
 

@@ -30,7 +30,7 @@ export function ThemeToggle() {
  <button
  onClick={() => setOpen(!open)}
  title={`Tema: ${theme === 'auto' ? 'Automático' : theme === 'dark' ? 'Oscuro' : 'Claro'}`}
- className="p-2 rounded-xl text-slate-900 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all cursor-pointer flex items-center justify-center border border-transparent hover:border-slate-200 dark:hover:border-slate-700/60"
+ className="p-2 rounded-full text-[#666] hover:text-[#222] hover:bg-[#dedede] transition-all cursor-pointer flex items-center justify-center border border-transparent"
  aria-label="Cambiar tema"
  >
  <CurrentIcon className="w-4 h-4 transition-transform hover:scale-110" />

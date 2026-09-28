@@ -173,8 +173,8 @@ export default function Settlements() {
   const next = statement?.nextSettlement;
 
   return (
-    <div className="space-y-8 animate-fade-in">
-      <div className="page-header">
+    <div className="space-y-5 animate-fade-in">
+      <div className="page-header !mb-0">
         <div>
           <h1 className="page-title">Liquidaciones</h1>
           <p className="page-subtitle">
@@ -215,7 +215,7 @@ export default function Settlements() {
       )}
 
       {/* ── Franja de cifras ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-[var(--color-border-light)] border-y border-[var(--color-border-light)]">
+      <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-[var(--color-border-light)] border-b border-[var(--color-border)]">
         <Figure
           label="Próxima liquidación"
           value={money(next?.netAmount)}
@@ -238,8 +238,9 @@ export default function Settlements() {
       </div>
 
       {/* ── La fórmula ── */}
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div>
+      <div className="cols3 [--cols3-offset:21rem]">
+      <div className="space-y-6">
+        <section>
           <h2 className="text-sm font-bold text-[var(--color-text-main)] border-b border-[var(--color-border-light)] pb-2.5 mb-1">
             Cómo se calcula tu próxima liquidación
           </h2>
@@ -266,9 +267,9 @@ export default function Settlements() {
             )}
             <FormulaRow label="Neto a consignar" value={money(next?.netAmount)} strong />
           </dl>
-        </div>
+        </section>
 
-        <div>
+        <section>
           <h2 className="text-sm font-bold text-[var(--color-text-main)] border-b border-[var(--color-border-light)] pb-2.5 mb-1">
             Semanas anteriores
           </h2>
@@ -322,12 +323,11 @@ export default function Settlements() {
               {loading ? 'Cargando…' : 'Todavía no hay semanas con ventas registradas.'}
             </p>
           )}
-        </div>
-      </section>
+        </section>
 
       {/* ── Consignaciones ── */}
       <section>
-        <h2 className="text-sm font-bold text-[var(--color-text-main)] border-b border-[var(--color-border-light)] pb-2.5 mb-1 flex items-center gap-2">
+        <h2 className="text-sm font-bold text-[var(--color-text-main)] border-b border-[var(--color-border-light)] pb-3 mb-1 flex items-center gap-2">
           <Landmark className="w-4 h-4 text-[var(--color-primary)]" />
           Consignaciones realizadas
         </h2>
@@ -394,9 +394,10 @@ export default function Settlements() {
           </p>
         )}
       </section>
+      </div>
 
       {/* ── Las ventas del conjunto enfocado ── */}
-      <section>
+      <section className="span2">
         <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border-light)] pb-2.5 mb-1">
           <h2 className="text-sm font-bold text-[var(--color-text-main)]">
             {focus.kind === 'settlement'
@@ -498,6 +499,7 @@ export default function Settlements() {
           </div>
         </div>
       </section>
+      </div>
     </div>
   );
 }
@@ -512,7 +514,7 @@ function Figure({
   strong?: boolean;
 }) {
   return (
-    <div className="py-4 px-1 sm:px-5">
+    <div className="py-3 px-1 sm:px-5 sm:first:pl-0">
       <p className="text-xs font-semibold text-[var(--color-text-secondary)]">{label}</p>
       {loading ? (
         <span className="block h-7 w-28 mt-1 rounded bg-[var(--color-bg-alt)] animate-pulse" />

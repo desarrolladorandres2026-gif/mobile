@@ -1,10 +1,13 @@
 import mongoose from 'mongoose';
-import { Coupon, ICoupon, CouponRedemption, Order, IPlatformPricingConfig } from '../models';
+import { Coupon, ICoupon, CouponRedemption, Order, Product, IPlatformPricingConfig } from '../models';
 import { AppError } from '../middlewares';
 import { CouponType, CouponFundedBy, CouponScope, OrderStatus } from '../types';
 import { applyBps, assertMoney, couponAvailability } from '../utils';
 import type { CouponAvailability } from '../utils';
 import { config as envConfig } from '../config';
+
+/** Techo anti-abuso: evita que un comercio infle su presencia en /offers. */
+const MAX_ACTIVE_AUTO_PROMOTIONS_PER_BUSINESS = 20;
 
 export interface CouponContext {
   userId: string;
@@ -400,40 +403,46 @@ export class CouponService {
     return true;
   }
 
-  /** Releases a redemption when its order is cancelled or refunded. */
+  /**
+   * Releases every redemption of an order when it is cancelled or
+   * refunded — el cupón de código, más cualquier promoción automática que
+   * haya aplicado. Antes solo podía haber una fila por pedido; ahora puede
+   * haber varias, así que se reversa cada una por separado.
+   */
   async release(orderId: string, session?: mongoose.ClientSession): Promise<void> {
-    const redemption = await CouponRedemption.findOne({ orderId }).session(session ?? null);
-    if (!redemption) return;
+    const redemptions = await CouponRedemption.find({ orderId }).session(session ?? null);
 
-    // `order.finance.platformFundedDiscount` es el subsidio TOTAL del
-    // pedido — incluye lo que puso Zipp Pro, que no tiene nada que ver con
-    // este cupón. Devolver eso al presupuesto del cupón inflaba
-    // `couponService.budgetSpent` con dinero que Pro había gastado, no él:
-    // el presupuesto se "recuperaba" de más y parecía tener más margen del
-    // que en verdad quedaba. Lo único que este cupón puso al presupuesto de
-    // la plataforma en el canje fue `redemption.discountAmount` — y solo si
-    // el propio cupón está financiado por ZIPP; si lo financia el comercio,
-    // nunca tocó `budgetSpent`.
-    const coupon = await Coupon.findById(redemption.couponId).session(session ?? null);
-    const platformFunded =
-      coupon?.fundedBy === CouponFundedBy.PLATFORM ? redemption.discountAmount : 0;
+    for (const redemption of redemptions) {
+      // `order.finance.platformFundedDiscount` es el subsidio TOTAL del
+      // pedido — incluye lo que puso Zipp Pro, que no tiene nada que ver con
+      // este cupón. Devolver eso al presupuesto del cupón inflaba
+      // `couponService.budgetSpent` con dinero que Pro había gastado, no él:
+      // el presupuesto se "recuperaba" de más y parecía tener más margen del
+      // que en verdad quedaba. Lo único que este cupón puso al presupuesto de
+      // la plataforma en el canje fue `redemption.discountAmount` — y solo si
+      // el propio cupón está financiado por ZIPP; si lo financia el comercio
+      // (código o promoción automática), nunca tocó `budgetSpent`.
+      const coupon = await Coupon.findById(redemption.couponId).session(session ?? null);
+      const platformFunded =
+        coupon?.fundedBy === CouponFundedBy.PLATFORM ? redemption.discountAmount : 0;
 
-    await Coupon.updateOne(
-      { _id: redemption.couponId, usedCount: { $gt: 0 } },
-      { $inc: { usedCount: -1, budgetSpent: -platformFunded } },
-      session ? { session } : {}
-    );
-    await CouponRedemption.deleteOne(
-      { _id: redemption._id },
-      session ? { session } : {}
-    );
+      await Coupon.updateOne(
+        { _id: redemption.couponId, usedCount: { $gt: 0 } },
+        { $inc: { usedCount: -1, budgetSpent: -platformFunded } },
+        session ? { session } : {}
+      );
+      await CouponRedemption.deleteOne(
+        { _id: redemption._id },
+        session ? { session } : {}
+      );
 
-    // A campaign whose spend was returned must never go negative.
-    await Coupon.updateOne(
-      { _id: redemption.couponId, budgetSpent: { $lt: 0 } },
-      { $set: { budgetSpent: 0 } },
-      session ? { session } : {}
-    );
+      // A campaign whose spend was returned must never go negative.
+      await Coupon.updateOne(
+        { _id: redemption.couponId, budgetSpent: { $lt: 0 } },
+        { $set: { budgetSpent: 0 } },
+        session ? { session } : {}
+      );
+    }
   }
 
   /** Coupons shown in the app's promotions carousel. */
@@ -461,12 +470,37 @@ export class CouponService {
       throw new AppError('No puedes crear promociones de otro negocio', 403);
     }
 
-    const existing = await Coupon.findOne({ code: String(input.code).toUpperCase() });
-    if (existing) throw new AppError('Ya existe un cupón con ese código', 409);
+    const autoApply = input.autoApply === true;
+
+    let code: string;
+    if (autoApply) {
+      // Sin código visible: uno sintético, único, que el panel nunca
+      // muestra — solo satisface la restricción de unicidad del campo.
+      code = `AUTO-${business._id.toString().slice(-6)}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+    } else {
+      code = String(input.code).toUpperCase();
+      const existing = await Coupon.findOne({ code });
+      if (existing) throw new AppError('Ya existe un cupón con ese código', 409);
+    }
+
+    let productIds: string[] = [];
+    if (autoApply) {
+      productIds = Array.isArray(input.productIds) ? (input.productIds as string[]) : [];
+      await this.assertProductsBelongToBusiness(businessId, productIds);
+      await this.assertNoAutoPromotionOverlap(
+        businessId,
+        productIds,
+        new Date(input.validFrom as string | Date | undefined ?? Date.now()),
+        new Date(input.validUntil as string | Date)
+      );
+      await this.assertBelowActivePromotionCap(businessId);
+    }
 
     return Coupon.create({
       ...input,
-      code: String(input.code).toUpperCase(),
+      code,
+      productIds,
+      autoApply,
 
       // Forzados, no leídos.
       fundedBy: CouponFundedBy.BUSINESS,
@@ -476,8 +510,74 @@ export class CouponService {
     });
   }
 
-  /** Las promociones de un negocio, para su propio panel. */
-  async listForBusiness(ownerId: string, businessId: string): Promise<ICoupon[]> {
+  /**
+   * `productIds` restringidos al propio negocio, verificado por conteo
+   * exacto — no basta con que existan, tienen que ser todos suyos. Sin
+   * esto, un comercio podría descontar el producto de un competidor y
+   * confundir al cliente sobre a quién le está comprando barato.
+   */
+  private async assertProductsBelongToBusiness(businessId: string, productIds: string[]): Promise<void> {
+    if (productIds.length === 0) return; // El modelo rechaza la lista vacía al validar.
+    const owned = await Product.countDocuments({ _id: { $in: productIds }, businessId });
+    if (owned !== productIds.length) {
+      throw new AppError('Uno o más productos no pertenecen a este negocio', 403);
+    }
+  }
+
+  /**
+   * Dos promociones automáticas nunca pueden cubrir el mismo producto al
+   * mismo tiempo: si se permitiera, ¿cuál de los dos precios se le muestra
+   * al cliente? Se corta en la escritura, nunca se arbitra en la lectura.
+   */
+  private async assertNoAutoPromotionOverlap(
+    businessId: string,
+    productIds: string[],
+    validFrom: Date,
+    validUntil: Date,
+    excludeCouponId?: string
+  ): Promise<void> {
+    if (productIds.length === 0) return;
+    const filter: Record<string, unknown> = {
+      businessId,
+      autoApply: true,
+      isActive: true,
+      productIds: { $in: productIds },
+      validFrom: { $lte: validUntil },
+      validUntil: { $gte: validFrom },
+    };
+    if (excludeCouponId) filter._id = { $ne: excludeCouponId };
+
+    const conflict = await Coupon.findOne(filter).select('title productIds validUntil');
+    if (conflict) {
+      throw new AppError(
+        `Uno de estos productos ya está en la promoción "${conflict.title}" hasta ${conflict.validUntil.toLocaleDateString('es-CO')}`,
+        409
+      );
+    }
+  }
+
+  /** Evita que un comercio infle su presencia en /offers con cientos de promociones. */
+  private async assertBelowActivePromotionCap(businessId: string): Promise<void> {
+    const active = await Coupon.countDocuments({ businessId, autoApply: true, isActive: true });
+    if (active >= MAX_ACTIVE_AUTO_PROMOTIONS_PER_BUSINESS) {
+      throw new AppError(
+        `Ya tienes ${MAX_ACTIVE_AUTO_PROMOTIONS_PER_BUSINESS} promociones automáticas activas, el máximo permitido`,
+        409
+      );
+    }
+  }
+
+  /**
+   * Las promociones de un negocio, para su propio panel.
+   *
+   * `availability` va resuelto aquí, no en el frontend: el panel no debe
+   * reimplementar en JS qué significa "programada" o "agotada" — la misma
+   * pregunta que ya responde `couponAvailability()` para el cobro.
+   */
+  async listForBusiness(
+    ownerId: string,
+    businessId: string
+  ): Promise<Array<Record<string, unknown> & { availability: CouponAvailability }>> {
     const { Business } = await import('../models');
     const business = await Business.findById(businessId).select('ownerId');
 
@@ -486,17 +586,18 @@ export class CouponService {
       throw new AppError('No autorizado', 403);
     }
 
-    return Coupon.find({ businessId, fundedBy: CouponFundedBy.BUSINESS }).sort({ createdAt: -1 });
+    const coupons = await Coupon.find({ businessId, fundedBy: CouponFundedBy.BUSINESS }).sort({
+      createdAt: -1,
+    });
+    const now = new Date();
+    return coupons.map((coupon) => ({
+      ...coupon.toObject(),
+      availability: couponAvailability(coupon, now, envConfig.settlement.timezone),
+    }));
   }
 
-  /**
-   * Apaga una promoción del comercio.
-   *
-   * Se desactiva en vez de borrarse: un cupón ya usado tiene canjes
-   * apuntando a él, y borrarlo dejaría esas liquidaciones señalando a un
-   * documento que no existe.
-   */
-  async deactivateForBusiness(ownerId: string, couponId: string): Promise<ICoupon> {
+  /** Carga una promoción propia verificando dueño, o lanza. Común a editar/desactivar/reactivar/eliminar. */
+  private async loadOwnedBusinessCoupon(ownerId: string, couponId: string): Promise<ICoupon> {
     const coupon = await Coupon.findById(couponId);
     if (!coupon || coupon.fundedBy !== CouponFundedBy.BUSINESS || !coupon.businessId) {
       throw new AppError('Promoción no encontrada', 404);
@@ -508,9 +609,158 @@ export class CouponService {
       throw new AppError('No autorizado', 403);
     }
 
+    return coupon;
+  }
+
+  /**
+   * Apaga una promoción del comercio.
+   *
+   * Se desactiva en vez de borrarse: un cupón ya usado tiene canjes
+   * apuntando a él, y borrarlo dejaría esas liquidaciones señalando a un
+   * documento que no existe.
+   */
+  async deactivateForBusiness(ownerId: string, couponId: string): Promise<ICoupon> {
+    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId);
     coupon.isActive = false;
     await coupon.save();
     return coupon;
+  }
+
+  /**
+   * Reactiva una promoción apagada. No revive sola una que ya venció: la
+   * vigencia se evalúa en cada lectura, así que si `validUntil` ya pasó,
+   * `couponAvailability()` la seguirá mostrando agotada hasta que también
+   * se edite la fecha.
+   */
+  async reactivateForBusiness(ownerId: string, couponId: string): Promise<ICoupon> {
+    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId);
+    coupon.isActive = true;
+    await coupon.save();
+    return coupon;
+  }
+
+  /**
+   * Edita una promoción propia.
+   *
+   * Whitelist explícita, no negra: `fundedBy`, `businessId`, `campaignApproved`,
+   * `code` y `autoApply` nunca se leen aquí, igual que en la creación — son
+   * los campos con los que un comercio podría cambiarse a sí mismo quién
+   * financia su promoción.
+   */
+  async updateForBusiness(
+    ownerId: string,
+    couponId: string,
+    input: Record<string, unknown>
+  ): Promise<ICoupon> {
+    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId);
+
+    const editable = [
+      'title',
+      'description',
+      'value',
+      'maxDiscount',
+      'maxDiscountAmount',
+      'minOrderAmount',
+      'budgetLimit',
+      'usageLimit',
+      'perUserLimit',
+      'validFrom',
+      'validUntil',
+      'productIds',
+      'isActive',
+    ] as const;
+
+    if (
+      typeof input.budgetLimit === 'number' &&
+      input.budgetLimit > 0 &&
+      input.budgetLimit < coupon.budgetSpent
+    ) {
+      throw new AppError('El presupuesto no puede quedar por debajo de lo ya gastado', 409);
+    }
+
+    for (const field of editable) {
+      if (input[field] !== undefined) (coupon as any)[field] = input[field];
+    }
+
+    if (coupon.autoApply) {
+      const productIds = coupon.productIds.map((id) => id.toString());
+      await this.assertProductsBelongToBusiness(coupon.businessId!.toString(), productIds);
+      await this.assertNoAutoPromotionOverlap(
+        coupon.businessId!.toString(),
+        productIds,
+        coupon.validFrom,
+        coupon.validUntil,
+        couponId
+      );
+    }
+
+    await coupon.save();
+    return coupon;
+  }
+
+  /**
+   * Elimina de verdad una promoción, solo si nunca tuvo canjes. Con
+   * canjes, `CouponRedemption` quedaría apuntando a un documento inexistente
+   * y las liquidaciones que ya se hicieron con él perderían su rastro — se
+   * ofrece desactivar en su lugar.
+   */
+  async deleteForBusiness(ownerId: string, couponId: string): Promise<void> {
+    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId);
+    if (coupon.usedCount > 0) {
+      throw new AppError('No puedes eliminar una promoción que ya tuvo pedidos; desactívala', 409);
+    }
+    await Coupon.deleteOne({ _id: coupon._id });
+  }
+
+  /**
+   * Las promociones automáticas activas de un negocio ahora mismo, una por
+   * producto — el chequeo de solapamiento en escritura garantiza que nunca
+   * hay dos cubriendo el mismo producto. Una sola consulta, sin importar
+   * cuántos productos traiga el carrito: la llama `pricing.service` una vez
+   * por cotización, no una vez por línea.
+   */
+  async autoPromotionsFor(businessId: string, now = new Date()): Promise<Map<string, ICoupon>> {
+    const coupons = await Coupon.find({
+      businessId,
+      autoApply: true,
+      isActive: true,
+      fundedBy: CouponFundedBy.BUSINESS,
+    });
+
+    const byProduct = new Map<string, ICoupon>();
+    for (const coupon of coupons) {
+      if (couponAvailability(coupon, now, envConfig.settlement.timezone).state !== 'active') continue;
+      for (const productId of coupon.productIds) {
+        byProduct.set(productId.toString(), coupon);
+      }
+    }
+    return byProduct;
+  }
+
+  /**
+   * Lo mismo que `autoPromotionsFor`, pero entre todos los negocios: la
+   * usan `/offers`, la búsqueda y las colecciones de Inicio, que no saben de
+   * antemano en qué negocio está cada producto. Se apoya en el índice
+   * parcial `{autoApply, isActive, validFrom, validUntil}`, así que no
+   * escanea los cupones de código, que son la inmensa mayoría.
+   */
+  async activeAutoPromotionsAcrossBusinesses(now = new Date()): Promise<Map<string, ICoupon>> {
+    const coupons = await Coupon.find({
+      autoApply: true,
+      isActive: true,
+      fundedBy: CouponFundedBy.BUSINESS,
+      validFrom: { $lte: now },
+      validUntil: { $gte: now },
+    });
+
+    const byProduct = new Map<string, ICoupon>();
+    for (const coupon of coupons) {
+      if (couponAvailability(coupon, now, envConfig.settlement.timezone).state !== 'active') continue;
+      for (const productId of coupon.productIds) {
+        byProduct.set(productId.toString(), coupon);
+      }
+    }
+    return byProduct;
   }
 
   /**

@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import app from '../app';
 import { Business } from '../models';
-import { UserRole } from '../types';
-import { GARZON, offsetKm, makeUser, makeBusiness, makeProduct } from './factories';
+import { UserRole, CouponFundedBy, CouponScope, CouponType } from '../types';
+import { GARZON, offsetKm, makeUser, makeBusiness, makeProduct, makeCoupon } from './factories';
 
 const API = '/api/v1/offers';
 
@@ -96,6 +96,54 @@ describe('GET /api/offers', () => {
     const found = res.body.data.businesses.find((b: any) => b._id === business._id.toString());
     expect(found).toBeTruthy();
     expect(found.offer.kind).toBe('free_delivery');
+  });
+
+  it('un producto sin discountPrice propio, cubierto por una promoción automática, aparece con su porcentaje real', async () => {
+    const business = await makeBusiness(owner._id, { lat: GARZON.lat, lng: GARZON.lng });
+    const product = await makeProduct(business._id, { name: 'Pizza familiar', price: 40000 });
+
+    await makeCoupon({
+      type: CouponType.PERCENTAGE,
+      value: 25,
+      fundedBy: CouponFundedBy.BUSINESS,
+      scope: CouponScope.PRODUCT,
+      businessId: business._id,
+      autoApply: true,
+      productIds: [product._id],
+    });
+
+    const res = await request(app)
+      .get(API)
+      .query({ lat: GARZON.lat, lng: GARZON.lng, maxDistance: 5000 })
+      .expect(200);
+
+    const found = res.body.data.products.find((p: any) => p.name === 'Pizza familiar');
+    expect(found).toBeTruthy();
+    expect(found.discountPercent).toBe(25);
+    expect(found.discountPrice).toBe(30000);
+  });
+
+  it('una promoción automática todavía programada no hace aparecer el producto', async () => {
+    const business = await makeBusiness(owner._id, { lat: GARZON.lat, lng: GARZON.lng });
+    const product = await makeProduct(business._id, { name: 'Pastel de mañana', price: 12000 });
+
+    await makeCoupon({
+      type: CouponType.PERCENTAGE,
+      value: 25,
+      fundedBy: CouponFundedBy.BUSINESS,
+      scope: CouponScope.PRODUCT,
+      businessId: business._id,
+      autoApply: true,
+      productIds: [product._id],
+      validFrom: new Date(Date.now() + 24 * 3600_000),
+    });
+
+    const res = await request(app)
+      .get(API)
+      .query({ lat: GARZON.lat, lng: GARZON.lng, maxDistance: 5000 })
+      .expect(200);
+
+    expect(res.body.data.products.find((p: any) => p.name === 'Pastel de mañana')).toBeUndefined();
   });
 
   it('sin coordenadas, sigue respondiendo con los cupones públicos', async () => {

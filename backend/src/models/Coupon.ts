@@ -67,6 +67,21 @@ export interface ICoupon extends Document {
   isActive: boolean;
   /** Public coupons are surfaced in the app's promotions carousel. */
   isPublic: boolean;
+  /**
+   * Productos cubiertos por una promoción automática (ver `autoApply`).
+   * Vacío para un cupón de código normal, que no está atado a productos
+   * concretos sino al subtotal del pedido entero.
+   */
+  productIds: Types.ObjectId[];
+  /**
+   * Sin código: se aplica sola cuando el carrito trae alguno de
+   * `productIds`, igual que ya pasa hoy con `Product.discountPrice` pero
+   * con vigencia y con todo el motor financiero de cupones detrás
+   * (presupuesto, auditoría, reparto comercio/plataforma). El comercio
+   * nunca escribe un código para este modo; `code` se genera solo y no se
+   * expone, porque el campo sigue siendo único en la colección.
+   */
+  autoApply: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -75,8 +90,12 @@ const couponSchema = new Schema<ICoupon>(
   {
     code: {
       type: String,
-      required: [true, 'El código es requerido'],
+      // Una promoción automática no tiene código que el cliente escriba;
+      // `createForBusiness` le genera uno interno solo para satisfacer la
+      // unicidad del campo, y el panel nunca lo muestra.
+      required: [function (this: ICoupon) { return !this.autoApply; }, 'El código es requerido'],
       unique: true,
+      sparse: true,
       uppercase: true,
       trim: true,
       minlength: [3, 'El código debe tener al menos 3 caracteres'],
@@ -158,6 +177,8 @@ const couponSchema = new Schema<ICoupon>(
     validUntilTime: { type: String, default: '' },
     isActive: { type: Boolean, default: true },
     isPublic: { type: Boolean, default: false },
+    productIds: { type: [Schema.Types.ObjectId], ref: 'Product', default: [] },
+    autoApply: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
@@ -188,6 +209,29 @@ couponSchema.pre('validate', function (next) {
     return next(new Error('Un cupón de envío gratis debe tener alcance de domicilio'));
   }
 
+  // Una promoción automática está atada a productos concretos y nunca a
+  // "todo el pedido" ni a envío/fee: si mañana alguien quiere regalar el
+  // domicilio sin código, ese mecanismo vive en `Business`, no aquí.
+  if (this.autoApply) {
+    if (!this.productIds || this.productIds.length === 0) {
+      return next(new Error('Una promoción automática debe cubrir al menos un producto'));
+    }
+    if (this.productIds.length > 50) {
+      return next(new Error('Una promoción no puede cubrir más de 50 productos'));
+    }
+    if (this.scope !== CouponScope.PRODUCT) {
+      return next(new Error('Una promoción automática solo puede descontar sobre productos'));
+    }
+    if (this.type !== CouponType.PERCENTAGE && this.type !== CouponType.FIXED) {
+      return next(new Error('Una promoción automática es porcentual o de valor fijo'));
+    }
+  } else if (this.productIds && this.productIds.length > 0) {
+    // `productIds` sin `autoApply` es un estado ambiguo: ¿a qué producto se
+    // le aplicaría un cupón de código que igual descuenta el subtotal
+    // entero? Se rechaza en vez de ignorarlo en silencio.
+    return next(new Error('Solo una promoción automática puede tener productos asociados'));
+  }
+
   next();
 });
 
@@ -195,6 +239,15 @@ couponSchema.pre('validate', function (next) {
 couponSchema.index({ isActive: 1, isPublic: 1, validUntil: 1 });
 couponSchema.index({ businessId: 1, isActive: 1 });
 couponSchema.index({ fundedBy: 1, isActive: 1 });
+// Listar las promociones automáticas de un negocio y comprobar solapamiento.
+couponSchema.index({ businessId: 1, autoApply: 1, isActive: 1 });
+// Resolver promociones automáticas activas entre negocios (/offers,
+// búsqueda, home) sin escanear el resto de cupones: la inmensa mayoría
+// tiene `autoApply: false`, así que el índice parcial los deja fuera.
+couponSchema.index(
+  { autoApply: 1, isActive: 1, validFrom: 1, validUntil: 1 },
+  { partialFilterExpression: { autoApply: true } }
+);
 
 // Cada escritura limpia lo que la caché de lecturas tenga de este modelo.
 couponSchema.plugin(cacheInvalidationPlugin, {
@@ -229,8 +282,14 @@ const couponRedemptionSchema = new Schema<ICouponRedemption>(
 couponRedemptionSchema.index({ couponId: 1, userId: 1 });
 // Ficha del cliente (panel admin): sus canjes recientes.
 couponRedemptionSchema.index({ userId: 1, createdAt: -1 });
-// One redemption per order: guards against double-counting on retries.
-couponRedemptionSchema.index({ orderId: 1 }, { unique: true });
+// Un pedido puede canjear varios cupones ahora: el de código, más una
+// promoción automática por cada producto o grupo de productos distinto que
+// cubra. Lo que sigue sin poder pasar es canjear el MISMO cupón dos veces
+// en el mismo pedido (dobles envíos de la petición de crear orden).
+couponRedemptionSchema.index({ orderId: 1, couponId: 1 }, { unique: true });
+// `release()` necesita encontrar todas las filas de un pedido, no solo la
+// primera; el índice compuesto de arriba no sirve para ese acceso.
+couponRedemptionSchema.index({ orderId: 1 });
 
 export const CouponRedemption = mongoose.model<ICouponRedemption>(
   'CouponRedemption',
