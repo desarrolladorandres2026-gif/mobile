@@ -1,7 +1,7 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
- Ticket, Plus, Search, X, AlertCircle, Pencil, Percent, Store,
+ Ticket, Plus, Search, X, AlertCircle, Pencil, Percent,
  ToggleLeft, ToggleRight, Banknote, Truck, History, Building2, Landmark,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -431,53 +431,54 @@ export default function Coupons() {
  <p className="text-xs text-[var(--color-text-main)]">Crea uno nuevo o cambia el filtro.</p>
  </div>
  ) : (
- <div className="grid gap-2.5">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Código</th>
+ <th className="table-header-cell">Título</th>
+ <th className="table-header-cell">Estado</th>
+ <th className="table-header-cell">Beneficio</th>
+ <th className="table-header-cell">Lo asume</th>
+ <th className="table-header-cell">Mínimo</th>
+ <th className="table-header-cell">Condiciones</th>
+ <th className="table-header-cell">Vence</th>
+ <th className="table-header-cell">Usos</th>
+ <th className="table-header-cell">Presupuesto</th>
+ <th className="table-header-cell">Modificado</th>
+ <th className="table-header-cell">Acciones</th>
+ </tr>
+ </thead>
+ <tbody>
  {filtered.map((c) => {
  const st = ESTADO_ESTILO[estadoDe(c) as Exclude<EstadoFiltro, 'all'>];
  const negocio = businesses.find((b) => b._id === c.businessId);
- const usoPct = c.usageLimit > 0 ? Math.min(100, (c.usedCount / c.usageLimit) * 100) : 0;
  const presupuestoPct = c.budgetLimit > 0 ? Math.min(100, (c.budgetSpent / c.budgetLimit) * 100) : 0;
 
  return (
- <div key={c._id} className="zipp-card p-5 space-y-2.5">
- <div className="flex flex-col md:flex-row md:items-start justify-between gap-2.5">
- <div className="min-w-0 space-y-2">
- <div className="flex flex-wrap items-center gap-2.5">
- <span className="font-mono text-sm font-bold text-[var(--color-primary)]">
- {c.code}
- </span>
- <h3 className="text-base font-bold text-[var(--color-text-main)] truncate">{c.title}</h3>
- <span
- className="text-[10px] font-bold uppercase tracking-wider"
- style={{ color: st.text }}
- >
- {st.label}
- </span>
- </div>
-
- <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[var(--color-text-main)]">
- <span className="font-bold text-[var(--color-text-main)]">{describirBeneficio(c)}</span>
-
- <span className="flex items-center gap-1.5">
- {c.fundedBy === 'business' ? (
- <><Store className="w-3.5 h-3.5" /> Lo asume {negocio?.name || 'el comercio'}</>
- ) : (
- <><Landmark className="w-3.5 h-3.5" /> Lo asume ZIPP</>
- )}
- </span>
-
- {c.minOrderAmount > 0 && <span>Mínimo {cop(c.minOrderAmount)}</span>}
- {c.firstOrderOnly && <span className="text-[var(--color-primary)] font-semibold">Sólo primer pedido</span>}
- {c.isPublic && <span className="text-[var(--color-primary)] font-semibold">Visible en la app</span>}
- <span>Vence {new Date(c.validUntil).toLocaleDateString('es-CO')}</span>
- </div>
- </div>
-
- <div className="flex items-center gap-1.5 shrink-0">
+ <tr key={c._id}>
+ <td className="table-body-cell text-[var(--color-primary)]">{c.code}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{c.title}</td>
+ <td className="table-body-cell" style={{ color: st.text }}>{st.label}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{describirBeneficio(c)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{c.fundedBy === 'business' ? (negocio?.name || 'El comercio') : 'ZIPP'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{c.minOrderAmount > 0 ? cop(c.minOrderAmount) : '—'}</td>
+ <td className="table-body-cell text-[var(--color-primary)]">
+ {[c.firstOrderOnly && 'Solo primer pedido', c.isPublic && 'Visible en la app'].filter(Boolean).join(' · ') || '—'}
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{new Date(c.validUntil).toLocaleDateString('es-CO')}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{c.usedCount}{c.usageLimit > 0 ? ` / ${c.usageLimit}` : ' · sin límite'}</td>
+ <td className={`table-body-cell ${presupuestoPct >= 90 ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
+ {cop(c.budgetSpent)}{c.budgetLimit > 0 ? ` / ${cop(c.budgetLimit)}` : ' · sin tope'}
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{new Date(c.updatedAt).toLocaleString('es-CO')}</td>
+ <td className="table-body-cell">
+ <div className="flex items-center gap-1">
  <button
  onClick={() => verHistorial(c)}
  title="Historial de uso"
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-primary)] hover:bg-[var(--color-bg)] transition-colors cursor-pointer"
+ className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
  >
  <History className="w-4 h-4" />
  </button>
@@ -485,7 +486,7 @@ export default function Coupons() {
  <button
  onClick={() => openEdit(c)}
  title="Editar"
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-primary)] hover:bg-[var(--color-bg)] transition-colors cursor-pointer"
+ className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
  >
  <Pencil className="w-4 h-4" />
  </button>
@@ -493,55 +494,20 @@ export default function Coupons() {
  <button
  onClick={() => setConfirmToggle(c)}
  title={c.isActive ? 'Desactivar' : 'Reactivar'}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-bg)] transition-colors cursor-pointer"
+ className="cursor-pointer text-[var(--color-text-main)]"
  >
  {c.isActive
- ? <ToggleRight className="w-4 h-4 text-[var(--color-primary)]" />
- : <ToggleLeft className="w-4 h-4" />}
+ ? <ToggleRight className="w-4 h-4" style={{ color: '#000000' }} />
+ : <ToggleLeft className="w-4 h-4" style={{ color: 'var(--color-danger)' }} />}
  </button>
  </div>
- </div>
-
- {/* Consumo: lo que ya se gastó de la promoción. */}
- <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-3 border-t border-[var(--color-border-light)]">
- <div className="space-y-1.5">
- <div className="flex justify-between text-[11px] font-semibold">
- <span className="text-[var(--color-text-main)]">Usos</span>
- <span className="text-[var(--color-text-main)] font-mono">
- {c.usedCount}{c.usageLimit > 0 ? ` / ${c.usageLimit}` : ' · sin límite'}
- </span>
- </div>
- {c.usageLimit > 0 && (
- <div className="h-1.5 bg-[var(--color-bg-alt)] rounded-full overflow-hidden">
- <div className="h-full bg-[var(--color-primary)] rounded-full transition-all" style={{ width: `${usoPct}%` }} />
- </div>
- )}
- </div>
-
- <div className="space-y-1.5">
- <div className="flex justify-between text-[11px] font-semibold">
- <span className="text-[var(--color-text-main)]">Presupuesto</span>
- <span className="text-[var(--color-text-main)] font-mono">
- {cop(c.budgetSpent)}{c.budgetLimit > 0 ? ` / ${cop(c.budgetLimit)}` : ' · sin tope'}
- </span>
- </div>
- {c.budgetLimit > 0 && (
- <div className="h-1.5 bg-[var(--color-bg-alt)] rounded-full overflow-hidden">
- <div
- className={`h-full rounded-full transition-all ${presupuestoPct >= 90 ? 'bg-[var(--color-danger)]' : 'bg-[var(--color-primary)]'}`}
- style={{ width: `${presupuestoPct}%` }}
- />
- </div>
- )}
- </div>
- </div>
-
- <p className="text-[10px] text-[var(--color-text-main)] font-mono">
- Última modificación {new Date(c.updatedAt).toLocaleString('es-CO')}
- </p>
- </div>
+ </td>
+ </tr>
  );
  })}
+ </tbody>
+ </table>
+ </div>
  </div>
  )}
 
@@ -937,7 +903,7 @@ export default function Coupons() {
  <input
  type="checkbox" checked={form.isActive}
  onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
- className="w-4 h-4 rounded accent-[var(--color-primary)] cursor-pointer"
+ className="switch-activo"
  />
  <span className="text-xs font-semibold text-[var(--color-text-main)]">Cupón activo</span>
  </label>

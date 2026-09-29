@@ -145,17 +145,18 @@
   background: #2E3D5C;
 }
 
+/* Delgada: en la barra de dos columnas cada píxel de ancho cuenta. */
 .admin-sidebar-scroll::-webkit-scrollbar {
-  width: 10px;
+  width: 4px;
 }
 
 .admin-sidebar-scroll::-webkit-scrollbar-thumb {
-  background: #FF441F;
+  background: #bdbdbd;
   border-radius: 999px;
 }
 
 .admin-sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background: #E03510;
+  background: #9a9a9a;
 }
 
 /* ── Animations ── */
@@ -338,6 +339,21 @@
 .data-grid tbody tr:nth-child(even) {
   background-color: var(--color-bg);
 }
+/* Variante de tinta: todo el texto de la cuadrícula en negro, sin colores de
+   estado ni de enlace. En modo oscuro vuelve al color de texto del tema, o
+   quedaría negro sobre negro. */
+.data-grid-black th,
+.data-grid-black td,
+.data-grid-black th *,
+.data-grid-black td * {
+  color: #000000;
+}
+.dark .data-grid-black th,
+.dark .data-grid-black td,
+.dark .data-grid-black th *,
+.dark .data-grid-black td * {
+  color: var(--color-text-main);
+}
 
 /* Modal Zipp */
 .zipp-modal {
@@ -359,4 +375,42 @@
   .print-area, .print-area * { visibility: visible; }
   .print-area { position: absolute; inset: 0 auto auto 0; width: 100%; max-height: none; box-shadow: none; }
   .no-print { display: none !important; }
+}
+
+/* Interruptor de "activo": apagado en rojo, encendido en negro. En modo
+   oscuro el encendido pasa al color de texto del tema. */
+.switch-activo {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 1.125rem;
+  border-radius: 9999px;
+  background-color: var(--color-danger);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.switch-activo::after {
+  content: '';
+  position: absolute;
+  top: 0.125rem;
+  left: 0.125rem;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 9999px;
+  background-color: #ffffff;
+  transition: transform 0.15s;
+}
+.switch-activo:checked {
+  background-color: #000000;
+}
+.switch-activo:checked::after {
+  transform: translateX(0.875rem);
+}
+.dark .switch-activo:checked {
+  background-color: var(--color-text-main);
+}
+.dark .switch-activo:checked::after {
+  background-color: #000000;
 }

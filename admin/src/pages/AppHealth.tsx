@@ -1,9 +1,10 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+﻿import { Fragment, useCallback, useEffect, useState } from 'react';
 import { AlertCircle, RotateCw } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { PermissionGate } from '../components/PermissionGate';
 import { Permission } from '../lib/permissions';
+import SummaryGrid from '../components/SummaryGrid';
 
 /**
  * Salud de la app: qué se rompe en los teléfonos y cuánto cuesta el recorte
@@ -140,18 +141,13 @@ export default function AppHealth() {
  <p className="py-6 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
  ) : crashes && (
  <>
- <div className="flex flex-wrap gap-x-8 gap-y-3">
- {[
- ['Reportes', crashes.totals.total],
- ['Fatales (pantalla en blanco)', crashes.totals.fatal],
- ['Personas afectadas', crashes.totals.usersAffected],
- ].map(([label, value]) => (
- <div key={label as string}>
- <p className="text-2xl font-bold text-[var(--color-text-main)]">{value}</p>
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{label}</p>
- </div>
- ))}
- </div>
+ <SummaryGrid
+ items={[
+ { label: 'Reportes', value: crashes.totals.total },
+ { label: 'Fatales (pantalla en blanco)', value: crashes.totals.fatal },
+ { label: 'Personas afectadas', value: crashes.totals.usersAffected },
+ ]}
+ />
 
  {crashes.byVersion.length > 0 && (
  <p className="text-xs text-[var(--color-text-main)]">
@@ -179,57 +175,79 @@ export default function AppHealth() {
  {crashes.groups.length === 0 ? 'Ningún crash reportado en este periodo.' : 'Todo lo reportado en este periodo está marcado como resuelto.'}
  </p>
  ) : (
- <ul>
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Error</th>
+ <th className="table-header-cell">Estado</th>
+ <th className="table-header-cell">Veces</th>
+ <th className="table-header-cell">Fatales</th>
+ <th className="table-header-cell">Versión</th>
+ <th className="table-header-cell">Plataformas</th>
+ <th className="table-header-cell">Personas</th>
+ <th className="table-header-cell">Primera vez</th>
+ <th className="table-header-cell">Última vez</th>
+ <th className="table-header-cell">Pedido</th>
+ <th className="table-header-cell">Acción</th>
+ </tr>
+ </thead>
+ <tbody>
  {visibleGroups.map((g) => {
  const key = `${g.appVersion}|${g.message}`;
  return (
- <li key={key} className={`border-b border-[var(--color-border-light)] py-3 ${g.status === 'resolved' ? 'opacity-60' : ''}`}>
- <div className="flex flex-wrap items-baseline gap-x-4">
- <p className="min-w-0 flex-1 break-words font-semibold text-[var(--color-text-main)]">{g.message}</p>
- {g.status === 'regression' && (
- <p className="text-xs font-bold text-[var(--color-danger)]">Regresión: volvió en una versión nueva</p>
+ <Fragment key={key}>
+ <tr className={g.status === 'resolved' ? 'opacity-60' : ''}>
+ <td className="table-body-cell wrap text-[var(--color-text-main)]">
+ <span className="break-words">{g.message}</span>
+ {g.scope && <span> · {g.scope}</span>}
+ {g.stack && (
+ <button
+ onClick={() => setOpenStack(openStack === key ? null : key)}
+ className="ml-2 cursor-pointer text-[var(--color-primary)]"
+ >
+ {openStack === key ? 'Ocultar traza' : 'Ver traza'}
+ </button>
  )}
- {g.status === 'resolved' && (
- <p className="text-xs font-bold text-[var(--color-text-main)]">Resuelto</p>
- )}
- <p className="text-xs font-bold text-[var(--color-text-main)]">{g.count}×</p>
- {g.fatal > 0 && <p className="text-xs font-bold text-[var(--color-danger)]">{g.fatal} fatales</p>}
+ </td>
+ <td className={`table-body-cell ${g.status === 'regression' ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
+ {g.status === 'regression' ? 'Regresión' : g.status === 'resolved' ? 'Resuelto' : 'Abierto'}
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{g.count}</td>
+ <td className={`table-body-cell ${g.fatal > 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>{g.fatal}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">v{g.appVersion}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{g.platforms.join(', ')}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{g.usersAffected}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{when(g.firstAt)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{when(g.lastAt)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{g.sampleOrderId ? `…${g.sampleOrderId.slice(-6)}` : '—'}</td>
+ <td className="table-body-cell">
  <PermissionGate permission={Permission.SETTINGS_UPDATE}>
  <button
  onClick={() => toggleResolved(g)}
  disabled={acting === g.message}
- className="cursor-pointer text-[11px] font-bold text-[var(--color-primary)] disabled:opacity-50"
+ className="cursor-pointer text-[var(--color-primary)] disabled:opacity-50"
  >
  {g.status === 'resolved' ? 'Reabrir' : 'Marcar resuelto'}
  </button>
  </PermissionGate>
- </div>
- <p className="text-xs text-[var(--color-text-main)]">
- v{g.appVersion} · {g.platforms.join(', ')} · {g.usersAffected} {g.usersAffected === 1 ? 'persona' : 'personas'}
- {g.scope && ` · ${g.scope}`} · del {when(g.firstAt)} al {when(g.lastAt)}
- {g.sampleOrderId && (
- <> · pedido …{g.sampleOrderId.slice(-6)}</>
+ </td>
+ </tr>
+ {g.stack && openStack === key && (
+ <tr>
+ <td colSpan={11} className="table-body-cell wrap">
+ <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-[11px] text-[var(--color-text-main)]">{g.stack}</pre>
+ </td>
+ </tr>
  )}
- </p>
- {g.stack && (
- <>
- <button
- onClick={() => setOpenStack(openStack === key ? null : key)}
- className="mt-1 cursor-pointer text-[11px] font-bold text-[var(--color-primary)]"
- >
- {openStack === key ? 'Ocultar traza' : 'Ver traza'}
- </button>
- {openStack === key && (
- <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border-l border-[var(--color-border)] pl-3 text-[11px] text-[var(--color-text-main)]">
- {g.stack}
- </pre>
- )}
- </>
- )}
- </li>
+ </Fragment>
  );
  })}
- </ul>
+ </tbody>
+ </table>
+ </div>
+ </div>
  )}
  <p className="text-[11px] text-[var(--color-text-main)]">
  Los reportes se borran solos a los 30 días. Nunca aparecen nombres ni dispositivos, solo cuántas personas.
@@ -251,49 +269,74 @@ export default function AppHealth() {
  )}
  {images && (
  <>
- <div className="flex flex-wrap gap-x-8 gap-y-3">
- {[
- ['A cuadrar con la factura', images.totals.billable],
- ['Terminados', images.totals.completed],
- ['Fallidos', images.totals.failed],
- ['Por límite', images.totals.limited],
- ['Tiempo medio', images.durationMs.average != null ? `${(images.durationMs.average / 1000).toFixed(1)} s` : '–'],
- ['p95', images.durationMs.p95 != null ? `${(images.durationMs.p95 / 1000).toFixed(1)} s` : '–'],
- ].map(([label, value]) => (
- <div key={label as string}>
- <p className="text-2xl font-bold text-[var(--color-text-main)]">{value}</p>
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{label}</p>
- </div>
- ))}
- </div>
+ <SummaryGrid
+ items={[
+ { label: 'A cuadrar con la factura', value: images.totals.billable },
+ { label: 'Terminados', value: images.totals.completed },
+ { label: 'Fallidos', value: images.totals.failed },
+ { label: 'Por límite', value: images.totals.limited },
+ { label: 'Tiempo medio', value: images.durationMs.average != null ? `${(images.durationMs.average / 1000).toFixed(1)} s` : '–' },
+ { label: 'p95', value: images.durationMs.p95 != null ? `${(images.durationMs.p95 / 1000).toFixed(1)} s` : '–' },
+ ]}
+ />
  <p className="text-[11px] text-[var(--color-text-main)]">
  “A cuadrar con la factura” cuenta cada recorte que se pagó: terminado, descartado o inválido. Es la cifra que hay que comparar con el cobro del proveedor.
  </p>
 
  {images.byProvider.length > 0 && (
- <ul>
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Proveedor</th>
+ <th className="table-header-cell">Terminados</th>
+ <th className="table-header-cell">Fallidos</th>
+ <th className="table-header-cell">Facturables</th>
+ </tr>
+ </thead>
+ <tbody>
  {images.byProvider.map((p) => (
- <li key={p.provider} className="flex items-center gap-4 border-b border-[var(--color-border-light)] py-2 text-xs">
- <span className="flex-1 font-semibold text-[var(--color-text-main)]">{p.provider}</span>
- <span className="text-[var(--color-text-main)]">{p.completed} terminados · {p.failed} fallidos</span>
- <span className="w-24 text-right font-bold text-[var(--color-text-main)]">{p.billable} facturables</span>
- </li>
+ <tr key={p.provider}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{p.provider}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{p.completed}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{p.failed}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{p.billable}</td>
+ </tr>
  ))}
- </ul>
+ </tbody>
+ </table>
+ </div>
+ </div>
  )}
 
  {images.topBusinesses.length > 0 && (
  <div>
  <h3 className="mb-1 text-xs font-bold text-[var(--color-text-main)]">Comercios que más consumen</h3>
- <ul>
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Comercio</th>
+ <th className="table-header-cell">Terminados</th>
+ <th className="table-header-cell">Fallidos</th>
+ <th className="table-header-cell">Facturables</th>
+ </tr>
+ </thead>
+ <tbody>
  {images.topBusinesses.map((b) => (
- <li key={b.businessId} className="flex items-center gap-4 border-b border-[var(--color-border-light)] py-2 text-xs">
- <span className="flex-1 font-semibold text-[var(--color-text-main)]">{b.name ?? 'Comercio eliminado'}</span>
- <span className="text-[var(--color-text-main)]">{b.completed} terminados · {b.failed} fallidos</span>
- <span className="w-24 text-right font-bold text-[var(--color-text-main)]">{b.billable} facturables</span>
- </li>
+ <tr key={b.businessId}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{b.name ?? 'Comercio eliminado'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{b.completed}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{b.failed}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{b.billable}</td>
+ </tr>
  ))}
- </ul>
+ </tbody>
+ </table>
+ </div>
+ </div>
  </div>
  )}
  </>

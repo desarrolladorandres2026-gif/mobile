@@ -392,18 +392,10 @@ export default function DriverProfileScreen() {
             />
             <MenuRow
               illustration="documento"
-              label="Políticas de privacidad"
+              label="Privacidad y datos personales"
               onPress={() => {
                 tap('light');
-                router.push({ pathname: '/(driver)/legal-document', params: { kind: 'privacy', title: 'Políticas de privacidad' } } as never);
-              }}
-            />
-            <MenuRow
-              illustration="documento"
-              label="Autorización de tratamiento de datos personales"
-              onPress={() => {
-                tap('light');
-                router.push({ pathname: '/(driver)/legal-document', params: { kind: 'habeas_data', title: 'Autorización de datos' } } as never);
+                router.push({ pathname: '/(driver)/legal-document', params: { kind: 'personal_data', title: 'Privacidad y datos personales' } } as never);
               }}
               last
             />

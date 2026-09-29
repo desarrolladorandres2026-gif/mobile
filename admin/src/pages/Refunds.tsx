@@ -5,6 +5,7 @@ import Pagination from '../components/Pagination';
 import EntityLink from '../components/EntityLink';
 import { apiMessage } from '../lib/apiError';
 import { money, dateTime } from '../lib/drivers';
+import SummaryGrid from '../components/SummaryGrid';
 
 /**
  * Bandeja de reembolsos y contracargos de toda la plataforma.
@@ -121,20 +122,14 @@ export default function Refunds() {
  </div>
 
  {totals && (
- <div className="grid grid-cols-2 gap-4 border-b border-[var(--color-border-light)] pb-4 lg:grid-cols-4">
- {[
- { label: 'Devuelto', value: totals.completed, color: 'text-[var(--color-text-main)]' },
- { label: 'Contracargos', value: totals.chargebacks, color: 'text-[var(--color-warning)]' },
- { label: 'Fallidos', value: totals.failed, color: 'text-[var(--color-danger)]' },
- { label: 'En curso', value: totals.pending, color: 'text-[var(--color-text-main)]' },
- ].map((k) => (
- <div key={k.label}>
- <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{k.label}</p>
- <p className={`kpi-value mt-1 text-xl ${k.color}`}>{money(k.value.amount)}</p>
- <p className="mt-0.5 text-xs text-[var(--color-text-main)]">{k.value.count} {k.value.count === 1 ? 'registro' : 'registros'}</p>
- </div>
- ))}
- </div>
+ <SummaryGrid
+ items={[
+ { label: 'Devuelto', value: money(totals.completed.amount), sub: `${totals.completed.count} ${totals.completed.count === 1 ? 'registro' : 'registros'}` },
+ { label: 'Contracargos', value: money(totals.chargebacks.amount), tone: 'warning', sub: `${totals.chargebacks.count} ${totals.chargebacks.count === 1 ? 'registro' : 'registros'}` },
+ { label: 'Fallidos', value: money(totals.failed.amount), tone: 'danger', sub: `${totals.failed.count} ${totals.failed.count === 1 ? 'registro' : 'registros'}` },
+ { label: 'En curso', value: money(totals.pending.amount), sub: `${totals.pending.count} ${totals.pending.count === 1 ? 'registro' : 'registros'}` },
+ ]}
+ />
  )}
 
  {error && (
@@ -151,39 +146,51 @@ export default function Refunds() {
  </p>
  ) : (
  <>
- <div className="divide-y divide-[var(--color-border-light)]">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Pedido</th>
+ <th className="table-header-cell">Negocio</th>
+ <th className="table-header-cell">Tipo</th>
+ <th className="table-header-cell">Fecha</th>
+ <th className="table-header-cell">Motivo</th>
+ <th className="table-header-cell">Transacción</th>
+ <th className="table-header-cell">Comercio asume</th>
+ <th className="table-header-cell">Comisión asume</th>
+ <th className="table-header-cell">ZIPP asume</th>
+ <th className="table-header-cell">Monto</th>
+ <th className="table-header-cell">Estado</th>
+ </tr>
+ </thead>
+ <tbody>
  {items.map((r) => (
- <div key={r._id} className="flex flex-wrap items-start justify-between gap-3 py-3">
- <div className="min-w-0">
- <p className="text-sm font-bold text-[var(--color-text-main)]">
- <EntityLink type="order" id={r.orderId}>
- Pedido #{r.orderNumber ?? 'N/A'}
- </EntityLink>
- <span className="ml-2 text-xs font-normal text-[var(--color-text-main)]">{r.businessName}</span>
- </p>
- <p className="break-words text-[11px] text-[var(--color-text-main)]">{r.reason}</p>
- <p className="text-[11px] text-[var(--color-text-main)]">
- {KIND_LABEL[r.kind]} · {dateTime(r.createdAt)}
- {r.transactionId ? ` · ${r.transactionId}` : ''}
- </p>
- {r.status === 'completed' && (
- <p className="text-[11px] text-[var(--color-text-main)]">
- Lo asumió: comercio {money(r.allocation.fromMerchantPayout)} · comisión {money(r.allocation.fromCommission)} · ZIPP {money(r.allocation.fromPlatform)}
- </p>
- )}
- {r.status === 'failed' && (
- <p className="text-[11px] font-semibold text-[var(--color-danger)]">
- No se devolvió el dinero. Abre el pedido y repítelo, o regístralo como"Hecho por fuera" si ya lo devolviste en Wompi.
- </p>
- )}
- </div>
- <div className="text-right">
- <p className="text-sm font-bold text-[var(--color-text-main)]">{money(r.amount)}</p>
- <p className={`text-[10px] font-bold uppercase tracking-wider ${STATUS[r.status].className}`}>{STATUS[r.status].text}</p>
- </div>
- </div>
+ <tr key={r._id}>
+ <td className="table-body-cell">
+ <EntityLink type="order" id={r.orderId}>#{r.orderNumber ?? 'N/A'}</EntityLink>
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{r.businessName ?? '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{KIND_LABEL[r.kind]}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{dateTime(r.createdAt)}</td>
+ <td className="table-body-cell wrap text-[var(--color-text-main)]">{r.reason}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{r.transactionId ?? '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{r.status === 'completed' ? money(r.allocation.fromMerchantPayout) : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{r.status === 'completed' ? money(r.allocation.fromCommission) : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{r.status === 'completed' ? money(r.allocation.fromPlatform) : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(r.amount)}</td>
+ <td className={`table-body-cell ${STATUS[r.status].className}`}>{STATUS[r.status].text}</td>
+ </tr>
  ))}
+ </tbody>
+ </table>
  </div>
+ </div>
+ {items.some((r) => r.status === 'failed') && (
+ <p className="text-xs font-semibold text-[var(--color-danger)]">
+ Los reembolsos fallidos no devolvieron el dinero. Abre el pedido y repítelo, o regístralo como "Hecho por fuera" si ya lo devolviste en Wompi.
+ </p>
+ )}
  <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
  </>
  )}

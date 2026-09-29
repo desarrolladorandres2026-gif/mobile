@@ -147,15 +147,9 @@ export default function ProfileScreen() {
     },
     {
       icon: 'privacidad',
-      label: 'Políticas de privacidad',
+      label: 'Privacidad y datos personales',
       route: '/(client)/legal-document',
-      params: { kind: 'privacy', title: 'Políticas de privacidad' },
-    },
-    {
-      icon: 'consentimiento',
-      label: 'Autorización de tratamiento de datos personales',
-      route: '/(client)/legal-document',
-      params: { kind: 'habeas_data', title: 'Autorización de datos' },
+      params: { kind: 'personal_data', title: 'Privacidad y datos personales' },
     },
   ];
 

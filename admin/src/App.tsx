@@ -48,9 +48,7 @@ const FiscalDocuments = lazyPage(() => import('./pages/FiscalDocuments'), '/docu
 const Exports = lazyPage(() => import('./pages/Exports'), '/exports');
 const Pricing = lazyPage(() => import('./pages/Pricing'), '/pricing');
 const Security = lazyPage(() => import('./pages/Security'), '/security');
-const LegalOps = lazyPage(() => import('./pages/LegalOps'), '/legal');
-const LegalDocuments = lazyPage(() => import('./pages/LegalDocuments'), '/legal-documents');
-const SupportMacros = lazyPage(() => import('./pages/SupportMacros'), '/support-macros');
+const Legal = lazyPage(() => import('./pages/Legal'), '/legal');
 const Campaigns = lazyPage(() => import('./pages/Campaigns'), '/campaigns');
 const TargetedSends = lazyPage(() => import('./pages/TargetedSends'), '/targeted-sends');
 const Referrals = lazyPage(() => import('./pages/Referrals'), '/referrals');
@@ -157,9 +155,8 @@ function App() {
  <Route path="security" element={guard('/security', <Security />)} />
  <Route path="incidents" element={guard('/incidents', <Incidents />)} />
  <Route path="support" element={guard('/support', <Support />)} />
- <Route path="legal" element={guard('/legal', <LegalOps />)} />
- <Route path="legal-documents" element={guard('/legal-documents', <LegalDocuments />)} />
- <Route path="support-macros" element={guard('/support-macros', <SupportMacros />)} />
+ <Route path="legal" element={guard('/legal', <Legal />)} />
+ <Route path="legal-documents" element={<Navigate to="/legal?tab=documentos" replace />} />
  <Route path="campaigns" element={guard('/campaigns', <Campaigns />)} />
  <Route path="targeted-sends" element={guard('/targeted-sends', <TargetedSends />)} />
  <Route path="referrals" element={guard('/referrals', <Referrals />)} />

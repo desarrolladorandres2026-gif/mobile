@@ -5,6 +5,7 @@ import api from '../services/api';
 import EntityLink from '../components/EntityLink';
 import { apiMessage } from '../lib/apiError';
 import { money, day } from '../lib/drivers';
+import SummaryGrid from '../components/SummaryGrid';
 
 /**
  * Efectivo sin rendir, por domiciliario.
@@ -65,18 +66,13 @@ export default function Cash() {
  </Link>
  </div>
 
- <div className="grid grid-cols-3 gap-4 border-b border-[var(--color-border-light)] pb-4">
- {[
- { label: 'Sin rendir', value: money(total), color: 'text-[var(--color-text-main)]' },
- { label: 'Declarado, sin verificar', value: money(reported), color: 'text-[var(--color-warning)]' },
- { label: 'Vencido', value: money(overdue), color: 'text-[var(--color-danger)]' },
- ].map((k) => (
- <div key={k.label}>
- <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{k.label}</p>
- <p className={`kpi-value mt-1 text-xl ${k.color}`}>{k.value}</p>
- </div>
- ))}
- </div>
+ <SummaryGrid
+ items={[
+ { label: 'Sin rendir', value: money(total) },
+ { label: 'Declarado, sin verificar', value: money(reported), tone: 'warning' },
+ { label: 'Vencido', value: money(overdue), tone: 'danger' },
+ ]}
+ />
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
@@ -89,28 +85,37 @@ export default function Cash() {
  ) : rows.length === 0 ? (
  <p className="py-10 text-center text-xs text-[var(--color-text-main)]">Ningún domiciliario tiene efectivo sin rendir.</p>
  ) : (
- <div className="divide-y divide-[var(--color-border-light)]">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Domiciliario</th>
+ <th className="table-header-cell">Pedidos</th>
+ <th className="table-header-cell">Sin rendir</th>
+ <th className="table-header-cell">Declarado</th>
+ <th className="table-header-cell">Vencidos</th>
+ <th className="table-header-cell">Monto vencido</th>
+ <th className="table-header-cell">Vence el más antiguo</th>
+ </tr>
+ </thead>
+ <tbody>
  {rows.map((r) => (
- <div key={r.driverId} className="flex flex-wrap items-start justify-between gap-3 py-3">
- <div className="min-w-0">
- <p className="text-sm font-bold text-[var(--color-text-main)]">
+ <tr key={r.driverId}>
+ <td className="table-body-cell">
  <EntityLink type="driver" id={r.driverId}>{r.name ?? 'Sin nombre'}</EntityLink>
- </p>
- <p className="text-[11px] text-[var(--color-text-main)]">
- {r.count} {r.count === 1 ? 'pedido' : 'pedidos'} · el más antiguo vence {day(r.oldestDueAt)}
- {r.reportedAmount > 0 ? ` · declaró ${money(r.reportedAmount)}` : ''}
- </p>
- </div>
- <div className="text-right">
- <p className="text-sm font-bold text-[var(--color-text-main)]">{money(r.amount)}</p>
- {r.overdueCount > 0 && (
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-danger)]">
- {r.overdueCount} vencido{r.overdueCount === 1 ? '' : 's'} · {money(r.overdueAmount)}
- </p>
- )}
- </div>
- </div>
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{r.count}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(r.amount)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{r.reportedAmount > 0 ? money(r.reportedAmount) : '—'}</td>
+ <td className={`table-body-cell ${r.overdueCount > 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>{r.overdueCount}</td>
+ <td className={`table-body-cell ${r.overdueCount > 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>{r.overdueCount > 0 ? money(r.overdueAmount) : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{day(r.oldestDueAt)}</td>
+ </tr>
  ))}
+ </tbody>
+ </table>
+ </div>
  </div>
  )}
  </div>

@@ -7,6 +7,7 @@ import { apiMessage } from '../lib/apiError';
 import { money, day } from '../lib/drivers';
 import { useAuthStore } from '../stores/authStore';
 import { Permission } from '../lib/permissions';
+import SummaryGrid from '../components/SummaryGrid';
 
 /**
  * Facturas de publicidad: lo que cada campaña cerrada le costó al anunciante.
@@ -127,15 +128,13 @@ export default function AdInvoices() {
  </div>
 
  {totals && (
- <div className="grid grid-cols-2 gap-4 border-b border-[var(--color-border-light)] pb-4 lg:grid-cols-4">
- {(Object.keys(VIEW_LABEL) as View[]).map((k) => (
- <div key={k}>
- <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{VIEW_LABEL[k].text}</p>
- <p className="kpi-value mt-1 text-xl text-[var(--color-text-main)]">{money(totals[k].amount)}</p>
- <p className="mt-0.5 text-xs text-[var(--color-text-main)]">{totals[k].count} {totals[k].count === 1 ? 'factura' : 'facturas'}</p>
- </div>
- ))}
- </div>
+ <SummaryGrid
+ items={(Object.keys(VIEW_LABEL) as View[]).map((k) => ({
+ label: VIEW_LABEL[k].text,
+ value: money(totals[k].amount),
+ sub: `${totals[k].count} ${totals[k].count === 1 ? 'factura' : 'facturas'}`,
+ }))}
+ />
  )}
 
  {error && (
@@ -150,35 +149,52 @@ export default function AdInvoices() {
  <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay facturas con este filtro.</p>
  ) : (
  <>
- <div className="divide-y divide-[var(--color-border-light)]">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Campaña</th>
+ <th className="table-header-cell">Anunciante</th>
+ <th className="table-header-cell">Fecha</th>
+ <th className="table-header-cell">Impresiones</th>
+ <th className="table-header-cell">Clics</th>
+ <th className="table-header-cell">Monto</th>
+ <th className="table-header-cell">Estado</th>
+ <th className="table-header-cell">Referencia</th>
+ {canManage && <th className="table-header-cell">Acción</th>}
+ </tr>
+ </thead>
+ <tbody>
  {items.map((i) => (
- <div key={i._id} className="flex flex-wrap items-start justify-between gap-3 py-3">
- <div className="min-w-0">
- <p className="text-sm font-bold text-[var(--color-text-main)]">{i.campaignName}</p>
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <tr key={i._id}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{i.campaignName}</td>
+ <td className="table-body-cell">
  <EntityLink type="business" id={i.businessId}>{i.advertiserName || 'Sin anunciante'}</EntityLink>
- {' · '}{day(i.createdAt)} · {i.impressions.toLocaleString('es-CO')} impresiones · {i.clicks.toLocaleString('es-CO')} clics
- </p>
- {i.collectionReference && (
- <p className="text-[11px] text-[var(--color-text-main)]">Referencia {i.collectionReference}</p>
- )}
- </div>
- <div className="flex items-center gap-4">
- <div className="text-right">
- <p className="text-sm font-bold text-[var(--color-text-main)]">{money(i.amount)}</p>
- <p className={`text-[10px] font-bold uppercase tracking-wider ${VIEW_LABEL[i.view].className}`}>{VIEW_LABEL[i.view].text}</p>
- </div>
- {i.view === 'to_collect' && canManage && (
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{day(i.createdAt)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{i.impressions.toLocaleString('es-CO')}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{i.clicks.toLocaleString('es-CO')}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(i.amount)}</td>
+ <td className={`table-body-cell ${VIEW_LABEL[i.view].className}`}>{VIEW_LABEL[i.view].text}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{i.collectionReference ?? '—'}</td>
+ {canManage && (
+ <td className="table-body-cell">
+ {i.view === 'to_collect' && (
  <button
  onClick={() => { setCollecting(i); setForm({ reference: '', receiptUrl: '' }); setFormError(''); }}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-white"
+ className="cursor-pointer text-[var(--color-primary)]"
  >
  Registrar cobro
  </button>
  )}
- </div>
- </div>
+ </td>
+ )}
+ </tr>
  ))}
+ </tbody>
+ </table>
+ </div>
  </div>
  <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
  </>

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useRef, useState } from 'react';
 import {
- MapPin, Plus, Search, X, AlertCircle, Pencil, Trash2, Layers, ArrowUpDown,
+ MapPin, Plus, Search, X, AlertCircle, Pencil, Trash2, ArrowUpDown,
 } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -329,41 +329,39 @@ export default function Zones() {
  </p>
  </div>
  ) : (
- <div className="grid gap-2.5">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Zona</th>
+ <th className="table-header-cell">Ciudad</th>
+ <th className="table-header-cell">Estado</th>
+ <th className="table-header-cell">Base</th>
+ <th className="table-header-cell">Por km</th>
+ <th className="table-header-cell">Recargo</th>
+ <th className="table-header-cell">Mínimo</th>
+ <th className="table-header-cell">Prioridad</th>
+ <th className="table-header-cell">Acciones</th>
+ </tr>
+ </thead>
+ <tbody>
  {filtered.map((z) => (
- <div key={z._id} className="zipp-card p-5 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
- <div className="min-w-0 space-y-1.5">
- <div className="flex flex-wrap items-center gap-2.5">
- <div className="w-8 h-8 rounded-lg bg-[var(--color-primary-bg)] text-[var(--color-primary)] flex items-center justify-center shrink-0">
- <MapPin className="w-4 h-4" />
- </div>
- <h3 className="text-base font-bold text-[var(--color-text-main)]">{z.name}</h3>
- <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
- {z.city}
- </span>
- <span
- className="text-[10px] font-bold uppercase tracking-wider"
- style={z.isActive ? { color: '#D69E26' } : { color: '#0B0F19' }}
- >
- {z.isActive ? 'Activa' : 'Inactiva'}
- </span>
- </div>
- <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-text-main)] pl-11">
- <span>Base: {z.baseFee === null ? 'tarifa global' : cop(z.baseFee)}</span>
- <span>Km: {z.perKm === null ? 'tarifa global' : cop(z.perKm)}</span>
- {z.surcharge > 0 && <span>Recargo {cop(z.surcharge)}</span>}
- {z.minOrder > 0 && <span>Mínimo {cop(z.minOrder)}</span>}
- <span className="flex items-center gap-1">
- <Layers className="w-3 h-3" /> Prioridad {z.priority}
- </span>
- </div>
- </div>
-
- <div className="flex items-center gap-1.5 shrink-0">
+ <tr key={z._id}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{z.name}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{z.city}</td>
+ <td className="table-body-cell" style={z.isActive ? { color: '#D69E26' } : { color: '#0B0F19' }}>{z.isActive ? 'Activa' : 'Inactiva'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{z.baseFee === null ? 'tarifa global' : cop(z.baseFee)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{z.perKm === null ? 'tarifa global' : cop(z.perKm)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{z.surcharge > 0 ? cop(z.surcharge) : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{z.minOrder > 0 ? cop(z.minOrder) : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{z.priority}</td>
+ <td className="table-body-cell">
+ <div className="flex items-center gap-2">
  <button
  onClick={() => openHistory(z)}
  title="Historial de tarifas"
- className="px-2 py-1.5 rounded-lg text-[11px] font-semibold text-[var(--color-text-main)] hover:text-[var(--color-primary)] cursor-pointer"
+ className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
  >
  Historial
  </button>
@@ -371,7 +369,7 @@ export default function Zones() {
  <button
  onClick={() => openEdit(z)}
  title="Editar"
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-primary)] hover:bg-[var(--color-bg)] transition-colors cursor-pointer"
+ className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
  >
  <Pencil className="w-4 h-4" />
  </button>
@@ -379,13 +377,17 @@ export default function Zones() {
  <button
  onClick={() => setConfirmDelete(z)}
  title="Eliminar"
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-danger)] hover:bg-[var(--color-bg)] transition-colors cursor-pointer"
+ className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-danger)]"
  >
  <Trash2 className="w-4 h-4" />
  </button>
  </div>
- </div>
+ </td>
+ </tr>
  ))}
+ </tbody>
+ </table>
+ </div>
  </div>
  )}
 
@@ -482,7 +484,7 @@ export default function Zones() {
  <label className="flex items-center gap-2.5 cursor-pointer w-fit">
  <input type="checkbox" checked={form.isActive}
  onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
- className="w-4 h-4 rounded accent-[var(--color-primary)] cursor-pointer" />
+ className="switch-activo" />
  <span className="text-xs font-semibold text-[var(--color-text-main)]">Zona activa</span>
  </label>
 

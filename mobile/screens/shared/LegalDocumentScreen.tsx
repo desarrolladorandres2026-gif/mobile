@@ -30,11 +30,19 @@ interface LegalDocument {
   effectiveAt: string;
 }
 
+/**
+ * `kind=personal_data` no es un tipo de documento: junta en una sola pantalla
+ * los que regulan datos personales (Ley 1581), en este orden.
+ */
+export const PERSONAL_DATA_KIND = 'personal_data';
+const PERSONAL_DATA_KINDS = ['privacy', 'habeas_data'];
+
 /** Icono con el que se anuncia cada documento, igual al que usa el perfil. */
 const KIND_ICON: Record<string, IconName> = {
   terms: 'documento',
   privacy: 'privacidad',
   habeas_data: 'consentimiento',
+  [PERSONAL_DATA_KIND]: 'privacidad',
 };
 
 export default function LegalDocumentScreen() {
@@ -51,8 +59,11 @@ export default function LegalDocumentScreen() {
     queryFn: legalApi.documents,
   });
 
-  const document = documents.find((d) => d.kind === kind);
-  const showsDataRights = kind === 'privacy' || kind === 'habeas_data';
+  const kinds = kind === PERSONAL_DATA_KIND ? PERSONAL_DATA_KINDS : [kind];
+  const shown = kinds
+    .map((k) => documents.find((d) => d.kind === k))
+    .filter((d): d is LegalDocument => !!d);
+  const showsDataRights = kinds.some((k) => PERSONAL_DATA_KINDS.includes(k));
 
   const askForDocument = () => {
     tap('light');
@@ -81,33 +92,27 @@ export default function LegalDocumentScreen() {
             message="Revisa tu conexión e inténtalo de nuevo."
             onRetry={() => { void refetch(); }}
           />
-        ) : document ? (
-          <View
-            style={[
-              styles.docCard,
-              {
-                backgroundColor: c.surface,
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-              },
-            ]}
-          >
-            <View style={styles.docHeader}>
-              <View style={styles.cleanIcon}>
-                <Icon name={KIND_ICON[kind] ?? 'documento'} size="lg" color="#6268A0" />
+        ) : shown.length > 0 ? (
+          shown.map((document, i) => (
+            <View key={document._id} style={[styles.doc, i > 0 && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: Spacing.xl }]}>
+              <View style={styles.docHeader}>
+                <View style={styles.cleanIcon}>
+                  <Icon name={KIND_ICON[document.kind] ?? 'documento'} size="lg" color="#6268A0" />
+                </View>
+                <View style={styles.flex}>
+                  <Text v="strongL">{document.title}</Text>
+                  <Text v="caption" tone="textMuted">
+                    Versión {document.version} · vigente desde{' '}
+                    {new Date(document.effectiveAt).toLocaleDateString('es-CO')}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.flex}>
-                <Text v="strongL">{document.title}</Text>
-                <Text v="caption" tone="textMuted">
-                  Versión {document.version} · vigente desde{' '}
-                  {new Date(document.effectiveAt).toLocaleDateString('es-CO')}
-                </Text>
-              </View>
-            </View>
 
-            <Text v="bodyS" tone="textSecondary" style={styles.docContent}>
-              {document.content}
-            </Text>
-          </View>
+              <Text v="bodyS" tone="textSecondary" style={styles.docContent}>
+                {document.content}
+              </Text>
+            </View>
+          ))
         ) : (
           <EmptyState
             icon={KIND_ICON[kind] ?? 'documento'}
@@ -123,15 +128,7 @@ export default function LegalDocumentScreen() {
           aviso no viene al caso. Los derechos se ejercen por PQRS, no por chat.
         */}
         {showsDataRights ? (
-          <View
-            style={[
-              styles.rightsCard,
-              {
-                backgroundColor: c.surface,
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-              },
-            ]}
-          >
+          <View style={styles.rights}>
             <Text v="strongM">Tus derechos como titular</Text>
             <Text v="bodyS" tone="textSecondary">
               Puedes conocer, actualizar, rectificar o suprimir tus datos, y revocar esta
@@ -163,10 +160,7 @@ const styles = StyleSheet.create({
   skeletonBlock: {
     gap: Spacing.md,
   },
-  docCard: {
-    padding: Spacing.lg,
-    borderRadius: 24,
-    borderWidth: 1,
+  doc: {
     gap: Spacing.md,
   },
   docHeader: {
@@ -183,10 +177,7 @@ const styles = StyleSheet.create({
   docContent: {
     lineHeight: 20,
   },
-  rightsCard: {
-    padding: Spacing.lg,
-    borderRadius: 24,
-    borderWidth: 1,
+  rights: {
     gap: Spacing.md,
   },
 });

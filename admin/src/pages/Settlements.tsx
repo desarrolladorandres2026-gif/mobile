@@ -314,72 +314,101 @@ export default function Settlements() {
  No hay nada pendiente de liquidar. Los pagos aparecen aquí cuando el pedido se entrega y se cobra.
  </p>
  ) : (
- <div className="divide-y divide-[var(--color-border-light)]">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Beneficiario</th>
+ <th className="table-header-cell">Tipo</th>
+ <th className="table-header-cell">Pagos</th>
+ <th className="table-header-cell">Saldos en contra</th>
+ <th className="table-header-cell">Días esperando</th>
+ <th className="table-header-cell">Neto</th>
+ <th className="table-header-cell">Acción</th>
+ </tr>
+ </thead>
+ <tbody>
  {payables.map((p) => {
  const key = p.businessId ?? p.driverId ?? '';
  return (
- <div key={`${p.beneficiary}:${key}`} className="flex flex-wrap items-center justify-between gap-3 py-3">
- <div className="min-w-0">
- <p className="text-sm font-bold text-[var(--color-text-main)]">
+ <tr key={`${p.beneficiary}:${key}`}>
+ <td className="table-body-cell">
  <EntityLink type={p.beneficiary === 'business' ? 'business' : 'driver'} id={key}>
  {p.name ?? 'Sin nombre'}
  </EntityLink>
- </p>
- <p className="text-[11px] text-[var(--color-text-main)]">
- {BENEFICIARY_LABEL[p.beneficiary]} · {p.count} {p.count === 1 ? 'pago' : 'pagos'}
- {p.clawbackCount > 0 ? ` · ${p.clawbackCount} saldo(s) en contra descontado(s)` : ''} · esperando {p.daysWaiting} {p.daysWaiting === 1 ? 'día' : 'días'}
- </p>
- </div>
- <div className="flex items-center gap-4">
- <span className={`text-sm font-bold ${p.net > 0 ? 'text-[var(--color-text-main)]' : 'text-[var(--color-danger)]'}`}>
- {money(p.net)}
- </span>
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{BENEFICIARY_LABEL[p.beneficiary]}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{p.count}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{p.clawbackCount > 0 ? p.clawbackCount : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{p.daysWaiting}</td>
+ <td className={`table-body-cell ${p.net > 0 ? 'text-[var(--color-text-main)]' : 'text-[var(--color-danger)]'}`}>{money(p.net)}</td>
+ <td className="table-body-cell">
  {p.net <= 0 ? (
- <span className="max-w-[16rem] text-[11px] text-[var(--color-text-main)]">
- Saldo en contra: se descuenta en su próxima liquidación o se cobra desde Finanzas.
- </span>
+ <span className="text-[var(--color-text-main)]">Saldo en contra: se descuenta en su próxima liquidación o se cobra desde Finanzas.</span>
  ) : canProcess ? (
- <button
- onClick={() => { setToSettle(p); setSettleError(''); }}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-white"
- >
+ <button onClick={() => { setToSettle(p); setSettleError(''); }} className="cursor-pointer text-[var(--color-primary)]">
  Liquidar
  </button>
  ) : null}
- </div>
- </div>
+ </td>
+ </tr>
  );
  })}
+ </tbody>
+ </table>
+ </div>
  </div>
  )
  ) : items.length === 0 ? (
  <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay liquidaciones con este filtro.</p>
  ) : (
  <>
- <div className="divide-y divide-[var(--color-border-light)]">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Beneficiario</th>
+ <th className="table-header-cell">Tipo</th>
+ <th className="table-header-cell">Fecha</th>
+ <th className="table-header-cell">Pagos</th>
+ <th className="table-header-cell">Bruto</th>
+ <th className="table-header-cell">Reversado</th>
+ <th className="table-header-cell">Publicidad</th>
+ <th className="table-header-cell">Saldo en contra</th>
+ <th className="table-header-cell">Neto</th>
+ <th className="table-header-cell">Estado</th>
+ <th className="table-header-cell">Pago</th>
+ <th className="table-header-cell">Acción</th>
+ </tr>
+ </thead>
+ <tbody>
  {items.map((s) => {
  const name = s.beneficiary === 'business' ? s.businessName : s.driverName;
  const key = s.beneficiary === 'business' ? s.businessId : s.driverId;
  return (
- <div key={s._id} className="flex flex-wrap items-start justify-between gap-3 py-3">
- <div className="min-w-0">
- <p className="text-sm font-bold text-[var(--color-text-main)]">
+ <tr key={s._id}>
+ <td className="table-body-cell">
  <EntityLink type={s.beneficiary === 'business' ? 'business' : 'driver'} id={key}>
  {name ?? 'Sin nombre'}
  </EntityLink>
- </p>
- <p className="text-[11px] text-[var(--color-text-main)]">
- {BENEFICIARY_LABEL[s.beneficiary]} · {day(s.createdAt)} · {s.payoutCount} {s.payoutCount === 1 ? 'pago' : 'pagos'}
- </p>
- <p className="text-[11px] text-[var(--color-text-main)]">
- Bruto {money(s.grossAmount)}
- {s.reversedAmount > 0 ? ` · reversado −${money(s.reversedAmount)}` : ''}
- {s.adSpendAmount > 0 ? ` · publicidad −${money(s.adSpendAmount)}` : ''}
- {s.clawbackAmount > 0 ? ` · saldo en contra −${money(s.clawbackAmount)}` : ''}
- </p>
- {s.paymentStatus === 'paid' && (
- <p className="text-[11px] text-[var(--color-text-main)]">
- Pagada {day(s.paidAt ?? undefined)} · {METHOD_LABEL[s.paymentMethod ?? ''] ?? s.paymentMethod} · ref. {s.reference}
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{BENEFICIARY_LABEL[s.beneficiary]}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{day(s.createdAt)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{s.payoutCount}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(s.grossAmount)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{s.reversedAmount > 0 ? `−${money(s.reversedAmount)}` : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{s.adSpendAmount > 0 ? `−${money(s.adSpendAmount)}` : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{s.clawbackAmount > 0 ? `−${money(s.clawbackAmount)}` : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(s.netAmount)}</td>
+ <td className={`table-body-cell ${s.paymentStatus === 'paid' ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>
+ {s.paymentStatus === 'paid' ? 'Pagada' : 'Falta pagar'}
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">
+ {s.paymentStatus === 'paid' ? (
+ <>
+ {day(s.paidAt ?? undefined)} · {METHOD_LABEL[s.paymentMethod ?? ''] ?? s.paymentMethod} · ref. {s.reference}
  {s.receiptUrl && (
  <>
  {' · '}
@@ -388,36 +417,27 @@ export default function Settlements() {
  </a>
  </>
  )}
- </p>
- )}
- </div>
- <div className="flex items-center gap-4">
- <div className="text-right">
- <p className="text-sm font-bold text-[var(--color-text-main)]">{money(s.netAmount)}</p>
- <p className={`text-[10px] font-bold uppercase tracking-wider ${s.paymentStatus === 'paid' ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>
- {s.paymentStatus === 'paid' ? 'Pagada' : 'Falta pagar'}
- </p>
- </div>
+ </>
+ ) : '—'}
+ </td>
+ <td className="table-body-cell">
  {s.paymentStatus === 'paid' && canManage && (
- <button
- onClick={() => issueDocument(s)}
- className="cursor-pointer text-xs font-semibold text-[var(--color-primary)] underline underline-offset-2"
- >
+ <button onClick={() => issueDocument(s)} className="cursor-pointer text-[var(--color-primary)]">
  Emitir comprobante
  </button>
  )}
  {s.paymentStatus === 'pending' && canProcess && (
- <button
- onClick={() => openPay(s)}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-white"
- >
+ <button onClick={() => openPay(s)} className="cursor-pointer text-[var(--color-primary)]">
  Registrar pago
  </button>
  )}
- </div>
- </div>
+ </td>
+ </tr>
  );
  })}
+ </tbody>
+ </table>
+ </div>
  </div>
  <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
  </>

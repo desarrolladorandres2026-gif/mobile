@@ -9,6 +9,7 @@ import { useTrailingCallback } from '../hooks/useTrailingCallback';
 import { useAuthStore } from '../stores/authStore';
 import { useBusinessEvent } from '../hooks/realtimeContext';
 import { money, signedMoney, dateTime, statusStyle } from '../lib/orderFlow';
+import SummaryGrid from '../components/SummaryGrid';
 
 /**
  * Liquidaciones del comercio.
@@ -215,27 +216,13 @@ export default function Settlements() {
       )}
 
       {/* ── Franja de cifras ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-[var(--color-border-light)] border-b border-[var(--color-border)]">
-        <Figure
-          label="Próxima liquidación"
-          value={money(next?.netAmount)}
-          hint={`${next?.orderCount ?? 0} venta(s) acumuladas`}
-          loading={loading}
-          strong
-        />
-        <Figure
-          label="Pendiente por consignar"
-          value={money(statement?.outstanding)}
-          hint="Incluye lo aún no cobrado por ZIPP"
-          loading={loading}
-        />
-        <Figure
-          label="Histórico consignado"
-          value={money(statement?.settled)}
-          hint="Transferencias ya realizadas"
-          loading={loading}
-        />
-      </div>
+      <SummaryGrid
+        items={[
+          { label: 'Próxima liquidación', value: money(next?.netAmount), hint: `${next?.orderCount ?? 0} venta(s) acumuladas`, loading, strong: true },
+          { label: 'Pendiente por consignar', value: money(statement?.outstanding), hint: 'Incluye lo aún no cobrado por ZIPP', loading },
+          { label: 'Histórico consignado', value: money(statement?.settled), hint: 'Transferencias ya realizadas', loading },
+        ]}
+      />
 
       {/* ── La fórmula ── */}
       <div className="cols3 [--cols3-offset:21rem]">
@@ -500,34 +487,6 @@ export default function Settlements() {
         </div>
       </section>
       </div>
-    </div>
-  );
-}
-
-function Figure({
-  label, value, hint, loading, strong = false,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  loading: boolean;
-  strong?: boolean;
-}) {
-  return (
-    <div className="py-3 px-1 sm:px-5 sm:first:pl-0">
-      <p className="text-xs font-semibold text-[var(--color-text-secondary)]">{label}</p>
-      {loading ? (
-        <span className="block h-7 w-28 mt-1 rounded bg-[var(--color-bg-alt)] animate-pulse" />
-      ) : (
-        <p
-          className={`kpi-value mt-0.5 ${
-            strong ? 'text-2xl text-[var(--color-primary)]' : 'text-2xl'
-          }`}
-        >
-          {value}
-        </p>
-      )}
-      <p className="text-[11px] text-[var(--color-text-muted)] mt-1">{hint}</p>
     </div>
   );
 }

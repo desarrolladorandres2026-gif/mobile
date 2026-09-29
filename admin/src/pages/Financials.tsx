@@ -1,8 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
-import {
- Receipt, BadgePercent, X, TicketPercent, Gauge,
- CheckCircle2, ShieldAlert, Landmark, CreditCard
-} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
 import { apiMessage } from '../lib/apiError';
@@ -118,9 +114,9 @@ const CUENTA_LABEL: Record<string, string> = {
  * escondería justo el caso que hay que atender.
  */
 const ESTADO_INCIDENCIA: Record<string, { texto: string; clase: string }> = {
- open: { texto: 'Abierta', clase: 'text-[#B91C1C]' },
- under_review: { texto: 'En revisión', clase: 'text-[#B45309]' },
- resolved: { texto: 'Resuelta', clase: 'text-[#047857]' },
+ open: { texto: 'Abierta', clase: 'text-[var(--color-text-main)]' },
+ under_review: { texto: 'En revisión', clase: 'text-[var(--color-text-main)]' },
+ resolved: { texto: 'Resuelta', clase: 'text-[var(--color-text-main)]' },
  rejected: { texto: 'Rechazada', clase: 'text-[var(--color-text-main)]' },
 };
 
@@ -131,10 +127,10 @@ const RESOLUCION_INCIDENCIA: Record<string, string> = {
 };
 
 const ESTADO_EFECTIVO: Record<string, { texto: string; clase: string }> = {
- pending: { texto: 'Por rendir', clase: 'text-[var(--color-warning)]' },
- reported: { texto: 'Reportado', clase: 'text-[#8A5D08]' },
- verified: { texto: 'Verificado', clase: 'text-[var(--color-primary)]' },
- overdue: { texto: 'Vencido', clase: 'text-[var(--color-danger)]' },
+ pending: { texto: 'Por rendir', clase: 'text-[var(--color-text-main)]' },
+ reported: { texto: 'Reportado', clase: 'text-[var(--color-text-main)]' },
+ verified: { texto: 'Verificado', clase: 'text-[var(--color-text-main)]' },
+ overdue: { texto: 'Vencido', clase: 'text-[var(--color-text-main)]' },
  settled: { texto: 'Liquidado', clase: 'text-[var(--color-text-main)]' },
 };
 
@@ -330,29 +326,25 @@ export default function Financials() {
  label: 'GMV (Volumen Total)',
  value: money(gmv),
  sub: `${summary?.totalOrders ?? 0} pedidos procesados`,
- icon: Receipt,
  color: 'text-[var(--color-text-main)]',
  },
  {
  label: 'Ingreso Bruto ZIPP',
  value: money(ingresoBruto),
  sub: `${periodoLabel} · comisiones, tarifas y margen de domicilio`,
- icon: BadgePercent,
- color: 'text-[var(--color-primary)]',
+ color: 'text-[var(--color-text-main)]',
  },
  {
  label: 'Gasto Promocional',
  value: `−${money(gastoPromocional)}`,
  sub: `${periodoLabel} · cupones y beneficios que paga ZIPP`,
- icon: TicketPercent,
- color: 'text-[var(--color-warning)]',
+ color: 'text-[var(--color-text-main)]',
  },
  {
  label: comisionPasarela > 0 ? 'Resultado tras pasarela' : 'Resultado antes de pasarela',
  value: money(margenNeto),
  sub: `${periodoLabel} · ${comisionPasarela > 0 ? `incluye −${money(comisionPasarela)} de comisión de Wompi · ` : ''}${resultado?.incompleteReason ?? 'Falta el costo de transferencia de los pagos'}`,
- icon: Gauge,
- color: margenNeto >= 0 ? 'text-[var(--color-primary)]' : 'text-[var(--color-danger)]',
+ color: margenNeto >= 0 ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]',
  },
  ];
 
@@ -394,7 +386,7 @@ export default function Financials() {
  onClick={() => setPeriod(p)}
  className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer border-b-2 ${
  period === p
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -405,8 +397,8 @@ export default function Financials() {
  </div>
 
  {error && (
- <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+ <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-text-main)]">
+ {error}
  </p>
  )}
 
@@ -419,10 +411,10 @@ export default function Financials() {
  {/* Status Ledger Pill */}
  {ledger && (
  <div className={`flex items-center justify-between ${
- ledger.balanced ? 'text-[var(--color-primary)]' : 'text-[var(--color-danger)]'
+ ledger.balanced ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'
  }`}>
  <div className="flex items-center gap-3">
- {ledger.balanced ? <CheckCircle2 className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
+ 
  <div>
  <p className="text-xs font-bold uppercase tracking-wider">
  {ledger.balanced ? 'Libro Contable Cuadrado' : 'Alerta: Libro Contable Descuadrado'}
@@ -432,70 +424,72 @@ export default function Financials() {
  </p>
  </div>
  </div>
- <Landmark className="w-5 h-5 opacity-60" />
  </div>
  )}
 
- {/* Main KPI Row */}
- <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pb-6 border-b border-[var(--color-border-light)]">
+ {/* Resumen */}
+ <div className="table-container overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr>
+ <th className="text-left">Concepto</th>
+ <th className="text-right">Valor</th>
+ <th className="text-left">Detalle</th>
+ </tr>
+ </thead>
+ <tbody>
  {tarjetas.map((c) => (
- <div key={c.label} className="flex items-start gap-3">
- <c.icon className={`w-5 h-5 shrink-0 mt-0.5 ${c.color}`} />
- <div>
- <p className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">{c.label}</p>
- <p className={`kpi-value text-2xl mt-1 ${c.color}`}>{c.value}</p>
- <p className="text-xs text-[var(--color-text-main)] mt-1">{c.sub}</p>
- </div>
- </div>
+ <tr key={c.label}>
+ <td>{c.label}</td>
+ <td className="text-right">{c.value}</td>
+ <td className="wrap">{c.sub}</td>
+ </tr>
  ))}
+ </tbody>
+ </table>
  </div>
 
- <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
- {/* Pasivos */}
- <div className="space-y-3">
- <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
- <h3 className="text-sm font-bold text-[var(--color-text-main)] flex items-center gap-2">
- <CreditCard className="w-4 h-4 text-[var(--color-warning)]" />
- Pasivos y Obligaciones
- </h3>
- <span className="text-[10px] font-mono text-[var(--color-text-main)]">COP</span>
- </div>
- <div className="divide-y divide-[var(--color-border-light)]">
+ <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+ <div className="table-container overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr>
+ <th className="text-left">Pasivos y obligaciones</th>
+ <th className="text-right">COP</th>
+ <th className="text-left">Detalle</th>
+ </tr>
+ </thead>
+ <tbody>
  {pasivos.map((row) => (
- <div key={row.label} className="flex items-center justify-between py-2.5">
- <div>
- <p className="text-xs font-bold text-[var(--color-text-main)]">{row.label}</p>
- <p className="text-[10px] text-[var(--color-text-main)]">{row.detalle}</p>
- </div>
- <span className="text-sm font-bold text-[var(--color-warning)]">{money(row.value)}</span>
- </div>
+ <tr key={row.label}>
+ <td>{row.label}</td>
+ <td className="text-right">{money(row.value)}</td>
+ <td>{row.detalle}</td>
+ </tr>
  ))}
- </div>
+ </tbody>
+ </table>
  </div>
 
- {/* Balance por Cuenta */}
- <div className="space-y-3">
- <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
- <h3 className="text-sm font-bold text-[var(--color-text-main)] flex items-center gap-2">
- <Landmark className="w-4 h-4 text-[var(--color-primary)]" />
- Cuentas del Libro Mayor
- </h3>
- <span className="text-[10px] font-mono text-[var(--color-text-main)]">Ledger</span>
- </div>
- <div className="divide-y divide-[var(--color-border-light)] max-h-[240px] overflow-y-auto pr-1">
+ <div className="table-container overflow-x-auto max-h-[280px] overflow-y-auto">
+ <table className="data-grid">
+ <thead>
+ <tr>
+ <th className="text-left">Cuentas del libro mayor</th>
+ <th className="text-right">Saldo</th>
+ </tr>
+ </thead>
+ <tbody>
  {ledger?.balances
  .filter((b) => b.debit !== 0 || b.credit !== 0)
  .map((b) => (
- <div key={b.account} className="flex items-center justify-between py-2 text-xs">
- <span className="text-[var(--color-text-main)] font-medium">
- {CUENTA_LABEL[b.account] ?? b.account}
- </span>
- <span className="font-bold text-[var(--color-primary)]">
- {money(Math.abs(b.balance))}
- </span>
- </div>
+ <tr key={b.account}>
+ <td>{CUENTA_LABEL[b.account] ?? b.account}</td>
+ <td className="text-right">{money(Math.abs(b.balance))}</td>
+ </tr>
  ))}
- </div>
+ </tbody>
+ </table>
  </div>
  </div>
 
@@ -510,23 +504,22 @@ export default function Financials() {
  <div className="table-container">
  <div className="px-5 py-4 border-b border-[var(--color-border-light)] bg-[#FEF2F2] flex items-center justify-between">
  <div>
- <h3 className="text-sm font-bold text-[#B91C1C] flex items-center gap-2">
- <ShieldAlert className="w-4 h-4" />
+ <h3 className="text-sm font-bold text-[var(--color-text-main)] flex items-center gap-2">
  Efectivo no recibido
  </h3>
- <p className="text-xs text-[#7F1D1D]">
+ <p className="text-xs text-[var(--color-text-main)]">
  {incidenciasAbiertas.length > 0
  ? `${incidenciasAbiertas.length} caso(s) esperando decisión · el saldo sigue pendiente hasta que se resuelva`
  : 'Todos los casos están cerrados'}
  </p>
  </div>
- <span className="text-sm font-bold text-[#B91C1C]">
+ <span className="text-sm font-bold text-[var(--color-text-main)]">
  {money(incidenciasAbiertas.reduce((s, i) => s + i.amount, 0))}
  </span>
  </div>
 
  {errorIncidencia && (
- <div className="px-5 py-2.5 bg-[#FEF2F2] border-b border-[#FECACA] text-xs font-semibold text-[#B91C1C]">
+ <div className="px-5 py-2.5 bg-[#FEF2F2] border-b border-[#FECACA] text-xs font-semibold text-[var(--color-text-main)]">
  {errorIncidencia}
  </div>
  )}
@@ -575,7 +568,7 @@ export default function Financials() {
  </p>
  )}
  {inc.adminNote && (
- <p className="text-[11px] text-[#047857] mt-1.5 pl-2">
+ <p className="text-[11px] text-[var(--color-text-main)] mt-1.5 pl-2">
  Resolución: {inc.adminNote}
  {inc.resolvedBy?.name ? ` — ${inc.resolvedBy.name}` : ''}
  </p>
@@ -583,7 +576,7 @@ export default function Financials() {
  </div>
 
  <div className="flex items-center gap-3 shrink-0">
- <span className="text-xs font-bold text-[#B91C1C]">{money(inc.amount)}</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">{money(inc.amount)}</span>
  {canManage && decidible && !abierto && (
  <button
  onClick={() => { setNotaAdmin(''); revisarIncidencia(inc._id); }}
@@ -674,10 +667,10 @@ export default function Financials() {
  <p className="font-bold text-[var(--color-text-main)]">
  {a.businessName}
  {a.holderMatchesLegal === false && (
- <span className="ml-2 font-bold text-[var(--color-warning)]">titular no coincide</span>
+ <span className="ml-2 font-bold text-[var(--color-text-main)]">titular no coincide</span>
  )}
  {!!a.sharedWithBusinesses && a.sharedWithBusinesses > 1 && (
- <span className="ml-2 font-bold text-[var(--color-danger)]">cuenta usada en {a.sharedWithBusinesses} comercios</span>
+ <span className="ml-2 font-bold text-[var(--color-text-main)]">cuenta usada en {a.sharedWithBusinesses} comercios</span>
  )}
  </p>
  <p className="text-[var(--color-text-main)]">
@@ -713,13 +706,13 @@ export default function Financials() {
  <p className="text-xs font-bold text-[var(--color-text-main)]">{c.businessName ?? 'Comercio'}</p>
  <p className="font-mono text-[10px] text-[var(--color-text-main)]">
  Pedido #{c.orderNumber ?? 'N/A'} ·{' '}
- <span className={c.daysOpen > 14 ? 'font-bold text-[var(--color-danger)]' : ''}>
+ <span className={c.daysOpen > 14 ? 'font-bold text-[var(--color-text-main)]' : ''}>
  {c.daysOpen} días abierto
  </span>
  </p>
  </div>
  <div className="flex items-center gap-3">
- <span className="text-xs font-bold text-[var(--color-warning)]">{money(Math.abs(c.netAmount || c.amount))}</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">{money(Math.abs(c.netAmount || c.amount))}</span>
  {canManage && (<>
  <button
  onClick={() => openClawback(c, 'collect')}
@@ -757,7 +750,7 @@ export default function Financials() {
  onClick={() => { setCashStatus(status); setCashPage(1); }}
  className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap cursor-pointer border-b-2 ${
  cashStatus === status
- ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-bold'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -780,7 +773,7 @@ export default function Financials() {
  </div>
 
  <div className="flex items-center gap-3">
- <span className="text-xs font-bold text-[var(--color-warning)]">{money(row.amount)}</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">{money(row.amount)}</span>
  {canManage && (row.status === 'verified' ? (
  <button
  onClick={() => liquidar([row._id])}
@@ -833,7 +826,7 @@ export default function Financials() {
  </p>
  </div>
  <button onClick={() => setClawbackAction(null)} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-main)]">
- <X className="h-4 w-4" />
+ Cerrar
  </button>
  </div>
  {clawbackAction.kind === 'collect' ? (
@@ -870,7 +863,7 @@ export default function Financials() {
  />
  </label>
  )}
- {clawbackError && <p className="text-xs font-semibold text-[var(--color-danger)]">{clawbackError}</p>}
+ {clawbackError && <p className="text-xs font-semibold text-[var(--color-text-main)]">{clawbackError}</p>}
  <button
  onClick={runClawback}
  className={`h-10 w-full cursor-pointer rounded-lg text-xs font-bold uppercase tracking-wider text-white ${
@@ -894,7 +887,7 @@ export default function Financials() {
  </p>
  </div>
  <button onClick={() => setVerifying(null)} aria-label="Cerrar" className="p-1 text-[var(--color-text-main)] cursor-pointer">
- <X className="w-4 h-4" />
+ Cerrar
  </button>
  </div>
  <label className="block space-y-1">
@@ -919,7 +912,7 @@ export default function Financials() {
  <p className="text-[11px] text-[var(--color-text-main)]">
  Monto que debe coincidir con la consignación: <strong className="text-[var(--color-text-main)]">{money(verifying.amount)}</strong>. Si no coincide, el servidor lo rechaza.
  </p>
- {verifyError && <p className="text-xs font-semibold text-[var(--color-danger)]">{verifyError}</p>}
+ {verifyError && <p className="text-xs font-semibold text-[var(--color-text-main)]">{verifyError}</p>}
  <button
  onClick={verificar}
  className="w-full h-10 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-white font-bold text-xs uppercase tracking-wider rounded-lg cursor-pointer"

@@ -240,25 +240,36 @@ export default function TargetedSends() {
  {history.length === 0 ? (
  <p className="py-8 text-center text-xs font-semibold text-[var(--color-text-main)]">Aún no se ha enviado nada.</p>
  ) : (
- <ul>
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Fecha</th>
+ <th className="table-header-cell">Título</th>
+ <th className="table-header-cell">Mensaje</th>
+ <th className="table-header-cell">Segmento</th>
+ <th className="table-header-cell">Estado</th>
+ <th className="table-header-cell">Entregados</th>
+ <th className="table-header-cell">Enviado por</th>
+ </tr>
+ </thead>
+ <tbody>
  {history.map((h) => (
- <li key={h._id} className="border-b border-[var(--color-border-light)] py-3">
- <div className="flex flex-wrap items-baseline gap-x-4">
- <p className="font-semibold text-[var(--color-text-main)]">{h.title}</p>
- <p className={`text-xs font-bold ${h.status === 'failed' ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
- {STATUS_LABEL[h.status]}
- </p>
- <p className="ml-auto text-xs text-[var(--color-text-main)]">{new Date(h.createdAt).toLocaleString('es-CO')}</p>
- </div>
- <p className="text-xs text-[var(--color-text-main)]">{h.body}</p>
- <p className="text-xs text-[var(--color-text-main)]">
- {describe(h.segment, businesses)}
- {h.status === 'done' && ` · ${h.sent} de ${h.targeted} entregados a Expo`}
- {h.sentBy?.name && ` · ${h.sentBy.name}`}
- </p>
- </li>
+ <tr key={h._id}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{new Date(h.createdAt).toLocaleString('es-CO')}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{h.title}</td>
+ <td className="table-body-cell wrap text-[var(--color-text-main)]">{h.body}</td>
+ <td className="table-body-cell wrap text-[var(--color-text-main)]">{describe(h.segment, businesses)}</td>
+ <td className={`table-body-cell ${h.status === 'failed' ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>{STATUS_LABEL[h.status]}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{h.status === 'done' ? `${h.sent} de ${h.targeted}` : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{h.sentBy?.name ?? '—'}</td>
+ </tr>
  ))}
- </ul>
+ </tbody>
+ </table>
+ </div>
+ </div>
  )}
  </div>
 

@@ -310,9 +310,9 @@ export default function HomeCategories() {
  title={c.status === 'active' ? 'Desactivar categoría' : 'Activar categoría'}
  >
  {c.status === 'active' ? (
- <ToggleRight className="w-8 h-8 text-[var(--color-primary)]" />
+ <ToggleRight className="w-8 h-8" style={{ color: '#000000' }} />
  ) : (
- <ToggleLeft className="w-8 h-8 text-[var(--color-text-main)]" />
+ <ToggleLeft className="w-8 h-8" style={{ color: 'var(--color-danger)' }} />
  )}
  </button>
  </PermissionGate>
@@ -473,7 +473,7 @@ export default function HomeCategories() {
  <label className="flex items-center gap-2.5 cursor-pointer w-fit">
  <input type="checkbox" checked={form.status === 'active'}
  onChange={(e) => setForm({ ...form, status: e.target.checked ? 'active' : 'inactive' })}
- className="w-4 h-4 rounded accent-[var(--color-primary)] cursor-pointer" />
+ className="switch-activo" />
  <span className="text-xs font-semibold text-[var(--color-text-main)]">Categoría activa</span>
  </label>
 

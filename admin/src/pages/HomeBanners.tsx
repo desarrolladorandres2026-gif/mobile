@@ -491,9 +491,9 @@ function PromotionBannersPanel() {
  title={b.isActive ? 'Desactivar banner' : 'Activar banner'}
  >
  {b.isActive ? (
- <ToggleRight className="w-8 h-8 text-[var(--color-primary)]" />
+ <ToggleRight className="w-8 h-8" style={{ color: '#000000' }} />
  ) : (
- <ToggleLeft className="w-8 h-8 text-[var(--color-text-main)]" />
+ <ToggleLeft className="w-8 h-8" style={{ color: 'var(--color-danger)' }} />
  )}
  </button>
  </PermissionGate>
@@ -789,7 +789,7 @@ function PromotionBannersPanel() {
  <label className="flex items-center gap-2.5 cursor-pointer w-fit">
  <input type="checkbox" checked={form.isActive}
  onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
- className="w-4 h-4 rounded accent-[var(--color-primary)] cursor-pointer" />
+ className="switch-activo" />
  <span className="text-xs font-semibold text-[var(--color-text-main)]">Promoción activa</span>
  </label>
 

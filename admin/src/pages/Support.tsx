@@ -3,7 +3,8 @@ import {
  Inbox, RotateCw, UserCheck, Send, CheckCircle2, AlertTriangle, Timer, Scale,
 } from 'lucide-react';
 import api from '../services/api';
-import { Link } from 'react-router-dom';
+import SupportMacros from './SupportMacros';
+import Incidents from './Incidents';
 import { Permission } from '../lib/permissions';
 import { useAuthStore } from '../stores/authStore';
 import { PermissionGate } from '../components/PermissionGate';
@@ -112,6 +113,7 @@ export default function Support() {
  const [search, setSearch] = useState('');
  const [term, setTerm] = useState('');
  const [macros, setMacros] = useState<Macro[]>([]);
+ const [panel, setPanel] = useState<'macros' | 'incidents' | null>(null);
  const agentName = useAuthStore((state) => state.user?.name);
  const [reply, setReply] = useState('');
  const [error, setError] = useState('');
@@ -196,6 +198,20 @@ export default function Support() {
  setReply('');
  setSelectedId(null);
  });
+
+ if (panel) {
+ return (
+ <div className="animate-fade-in space-y-3">
+ <button
+ onClick={() => setPanel(null)}
+ className="cursor-pointer text-xs font-semibold text-[var(--color-primary)] underline"
+ >
+ ← Volver a la bandeja
+ </button>
+ {panel === 'macros' ? <SupportMacros /> : <Incidents />}
+ </div>
+ );
+ }
 
  if (selected) {
  return (
@@ -436,9 +452,20 @@ export default function Support() {
  placeholder="Buscar en asunto o detalle"
  className="w-56 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
  />
- <Link to="/support-macros" className="text-xs font-semibold text-[var(--color-primary)] underline">
+ <button
+ onClick={() => setPanel('macros')}
+ className="cursor-pointer text-xs font-semibold text-[var(--color-primary)] underline"
+ >
  Respuestas predefinidas
- </Link>
+ </button>
+ <PermissionGate permission={Permission.ADMIN_PANEL}>
+ <button
+ onClick={() => setPanel('incidents')}
+ className="cursor-pointer text-xs font-semibold text-[var(--color-primary)] underline"
+ >
+ Incidentes
+ </button>
+ </PermissionGate>
  <label className="flex w-fit cursor-pointer items-center gap-2 text-xs font-semibold text-[var(--color-text-main)]">
  <input
  type="checkbox"
@@ -473,7 +500,21 @@ export default function Support() {
  <p className="font-semibold text-[var(--color-text-main)]">La bandeja está vacía</p>
  </div>
  ) : (
- <ul>
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">De</th>
+ <th className="table-header-cell">Asunto</th>
+ <th className="table-header-cell">Tipo</th>
+ <th className="table-header-cell">Prioridad</th>
+ <th className="table-header-cell">Plazo</th>
+ <th className="table-header-cell">Asignado</th>
+ <th className="table-header-cell">Fecha</th>
+ </tr>
+ </thead>
+ <tbody>
  {tickets.map((ticket) => {
  const due = dueLabel(ticket.dueAt);
  const agent = nameOf(ticket.assignedTo);
@@ -481,41 +522,27 @@ export default function Support() {
  const from = nameOf(ticket.userId) ?? REQUESTER_LABEL[ticket.requesterRole ?? 'customer'];
 
  return (
- <li key={ticket._id} className="border-b border-[var(--color-border-light)]">
- <button
+ <tr
+ key={ticket._id}
  onClick={() => openTicket(ticket._id)}
- className="flex w-full cursor-pointer items-center gap-4 px-2 py-2.5 text-left hover:bg-[var(--color-border-light)]/40"
+ className="cursor-pointer hover:!bg-[var(--color-bg-alt)] transition-colors"
  >
- <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${unanswered ? 'bg-[var(--color-primary)]' : 'bg-transparent'}`} />
- <span className={`w-40 shrink-0 truncate text-sm ${unanswered ? 'font-bold' : 'font-medium'} text-[var(--color-text-main)]`}>
- {from}
- </span>
- <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-text-main)]">
- <span className={unanswered ? 'font-semibold' : ''}>{ticket.subject}</span>
- <span className="opacity-60"> — {ticket.detail}</span>
- </span>
- <span className={`shrink-0 text-[11px] font-bold uppercase tracking-wider ${PRIORITY[ticket.priority].tone}`}>
- {PRIORITY[ticket.priority].label}
- </span>
- {ticket.legalOverdue ? (
- <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-[var(--color-danger)]">
- <Scale className="h-3 w-3" /> plazo legal
- </span>
- ) : due?.overdue ? (
- <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-[var(--color-danger)]">
- <Timer className="h-3 w-3" /> SLA vencido
- </span>
- ) : agent ? (
- <span className="shrink-0 text-[11px] text-[var(--color-text-main)] opacity-60">{agent}</span>
- ) : null}
- <span className="w-14 shrink-0 text-right text-[11px] text-[var(--color-text-main)] opacity-70">
- {shortDate(ticket.createdAt)}
- </span>
- </button>
- </li>
+ <td className={`table-body-cell ${unanswered ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-main)]'}`}>{from}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{ticket.subject}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{TYPE_LABEL[ticket.type]}</td>
+ <td className={`table-body-cell ${PRIORITY[ticket.priority].tone}`}>{PRIORITY[ticket.priority].label}</td>
+ <td className={`table-body-cell ${ticket.legalOverdue || due?.overdue ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
+ {ticket.legalOverdue ? 'Plazo legal vencido' : due?.overdue ? 'SLA vencido' : due?.text ?? '—'}
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{agent ?? '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{shortDate(ticket.createdAt)}</td>
+ </tr>
  );
  })}
- </ul>
+ </tbody>
+ </table>
+ </div>
+ </div>
  )}
  </div>
  );

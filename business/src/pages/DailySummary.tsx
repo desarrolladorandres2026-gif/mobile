@@ -6,6 +6,7 @@ import { qk } from '../lib/queryKeys';
 import { money } from '../lib/orderFlow';
 import { apiMessage } from '../lib/apiError';
 import { useAuthStore } from '../stores/authStore';
+import SummaryGrid from '../components/SummaryGrid';
 
 /**
  * Cierre del día del comercio. Espejo de "Resumen diario" del admin, pero
@@ -146,14 +147,16 @@ export default function DailySummary() {
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-y-4 pb-5 border-b border-[var(--color-border)] lg:divide-x divide-[var(--color-border)] lg:[&>*]:px-6 lg:[&>*:first-child]:pl-0">
-            <Kpi label="Pedidos recibidos" value={num(t.ordersCreated)}
-              hint={isToday && data!.ordersInProgressNow != null ? `${num(data!.ordersInProgressNow)} abiertos ahora` : ''} />
-            <Kpi label="Entregados" value={num(t.ordersDelivered)} hint={`Ticket prom. ${money(t.avgTicket)}`} />
-            <Kpi label="Cancelados" value={num(t.ordersCancelled)}
-              hint={`${t.ordersCreated > 0 ? Math.round((t.ordersCancelled / t.ordersCreated) * 100) : 0}% de los recibidos`} />
-            <Kpi label="Neto para tu negocio" value={money(t.businessPayout)} hint={`Ventas ${money(t.sales)}`} />
-          </div>
+          <SummaryGrid
+            items={[
+              { label: 'Pedidos recibidos', value: num(t.ordersCreated),
+                hint: isToday && data!.ordersInProgressNow != null ? `${num(data!.ordersInProgressNow)} abiertos ahora` : '' },
+              { label: 'Entregados', value: num(t.ordersDelivered), hint: `Ticket prom. ${money(t.avgTicket)}` },
+              { label: 'Cancelados', value: num(t.ordersCancelled),
+                hint: `${t.ordersCreated > 0 ? Math.round((t.ordersCancelled / t.ordersCreated) * 100) : 0}% de los recibidos` },
+              { label: 'Neto para tu negocio', value: money(t.businessPayout), hint: `Ventas ${money(t.sales)}` },
+            ]}
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-0 lg:divide-x divide-[var(--color-border)] lg:[&>*]:px-6 lg:[&>*:first-child]:pl-0 lg:[&>*:last-child]:pr-0">
             <div className="space-y-6 min-w-0">
@@ -269,16 +272,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="mb-2 pb-1.5 text-sm font-bold text-[var(--color-text-main)] border-b border-[var(--color-border)]">{title}</h2>
       {children}
     </section>
-  );
-}
-
-function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div>
-      <p className="text-[11px] font-semibold text-[var(--color-text-secondary)]">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tracking-[-0.03em] tabular text-[var(--color-text-main)]">{value}</p>
-      {hint ? <p className="mt-0.5 text-[10px] text-[var(--color-text-secondary)] truncate">{hint}</p> : null}
-    </div>
   );
 }
 

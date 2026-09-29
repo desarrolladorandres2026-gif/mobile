@@ -172,11 +172,13 @@ const label = (v: string | null) => (v ? STATUS_LABEL[v] ?? v : '—');
 
 // ── Bloques de presentación ────────────────────────────────────────
 
+const COLUMN = 'flex flex-col gap-4 min-h-0 lg:overflow-y-auto print:overflow-visible';
+
 function Section({ title, hint, children, className = '' }: {
  title: string; hint?: string; children: React.ReactNode; className?: string;
 }) {
  return (
- <section className={`min-h-0 lg:overflow-y-auto print:overflow-visible ${className}`}>
+ <section className={className}>
  <div className="mb-2 pb-1.5 border-b border-[var(--color-border)]">
  <h2 className="text-sm font-bold text-[var(--color-text-main)]">{title}</h2>
  {hint ? <p className="text-[10px] text-[var(--color-text-secondary)]">{hint}</p> : null}
@@ -483,8 +485,10 @@ export default function DailySummary() {
  </div>
 
  {/* 2 · Dinero: movido / de ZIPP / de terceros */}
+ {/* Cada columna apila su bloque de dinero y su bloque secundario: sin hueco por la altura de la vecina */}
+ <div className="grid grid-cols-1 lg:grid-cols-3 gap-y-4 flex-1 min-h-0 lg:divide-x divide-[var(--color-border)] lg:[&>*]:px-5 lg:[&>*:first-child]:pl-0 lg:[&>*:last-child]:pr-0">
+ <div className={COLUMN}>
  {pending && pr ? (
- <div className="grid grid-cols-1 lg:grid-cols-3 gap-y-4 shrink-0 lg:divide-x divide-[var(--color-border)] lg:[&>*]:px-5 lg:[&>*:first-child]:pl-0 lg:[&>*:last-child]:pr-0">
  <Section title="Dinero movido" hint="Pasa por ZIPP, no es ingreso de ZIPP">
  <Line label="GMV" value={money(t.gmv)} strong />
  <Line label="Domicilios cobrados" value={money(t.deliveryFees)} />
@@ -492,39 +496,8 @@ export default function DailySummary() {
  <Line label="Pago digital" value={num(t.payDigitalCount)} muted />
  <Line label="Efectivo contra entrega" value={num(t.payCashCount)} muted />
  </Section>
-
- <Section title="Dinero de ZIPP" hint="Del libro mayor; los reembolsos ya restan del ingreso">
- <Line label="Ingresos (comisión, servicio, margen de domicilio)" value={money(t.platformGrossRevenue)} strong />
- <Line label="Descuentos asumidos por ZIPP" value={`−${money(t.promotionExpense)}`} />
- <Line label="Tarifas de domiciliario asumidas" value={`−${money(pr.driverFeeAbsorbed)}`} />
- <Line label="Faltantes de efectivo y deuda incobrable" value={`−${money(pr.cashShortageExpense + pr.badDebt)}`} />
- <Line label="Comisión de pago (Wompi)" value={`−${money(pr.processingExpense)}`} note={gatewayNote(data.gateway)} />
- <div className="my-1.5 border-t border-[var(--color-border)]" />
- <Line label="Margen operativo" value={money(t.netRevenue)} strong
- note={pr.incomplete ? 'Aún no incluye el costo de transferencia a comercios y domiciliarios.' : undefined} />
- <Line label="Reembolsos del día" value={money(t.refundsAmount)} muted note={`${num(t.refundsCount)} reembolsos completados`} />
- </Section>
-
- <Section title="Dinero de terceros" hint={pending.asOf === 'now' ? 'Saldos a este momento' : 'Saldos al cierre de ese día'}>
- <Line label="Por pagar a comercios" value={money(pending.merchants.ledgerBalance)} strong
- note={pending.merchants.payable != null
- ? `Exigible ${money(pending.merchants.payable)} · lotes sin pagar ${money(pending.merchants.claimedUnpaid)}`
- : undefined} />
- <Line label="Por pagar a domiciliarios" value={money(pending.drivers.ledgerBalance)} strong
- note={pending.drivers.payable != null
- ? `Exigible ${money(pending.drivers.payable)} · lotes sin pagar ${money(pending.drivers.claimedUnpaid)}`
- : undefined} />
- <Line label="Propinas pendientes" value={pending.tipsPending == null ? 'Solo hoy' : money(pending.tipsPending)}
- note="Incluidas en lo que se debe a domiciliarios" />
- <Line label="Reembolsos pendientes" value={`${num(pending.refundsPending.count)} · ${money(pending.refundsPending.amount)}`}
- note="Fallidos o sin resolver hace más de 15 min" />
- <Line label="Efectivo por conciliar" value={`${num(pending.cashToReconcile.count)} · ${money(pending.cashToReconcile.amount)}`} />
- </Section>
- </div>
  ) : null}
 
- {/* 3 · Operación · Crecimiento · Calidad (secundaria) */}
- <div className="grid grid-cols-1 lg:grid-cols-3 gap-y-4 flex-1 min-h-0 lg:divide-x divide-[var(--color-border)] lg:[&>*]:px-5 lg:[&>*:first-child]:pl-0 lg:[&>*:last-child]:pr-0">
  <Section title="Operación" hint="Estado actual de los pedidos creados ese día">
  <Line label="Creados" value={num(t.ordersCreated)} strong />
  <Line label="Por aceptar" value={num(data.operation.pending)} muted />
@@ -536,6 +509,22 @@ export default function DailySummary() {
  <Line label="Domiciliarios activos" value={num(t.activeDrivers)} />
  <Line label="Tiempo promedio de entrega" value={`${num(t.avgDeliveryMinutes)} min`} />
  </Section>
+ </div>
+
+ <div className={COLUMN}>
+ {pending && pr ? (
+ <Section title="Dinero de ZIPP" hint="Del libro mayor; los reembolsos ya restan del ingreso">
+ <Line label="Ingresos (comisión, servicio, margen de domicilio)" value={money(t.platformGrossRevenue)} strong />
+ <Line label="Descuentos asumidos por ZIPP" value={`−${money(t.promotionExpense)}`} />
+ <Line label="Tarifas de domiciliario asumidas" value={`−${money(pr.driverFeeAbsorbed)}`} />
+ <Line label="Faltantes de efectivo y deuda incobrable" value={`−${money(pr.cashShortageExpense + pr.badDebt)}`} />
+ <Line label="Comisión de pago (Wompi)" value={`−${money(pr.processingExpense)}`} note={gatewayNote(data.gateway)} />
+ <div className="my-1.5 border-t border-[var(--color-border)]" />
+ <Line label="Margen operativo" value={money(t.netRevenue)} strong
+ note={pr.incomplete ? 'Aún no incluye el costo de transferencia a comercios y domiciliarios.' : undefined} />
+ <Line label="Reembolsos del día" value={money(t.refundsAmount)} muted note={`${num(t.refundsCount)} reembolsos completados`} />
+ </Section>
+ ) : null}
 
  <Section title="Crecimiento" hint="Hoy · vs. semana anterior · vs. mes anterior">
  {([
@@ -556,6 +545,26 @@ export default function DailySummary() {
  </div>
  ))}
  </Section>
+ </div>
+
+ <div className={COLUMN}>
+ {pending && pr ? (
+ <Section title="Dinero de terceros" hint={pending.asOf === 'now' ? 'Saldos a este momento' : 'Saldos al cierre de ese día'}>
+ <Line label="Por pagar a comercios" value={money(pending.merchants.ledgerBalance)} strong
+ note={pending.merchants.payable != null
+ ? `Exigible ${money(pending.merchants.payable)} · lotes sin pagar ${money(pending.merchants.claimedUnpaid)}`
+ : undefined} />
+ <Line label="Por pagar a domiciliarios" value={money(pending.drivers.ledgerBalance)} strong
+ note={pending.drivers.payable != null
+ ? `Exigible ${money(pending.drivers.payable)} · lotes sin pagar ${money(pending.drivers.claimedUnpaid)}`
+ : undefined} />
+ <Line label="Propinas pendientes" value={pending.tipsPending == null ? 'Solo hoy' : money(pending.tipsPending)}
+ note="Incluidas en lo que se debe a domiciliarios" />
+ <Line label="Reembolsos pendientes" value={`${num(pending.refundsPending.count)} · ${money(pending.refundsPending.amount)}`}
+ note="Fallidos o sin resolver hace más de 15 min" />
+ <Line label="Efectivo por conciliar" value={`${num(pending.cashToReconcile.count)} · ${money(pending.cashToReconcile.amount)}`} />
+ </Section>
+ ) : null}
 
  <Section title="Calidad y soporte" hint="Secundario">
  <Line label="Calificación del comercio" value={t.avgBusinessRating ? `${t.avgBusinessRating} ★` : '—'} />
@@ -566,6 +575,7 @@ export default function DailySummary() {
  note={data.pqrsByType.map((p) => `${PQRS_LABEL[p.type] ?? p.type}: ${p.count}`).join(' · ') || undefined} />
  <Line label="Reembolsos" value={num(t.refundsCount)} />
  </Section>
+ </div>
  </div>
 
  <p className="text-[10px] text-[var(--color-text-secondary)] text-right shrink-0">

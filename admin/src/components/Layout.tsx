@@ -135,14 +135,13 @@ export default function Layout() {
  </button>
  </div>
  {/* Navigation Categories */}
- <nav aria-label="Navegación principal" className="flex-1 overflow-y-auto admin-sidebar-scroll py-1">
- {NAV_GROUPS.map((group) => {
- const visibleItems = group.items.filter((item) => hasPermission(item.permission));
- if (visibleItems.length === 0) return null;
- return (
- <div key={group.category}>
- <div className="flex flex-col">
- {visibleItems.map((item) => {
+ <nav aria-label="Navegación principal" lang="es" className="flex-1 overflow-y-auto overflow-x-hidden admin-sidebar-scroll py-1">
+ {/* Una sola cuadrícula de dos columnas para todos los grupos: así no
+ quedan huecos cuando un grupo tiene un número impar de ítems. */}
+ <div className="grid grid-cols-2 border-t border-[#d7d7d7]">
+ {NAV_GROUPS.flatMap((group) => group.items)
+ .filter((item) => !item.hidden && hasPermission(item.permission))
+ .map((item) => {
  const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
  return (
  <NavLink
@@ -156,23 +155,22 @@ export default function Layout() {
  {...preloadOn(item.path)}
  title={item.label}
  aria-label={item.label}
- className={`relative flex flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium tracking-wide transition-colors duration-150 ${isActive
+ className={`relative flex min-h-16 min-w-0 flex-col items-center justify-center gap-0.5 border-b border-[#d7d7d7] px-0.5 py-1.5 text-[9.5px] font-medium transition-colors duration-150 odd:border-r ${isActive
  ? 'text-[#161616] font-semibold'
- : 'text-[#555] hover:text-[#161616] hover:bg-black/4'
+ : 'text-black hover:bg-black/4'
  }`}
  >
+ {/* Con dos columnas una barra lateral quedaría en medio de la
+ barra: el activo se marca con un trazo dorado arriba. */}
  {isActive && (
- <span className="absolute left-0 top-1/2 -translate-y-1/2 h-12 w-1 rounded-r-full bg-[#D69E26]" />
+ <span className="absolute left-1/2 top-0 h-[3px] w-7 -translate-x-1/2 rounded-b-full bg-[#D69E26]" />
  )}
- <item.Icon fontSize={24} style={{ color: isActive ? '#292929' : 'currentColor' }} />
- <span className="w-full text-balance break-words text-center leading-tight">{item.label}</span>
+ <item.Icon fontSize={20} style={{ color: isActive ? '#292929' : 'currentColor' }} />
+ <span className="w-full text-balance hyphens-auto break-words text-center leading-[1.15]">{item.label}</span>
  </NavLink>
  );
  })}
  </div>
- </div>
- );
- })}
  </nav>
 
  {/* Sidebar Footer */}
@@ -180,7 +178,7 @@ export default function Layout() {
  <button
  onClick={() => setShowLogoutModal(true)}
  title="Cerrar sesión"
- className="group flex flex-col items-center gap-1 w-full py-1 text-[#555] hover:text-[var(--color-danger)] cursor-pointer"
+ className="group flex flex-col items-center gap-1 w-full py-1 text-black hover:text-[var(--color-danger)] cursor-pointer"
  >
  <LogOut className="w-5 h-5" strokeWidth={1.8} />
  <span className="text-[10px] font-medium">Salir</span>

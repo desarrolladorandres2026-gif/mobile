@@ -5,6 +5,7 @@ import Pagination from '../components/Pagination';
 import EntityLink from '../components/EntityLink';
 import { apiMessage } from '../lib/apiError';
 import { money, day } from '../lib/drivers';
+import SummaryGrid from '../components/SummaryGrid';
 
 /**
  * Comisiones por pedido entregado.
@@ -86,20 +87,14 @@ export default function Commissions() {
  </select>
  </div>
 
- <div className="grid grid-cols-2 gap-4 border-b border-[var(--color-border-light)] pb-4 lg:grid-cols-4">
- {[
+ <SummaryGrid
+ items={[
  { label: 'Comisión por liquidar', value: money(pending.platformAmount), sub: `${pending.count} pedidos` },
  { label: 'Comisión liquidada', value: money(settled.platformAmount), sub: `${settled.count} pedidos` },
  { label: 'Comercios por liquidar', value: money(pending.businessAmount), sub: 'lo que se les debe por estos pedidos' },
  { label: 'Domiciliarios por liquidar', value: money(pending.driverAmount), sub: 'lo que se les debe por estos pedidos' },
- ].map((k) => (
- <div key={k.label}>
- <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{k.label}</p>
- <p className="kpi-value mt-1 text-xl text-[var(--color-text-main)]">{k.value}</p>
- <p className="mt-0.5 text-xs text-[var(--color-text-main)]">{k.sub}</p>
- </div>
- ))}
- </div>
+ ]}
+ />
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
@@ -113,30 +108,43 @@ export default function Commissions() {
  <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay comisiones con este filtro.</p>
  ) : (
  <>
- <div className="divide-y divide-[var(--color-border-light)]">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Pedido</th>
+ <th className="table-header-cell">Negocio</th>
+ <th className="table-header-cell">Fecha</th>
+ <th className="table-header-cell">Total</th>
+ <th className="table-header-cell">Comercio</th>
+ <th className="table-header-cell">Domiciliario</th>
+ <th className="table-header-cell">Comisión ZIPP</th>
+ <th className="table-header-cell">Estado</th>
+ </tr>
+ </thead>
+ <tbody>
  {items.map((c) => (
- <div key={c._id} className="flex flex-wrap items-start justify-between gap-3 py-3">
- <div className="min-w-0">
- <p className="text-sm font-bold text-[var(--color-text-main)]">
- <EntityLink type="order" id={c.orderId?._id}>
- Pedido #{c.orderId?.orderNumber ?? 'N/A'}
- </EntityLink>
- <span className="ml-2 text-xs font-normal text-[var(--color-text-main)]">
+ <tr key={c._id}>
+ <td className="table-body-cell">
+ <EntityLink type="order" id={c.orderId?._id}>#{c.orderId?.orderNumber ?? 'N/A'}</EntityLink>
+ </td>
+ <td className="table-body-cell">
  <EntityLink type="business" id={c.businessId?._id}>{c.businessId?.name ?? ''}</EntityLink>
- </span>
- </p>
- <p className="text-[11px] text-[var(--color-text-main)]">
- {day(c.createdAt)} · total {money(c.orderId?.total)} · comercio {money(c.businessAmount)} · domiciliario {money(c.driverAmount)}
- </p>
- </div>
- <div className="text-right">
- <p className="text-sm font-bold text-[var(--color-text-main)]">{money(c.platformAmount)}</p>
- <p className={`text-[10px] font-bold uppercase tracking-wider ${c.status === 'settled' ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{day(c.createdAt)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(c.orderId?.total)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(c.businessAmount)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(c.driverAmount)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(c.platformAmount)}</td>
+ <td className={`table-body-cell ${c.status === 'settled' ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>
  {c.status === 'settled' ? `Liquidada ${day(c.settledAt ?? undefined)}` : 'Por liquidar'}
- </p>
- </div>
- </div>
+ </td>
+ </tr>
  ))}
+ </tbody>
+ </table>
+ </div>
  </div>
  <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
  </>

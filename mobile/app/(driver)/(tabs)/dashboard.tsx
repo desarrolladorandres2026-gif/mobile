@@ -309,20 +309,20 @@ export default function DriverDashboard() {
           <View style={styles.statsGrid}>
             <Card style={styles.statCard}>
               <View style={styles.statHeader}>
-                <Text v="caption" tone="textMuted">GANANCIAS HOY</Text>
+                <Text v="caption" color="#000000">GANANCIAS HOY</Text>
                 <ContentIcon name="billetera" size={22} />
               </View>
-              <Text v="displayM" tone="limeText">{money(todayEarnings)}</Text>
-              <Text v="caption" tone="textMuted">{todayOrders} entregas completadas</Text>
+              <Text v="displayM" color="#000000">{money(todayEarnings)}</Text>
+              <Text v="caption" color="#000000">{todayOrders} entregas completadas</Text>
             </Card>
 
             <Card style={styles.statCard}>
               <View style={styles.statHeader}>
-                <Text v="caption" tone="textMuted">HISTORIAL TOTAL</Text>
+                <Text v="caption" color="#000000">HISTORIAL TOTAL</Text>
                 <ContentIcon name="trofeo" size={22} />
               </View>
-              <Text v="displayM">{completedOrders}</Text>
-              <Text v="caption" tone="textMuted">Entregas de por vida</Text>
+              <Text v="displayM" color="#000000">{completedOrders}</Text>
+              <Text v="caption" color="#000000">Entregas de por vida</Text>
             </Card>
           </View>
         </View>

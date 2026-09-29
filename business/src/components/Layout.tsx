@@ -248,7 +248,7 @@ export default function Layout() {
                   aria-label={item.label}
                   className={`relative flex flex-col items-center gap-1 py-2.5 px-1 text-[11px] font-medium tracking-wide transition-colors duration-150 ${isActive
                       ? 'text-[#141414] font-semibold'
-                      : 'text-[#555] hover:text-[#161616] hover:bg-black/4'
+                      : 'text-black hover:bg-black/4'
                     }`}
                 >
                   {isActive && (
@@ -267,7 +267,7 @@ export default function Layout() {
           <button
             onClick={() => { setSidebarOpen(false); setShowLogoutModal(true); }}
             title="Cerrar sesión"
-            className="group flex flex-col items-center gap-1 w-full py-1 text-[#555] hover:text-[var(--color-danger)] cursor-pointer"
+            className="group flex flex-col items-center gap-1 w-full py-1 text-black hover:text-[var(--color-danger)] cursor-pointer"
           >
             <LogOut className="w-5 h-5" strokeWidth={1.8} />
             <span className="text-[10px] font-medium">Salir</span>

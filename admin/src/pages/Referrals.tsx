@@ -2,6 +2,7 @@
 import { AlertCircle, RotateCw } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
+import SummaryGrid from '../components/SummaryGrid';
 
 /**
  * Invitaciones: quién trajo a quién y en qué quedó.
@@ -82,32 +83,41 @@ export default function Referrals() {
  </p>
  )}
 
- <div className="flex flex-wrap gap-x-8 gap-y-3 border-b border-[var(--color-border-light)] pb-4">
- {[
- ['Invitados', s?.invited],
- ['Compraron', s ? `${s.converted} (${rate}%)` : undefined],
- ['Pendientes', s?.pending],
- ['Bloqueadas', s?.blocked],
- ].map(([label, value]) => (
- <div key={label as string}>
- <p className="text-2xl font-bold text-[var(--color-text-main)]">{value ?? '–'}</p>
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{label}</p>
- </div>
- ))}
- </div>
+ <SummaryGrid
+ items={[
+ { label: 'Invitados', value: s?.invited ?? '–' },
+ { label: 'Compraron', value: s ? `${s.converted} (${rate}%)` : '–' },
+ { label: 'Pendientes', value: s?.pending ?? '–' },
+ { label: 'Bloqueadas', value: s?.blocked ?? '–' },
+ ]}
+ />
 
  {data && data.topReferrers.length > 0 && (
  <div>
  <h2 className="mb-1 text-sm font-bold text-[var(--color-text-main)]">Quién más invita</h2>
  <p className="mb-2 text-xs text-[var(--color-text-main)]">Mucha invitación con poca compra es la señal de cuentas fabricadas.</p>
- <ul>
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Quién invita</th>
+ <th className="table-header-cell">Invitados</th>
+ <th className="table-header-cell">Compraron</th>
+ </tr>
+ </thead>
+ <tbody>
  {data.topReferrers.map((t) => (
- <li key={t.referrerId} className="flex items-center gap-4 border-b border-[var(--color-border-light)] py-2 text-sm">
- <span className="flex-1 font-semibold text-[var(--color-text-main)]">{t.name}</span>
- <span className="text-xs text-[var(--color-text-main)]">{t.invited} invitados · {t.converted} compraron</span>
- </li>
+ <tr key={t.referrerId}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{t.name}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{t.invited}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{t.converted}</td>
+ </tr>
  ))}
- </ul>
+ </tbody>
+ </table>
+ </div>
+ </div>
  </div>
  )}
 
@@ -128,23 +138,34 @@ export default function Referrals() {
  ) : !data || data.invitations.length === 0 ? (
  <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Sin invitaciones en esta vista.</p>
  ) : (
- <ul>
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Invitado</th>
+ <th className="table-header-cell">Invitado por</th>
+ <th className="table-header-cell">Estado</th>
+ <th className="table-header-cell">Motivo</th>
+ <th className="table-header-cell">Fecha</th>
+ </tr>
+ </thead>
+ <tbody>
  {data.invitations.map((i) => (
- <li key={i.inviteeId} className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-[var(--color-border-light)] py-3">
- <div className="min-w-0 flex-1">
- <p className="font-semibold text-[var(--color-text-main)]">{i.invitee}</p>
- <p className="text-xs text-[var(--color-text-main)]">invitado por {i.referrer}</p>
- </div>
- <div className="text-right">
- <p className={`text-xs font-bold ${i.status === 'blocked' ? 'text-[var(--color-danger)]' : i.status === 'converted' ? 'text-[var(--color-success)]' : 'text-[var(--color-text-main)]'}`}>
+ <tr key={i.inviteeId}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{i.invitee}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{i.referrer}</td>
+ <td className={`table-body-cell ${i.status === 'blocked' ? 'text-[var(--color-danger)]' : i.status === 'converted' ? 'text-[var(--color-success)]' : 'text-[var(--color-text-main)]'}`}>
  {STATUS_LABEL[i.status]}
- </p>
- {i.reason && <p className="text-xs text-[var(--color-text-main)]">{i.reason}</p>}
- </div>
- <p className="w-24 text-right text-xs text-[var(--color-text-main)]">{new Date(i.joinedAt).toLocaleDateString('es-CO')}</p>
- </li>
+ </td>
+ <td className="table-body-cell wrap text-[var(--color-text-main)]">{i.reason ?? '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{new Date(i.joinedAt).toLocaleDateString('es-CO')}</td>
+ </tr>
  ))}
- </ul>
+ </tbody>
+ </table>
+ </div>
+ </div>
  )}
  <p className="text-xs text-[var(--color-text-main)]">Se muestran las 50 más recientes; los totales son de todo el programa.</p>
  </div>

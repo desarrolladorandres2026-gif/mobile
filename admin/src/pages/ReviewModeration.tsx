@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { Star, AlertCircle, EyeOff, Eye, MessageSquare, RefreshCw } from 'lucide-react';
+import { Star, AlertCircle, EyeOff, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
@@ -149,102 +149,66 @@ export default function ReviewModeration() {
  </p>
  </div>
  ) : (
- <div className="grid gap-2.5">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Negocio</th>
+ <th className="table-header-cell">Cliente</th>
+ <th className="table-header-cell">Fecha</th>
+ <th className="table-header-cell">Calificación</th>
+ <th className="table-header-cell">Comentario</th>
+ <th className="table-header-cell">Respuesta del negocio</th>
+ <th className="table-header-cell">Sobre el cliente (privado)</th>
+ <th className="table-header-cell">Estado</th>
+ <th className="table-header-cell">Acción</th>
+ </tr>
+ </thead>
+ <tbody>
  {visible.map((review) => (
- <div
- key={review._id}
- className={`zipp-card p-5 space-y-3 ${review.isHidden ? 'opacity-60' : ''}`}
- >
- <div className="flex flex-wrap items-start justify-between gap-3">
- <div className="space-y-1.5 min-w-0">
- <div className="flex flex-wrap items-center gap-2.5">
- <h3 className="text-sm font-bold text-[var(--color-text-main)]">
- {review.businessId?.name ?? 'Negocio'}
- </h3>
- {review.isHidden && (
- <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-danger)]">
- Oculta
- </span>
- )}
+ <tr key={review._id} className={review.isHidden ? 'opacity-60' : ''}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{review.businessId?.name ?? 'Negocio'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{review.userId?.name ?? 'cliente'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{new Date(review.createdAt).toLocaleDateString('es-CO')}</td>
+ <td className="table-body-cell">
+ <div className="flex flex-col gap-1">
+ {typeof review.businessRating === 'number' && <Stars value={review.businessRating} label="Negocio" />}
+ {typeof review.driverRating === 'number' && <Stars value={review.driverRating} label="Domiciliario" />}
  </div>
-
- <div className="flex flex-wrap items-center gap-3">
- {typeof review.businessRating === 'number' && (
- <Stars value={review.businessRating} label="Negocio" />
- )}
- {typeof review.driverRating === 'number' && (
- <Stars value={review.driverRating} label="Domiciliario" />
- )}
+ </td>
+ <td className="table-body-cell wrap text-[var(--color-text-main)]">{review.comment ?? '—'}</td>
+ <td className="table-body-cell wrap text-[var(--color-text-main)]">{review.businessReply ?? '—'}</td>
+ <td className="table-body-cell wrap">
+ {/* Lo que el negocio o el domiciliario opinaron del cliente. No es público en ninguna parte: solo se ve aquí, para soporte. */}
+ {review.clientRatingByBusiness || review.clientRatingByDriver || review.clientNotes ? (
+ <div className="flex flex-col gap-1">
+ {review.clientRatingByBusiness && <Stars value={review.clientRatingByBusiness} label="Negocio dice" />}
+ {review.clientRatingByDriver && <Stars value={review.clientRatingByDriver} label="Domiciliario dice" />}
+ {review.clientNotes && <span className="text-[var(--color-text-main)]">{review.clientNotes}</span>}
  </div>
-
- <p className="text-xs text-[var(--color-text-main)] font-medium">
- Por {review.userId?.name ?? 'cliente'} · {new Date(review.createdAt).toLocaleDateString('es-CO')}
- </p>
- </div>
-
+ ) : (
+ <span className="text-[var(--color-text-main)]">—</span>
+ )}
+ </td>
+ <td className={`table-body-cell wrap ${review.isHidden ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
+ {review.isHidden ? `Oculta${review.hiddenReason ? ` · ${review.hiddenReason}` : ''}` : 'Visible'}
+ </td>
+ <td className="table-body-cell">
  <PermissionGate permission={Permission.REVIEWS_MODERATE}>
  <button
  onClick={() => moderate(review._id, !review.isHidden)}
- className={`px-3.5 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
- review.isHidden
- ? 'bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-main)]'
- : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]'
- }`}
+ className={review.isHidden ? 'cursor-pointer text-[var(--color-text-main)]' : 'cursor-pointer text-[var(--color-danger)]'}
  >
- {review.isHidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
- {working === review._id
- ? 'Guardando…'
- : review.isHidden
- ? 'Restaurar'
- : 'Ocultar'}
+ {working === review._id ? 'Guardando…' : review.isHidden ? 'Restaurar' : 'Ocultar'}
  </button>
  </PermissionGate>
- </div>
-
- {review.comment && (
- <p className="text-sm text-[var(--color-text-main)] leading-relaxed">
- {review.comment}
- </p>
- )}
-
- {review.businessReply && (
- <div className="pl-3 border-l-2 border-[var(--color-primary)]">
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)] mb-1">
- Respuesta del negocio
- </p>
- <p className="text-sm text-[var(--color-text-main)]">{review.businessReply}</p>
- </div>
- )}
-
- {/* Lo que el negocio o el domiciliario opinaron del cliente. No
- es público en ninguna parte: solo se ve aquí, para soporte. */}
- {(review.clientRatingByBusiness || review.clientRatingByDriver || review.clientNotes) && (
- <div className="pl-3 border-l-2 border-[var(--color-border)] space-y-1.5">
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)] flex items-center gap-1.5">
- <MessageSquare className="w-3 h-3" />
- Sobre el cliente (privado)
- </p>
- <div className="flex flex-wrap items-center gap-3">
- {review.clientRatingByBusiness && (
- <Stars value={review.clientRatingByBusiness} label="Negocio dice" />
- )}
- {review.clientRatingByDriver && (
- <Stars value={review.clientRatingByDriver} label="Domiciliario dice" />
- )}
- </div>
- {review.clientNotes && (
- <p className="text-xs text-[var(--color-text-main)]">{review.clientNotes}</p>
- )}
- </div>
- )}
-
- {review.isHidden && review.hiddenReason && (
- <p className="text-xs text-[var(--color-danger)] font-semibold">
- Motivo: {review.hiddenReason}
- </p>
- )}
- </div>
+ </td>
+ </tr>
  ))}
+ </tbody>
+ </table>
+ </div>
  </div>
  )}
  </div>

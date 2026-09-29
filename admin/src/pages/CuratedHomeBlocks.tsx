@@ -406,7 +406,7 @@ export default function CuratedHomeBlocks() {
  </div>
  ) : (
  <div className="table-container overflow-x-auto">
- <table className="data-grid min-w-[820px]">
+ <table className="data-grid data-grid-black min-w-[820px]">
  <thead>
  <tr className="border-b border-[var(--color-border-light)]">
  <th className="table-header-cell">Estado</th>
@@ -456,9 +456,9 @@ export default function CuratedHomeBlocks() {
  title={b.isActive ? 'Desactivar bloque' : 'Activar bloque'}
  >
  {b.isActive ? (
- <ToggleRight className="w-8 h-8 text-[var(--color-primary)]" />
+ <ToggleRight className="w-8 h-8" style={{ color: '#000000' }} />
  ) : (
- <ToggleLeft className="w-8 h-8 text-[var(--color-text-main)]" />
+ <ToggleLeft className="w-8 h-8" style={{ color: 'var(--color-danger)' }} />
  )}
  </button>
  </PermissionGate>
@@ -644,7 +644,7 @@ export default function CuratedHomeBlocks() {
  <label className="flex items-center gap-2.5 cursor-pointer w-fit">
  <input type="checkbox" checked={form.isActive}
  onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
- className="w-4 h-4 rounded accent-[var(--color-primary)] cursor-pointer" />
+ className="switch-activo" />
  <span className="text-xs font-semibold text-[var(--color-text-main)]">Bloque activo</span>
  </label>
  </div>

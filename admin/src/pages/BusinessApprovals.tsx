@@ -1,5 +1,5 @@
-﻿import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle, FileText, ExternalLink, ShieldCheck, RotateCw, ChevronDown, ChevronRight } from 'lucide-react';
+﻿import { Fragment, useCallback, useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle, RotateCw, ChevronDown, ChevronRight } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
@@ -265,7 +265,21 @@ export default function BusinessApprovals() {
  <p className="text-xs text-[var(--color-text-main)] font-medium">Todos los negocios registrados están aprobados.</p>
  </div>
  ) : (
- <ul>
+<div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Comercio</th>
+ <th className="table-header-cell">Categoría</th>
+ <th className="table-header-cell">Dirección</th>
+ <th className="table-header-cell">Ciudad</th>
+ <th className="table-header-cell">Propietario</th>
+ <th className="table-header-cell">Pendiente</th>
+ <th className="table-header-cell">Acción</th>
+ </tr>
+ </thead>
+ <tbody>
  {visible.map((business) => {
  const open = openId === business._id;
  const fiscal = business.fiscal;
@@ -282,42 +296,36 @@ export default function BusinessApprovals() {
  ];
 
  return (
- <li key={business._id} className="border-t border-[var(--color-border-light)] py-5">
- <div className="flex flex-wrap items-start justify-between gap-3">
- <button onClick={() => openBusiness(business._id)} className="flex min-w-0 cursor-pointer items-start gap-2 text-left">
- {open ? <ChevronDown className="mt-1 h-4 w-4 shrink-0" /> : <ChevronRight className="mt-1 h-4 w-4 shrink-0" />}
- <div className="min-w-0">
- <h3 className="text-base font-bold text-[var(--color-text-main)]">{business.name}</h3>
- <p className="text-xs font-medium text-[var(--color-text-main)]">
- {business.category} · {business.address} · {business.city}
- </p>
- <p className="text-xs font-medium text-[var(--color-text-main)]">
- Propietario: <strong className="text-[var(--color-text-main)]">{business.ownerId?.name ?? 'Sin asignar'}</strong>
- {business.ownerId?.phone ? ` · ${business.ownerId.phone}` : ''}
- </p>
- </div>
+ <Fragment key={business._id}>
+ <tr>
+ <td className="table-body-cell">
+ <button onClick={() => openBusiness(business._id)} className="flex cursor-pointer items-center gap-1 text-left text-[var(--color-primary)]">
+ {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+ {business.name}
  </button>
-
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{business.category}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{business.address}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{business.city}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">
+ {business.ownerId?.name ?? 'Sin asignar'}
+ {business.ownerId?.phone ? ` · ${business.ownerId.phone}` : ''}
+ </td>
+ <td className="table-body-cell wrap text-[var(--color-warning)]">{blockers.length ? blockers.join(' · ') : '—'}</td>
+ <td className="table-body-cell">
  {/* Nunca deshabilitado: si algo falta, el servidor lo dice y enseña qué. */}
  <button
  onClick={() => approveBusiness(business._id)}
- className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-bold uppercase tracking-wider ${
- blockers.length === 0
- ? 'bg-[var(--color-primary)] text-white'
- : 'border border-[var(--color-border)] text-[var(--color-text-main)]'
- }`}
+ className={blockers.length === 0 ? 'cursor-pointer text-[var(--color-primary)]' : 'cursor-pointer text-[var(--color-text-main)]'}
  >
- <ShieldCheck className="w-4 h-4" />
  {working === business._id ? 'Aprobando…' : 'Aprobar comercio'}
  </button>
- </div>
-
- {blockers.length > 0 && (
- <p className="pl-6 pt-1.5 text-xs font-semibold text-[var(--color-warning)]">{blockers.join(' · ')}</p>
- )}
-
+ </td>
+ </tr>
  {open && (
- <div className="space-y-6 pl-6 pt-5">
+ <tr>
+ <td colSpan={7} className="table-body-cell wrap">
+ <div className="space-y-6 py-2">
  <section className="space-y-2">
  <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Datos fiscales</h4>
  {l ? (
@@ -378,76 +386,84 @@ export default function BusinessApprovals() {
 
  <section className="space-y-1">
  <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Documentos</h4>
- {business.documents.length === 0 && (
+ {business.documents.length === 0 ? (
  <p className="py-2 text-xs font-medium text-[var(--color-text-main)]">El comercio todavía no ha enviado ningún documento.</p>
- )}
+ ) : (
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Archivo</th>
+ <th className="table-header-cell">Documento</th>
+ <th className="table-header-cell">Referencia</th>
+ <th className="table-header-cell">Enviado</th>
+ <th className="table-header-cell">Vence</th>
+ <th className="table-header-cell">Versiones</th>
+ <th className="table-header-cell">Estado</th>
+ <th className="table-header-cell">Acción</th>
+ </tr>
+ </thead>
+ <tbody>
  {business.documents.map((doc) => {
  const style = STATUS_STYLES[doc.status];
  return (
- <div key={doc._id} className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border-light)] py-3">
- <div className="flex min-w-0 items-center gap-3">
+ <tr key={doc._id}>
+ <td className="table-body-cell">
  {isImage(doc) ? (
- <a href={doc.fileUrl} target="_blank" rel="noreferrer" title="Abrir en tamaño completo" className="shrink-0">
- <img src={doc.fileUrl} alt={DOCUMENT_LABELS[doc.type]} loading="lazy" className="h-16 w-16 object-cover" />
+ <a href={doc.fileUrl} target="_blank" rel="noreferrer" title="Abrir en tamaño completo">
+ <img src={doc.fileUrl} alt={DOCUMENT_LABELS[doc.type]} loading="lazy" className="h-12 w-12 object-cover" />
  </a>
  ) : doc.hasFile && doc.fileUrl ? (
- <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 border border-[var(--color-border)] text-[var(--color-primary)]">
- <FileText className="h-5 w-5" />
- <span className="text-[9px] font-bold uppercase">PDF</span>
- </a>
+ <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-[var(--color-primary)]">PDF</a>
  ) : (
- <div className="flex h-16 w-16 shrink-0 items-center justify-center border border-dashed border-[var(--color-border)] text-[9px] font-bold uppercase text-[var(--color-text-main)]">
- Sin archivo
- </div>
+ <span className="text-[var(--color-text-main)]">Sin archivo</span>
  )}
- <div className="min-w-0">
- <p className="text-xs font-bold text-[var(--color-text-main)]">{DOCUMENT_LABELS[doc.type]}</p>
- <p className="font-mono text-xs text-[var(--color-text-main)]">{doc.reference}</p>
- <p className="text-[11px] text-[var(--color-text-main)]">
- {doc.submittedAt ? `Enviado ${day(doc.submittedAt)}` : ''}
- {doc.expiresAt ? ` · vence ${day(doc.expiresAt)}` : ''}
- {doc.history?.length ? ` · ${doc.history.length} versión(es) anterior(es)` : ''}
- </p>
- {doc.status === 'rejected' && doc.rejectionReason && (
- <p className="text-[11px] font-semibold text-[var(--color-danger)]">Motivo: {doc.rejectionReason}</p>
- )}
- </div>
- </div>
-
- <div className="flex items-center gap-2">
- <span className={`text-[10px] font-bold uppercase tracking-wider ${style.className}`}>{style.label}</span>
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{DOCUMENT_LABELS[doc.type]}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{doc.reference}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{doc.submittedAt ? day(doc.submittedAt) : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{doc.expiresAt ? day(doc.expiresAt) : '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{doc.history?.length ?? 0}</td>
+ <td className={`table-body-cell wrap ${style.className}`}>
+ {style.label}
+ {doc.status === 'rejected' && doc.rejectionReason ? ` · ${doc.rejectionReason}` : ''}
+ </td>
+ <td className="table-body-cell">
+ <div className="flex items-center gap-3">
  {doc.status !== 'approved' && (
- <button
- onClick={() => reviewDocument(doc, 'approved')}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[11px] font-bold text-[#047857]"
- >
+ <button onClick={() => reviewDocument(doc, 'approved')} className="cursor-pointer text-[#047857]">
  {working === doc._id ? '…' : 'Aprobar'}
  </button>
  )}
  {doc.status !== 'rejected' && (
- <button
- onClick={() => setRejecting(doc)}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[11px] font-semibold text-[var(--color-danger)]"
- >
+ <button onClick={() => setRejecting(doc)} className="cursor-pointer text-[var(--color-danger)]">
  Rechazar
  </button>
  )}
  {!doc.hasFile && /^https?:\/\//i.test(doc.reference) && (
- <a href={doc.reference} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-primary)]">
- <ExternalLink className="h-3 w-3" /> Enlace
- </a>
+ <a href={doc.reference} target="_blank" rel="noreferrer" className="text-[var(--color-primary)]">Enlace</a>
  )}
  </div>
- </div>
+ </td>
+ </tr>
  );
  })}
+ </tbody>
+ </table>
+ </div>
+ )}
  </section>
  </div>
+ </td>
+ </tr>
  )}
- </li>
+ </Fragment>
  );
  })}
- </ul>
+ </tbody>
+ </table>
+ </div>
+ </div>
  )}
 
  {rejecting && (

@@ -2,6 +2,7 @@
 import { AlertCircle, RotateCw } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
+import SummaryGrid from '../components/SummaryGrid';
 
 /**
  * Zipp Pro visto desde el negocio. Solo lectura: el precio y los beneficios
@@ -91,42 +92,49 @@ export default function ProMembership() {
  Estos valores son una propuesta de arranque: se cambian en <code>config/pro.ts</code>.
  </p>
 
- <div className="flex flex-wrap gap-x-8 gap-y-3 border-b border-[var(--color-border-light)] pb-4">
- {[
- ['Miembros vigentes', data.members.active],
- ['Se renuevan', data.members.renewing],
- ['Cancelaron, aún vigentes', data.members.cancelledStillValid],
- ['Vencidos', data.members.expired],
- ['Ingreso mensual bruto', cop(data.monthlyRecurringGross)],
- ].map(([label, value]) => (
- <div key={label as string}>
- <p className="text-2xl font-bold text-[var(--color-text-main)]">{value}</p>
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{label}</p>
- </div>
- ))}
- </div>
+ <SummaryGrid
+ items={[
+ { label: 'Miembros vigentes', value: data.members.active },
+ { label: 'Se renuevan', value: data.members.renewing },
+ { label: 'Cancelaron, aún vigentes', value: data.members.cancelledStillValid },
+ { label: 'Vencidos', value: data.members.expired },
+ { label: 'Ingreso mensual bruto', value: cop(data.monthlyRecurringGross) },
+ ]}
+ />
 
  <div>
  <h2 className="mb-2 text-sm font-bold text-[var(--color-text-main)]">Últimos 30 días</h2>
- <dl className="text-sm">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Concepto</th>
+ <th className="table-header-cell">Valor</th>
+ </tr>
+ </thead>
+ <tbody>
  {[
  ['Cobrado en membresías', `${cop(data.last30Days.collected)} · ${data.last30Days.payments} ${data.last30Days.payments === 1 ? 'cobro' : 'cobros'}`],
  ['Comisión estimada de Wompi', `− ${cop(data.last30Days.gatewayFee)}`],
  ['Envíos que regaló la membresía', `− ${cop(data.last30Days.benefitsCost.delivery)}`],
  ['Tarifas de servicio perdonadas', `− ${cop(data.last30Days.benefitsCost.serviceFee)}`],
  ].map(([label, value]) => (
- <div key={label} className="flex justify-between gap-6 border-b border-[var(--color-border-light)] py-2">
- <dt className="text-[var(--color-text-main)]">{label}</dt>
- <dd className="font-semibold text-[var(--color-text-main)]">{value}</dd>
- </div>
+ <tr key={label}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{label}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{value}</td>
+ </tr>
  ))}
- <div className="flex justify-between gap-6 py-2">
- <dt className="font-bold text-[var(--color-text-main)]">Margen del plan</dt>
- <dd className={`text-lg font-bold ${data.last30Days.margin < 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
+ <tr>
+ <td className="table-body-cell text-[var(--color-text-main)]">Margen del plan</td>
+ <td className={`table-body-cell ${data.last30Days.margin < 0 ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
  {data.last30Days.margin < 0 ? `− ${cop(-data.last30Days.margin)}` : cop(data.last30Days.margin)}
- </dd>
+ </td>
+ </tr>
+ </tbody>
+ </table>
  </div>
- </dl>
+ </div>
  <p className="mt-1 text-xs text-[var(--color-text-main)]">
  Beneficios usados en {data.last30Days.benefitsCost.orders} {data.last30Days.benefitsCost.orders === 1 ? 'pedido entregado' : 'pedidos entregados'}.
  La comisión es la estimada con la tarifa de Tarifas y Precios; la real sale del reporte de Wompi.
@@ -146,15 +154,28 @@ export default function ProMembership() {
  {data.atRisk.length > 0 && (
  <div>
  <h2 className="mb-2 text-sm font-bold text-[var(--color-text-main)]">Renovaciones que fallaron</h2>
- <ul>
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Cliente</th>
+ <th className="table-header-cell">Rechazos seguidos</th>
+ <th className="table-header-cell">Vigente hasta</th>
+ </tr>
+ </thead>
+ <tbody>
  {data.atRisk.map((a, i) => (
- <li key={i} className="flex flex-wrap items-center gap-x-6 border-b border-[var(--color-border-light)] py-2 text-sm">
- <span className="flex-1 font-semibold text-[var(--color-text-main)]">{a.name}</span>
- <span className="text-xs text-[var(--color-danger)]">{a.renewalFailures} {a.renewalFailures === 1 ? 'rechazo' : 'rechazos'} seguidos</span>
- <span className="text-xs text-[var(--color-text-main)]">vigente hasta {day(a.validUntil)}</span>
- </li>
+ <tr key={i}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{a.name}</td>
+ <td className="table-body-cell text-[var(--color-danger)]">{a.renewalFailures}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{day(a.validUntil)}</td>
+ </tr>
  ))}
- </ul>
+ </tbody>
+ </table>
+ </div>
+ </div>
  </div>
  )}
 
@@ -163,15 +184,32 @@ export default function ProMembership() {
  {data.recent.length === 0 ? (
  <p className="py-8 text-center text-xs font-semibold text-[var(--color-text-main)]">Nadie se ha suscrito todavía.</p>
  ) : (
- <ul>
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Cliente</th>
+ <th className="table-header-cell">Estado</th>
+ <th className="table-header-cell">Precio</th>
+ <th className="table-header-cell">Desde</th>
+ <th className="table-header-cell">Hasta</th>
+ </tr>
+ </thead>
+ <tbody>
  {data.recent.map((r, i) => (
- <li key={i} className="flex flex-wrap items-center gap-x-6 border-b border-[var(--color-border-light)] py-2 text-sm">
- <span className="flex-1 font-semibold text-[var(--color-text-main)]">{r.name}</span>
- <span className="text-xs text-[var(--color-text-main)]">{STATUS_LABEL[r.status] ?? r.status}</span>
- <span className="text-xs text-[var(--color-text-main)]">{cop(r.price)} · desde {day(r.since)} · hasta {day(r.validUntil)}</span>
- </li>
+ <tr key={i}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{r.name}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{STATUS_LABEL[r.status] ?? r.status}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{cop(r.price)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{day(r.since)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{day(r.validUntil)}</td>
+ </tr>
  ))}
- </ul>
+ </tbody>
+ </table>
+ </div>
+ </div>
  )}
  </div>
  </>

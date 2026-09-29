@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { Search, TrendingUp, SearchX, AlertCircle, RefreshCw, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
@@ -188,7 +188,6 @@ export default function SearchInsights() {
  <div className="flex items-center justify-between">
  <div>
  <h1 className="text-lg font-bold text-[var(--color-text-main)] flex items-center gap-2">
- <Search className="w-5 h-5 text-[var(--color-primary)]" />
  Búsquedas
  </h1>
  <p className="mt-1 text-xs font-medium text-[var(--color-text-main)]">
@@ -199,14 +198,12 @@ export default function SearchInsights() {
  onClick={fetchAll}
  className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center gap-2"
  >
- <RefreshCw className="w-4 h-4" />
  Actualizar
  </button>
  </div>
 
  {error ? (
  <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
- <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
  {error}
  </div>
  ) : null}
@@ -220,7 +217,6 @@ export default function SearchInsights() {
  {/* ── Lo que sí se encuentra ── */}
  <section className="space-y-3">
  <header className="flex items-center gap-2">
- <TrendingUp className="w-4 h-4 text-[var(--color-primary)]" />
  <h2 className="text-sm font-bold text-[var(--color-text-main)]">Lo más buscado</h2>
  </header>
  <p className="text-[11px] font-medium text-[var(--color-text-main)]">
@@ -261,7 +257,6 @@ export default function SearchInsights() {
  {/* ── Lo que falta en el catálogo ── */}
  <section className="space-y-3">
  <header className="flex items-center gap-2">
- <SearchX className="w-4 h-4 text-[var(--color-danger)]" />
  <h2 className="text-sm font-bold text-[var(--color-text-main)]">Buscado y no encontrado</h2>
  </header>
  <p className="text-[11px] font-medium text-[var(--color-text-main)]">

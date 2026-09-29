@@ -155,31 +155,41 @@ export default function Payments() {
  <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay pagos con este filtro.</p>
  ) : (
  <>
- <div className="divide-y divide-[var(--color-border-light)]">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Concepto</th>
+ <th className="table-header-cell">Método</th>
+ <th className="table-header-cell">Fecha</th>
+ <th className="table-header-cell">Referencia</th>
+ <th className="table-header-cell">Monto</th>
+ <th className="table-header-cell">Comisión est.</th>
+ <th className="table-header-cell">Estado</th>
+ </tr>
+ </thead>
+ <tbody>
  {items.map((p) => (
- <div key={p._id} className="flex flex-wrap items-start justify-between gap-3 py-3">
- <div className="min-w-0">
- <p className="text-sm font-bold text-[var(--color-text-main)]">
+ <tr key={p._id}>
+ <td className="table-body-cell">
  {p.orderId ? (
  <EntityLink type="order" id={p.orderId}>Pedido #{p.orderNumber ?? 'N/A'}</EntityLink>
  ) : (
  'Membresía Zipp Pro'
  )}
- </p>
- <p className="text-[11px] text-[var(--color-text-main)]">
- {p.methodType ?? 'Sin método'} · {dateTime(p.createdAt)}
- </p>
- <p className="break-all font-mono text-[10px] text-[var(--color-text-main)]">{p.reference}</p>
- </div>
- <div className="text-right">
- <p className="text-sm font-bold text-[var(--color-text-main)]">{money(p.amount)}</p>
- <p className={`text-[10px] font-bold uppercase tracking-wider ${STATUS_LABEL[p.status].className}`}>{STATUS_LABEL[p.status].text}</p>
- {p.estimatedFee > 0 && (
- <p className="text-[10px] text-[var(--color-text-main)]">comisión est. {money(p.estimatedFee)}</p>
- )}
- </div>
- </div>
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{p.methodType ?? 'Sin método'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{dateTime(p.createdAt)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{p.reference ?? '—'}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(p.amount)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{p.estimatedFee > 0 ? money(p.estimatedFee) : '—'}</td>
+ <td className={`table-body-cell ${STATUS_LABEL[p.status].className}`}>{STATUS_LABEL[p.status].text}</td>
+ </tr>
  ))}
+ </tbody>
+ </table>
+ </div>
  </div>
  <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
  </>
@@ -210,22 +220,35 @@ export default function Payments() {
  {daily.items.length === 0 ? (
  <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hubo cobros aprobados en este periodo.</p>
  ) : (
- <div className="divide-y divide-[var(--color-border-light)]">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Fecha</th>
+ <th className="table-header-cell">Cobros</th>
+ <th className="table-header-cell">Por método</th>
+ <th className="table-header-cell">Cobrado</th>
+ <th className="table-header-cell">Comisión</th>
+ <th className="table-header-cell">Depósito esperado</th>
+ </tr>
+ </thead>
+ <tbody>
  {daily.items.map((d) => (
- <div key={d.date} className="flex flex-wrap items-start justify-between gap-3 py-3">
- <div>
- <p className="text-sm font-bold text-[var(--color-text-main)]">{d.date}</p>
- <p className="text-[11px] text-[var(--color-text-main)]">
- {d.count} {d.count === 1 ? 'cobro' : 'cobros'} ·{' '}
+ <tr key={d.date}>
+ <td className="table-body-cell text-[var(--color-text-main)]">{d.date}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{d.count}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">
  {Object.entries(d.byMethod).map(([m, v]) => `${METHOD_LABEL[m] ?? m} ${money(v.amount)}`).join(' · ')}
- </p>
- </div>
- <div className="text-right">
- <p className="text-sm font-bold text-[var(--color-text-main)]">Depósito esperado {money(d.expectedDeposit)}</p>
- <p className="text-[11px] text-[var(--color-text-main)]">cobrado {money(d.gross)} − comisión {money(d.bookedFee)}</p>
- </div>
- </div>
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(d.gross)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(d.bookedFee)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(d.expectedDeposit)}</td>
+ </tr>
  ))}
+ </tbody>
+ </table>
+ </div>
  </div>
  )}
  <p className="text-[11px] text-[var(--color-text-main)]">

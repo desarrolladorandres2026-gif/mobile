@@ -92,16 +92,31 @@ export default function FiscalDocuments() {
  </p>
  ) : (
  <>
- <div className="divide-y divide-[var(--color-border-light)]">
+ <div className="table-container no-print">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Número</th>
+ <th className="table-header-cell">Tercero</th>
+ <th className="table-header-cell">Tipo</th>
+ <th className="table-header-cell">Emitido</th>
+ <th className="table-header-cell">Neto</th>
+ </tr>
+ </thead>
+ <tbody>
  {items.map((d) => (
- <button key={d._id} onClick={() => setOpen(d)} className="flex w-full cursor-pointer flex-wrap items-start justify-between gap-3 py-3 text-left">
- <div>
- <p className="font-mono text-sm font-bold text-[var(--color-text-main)]">{d.number}</p>
- <p className="text-[11px] text-[var(--color-text-main)]">{d.party.name} · {TYPE_LABEL[d.type]} · {day(d.issuedAt)}</p>
- </div>
- <p className="text-sm font-bold text-[var(--color-text-main)]">{money(d.netAmount)}</p>
- </button>
+ <tr key={d._id} onClick={() => setOpen(d)} className="cursor-pointer hover:!bg-[var(--color-bg-alt)] transition-colors">
+ <td className="table-body-cell text-[var(--color-primary)]">{d.number}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{d.party.name}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{TYPE_LABEL[d.type]}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{day(d.issuedAt)}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{money(d.netAmount)}</td>
+ </tr>
  ))}
+ </tbody>
+ </table>
+ </div>
  </div>
  <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
  </>

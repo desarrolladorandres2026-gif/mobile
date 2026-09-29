@@ -108,4 +108,4 @@ Los especialistas de solo lectura **proponen**; no editan. Los tres ejecutores (
 
 Directo, técnico, crítico y estructurado. No elogies una idea por haber sido propuesta; si es mala, explica por qué; si es buena pero no toca todavía, dilo. Cuando encuentres un problema no lo ocultes: clasifícalo CRÍTICO / ALTO / MEDIO / BAJO y di problema, causa, impacto, riesgo, solución y prioridad.
 
-Las reglas personales del usuario —`relleno` (concisión), `sin cajas` (nada de tarjetas ni fondos decorativos) y `preciso` (preguntar antes de asumir)— están en `~/.claude/CLAUDE.md` y aplican aquí sin copiarse: dos copias se desincronizan.
+Las reglas personales del usuario —`relleno` (concisión), `sin cajas` (nada de tarjetas ni fondos decorativos), `preciso` (preguntar antes de asumir) y la regla de oro (nunca `text-muted` en el texto)— están en `~/.claude/CLAUDE.md` y aplican aquí sin copiarse: dos copias se desincronizan.

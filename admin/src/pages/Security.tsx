@@ -1,10 +1,11 @@
 ﻿import { useEffect, useState } from 'react';
 import {
- ShieldAlert, Lock, Smartphone, CheckCircle2, X, Activity, ScrollText, MonitorSmartphone, LogOut,
+ Lock, CheckCircle2, X, ScrollText, MonitorSmartphone, LogOut,
 } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
+import SummaryGrid from '../components/SummaryGrid';
 
 interface AuditLogEntry {
  _id: string;
@@ -290,43 +291,14 @@ export default function Security() {
  {/* ── 1. VISTA GENERAL ── */}
  {activeTab === 'overview' && !loading && overview && (
  <div className="space-y-3">
- <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pb-6 border-b border-[var(--color-border-light)]">
- <div>
- <div className="flex items-center justify-between mb-2">
- <span className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Sesiones Activas</span>
- <Activity className="w-4 h-4 text-[var(--color-primary)] animate-pulse" />
- </div>
- <p className="kpi-value text-2xl text-[var(--color-text-main)]">{overview.totalActiveSessions}</p>
- <p className="text-xs text-[var(--color-text-main)] mt-1">Conexiones simultáneas</p>
- </div>
-
- <div>
- <div className="flex items-center justify-between mb-2">
- <span className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Alertas Antifraude</span>
- <ShieldAlert className="w-4 h-4 text-[var(--color-danger)]" />
- </div>
- <p className="kpi-value text-2xl text-[var(--color-text-main)]">{overview.openFraudAlerts}</p>
- <p className="text-xs text-[var(--color-danger)] font-bold mt-1">{overview.criticalFraudAlerts} críticas abiertas</p>
- </div>
-
- <div>
- <div className="flex items-center justify-between mb-2">
- <span className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Baneos Activos</span>
- <Lock className="w-4 h-4 text-[var(--color-warning)]" />
- </div>
- <p className="kpi-value text-2xl text-[var(--color-text-main)]">{overview.blockedUsers}</p>
- <p className="text-xs text-[var(--color-text-main)] mt-1">Cuentas restringidas</p>
- </div>
-
- <div>
- <div className="flex items-center justify-between mb-2">
- <span className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Nuevos Dispositivos</span>
- <Smartphone className="w-4 h-4 text-[var(--color-primary)]" />
- </div>
- <p className="kpi-value text-2xl text-[var(--color-text-main)]">{overview.newDevicesLast24h}</p>
- <p className="text-xs text-[var(--color-text-main)] mt-1">Últimas 24 horas</p>
- </div>
- </div>
+ <SummaryGrid
+ items={[
+ { label: 'Sesiones Activas', value: overview.totalActiveSessions, sub: 'Conexiones simultáneas' },
+ { label: 'Alertas Antifraude', value: overview.openFraudAlerts, sub: `${overview.criticalFraudAlerts} críticas abiertas` },
+ { label: 'Baneos Activos', value: overview.blockedUsers, sub: 'Cuentas restringidas' },
+ { label: 'Nuevos Dispositivos', value: overview.newDevicesLast24h, sub: 'Últimas 24 horas' },
+ ]}
+ />
 
  {/* Table Recent Critical */}
  <div className="table-container">

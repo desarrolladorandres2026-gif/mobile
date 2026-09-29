@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, Archive, ArchiveRestore, Pencil, Plus, Trash2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
@@ -92,7 +91,7 @@ export default function SupportMacros() {
  <div>
  <h1 className="page-title">Respuestas predefinidas</h1>
  <p className="page-subtitle">
- Borradores para responder más rápido desde <Link to="/support" className="font-semibold text-[var(--color-primary)] underline">Soporte</Link>.
+ Borradores para responder más rápido desde la bandeja de Soporte.
  Variables: {'{{cliente}}'}, {'{{pedido}}'} y {'{{agente}}'}.
  </p>
  </div>

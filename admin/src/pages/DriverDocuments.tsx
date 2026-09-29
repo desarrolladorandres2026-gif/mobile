@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import {
- AlertCircle, CheckCircle, X, FileText, ExternalLink, Clock, ShieldAlert, RotateCw,
+ AlertCircle, CheckCircle, X, FileText, RotateCw,
 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
@@ -77,7 +77,7 @@ const isLink = (reference: string) => /^https?:\/\//i.test(reference);
 function Thumb({ url, label }: { url?: string; label: string }) {
  if (!url) {
  return (
- <div className="flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-1 border border-dashed border-[var(--color-border)] text-[var(--color-text-main)]">
+ <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 border border-dashed border-[var(--color-border)] text-[var(--color-text-main)]">
  <FileText className="h-5 w-5" />
  <span className="text-[9px] font-bold uppercase tracking-wider">Sin foto</span>
  </div>
@@ -85,7 +85,7 @@ function Thumb({ url, label }: { url?: string; label: string }) {
  }
  return (
  <a href={url} target="_blank" rel="noreferrer" title={`Abrir ${label} en tamaño completo`} className="shrink-0">
- <img src={url} alt={label} loading="lazy" className="h-24 w-24 object-cover" />
+ <img src={url} alt={label} loading="lazy" className="h-16 w-16 object-cover" />
  <span className="mt-1 block text-center text-[9px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
  {label}
  </span>
@@ -208,114 +208,112 @@ export default function DriverDocuments() {
  );
 
  const renderDocument = (doc: DriverDocumentType, tone: 'pending' | 'expired' | 'soon') => {
- const driver = doc.driverId;
- const blocking = BLOCKING_TYPES.has(doc.type);
- const days = doc.expiresAt ? daysUntil(doc.expiresAt) : null;
+  const driver = doc.driverId;
+  const blocking = BLOCKING_TYPES.has(doc.type);
+  const days = doc.expiresAt ? daysUntil(doc.expiresAt) : null;
+  const state =
+   tone === 'expired'
+    ? { text: 'Vencido', className: 'text-[var(--color-danger)]' }
+    : tone === 'soon' && days !== null
+     ? { text: days <= 0 ? 'Vence hoy' : `Vence en ${days} día${days === 1 ? '' : 's'}`, className: 'text-[var(--color-warning)]' }
+     : { text: 'Por revisar', className: 'text-[var(--color-text-main)]' };
 
- return (
- <li key={doc._id} className="flex flex-col justify-between gap-4 border-t border-[var(--color-border-light)] py-5 md:flex-row md:items-center">
- <div className="flex min-w-0 items-start gap-4">
- <Thumb url={doc.imageUrl} label={DOCUMENT_LABELS[doc.type]} />
- <div className="min-w-0 space-y-1.5">
- <div className="flex flex-wrap items-center gap-2.5">
- <h3 className="text-sm font-bold text-[var(--color-text-main)]">{DOCUMENT_LABELS[doc.type]}</h3>
- {blocking && (
- <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-danger)]">Obligatorio</span>
- )}
- {tone === 'expired' && (
- <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-danger)]">
- <ShieldAlert className="h-3 w-3" /> Vencido
- </span>
- )}
- {tone === 'soon' && days !== null && (
- <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-warning)]">
- <Clock className="h-3 w-3" />
- {days <= 0 ? 'Vence hoy' : `Vence en ${days} día${days === 1 ? '' : 's'}`}
- </span>
- )}
- </div>
- <p className="text-xs font-medium text-[var(--color-text-main)]">
- <strong className="text-[var(--color-text-main)]">{driver?.userId?.name || 'Domiciliario'}</strong>
- {driver?.userId?.phone ? ` · ${driver.userId.phone}` : ''}
- {driver?.licensePlate ? (
- <> · Placa <strong className="font-mono text-[var(--color-primary)]">{driver.licensePlate}</strong></>
- ) : null}
- </p>
- <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-text-main)]">
- {isLink(doc.reference) ? (
- <a href={doc.reference} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-[var(--color-primary)] hover:underline">
- <ExternalLink className="h-3.5 w-3.5" /> Ver documento
- </a>
- ) : (
- <span className="font-mono font-semibold text-[var(--color-text-main)]">{doc.reference}</span>
- )}
- {doc.expiresAt && <span>Vence el {new Date(doc.expiresAt).toLocaleDateString('es-CO')}</span>}
- <span>Enviado el {new Date(doc.createdAt).toLocaleDateString('es-CO')}</span>
- </div>
- </div>
- </div>
- {actions(
- doc._id,
- () => reviewDocument(doc._id, 'approved'),
- (reason) => reviewDocument(doc._id, 'rejected', reason)
- )}
- </li>
- );
+  return (
+   <tr key={doc._id}>
+    <td className="table-body-cell"><Thumb url={doc.imageUrl} label={DOCUMENT_LABELS[doc.type]} /></td>
+    <td className="table-body-cell text-[var(--color-text-main)]">{DOCUMENT_LABELS[doc.type]}</td>
+    <td className={`table-body-cell ${blocking ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>{blocking ? 'Sí' : 'No'}</td>
+    <td className="table-body-cell text-[var(--color-text-main)]">
+     {driver?.userId?.name || 'Domiciliario'}
+     {driver?.userId?.phone ? ` · ${driver.userId.phone}` : ''}
+    </td>
+    <td className="table-body-cell text-[var(--color-primary)]">{driver?.licensePlate ?? '—'}</td>
+    <td className="table-body-cell">
+     {isLink(doc.reference) ? (
+      <a href={doc.reference} target="_blank" rel="noreferrer" className="text-[var(--color-primary)] hover:underline">
+       Ver documento
+      </a>
+     ) : (
+      <span className="text-[var(--color-text-main)]">{doc.reference}</span>
+     )}
+    </td>
+    <td className="table-body-cell text-[var(--color-text-main)]">{doc.expiresAt ? new Date(doc.expiresAt).toLocaleDateString('es-CO') : '—'}</td>
+    <td className="table-body-cell text-[var(--color-text-main)]">{new Date(doc.createdAt).toLocaleDateString('es-CO')}</td>
+    <td className={`table-body-cell ${state.className}`}>{state.text}</td>
+    <td className="table-body-cell wrap">
+     {actions(
+      doc._id,
+      () => reviewDocument(doc._id, 'approved'),
+      (reason) => reviewDocument(doc._id, 'rejected', reason)
+     )}
+    </td>
+   </tr>
+  );
  };
 
  const renderCheck = (check: IdentityCheck) => {
- const waiting = check.status === 'requested';
- const overdue = waiting && check.dueAt ? new Date(check.dueAt).getTime() < Date.now() : false;
- return (
- <li key={check._id} className="flex flex-col justify-between gap-4 border-t border-[var(--color-border-light)] py-5 md:flex-row md:items-center">
- <div className="flex min-w-0 items-start gap-4">
- <div className="flex gap-3">
- <Thumb url={check.imageUrl} label={CHECK_LABELS[check.type] ?? 'Selfie'} />
- <Thumb url={check.identityDocumentUrl} label="Cédula" />
- {check.user?.avatar ? <Thumb url={check.user.avatar} label="Perfil" /> : null}
- </div>
- <div className="min-w-0 space-y-1.5">
- <h3 className="text-sm font-bold text-[var(--color-text-main)]">{CHECK_LABELS[check.type] ?? check.type}</h3>
- <p className="text-xs font-medium text-[var(--color-text-main)]">
- <strong className="text-[var(--color-text-main)]">{check.user?.name ?? 'Domiciliario'}</strong>
- {check.user?.phone ? ` · ${check.user.phone}` : ''}
- {check.driver?.licensePlate ? ` · Placa ${check.driver.licensePlate}` : ''}
- </p>
- <p className="text-xs text-[var(--color-text-main)]">
- {waiting ? (
- <span className={overdue ? 'font-bold text-[var(--color-danger)]' : ''}>
- Solicitada, aún sin respuesta
- {check.dueAt ? ` · plazo ${new Date(check.dueAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}` : ''}
- </span>
- ) : (
- <>Enviada el {new Date(check.createdAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}</>
- )}
- </p>
- </div>
- </div>
- {waiting ? (
- <span className="text-xs font-semibold text-[var(--color-text-main)]">Esperando la foto</span>
- ) : (
- actions(
- check._id,
- () => reviewCheck(check._id, 'approved'),
- (reason) => reviewCheck(check._id, 'rejected', reason)
- )
- )}
- </li>
- );
+  const waiting = check.status === 'requested';
+  const overdue = waiting && check.dueAt ? new Date(check.dueAt).getTime() < Date.now() : false;
+  const when = (d: string) => new Date(d).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+  return (
+   <tr key={check._id}>
+    <td className="table-body-cell">
+     <div className="flex gap-2">
+      <Thumb url={check.imageUrl} label={CHECK_LABELS[check.type] ?? 'Selfie'} />
+      <Thumb url={check.identityDocumentUrl} label="Cédula" />
+      {check.user?.avatar ? <Thumb url={check.user.avatar} label="Perfil" /> : null}
+     </div>
+    </td>
+    <td className="table-body-cell text-[var(--color-text-main)]">{CHECK_LABELS[check.type] ?? check.type}</td>
+    <td className="table-body-cell text-[var(--color-text-main)]">
+     {check.user?.name ?? 'Domiciliario'}
+     {check.user?.phone ? ` · ${check.user.phone}` : ''}
+    </td>
+    <td className="table-body-cell text-[var(--color-primary)]">{check.driver?.licensePlate ?? '—'}</td>
+    <td className={`table-body-cell ${overdue ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
+     {waiting
+      ? `Solicitada, sin respuesta${check.dueAt ? ` · plazo ${when(check.dueAt)}` : ''}`
+      : `Enviada ${when(check.createdAt)}`}
+    </td>
+    <td className="table-body-cell wrap">
+     {waiting ? (
+      <span className="text-[var(--color-text-main)]">Esperando la foto</span>
+     ) : (
+      actions(
+       check._id,
+       () => reviewCheck(check._id, 'approved'),
+       (reason) => reviewCheck(check._id, 'rejected', reason)
+      )
+     )}
+    </td>
+   </tr>
+  );
  };
 
- const section = (title: string, hint: string, rows: React.ReactNode[]) =>
- rows.length ? (
- <section className="space-y-1">
- <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--color-text-main)]">
- {title} <span className="text-[var(--color-text-main)]">({rows.length})</span>
- </h2>
- <p className="text-xs font-medium text-[var(--color-text-main)]">{hint}</p>
- <ul>{rows}</ul>
- </section>
- ) : null;
+ const DOC_HEADERS = ['Foto', 'Documento', 'Obligatorio', 'Domiciliario', 'Placa', 'Referencia', 'Vence', 'Enviado', 'Estado', 'Acción'];
+ const CHECK_HEADERS = ['Fotos', 'Tipo', 'Domiciliario', 'Placa', 'Estado', 'Acción'];
+
+ const section = (title: string, hint: string, rows: React.ReactNode[], headers: string[]) =>
+  rows.length ? (
+   <section className="space-y-1">
+    <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+     {title} <span className="text-[var(--color-text-main)]">({rows.length})</span>
+    </h2>
+    <p className="pb-2 text-xs font-medium text-[var(--color-text-main)]">{hint}</p>
+    <div className="table-container">
+     <div className="overflow-x-auto">
+      <table className="data-grid">
+       <thead>
+        <tr className="text-left">
+         {headers.map((h) => <th key={h} className="table-header-cell">{h}</th>)}
+        </tr>
+       </thead>
+       <tbody>{rows}</tbody>
+      </table>
+     </div>
+    </div>
+   </section>
+  ) : null;
 
  const pendingChecks = checks.filter((c) => c.status === 'pending');
  const requestedChecks = checks.filter((c) => c.status === 'requested');
@@ -369,27 +367,32 @@ export default function DriverDocuments() {
  {section(
  'Documentos vencidos',
  'Estos domiciliarios ya no pueden trabajar. Van primero porque cada uno es una persona parada.',
- queue.expired.filter(matches).map((d) => renderDocument(d, 'expired'))
+ queue.expired.filter(matches).map((d) => renderDocument(d, 'expired')),
+        DOC_HEADERS
  )}
  {section(
  'Verificaciones de identidad',
  'Compara la selfie con la cédula y la foto de perfil. Si no es la misma persona, rechaza y di por qué.',
- pendingChecks.map(renderCheck)
+ pendingChecks.map(renderCheck),
+        CHECK_HEADERS
  )}
  {section(
  'Documentos por revisar',
  'Enviados por el domiciliario y todavía sin verificar.',
- queue.pending.filter(matches).map((d) => renderDocument(d, 'pending'))
+ queue.pending.filter(matches).map((d) => renderDocument(d, 'pending')),
+        DOC_HEADERS
  )}
  {section(
  'Documentos por vencer',
  'Siguen vigentes, pero caducan pronto. Avisar ahora evita la baja sorpresa.',
- queue.expiringSoon.filter(matches).map((d) => renderDocument(d, 'soon'))
+ queue.expiringSoon.filter(matches).map((d) => renderDocument(d, 'soon')),
+        DOC_HEADERS
  )}
  {section(
  'Verificaciones solicitadas sin respuesta',
  'ZIPP pidió una selfie y el domiciliario aún no la envía.',
- requestedChecks.map(renderCheck)
+ requestedChecks.map(renderCheck),
+        CHECK_HEADERS
  )}
  </div>
  )}

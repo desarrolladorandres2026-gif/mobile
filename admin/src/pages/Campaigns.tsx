@@ -13,6 +13,7 @@ import { fetchBusinessOptions } from '../lib/businessOptions';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
 import NumericInput from '../components/NumericInput';
+import SummaryGrid from '../components/SummaryGrid';
 
 type AdStatus = 'scheduled' | 'active' | 'paused' | 'finished' | 'cancelled';
 type ActionType = 'none' | 'business';
@@ -418,19 +419,14 @@ export default function Campaigns() {
  </div>
 
  {globalStats && (
- <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
- {[
- { label: 'Impresiones Totales', value: globalStats.totalImpressions },
- { label: 'Impresiones Hoy', value: globalStats.todayImpressions },
- { label: 'Clics Totales', value: globalStats.totalClicks },
- { label: 'Clics Hoy', value: globalStats.todayClicks },
- ].map((kpi) => (
- <div key={kpi.label} className="zipp-card p-4">
- <p className="text-[10px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">{kpi.label}</p>
- <p className="text-xl font-bold text-[var(--color-text-main)] mt-1">{kpi.value.toLocaleString('es-CO')}</p>
- </div>
- ))}
- </div>
+ <SummaryGrid
+ items={[
+ { label: 'Impresiones Totales', value: globalStats.totalImpressions.toLocaleString('es-CO') },
+ { label: 'Impresiones Hoy', value: globalStats.todayImpressions.toLocaleString('es-CO') },
+ { label: 'Clics Totales', value: globalStats.totalClicks.toLocaleString('es-CO') },
+ { label: 'Clics Hoy', value: globalStats.todayClicks.toLocaleString('es-CO') },
+ ]}
+ />
  )}
 
  <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
@@ -607,9 +603,9 @@ export default function Campaigns() {
  title={c.isActive ? 'Pausar campaña' : 'Reactivar campaña'}
  >
  {c.isActive ? (
- <ToggleRight className="w-8 h-8 text-[var(--color-primary)]" />
+ <ToggleRight className="w-8 h-8" style={{ color: '#000000' }} />
  ) : (
- <ToggleLeft className="w-8 h-8 text-[var(--color-text-main)]" />
+ <ToggleLeft className="w-8 h-8" style={{ color: 'var(--color-danger)' }} />
  )}
  </button>
  </PermissionGate>
@@ -952,7 +948,7 @@ export default function Campaigns() {
  <label className="flex items-center gap-2.5 cursor-pointer w-fit">
  <input type="checkbox" checked={form.isActive}
  onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
- className="w-4 h-4 rounded accent-[var(--color-primary)] cursor-pointer" />
+ className="switch-activo" />
  <span className="text-xs font-semibold text-[var(--color-text-main)]">Campaña activa</span>
  </label>
 
