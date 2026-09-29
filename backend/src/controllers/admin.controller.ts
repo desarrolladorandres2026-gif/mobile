@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { adminService } from '../services/admin.service';
 import { dailySummaryService } from '../services/dailySummary.service';
+import { dailySummaryFinanceService } from '../services/dailySummaryFinance.service';
+import { bogotaDateString } from '../utils/period';
 import { sendResponse, param, query, toCsv, csvFilename, clampLimit, clientIp, type CsvColumn } from '../utils';
 import { OrderEvidenceType } from '../types';
 import { orderEvidenceService } from '../services/orderEvidence.service';
@@ -31,10 +33,12 @@ function omitDashboardMoney<T extends Record<string, any>>(stats: T) {
   return out;
 }
 
+const dateOrToday = (v: string | undefined) => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v! : bogotaDateString());
+
 const SUMMARY_MONEY_KEYS = [
   'gmv', 'platformGrossRevenue', 'promotionExpense', 'netRevenue', 'businessPayouts', 'driverPayouts',
   'tips', 'tax', 'merchantFundedDiscount', 'platformFundedDiscount', 'platformResult', 'avgTicket',
-  'payDigitalAmount', 'payCashAmount', 'refundsAmount',
+  'payDigitalAmount', 'payCashAmount', 'refundsAmount', 'driverDeliveryPayouts', 'deliveryFees',
 ];
 
 /** Mensajes de alertas de salud del día sin cifras en pesos (los originales las traen; ver `deriveHealthFlags`). */
@@ -62,6 +66,10 @@ function omitSummaryMoney<T extends Record<string, any>>(summary: T) {
   const out: Record<string, any> = { ...summary };
   out.today = strip(summary.today);
   out.baseline = strip(summary.baseline);
+  if (summary.monthBaseline) out.monthBaseline = strip(summary.monthBaseline);
+  out.monthComparison = (summary.monthComparison || []).filter((r: { metric: string }) => !SUMMARY_MONEY_KEYS.includes(r.metric));
+  delete out.pending;
+  delete out.gateway;
   out.comparison = (summary.comparison || []).filter((r: { metric: string }) => !SUMMARY_MONEY_KEYS.includes(r.metric));
   out.flags = (summary.flags || []).map(maskMoneyFlag);
   delete out.topBusinessesByGmv;
@@ -345,6 +353,18 @@ export class AdminController {
     try {
       const summary = await dailySummaryService.generate(query(req, 'date'));
       sendResponse(res, 200, 'Resumen diario', can(req, Permission.FINANCE_VIEW) ? summary : omitSummaryMoney(summary));
+    } catch (error) { next(error); }
+  }
+
+  /** Detalle financiero por pedido del día. Siempre `finance:view` (ver la ruta). */
+  async getDailySummaryFinanceDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const detail = await dailySummaryFinanceService.detail(
+        dateOrToday(query(req, 'date')),
+        Number(query(req, 'page')) || 1,
+        Number(query(req, 'limit')) || 50
+      );
+      sendResponse(res, 200, 'Detalle financiero del día', detail);
     } catch (error) { next(error); }
   }
 

@@ -229,7 +229,7 @@ function RolesList() {
  ) : (
  <div className="table-container">
  <div className="overflow-x-auto">
- <table className="w-full">
+ <table className="data-grid">
  <thead>
  <tr className="text-left">
  <th className="table-header-cell">Rol</th>
@@ -307,7 +307,7 @@ function RolesList() {
  <button
  onClick={() => setConfirmDelete(role)}
  title="Eliminar"
- className="p-1.5 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-white transition-all cursor-pointer"
+ className="p-1.5 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] hover:underline transition-all cursor-pointer"
  >
  <Trash2 className="w-3.5 h-3.5" />
  </button>
@@ -380,7 +380,7 @@ function RolesList() {
 
  <div className="border-y border-[var(--color-border-light)]">
  <div className="overflow-x-auto max-h-[45vh] overflow-y-auto">
- <table className="w-full text-xs">
+ <table className="data-grid text-xs">
  <tbody className="divide-y divide-[var(--color-border-light)]">
  {catalog.map((group) => {
  const modulePerms = group.actions.map((a) => `${group.module}:${a}`);

@@ -18,6 +18,16 @@ export function groupThousands(value: number): string {
   return (value < 0 ? '-' : '') + out;
 }
 
+/**
+ * Texto de un campo de dinero mientras se escribe: "25000" → "25.000".
+ * Descarta todo lo que no sea dígito, así que el estado del campo puede ser
+ * el texto ya agrupado y quien lo lea solo tiene que quitar los puntos.
+ */
+export function groupDigits(text: string, maxDigits = 9): string {
+  const digits = text.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, maxDigits);
+  return digits ? groupThousands(Number(digits)) : '';
+}
+
 /** 18400 → "$18.400". Los pesos no llevan decimales. */
 export function money(value: number | undefined | null): string {
   if (value === undefined || value === null || Number.isNaN(value)) return '$0';

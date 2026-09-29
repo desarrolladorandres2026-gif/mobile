@@ -9,7 +9,8 @@ import {
   CashReconciliation,
   Zone,
 } from '../models';
-import { OrderStatus, PaymentMethod, UserRole } from '../types';
+import { OrderStatus, PaymentMethod, RefundStatus, UserRole } from '../types';
+import { dailySummaryFinanceService, type PendingMoney, type GatewayStatus } from './dailySummaryFinance.service';
 import { platformResultService, PlatformResult } from './platformResult.service';
 import { bogotaDayRange, bogotaDateString, shiftDateString } from '../utils/period';
 
@@ -28,8 +29,10 @@ import { bogotaDayRange, bogotaDateString, shiftDateString } from '../utils/peri
  *
  * El ingreso de ZIPP (`platformGrossRevenue`, `promotionExpense`,
  * `netRevenue`) sale del libro mayor con `platformResultService`, la misma
- * función que usan el Dashboard y Finanzas. `netRevenue` es el neto ANTES de
- * costos de pasarela (`platformResult.incomplete`), no rentabilidad.
+ * función que usan el Dashboard y Finanzas. `netRevenue` es el margen
+ * operativo DESPUÉS de la comisión de la pasarela ya asentada
+ * (`netAfterGatewayCosts`); sigue siendo `platformResult.incomplete` mientras
+ * falte el costo de transferencia, así que no es rentabilidad final.
  */
 
 // ── Tipos ────────────────────────────────────────────────────────────
@@ -53,7 +56,12 @@ export interface DaySnapshot {
   promotionExpense: number;
   netRevenue: number;
   businessPayouts: number;
+  /** Pago a domiciliarios: tarifa + propina (la propina también sale en `tips`). */
   driverPayouts: number;
+  /** Solo la tarifa de entrega del domiciliario, sin propina. */
+  driverDeliveryPayouts: number;
+  /** Domicilio cobrado al cliente. */
+  deliveryFees: number;
   tips: number;
   tax: number;
   merchantFundedDiscount: number;
@@ -71,6 +79,12 @@ export interface DaySnapshot {
   newClients: number;
   newBusinesses: number;
   newDrivers: number;
+
+  // Comercios y clientes con actividad (sobre lo entregado ese día)
+  /** Comercios distintos con al menos un pedido entregado. */
+  activeBusinesses: number;
+  /** Clientes distintos que compraron (pedido entregado). */
+  buyers: number;
 
   // Operación de domiciliarios
   activeDrivers: number;
@@ -138,6 +152,24 @@ export interface DailySummary {
   cashByStatus: CashByStatus[];
   /** Pedidos sin cerrar en este momento. Solo se calcula si la fecha es hoy. */
   ordersInProgressNow: number | null;
+  /** Estado ACTUAL de los pedidos creados ese día (no el estado que tenían al cierre). */
+  operation: OperationBreakdown;
+  /** Mismo día del mes anterior (clamp al último día si no existe). */
+  monthBaseline: DaySnapshot;
+  monthComparison: ComparisonRow[];
+  /** Dinero de terceros y pendientes. Solo con `finance:view`. */
+  pending: PendingMoney;
+  /** ¿La comisión de Wompi está completa este día? Solo con `finance:view`. */
+  gateway: GatewayStatus;
+}
+
+export interface OperationBreakdown {
+  /** Esperando que el comercio acepte. */
+  pending: number;
+  /** Aceptados, en preparación o listos para recoger. */
+  preparing: number;
+  /** Recogidos y en camino al cliente. */
+  onWay: number;
 }
 
 export interface ZoneRow {
@@ -193,6 +225,7 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
     payments,
     deliveryTime,
     driverAgg,
+    activity,
     newUsers,
     newBusinesses,
     newDrivers,
@@ -213,6 +246,8 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
           gmv: { $sum: F('customerTotal', 'total') },
           businessPayouts: { $sum: F('businessPayout', 'businessPayout') },
           driverPayouts: { $sum: F('driverPayout', 'driverPayout') },
+          driverDeliveryPayouts: { $sum: F('driverDeliveryPayout') },
+          deliveryFees: { $sum: F('deliveryCustomerFee') },
           tips: { $sum: F('tip', 'tip') },
           tax: { $sum: F('taxPayable', 'tax') },
           merchantFundedDiscount: { $sum: F('merchantFundedDiscount') },
@@ -248,6 +283,18 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
       { $group: { _id: null, drivers: { $sum: 1 }, deliveries: { $sum: '$deliveries' } } },
     ]),
 
+    Order.aggregate([
+      { $match: deliveredInDay },
+      {
+        $group: {
+          _id: null,
+          businesses: { $addToSet: '$businessId' },
+          buyers: { $addToSet: '$clientId' },
+        },
+      },
+      { $project: { _id: 0, businesses: { $size: '$businesses' }, buyers: { $size: '$buyers' } } },
+    ]),
+
     User.aggregate([
       { $match: { createdAt: inDay } },
       { $group: { _id: '$role', count: { $sum: 1 } } },
@@ -269,7 +316,7 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
     ]),
     Pqrs.countDocuments({ createdAt: inDay }),
     Refund.aggregate([
-      { $match: { createdAt: inDay } },
+      { $match: { status: RefundStatus.COMPLETED, processedAt: inDay } },
       { $group: { _id: null, count: { $sum: 1 }, amount: { $sum: '$amount' } } },
     ]),
     platformResultService.forRange({ from: start, to: end }),
@@ -296,10 +343,12 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
     gmv: m.gmv || 0,
     platformGrossRevenue: result.grossRevenue,
     promotionExpense: result.promotionExpense,
-    netRevenue: result.netBeforeGatewayCosts,
+    netRevenue: result.netAfterGatewayCosts,
     platformResult: result,
     businessPayouts: m.businessPayouts || 0,
     driverPayouts: m.driverPayouts || 0,
+    driverDeliveryPayouts: m.driverDeliveryPayouts || 0,
+    deliveryFees: m.deliveryFees || 0,
     tips: m.tips || 0,
     tax: m.tax || 0,
     merchantFundedDiscount: m.merchantFundedDiscount || 0,
@@ -313,6 +362,9 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
     newClients: usersByRole.get(UserRole.CLIENT) || 0,
     newBusinesses,
     newDrivers,
+
+    activeBusinesses: activity[0]?.businesses || 0,
+    buyers: activity[0]?.buyers || 0,
 
     activeDrivers: drv.drivers,
     deliveriesPerActiveDriver:
@@ -329,6 +381,31 @@ async function buildDaySnapshot(dateStr: string): Promise<DaySnapshot> {
 }
 
 // ── Detalle no comparable del día ───────────────────────────────────
+
+async function buildOperation(dateStr: string): Promise<OperationBreakdown> {
+  const { start, end } = dayBounds(dateStr);
+  const rows: Array<{ _id: OrderStatus; count: number }> = await Order.aggregate([
+    { $match: { createdAt: { $gte: start, $lte: end } } },
+    { $group: { _id: '$status', count: { $sum: 1 } } },
+  ]);
+  const n = (...statuses: OrderStatus[]) =>
+    rows.filter((r) => statuses.includes(r._id)).reduce((sum, r) => sum + r.count, 0);
+  return {
+    pending: n(OrderStatus.PENDING),
+    preparing: n(OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY),
+    onWay: n(OrderStatus.PICKED_UP, OrderStatus.ON_WAY),
+  };
+}
+
+/** Mismo día del mes anterior; si ese mes no tiene el día (31 → feb), el último. */
+export function sameDayPreviousMonth(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const prevMonthLast = new Date(Date.UTC(y, m - 1, 0)).getUTCDate();
+  const pm = m === 1 ? 12 : m - 1;
+  const py = m === 1 ? y - 1 : y;
+  const day = Math.min(d, prevMonthLast);
+  return `${py}-${String(pm).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
 
 async function buildDayDetail(dateStr: string) {
   const { start, end } = dayBounds(dateStr);
@@ -414,6 +491,12 @@ export function buildComparison(today: DaySnapshot, baseline: DaySnapshot): Comp
     { key: 'ordersCancelled', label: 'Cancelaciones', goodWhenUp: false },
     { key: 'activeDrivers', label: 'Domiciliarios activos', goodWhenUp: true },
     { key: 'newClients', label: 'Clientes nuevos', goodWhenUp: true },
+    { key: 'ordersCreated', label: 'Pedidos creados', goodWhenUp: true },
+    { key: 'buyers', label: 'Clientes que compraron', goodWhenUp: true },
+    { key: 'activeBusinesses', label: 'Comercios activos', goodWhenUp: true },
+    { key: 'newBusinesses', label: 'Comercios nuevos', goodWhenUp: true },
+    { key: 'newDrivers', label: 'Domiciliarios nuevos', goodWhenUp: true },
+    { key: 'platformGrossRevenue', label: 'Ingresos ZIPP', goodWhenUp: true },
   ];
 
   // Umbral de "plano": ±1 %. Un día que se mueve medio punto no ha
@@ -641,9 +724,15 @@ export const dailySummaryService = {
     const baselineDate = shiftDays(date, -7);
     const isToday = date === todayStr();
 
-    const [today, baseline, detail, inProgressNow] = await Promise.all([
+    const monthDate = sameDayPreviousMonth(date);
+
+    const [today, baseline, monthBaseline, operation, pending, gateway, detail, inProgressNow] = await Promise.all([
       buildDaySnapshot(date),
       buildDaySnapshot(baselineDate),
+      buildDaySnapshot(monthDate),
+      buildOperation(date),
+      dailySummaryFinanceService.pending(date),
+      dailySummaryFinanceService.gateway(date),
       buildDayDetail(date),
       isToday
         ? Order.countDocuments({
@@ -658,6 +747,11 @@ export const dailySummaryService = {
       today,
       baseline,
       comparison: buildComparison(today, baseline),
+      monthBaseline,
+      monthComparison: buildComparison(today, monthBaseline),
+      operation,
+      pending,
+      gateway,
       flags: deriveHealthFlags(today),
       ...detail,
       ordersInProgressNow: inProgressNow,

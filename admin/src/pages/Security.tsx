@@ -334,7 +334,7 @@ export default function Security() {
  <h3 className="text-sm font-bold text-[var(--color-text-main)]">Eventos de Seguridad Recientes</h3>
  </div>
  <div className="overflow-x-auto">
- <table className="w-full">
+ <table className="data-grid">
  <thead>
  <tr className="text-left">
  <th className="table-header-cell">Fecha</th>
@@ -371,7 +371,7 @@ export default function Security() {
  {activeTab === 'alerts' && !loading && (
  <div className="table-container">
  <div className="overflow-x-auto">
- <table className="w-full">
+ <table className="data-grid">
  <thead>
  <tr className="text-left">
  <th className="table-header-cell">Fecha</th>
@@ -463,7 +463,7 @@ export default function Security() {
  <h3 className="text-sm font-bold text-[var(--color-text-main)]">Registro de Auditoría</h3>
  </div>
  <div className="overflow-x-auto">
- <table className="w-full">
+ <table className="data-grid">
  <thead>
  <tr className="text-left">
  <th className="table-header-cell">Fecha</th>
@@ -518,7 +518,7 @@ export default function Security() {
  <h3 className="text-sm font-bold text-[var(--color-text-main)]">Sesiones Activas</h3>
  </div>
  <div className="overflow-x-auto">
- <table className="w-full">
+ <table className="data-grid">
  <thead>
  <tr className="text-left">
  <th className="table-header-cell">Usuario</th>
@@ -538,7 +538,7 @@ export default function Security() {
  <td className="table-body-cell">
  <button
  onClick={() => setConfirmRevoke(s.userId)}
- className="px-2.5 py-1 rounded-md bg-[var(--color-danger-bg)] hover:bg-[var(--color-danger)] hover:text-white border border-[var(--color-danger-bg)] text-xs font-semibold text-[var(--color-danger)] transition-all cursor-pointer flex items-center gap-1.5"
+ className="px-2.5 py-1 rounded-md bg-[var(--color-danger-bg)] hover:underline border border-[var(--color-danger-bg)] text-xs font-semibold text-[var(--color-danger)] transition-all cursor-pointer flex items-center gap-1.5"
  >
  <LogOut className="w-3 h-3" /> Revocar
  </button>

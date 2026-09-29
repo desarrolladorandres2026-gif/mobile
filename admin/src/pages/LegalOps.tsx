@@ -231,7 +231,7 @@ export default function LegalOps() {
  <p className="py-16 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando solicitudes...</p>
  ) : (
  <div className="overflow-x-auto">
- <table className="w-full min-w-[860px]">
+ <table className="data-grid min-w-[860px]">
  <thead>
  <tr>
  <th className={headClass}>Solicitud</th>

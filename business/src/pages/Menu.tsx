@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, Tag } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import {
+  Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, Tag, SquarePlus, ChevronDown, ChevronRight, Clock,
+} from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
@@ -15,28 +18,30 @@ import ProductImageField, {
 } from '../components/ProductImageField';
 import { isImageInProgress, productImageFileName } from '../lib/productImageStatus';
 import ModifierGroupsEditor from '../components/ModifierGroupsEditor';
-import { toDrafts, fromDrafts, type GroupDraft } from '../lib/modifierGroups';
-
-interface ExtraOption {
-  name: string;
-  price: number;
-}
+import NumericInput from '../components/NumericInput';
+import { toDrafts, fromDrafts } from '../lib/modifierGroups';
+import { fetchBusinessSettings } from '../lib/businessSettings';
+import {
+  EMPTY_PRODUCT_FORM, PREP_TIME_MAX, discountPercent, hasDraftContent, productChecklist,
+  productProgress, rawDiscountPercent, readPricing, type PricingField, type ProductFormState,
+} from '../lib/productForm';
+import { productChecks, type PhotoState } from '../lib/productChecks';
+import { clearDraft, isDraftWorthRestoring, loadDraft, saveDraft } from '../lib/productDraft';
+import ProductPreview from '../components/product/ProductPreview';
+import ProductProgress from '../components/product/ProductProgress';
+import ProductRecommendations from '../components/product/ProductRecommendations';
+import ProductSummary from '../components/product/ProductSummary';
 
 interface Category {
   _id: string;
   name: string;
 }
 
-const EMPTY_FORM = {
-  name: '',
-  description: '',
-  price: '',
-  discountPrice: '',
-  prepTimeMinutes: '',
-  requiresAgeVerification: false,
-  categoryId: '',
-  extras: [] as ExtraOption[],
-  modifierGroups: [] as GroupDraft[],
+/** Id de cada campo que puede frenar el guardado, para llevar el foco allí. */
+const PRICING_INPUT: Record<PricingField, string> = {
+  price: 'product-price',
+  discountPrice: 'product-discount',
+  prepTimeMinutes: 'product-prep-time',
 };
 
 export default function Menu() {
@@ -97,6 +102,8 @@ export default function Menu() {
     retry: false,
   });
 
+  /** Categoría filtrada en la lista; el producto nuevo nace en ella. */
+  const [filterCategory, setFilterCategory] = useState<string | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   /**
@@ -114,10 +121,33 @@ export default function Menu() {
    * tapados por el propio modal y el comercio no sabía por qué no avanzaba.
    */
   const [modalError, setModalError] = useState('');
-  const [productForm, setProductForm] = useState(EMPTY_FORM);
+  const [productForm, setProductForm] = useState<ProductFormState>(EMPTY_PRODUCT_FORM);
   /** Recorte hecho en el editor que todavía no tiene producto al que ir. */
   const [pendingImage, setPendingImage] = useState<PendingProductImage | null>(null);
   const [saving, setSaving] = useState(false);
+  /**
+   * "Opciones avanzadas" desplegado. Solo decide qué se ve: plegarlo no
+   * borra adiciones ni grupos, que se siguen guardando.
+   */
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  /** Sube al "Empezar de cero" para volver a montar el campo de la foto vacío. */
+  const [photoFieldKey, setPhotoFieldKey] = useState(0);
+  /** Borrador del alta en este navegador: cuándo se guardó y de cuándo era el recuperado. */
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const [draftRestoredFrom, setDraftRestoredFrom] = useState<number | null>(null);
+  /** Lo último escrito en el borrador, para no reescribirlo sin cambios. */
+  const lastDraftRef = useRef<string | null>(null);
+  /** El alta ya se creó: el autoguardado no vuelve a escribir hasta la próxima. */
+  const draftClosedRef = useRef(false);
+
+  // Para la vista previa: el tipo de negocio (la ilustración sin foto) y
+  // el tiempo general que la app enseña en los platos sin tiempo propio.
+  const { data: businessSettings } = useQuery({
+    queryKey: qk.settings(businessId),
+    queryFn: () => fetchBusinessSettings(businessId!),
+    enabled: !!businessId && showProductModal,
+    staleTime: 30_000,
+  });
 
   const [newExtra, setNewExtra] = useState({ name: '', price: '' });
   const [confirmDeleteCat, setConfirmDeleteCat] = useState<string | null>(null);
@@ -147,11 +177,7 @@ export default function Menu() {
       // categoría recién hecha ya seleccionada.
       if (categoryLeadsToProduct) {
         setCategoryLeadsToProduct(false);
-        setEditingProduct(null);
-        setPendingImage(null);
-        setModalError('');
-        setProductForm({ ...EMPTY_FORM, categoryId: created.data.data._id });
-        setShowProductModal(true);
+        openProductModal(null, created.data.data._id);
       }
     } catch (err) {
       setError(apiMessage(err, 'No pudimos crear la categoría.'));
@@ -206,10 +232,29 @@ export default function Menu() {
     openProductModal(null);
   };
 
-  const openProductModal = (product: Product | null = null) => {
+  /** La categoría con la que nace un producto: la filtrada, o la primera. */
+  const defaultCategoryId = () =>
+    categories.find((category) => category._id === filterCategory)?._id ??
+    categories[0]?._id ??
+    '';
+
+  /**
+   * Abre el formulario: el producto a editar, o el alta.
+   *
+   * El alta recupera el borrador de este navegador si lo hay. La categoría
+   * pedida (la que se acaba de crear para este producto) manda sobre la
+   * del borrador; la del borrador, sobre la filtrada, salvo que ya no
+   * exista.
+   */
+  const openProductModal = (product: Product | null = null, preferredCategoryId?: string) => {
     setPendingImage(null);
     setError('');
     setModalError('');
+    setNewExtra({ name: '', price: '' });
+    setDraftSavedAt(null);
+    setDraftRestoredFrom(null);
+    lastDraftRef.current = null;
+    draftClosedRef.current = false;
 
     if (product) {
       setEditingProduct(product);
@@ -224,12 +269,65 @@ export default function Menu() {
         extras: product.extras || [],
         modifierGroups: toDrafts(product.modifierGroups),
       });
+      setAdvancedOpen(Boolean(product.extras?.length || product.modifierGroups?.length));
     } else {
       setEditingProduct(null);
-      setProductForm({ ...EMPTY_FORM, categoryId: categories[0]?._id ?? '' });
+      const draft = businessId ? loadDraft(businessId) : null;
+
+      if (draft && isDraftWorthRestoring(draft, Date.now())) {
+        const draftCategoryExists = categories.some((category) => category._id === draft.form.categoryId);
+        const form = {
+          ...draft.form,
+          categoryId: preferredCategoryId ?? (draftCategoryExists ? draft.form.categoryId : defaultCategoryId()),
+        };
+        setProductForm(form);
+        setAdvancedOpen(form.extras.length > 0 || form.modifierGroups.length > 0);
+        setDraftRestoredFrom(draft.savedAt);
+        setDraftSavedAt(draft.savedAt);
+        lastDraftRef.current = JSON.stringify(form);
+      } else {
+        setProductForm({ ...EMPTY_PRODUCT_FORM, categoryId: preferredCategoryId ?? defaultCategoryId() });
+        setAdvancedOpen(false);
+      }
     }
     setShowProductModal(true);
   };
+
+  const closeProductForm = () => setShowProductModal(false);
+
+  /** "Empezar de cero": fuera el borrador y el formulario vuelve vacío, foto incluida. */
+  const discardDraft = () => {
+    if (businessId) clearDraft(businessId);
+    lastDraftRef.current = null;
+    setDraftRestoredFrom(null);
+    setDraftSavedAt(null);
+    setPendingImage(null);
+    setPhotoFieldKey((key) => key + 1);
+    setModalError('');
+    setNewExtra({ name: '', price: '' });
+    setAdvancedOpen(false);
+    setProductForm({ ...EMPTY_PRODUCT_FORM, categoryId: defaultCategoryId() });
+  };
+
+  // Autoguardado del alta, medio segundo después de la última tecla. La
+  // edición no se autoguarda: ver `lib/productDraft`.
+  useEffect(() => {
+    if (!showProductModal || editingProduct || !businessId) return;
+    const timer = setTimeout(() => {
+      if (draftClosedRef.current) return;
+      const serialized = JSON.stringify(productForm);
+      if (serialized === lastDraftRef.current) return;
+      lastDraftRef.current = serialized;
+
+      if (hasDraftContent(productForm)) {
+        setDraftSavedAt(saveDraft(businessId, productForm));
+      } else {
+        clearDraft(businessId);
+        setDraftSavedAt(null);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [productForm, showProductModal, editingProduct, businessId]);
 
   const handleAddExtra = () => {
     const price = Number(newExtra.price);
@@ -260,34 +358,18 @@ export default function Menu() {
     event.preventDefault();
     if (!businessId || saving) return;
 
-    const price = Number(productForm.price);
-    if (!Number.isFinite(price) || price <= 0) {
-      setModalError('Escribe un precio válido.');
+    // El botón nunca se apaga: si falta algo, lleva al campo que lo pide.
+    const pricing = readPricing(productForm);
+    if (!pricing.ok) {
+      setModalError(pricing.message);
+      document.getElementById(PRICING_INPUT[pricing.field])?.focus();
       return;
     }
-
-    // Un 0 escrito en el campo es "sin descuento", no un descuento de cero:
-    // enviarlo tal cual lo rechaza el validador, que exige un positivo.
-    const rawDiscount = Number(productForm.discountPrice);
-    const discount =
-      productForm.discountPrice.trim() && Number.isFinite(rawDiscount) && rawDiscount > 0
-        ? rawDiscount
-        : null;
-
-    if (discount !== null && discount >= price) {
-      setModalError('El precio con descuento tiene que ser menor que el precio regular.');
-      return;
-    }
-
-    // Vacío es "usa el tiempo general del negocio", no cero minutos.
-    const rawPrepTime = Number(productForm.prepTimeMinutes);
-    const prepTimeMinutes =
-      productForm.prepTimeMinutes.trim() && Number.isFinite(rawPrepTime) && rawPrepTime > 0
-        ? rawPrepTime
-        : null;
 
     const converted = fromDrafts(productForm.modifierGroups);
     if ('error' in converted) {
+      // Plegadas, el comercio vería el error sin ver el grupo que lo causa.
+      setAdvancedOpen(true);
       setModalError(converted.error);
       return;
     }
@@ -296,15 +378,18 @@ export default function Menu() {
       businessId,
       categoryId: productForm.categoryId,
       name: productForm.name.trim(),
-      description: productForm.description.trim() || undefined,
-      price,
-      discountPrice: discount,
-      prepTimeMinutes,
+      // Cadena vacía y no `undefined`: al editar, `undefined` es "no lo
+      // toques" y borrar la descripción no se guardaba nunca.
+      description: productForm.description.trim(),
+      price: pricing.price,
+      discountPrice: pricing.discountPrice,
+      prepTimeMinutes: pricing.prepTimeMinutes,
       requiresAgeVerification: productForm.requiresAgeVerification,
       extras: productForm.extras,
       modifierGroups: converted.groups,
     };
 
+    const creating = !editingProduct;
     setSaving(true);
     setModalError('');
     try {
@@ -313,6 +398,15 @@ export default function Menu() {
         : await api.post('/products', payload);
 
       const savedProduct = saved.data.data as Product;
+
+      // El alta ya está en el servidor: el borrador cumplió. La bandera va
+      // antes de borrarlo porque un autoguardado pendiente podría dispararse
+      // durante la subida de la foto y resucitarlo; al volver a "Nuevo
+      // producto" aparecería otra vez y se crearía repetido.
+      if (creating) {
+        draftClosedRef.current = true;
+        clearDraft(businessId);
+      }
 
       if (pendingImage) {
         try {
@@ -399,169 +493,170 @@ export default function Menu() {
     };
   });
 
-  const catalogList = useMemo(
-    () => (
-      <div className="space-y-8">
-        {categories.map((category) => {
-          const items = products.filter((product) => product.categoryId === category._id);
-          return (
-            <section key={category._id}>
-              <header className="mb-3 pb-2 flex items-center justify-between gap-3 border-b border-[var(--color-border)]">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <h2 className="text-sm font-bold text-[var(--color-text-main)] truncate">
-                    {category.name}
-                  </h2>
+  const catalogList = useMemo(() => {
+    const categoryName = new Map(categories.map((category) => [category._id, category.name]));
+    const order = new Map(categories.map((category, index) => [category._id, index]));
+    // Si la categoría filtrada ya no existe (se eliminó), se muestra todo.
+    const active = filterCategory && categoryName.has(filterCategory) ? filterCategory : null;
+    const sorted = products
+      .filter((product) => !active || product.categoryId === active)
+      .sort((x, y) => (order.get(x.categoryId) ?? 0) - (order.get(y.categoryId) ?? 0));
+    return (
+      <div className="space-y-6">
+        {categories.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-text-main)]">
+            <button
+              onClick={() => setFilterCategory(null)}
+              className={`text-xs px-3 py-1 rounded-full border transition-colors cursor-pointer ${
+                active === null
+                  ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                  : 'border-[var(--color-border)] text-[var(--color-text-main)]'
+              }`}
+            >
+              Todas
+            </button>
+            {categories.map((category) => (
+              <span key={category._id} className="inline-flex items-center gap-0.5">
+                <button
+                  onClick={() => setFilterCategory(category._id)}
+                  className={`text-xs px-3 py-1 rounded-full border transition-colors cursor-pointer ${
+                    active === category._id
+                      ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+                      : 'border-[var(--color-border)] text-[var(--color-text-main)]'
+                  }`}
+                >
+                  {category.name}
+                </button>
+                <button
+                  onClick={() => actions.current.deleteCategory(category._id)}
+                  title="Eliminar categoría"
+                  aria-label={`Eliminar la categoría ${category.name}`}
+                  className="p-1 rounded-md text-[var(--color-text-main)] hover:text-[var(--color-danger)] transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {sorted.length === 0 ? (
+          <p className="py-10 text-center text-sm font-medium text-[var(--color-text-main)]">
+            Aún no hay productos.
+          </p>
+        ) : (
+          <ul className="grid grid-cols-1 lg:grid-cols-2 lg:gap-x-10">
+            {sorted.map((product) => (
+              <li
+                key={product._id}
+                className="flex items-center gap-4 py-4 border-b border-[var(--color-border)]"
+              >
+                <SmartImage
+                  images={product.images}
+                  alt={product.name}
+                  base="thumb"
+                  sizes="72px"
+                  className="w-[72px] h-[72px] rounded-lg shrink-0"
+                />
+
+                <div className="flex-1 min-w-0 space-y-1">
+                  <h3 className="text-sm font-bold text-[var(--color-text-main)] leading-snug">
+                    {product.name}
+                  </h3>
+                  <p className="text-[11px] font-medium text-[var(--color-text-main)]">
+                    {categoryName.get(product.categoryId) ?? 'Sin categoría'}
+                    {product.prepTimeMinutes ? ` · ${product.prepTimeMinutes} min` : ''}
+                    {product.requiresAgeVerification ? ' · +18' : ''}
+                    {!product.images ? ' · Sin foto' : ''}
+                  </p>
+                  {product.description && (
+                    <p className="text-xs leading-snug text-[var(--color-text-main)] line-clamp-2">
+                      {product.description}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-bold">
+                    {product.promotedBy && (
+                      <a
+                        href={`/promotions?productId=${product._id}`}
+                        className="text-[var(--color-info)] flex items-center gap-1"
+                      >
+                        <Tag className="w-3 h-3" />
+                        En promoción
+                      </a>
+                    )}
+                    {!product.isAvailable && (
+                      <span className="text-[var(--color-danger)]">Agotado</span>
+                    )}
+                    {/* Solo aparece si el negocio lleva la cuenta.
+                        `null` es "no lo cuento" y no se muestra. */}
+                    {typeof product.stock === 'number' && (
+                      <span
+                        className={
+                          product.stock === 0
+                            ? 'text-[var(--color-danger)]'
+                            : product.stock <= (product.lowStockThreshold || 3)
+                              ? 'text-[var(--color-warning)]'
+                              : 'text-[var(--color-text-main)]'
+                        }
+                      >
+                        {product.stock === 0 ? 'Sin unidades' : `Quedan ${product.stock}`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="text-right shrink-0">
+                  {product.discountPrice ? (
+                    <>
+                      <p className="text-[11px] text-[var(--color-text-main)] line-through tabular">
+                        {money(product.price)}
+                      </p>
+                      <p className="text-base font-bold text-[var(--color-primary)] tabular">
+                        {money(product.discountPrice)}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-base font-bold text-[var(--color-text-main)] tabular">
+                      {money(product.price)}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
                   <button
-                    onClick={() => actions.current.deleteCategory(category._id)}
-                    title="Eliminar categoría"
-                    aria-label={`Eliminar la categoría ${category.name}`}
-                    className="p-1 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors cursor-pointer shrink-0"
+                    onClick={() => actions.current.toggle(product)}
+                    title={product.isAvailable ? 'Marcar como agotado' : 'Volver a ofrecerlo'}
+                    aria-label={`Cambiar disponibilidad de ${product.name}`}
+                    className="p-1 cursor-pointer hover:scale-105 transition-transform"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    {product.isAvailable ? (
+                      <ToggleRight className="w-6 h-6 text-[var(--color-primary)]" />
+                    ) : (
+                      <ToggleLeft className="w-6 h-6 text-[var(--color-text-main)]" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => actions.current.edit(product)}
+                    aria-label={`Editar ${product.name}`}
+                    className="p-2 rounded-md text-[var(--color-text-main)] hover:text-[var(--color-primary)] transition-colors cursor-pointer"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => actions.current.deleteProduct(product._id)}
+                    aria-label={`Eliminar ${product.name}`}
+                    className="p-2 rounded-md text-[var(--color-text-main)] hover:text-[var(--color-danger)] transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)] px-2.5 py-0.5 rounded-md bg-[var(--color-primary-bg)] border border-[var(--color-primary)]/30 shrink-0">
-                  {items.length} producto(s)
-                </span>
-              </header>
-
-              {items.length === 0 ? (
-                <p className="py-6 text-center text-xs font-medium text-[var(--color-text-muted)]">
-                  No hay productos en esta categoría.
-                </p>
-              ) : (
-                <div className="grid gap-2.5 grid-cols-4 sm:grid-cols-6 lg:grid-cols-8">
-                  {items.map((product) => (
-                    <div
-                      key={product._id}
-                      className="group relative flex flex-col gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 hover:border-[var(--color-primary)]/40 hover:shadow-[0_6px_14px_rgba(20,20,20,0.08)] transition-all"
-                    >
-                      <div className="flex items-start gap-1.5">
-                        {/* Miniatura pequeña, no toda la tarjeta: lo que
-                            hace falta ver es la información, no la foto. */}
-                        <SmartImage
-                          images={product.images}
-                          alt={product.name}
-                          base="thumb"
-                          sizes="40px"
-                          className="w-8 h-8 rounded-md shrink-0"
-                        />
-                        <h3 className="flex-1 min-w-0 text-[10px] font-bold text-[var(--color-text-main)] leading-tight">
-                          {product.name}
-                        </h3>
-                        <button
-                          onClick={() => actions.current.toggle(product)}
-                          title={product.isAvailable ? 'Marcar como agotado' : 'Volver a ofrecerlo'}
-                          aria-label={`Cambiar disponibilidad de ${product.name}`}
-                          className="cursor-pointer shrink-0 hover:scale-105 transition-transform"
-                        >
-                          {product.isAvailable ? (
-                            <ToggleRight className="w-4 h-4 text-[var(--color-primary)]" />
-                          ) : (
-                            <ToggleLeft className="w-4 h-4 text-[var(--color-text-muted)]" />
-                          )}
-                        </button>
-                      </div>
-
-                      {product.description && (
-                        <p className="text-[8px] leading-snug text-[var(--color-text-secondary)] line-clamp-2">
-                          {product.description}
-                        </p>
-                      )}
-
-                      <div className="flex flex-wrap gap-0.5">
-                        {product.promotedBy && (
-                          <a
-                            href={`/promotions?productId=${product._id}`}
-                            className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[var(--color-info-bg)] text-[var(--color-info)] flex items-center gap-0.5"
-                          >
-                            <Tag className="w-2 h-2" />
-                            En promoción
-                          </a>
-                        )}
-                        {!product.isAvailable && (
-                          <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-[var(--color-danger-bg)] text-[var(--color-danger)]">
-                            Agotado
-                          </span>
-                        )}
-                        {!product.images && (
-                          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-[var(--color-warning-bg)] text-[var(--color-warning)]">
-                            Sin foto
-                          </span>
-                        )}
-                        {product.requiresAgeVerification ? (
-                          <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-[var(--color-bg-alt)] text-[var(--color-text-main)] border border-[var(--color-border)]">
-                            +18
-                          </span>
-                        ) : null}
-                        {product.prepTimeMinutes ? (
-                          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)]">
-                            {product.prepTimeMinutes} min
-                          </span>
-                        ) : null}
-                        {/* Solo aparece si el negocio lleva la cuenta.
-                            `null` es "no lo cuento" y no se muestra. */}
-                        {typeof product.stock === 'number' && (
-                          <span
-                            className={`text-[8px] font-bold px-1 py-0.5 rounded ${
-                              product.stock === 0
-                                ? 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]'
-                                : product.stock <= (product.lowStockThreshold || 3)
-                                  ? 'bg-[var(--color-warning-bg)] text-[var(--color-warning)]'
-                                  : 'bg-[var(--color-bg-alt)] text-[var(--color-text-secondary)]'
-                            }`}
-                          >
-                            {product.stock === 0 ? 'Sin unidades' : `Quedan ${product.stock}`}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="mt-auto flex items-end justify-between gap-1 pt-0.5">
-                        <div>
-                          {product.discountPrice ? (
-                            <>
-                              <p className="text-[8px] text-[var(--color-text-muted)] line-through tabular">
-                                {money(product.price)}
-                              </p>
-                              <p className="text-xs font-bold text-[var(--color-primary)] tabular">
-                                {money(product.discountPrice)}
-                              </p>
-                            </>
-                          ) : (
-                            <p className="text-xs font-bold text-[var(--color-text-main)] tabular">
-                              {money(product.price)}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => actions.current.edit(product)}
-                            aria-label={`Editar ${product.name}`}
-                            className="p-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
-                          >
-                            <Edit className="w-2.5 h-2.5" />
-                          </button>
-                          <button
-                            onClick={() => actions.current.deleteProduct(product._id)}
-                            aria-label={`Eliminar ${product.name}`}
-                            className="p-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-2.5 h-2.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          );
-        })}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-    ),
-    [categories, products]
-  );
+    );
+  }, [categories, products, filterCategory]);
 
   if (!selectedBusiness) {
     return (
@@ -578,8 +673,38 @@ export default function Menu() {
 
   const noCategories = categories.length === 0;
 
+  // ── El formulario del producto, derivado de lo escrito ──
+  const savedImages = editingProduct?.images ?? null;
+  const hasPhoto = Boolean(pendingImage || savedImages);
+  const price = Number(productForm.price) > 0 ? Number(productForm.price) : null;
+  const rawOffer = Number(productForm.discountPrice);
+  /** Solo una oferta que la app aceptaría: positiva y menor que el precio. */
+  const offer = price && rawOffer > 0 && rawOffer < price ? rawOffer : null;
+  const ownPrepMinutes = Number(productForm.prepTimeMinutes) > 0 ? Number(productForm.prepTimeMinutes) : null;
+  const businessPrepMinutes =
+    typeof businessSettings?.deliveryTime === 'number' ? businessSettings.deliveryTime : null;
+  const photoState: PhotoState = pendingImage
+    ? { kind: 'pending', sourcePixels: pendingImage.sourcePixels, removeBackground: pendingImage.removeBackground }
+    : savedImages
+      ? {
+          kind: 'saved',
+          width: savedImages.width,
+          height: savedImages.height,
+          backgroundRemoved: savedImages.backgroundRemoved,
+        }
+      : { kind: 'none' };
+  const checks = productChecks(productForm, photoState, {
+    minDimension: capabilities?.minDimension ?? 500,
+    recommendedDimension: capabilities?.recommendedDimension ?? 1200,
+    canRemoveBackground: Boolean(capabilities?.backgroundRemoval),
+  });
+  const advancedSummary = describeAdvanced(productForm.extras.length, productForm.modifierGroups.length);
+
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Con el formulario abierto la lista se oculta (no se desmonta) y el
+          formulario ocupa el área de contenido, junto a la barra lateral. */}
+      <div className={showProductModal ? 'hidden' : 'space-y-6'}>
       <div className="page-header">
         <div>
           <h1 className="page-title">Menú y productos</h1>
@@ -605,9 +730,13 @@ export default function Menu() {
           */}
           <button
             onClick={startNewProduct}
-            className="px-1 py-2 text-xs font-bold text-[var(--color-primary-dark)] hover:text-[var(--color-primary)] transition-colors cursor-pointer"
+            className="inline-flex h-11 min-w-48 items-center justify-between gap-8 rounded-[11px] bg-[#ff2851] px-4 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#e92147] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff2851] cursor-pointer"
           >
-            + Nuevo producto
+            <span className="inline-flex items-center gap-3">
+              <SquarePlus className="h-[18px] w-[18px]" strokeWidth={2.5} aria-hidden="true" />
+              Nuevo producto
+            </span>
+            <ChevronDown className="h-[18px] w-[18px]" strokeWidth={2.5} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -652,6 +781,7 @@ export default function Menu() {
       ) : (
         catalogList
       )}
+      </div>
 
       {confirmDeleteCat && (
         <ConfirmDialog
@@ -734,51 +864,94 @@ export default function Menu() {
 
       {/* ── Producto ── */}
       {showProductModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 animate-fade-in">
-          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-2xl p-6 space-y-4">
-            <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-3">
-              <h3 className="text-base font-bold text-[var(--color-text-main)]">
-                {editingProduct ? 'Editar producto' : 'Nuevo producto'}
-              </h3>
-              <button
-                onClick={() => setShowProductModal(false)}
-                aria-label="Cerrar"
-                className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+        <form id="product-form" onSubmit={handleSaveProduct} className="animate-fade-in">
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] pb-4">
+            <div className="min-w-0">
+              <nav aria-label="Ruta" className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)]">
+                <Link to="/" className="transition-colors hover:text-[var(--color-text-main)]">
+                  Inicio
+                </Link>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <button
+                  type="button"
+                  onClick={closeProductForm}
+                  className="transition-colors hover:text-[var(--color-text-main)] cursor-pointer"
+                >
+                  Menú y productos
+                </button>
+              </nav>
+              <h1 className="page-title mt-1">{editingProduct ? 'Editar producto' : 'Nuevo producto'}</h1>
             </div>
+            <button
+              type="button"
+              onClick={closeProductForm}
+              aria-label="Cerrar"
+              className="p-2 rounded-lg text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
 
-            <form onSubmit={handleSaveProduct} className="space-y-4">
+          {/*
+            Tres columnas con líneas finas entre ellas y sin tarjetas: foto,
+            datos y lo que verá el cliente. Cada columna desplaza por dentro
+            y la barra del botón queda siempre a la vista.
+          */}
+          <div className="cols3 mt-5 [--cols3-offset:20rem] [--cols3-template:minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1fr)]">
+            {/* 1 · Foto */}
+            <section aria-labelledby="product-photo-title" className="space-y-5">
+              <h2 id="product-photo-title" className="col-title">Foto del producto</h2>
+
               <ProductImageField
+                key={photoFieldKey}
                 productId={editingProduct?._id ?? null}
                 businessId={businessId!}
-                images={editingProduct?.images ?? null}
+                images={savedImages}
                 imageAsset={editingProduct?.imageAsset ?? null}
                 capabilities={capabilities}
                 onPendingChange={setPendingImage}
                 onUpdated={onProductImageUpdated}
+                variant="hero"
               />
+
+              <div className="space-y-2.5 border-t border-[var(--color-border)] pt-4">
+                <h3 className="text-sm font-bold text-[var(--color-text-main)]">Recomendaciones</h3>
+                <ProductRecommendations checks={checks} />
+              </div>
 
               {/* Solo al editar: una galería sin portada no tiene sentido
                   y el servidor la rechaza. */}
               {editingProduct ? (
-                <ProductGalleryField
-                  productId={editingProduct._id}
-                  businessId={businessId!}
-                  images={editingProduct.galleryImages ?? []}
-                  publicIds={(editingProduct.gallery ?? []).map((g) => g.publicId)}
-                  hasCover={Boolean(editingProduct.images)}
-                  onUpdated={(updated) => onProductImageUpdated(updated as Product)}
-                />
+                <div className="border-t border-[var(--color-border)] pt-4">
+                  <ProductGalleryField
+                    productId={editingProduct._id}
+                    businessId={businessId!}
+                    images={editingProduct.galleryImages ?? []}
+                    publicIds={(editingProduct.gallery ?? []).map((g) => g.publicId)}
+                    hasCover={Boolean(editingProduct.images)}
+                    onUpdated={(updated) => onProductImageUpdated(updated as Product)}
+                  />
+                </div>
               ) : null}
+            </section>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 border-t border-[var(--color-border-light)] pt-4">
-                <Field label="Nombre" htmlFor="product-name">
+            {/* 2 · Datos */}
+            <section aria-label="Datos del producto" className="space-y-6">
+              <ProductProgress
+                progress={productProgress(productForm, hasPhoto)}
+                editing={Boolean(editingProduct)}
+              />
+
+              <div className="space-y-3">
+                <h2 className="col-title">Información esencial</h2>
+
+                <Field label="Nombre del producto" htmlFor="product-name">
                   <input
                     id="product-name"
                     type="text"
                     required
+                    minLength={2}
+                    maxLength={100}
                     value={productForm.name}
                     onChange={(event) =>
                       setProductForm({ ...productForm, name: event.target.value })
@@ -805,212 +978,305 @@ export default function Menu() {
                     ))}
                   </select>
                 </Field>
-              </div>
 
-              <Field label="Descripción" htmlFor="product-description">
-                <textarea
-                  id="product-description"
-                  value={productForm.description}
-                  maxLength={300}
-                  onChange={(event) =>
-                    setProductForm({ ...productForm, description: event.target.value })
-                  }
-                  placeholder="Detalle del plato o preparación…"
-                  className={`${inputClass} h-auto min-h-[60px] py-2.5 resize-y`}
-                />
-              </Field>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <Field label="Precio regular" htmlFor="product-price">
-                  <input
-                    id="product-price"
-                    type="number"
-                    required
-                    min={1}
-                    step={1}
-                    value={productForm.price}
+                <Field label="Descripción breve" htmlFor="product-description">
+                  <textarea
+                    id="product-description"
+                    value={productForm.description}
+                    maxLength={300}
                     onChange={(event) =>
-                      setProductForm({ ...productForm, price: event.target.value })
+                      setProductForm({ ...productForm, description: event.target.value })
                     }
-                    placeholder="25000"
-                    className={`${inputClass} tabular font-bold`}
+                    placeholder="Detalle del plato o preparación…"
+                    className={`${inputClass} h-auto min-h-[72px] py-2.5 resize-none`}
                   />
                 </Field>
+              </div>
+
+              <div className="space-y-3">
+                <h2 className="col-title">Precio y disponibilidad</h2>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Precio de venta regular" htmlFor="product-price">
+                    <NumericInput
+                      id="product-price"
+                      required
+                      value={productForm.price}
+                      onValueChange={(digits) => setProductForm({ ...productForm, price: digits })}
+                      placeholder="25.000"
+                      className={`${inputClass} tabular font-bold`}
+                    />
+                  </Field>
+
+                  <Field
+                    label="Precio de oferta (opcional)"
+                    htmlFor="product-discount"
+                    hint={
+                      editingProduct?.promotedBy
+                        ? 'Bloqueado: hay una promoción automática vigente sobre este producto. Edítala en Promociones.'
+                        : undefined
+                    }
+                  >
+                    <NumericInput
+                      id="product-discount"
+                      value={productForm.discountPrice}
+                      disabled={!!editingProduct?.promotedBy}
+                      onValueChange={(digits) => setProductForm({ ...productForm, discountPrice: digits })}
+                      placeholder="20.000"
+                      className={`${inputClass} tabular font-bold text-[var(--color-primary-dark)] disabled:opacity-50`}
+                    />
+                  </Field>
+                </div>
 
                 <Field
-                  label="Precio con descuento (opcional)"
-                  htmlFor="product-discount"
-                  hint={
-                    editingProduct?.promotedBy
-                      ? 'Bloqueado: hay una promoción automática vigente sobre este producto. Edítala en Promociones.'
-                      : undefined
-                  }
+                  label="Tiempo de preparación (opcional)"
+                  htmlFor="product-prep-time"
+                  hint={`Vacío usa el tiempo general del negocio${
+                    businessPrepMinutes ? ` (~${businessPrepMinutes} min)` : ''
+                  }.`}
                 >
-                  <input
-                    id="product-discount"
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={productForm.discountPrice}
-                    disabled={!!editingProduct?.promotedBy}
-                    onChange={(event) =>
-                      setProductForm({ ...productForm, discountPrice: event.target.value })
-                    }
-                    placeholder="20000"
-                    className={`${inputClass} tabular font-bold text-[var(--color-primary)] disabled:opacity-50`}
-                  />
+                  <div className="relative">
+                    <input
+                      id="product-prep-time"
+                      type="number"
+                      min={1}
+                      max={PREP_TIME_MAX}
+                      step={1}
+                      value={productForm.prepTimeMinutes}
+                      onChange={(event) =>
+                        setProductForm({ ...productForm, prepTimeMinutes: event.target.value })
+                      }
+                      placeholder="Ej.: 40"
+                      className={`${inputClass} pr-16 tabular font-bold`}
+                    />
+                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center gap-1.5 text-xs text-[var(--color-text-secondary)]">
+                      min
+                      <Clock className="h-4 w-4" aria-hidden />
+                    </span>
+                  </div>
                 </Field>
+
+                {/* Sin esta casilla el comercio no tenía cómo marcar sus
+                    licores: el campo existía en el servidor y solo se podía
+                    poner por API, así que la validación de edad nunca se
+                    activaba. */}
+                <fieldset>
+                  <legend className="mb-1.5 text-xs font-semibold text-[var(--color-text-main)]">
+                    Restricciones legales
+                  </legend>
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={productForm.requiresAgeVerification}
+                      onChange={(event) =>
+                        setProductForm({ ...productForm, requiresAgeVerification: event.target.checked })
+                      }
+                      className="mt-0.5 accent-[var(--color-primary)]"
+                    />
+                    <span className="text-xs text-[var(--color-text-main)]">
+                      Solo mayores de 18{' '}
+                      <span className="text-[var(--color-text-secondary)]">
+                        (licor o cigarrillos; se pide la cédula al entregar)
+                      </span>
+                    </span>
+                  </label>
+                </fieldset>
               </div>
 
-              <Field label="Tiempo de preparación (opcional)" htmlFor="product-prep-time">
-                <input
-                  id="product-prep-time"
-                  type="number"
-                  min={1}
-                  max={180}
-                  step={1}
-                  value={productForm.prepTimeMinutes}
-                  onChange={(event) =>
-                    setProductForm({ ...productForm, prepTimeMinutes: event.target.value })
-                  }
-                  placeholder="Ej.: 40"
-                  className={`${inputClass} tabular font-bold`}
-                />
-                <p className="text-[11px] text-[var(--color-text-secondary)] mt-1">
-                  Solo si este plato tarda distinto del resto. Vacío usa el tiempo general
-                  del negocio (en Ajustes).
-                </p>
-              </Field>
-
-              {/* Sin esta casilla el comercio no tenía cómo marcar sus
-                  licores: el campo existía en el servidor y solo se podía
-                  poner por API, así que la validación de edad nunca se
-                  activaba. */}
-              <label className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors">
-                <input
-                  type="checkbox"
-                  checked={productForm.requiresAgeVerification}
-                  onChange={(event) =>
-                    setProductForm({ ...productForm, requiresAgeVerification: event.target.checked })
-                  }
-                  className="mt-0.5 accent-[var(--color-primary)]"
-                />
-                <span className="min-w-0">
-                  <span className="block text-xs font-bold text-[var(--color-text-main)]">
-                    Solo mayores de 18
-                  </span>
-                  <span className="block text-[11px] text-[var(--color-text-muted)] mt-0.5 leading-relaxed">
-                    Licor o cigarrillos. Solo lo puede pedir quien tenga 18 años según su fecha de
-                    nacimiento, y el domiciliario le pide la cédula al entregar.
-                  </span>
-                </span>
-              </label>
-
-              <div className="border-t border-[var(--color-border-light)] pt-4 space-y-2">
-                <span className="block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                  Adiciones y extras
-                </span>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newExtra.name}
-                    onChange={(event) => setNewExtra({ ...newExtra, name: event.target.value })}
-                    placeholder="Nombre del extra (ej.: queso)"
-                    aria-label="Nombre del extra"
-                    className={`${inputClass} flex-1 h-9`}
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    value={newExtra.price}
-                    onChange={(event) => setNewExtra({ ...newExtra, price: event.target.value })}
-                    placeholder="3000"
-                    aria-label="Precio del extra"
-                    className={`${inputClass} w-24 h-9 tabular font-bold text-[var(--color-primary)]`}
-                  />
+              <div className="space-y-4 border-t border-[var(--color-border)] pt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 id="advanced-options-title" className="text-sm font-bold text-[var(--color-text-main)]">
+                      Opciones avanzadas
+                    </h2>
+                    <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
+                      Adiciones con precio y grupos de opciones para que el cliente elija.
+                    </p>
+                  </div>
                   <button
                     type="button"
-                    onClick={handleAddExtra}
-                    aria-label="Añadir extra"
-                    className="px-3 h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-surface-hover)] text-xs font-bold text-[var(--color-text-main)] cursor-pointer transition-colors"
+                    role="switch"
+                    aria-checked={advancedOpen}
+                    aria-labelledby="advanced-options-title"
+                    onClick={() => setAdvancedOpen((open) => !open)}
+                    className="shrink-0 p-1 cursor-pointer hover:scale-105 transition-transform"
                   >
-                    <Plus className="w-4 h-4" />
+                    {advancedOpen ? (
+                      <ToggleRight className="h-8 w-8 text-[var(--color-primary)]" />
+                    ) : (
+                      <ToggleLeft className="h-8 w-8 text-[var(--color-text-muted)]" />
+                    )}
                   </button>
                 </div>
 
-                {productForm.extras.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {productForm.extras.map((extra, index) => (
-                      <span
-                        key={`${extra.name}-${index}`}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-medium text-[var(--color-text-main)]"
-                      >
-                        {extra.name} (+{money(extra.price)})
+                {advancedOpen ? (
+                  <>
+                    <div className="space-y-2">
+                      <span className="block text-xs font-semibold text-[var(--color-text-main)]">
+                        Adiciones y extras
+                      </span>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newExtra.name}
+                          onChange={(event) => setNewExtra({ ...newExtra, name: event.target.value })}
+                          placeholder="Nombre del extra (ej.: queso)"
+                          aria-label="Nombre del extra"
+                          className={`${inputBase} min-w-0 flex-1 h-9`}
+                        />
+                        <NumericInput
+                          value={newExtra.price}
+                          onValueChange={(digits) => setNewExtra({ ...newExtra, price: digits })}
+                          placeholder="3.000"
+                          aria-label="Precio del extra"
+                          className={`${inputBase} w-28 shrink-0 h-9 tabular font-bold text-[var(--color-primary-dark)]`}
+                        />
                         <button
                           type="button"
-                          onClick={() => handleRemoveExtra(index)}
-                          aria-label={`Quitar ${extra.name}`}
-                          className="text-[var(--color-text-muted)] hover:text-[var(--color-danger)] cursor-pointer"
+                          onClick={handleAddExtra}
+                          aria-label="Añadir extra"
+                          className="px-3 h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-bold text-[var(--color-text-main)] cursor-pointer transition-colors"
                         >
-                          <X className="w-3.5 h-3.5" />
+                          <Plus className="w-4 h-4" />
                         </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
+                      </div>
+
+                      {productForm.extras.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {productForm.extras.map((extra, index) => (
+                            <span
+                              key={`${extra.name}-${index}`}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-medium text-[var(--color-text-main)]"
+                            >
+                              {extra.name} (+{money(extra.price)})
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveExtra(index)}
+                                aria-label={`Quitar ${extra.name}`}
+                                className="text-[var(--color-text-main)] hover:text-[var(--color-danger)] cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <ModifierGroupsEditor
+                      groups={productForm.modifierGroups}
+                      onChange={(modifierGroups) => setProductForm((previous) => ({ ...previous, modifierGroups }))}
+                    />
+                  </>
+                ) : advancedSummary ? (
+                  <p className="text-xs text-[var(--color-text-secondary)]">{advancedSummary}</p>
+                ) : null}
+              </div>
+            </section>
+
+            {/* 3 · Lo que verá el cliente */}
+            <aside aria-label="Vista previa y resumen" className="space-y-6">
+              <div className="space-y-2">
+                <h2 className="col-title">Vista previa</h2>
+                <p className="text-xs text-[var(--color-text-secondary)]">
+                  Así lo verá el cliente en la carta de tu negocio.
+                </p>
+                <ProductPreview
+                  name={productForm.name}
+                  description={productForm.description}
+                  price={price}
+                  discountPrice={offer}
+                  discountPercent={price ? discountPercent(price, offer) : null}
+                  prepMinutes={ownPrepMinutes ?? businessPrepMinutes}
+                  imageSrc={pendingImage?.previewUrl ?? savedImages?.catalog ?? null}
+                  businessCategory={businessSettings?.category}
+                />
               </div>
 
-              <ModifierGroupsEditor
-                groups={productForm.modifierGroups}
-                onChange={(modifierGroups) => setProductForm((previous) => ({ ...previous, modifierGroups }))}
+              <ProductSummary
+                name={productForm.name}
+                categoryName={categories.find((category) => category._id === productForm.categoryId)?.name ?? ''}
+                price={price}
+                discountPrice={offer}
+                discountPercent={price ? rawDiscountPercent(price, offer) : null}
+                ownPrepMinutes={ownPrepMinutes}
+                businessPrepMinutes={businessPrepMinutes}
+                requiresAgeVerification={productForm.requiresAgeVerification}
+                checklist={productChecklist(productForm, hasPhoto)}
+                draft={
+                  editingProduct
+                    ? null
+                    : {
+                        savedAt: draftSavedAt,
+                        restoredFrom: draftRestoredFrom,
+                        hasPendingPhoto: Boolean(pendingImage),
+                        onDiscard: discardDraft,
+                      }
+                }
               />
-
-              {modalError && (
-                <p role="alert" className="text-[11px] font-semibold text-[var(--color-danger)]">
-                  {modalError}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={saving}
-                className="w-full h-11 rounded-lg bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] text-white font-bold text-xs uppercase tracking-wider cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {saving
-                  ? 'Guardando…'
-                  : editingProduct
-                    ? 'Guardar cambios'
-                    : 'Crear producto'}
-              </button>
-            </form>
+            </aside>
           </div>
-        </div>
+
+          {/* Plana: mismo fondo que la página y una línea fina. El fondo solo
+              importa en pantallas angostas, donde la página sí desplaza. */}
+          <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] bg-[var(--color-bg)] py-3">
+            {modalError && (
+              <p role="alert" className="max-w-md text-center text-xs font-semibold text-[var(--color-danger)]">
+                {modalError}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={saving}
+              className="h-11 min-w-56 rounded-lg bg-[var(--color-primary)] px-8 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-[var(--color-primary-dark)] cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+            >
+              {saving ? 'Guardando…' : editingProduct ? 'Guardar cambios' : 'Crear producto'}
+            </button>
+          </div>
+        </form>
       )}
     </div>
   );
 }
 
-const inputClass =
-  'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-semibold text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors';
+/**
+ * El campo sin ancho. Va aparte porque `w-full` junto a `w-24` o `flex-1`
+ * en la misma clase no se resuelve por orden de escritura: el precio del
+ * extra se quedaba con toda la fila y el nombre, aplastado.
+ */
+const inputBase =
+  'h-10 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] px-3.5 text-sm font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors';
+
+const inputClass = `w-full ${inputBase}`;
+
+/** "Incluye 2 adiciones y 1 grupo de opciones…", o nada si no hay. */
+function describeAdvanced(extras: number, groups: number): string | null {
+  const parts = [
+    extras ? `${extras} ${extras === 1 ? 'adición' : 'adiciones'}` : null,
+    groups ? `${groups} ${groups === 1 ? 'grupo de opciones' : 'grupos de opciones'}` : null,
+  ].filter(Boolean);
+  return parts.length ? `Incluye ${parts.join(' y ')}. Se guardan igual aunque esta sección esté plegada.` : null;
+}
 
 function Field({
-  label, htmlFor, children, hint,
+  label, htmlFor, children, hint, className,
 }: {
   label: string;
   htmlFor: string;
   children: React.ReactNode;
   hint?: string;
+  className?: string;
 }) {
   return (
-    <div>
+    <div className={className}>
       <label
         htmlFor={htmlFor}
-        className="block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1.5"
+        className="mb-1.5 block text-xs font-semibold text-[var(--color-text-main)]"
       >
         {label}
       </label>
       {children}
-      {hint && <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">{hint}</p>}
+      {hint && <p className="mt-1 text-[11px] leading-snug text-[var(--color-text-secondary)]">{hint}</p>}
     </div>
   );
 }

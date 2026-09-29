@@ -110,10 +110,10 @@ export default function DailySummary() {
     <div className="space-y-6 animate-fade-in">
       <style>{`@media print { aside, header.sticky, .no-print { display: none !important; } @page { size: A4; margin: 12mm; } html, body, #root, main { height: auto !important; overflow: visible !important; background: #fff !important; } }`}</style>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="page-header">
         <div>
-          <h1 className="text-[28px] font-semibold tracking-[-0.035em] text-[var(--color-text-main)]">Resumen del día</h1>
-          <p className="mt-1 text-sm capitalize text-[var(--color-text-secondary)]">{longDate(date)}</p>
+          <h1 className="page-title">Resumen del día</h1>
+          <p className="page-subtitle capitalize">{longDate(date)}</p>
         </div>
         <div className="flex items-center gap-1 no-print">
           <button onClick={() => setDate((d) => shift(d, -1))} title="Día anterior"

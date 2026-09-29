@@ -111,7 +111,7 @@ export default function SessionsPanel({ businessId, members, filters, onFiltersC
         empty={!!data && data.sessions.length === 0}
       >
         <div className="table-container overflow-x-auto">
-          <table className="w-full min-w-[960px]">
+          <table className="data-grid min-w-[960px]">
             <thead>
               <tr>
                 <th className="table-header-cell text-left">Usuario</th>

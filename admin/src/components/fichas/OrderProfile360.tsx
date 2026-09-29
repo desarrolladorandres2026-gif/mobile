@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, AlertTriangle, UserPlus, UserMinus, RefreshCw, Ban, RotateCcw, BellRing } from 'lucide-react';
 import api from '../../services/api';
 import { apiErrorCode, apiMessage } from '../../lib/apiError';
@@ -127,6 +128,67 @@ function CodeState({ label, code }: { label: string; code: CodeStatusView | null
  if (code.usedAt) parts.push(dateTime(code.usedAt));
  else if (code.lockedUntil) parts.push(`bloqueado hasta ${dateTime(code.lockedUntil)}`);
  return <Fact label={label} value={parts.join(' · ')} />;
+}
+
+interface HandoffPhoto {
+ id: string;
+ type: 'pickup_evidence' | 'delivery_evidence';
+ url: string;
+ uploadedAt: string;
+}
+
+/**
+ * Fotos de recogida y entrega del pedido. Las URLs llegan firmadas del
+ * servidor en el momento de abrir la ficha; aquí no se guardan. Se piden
+ * aparte de la ficha porque son lo único pesado del traspaso.
+ */
+function HandoffPhotos({ orderId, count }: { orderId: string; count: number }) {
+ const [photos, setPhotos] = useState<HandoffPhoto[] | null>(null);
+ const [failed, setFailed] = useState(false);
+ const [preview, setPreview] = useState<string | null>(null);
+
+ useEffect(() => {
+ if (count === 0) return;
+ let alive = true;
+ api
+ .get(`/admin/orders/${orderId}/security`)
+ .then(({ data }) => alive && setPhotos(data.data.evidences ?? []))
+ .catch(() => alive && setFailed(true));
+ return () => {
+ alive = false;
+ };
+ }, [orderId, count]);
+
+ return (
+ <Sub title="Evidencias" empty="Sin fotos de recogida ni entrega.">
+ {count === 0 ? undefined : failed ? (
+ <ErrorLine>No se pudieron cargar las fotos.</ErrorLine>
+ ) : photos === null ? (
+ <p className="text-[var(--color-text-main)]">Cargando fotos…</p>
+ ) : (
+ <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+ {photos.map((ev) => (
+ <button key={ev.id} onClick={() => setPreview(ev.url)} className="cursor-zoom-in text-left">
+ <img src={ev.url} alt="" loading="lazy" decoding="async" className="h-32 w-full rounded-lg object-cover" />
+ <p className="mt-1 text-[10px] font-semibold text-[var(--color-text-main)]">
+ {ev.type === 'pickup_evidence' ? 'Recogida' : 'Entrega'} · {dateTime(ev.uploadedAt)}
+ </p>
+ </button>
+ ))}
+ </div>
+ )}
+ {preview &&
+ createPortal(
+ <div
+ className="fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center bg-black/70 p-4"
+ onClick={() => setPreview(null)}
+ >
+ <img src={preview} alt="Evidencia" className="max-h-full max-w-full rounded-xl" />
+ </div>,
+ document.body,
+ )}
+ </Sub>
+ );
 }
 
 export default function OrderProfile360({
@@ -728,14 +790,14 @@ export default function OrderProfile360({
  </Section>
 
  {data.handoff && (
- <Section title="Traspaso">
- <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-3">
- <CodeState label="Recogida" code={data.handoff.pickup} />
- <CodeState label="Entrega" code={data.handoff.delivery} />
- <Fact label="Evidencias" value={String(data.handoff.evidences)} />
+ <Section title="Evidencias y trazabilidad">
+ <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+ <CodeState label="Código de recogida" code={data.handoff.pickup} />
+ <CodeState label="Código de entrega" code={data.handoff.delivery} />
  </div>
+ <HandoffPhotos orderId={data.order._id} count={data.handoff.evidences} />
  <p className="text-[var(--color-text-main)]">
- Los códigos nunca se muestran aquí: solo su estado.
+ Los códigos nunca se muestran aquí: solo su estado. La bitácora del traspaso está en la línea de tiempo.
  </p>
  </Section>
  )}

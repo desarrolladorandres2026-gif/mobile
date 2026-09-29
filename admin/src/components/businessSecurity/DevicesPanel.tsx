@@ -46,7 +46,7 @@ export default function DevicesPanel({ businessId, members, onOpenDevice }: Prop
         empty={!!data && data.devices.length === 0}
       >
         <div className="table-container overflow-x-auto">
-          <table className="w-full min-w-[880px]">
+          <table className="data-grid min-w-[880px]">
             <thead>
               <tr>
                 <th className="table-header-cell text-left">Dispositivo</th>

@@ -12,6 +12,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import ProductMultiSelect from '../components/ProductMultiSelect';
 import DateRangeField from '../components/DateRangeField';
 import PromotionStatusBadge from '../components/PromotionStatusBadge';
+import NumericInput from '../components/NumericInput';
 
 /**
  * Promociones que crea el propio comercio.
@@ -275,11 +276,13 @@ export default function Promotions() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="page-title">Promociones</h1>
-        <p className="page-subtitle">
-          El descuento sale de tu liquidación, así que tú decides cuánto, sobre qué y hasta cuándo.
-        </p>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Promociones</h1>
+          <p className="page-subtitle">
+            El descuento sale de tu liquidación, así que tú decides cuánto, sobre qué y hasta cuándo.
+          </p>
+        </div>
       </div>
 
       <p className="text-xs text-[var(--color-text-secondary)] flex items-center gap-2">
@@ -298,7 +301,7 @@ export default function Promotions() {
         </div>
       )}
 
-      <div className="cols3">
+      <div className="cols3 [--cols3-template:repeat(2,minmax(0,1fr))]">
         <section className="space-y-4">
           <div className="flex items-center gap-2">
             <h2 className="col-title flex-1">{editingId ? 'Editar promoción' : 'Nueva promoción'}</h2>
@@ -369,39 +372,34 @@ export default function Promotions() {
                     label={codeForm.type === 'percentage' ? 'Porcentaje' : 'Monto'}
                     hint={codeForm.type === 'percentage' ? 'Entre 1 y 100' : 'En pesos'}
                   >
-                    <input
-                      type="number"
-                      min={1}
+                    <NumericInput
                       value={codeForm.value}
-                      onChange={(e) => setCodeForm({ ...codeForm, value: Number(e.target.value) })}
+                      onValueChange={(d) => setCodeForm({ ...codeForm, value: Number(d) })}
                       className={inputClass}
                     />
                   </Field>
                 )}
 
                 <Field label="Pedido mínimo" hint="Cero: sin mínimo">
-                  <input
-                    type="number" min={0} step={1000}
+                  <NumericInput
                     value={codeForm.minOrderAmount}
-                    onChange={(e) => setCodeForm({ ...codeForm, minOrderAmount: Number(e.target.value) })}
+                    onValueChange={(d) => setCodeForm({ ...codeForm, minOrderAmount: Number(d) })}
                     className={inputClass}
                   />
                 </Field>
 
                 <Field label="Presupuesto máximo" hint="Cero: sin tope">
-                  <input
-                    type="number" min={0} step={10000}
+                  <NumericInput
                     value={codeForm.budgetLimit}
-                    onChange={(e) => setCodeForm({ ...codeForm, budgetLimit: Number(e.target.value) })}
+                    onValueChange={(d) => setCodeForm({ ...codeForm, budgetLimit: Number(d) })}
                     className={inputClass}
                   />
                 </Field>
 
                 <Field label="Usos totales" hint="Cero: ilimitado">
-                  <input
-                    type="number" min={0}
+                  <NumericInput
                     value={codeForm.usageLimit}
-                    onChange={(e) => setCodeForm({ ...codeForm, usageLimit: Number(e.target.value) })}
+                    onValueChange={(d) => setCodeForm({ ...codeForm, usageLimit: Number(d) })}
                     className={inputClass}
                   />
                 </Field>
@@ -449,25 +447,22 @@ export default function Promotions() {
                   </select>
                 </Field>
                 <Field label={autoForm.type === 'percentage' ? 'Porcentaje' : 'Monto'}>
-                  <input
-                    type="number" min={1}
+                  <NumericInput
                     value={autoForm.value}
-                    onChange={(e) => setAutoForm({ ...autoForm, value: Number(e.target.value) })}
+                    onValueChange={(d) => setAutoForm({ ...autoForm, value: Number(d) })}
                     className={inputClass}
                   />
                 </Field>
+                {autoForm.type === 'percentage' && (
+                  <Field label="Tope del descuento" hint="En pesos. Cero: sin tope">
+                    <NumericInput
+                      value={autoForm.maxDiscountAmount}
+                      onValueChange={(d) => setAutoForm({ ...autoForm, maxDiscountAmount: Number(d) })}
+                      className={inputClass}
+                    />
+                  </Field>
+                )}
               </div>
-
-              {autoForm.type === 'percentage' && (
-                <Field label="Tope del descuento" hint="En pesos. Cero: sin tope">
-                  <input
-                    type="number" min={0} step={1000}
-                    value={autoForm.maxDiscountAmount}
-                    onChange={(e) => setAutoForm({ ...autoForm, maxDiscountAmount: Number(e.target.value) })}
-                    className={inputClass}
-                  />
-                </Field>
-              )}
 
               <DateRangeField
                 from={autoForm.validFrom}
@@ -494,6 +489,7 @@ export default function Promotions() {
           )}
         </section>
 
+        <div className="space-y-6">
         {([
           { key: 'active', title: 'Activas', list: active },
           { key: 'rest', title: 'Programadas, finalizadas y desactivadas', list: rest },
@@ -607,6 +603,7 @@ export default function Promotions() {
             )}
           </section>
         ))}
+        </div>
       </div>
 
       {confirmDeleteId && (

@@ -582,6 +582,40 @@ describe('4b · Promoción automática por producto', () => {
     expectBalanced(quote);
   });
 
+  it('si el cliente ya agotó su cupo personal, la promo no se cotiza (no bloquea el pedido)', async () => {
+    const { client, business, product } = await baseScenario({
+      driverBaseFee: 4300,
+      driverMinFee: 4300,
+    });
+
+    const promo = await makeCoupon({
+      type: CouponType.FIXED,
+      value: 6000,
+      fundedBy: CouponFundedBy.BUSINESS,
+      scope: CouponScope.PRODUCT,
+      businessId: business._id,
+      autoApply: true,
+      productIds: [product._id],
+      perUserLimit: 1,
+    });
+
+    const input = quoteInput(client._id.toString(), business._id.toString(), product._id.toString());
+    const first = await pricingService.quote(input);
+    expect(first.promotionDiscount).toBe(6000);
+
+    const { CouponRedemption } = await import('../models');
+    await CouponRedemption.create({
+      couponId: promo._id,
+      userId: client._id,
+      orderId: business._id, // id cualquiera: solo cuenta el canje
+      discountAmount: 6000,
+    });
+
+    const second = await pricingService.quote(input);
+    expect(second.promotionDiscount).toBe(0);
+    expectBalanced(second);
+  });
+
   it('fuera de vigencia no descuenta', async () => {
     const { client, business, product } = await baseScenario({
       driverBaseFee: 4300,

@@ -26,6 +26,8 @@ interface Business {
   suspensionReason?: string;
   isApproved?: boolean;
   isArchived?: boolean;
+  /** Portada del negocio; también decora el encabezado de cada página. */
+  coverImage?: string | null;
 }
 
 /**

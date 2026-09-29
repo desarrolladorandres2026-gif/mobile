@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  ImagePlus, Pencil, Sparkles, Trash2, AlertCircle, RefreshCw, Info, Scissors, Undo2,
+  ImagePlus, Pencil, Sparkles, Trash2, AlertCircle, RefreshCw, Info, Scissors, Undo2, Crop, RotateCw,
 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
@@ -8,6 +8,10 @@ import {
   ACTION_LABEL, isImageInProgress, productImageFileName, productImageStatus, type BackgroundAction,
 } from '../lib/productImageStatus';
 import ImageEditor from './ImageEditor';
+import {
+  cropSourcePixels, rotateCrop, type CropResult, type CropTransform,
+} from '../lib/cropGeometry';
+import { renderCrop } from '../lib/cropRender';
 import SmartImage, { type ProductImages } from './SmartImage';
 import type { Product } from '../lib/catalog';
 
@@ -54,6 +58,16 @@ export interface ImageCapabilities {
 export interface PendingProductImage {
   blob: Blob;
   removeBackground: boolean;
+  /** Medidas del archivo que se va a subir. */
+  width: number;
+  height: number;
+  /** Píxeles de la foto original dentro del recorte: lo que decide la nitidez. */
+  sourcePixels: number;
+  /**
+   * URL local del recorte, para pintarlo fuera del campo (la vista previa).
+   * Vive lo que vive este campo: la libera al cambiar de foto o al desmontarse.
+   */
+  previewUrl: string;
 }
 
 /** Cada cuánto se pregunta por un recorte en curso. */
@@ -71,6 +85,8 @@ interface Props {
   onPendingChange: (pending: PendingProductImage | null) => void;
   /** El producto ya guardado que devuelve el servidor tras cada cambio. */
   onUpdated: (product: Product) => void;
+  /** Presentación amplia para el alta de productos. */
+  variant?: 'default' | 'hero';
 }
 
 export default function ProductImageField({
@@ -81,13 +97,25 @@ export default function ProductImageField({
   capabilities,
   onPendingChange,
   onUpdated,
+  variant = 'default',
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  /** La foto abierta en el editor. */
   const [file, setFile] = useState<File | null>(null);
+  /** Encuadre con el que se abre el editor; vacío es el de partida. */
+  const [editorInitial, setEditorInitial] = useState<CropTransform | undefined>(undefined);
   const [pendingPreview, setPendingPreview] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'upload' | 'enhance' | 'delete' | 'background' | null>(null);
+  /**
+   * La foto original del recorte pendiente y cómo se encuadró.
+   *
+   * Se conservan para "Recortar" y "Girar": los dos rehacen el recorte
+   * desde la original, no desde el archivo ya exportado.
+   */
+  const [pending, setPending] = useState<{ source: File; crop: CropResult; blob: Blob } | null>(null);
+  const [busy, setBusy] = useState<'upload' | 'enhance' | 'delete' | 'background' | 'rotate' | null>(null);
   const [error, setError] = useState('');
+  const [dragging, setDragging] = useState(false);
   /**
    * Quitar el fondo al subir. Marcado por defecto: la función tiene que
    * sentirse automática, y desmarcarlo antes de subir es la forma de no
@@ -140,21 +168,24 @@ export default function ProductImageField({
     return () => { if (pendingPreview) URL.revokeObjectURL(pendingPreview); };
   }, [pendingPreview]);
 
-  const accept = capabilities?.acceptedFormats?.join(',') || 'image/jpeg,image/png,image/webp';
+  const acceptedFormats = capabilities?.acceptedFormats?.length
+    ? capabilities.acceptedFormats
+    : ['image/jpeg', 'image/png', 'image/webp'];
+  const accept = acceptedFormats.join(',');
   const maxMb = capabilities ? Math.round(capabilities.maxBytes / (1024 * 1024)) : 8;
+  const requirements = `JPG, PNG o WEBP · mínimo ${capabilities?.minDimension ?? 500} px · hasta ${maxMb} MB`;
 
   const pick = () => {
     setError('');
     inputRef.current?.click();
   };
 
-  const onFileChosen = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const chosen = event.target.files?.[0];
-    // El mismo archivo dos veces seguidas no dispara `change` si no se
-    // limpia el valor: pasa siempre que alguien cancela el recorte y
-    // vuelve a elegir la misma foto.
-    event.target.value = '';
-    if (!chosen) return;
+  /** Una foto nueva, elegida o soltada: al editor, con el encuadre de partida. */
+  const takeFile = (chosen: File) => {
+    if (!acceptedFormats.includes(chosen.type)) {
+      setError('Ese archivo no es una foto JPG, PNG o WEBP.');
+      return;
+    }
 
     if (capabilities && chosen.size > capabilities.maxBytes) {
       setError(
@@ -165,22 +196,72 @@ export default function ProductImageField({
     }
 
     setError('');
+    setEditorInitial(undefined);
     setFile(chosen);
   };
 
-  /** Sale del editor con el recorte hecho. */
-  const onCropped = async (blob: Blob) => {
+  const onFileChosen = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const chosen = event.target.files?.[0];
+    // El mismo archivo dos veces seguidas no dispara `change` si no se
+    // limpia el valor: pasa siempre que alguien cancela el recorte y
+    // vuelve a elegir la misma foto.
+    event.target.value = '';
+    if (chosen) takeFile(chosen);
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    setDragging(false);
+    const dropped = event.dataTransfer.files?.[0];
+    if (dropped) takeFile(dropped);
+  };
+
+  /** Un recorte terminado, venga del editor o de "Girar". */
+  const acceptCrop = async (blob: Blob, crop: CropResult, source: File) => {
     setFile(null);
 
     if (!productId) {
       // Producto nuevo: se guarda para subirlo en cuanto exista.
       if (pendingPreview) URL.revokeObjectURL(pendingPreview);
-      setPendingPreview(URL.createObjectURL(blob));
-      onPendingChange({ blob, removeBackground: removeBackground && canRemoveBackground });
+      const previewUrl = URL.createObjectURL(blob);
+      setPendingPreview(previewUrl);
+      setPending({ source, crop, blob });
+      onPendingChange({
+        blob,
+        removeBackground: removeBackground && canRemoveBackground,
+        width: crop.width,
+        height: crop.height,
+        sourcePixels: cropSourcePixels(crop),
+        previewUrl,
+      });
       return;
     }
 
     await upload(blob);
+  };
+
+  /** Reabre el editor sobre la original, con el encuadre que ya tenía. */
+  const recrop = () => {
+    if (!pending) return;
+    setError('');
+    setEditorInitial(pending.crop.transform);
+    setFile(pending.source);
+  };
+
+  /** Gira 90° a la derecha sin abrir el editor. */
+  const rotatePending = async () => {
+    if (!pending) return;
+    setBusy('rotate');
+    setError('');
+    try {
+      const transform = rotateCrop(pending.crop.transform);
+      const blob = await renderCrop(pending.source, transform);
+      if (blob) await acceptCrop(blob, { ...pending.crop, transform }, pending.source);
+    } catch (err) {
+      setError(apiMessage(err, 'No pudimos girar la foto.'));
+    } finally {
+      setBusy(null);
+    }
   };
 
   const upload = async (blob: Blob) => {
@@ -201,6 +282,7 @@ export default function ProductImageField({
       });
       onUpdated(data.data);
       onPendingChange(null);
+      setPending(null);
       if (pendingPreview) {
         URL.revokeObjectURL(pendingPreview);
         setPendingPreview(null);
@@ -258,6 +340,7 @@ export default function ProductImageField({
     if (!productId || !images) {
       if (pendingPreview) URL.revokeObjectURL(pendingPreview);
       setPendingPreview(null);
+      setPending(null);
       onPendingChange(null);
       return;
     }
@@ -278,12 +361,13 @@ export default function ProductImageField({
   // ── Editor abierto ──
   if (file) {
     return (
-      <Frame>
+      <Frame variant={variant}>
         <ImageEditor
           file={file}
+          initial={editorInitial}
           busy={busy === 'upload'}
           onCancel={() => setFile(null)}
-          onConfirm={onCropped}
+          onConfirm={(blob, crop) => acceptCrop(blob, crop, file)}
           extras={
             // Solo si el servidor puede hacerlo: un botón que falla
             // siempre es peor que no tenerlo.
@@ -300,7 +384,7 @@ export default function ProductImageField({
                     <Scissors className="w-3.5 h-3.5 text-[var(--color-primary)]" />
                     Quitar el fondo
                   </span>
-                  <span className="block text-[11px] text-[var(--color-text-muted)] mt-0.5 leading-relaxed">
+                  <span className="block text-[11px] text-[var(--color-text-main)] mt-0.5 leading-relaxed">
                     Dejamos solo el producto, centrado en el catálogo. Tu foto
                     original se conserva y puedes volver a ella.
                   </span>
@@ -314,38 +398,68 @@ export default function ProductImageField({
   }
 
   const hasSomething = Boolean(images || pendingPreview);
+  const fileInput = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept={accept}
+      onChange={onFileChosen}
+      className="hidden"
+    />
+  );
 
   // ── Sin imagen ──
   if (!hasSomething) {
+    const hero = variant === 'hero';
     return (
-      <Frame>
-        <input
-          ref={inputRef}
-          type="file"
-          accept={accept}
-          onChange={onFileChosen}
-          className="hidden"
-        />
+      <Frame variant={variant}>
+        {fileInput}
 
         <button
           type="button"
           onClick={pick}
+          onDragOver={(event) => {
+            event.preventDefault();
+            if (!dragging) setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
           disabled={capabilities?.enabled === false || busy === 'upload'}
-          className="w-full rounded-2xl border border-dashed border-[var(--color-border-strong)] hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors py-8 flex flex-col items-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+          className={`w-full rounded-2xl border border-dashed transition-colors flex flex-col items-center justify-center cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] ${
+            dragging
+              ? 'border-[var(--color-primary)] bg-[var(--color-primary-bg)]'
+              : 'border-[var(--color-border-strong)]'
+          } ${hero ? 'mx-auto max-w-[300px] aspect-square px-6 gap-1.5' : 'py-8 gap-2'}`}
         >
           {busy === 'upload' ? (
-            <RefreshCw className="w-6 h-6 text-[var(--color-primary)] animate-spin" />
+            <RefreshCw className={`${hero ? 'w-8 h-8' : 'w-6 h-6'} text-[var(--color-primary)] animate-spin`} />
           ) : (
-            <ImagePlus className="w-6 h-6 text-[var(--color-primary)]" />
+            <ImagePlus className={`${hero ? 'w-8 h-8' : 'w-6 h-6'} text-[var(--color-primary)]`} />
           )}
-          <span className="text-xs font-bold text-[var(--color-text-main)]">
-            {busy === 'upload' ? 'Subiendo…' : 'Agregar imagen'}
+          <span className={`${hero ? 'text-sm' : 'text-xs'} font-bold text-[var(--color-text-main)]`}>
+            {busy === 'upload' ? 'Subiendo…' : hero ? 'Selecciona la foto que quieres cargar' : 'Agregar imagen'}
           </span>
-          <span className="text-[11px] text-[var(--color-text-muted)] px-6 text-center">
-            {capabilities?.enabled === false
-              ? 'La subida de imágenes no está disponible en este entorno.'
-              : `JPG, PNG o WEBP · mínimo ${capabilities?.minDimension ?? 500} px · hasta ${maxMb} MB`}
-          </span>
+          {hero && !busy ? (
+            <span className="text-xs text-[var(--color-text-secondary)]">O arrástrala y suéltala aquí</span>
+          ) : null}
+          {capabilities?.enabled === false ? (
+            <span className="text-[11px] text-[var(--color-text-main)] px-6 text-center font-bold">
+              La subida de imágenes no está disponible en este entorno.
+            </span>
+          ) : hero ? (
+            <>
+              <span className="mt-2 rounded-lg bg-[var(--color-primary)] px-7 py-2 text-xs font-bold text-white">
+                Seleccionar foto
+              </span>
+              <span className="mt-2 text-[11px] text-[var(--color-text-secondary)] text-center">
+                {requirements}
+              </span>
+            </>
+          ) : (
+            <span className="text-[11px] text-[var(--color-text-main)] px-6 text-center font-bold">
+              {requirements}
+            </span>
+          )}
         </button>
 
         {error && <FieldError message={error} />}
@@ -357,17 +471,131 @@ export default function ProductImageField({
   const caption = pendingPreview
     ? 'Se subirá al guardar el producto.'
     : status.message ?? 'Así se verá en el catálogo de ZIPP.';
+  // Solo sobre la foto que aún no ha salido del navegador: reencuadrar una
+  // ya subida es otra subida y otro recorte de fondo (con tope diario).
+  const canReframe = Boolean(pendingPreview && pending);
+
+  const actions = (
+    <>
+      {canReframe && (
+        <>
+          <Action icon={Crop} label="Recortar" onClick={recrop} disabled={!!busy} />
+          <Action icon={RotateCw} label="Girar" onClick={rotatePending} disabled={!!busy} />
+        </>
+      )}
+
+      <Action icon={Pencil} label="Cambiar" onClick={pick} disabled={!!busy} />
+
+      {/*
+        Las acciones del recorte y "Mejorar" solo tienen sentido sobre
+        una imagen que ya está en el servidor: son ajustes de la
+        entrega, no del archivo local.
+      */}
+      {images && !pendingPreview && status.action && (
+        <Action
+          icon={status.action === 'use-original' ? Undo2 : Scissors}
+          label={ACTION_LABEL[status.action]}
+          onClick={() => runBackgroundAction(status.action!)}
+          disabled={!!busy}
+          active={status.action === 'retry'}
+        />
+      )}
+
+      {images && !pendingPreview && (
+        <Action
+          icon={Sparkles}
+          label={images.enhanced ? 'Mejora activada' : 'Mejorar'}
+          onClick={toggleEnhance}
+          disabled={!!busy}
+          active={images.enhanced}
+        />
+      )}
+
+      <Action
+        icon={Trash2}
+        label="Eliminar"
+        onClick={removeImage}
+        disabled={!!busy}
+        danger
+      />
+    </>
+  );
+
+  const enhancedNote = images?.enhanced && !pendingPreview ? (
+    <p className="flex items-start gap-1.5 text-[10px] text-[var(--color-text-main)] leading-relaxed">
+      <Info className="w-3 h-3 mt-px shrink-0" />
+      Ajustamos luz, contraste y balance de blancos. Tu foto original
+      se conserva: puedes desactivarlo cuando quieras.
+    </p>
+  ) : null;
+
+  // ── Con imagen, en grande: el alta y la edición del producto ──
+  if (variant === 'hero') {
+    const details = pendingPreview && pending
+      ? `${pending.crop.width} × ${pending.crop.height} px · ${formatBytes(pending.blob.size)} · ${formatLabel(pending.blob.type)}`
+      : images
+        ? `${images.width} × ${images.height} px`
+        : '';
+
+    return (
+      <Frame variant={variant}>
+        {fileInput}
+
+        {details && (
+          <p className="text-center text-[11px] text-[var(--color-text-secondary)]">
+            Detalles de imagen:{' '}
+            <span className="font-semibold text-[var(--color-text-main)] tabular">{details}</span>
+          </p>
+        )}
+
+        <div className="relative mx-auto w-full max-w-[300px]">
+          {pendingPreview ? (
+            <img
+              src={pendingPreview}
+              alt="Vista previa del producto"
+              className="w-full aspect-square rounded-2xl object-cover bg-[var(--color-bg-alt)]"
+            />
+          ) : (
+            <SmartImage
+              images={images}
+              alt="Producto"
+              base="detail"
+              sizes="300px"
+              priority
+              className="w-full aspect-square rounded-2xl"
+            />
+          )}
+
+          {showSpinner && (
+            <div className="absolute inset-0 rounded-2xl bg-black/45 grid place-items-center">
+              <RefreshCw className="w-6 h-6 text-white animate-spin" />
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap justify-center gap-1.5">{actions}</div>
+
+        <p
+          className={`text-center text-[11px] leading-relaxed ${
+            !pendingPreview && status.tone === 'warning'
+              ? 'font-semibold text-[var(--color-warning)]'
+              : 'text-[var(--color-text-secondary)]'
+          }`}
+          aria-live="polite"
+        >
+          {caption}
+        </p>
+
+        {enhancedNote}
+        {error && <FieldError message={error} />}
+      </Frame>
+    );
+  }
 
   // ── Con imagen: vista previa y acciones ──
   return (
-    <Frame>
-      <input
-        ref={inputRef}
-        type="file"
-        accept={accept}
-        onChange={onFileChosen}
-        className="hidden"
-      />
+    <Frame variant={variant}>
+      {fileInput}
 
       <div className="flex items-start gap-4">
         <div className="relative shrink-0">
@@ -401,57 +629,16 @@ export default function ProductImageField({
             className={`text-[11px] leading-relaxed ${
               !pendingPreview && status.tone === 'warning'
                 ? 'font-semibold text-[var(--color-warning)]'
-                : 'text-[var(--color-text-muted)]'
+                : 'text-[var(--color-text-main)]'
             }`}
             aria-live="polite"
           >
             {caption}
           </p>
 
-          <div className="flex flex-wrap gap-1.5">
-            <Action icon={Pencil} label="Cambiar" onClick={pick} disabled={!!busy} />
+          <div className="flex flex-wrap gap-1.5">{actions}</div>
 
-            {/*
-              Las acciones del recorte y "Mejorar" solo tienen sentido sobre
-              una imagen que ya está en el servidor: son ajustes de la
-              entrega, no del archivo local.
-            */}
-            {images && !pendingPreview && status.action && (
-              <Action
-                icon={status.action === 'use-original' ? Undo2 : Scissors}
-                label={ACTION_LABEL[status.action]}
-                onClick={() => runBackgroundAction(status.action!)}
-                disabled={!!busy}
-                active={status.action === 'retry'}
-              />
-            )}
-
-            {images && (
-              <Action
-                icon={Sparkles}
-                label={images.enhanced ? 'Mejora activada' : 'Mejorar'}
-                onClick={toggleEnhance}
-                disabled={!!busy}
-                active={images.enhanced}
-              />
-            )}
-
-            <Action
-              icon={Trash2}
-              label="Eliminar"
-              onClick={removeImage}
-              disabled={!!busy}
-              danger
-            />
-          </div>
-
-          {images?.enhanced && (
-            <p className="flex items-start gap-1.5 text-[10px] text-[var(--color-text-muted)] leading-relaxed">
-              <Info className="w-3 h-3 mt-px shrink-0" />
-              Ajustamos luz, contraste y balance de blancos. Tu foto original
-              se conserva: puedes desactivarlo cuando quieras.
-            </p>
-          )}
+          {enhancedNote}
         </div>
       </div>
 
@@ -462,12 +649,26 @@ export default function ProductImageField({
 
 // ── Piezas ─────────────────────────────────────────────────────────────
 
-function Frame({ children }: { children: React.ReactNode }) {
+/** 318 KB · 1,2 MB */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toLocaleString('es-CO', { maximumFractionDigits: 1 })} MB`;
+}
+
+/** image/jpeg → JPG */
+function formatLabel(type: string): string {
+  const subtype = type.split('/')[1] ?? '';
+  return subtype === 'jpeg' ? 'JPG' : subtype.toUpperCase();
+}
+
+function Frame({ children, variant = 'default' }: { children: React.ReactNode; variant?: 'default' | 'hero' }) {
   return (
-    <div className="space-y-2.5">
-      <span className="block text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
-        Foto del producto
-      </span>
+    <div className={variant === 'hero' ? 'space-y-3' : 'space-y-2.5'}>
+      {variant === 'default' ? (
+        <span className="block text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+          Foto del producto
+        </span>
+      ) : null}
       {children}
     </div>
   );
@@ -487,7 +688,7 @@ function Action({
     ? 'text-[var(--color-danger)] border-[var(--color-danger)]/30 hover:bg-[var(--color-danger-bg)]'
     : active
       ? 'text-[var(--color-primary)] border-[var(--color-primary)]/40 bg-[var(--color-primary-bg)]'
-      : 'text-[var(--color-text-secondary)] border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]';
+      : 'text-[var(--color-text-main)] border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]';
 
   return (
     <button

@@ -402,12 +402,12 @@ export class PricingService {
    * línea, para que un tope (`maxDiscountAmount`) se aplique al conjunto y
    * no se triplique si el cliente pidió tres unidades en líneas separadas.
    */
-  private applyAutoPromotions(
+  private async applyAutoPromotions(
     pricedItems: PricedItem[],
     autoPromotions: Map<string, ICoupon>,
     input: { userId: string; businessId: string },
     cfg: IPlatformPricingConfig
-  ): { appliedAutoPromotions: Array<{ couponId: string; discountAmount: number }>; autoPromotionDiscount: number } {
+  ): Promise<{ appliedAutoPromotions: Array<{ couponId: string; discountAmount: number }>; autoPromotionDiscount: number }> {
     const groups = new Map<string, { coupon: ICoupon; base: number }>();
 
     for (const item of pricedItems) {
@@ -424,6 +424,7 @@ export class PricingService {
     let autoPromotionDiscount = 0;
 
     for (const { coupon, base } of groups.values()) {
+      if (!(await couponService.autoPromotionUsableBy(coupon, input.userId, base))) continue;
       const applied = couponService.computeDiscount(
         coupon,
         {
@@ -694,7 +695,7 @@ export class PricingService {
     // de saber si el cliente trae un cupón. `priceItems()` no sabe nada de
     // esto a propósito — ver la nota en `applyAutoPromotions`.
     const autoPromos = await couponService.autoPromotionsFor(input.businessId, new Date());
-    const { appliedAutoPromotions, autoPromotionDiscount } = this.applyAutoPromotions(
+    const { appliedAutoPromotions, autoPromotionDiscount } = await this.applyAutoPromotions(
       pricedItems,
       autoPromos,
       input,
@@ -992,7 +993,11 @@ export class PricingService {
     const settle = (coupon: AppliedCoupon | null) =>
       this.settleDiscounts({
         coupon,
-        productSubtotal: parts.productSubtotal,
+        // `parts.productSubtotal` viene neto de la promoción (base de los
+        // cupones candidatos); el reparto necesita el bruto, igual que
+        // `quote()`, o la comisión y el umbral de envío gratis restarían
+        // la promoción dos veces.
+        productSubtotal: parts.productSubtotal + parts.autoPromotionMerchantFunded,
         autoPromotionMerchantFunded: parts.autoPromotionMerchantFunded,
         deliveryCustomerFee: parts.deliveryCustomerFee,
         deliveryMargin: parts.deliveryMargin,

@@ -114,7 +114,7 @@ export default function AccessReview() {
  </p>
  ) : (
  <div className="overflow-x-auto">
- <table className="w-full">
+ <table className="data-grid">
  <thead>
  <tr className="text-left">
  <th className="table-header-cell">Persona</th>

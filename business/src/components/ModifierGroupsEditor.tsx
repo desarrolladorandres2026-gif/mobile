@@ -1,4 +1,5 @@
 import { Plus, X, ChevronUp, ChevronDown, ToggleLeft, ToggleRight } from 'lucide-react';
+import NumericInput from './NumericInput';
 import {
   describeRules, emptyGroup, emptyOption, type GroupDraft, type OptionDraft,
 } from '../lib/modifierGroups';
@@ -19,7 +20,7 @@ const inputClass =
   'h-9 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-semibold text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors';
 
 const iconButton =
-  'h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-[var(--color-text-secondary)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-default';
+  'h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-[var(--color-text-main)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-default';
 
 interface Props {
   groups: GroupDraft[];
@@ -45,10 +46,10 @@ export default function ModifierGroupsEditor({ groups, onChange }: Props) {
     <div className="border-t border-[var(--color-border-light)] pt-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <span className="block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+          <span className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">
             Opciones para elegir
           </span>
-          <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
+          <p className="text-[11px] text-[var(--color-text-main)] mt-0.5">
             Tamaño, tipo de carne, salsas… El cliente elige antes de agregar.
           </p>
         </div>
@@ -100,7 +101,7 @@ export default function ModifierGroupsEditor({ groups, onChange }: Props) {
             </div>
 
             <div className="flex items-center gap-3 flex-wrap">
-              <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+              <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-main)]">
                 Mínimo
                 <input
                   type="number"
@@ -111,7 +112,7 @@ export default function ModifierGroupsEditor({ groups, onChange }: Props) {
                   className={`${inputClass} w-16 tabular`}
                 />
               </label>
-              <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+              <label className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-main)]">
                 Máximo
                 <input
                   type="number"
@@ -123,7 +124,7 @@ export default function ModifierGroupsEditor({ groups, onChange }: Props) {
                 />
               </label>
               {rules ? (
-                <span className="text-[11px] font-semibold text-[var(--color-text-muted)]">{rules}</span>
+                <span className="text-[11px] font-semibold text-[var(--color-text-main)]">{rules}</span>
               ) : null}
             </div>
 
@@ -137,14 +138,11 @@ export default function ModifierGroupsEditor({ groups, onChange }: Props) {
                     placeholder="Opción (ej.: Angus 150 g)"
                     aria-label={`Opción ${oi + 1} de ${group.name || `grupo ${gi + 1}`}`}
                     maxLength={60}
-                    className={`${inputClass} flex-1 ${option.isAvailable ? '' : 'line-through text-[var(--color-text-muted)]'}`}
+                    className={`${inputClass} flex-1 ${option.isAvailable ? '' : 'line-through text-[var(--color-text-main)]'}`}
                   />
-                  <input
-                    type="number"
-                    min={0}
-                    step={100}
+                  <NumericInput
                     value={option.price}
-                    onChange={(e) => updateOption(gi, oi, { price: e.target.value })}
+                    onValueChange={(digits) => updateOption(gi, oi, { price: digits })}
                     placeholder="0"
                     aria-label={`Precio adicional de ${option.name || `opción ${oi + 1}`}`}
                     className={`${inputClass} w-24 tabular font-bold text-[var(--color-primary)]`}

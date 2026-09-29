@@ -2,6 +2,7 @@
 import { RotateCcw, AlertTriangle, Check } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
+import NumericInput from './NumericInput';
 
 /**
  * Reembolsos de un pedido.
@@ -223,11 +224,10 @@ export default function RefundPanel({
  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
  {mode === 'external' ? 'Monto devuelto' : `Monto — vacío es el total que queda (${money(remaining)})`}
  </span>
- <input
+ <NumericInput
  value={amount}
- onChange={(e) => { setAmount(e.target.value); setError(''); }}
- inputMode="numeric"
- placeholder={String(remaining)}
+ onValueChange={(d) => { setAmount(d); setError(''); }}
+ placeholder={remaining.toLocaleString('es-CO')}
  className={inputClass}
  />
  </label>

@@ -22,7 +22,12 @@ import { escapeRegex } from '../utils';
 import mongoose from 'mongoose';
 import { logAudit, AuditAction, AuditSeverity, encrypt, decrypt, hashForSearch } from '../security';
 import type { Request } from 'express';
-import { PUBLIC_BUSINESS_FIELDS, PUBLIC_LIST_FIELDS, PUBLIC_LIST_PROJECTION } from '../utils/catalogQuery';
+import {
+  PUBLIC_BUSINESS_FIELDS,
+  PUBLIC_LIST_FIELDS,
+  PUBLIC_LIST_PROJECTION,
+  withEffectiveFreeDelivery,
+} from '../utils/catalogQuery';
 import { computeNitDv, isValidNitDv, lastDigits, maskAccount } from '../utils/nit';
 import { storePrivateFile, signedPrivateUrl, PrivateResourceType } from './privateStorage.service';
 import { notificationService } from './notification.service';
@@ -1466,7 +1471,9 @@ export class BusinessService {
       ];
 
       const [result] = await Business.aggregate(pipeline);
-      const businesses = result.businesses as IBusiness[];
+      const businesses = (result.businesses as IBusiness[]).map((b) =>
+        withEffectiveFreeDelivery(b as unknown as Record<string, any>)
+      ) as unknown as IBusiness[];
       const total = result.total[0]?.count || 0;
 
       return {
@@ -1493,7 +1500,7 @@ export class BusinessService {
     ]);
 
     return {
-      businesses,
+      businesses: businesses.map((b) => withEffectiveFreeDelivery(b.toJSON())) as unknown as IBusiness[],
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }

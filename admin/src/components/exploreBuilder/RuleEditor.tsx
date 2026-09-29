@@ -1,4 +1,5 @@
 ﻿import { Plus, X } from 'lucide-react';
+import NumericInput from '../NumericInput';
 import type { BuilderOptions, Rule, RuleDSL, RuleSource } from './types';
 import { CATEGORY_LABEL, SALES_LABEL, SORT_LABEL, SOURCE_LABEL, defaultRule } from './sections';
 
@@ -85,11 +86,11 @@ function RuleFields({ rule, onChange, options }: {
  return (
  <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-main)]">
  Desde $
- <input type="number" min={0} step={500} value={rule.min ?? ''} placeholder="sin mínimo" className={`${inputClass} w-28`}
- onChange={(e) => onChange({ ...rule, min: num(e.target.value) })} />
+ <NumericInput value={rule.min ?? ''} placeholder="sin mínimo" className={`${inputClass} w-28`}
+ onValueChange={(d) => onChange({ ...rule, min: num(d) })} />
  hasta $
- <input type="number" min={0} step={500} value={rule.max ?? ''} placeholder="sin máximo" className={`${inputClass} w-28`}
- onChange={(e) => onChange({ ...rule, max: num(e.target.value) })} />
+ <NumericInput value={rule.max ?? ''} placeholder="sin máximo" className={`${inputClass} w-28`}
+ onValueChange={(d) => onChange({ ...rule, max: num(d) })} />
  </div>
  );
  case 'prepTime':

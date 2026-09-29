@@ -12,6 +12,7 @@ import { sizedImage } from '../lib/cloudinary';
 import { fetchBusinessOptions } from '../lib/businessOptions';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
+import NumericInput from '../components/NumericInput';
 
 type AdStatus = 'scheduled' | 'active' | 'paused' | 'finished' | 'cancelled';
 type ActionType = 'none' | 'business';
@@ -490,12 +491,12 @@ export default function Campaigns() {
  <div className="flex flex-wrap items-center gap-2.5">
  <h3 className="text-base font-bold text-[var(--color-text-main)] truncate">{c.campaignName}</h3>
  <span
- className="text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider"
- style={{ backgroundColor: st.bg, color: st.text }}
+ className="text-[10px] font-bold uppercase tracking-wider"
+ style={{ color: st.text }}
  >
  {st.label}
  </span>
- <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-[var(--color-bg-alt)] text-[var(--color-text-main)]">
+ <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
  {c.placement === 'explore' ? <Compass className="w-3 h-3" /> : <Rocket className="w-3 h-3" />}
  {PLACEMENT_LABEL[c.placement ?? 'splash']}
  </span>
@@ -522,7 +523,7 @@ export default function Campaigns() {
  ) : null}
  <div className="flex flex-wrap items-center gap-2.5 text-xs text-[var(--color-text-main)]">
  <span>{new Date(c.startDate).toLocaleDateString('es-CO')} — {new Date(c.endDate).toLocaleDateString('es-CO')}</span>
- <span className="px-2 py-0.5 rounded bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-primary)] font-mono font-bold text-[11px]">
+ <span className="text-[var(--color-primary)] font-mono font-bold text-[11px]">
  Prioridad: {c.priority}
  </span>
  <span className="flex items-center gap-1">
@@ -878,8 +879,8 @@ export default function Campaigns() {
  </div>
  <div>
  <label className={labelClass}>Máximo de Impresiones</label>
- <input type="number" min={0} value={form.maxImpressions}
- onChange={(e) => setForm({ ...form, maxImpressions: Number(e.target.value) })}
+ <NumericInput value={form.maxImpressions}
+ onValueChange={(d) => setForm({ ...form, maxImpressions: Number(d) })}
  className={inputClass} placeholder="0 = sin límite" />
  </div>
  </div>
@@ -893,8 +894,8 @@ export default function Campaigns() {
  </div>
  <div>
  <label className={labelClass}>Precio Pagado (COP)</label>
- <input type="number" min={0} value={form.pricePaid}
- onChange={(e) => setForm({ ...form, pricePaid: Number(e.target.value) })}
+ <NumericInput value={form.pricePaid}
+ onValueChange={(d) => setForm({ ...form, pricePaid: Number(d) })}
  className={inputClass} placeholder="0" />
  </div>
  </div>

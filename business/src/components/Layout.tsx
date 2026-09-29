@@ -255,7 +255,7 @@ export default function Layout() {
                     <span className="absolute left-0 top-1/2 -translate-y-1/2 h-12 w-1 rounded-r-full bg-[#D69E26]" />
                   )}
                   <item.Icon fontSize={25} style={{ color: isActive ? '#292929' : 'currentColor' }} />
-                  <span className="w-full truncate text-center leading-tight">{item.label}</span>
+                  <span className="w-full text-balance break-words text-center leading-tight">{item.label}</span>
                 </NavLink>
               );
             })}
@@ -284,7 +284,15 @@ export default function Layout() {
       )}
 
       {/* ── Main Content Area ── */}
-      <main className="flex-1 overflow-y-auto flex flex-col min-w-0 bg-[var(--color-bg)] transition-colors duration-200">
+      <main
+        className="flex-1 overflow-y-auto flex flex-col min-w-0 bg-[var(--color-bg)] transition-colors duration-200"
+        // `.page-header` (index.css) pinta esta variable como fondo difuminado.
+        style={
+          selectedBusiness?.coverImage
+            ? ({ '--business-cover': `url(${JSON.stringify(selectedBusiness.coverImage)})` } as React.CSSProperties)
+            : undefined
+        }
+      >
         <OrderNotifications />
         {/* Barra superior con la composición de navegación de Spotify. */}
         <header className="sticky top-0 z-30 h-20 bg-[#f1f1f1] border-b border-[#d7d7d7] px-4 sm:px-6 flex items-center gap-3 sm:gap-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">

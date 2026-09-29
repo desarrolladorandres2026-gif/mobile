@@ -8,6 +8,11 @@ import domiciliario from '../assets/logos/domiciliario.png';
 import dashboard from '../assets/logos/dashboard.png';
 import restaurant from '../assets/logos/restaurant.png';
 import calificacion from '../assets/logos/calificacion.png';
+import fastFood from '../assets/logos/fast_food.png';
+import pharmacy from '../assets/logos/pharmacy.png';
+import cafe from '../assets/logos/cafe.png';
+import supermarket from '../assets/logos/supermarket.png';
+import negocio from '../assets/logos/negocio.png';
 
 /**
  * Logos PNG de concepto (Twemoji 14, CC-BY 4.0), el mismo set que la app.
@@ -43,3 +48,9 @@ export const DeliveryLogo = logo(domiciliario);
 export const DashboardLogo = logo(dashboard);
 export const RestaurantLogo = logo(restaurant);
 export const RatingLogo = logo(calificacion);
+// Tipos de negocio: lo que la app pinta en un producto sin foto.
+export const FastFoodLogo = logo(fastFood);
+export const PharmacyLogo = logo(pharmacy);
+export const CafeLogo = logo(cafe);
+export const SupermarketLogo = logo(supermarket);
+export const StoreLogo = logo(negocio);

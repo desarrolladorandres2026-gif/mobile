@@ -64,8 +64,33 @@
 
 /* Scrollbar fina */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 10px;
 }
+/* Flechitas arriba/abajo en toda barra de desplazamiento vertical: avisan de
+   que hay más contenido en esa dirección. */
+::-webkit-scrollbar-button:vertical:start:decrement,
+::-webkit-scrollbar-button:vertical:end:increment {
+  display: block;
+  height: 12px;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 8px 8px;
+}
+
+::-webkit-scrollbar-button:vertical:start:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 6.5 5 3.5 8 6.5' fill='none' stroke='%237C8BA1' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+::-webkit-scrollbar-button:vertical:end:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5 5 6.5 8 3.5' fill='none' stroke='%237C8BA1' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+::-webkit-scrollbar-button:vertical:start:increment,
+::-webkit-scrollbar-button:vertical:end:decrement {
+  display: none;
+}
+
 ::-webkit-scrollbar-track {
   background: var(--color-bg);
 }

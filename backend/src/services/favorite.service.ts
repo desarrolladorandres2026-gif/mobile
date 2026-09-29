@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { Favorite, FavoriteKind, Business, Product } from '../models';
 import { AppError } from '../middlewares/errorHandler';
-import { VISIBLE_BUSINESS, PUBLIC_LIST_FIELDS } from '../utils/catalogQuery';
+import { VISIBLE_BUSINESS, PUBLIC_LIST_FIELDS, withEffectiveFreeDelivery } from '../utils/catalogQuery';
 
 /**
  * Favoritos del cliente.
@@ -78,7 +78,7 @@ export class FavoriteService {
         : [],
     ]);
 
-    return { businesses, products };
+    return { businesses: businesses.map((b) => withEffectiveFreeDelivery(b)), products };
   }
 
   /**

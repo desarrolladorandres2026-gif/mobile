@@ -11,6 +11,7 @@ import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiFieldMessage, apiMessage } from '../lib/apiError';
+import NumericInput from '../components/NumericInput';
 
 interface Zone {
  _id: string;
@@ -337,12 +338,12 @@ export default function Zones() {
  <MapPin className="w-4 h-4" />
  </div>
  <h3 className="text-base font-bold text-[var(--color-text-main)]">{z.name}</h3>
- <span className="text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider bg-[var(--color-bg-alt)] text-[var(--color-text-main)]">
+ <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
  {z.city}
  </span>
  <span
- className="text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider"
- style={z.isActive ? { backgroundColor: '#FDF7E7', color: '#D69E26' } : { backgroundColor: '#EDF1F5', color: '#0B0F19' }}
+ className="text-[10px] font-bold uppercase tracking-wider"
+ style={z.isActive ? { color: '#D69E26' } : { color: '#0B0F19' }}
  >
  {z.isActive ? 'Activa' : 'Inactiva'}
  </span>
@@ -436,14 +437,14 @@ export default function Zones() {
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
  <div>
  <label className={labelClass}>Tarifa Base (opcional)</label>
- <input type="number" min={0} value={form.baseFee}
- onChange={(e) => setForm({ ...form, baseFee: e.target.value })}
+ <NumericInput value={form.baseFee}
+ onValueChange={(d) => setForm({ ...form, baseFee: d })}
  className={inputClass + ' font-mono'} placeholder="Vacío = tarifa global" />
  </div>
  <div>
  <label className={labelClass}>Valor por Km (opcional)</label>
- <input type="number" min={0} value={form.perKm}
- onChange={(e) => setForm({ ...form, perKm: e.target.value })}
+ <NumericInput value={form.perKm}
+ onValueChange={(d) => setForm({ ...form, perKm: d })}
  className={inputClass + ' font-mono'} placeholder="Vacío = tarifa global" />
  </div>
  </div>
@@ -451,14 +452,14 @@ export default function Zones() {
  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
  <div>
  <label className={labelClass}>Recargo</label>
- <input type="number" min={0} value={form.surcharge}
- onChange={(e) => setForm({ ...form, surcharge: Number(e.target.value) })}
+ <NumericInput value={form.surcharge}
+ onValueChange={(d) => setForm({ ...form, surcharge: Number(d) })}
  className={inputClass + ' font-mono'} placeholder="0" />
  </div>
  <div>
  <label className={labelClass}>Pedido Mínimo</label>
- <input type="number" min={0} value={form.minOrder}
- onChange={(e) => setForm({ ...form, minOrder: Number(e.target.value) })}
+ <NumericInput value={form.minOrder}
+ onValueChange={(d) => setForm({ ...form, minOrder: Number(d) })}
  className={inputClass + ' font-mono'} placeholder="0" />
  </div>
  <div>

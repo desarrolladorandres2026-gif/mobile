@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildComparison,
+  sameDayPreviousMonth,
   deriveHealthFlags,
   type DaySnapshot,
 } from '../services/dailySummary.service';
@@ -30,6 +31,8 @@ function day(overrides: Partial<DaySnapshot> = {}): DaySnapshot {
     netRevenue: 350_000,
     businessPayouts: 2_400_000,
     driverPayouts: 350_000,
+    driverDeliveryPayouts: 330_000,
+    deliveryFees: 400_000,
     tips: 20_000,
     tax: 0,
     merchantFundedDiscount: 0,
@@ -54,6 +57,8 @@ function day(overrides: Partial<DaySnapshot> = {}): DaySnapshot {
     newClients: 8,
     newBusinesses: 1,
     newDrivers: 2,
+    activeBusinesses: 14,
+    buyers: 70,
     activeDrivers: 12,
     deliveriesPerActiveDriver: 7.5,
     reviewsCount: 20,
@@ -188,5 +193,20 @@ describe('deriveHealthFlags', () => {
     expect(flags[0].level).toBe('critical');
     const niveles = flags.map((f) => f.level);
     expect(niveles.indexOf('warn')).toBeGreaterThan(niveles.lastIndexOf('critical'));
+  });
+});
+
+describe('sameDayPreviousMonth', () => {
+  it('conserva el día cuando el mes anterior lo tiene', () => {
+    expect(sameDayPreviousMonth('2026-09-15')).toBe('2026-08-15');
+  });
+
+  it('cruza el cambio de año', () => {
+    expect(sameDayPreviousMonth('2026-01-10')).toBe('2025-12-10');
+  });
+
+  it('cae al último día si el mes anterior es más corto', () => {
+    expect(sameDayPreviousMonth('2026-03-31')).toBe('2026-02-28');
+    expect(sameDayPreviousMonth('2028-03-31')).toBe('2028-02-29');
   });
 });

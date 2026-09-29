@@ -704,6 +704,13 @@ export interface OrderQuote {
   proDeliveryDiscount?: number;
   proServiceFeeDiscount?: number;
   /**
+   * Lo que descontaron las promociones automáticas del comercio sobre los
+   * productos del carrito, sin código. Ya está dentro de `total`; viaja
+   * aparte solo para que el desglose lo enseñe. Opcional porque un backend
+   * anterior no lo manda.
+   */
+  promotionDiscount?: number;
+  /**
    * La ventana de entrega, en minutos desde ahora. El extremo alto es el
    * que se le promete al cliente y el que el pedido guarda como
    * `estimatedDelivery`: prometer el optimista sería incumplir a propósito.

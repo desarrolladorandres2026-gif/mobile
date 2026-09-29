@@ -112,17 +112,17 @@ const SEVERITY: Record<Severity, { label: string; bar: string; chip: string }> =
  critical: {
  label: 'Crítico',
  bar: 'bg-[var(--color-danger)]',
- chip: 'bg-[var(--color-danger)] text-white',
+ chip: 'text-[var(--color-danger)]',
  },
  high: {
  label: 'Alto',
  bar: 'bg-[var(--color-warning)]',
- chip: 'bg-[var(--color-warning)] text-white',
+ chip: 'text-[var(--color-warning)]',
  },
  medium: {
  label: 'Medio',
  bar: 'bg-[var(--color-border)]',
- chip: 'bg-[var(--color-bg-alt)] text-[var(--color-text-main)]',
+ chip: 'text-[var(--color-text-main)]',
  },
 };
 
@@ -311,7 +311,7 @@ export default function Incidents() {
  <div className="flex flex-wrap items-center gap-2">
  <p className="font-bold text-[var(--color-text-main)]">{incident.title}</p>
  <span
- className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${severity.chip}`}
+ className={`text-[10px] font-bold uppercase tracking-wider ${severity.chip}`}
  >
  {severity.label}
  </span>

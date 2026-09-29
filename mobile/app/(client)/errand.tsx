@@ -12,7 +12,7 @@ import { useAddresses, usePayOrder, usePaymentMethods } from '../../hooks/useApi
 import { errandsApi } from '../../services/endpoints';
 import { useTheme } from '../../hooks/useTheme';
 import { Spacing, BorderRadius } from '../../theme/tokens';
-import { money } from '../../lib/format';
+import { groupDigits, money } from '../../lib/format';
 import { apiMessage } from '../../lib/errors';
 import { tap } from '../../lib/haptics';
 
@@ -95,12 +95,12 @@ export default function ErrandScreen() {
    * en cuanto lo tocan a mano, manda lo que escribieron.
    */
   const onEstimatedChange = (text: string) => {
-    setEstimatedText(text);
+    setEstimatedText(groupDigits(text));
     setError('');
     if (maxEdited) return;
     const value = toAmount(text);
     if (!value) return setMaxText('');
-    setMaxText(String(Math.ceil((value * (1 + SUGGESTED_MARGIN)) / 1000) * 1000));
+    setMaxText(groupDigits(String(Math.ceil((value * (1 + SUGGESTED_MARGIN)) / 1000) * 1000)));
   };
 
   const validate = (): string | null => {
@@ -289,7 +289,7 @@ export default function ErrandScreen() {
 
             <Input
               label="Lo que calculas"
-              placeholder="40000"
+              placeholder="40.000"
               value={estimatedText}
               onChangeText={onEstimatedChange}
               keyboardType="number-pad"
@@ -299,9 +299,9 @@ export default function ErrandScreen() {
 
             <Input
               label="Tope que autorizas"
-              placeholder="50000"
+              placeholder="50.000"
               value={maxText}
-              onChangeText={(t) => { setMaxEdited(true); setMaxText(t); setError(''); }}
+              onChangeText={(t) => { setMaxEdited(true); setMaxText(groupDigits(t)); setError(''); }}
               keyboardType="number-pad"
               numeric
               prefix="$"

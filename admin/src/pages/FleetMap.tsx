@@ -339,8 +339,8 @@ export default function FleetMap() {
  <MapPin className="mx-auto mb-4 h-10 w-10 text-[var(--color-text-main)]" />
  <p className="text-base font-bold text-[var(--color-text-main)]">Mapa no configurado</p>
  <p className="mx-auto mt-2 max-w-md text-xs font-semibold text-[var(--color-text-main)] dark:text-[#7184A8]">
- Define <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 dark:bg-[#232E46]">MAPBOX_ACCESS_TOKEN</code>{' '}
- en el <code className="rounded bg-[var(--color-bg)] px-1.5 py-0.5 dark:bg-[#232E46]">.env</code> del backend
+ Define <code className="font-mono font-bold">MAPBOX_ACCESS_TOKEN</code>{' '}
+ en el <code className="font-mono font-bold">.env</code> del backend
  y reinicia el servidor. El resto del seguimiento funciona sin mapa.
  </p>
  </div>

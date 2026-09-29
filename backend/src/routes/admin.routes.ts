@@ -23,6 +23,7 @@ router.get('/financials', requirePermission(Permission.FINANCE_VIEW), (req, res,
 router.get('/revenue-chart', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => adminController.getRevenueChart(req, res, next));
 router.get('/daily-summary', requirePermission(Permission.REPORTS_VIEW), (req, res, next) => adminController.getDailySummary(req, res, next));
 router.get('/daily-summary/zones', requirePermission(Permission.REPORTS_VIEW), (req, res, next) => adminController.getDailySummaryByZone(req, res, next));
+router.get('/daily-summary/finance-detail', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => adminController.getDailySummaryFinanceDetail(req, res, next));
 // Salud de la app: crashes agrupados de los teléfonos (`ClientError`).
 router.get('/health/crashes', requirePermission(Permission.REPORTS_VIEW), (req, res, next) => adminController.getCrashes(req, res, next));
 // Marcar o reabrir un error. Es una decisión técnica ("ya está arreglado"),

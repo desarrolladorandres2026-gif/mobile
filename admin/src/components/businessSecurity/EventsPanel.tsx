@@ -106,7 +106,7 @@ export default function EventsPanel({ businessId, members, filters, onFiltersCha
         empty={!!data && data.events.length === 0}
       >
         <div className="table-container overflow-x-auto">
-          <table className="w-full min-w-[900px]">
+          <table className="data-grid min-w-[900px]">
             <thead>
               <tr>
                 <th className="table-header-cell text-left">Fecha</th>

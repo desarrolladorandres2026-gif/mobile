@@ -323,7 +323,7 @@ export default function Businesses() {
  ) : (
  <>
  <div className="overflow-x-auto">
- <table className="w-full min-w-[980px]">
+ <table className="data-grid min-w-[980px]">
  <thead>
  <tr>
  <th className={headClass}>Comercio</th>

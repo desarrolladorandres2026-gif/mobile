@@ -167,7 +167,7 @@ export default function Reviews() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="page-header">
         <div>
           <h1 className="page-title">Reseñas</h1>
           <p className="page-subtitle">

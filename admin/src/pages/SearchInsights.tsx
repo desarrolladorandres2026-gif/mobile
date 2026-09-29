@@ -228,7 +228,7 @@ export default function SearchInsights() {
  </p>
 
  <div className="table-container overflow-x-auto">
- <table className="w-full min-w-[380px]">
+ <table className="data-grid min-w-[380px]">
  <thead>
  <tr className="border-b border-[var(--color-border-light)]">
  <th className="table-header-cell">Término</th>
@@ -270,7 +270,7 @@ export default function SearchInsights() {
  </p>
 
  <div className="table-container overflow-x-auto">
- <table className="w-full min-w-[480px]">
+ <table className="data-grid min-w-[480px]">
  <thead>
  <tr className="border-b border-[var(--color-border-light)]">
  <th className="table-header-cell">Término</th>

@@ -13,6 +13,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
 import { apiFieldMessage, apiMessage } from '../lib/apiError';
 import type { CouponHistory } from '../lib/apiTypes';
+import NumericInput from '../components/NumericInput';
 
 type CouponType = 'percentage' | 'fixed' | 'free_delivery';
 type FundedBy = 'platform' | 'business';
@@ -447,8 +448,8 @@ export default function Coupons() {
  </span>
  <h3 className="text-base font-bold text-[var(--color-text-main)] truncate">{c.title}</h3>
  <span
- className="text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider"
- style={{ backgroundColor: st.bg, color: st.text }}
+ className="text-[10px] font-bold uppercase tracking-wider"
+ style={{ color: st.text }}
  >
  {st.label}
  </span>
@@ -688,21 +689,20 @@ export default function Coupons() {
  <label className={labelClass}>
  {form.type === 'percentage' ? 'Porcentaje (1-100)' : 'Monto en pesos'}
  </label>
- <input
- type="number" required min={1}
- max={form.type === 'percentage' ? 100 : undefined}
+ <NumericInput
+ required
+ maxDigits={form.type === 'percentage' ? 3 : 12}
  value={form.value}
- onChange={(e) => setForm({ ...form, value: Number(e.target.value) })}
+ onValueChange={(d) => setForm({ ...form, value: Number(d) })}
  className={inputClass + ' font-mono'}
  />
  </div>
  {form.type === 'percentage' && (
  <div>
  <label className={labelClass}>Tope del descuento</label>
- <input
- type="number" min={0}
+ <NumericInput
  value={form.maxDiscount}
- onChange={(e) => setForm({ ...form, maxDiscount: Number(e.target.value) })}
+ onValueChange={(d) => setForm({ ...form, maxDiscount: Number(d) })}
  className={inputClass + ' font-mono'}
  placeholder="0 = sin tope"
  />
@@ -770,20 +770,18 @@ export default function Coupons() {
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
  <div>
  <label className={labelClass}>Tope por canje</label>
- <input
- type="number" min={0}
+ <NumericInput
  value={form.maxDiscountAmount}
- onChange={(e) => setForm({ ...form, maxDiscountAmount: Number(e.target.value) })}
+ onValueChange={(d) => setForm({ ...form, maxDiscountAmount: Number(d) })}
  className={inputClass + ' font-mono'}
  placeholder="0 = usa el tope global"
  />
  </div>
  <div>
  <label className={labelClass}>Presupuesto total de la campaña</label>
- <input
- type="number" min={0}
+ <NumericInput
  value={form.budgetLimit}
- onChange={(e) => setForm({ ...form, budgetLimit: Number(e.target.value) })}
+ onValueChange={(d) => setForm({ ...form, budgetLimit: Number(d) })}
  className={inputClass + ' font-mono'}
  placeholder="0 = sin tope"
  />
@@ -798,19 +796,17 @@ export default function Coupons() {
  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
  <div>
  <label className={labelClass}>Pedido mínimo</label>
- <input
- type="number" min={0}
+ <NumericInput
  value={form.minOrderAmount}
- onChange={(e) => setForm({ ...form, minOrderAmount: Number(e.target.value) })}
+ onValueChange={(d) => setForm({ ...form, minOrderAmount: Number(d) })}
  className={inputClass + ' font-mono'}
  />
  </div>
  <div>
  <label className={labelClass}>Usos totales</label>
- <input
- type="number" min={0}
+ <NumericInput
  value={form.usageLimit}
- onChange={(e) => setForm({ ...form, usageLimit: Number(e.target.value) })}
+ onValueChange={(d) => setForm({ ...form, usageLimit: Number(d) })}
  className={inputClass + ' font-mono'}
  placeholder="0 = ilimitado"
  />

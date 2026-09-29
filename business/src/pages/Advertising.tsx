@@ -5,6 +5,7 @@ import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
+import NumericInput from '../components/NumericInput';
 
 /**
  * Publicidad que compra el propio comercio.
@@ -233,15 +234,14 @@ export default function Advertising() {
             <label className={label}>
               {form.pricingModel === 'cpm' ? 'Por mil impresiones' : 'Por clic'}
             </label>
-            <input
-              type="number"
+            <NumericInput
               className={field}
               value={form.pricingModel === 'cpm' ? form.cpmRate : form.cpcRate}
-              onChange={(e) =>
+              onValueChange={(d) =>
                 setForm(
                   form.pricingModel === 'cpm'
-                    ? { ...form, cpmRate: Number(e.target.value) }
-                    : { ...form, cpcRate: Number(e.target.value) }
+                    ? { ...form, cpmRate: Number(d) }
+                    : { ...form, cpcRate: Number(d) }
                 )
               }
             />
@@ -250,11 +250,10 @@ export default function Advertising() {
 
         <div>
           <label className={label}>Tope de gasto</label>
-          <input
-            type="number"
+          <NumericInput
             className={field}
             value={form.budget}
-            onChange={(e) => setForm({ ...form, budget: Number(e.target.value) })}
+            onValueChange={(d) => setForm({ ...form, budget: Number(d) })}
           />
           {/* Lo que de verdad se está comprando. Sin esto, el tope es un
               número sin unidades y la decisión se toma a ciegas. */}

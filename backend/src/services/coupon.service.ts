@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { Coupon, ICoupon, CouponRedemption, Order, Product, IPlatformPricingConfig } from '../models';
 import { AppError } from '../middlewares';
@@ -413,6 +414,15 @@ export class CouponService {
     const redemptions = await CouponRedemption.find({ orderId }).session(session ?? null);
 
     for (const redemption of redemptions) {
+      // Borrar primero y revertir solo si esta llamada fue la que borró:
+      // si cancelar y reembolsar se cruzan, las dos leen las mismas filas
+      // y sin esto las dos devolvían el cupo.
+      const deleted = await CouponRedemption.deleteOne(
+        { _id: redemption._id },
+        session ? { session } : {}
+      );
+      if (deleted.deletedCount !== 1) continue;
+
       // `order.finance.platformFundedDiscount` es el subsidio TOTAL del
       // pedido — incluye lo que puso Zipp Pro, que no tiene nada que ver con
       // este cupón. Devolver eso al presupuesto del cupón inflaba
@@ -431,11 +441,6 @@ export class CouponService {
         { $inc: { usedCount: -1, budgetSpent: -platformFunded } },
         session ? { session } : {}
       );
-      await CouponRedemption.deleteOne(
-        { _id: redemption._id },
-        session ? { session } : {}
-      );
-
       // A campaign whose spend was returned must never go negative.
       await Coupon.updateOne(
         { _id: redemption.couponId, budgetSpent: { $lt: 0 } },
@@ -476,7 +481,7 @@ export class CouponService {
     if (autoApply) {
       // Sin código visible: uno sintético, único, que el panel nunca
       // muestra — solo satisface la restricción de unicidad del campo.
-      code = `AUTO-${business._id.toString().slice(-6)}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+      code = `AUTO-${business._id.toString().slice(-6)}-${crypto.randomBytes(5).toString('hex')}`.toUpperCase();
     } else {
       code = String(input.code).toUpperCase();
       const existing = await Coupon.findOne({ code });
@@ -487,12 +492,15 @@ export class CouponService {
     if (autoApply) {
       productIds = Array.isArray(input.productIds) ? (input.productIds as string[]) : [];
       await this.assertProductsBelongToBusiness(businessId, productIds);
-      await this.assertNoAutoPromotionOverlap(
-        businessId,
-        productIds,
-        new Date(input.validFrom as string | Date | undefined ?? Date.now()),
-        new Date(input.validUntil as string | Date)
-      );
+      const from = new Date((input.validFrom as string | Date | undefined) ?? Date.now());
+      const until = new Date(input.validUntil as string | Date);
+      if (until <= from) throw new AppError('La fecha de fin debe ser posterior a la de inicio', 400);
+      // Sin horizonte, una promoción eterna bloquearía para siempre el
+      // solapamiento de esos productos.
+      if (until.getTime() - from.getTime() > 366 * 24 * 3600_000) {
+        throw new AppError('Una promoción automática dura como máximo un año', 400);
+      }
+      await this.assertNoAutoPromotionOverlap(businessId, productIds, from, until);
       await this.assertBelowActivePromotionCap(businessId);
     }
 
@@ -634,9 +642,29 @@ export class CouponService {
    */
   async reactivateForBusiness(ownerId: string, couponId: string): Promise<ICoupon> {
     const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId);
+    await this.assertMayBeActive(coupon);
     coupon.isActive = true;
     await coupon.save();
     return coupon;
+  }
+
+  /**
+   * Volver a encender una promoción automática pasa por las mismas
+   * guardas que crearla: si no, desactivar la A, crear la B sobre los
+   * mismos productos y reactivar la A dejaba dos activas a la vez (y
+   * promociones ilimitadas en /offers).
+   */
+  private async assertMayBeActive(coupon: ICoupon): Promise<void> {
+    if (!coupon.autoApply || coupon.isActive) return;
+    const businessId = coupon.businessId!.toString();
+    await this.assertNoAutoPromotionOverlap(
+      businessId,
+      coupon.productIds.map((id) => id.toString()),
+      coupon.validFrom,
+      coupon.validUntil,
+      coupon._id.toString()
+    );
+    await this.assertBelowActivePromotionCap(businessId);
   }
 
   /**
@@ -678,8 +706,18 @@ export class CouponService {
       throw new AppError('El presupuesto no puede quedar por debajo de lo ya gastado', 409);
     }
 
+    const wasActive = coupon.isActive;
     for (const field of editable) {
       if (input[field] !== undefined) (coupon as any)[field] = input[field];
+    }
+
+    if (coupon.validUntil <= coupon.validFrom) {
+      throw new AppError('La fecha de fin debe ser posterior a la de inicio', 400);
+    }
+    if (coupon.autoApply && coupon.isActive && !wasActive) {
+      coupon.isActive = false; // que assertMayBeActive vea el estado previo
+      await this.assertMayBeActive(coupon);
+      coupon.isActive = true;
     }
 
     if (coupon.autoApply) {
@@ -710,6 +748,22 @@ export class CouponService {
       throw new AppError('No puedes eliminar una promoción que ya tuvo pedidos; desactívala', 409);
     }
     await Coupon.deleteOne({ _id: coupon._id });
+  }
+
+  /**
+   * Si esta persona todavía puede beneficiarse de la promoción automática.
+   *
+   * `computeDiscount` no mira límites; `redeem` sí, y tumba el pedido con
+   * 409. Cotizar una promoción que luego no se puede canjear dejaba al
+   * cliente sin poder pedir nunca: se filtra aquí, antes de cotizarla.
+   */
+  async autoPromotionUsableBy(coupon: ICoupon, userId: string, subtotal: number): Promise<boolean> {
+    if (subtotal < coupon.minOrderAmount) return false;
+    if (coupon.perUserLimit > 0) {
+      const used = await CouponRedemption.countDocuments({ couponId: coupon._id, userId });
+      if (used >= coupon.perUserLimit) return false;
+    }
+    return true;
   }
 
   /**

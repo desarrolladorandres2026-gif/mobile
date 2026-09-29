@@ -311,6 +311,40 @@ describe('Vistas enmascaradas sin fugas (MEDIO 6)', () => {
     expect(flags.find((f) => f.code === 'CANCELACION_ALTA')!.message).toMatch(/2 de 10/);
   });
 
+  it('resumen diario sin finance:view: ni el mes anterior, ni pendientes, ni detalle por pedido', async () => {
+    await featureFlagService.upsert('rbac_enforce', { audience: 'staff' });
+    const viewer = await makeStaff({ roleSlug: 'operaciones', permissions: [Permission.ADMIN_PANEL, Permission.REPORTS_VIEW] });
+    const snapshot = { gmv: 1, netRevenue: 1, deliveryFees: 1, ordersCreated: 1 };
+    vi.spyOn(dailySummaryService, 'generate').mockResolvedValue({
+      date: '2026-09-24',
+      today: snapshot,
+      baseline: snapshot,
+      monthBaseline: snapshot,
+      comparison: [],
+      monthComparison: [
+        { metric: 'gmv', label: 'GMV' },
+        { metric: 'ordersCreated', label: 'Pedidos creados' },
+      ],
+      pending: { merchants: { ledgerBalance: 999 } },
+      gateway: { state: 'ok' },
+      topBusinessesByOrders: [],
+      flags: [],
+    } as any);
+
+    const res = await request(app).get(`${A}/admin/daily-summary`).set(await authHeader(viewer));
+    expect(res.status).toBe(200);
+    const data = res.body.data;
+    expect(data.monthBaseline.gmv).toBeUndefined();
+    expect(data.monthBaseline.deliveryFees).toBeUndefined();
+    expect(data.monthBaseline.ordersCreated).toBe(1);
+    expect(data.monthComparison.map((r: { metric: string }) => r.metric)).toEqual(['ordersCreated']);
+    expect(data.pending).toBeUndefined();
+    expect(data.gateway).toBeUndefined();
+
+    const detail = await request(app).get(`${A}/admin/daily-summary/finance-detail`).set(await authHeader(viewer));
+    expect(detail.status).toBe(403);
+  });
+
   it('ficha 360 enmascarada: sin IP/deviceId/accountIds, sin metadata libre y sin comisión', async () => {
     const client = await makeUser({ role: UserRole.CLIENT });
     const owner = await makeUser({ role: UserRole.BUSINESS });

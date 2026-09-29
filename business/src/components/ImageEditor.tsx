@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   RotateCw, RotateCcw, ZoomIn, ZoomOut, Move, X, Check, RefreshCw,
 } from 'lucide-react';
+import {
+  MAX_ZOOM, MIN_ZOOM, SQUARE, clamp, clampCrop,
+  type Aspect, type CropResult, type CropTransform,
+} from '../lib/cropGeometry';
+import { OUTPUT_WIDTH, drawCrop, exportCrop } from '../lib/cropRender';
 
 /**
  * Encuadre de una foto antes de subirla.
@@ -24,18 +29,7 @@ import {
  * editor usa los tokens de ZIPP y funciona igual con dedo y con ratón.
  */
 
-/** Ancho del master que se sube. En cuadrado, coincide con la variante grande. */
-const OUTPUT_WIDTH = 1200;
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 4;
-
-/** Proporción del marco. Cuadrada salvo que la pantalla de destino pida otra. */
-export interface Aspect {
-  w: number;
-  h: number;
-}
-
-const SQUARE: Aspect = { w: 1, h: 1 };
+export type { Aspect, CropResult, CropTransform } from '../lib/cropGeometry';
 
 interface Props {
   /** La foto que el comercio acaba de elegir. */
@@ -51,8 +45,10 @@ interface Props {
   extras?: React.ReactNode;
   /** Proporción del recorte. Por defecto cuadrada, como el catálogo. */
   aspect?: Aspect;
+  /** Encuadre con el que se abre: el de un recorte anterior de la misma foto. */
+  initial?: CropTransform;
   onCancel: () => void;
-  onConfirm: (cropped: Blob) => void | Promise<void>;
+  onConfirm: (cropped: Blob, result: CropResult) => void | Promise<void>;
 }
 
 interface Offset {
@@ -61,7 +57,7 @@ interface Offset {
 }
 
 export default function ImageEditor({
-  file, busy = false, extras, aspect = SQUARE, onCancel, onConfirm,
+  file, busy = false, extras, aspect = SQUARE, initial, onCancel, onConfirm,
 }: Props) {
   /** Alto que corresponde a un ancho dado, con la proporción pedida. */
   const heightFor = useCallback(
@@ -78,9 +74,10 @@ export default function ImageEditor({
 
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [rotation, setRotation] = useState(0);
-  const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(initial?.zoom ?? 1);
+  const [rotation, setRotation] = useState(initial?.rotation ?? 0);
+  /** En fracciones del ancho del marco, como `CropTransform`. */
+  const [offset, setOffset] = useState<Offset>({ x: initial?.x ?? 0, y: initial?.y ?? 0 });
 
   // ── Carga ──
   useEffect(() => {
@@ -91,6 +88,9 @@ export default function ImageEditor({
       imageRef.current = image;
       setReady(true);
       setFailed(false);
+      // Un encuadre heredado ya era válido para esta foto; acotarlo igual
+      // cuesta nada y protege de uno que llegue de otra.
+      setOffset((current) => clampCrop(current, image, rotation, zoom, aspect));
     };
     // Un archivo con extensión de imagen que el navegador no puede
     // decodificar es exactamente el "archivo corrupto" que hay que
@@ -99,87 +99,26 @@ export default function ImageEditor({
     image.src = url;
 
     return () => URL.revokeObjectURL(url);
+    // Solo al cambiar de archivo: el giro y el zoom del momento se leen al
+    // cargar, no son motivo para volver a decodificar la foto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file]);
 
-  /**
-   * Cuánto hay que escalar para que la foto cubra el cuadro.
-   *
-   * Al girar 90° o 270° el ancho y el alto se intercambian, así que el
-   * cálculo se hace sobre las medidas ya rotadas. Sin esto, una foto
-   * apaisada girada dejaría dos franjas vacías.
-   */
-  const coverScale = useCallback(
-    (frameWidth: number, frameHeight: number) => {
-      const image = imageRef.current;
-      if (!image) return 1;
-      const swapped = rotation % 180 !== 0;
-      const width = swapped ? image.naturalHeight : image.naturalWidth;
-      const height = swapped ? image.naturalWidth : image.naturalHeight;
-      return Math.max(frameWidth / width, frameHeight / height);
-    },
-    [rotation]
-  );
-
-  /**
-   * Recorta el desplazamiento para que no se vea el fondo.
-   *
-   * El margen disponible es la mitad de lo que sobresale por cada lado.
-   * Cuando el zoom es 1 la imagen encaja justo y el margen es cero: la
-   * foto no se puede mover, que es el comportamiento correcto.
-   */
+  /** Recorta el desplazamiento para que no se vea el fondo. */
   const clampOffset = useCallback(
-    (next: Offset, frameWidth: number, currentZoom: number): Offset => {
+    (next: Offset, currentZoom: number): Offset => {
       const image = imageRef.current;
       if (!image) return { x: 0, y: 0 };
-
-      const frameHeight = heightFor(frameWidth);
-      const swapped = rotation % 180 !== 0;
-      const width = swapped ? image.naturalHeight : image.naturalWidth;
-      const height = swapped ? image.naturalWidth : image.naturalHeight;
-      const scale = coverScale(frameWidth, frameHeight) * currentZoom;
-
-      const slackX = Math.max(0, (width * scale - frameWidth) / 2);
-      const slackY = Math.max(0, (height * scale - frameHeight) / 2);
-
-      return {
-        x: Math.min(slackX, Math.max(-slackX, next.x)),
-        y: Math.min(slackY, Math.max(-slackY, next.y)),
-      };
+      return clampCrop(next, image, rotation, currentZoom, aspect);
     },
-    [coverScale, heightFor, rotation]
-  );
-
-  /** Pinta la foto transformada dentro del marco. */
-  const paint = useCallback(
-    (canvas: HTMLCanvasElement, frameWidth: number, currentOffset: Offset, currentZoom: number) => {
-      const image = imageRef.current;
-      const context = canvas.getContext('2d');
-      if (!image || !context) return;
-
-      const frameHeight = heightFor(frameWidth);
-
-      context.clearRect(0, 0, frameWidth, frameHeight);
-      context.save();
-
-      // El orden importa: primero al centro, luego el desplazamiento del
-      // usuario, luego el giro. Girar antes movería la foto en diagonal.
-      context.translate(frameWidth / 2 + currentOffset.x, frameHeight / 2 + currentOffset.y);
-      context.rotate((rotation * Math.PI) / 180);
-
-      const scale = coverScale(frameWidth, frameHeight) * currentZoom;
-      const drawWidth = image.naturalWidth * scale;
-      const drawHeight = image.naturalHeight * scale;
-      context.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
-
-      context.restore();
-    },
-    [coverScale, heightFor, rotation]
+    [rotation, aspect]
   );
 
   // ── Repintado de la vista previa ──
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !ready) return;
+    const image = imageRef.current;
+    if (!canvas || !image || !ready) return;
 
     // A la resolución real de la pantalla: en un móvil retina, pintar a
     // 320 px lógicos deja la vista previa visiblemente peor que el
@@ -193,8 +132,8 @@ export default function ImageEditor({
       canvas.height = height;
     }
 
-    paint(canvas, width, { x: offset.x * ratio, y: offset.y * ratio }, zoom);
-  }, [ready, offset, zoom, rotation, paint, heightFor]);
+    drawCrop(canvas, image, width, { zoom, rotation, x: offset.x, y: offset.y }, aspect);
+  }, [ready, offset, zoom, rotation, heightFor, aspect]);
 
   // ── Gestos ──
 
@@ -229,20 +168,20 @@ export default function ImageEditor({
         MAX_ZOOM
       );
       setZoom(next);
-      setOffset((current) => clampOffset(current, displayWidth(), next));
+      setOffset((current) => clampOffset(current, next));
       return;
     }
 
     const drag = dragRef.current;
     if (!drag || drag.id !== event.pointerId) return;
 
-    const dx = event.clientX - drag.x;
-    const dy = event.clientY - drag.y;
+    // El dedo se mueve en píxeles; el encuadre, en fracciones del marco.
+    const width = displayWidth();
+    const dx = (event.clientX - drag.x) / width;
+    const dy = (event.clientY - drag.y) / width;
     dragRef.current = { id: drag.id, x: event.clientX, y: event.clientY };
 
-    setOffset((current) =>
-      clampOffset({ x: current.x + dx, y: current.y + dy }, displayWidth(), zoom)
-    );
+    setOffset((current) => clampOffset({ x: current.x + dx, y: current.y + dy }, zoom));
   };
 
   const onPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -254,7 +193,7 @@ export default function ImageEditor({
   const onWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
     const next = clamp(zoom * (event.deltaY < 0 ? 1.08 : 1 / 1.08), MIN_ZOOM, MAX_ZOOM);
     setZoom(next);
-    setOffset((current) => clampOffset(current, displayWidth(), next));
+    setOffset((current) => clampOffset(current, next));
   };
 
   const rotate = (degrees: number) => {
@@ -274,7 +213,7 @@ export default function ImageEditor({
   const applyZoom = (next: number) => {
     const clamped = clamp(next, MIN_ZOOM, MAX_ZOOM);
     setZoom(clamped);
-    setOffset((current) => clampOffset(current, displayWidth(), clamped));
+    setOffset((current) => clampOffset(current, clamped));
   };
 
   // ── Exportación ──
@@ -283,29 +222,17 @@ export default function ImageEditor({
     const image = imageRef.current;
     if (!image) return;
 
-    // Lienzo aparte, a la resolución de salida: el de la vista previa
-    // está a tamaño de pantalla y subir eso daría una foto diminuta.
-    const output = document.createElement('canvas');
-    output.width = OUTPUT_WIDTH;
-    output.height = heightFor(OUTPUT_WIDTH);
-
-    const factor = OUTPUT_WIDTH / displayWidth();
-    paint(output, OUTPUT_WIDTH, { x: offset.x * factor, y: offset.y * factor }, zoom);
-
-    // Un PNG o un WebP pueden traer transparencia —un producto ya recortado,
-    // un logo—, y JPEG no la tiene: el navegador pinta de **negro** cada
-    // píxel transparente al exportar. Esos salen en PNG. Una foto, en JPEG
-    // al 92%: por encima el archivo crece sin que nadie note la diferencia,
-    // y Cloudinary vuelve a comprimir con `q_auto` al servir. PNG
-    // multiplicaría por seis el peso de una fotografía.
-    const keepsTransparency = file.type === 'image/png' || file.type === 'image/webp';
-    const blob = await new Promise<Blob | null>((resolve) =>
-      keepsTransparency
-        ? output.toBlob(resolve, 'image/png')
-        : output.toBlob(resolve, 'image/jpeg', 0.92)
-    );
-
-    if (blob) await onConfirm(blob);
+    const transform: CropTransform = { zoom, rotation, x: offset.x, y: offset.y };
+    const blob = await exportCrop(image, transform, aspect, file.type);
+    if (blob) {
+      await onConfirm(blob, {
+        transform,
+        naturalWidth: image.naturalWidth,
+        naturalHeight: image.naturalHeight,
+        width: OUTPUT_WIDTH,
+        height: heightFor(OUTPUT_WIDTH),
+      });
+    }
   };
 
   // ── Interfaz ──
@@ -455,6 +382,3 @@ function EditorButton({
     </button>
   );
 }
-
-const clamp = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, value));

@@ -50,9 +50,7 @@ export const NAV_GROUPS: NavGroup[] = [
     category: 'APLICACIONES',
     items: [
       { path: '/orders', Icon: BoxRegular, label: 'Pedidos', permission: Permission.ORDERS_VIEW_ALL },
-      { path: '/evidences', Icon: CameraRegular, label: 'Evidencias', permission: Permission.EVIDENCES_VIEW },
       { path: '/drivers', Icon: VehicleMotorcycleRegular, label: 'Domiciliarios', permission: Permission.DRIVERS_VIEW },
-      { path: '/driver-onboarding', Icon: VehicleMotorcycleRegular, label: 'Altas de domiciliarios', permission: Permission.DRIVERS_APPROVE },
       { path: '/driver-documents', Icon: DocumentRegular, label: 'Documentos', permission: Permission.DRIVERS_VIEW },
       { path: '/fleet', Icon: LocationRegular, label: 'Flota en Vivo', permission: Permission.DRIVERS_TRACK },
     ],

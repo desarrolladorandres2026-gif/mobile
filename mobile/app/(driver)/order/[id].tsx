@@ -26,7 +26,7 @@ import { useBottomInset } from '../../../hooks/useBottomSpace';
 import { captureEvidence } from '../../../lib/evidence';
 import { captureCoordsForEvidence } from '../../../hooks/useLocation';
 import { apiMessage } from '../../../lib/errors';
-import { money, orderCode } from '../../../lib/format';
+import { groupDigits, money, orderCode } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
 import { Spacing, BorderRadius } from '../../../theme/tokens';
 import { ROUTES } from '../../../lib/routing';
@@ -463,9 +463,9 @@ export default function DriverActiveOrderScreen() {
                     <View style={styles.codeBlock}>
                       <Input
                         label="¿Cuánto pagaste?"
-                        placeholder={String(order.errand?.estimatedCost ?? '')}
+                        placeholder={groupDigits(String(order.errand?.estimatedCost ?? ''))}
                         value={spentText}
-                        onChangeText={(t) => { setSpentText(t); setSpentError(''); }}
+                        onChangeText={(t) => { setSpentText(groupDigits(t)); setSpentError(''); }}
                         keyboardType="number-pad"
                         numeric
                         prefix="$"

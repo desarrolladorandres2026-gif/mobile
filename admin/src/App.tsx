@@ -25,7 +25,6 @@ const Login = lazyPage(() => import('./pages/Login'), '/login');
 const TwoFactorSetup = lazyPage(() => import('./pages/TwoFactorSetup'), '/setup-2fa');
 const DailySummary = lazyPage(() => import('./pages/DailySummary'), '/daily-summary');
 const Orders = lazyPage(() => import('./pages/Orders'), '/orders');
-const Evidences = lazyPage(() => import('./pages/Evidences'), '/evidences');
 const Businesses = lazyPage(() => import('./pages/Businesses'), '/businesses');
 const BusinessSecurity = lazyPage(() => import('./pages/BusinessSecurity'), '/businesses/security');
 const BusinessApprovals = lazyPage(() => import('./pages/BusinessApprovals'), '/business-approvals');
@@ -33,7 +32,6 @@ const ReviewModeration = lazyPage(() => import('./pages/ReviewModeration'), '/re
 const Incidents = lazyPage(() => import('./pages/Incidents'), '/incidents');
 const Support = lazyPage(() => import('./pages/Support'), '/support');
 const Drivers = lazyPage(() => import('./pages/Drivers'), '/drivers');
-const DriverFunnel = lazyPage(() => import('./pages/DriverFunnel'), '/driver-onboarding');
 const DriverDocuments = lazyPage(() => import('./pages/DriverDocuments'), '/driver-documents');
 const FleetMap = lazyPage(() => import('./pages/FleetMap'), '/fleet');
 const Users = lazyPage(() => import('./pages/Users'), '/users');
@@ -123,7 +121,7 @@ function App() {
  <Route index element={<Home />} />
  <Route path="daily-summary" element={guard('/daily-summary', <DailySummary />)} />
  <Route path="orders" element={guard('/orders', <Orders />)} />
- <Route path="evidences" element={guard('/evidences', <Evidences />)} />
+ <Route path="evidences" element={<Navigate to="/orders" replace />} />
  <Route path="businesses" element={guard('/businesses', <Businesses />)} />
  {/* Centro de seguridad del comercio: Negocios → ficha → Seguridad. */}
  <Route
@@ -133,7 +131,7 @@ function App() {
  <Route path="business-approvals" element={guard('/business-approvals', <BusinessApprovals />)} />
  <Route path="reviews" element={guard('/reviews', <ReviewModeration />)} />
  <Route path="drivers" element={guard('/drivers', <Drivers />)} />
- <Route path="driver-onboarding" element={guard('/driver-onboarding', <DriverFunnel />)} />
+ <Route path="driver-onboarding" element={<Navigate to="/drivers" replace />} />
  <Route path="driver-documents" element={guard('/driver-documents', <DriverDocuments />)} />
  <Route
  path="fleet"

@@ -140,10 +140,7 @@ export default function Layout() {
  const visibleItems = group.items.filter((item) => hasPermission(item.permission));
  if (visibleItems.length === 0) return null;
  return (
- <div key={group.category} className="border-b border-[#dedede] last:border-b-0 pb-1">
- <p className="px-2 pt-3 pb-1 text-center text-[8px] font-bold tracking-[0.12em] text-[#8a8a8a] uppercase">
- {group.category}
- </p>
+ <div key={group.category}>
  <div className="flex flex-col">
  {visibleItems.map((item) => {
  const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
@@ -168,7 +165,7 @@ export default function Layout() {
  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-12 w-1 rounded-r-full bg-[#D69E26]" />
  )}
  <item.Icon fontSize={24} style={{ color: isActive ? '#292929' : 'currentColor' }} />
- <span className="w-full truncate text-center leading-tight">{item.label}</span>
+ <span className="w-full text-balance break-words text-center leading-tight">{item.label}</span>
  </NavLink>
  );
  })}

@@ -189,7 +189,7 @@ export default function Positions() {
  ) : (
  <div className="table-container">
  <div className="overflow-x-auto">
- <table className="w-full">
+ <table className="data-grid">
  <thead>
  <tr className="text-left">
  <th className="table-header-cell">Cargo</th>
@@ -214,7 +214,7 @@ export default function Positions() {
  <div className="flex flex-wrap gap-1">
  {p.roleIds.length === 0 && <span className="text-[10px] text-[var(--color-text-main)]">Sin roles</span>}
  {p.roleIds.map((r) => (
- <span key={r._id} className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[var(--color-bg-alt)] text-[var(--color-text-main)]">
+ <span key={r._id} className="text-[10px] font-semibold text-[var(--color-text-main)]">
  {r.name}
  </span>
  ))}
@@ -258,7 +258,7 @@ export default function Positions() {
  <button
  onClick={() => setConfirmDelete(p)}
  title="Eliminar"
- className="p-1.5 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-white transition-all cursor-pointer"
+ className="p-1.5 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] hover:underline transition-all cursor-pointer"
  >
  <Trash2 className="w-3.5 h-3.5" />
  </button>

@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { Search, Star, AlertCircle, CheckCircle, X, Ban, PlayCircle, Eye, RotateCw } from 'lucide-react';
+import { Search, Star, AlertCircle, CheckCircle, X, Ban, PlayCircle, Eye, RotateCw, SlidersHorizontal } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
@@ -60,6 +60,7 @@ export default function Drivers() {
  const [dateFrom, setDateFrom] = useState('');
  const [dateTo, setDateTo] = useState('');
  const [sort, setSort] = useState('createdAt:desc');
+ const [showFilters, setShowFilters] = useState(false);
 
  // La ficha vive en la URL (`?ficha=driver:<id>`); ver `FichaHost`.
  const { open: openFicha } = useFicha();
@@ -170,6 +171,7 @@ export default function Drivers() {
  }
  };
 
+ const activeFilters = [accountFilter, availability, vehicleType, dateFrom, dateTo].filter(Boolean).length;
  const onlineCount = drivers.filter((d) => d.status === 'available' || d.status === 'busy').length;
 
  return (
@@ -203,6 +205,18 @@ export default function Drivers() {
  />
  </div>
 
+ <button
+ onClick={() => setShowFilters((v) => !v)}
+ aria-expanded={showFilters}
+ className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-4 text-xs font-bold text-[var(--color-text-main)]"
+ >
+ <SlidersHorizontal className="h-4 w-4" />
+ Filtros{activeFilters > 0 ? ` (${activeFilters})` : ''}
+ </button>
+ </div>
+
+ {showFilters && (
+ <>
  <div className="flex gap-1.5 overflow-x-auto w-full md:w-auto">
  {accountFilters.map((f) => (
  <button
@@ -217,7 +231,6 @@ export default function Drivers() {
  {f.label}
  </button>
  ))}
- </div>
  </div>
 
  <div className="flex flex-wrap items-end gap-3">
@@ -267,6 +280,8 @@ export default function Drivers() {
  </select>
  </label>
  </div>
+ </>
+ )}
  </div>
 
  {loading ? (
@@ -277,7 +292,7 @@ export default function Drivers() {
  ) : (
  <>
  <div className="overflow-x-auto">
- <table className="w-full min-w-[1180px]">
+ <table className="data-grid min-w-[1180px]">
  <thead>
  <tr>
  <th className={headClass}>Domiciliario</th>
@@ -381,7 +396,7 @@ export default function Drivers() {
  <button
  onClick={() => handleApprove(d._id)}
  title="Aprobar"
- className="p-2 rounded-lg bg-[var(--color-primary)] text-white cursor-pointer"
+ className="p-2 rounded-lg text-[var(--color-primary)] cursor-pointer"
  >
  <CheckCircle className="w-4 h-4" />
  </button>

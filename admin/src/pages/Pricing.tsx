@@ -2,6 +2,7 @@
 import { Save, AlertTriangle, Lock, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage, apiStatus } from '../lib/apiError';
+import NumericInput from '../components/NumericInput';
 
 interface PricingConfig {
  version: number;
@@ -145,37 +146,27 @@ export default function Pricing() {
 
  if (!config) {
  return (
- <div className="zipp-card p-16 text-center text-[var(--color-danger)] text-xs font-semibold">
+ <div className="p-16 text-center text-[var(--color-danger)] text-xs font-semibold">
  {error || 'No hay configuración de precios disponible.'}
  </div>
  );
  }
 
- const campoMoneda = (campo: keyof PricingConfig, etiqueta: string, ayuda?: string) => (
- <label className="block space-y-1.5">
- <span className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">
- {etiqueta}
- </span>
+ const inputBase =
+ 'h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md text-xs font-mono font-bold text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none transition-all';
+
+ const ctrlMoneda = (campo: keyof PricingConfig) => (
  <div className="relative">
- <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-primary)]">$</span>
- <input
- type="number"
- min={0}
- step={100}
- value={String(valor<number>(campo) ?? 0)}
- onChange={(e) => set(campo as string, Math.round(Number(e.target.value)))}
- className="w-full h-10 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg pl-7 pr-3.5 text-xs font-mono font-bold text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none transition-all"
+ <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-primary)]">$</span>
+ <NumericInput
+ value={valor<number>(campo) ?? 0}
+ onValueChange={(d) => set(campo as string, Number(d))}
+ className={`${inputBase} pl-5 pr-2`}
  />
  </div>
- {ayuda && <p className="text-[10px] text-[var(--color-text-main)]">{ayuda}</p>}
- </label>
  );
 
- const campoBps = (campo: keyof PricingConfig, etiqueta: string, ayuda?: string) => (
- <label className="block space-y-1.5">
- <span className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">
- {etiqueta}
- </span>
+ const ctrlBps = (campo: keyof PricingConfig) => (
  <div className="relative">
  <input
  type="number"
@@ -184,66 +175,114 @@ export default function Pricing() {
  step={0.25}
  value={bpsAPorcentaje(valor<number>(campo) ?? 0)}
  onChange={(e) => set(campo as string, porcentajeABps(e.target.value))}
- className="w-full h-10 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg pl-3.5 pr-7 text-xs font-mono font-bold text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none transition-all"
+ className={`${inputBase} pl-2 pr-6`}
  />
- <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-primary)]">%</span>
+ <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-primary)]">%</span>
  </div>
- {ayuda && <p className="text-[10px] text-[var(--color-text-main)]">{ayuda}</p>}
- </label>
  );
 
  /** Entero simple con unidad, para campos que no son ni dinero ni una tasa. */
- const campoEntero = (campo: keyof PricingConfig, etiqueta: string, unidad: string, ayuda?: string) => (
- <label className="block space-y-1.5">
- <span className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">
- {etiqueta}
- </span>
+ const ctrlEntero = (campo: keyof PricingConfig, unidad: string) => (
  <div className="relative">
- <input
- type="number"
- min={0}
- step={1}
- value={String(valor<number>(campo) ?? 0)}
- onChange={(e) => set(campo as string, Math.round(Number(e.target.value)))}
- className="w-full h-10 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg pl-3.5 pr-14 text-xs font-mono font-bold text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none transition-all"
+ <NumericInput
+ value={valor<number>(campo) ?? 0}
+ onValueChange={(d) => set(campo as string, Number(d))}
+ className={`${inputBase} pl-2 pr-7`}
  />
- <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[var(--color-text-main)] uppercase">{unidad}</span>
+ <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[var(--color-text-main)] uppercase">{unidad}</span>
  </div>
- {ayuda && <p className="text-[10px] text-[var(--color-text-main)]">{ayuda}</p>}
- </label>
  );
 
  /** Interruptor sí/no para reglas que activan o apagan un comportamiento entero. */
- const campoToggle = (campo: keyof PricingConfig, etiqueta: string, ayuda?: string) => (
- <label className="block space-y-1.5">
- <span className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">
- {etiqueta}
- </span>
+ const ctrlToggle = (campo: keyof PricingConfig) => (
  <select
  value={valor<boolean>(campo) ? 'on' : 'off'}
  onChange={(e) => set(campo as string, e.target.value === 'on')}
- className="w-full h-10 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3.5 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none cursor-pointer"
+ className="h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none cursor-pointer"
  >
- <option value="off">Desactivado</option>
+ <option value="off">Apagado</option>
  <option value="on">Activado</option>
  </select>
- {ayuda && <p className="text-[10px] text-[var(--color-text-main)]">{ayuda}</p>}
- </label>
  );
 
- const seccion = (
- titulo: string,
- descripcion: string,
- contenido: React.ReactNode
- ) => (
- <div className="pt-6 first:pt-0 border-t border-[var(--color-border-light)] first:border-t-0 space-y-3">
+ /** Un parámetro: etiqueta, control, texto largo (tooltip) y nota corta (5.ª columna). */
+ interface Param { etiqueta: string; control: React.ReactNode; ayuda?: string; nota?: string }
+
+ const COLS5 = ['Parámetro', 'Valor', 'Parámetro', 'Valor', 'Nota'];
+
+ /** Dos parámetros por fila; la 5.ª columna junta las notas de ambos. */
+ const tablaPares = (params: Param[], columnas: string[] = COLS5) => {
+ const filas: Param[][] = [];
+ for (let i = 0; i < params.length; i += 2) filas.push(params.slice(i, i + 2));
+ return (
+ <div className="overflow-x-auto">
+ <table className="data-grid table-fixed min-w-[820px]">
+ <colgroup>
+ <col className="w-[21%]" /><col className="w-[13%]" /><col className="w-[21%]" /><col className="w-[13%]" /><col />
+ </colgroup>
+ <thead>
+ <tr className="text-left">
+ {columnas.map((c, i) => <th key={`${c}-${i}`} className="table-header-cell">{c}</th>)}
+ </tr>
+ </thead>
+ <tbody>
+ {filas.map(([a, b]) => {
+ const notas = [...new Set([a.nota, b?.nota].filter(Boolean))].join(' · ');
+ return (
+ <tr key={a.etiqueta}>
+ <td className="table-body-cell wrap font-semibold text-[var(--color-text-main)]" title={a.ayuda}>{a.etiqueta}</td>
+ <td className="table-body-cell">{a.control}</td>
+ <td className="table-body-cell wrap font-semibold text-[var(--color-text-main)]" title={b?.ayuda}>{b?.etiqueta}</td>
+ <td className="table-body-cell">{b?.control}</td>
+ <td className="table-body-cell wrap text-[var(--color-text-secondary)]">{notas}</td>
+ </tr>
+ );
+ })}
+ </tbody>
+ </table>
+ </div>
+ );
+ };
+
+ const seccion = (titulo: string, descripcion: string, contenido: React.ReactNode) => (
+ <section className="pt-6 first:pt-0 space-y-2">
  <div>
  <h3 className="text-sm font-semibold text-[var(--color-text-main)]">{titulo}</h3>
  <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{descripcion}</p>
  </div>
- <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">{contenido}</div>
- </div>
+ {contenido}
+ </section>
  );
+
+ const mapaCategorias = (valor<Record<string, number>>('categoryCommissionBps') ?? {}) as Record<string, number>;
+
+ const paramCategoria = (cat: (typeof CATEGORIAS)[number]): Param => {
+ const actual = mapaCategorias[cat];
+ return {
+ etiqueta: CATEGORIA_LABEL[cat],
+ nota: 'Vacío = comisión global',
+ control: (
+ <div className="relative">
+ <input
+ type="number"
+ min={0}
+ max={100}
+ step={0.25}
+ placeholder="Global"
+ value={actual === undefined ? '' : bpsAPorcentaje(actual)}
+ onChange={(e) => {
+ const siguiente = { ...mapaCategorias };
+ if (e.target.value === '') delete siguiente[cat];
+ else siguiente[cat] = porcentajeABps(e.target.value);
+ set('categoryCommissionBps', siguiente);
+ }}
+ className={`${inputBase} pl-2 pr-6 text-[var(--color-primary)]`}
+ />
+ <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-primary)]">%</span>
+ </div>
+ ),
+ };
+ };
 
  return (
  <div className="space-y-3 animate-fade-in pb-28">
@@ -251,7 +290,7 @@ export default function Pricing() {
  <div className="page-header">
  <div>
  <h1 className="page-title">Tarifas y Monetización</h1>
- <p className="page-subtitle">Parámetros de cobro de domicilios, comisiones e incentivos</p>
+ <p className="page-subtitle">Parámetros de cobro de domicilios, comisiones e incentivos. Pasa el cursor sobre un parámetro para ver su explicación completa.</p>
  </div>
  <div className="text-right">
  <p className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider">Versión activa</p>
@@ -268,135 +307,108 @@ export default function Pricing() {
 
  {seccion('Comisión de Comercios', 'Reglas de comisión sobre ventas aplicadas a los negocios aliados.', (
  <>
- {campoBps('merchantCommissionBps', 'Comisión Global ZIPP', 'Aplica a establecimientos sin tarifa personalizada.')}
- <label className="block space-y-1.5">
- <span className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">
- Base de Cálculo
- </span>
+ {tablaPares([
+ { etiqueta: 'Comisión Global ZIPP', control: ctrlBps('merchantCommissionBps'), nota: 'Negocios sin tarifa propia', ayuda: 'Aplica a establecimientos sin tarifa personalizada.' },
+ {
+ etiqueta: 'Base de Cálculo',
+ nota: 'Sobre qué monto se cobra',
+ control: (
  <select
  value={valor<boolean>('commissionAfterMerchantDiscount') ? 'after' : 'before'}
  onChange={(e) => set('commissionAfterMerchantDiscount', e.target.value === 'after')}
- className="w-full h-10 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3.5 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none cursor-pointer"
+ className="h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none cursor-pointer"
  >
- <option value="after">Sobre el subtotal con descuento</option>
- <option value="before">Sobre el precio bruto de menú</option>
+ <option value="after">Subtotal con descuento</option>
+ <option value="before">Precio bruto de menú</option>
  </select>
- </label>
-
- <div className="sm:col-span-2 space-y-2">
- <span className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">
- Comisión Diferenciada por Categoría
- </span>
- <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
- {CATEGORIAS.map((cat) => {
- const mapa = (valor<Record<string, number>>('categoryCommissionBps') ?? {}) as Record<string, number>;
- const actual = mapa[cat];
- return (
- <label key={cat} className="block space-y-1">
- <span className="text-[10px] font-bold text-[var(--color-text-main)]">{CATEGORIA_LABEL[cat]}</span>
- <input
- type="number"
- min={0}
- max={100}
- step={0.25}
- placeholder="Global"
- value={actual === undefined ? '' : bpsAPorcentaje(actual)}
- onChange={(e) => {
- const siguiente = { ...mapa };
- if (e.target.value === '') delete siguiente[cat];
- else siguiente[cat] = porcentajeABps(e.target.value);
- set('categoryCommissionBps', siguiente);
- }}
- className="w-full h-9 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md px-2.5 text-xs font-mono font-bold text-[var(--color-primary)] outline-none"
- />
- </label>
- );
- })}
- </div>
+ ),
+ },
+ ])}
+ <div className="pt-2">
+ {tablaPares(CATEGORIAS.map(paramCategoria), ['Categoría', 'Comisión', 'Categoría', 'Comisión', 'Nota'])}
  </div>
  </>
  ))}
 
- {seccion('Tarifas de Domicilio', 'Costo de carrera para el repartidor y cliente final.', (
- <>
- {campoMoneda('driverBaseFee', 'Tarifa Base Repartidor')}
- {campoMoneda('driverPerKm', 'Valor por Kilómetro')}
- {campoMoneda('driverMinFee', 'Pago Mínimo Garantizado')}
- {campoMoneda('freeRadiusMeters', 'Radio Inicial Incluido (Metros)')}
- {campoMoneda('deliveryMarginFixed', 'Margen Fijo ZIPP')}
- {campoBps('deliveryMarginBps', 'Margen Porcentual ZIPP')}
- {campoMoneda('deliveryMinFee', 'Domicilio Mínimo Cliente')}
- {campoMoneda('deliveryMaxFee', 'Domicilio Máximo Cliente')}
- </>
- ))}
+ {seccion('Tarifas de Domicilio', 'Costo de carrera para el repartidor y cliente final.', tablaPares([
+ { etiqueta: 'Tarifa Base Repartidor', control: ctrlMoneda('driverBaseFee'), nota: 'Pago al repartidor' },
+ { etiqueta: 'Valor por Kilómetro', control: ctrlMoneda('driverPerKm') },
+ { etiqueta: 'Pago Mínimo Garantizado', control: ctrlMoneda('driverMinFee'), nota: 'Pago al repartidor' },
+ { etiqueta: 'Radio Inicial Incluido', control: ctrlEntero('freeRadiusMeters', 'm'), ayuda: 'Distancia cubierta por la tarifa base, antes de cobrar por kilómetro.' },
+ { etiqueta: 'Margen Fijo ZIPP', control: ctrlMoneda('deliveryMarginFixed'), nota: 'Margen ZIPP' },
+ { etiqueta: 'Margen Porcentual ZIPP', control: ctrlBps('deliveryMarginBps') },
+ { etiqueta: 'Domicilio Mínimo', control: ctrlMoneda('deliveryMinFee'), nota: 'Tope al cliente' },
+ { etiqueta: 'Domicilio Máximo', control: ctrlMoneda('deliveryMaxFee') },
+ ]))}
 
- {seccion('Fee de Servicio', 'Cargos operativos adicionales por procesamiento digital.', (
- <>
- {campoMoneda('serviceFeeFixed', 'Fee Fijo por Pedido')}
- {campoBps('serviceFeeBps', 'Fee Porcentual Servicio')}
- {campoMoneda('serviceFeeMin', 'Fee Mínimo')}
- {campoMoneda('serviceFeeMax', 'Fee Máximo')}
- </>
- ))}
+ {seccion('Fee de Servicio', 'Cargos operativos adicionales por procesamiento digital.', tablaPares([
+ { etiqueta: 'Fee Fijo por Pedido', control: ctrlMoneda('serviceFeeFixed'), nota: 'Componentes del fee' },
+ { etiqueta: 'Fee Porcentual', control: ctrlBps('serviceFeeBps') },
+ { etiqueta: 'Fee Mínimo', control: ctrlMoneda('serviceFeeMin'), nota: 'Rango del fee' },
+ { etiqueta: 'Fee Máximo', control: ctrlMoneda('serviceFeeMax') },
+ ]))}
 
- {seccion('Cobertura, Propina e Impuesto', 'Límites geográficos y de cobro que aplican a todo pedido, más el redondeo con el que el cliente ve el domicilio.', (
- <>
- {campoEntero('maxRadiusMeters', 'Radio Máximo de Cobertura', 'm', 'Distancia desde el negocio a partir de la cual la dirección queda"fuera de cobertura".')}
- {campoMoneda('deliveryRoundingStep', 'Paso de Redondeo del Domicilio', 'El domicilio final siempre cae en un múltiplo de este valor.')}
- {campoBps('maxTipBps', 'Propina Máxima Permitida', 'Tope sobre el subtotal de productos. El cliente no puede escribir una propina mayor.')}
- {campoBps('taxBps', 'Impuesto Aplicado', 'Se suma sobre subtotal + domicilio + fee de servicio, ya con descuentos aplicados.')}
- </>
- ))}
+ {seccion('Cobertura, Propina e Impuesto', 'Límites geográficos y de cobro que aplican a todo pedido, más el redondeo con el que el cliente ve el domicilio.', tablaPares([
+ { etiqueta: 'Radio Máximo de Cobertura', control: ctrlEntero('maxRadiusMeters', 'm'), nota: 'Fuera de cobertura', ayuda: 'Distancia desde el negocio a partir de la cual la dirección queda "fuera de cobertura".' },
+ { etiqueta: 'Paso de Redondeo', control: ctrlMoneda('deliveryRoundingStep'), ayuda: 'El domicilio final siempre cae en un múltiplo de este valor.' },
+ { etiqueta: 'Propina Máxima', control: ctrlBps('maxTipBps'), nota: 'Tope sobre el subtotal de productos', ayuda: 'Tope sobre el subtotal de productos. El cliente no puede escribir una propina mayor.' },
+ { etiqueta: 'Impuesto Aplicado', control: ctrlBps('taxBps'), nota: 'Sobre subtotal + domicilio + fee', ayuda: 'Se suma sobre subtotal + domicilio + fee de servicio, ya con descuentos aplicados.' },
+ ]))}
 
- {seccion('Promociones: Subsidio y Presupuesto', 'Techos que protegen el margen de la plataforma frente a cupones y campañas financiadas por ZIPP.', (
- <>
- {campoMoneda('couponSubsidyLimit', 'Tope de Subsidio por Cupón', 'Ningún cupón financiado por ZIPP puede descontar más que esto en un solo pedido, sin importar lo que el cupón permita.')}
- {campoMoneda('campaignBudgetTotal', 'Presupuesto Total de Campañas', 'Techo agregado para todas las campañas activas financiadas por la plataforma. 0 = sin techo agregado.')}
- {campoMoneda('defaultMinimumContributionMargin', 'Margen Mínimo por Defecto', 'Un cupón de plataforma se rechaza si el pedido queda por debajo de este margen, salvo que la campaña esté aprobada por un admin financiero.')}
- </>
- ))}
+ {seccion('Promociones: Subsidio y Presupuesto', 'Techos que protegen el margen de la plataforma frente a cupones y campañas financiadas por ZIPP.', tablaPares([
+ { etiqueta: 'Tope de Subsidio por Cupón', control: ctrlMoneda('couponSubsidyLimit'), nota: 'Por pedido', ayuda: 'Ningún cupón financiado por ZIPP puede descontar más que esto en un solo pedido, sin importar lo que el cupón permita.' },
+ { etiqueta: 'Presupuesto de Campañas', control: ctrlMoneda('campaignBudgetTotal'), nota: '0 = sin techo agregado', ayuda: 'Techo agregado para todas las campañas activas financiadas por la plataforma. 0 = sin techo agregado.' },
+ { etiqueta: 'Margen Mínimo por Defecto', control: ctrlMoneda('defaultMinimumContributionMargin'), nota: 'Cupón de plataforma se rechaza bajo este margen', ayuda: 'Un cupón de plataforma se rechaza si el pedido queda por debajo de este margen, salvo que la campaña esté aprobada por un admin financiero.' },
+ ]))}
 
- {seccion('Pago Contra Entrega', 'Enciende o apaga el efectivo en toda la plataforma. Requiere un proceso de rendición de cuentas funcionando.', (
- <>
- {campoToggle('cashOnDeliveryEnabled', 'Pago en Efectivo', 'Con esto apagado, el checkout rechaza cualquier intento de pagar contra entrega.')}
- {campoMoneda('cashOnDeliveryMaxAmount', 'Tope por Pedido en Efectivo', 'Un pedido que supere este total obliga a pagar en línea.')}
- </>
- ))}
+ {seccion('Pago Contra Entrega', 'Enciende o apaga el efectivo en toda la plataforma. Requiere un proceso de rendición de cuentas funcionando.', tablaPares([
+ { etiqueta: 'Pago en Efectivo', control: ctrlToggle('cashOnDeliveryEnabled'), nota: 'Apagado: el checkout rechaza efectivo', ayuda: 'Con esto apagado, el checkout rechaza cualquier intento de pagar contra entrega.' },
+ { etiqueta: 'Tope por Pedido', control: ctrlMoneda('cashOnDeliveryMaxAmount'), nota: 'Superarlo obliga a pagar en línea', ayuda: 'Un pedido que supere este total obliga a pagar en línea.' },
+ ]))}
 
- {seccion('Comisión de la Pasarela (Wompi)', 'La tarifa de tu contrato con Wompi, por método. Cada cobro aprobado asienta esta comisión como gasto y el resultado de la plataforma la resta. En 0 significa sin configurar: no se asienta nada y las cifras de margen siguen marcadas como incompletas.', (
- <>
- {campoBps('gatewayCardBps', 'Tarjeta: Porcentaje')}
- {campoMoneda('gatewayCardFixed', 'Tarjeta: Fijo por Cobro')}
- {campoBps('gatewayPseBps', 'PSE: Porcentaje')}
- {campoMoneda('gatewayPseFixed', 'PSE: Fijo por Cobro')}
- {campoBps('gatewayNequiBps', 'Nequi: Porcentaje')}
- {campoMoneda('gatewayNequiFixed', 'Nequi: Fijo por Cobro')}
- {campoBps('gatewayOtherBps', 'Otros Métodos: Porcentaje', 'Bancolombia, Daviplata y cualquier otro carril de Wompi.')}
- {campoMoneda('gatewayOtherFixed', 'Otros Métodos: Fijo por Cobro')}
- {campoBps('gatewayFeeVatBps', 'IVA sobre la Comisión', 'El IVA que Wompi le suma a su propia comisión. Solo aplica si tu contrato lo cobra aparte.')}
- </>
- ))}
+ {seccion('Comisión de la Pasarela (Wompi)', 'La tarifa de tu contrato con Wompi, por método. Cada cobro aprobado asienta esta comisión como gasto y el resultado de la plataforma la resta. En 0 significa sin configurar: no se asienta nada y las cifras de margen siguen marcadas como incompletas.', tablaPares([
+ { etiqueta: 'Tarjeta: Porcentaje', control: ctrlBps('gatewayCardBps'), nota: 'Tarjeta' },
+ { etiqueta: 'Tarjeta: Fijo', control: ctrlMoneda('gatewayCardFixed') },
+ { etiqueta: 'PSE: Porcentaje', control: ctrlBps('gatewayPseBps'), nota: 'PSE' },
+ { etiqueta: 'PSE: Fijo', control: ctrlMoneda('gatewayPseFixed') },
+ { etiqueta: 'Nequi: Porcentaje', control: ctrlBps('gatewayNequiBps'), nota: 'Nequi' },
+ { etiqueta: 'Nequi: Fijo', control: ctrlMoneda('gatewayNequiFixed') },
+ { etiqueta: 'Otros: Porcentaje', control: ctrlBps('gatewayOtherBps'), nota: 'Bancolombia, Daviplata y otros carriles', ayuda: 'Bancolombia, Daviplata y cualquier otro carril de Wompi.' },
+ { etiqueta: 'Otros: Fijo', control: ctrlMoneda('gatewayOtherFixed') },
+ { etiqueta: 'IVA sobre la Comisión', control: ctrlBps('gatewayFeeVatBps'), nota: 'Solo si el contrato lo cobra aparte', ayuda: 'El IVA que Wompi le suma a su propia comisión. Solo aplica si tu contrato lo cobra aparte.' },
+ ]))}
 
- {/* History */}
- <div className="table-container">
- <div className="px-5 py-3.5 border-b border-[var(--color-border-light)]">
- <h3 className="text-sm font-semibold text-[var(--color-text-main)]">Auditoría de cambios de tarifas</h3>
- </div>
-
- <div className="max-h-[300px] overflow-y-auto divide-y divide-[var(--color-border-light)]">
+ {seccion('Auditoría de cambios de tarifas', 'Últimas versiones publicadas.', (
+ <div className="max-h-[320px] overflow-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">Versión</th>
+ <th className="table-header-cell">Fecha</th>
+ <th className="table-header-cell">Autor</th>
+ <th className="table-header-cell">Campos</th>
+ <th className="table-header-cell">Motivo</th>
+ </tr>
+ </thead>
+ <tbody>
  {audit.map((entrada) => (
- <div key={entrada._id} className="p-3.5 px-5 hover:bg-[var(--color-bg)] transition-colors">
- <div className="flex items-center justify-between">
- <span className="text-xs font-bold text-[var(--color-primary)] font-mono">v{entrada.fromVersion ?? 0} → v{entrada.toVersion}</span>
- <span className="text-[10px] text-[var(--color-text-main)] font-mono">
- {new Date(entrada.createdAt).toLocaleString('es-CO')}
- </span>
- </div>
- <p className="text-xs text-[var(--color-text-main)] mt-1 italic">"{entrada.reason}"</p>
+ <tr key={entrada._id}>
+ <td className="table-body-cell font-mono font-bold text-[var(--color-primary)]">v{entrada.fromVersion ?? 0} → v{entrada.toVersion}</td>
+ <td className="table-body-cell font-mono text-[var(--color-text-main)]">{new Date(entrada.createdAt).toLocaleString('es-CO')}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{entrada.changedByName || entrada.changedBy?.name || '—'}</td>
+ <td className="table-body-cell font-mono text-[var(--color-text-main)]">{Object.keys(entrada.changes ?? {}).length}</td>
+ <td className="table-body-cell wrap italic text-[var(--color-text-main)]">{entrada.reason}</td>
+ </tr>
+ ))}
+ {audit.length === 0 && (
+ <tr>
+ <td colSpan={5} className="table-body-cell text-center text-[var(--color-text-secondary)]">Aún no hay cambios registrados.</td>
+ </tr>
+ )}
+ </tbody>
+ </table>
  </div>
  ))}
- </div>
- </div>
 
  {/* Floating Action Bar */}
  <div className="fixed bottom-6 left-6 lg:left-72 right-6 z-40 bg-[var(--color-surface)] p-3.5 rounded-2xl border border-[var(--color-border)] flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xl">

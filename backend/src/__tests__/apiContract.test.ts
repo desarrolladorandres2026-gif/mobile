@@ -47,6 +47,15 @@ const ALLOWED_NEW_KEYS = new Set([
   /** Solo en la ficha individual, nunca en el listado. Puede venir `null`. */
   'deliveryFeeFrom',
 
+  // ── Promociones automáticas por producto (2026-09-28) ──
+  // Aditivos: la cotización y el pedido dicen qué promociones sin código
+  // aplicaron. Un cliente viejo los ignora; el descuento ya va dentro de
+  // `total`. Los campos de vigencia del envío gratis NO están aquí a
+  // propósito: el servidor los resuelve y no salen crudos.
+  'promotionDiscount',
+  'appliedAutoPromotions',
+  'appliedPromotionIds',
+
   // ── Tiempo de preparación por producto ──
   // Opcional y aditivo (`null` hereda el del negocio). Estaba en uso desde
   // antes del 2026-09-15 sin declararse aquí; se autorizó el 2026-09-19.

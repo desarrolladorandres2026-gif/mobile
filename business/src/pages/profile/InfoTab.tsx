@@ -3,6 +3,7 @@ import { Check } from 'lucide-react';
 import { BRAND_COLORS } from '../../lib/brandColors';
 import type { LatLng } from '../../components/BusinessLocationField';
 import DateRangeField from '../../components/DateRangeField';
+import NumericInput from '../../components/NumericInput';
 
 // Leaflet (el mapa del punto de recogida) solo lo usa esta pestaña y pesa
 // más que el resto del panel junto: se descarga al abrir Información.
@@ -307,12 +308,9 @@ export default function InfoTab({
               )
             }
           >
-            <input
-              type="number"
-              min={0}
-              step={1000}
+            <NumericInput
               value={threshold}
-              onChange={(e) => setThreshold(Number(e.target.value))}
+              onValueChange={(d) => setThreshold(Number(d))}
               className={INPUT}
             />
           </Field>
@@ -381,12 +379,9 @@ export default function InfoTab({
           )}
 
           <Field label="Pedido mínimo" hint="Por debajo de este monto no se puede pedir.">
-            <input
-              type="number"
-              min={0}
-              step={1000}
+            <NumericInput
               value={minOrder}
-              onChange={(e) => setMinOrder(Number(e.target.value))}
+              onValueChange={(d) => setMinOrder(Number(d))}
               className={INPUT}
             />
           </Field>

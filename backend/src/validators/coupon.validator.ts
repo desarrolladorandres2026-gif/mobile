@@ -72,6 +72,8 @@ export const updateCouponSchema = z.object({
 // Subconjunto reducido: `fundedBy`, `businessId` y `campaignApproved` nunca
 // se leen del body (el servicio los fuerza), así que ni siquiera se
 // declaran aquí — no hay forma de que la petición los cuele.
+const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Identificador inválido');
+
 const businessCouponBody = z
   .object({
     // Con código: requerido. Automática (`autoApply: true`): ausente, el
@@ -94,7 +96,11 @@ const businessCouponBody = z
     isPublic: z.boolean().optional(),
     /** Sin código: se aplica sola cuando el carrito trae alguno de `productIds`. */
     autoApply: z.boolean().optional(),
-    productIds: z.array(z.string()).max(50).optional(),
+    productIds: z.array(objectId).max(50).optional(),
+  })
+  .refine((body) => body.type !== 'percentage' || body.value <= 90, {
+    message: 'Un descuento porcentual de comercio no puede pasar del 90%',
+    path: ['value'],
   })
   .refine((body) => !body.autoApply || (body.productIds && body.productIds.length > 0), {
     message: 'Una promoción automática debe cubrir al menos un producto',
@@ -128,9 +134,9 @@ export const updateBusinessCouponSchema = z.object({
     perUserLimit: z.number().int().min(0).optional(),
     validFrom: z.coerce.date().optional(),
     validUntil: z.coerce.date().optional(),
-    productIds: z.array(z.string()).max(50).optional(),
+    productIds: z.array(objectId).max(50).optional(),
     isActive: z.boolean().optional(),
   }),
   query: z.object({}).optional(),
-  params: z.object({ id: z.string() }),
+  params: z.object({ id: objectId }),
 });

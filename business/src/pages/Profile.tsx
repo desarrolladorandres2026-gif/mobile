@@ -7,6 +7,7 @@ import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 import { qk } from '../lib/queryKeys';
+import { fetchBusinessSettings } from '../lib/businessSettings';
 import type { LatLng } from '../components/BusinessLocationField';
 import BusinessImageField from '../components/BusinessImageField';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -148,12 +149,7 @@ export default function Profile() {
       setError('');
       const business = await queryClient.fetchQuery({
         queryKey: qk.settings(businessId),
-        queryFn: async () => {
-          const { data } = await api.get('/businesses/my/businesses');
-          const found = (data.data as Array<{ _id: string }>).find((b) => b._id === businessId);
-          if (!found) throw new Error('No tienes acceso al perfil de este negocio.');
-          return found as typeof data.data;
-        },
+        queryFn: () => fetchBusinessSettings(businessId),
         staleTime: 30_000,
       });
       apply(business);
@@ -247,6 +243,8 @@ export default function Profile() {
    */
   const setImage = (field: 'logo' | 'coverImage') => (url: string | null) => {
     (field === 'logo' ? setLogo : setCoverImage)(url);
+    // Los encabezados de las demás páginas leen la portada del store.
+    if (field === 'coverImage' && selectedBusiness) setSelectedBusiness({ ...selectedBusiness, coverImage: url });
     if (businessId) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       queryClient.setQueryData(qk.settings(businessId), (old: any) => (old ? { ...old, [field]: url } : old));

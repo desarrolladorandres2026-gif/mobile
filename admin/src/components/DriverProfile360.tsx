@@ -121,6 +121,22 @@ const sanctionLabels: Record<string, string> = {
  DRIVER_REACTIVATED: 'Reactivado',
 };
 
+const onboardingStages: Record<string, { label: string; hint: string }> = {
+ in_review: { label: 'En revisión', hint: 'Tiene documentos esperando revisión.' },
+ ready_to_approve: { label: 'Listo para aprobar', hint: 'Todos sus documentos están aprobados: falta aprobarlo.' },
+ rejected_stuck: { label: 'Rechazado sin reenviar', hint: 'Tiene documentos rechazados o vencidos y ninguno en revisión: hay que escribirle.' },
+ no_documents: { label: 'Sin documentos', hint: 'Creó el perfil pero no ha subido ningún documento.' },
+};
+
+/** Misma regla que `classifyDriver` del backend (embudo de altas). */
+function onboardingStage(documents: Array<{ status: string }>): string {
+ const n = (status: string) => documents.filter((d) => d.status === status).length;
+ if (n('pending') > 0) return 'in_review';
+ if (documents.length === 0) return 'no_documents';
+ if (n('rejected') > 0 || n('expired') > 0) return 'rejected_stuck';
+ return 'ready_to_approve';
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
  return (
  <section className="space-y-5 border-t border-[var(--color-border-light)] py-7">
@@ -361,6 +377,28 @@ export default function DriverProfile360({
  </p>
  )}
  </div>
+
+ {account === 'pending' && (
+ <Section title="Alta">
+ {(() => {
+ const stage = onboardingStages[onboardingStage(data.documents)];
+ const count = (status: string) => data.documents.filter((doc) => doc.status === status).length;
+ return (
+ <>
+ <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3">
+ <Fact label="Etapa" value={stage.label} />
+ <Fact
+ label="Documentos"
+ value={`${count('approved')} aprobados · ${count('pending')} en revisión · ${count('rejected') + count('expired')} rechazados o vencidos`}
+ />
+ <Fact label="Registrado" value={relativeTime(d.createdAt)} />
+ </div>
+ <p className="text-[var(--color-text-main)]">{stage.hint}</p>
+ </>
+ );
+ })()}
+ </Section>
+ )}
 
  <Section title="Identidad, documentos y vehículo">
  <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3">

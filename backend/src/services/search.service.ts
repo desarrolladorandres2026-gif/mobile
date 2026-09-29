@@ -8,6 +8,7 @@ import {
   PUBLIC_LIST_PROJECTION,
   withDistance,
   withinRadius,
+  withEffectiveFreeDelivery,
 } from '../utils/catalogQuery';
 import { withProductImages } from '../utils/productImageUrls';
 import { searchDictionaryService } from './searchDictionary.service';
@@ -108,12 +109,13 @@ async function searchBusinesses(
   // puntaje de texto) pueden salir en orden distinto entre una página y la
   // siguiente —cada una es una consulta aparte—, y eso repite uno y se come
   // otro al deslizar.
-  return usePrefix
-    ? query.select(PUBLIC_LIST_PROJECTION).sort({ isFeatured: -1, rating: -1, _id: 1 }).lean()
-    : query
+  const rows = usePrefix
+    ? await query.select(PUBLIC_LIST_PROJECTION).sort({ isFeatured: -1, rating: -1, _id: 1 }).lean()
+    : await query
         .select({ ...PUBLIC_LIST_PROJECTION, score: { $meta: 'textScore' } })
         .sort({ score: { $meta: 'textScore' }, _id: 1 })
         .lean();
+  return rows.map((row) => withEffectiveFreeDelivery(row));
 }
 
 async function searchProducts(

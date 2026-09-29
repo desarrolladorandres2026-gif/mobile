@@ -385,7 +385,7 @@ export default function Users() {
  ) : (
  <div className="table-container">
  <div className="overflow-x-auto">
- <table className="w-full">
+ <table className="data-grid">
  <thead>
  <tr className="text-left">
  <th className="table-header-cell">Usuario</th>
@@ -486,14 +486,14 @@ export default function Users() {
  <button
  onClick={() => setConfirmStatus({ user: u, status: 'blocked' })}
  title="Bloquear"
- className="p-1.5 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] hover:bg-[var(--color-danger)] hover:text-white transition-all cursor-pointer"
+ className="p-1.5 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] hover:underline transition-all cursor-pointer"
  >
  <Ban className="w-3.5 h-3.5" />
  </button>
  ) : (
  <button
  onClick={() => setConfirmStatus({ user: u, status: 'active' })}
- className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase border bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger-bg)] hover:bg-[var(--color-danger)] hover:text-white cursor-pointer"
+ className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase border bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-[var(--color-danger-bg)] hover:underline cursor-pointer"
  >
  Desbloquear
  </button>

@@ -415,7 +415,7 @@ function PromotionBannersPanel() {
  </div>
  ) : (
  <div className="table-container overflow-x-auto">
- <table className="w-full min-w-[900px]">
+ <table className="data-grid min-w-[900px]">
  <thead>
  <tr className="border-b border-[var(--color-border-light)]">
  <th className="table-header-cell w-10" />
@@ -452,8 +452,8 @@ function PromotionBannersPanel() {
  </td>
  <td className="table-body-cell">
  <span
- className="text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider whitespace-nowrap"
- style={{ backgroundColor: st.bg, color: st.text }}
+ className="text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
+ style={{ color: st.text }}
  >
  {st.label}
  </span>
@@ -473,7 +473,7 @@ function PromotionBannersPanel() {
  </p>
  </td>
  <td className="table-body-cell">
- <span className="px-2 py-0.5 rounded bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-primary)] font-mono font-bold text-[11px]">
+ <span className="text-[var(--color-primary)] font-mono font-bold text-[11px]">
  {b.displayOrder}
  </span>
  </td>

@@ -245,7 +245,7 @@ export default function HomeCategories() {
  </div>
  ) : (
  <div className="table-container overflow-x-auto">
- <table className="w-full min-w-[700px]">
+ <table className="data-grid min-w-[700px]">
  <thead>
  <tr className="border-b border-[var(--color-border-light)]">
  <th className="table-header-cell w-10" />
@@ -293,12 +293,12 @@ export default function HomeCategories() {
  <p className="text-xs font-bold text-[var(--color-text-main)]">{c.name}</p>
  </td>
  <td className="table-body-cell">
- <span className="px-2 py-0.5 rounded bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-text-main)] font-mono text-[11px]">
+ <span className="text-[var(--color-text-main)] font-mono text-[11px]">
  {c.key}
  </span>
  </td>
  <td className="table-body-cell">
- <span className="px-2 py-0.5 rounded bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-primary)] font-mono font-bold text-[11px]">
+ <span className="text-[var(--color-primary)] font-mono font-bold text-[11px]">
  {c.order}
  </span>
  </td>

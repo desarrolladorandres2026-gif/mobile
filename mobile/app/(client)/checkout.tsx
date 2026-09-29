@@ -1169,6 +1169,14 @@ export default function CheckoutScreen() {
               </>
             )}
 
+            {quote?.promotionDiscount ? (
+              <DetailRow
+                label="Promoción"
+                value={`−${money(quote.promotionDiscount)}`}
+                tone="successText"
+              />
+            ) : null}
+
             {quote?.coupon?.productDiscount ? (
               <DetailRow
                 label="Descuento"
