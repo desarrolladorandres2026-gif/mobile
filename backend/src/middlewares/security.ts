@@ -334,6 +334,33 @@ export const businessDocumentUploadRateLimiter = rateLimit({
 });
 
 /**
+ * Ver, bajar o exportar los papeles de un domiciliario (cédula, antecedentes,
+ * licencia). Por cuenta admin: una sesión comprometida que recorre todos los
+ * expedientes es la fuga que hay que hacer lenta y ruidosa. El PDF completo
+ * cuesta bajar todos los anexos, así que también protege al servidor.
+ */
+export const driverDossierPdfRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: limitFor(5),
+  message: { success: false, message: 'Ya generaste varios expedientes seguidos. Espera unos minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+});
+
+export const driverDossierFileRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: limitFor(120),
+  message: {
+    success: false,
+    message: 'Demasiadas consultas de documentos seguidas. Espera unos minutos.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+});
+
+/**
  * Cambios de datos fiscales y de la cuenta de pago del comercio, y lecturas
  * del número de cuenta completo.
  *

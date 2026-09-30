@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { Order } from '../models';
 import { OrderStatus } from '../types';
+import { UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 
 /**
  * Analíticas de un comercio.
@@ -37,7 +38,8 @@ const DELIVERED_MATCH = { status: OrderStatus.DELIVERED };
 
 async function totalsFor(businessId: Types.ObjectId, from: Date, to: Date) {
   const [row] = await Order.aggregate([
-    { $match: { businessId, createdAt: { $gte: from, $lte: to } } },
+    // Los pedidos en línea sin pagar no cuentan: el comercio nunca los vio.
+    { $match: { businessId, $nor: [UNPAID_ONLINE_MATCH], createdAt: { $gte: from, $lte: to } } },
     {
       $group: {
         _id: null,

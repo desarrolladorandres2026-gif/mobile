@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import {
   Text, Icon, Button, Badge, Sheet, Input, Notice, Screen, Header, LoadingScreen,
 } from '../../components/ui';
-import { useDriverDocuments, useSubmitDriverDocument } from '../../hooks/useApi';
+import { useDriverDocuments, useSubmitDriverDocument, useDriverProfile, useUpdateDriverVehicle } from '../../hooks/useApi';
 import type { DriverDocumentType, DriverDocumentRecord } from '../../services/endpoints';
 import { apiMessage } from '../../lib/errors';
 import { useTheme } from '../../hooks/useTheme';
@@ -29,7 +29,9 @@ import { captureDocumentPhoto, type DocumentPhotoSource } from '../../lib/docume
  */
 
 const TYPES: { type: DriverDocumentType; label: string; hint: string }[] = [
-  { type: 'identity', label: 'Cédula', hint: 'Número de tu cédula de ciudadanía' },
+  { type: 'identity', label: 'Cédula (frente)', hint: 'Número de tu cédula de ciudadanía' },
+  { type: 'identity_back', label: 'Cédula (reverso)', hint: 'Número de tu cédula de ciudadanía' },
+  { type: 'criminal_record', label: 'Antecedentes judiciales', hint: 'Número del certificado' },
   { type: 'license', label: 'Licencia de conducción', hint: 'Número de la licencia' },
   { type: 'soat', label: 'SOAT', hint: 'Número de la póliza' },
   { type: 'technical_review', label: 'Tecnomecánica', hint: 'Número del certificado' },
@@ -54,6 +56,12 @@ export default function DriverDocumentsScreen() {
   const { c } = useTheme();
   const { data: documents = [], isLoading } = useDriverDocuments();
   const [editing, setEditing] = useState<DriverDocumentType | null>(null);
+  const [vehicleOpen, setVehicleOpen] = useState(false);
+  const { data: profile } = useDriverProfile();
+  const vehicle = profile?.vehicle as { brand?: string; model?: string; color?: string; engineCc?: number; ownerName?: string } | undefined;
+  const vehicleSummary = [vehicle?.brand, vehicle?.model, vehicle?.color, profile?.licensePlate]
+    .filter(Boolean)
+    .join(' · ');
 
   const byType = new Map(documents.map((d) => [d.type, d]));
 
@@ -91,12 +99,16 @@ export default function DriverDocumentsScreen() {
                 <Text v="caption" tone="textMuted">
                   {!doc
                     ? 'Sin enviar'
-                    : doc.imageUrl
-                      ? doc.reference
-                      : `${doc.reference} · falta la foto`}
+                    : doc.updateRequest
+                      ? `Actualízalo: ${doc.updateRequest.reason}`
+                      : doc.imageUrl
+                        ? doc.reference
+                        : `${doc.reference} · falta la foto`}
                 </Text>
               </View>
-              {doc ? (
+              {doc?.updateRequest ? (
+                <Badge label="Actualizar" tone="warning" />
+              ) : doc ? (
                 <Badge label={STATUS_LABEL[doc.status]} tone={STATUS_TONE[doc.status]} />
               ) : (
                 <Badge label="Falta" tone="warning" />
@@ -104,7 +116,29 @@ export default function DriverDocumentsScreen() {
             </Pressable>
           );
         })}
+
+        <Pressable
+          onPress={() => { tap('light'); setVehicleOpen(true); }}
+          accessibilityRole="button"
+          accessibilityLabel="Datos de tu moto. Toca para editar"
+          style={[styles.row, { backgroundColor: c.surface, borderColor: c.border }]}
+        >
+          <View style={[styles.rowIcon, { backgroundColor: c.surfaceLight }]}>
+            <Icon name="documento" size="md" color={c.textMuted} />
+          </View>
+          <View style={styles.flex}>
+            <Text v="strongS">Datos de tu moto</Text>
+            <Text v="caption" tone="textMuted">{vehicleSummary || 'Marca, modelo, color y placa'}</Text>
+          </View>
+          {vehicleSummary ? null : <Badge label="Falta" tone="warning" />}
+        </Pressable>
       </ScrollView>
+
+      <VehicleSheet
+        visible={vehicleOpen}
+        onClose={() => setVehicleOpen(false)}
+        current={{ ...vehicle, licensePlate: profile?.licensePlate, licenseCategory: (profile?.license as { category?: string } | undefined)?.category }}
+      />
 
       <DocumentSheet
         visible={!!editing}
@@ -129,6 +163,7 @@ function DocumentSheet({
   const submit = useSubmitDriverDocument();
 
   const [reference, setReference] = useState(current?.reference ?? '');
+  const [issuedAt, setIssuedAt] = useState(current?.issuedAt?.slice(0, 10) ?? '');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -140,6 +175,7 @@ function DocumentSheet({
   if (key !== lastKey) {
     setLastKey(key);
     setReference(current?.reference ?? '');
+    setIssuedAt(current?.issuedAt?.slice(0, 10) ?? '');
     setPhotoUri(null);
     setError(null);
   }
@@ -180,9 +216,19 @@ function DocumentSheet({
       // y un mensaje de error genérico después de haber escrito todo.
       return setError('Falta la foto del documento.');
     }
+    const issued = issuedAt.trim();
+    // Los antecedentes la exigen: sin ella ZIPP no sabe cuándo pedir el certificado de nuevo.
+    if ((type === 'criminal_record' || issued) && !/^\d{4}-\d{2}-\d{2}$/.test(issued)) {
+      return setError('Escribe la fecha de expedición como AAAA-MM-DD.');
+    }
     setError(null);
     submit.mutate(
-      { type, reference: reference.trim(), imageUri: photoUri ?? undefined },
+      {
+        type,
+        reference: reference.trim(),
+        issuedAt: issued || undefined,
+        imageUri: photoUri ?? undefined,
+      },
       {
         onSuccess: () => { tap('success'); onClose(); },
         onError: (err) => {
@@ -210,6 +256,10 @@ function DocumentSheet({
       }
     >
       <View style={styles.sheetBody}>
+        {current?.updateRequest ? (
+          <Notice tone="warning">{`Pedimos una versión nueva: ${current.updateRequest.reason}`}</Notice>
+        ) : null}
+
         {current?.status === 'rejected' ? (
           <Notice tone="error">
             {current.rejectionReason
@@ -223,6 +273,14 @@ function DocumentSheet({
           value={reference}
           onChangeText={setReference}
           placeholder="Escribe el número"
+          numeric
+        />
+
+        <Input
+          label={type === 'criminal_record' ? 'Fecha de expedición (AAAA-MM-DD)' : 'Fecha de expedición (opcional)'}
+          value={issuedAt}
+          onChangeText={setIssuedAt}
+          placeholder="2026-09-01"
           numeric
         />
 
@@ -270,6 +328,93 @@ function DocumentSheet({
           </View>
         </View>
 
+        {error ? <Notice tone="error">{error}</Notice> : null}
+      </View>
+    </Sheet>
+  );
+}
+
+function VehicleSheet({
+  visible, onClose, current,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  current: { brand?: string; model?: string; color?: string; engineCc?: number; ownerName?: string; licenseCategory?: string; licensePlate?: string };
+}) {
+  const update = useUpdateDriverVehicle();
+  const [brand, setBrand] = useState(current.brand ?? '');
+  const [model, setModel] = useState(current.model ?? '');
+  const [color, setColor] = useState(current.color ?? '');
+  const [plate, setPlate] = useState(current.licensePlate ?? '');
+  const [engineCc, setEngineCc] = useState(current.engineCc ? String(current.engineCc) : '');
+  const [ownerName, setOwnerName] = useState(current.ownerName ?? '');
+  const [licenseCategory, setLicenseCategory] = useState(current.licenseCategory ?? '');
+  const [error, setError] = useState<string | null>(null);
+
+  // Se resincroniza cuando llegan los datos guardados (el perfil carga despues de abrir la pantalla).
+  const key = `${current.brand}|${current.model}|${current.color}|${current.licensePlate}|${current.engineCc}|${current.ownerName}|${current.licenseCategory}`;
+  const [lastKey, setLastKey] = useState(key);
+  if (key !== lastKey) {
+    setLastKey(key);
+    setBrand(current.brand ?? '');
+    setModel(current.model ?? '');
+    setColor(current.color ?? '');
+    setPlate(current.licensePlate ?? '');
+    setEngineCc(current.engineCc ? String(current.engineCc) : '');
+    setOwnerName(current.ownerName ?? '');
+    setLicenseCategory(current.licenseCategory ?? '');
+  }
+
+  const send = () => {
+    if (!brand.trim() || !model.trim() || !color.trim()) {
+      return setError('Completa marca, modelo y color.');
+    }
+    const cc = engineCc.trim() ? Number(engineCc) : undefined;
+    if (cc !== undefined && (!Number.isInteger(cc) || cc < 50 || cc > 2500)) {
+      return setError('El cilindraje debe estar entre 50 y 2500 cc.');
+    }
+    const category = licenseCategory.trim().toUpperCase();
+    if (category && !/^(A1|A2|B1|B2|B3|C1|C2|C3)$/.test(category)) {
+      return setError('La categoría de la licencia es A1, A2, B1, B2, B3, C1, C2 o C3.');
+    }
+    setError(null);
+    update.mutate(
+      {
+        brand: brand.trim(),
+        model: model.trim(),
+        color: color.trim(),
+        ...(cc !== undefined ? { engineCc: cc } : {}),
+        ...(ownerName.trim() ? { ownerName: ownerName.trim() } : {}),
+        ...(category ? { licenseCategory: category } : {}),
+      },
+      {
+        onSuccess: () => { tap('success'); onClose(); },
+        onError: (err) => {
+          tap('error');
+          setError(apiMessage(err, 'No pudimos guardar los datos. Intenta de nuevo.'));
+        },
+      }
+    );
+  };
+
+  return (
+    <Sheet
+      visible={visible}
+      onClose={onClose}
+      title="Datos de tu moto"
+      height={0.85}
+      scroll
+      footer={<Button title={update.isPending ? 'Guardando…' : 'Guardar'} full loading={update.isPending} onPress={send} />}
+    >
+      <View style={styles.sheetBody}>
+        <Input label="Marca" value={brand} onChangeText={setBrand} placeholder="Yamaha" />
+        <Input label="Modelo" value={model} onChangeText={setModel} placeholder="FZ 150" />
+        <Input label="Color" value={color} onChangeText={setColor} placeholder="Negro" />
+        <Input label="Cilindraje (cc)" value={engineCc} onChangeText={setEngineCc} placeholder="150" numeric />
+        <Input label="Propietario de la moto" value={ownerName} onChangeText={setOwnerName} placeholder="Nombre como figura en la tarjeta" />
+        <Input label="Categoría de la licencia" value={licenseCategory} onChangeText={setLicenseCategory} placeholder="A2" autoCapitalize="characters" />
+        {/* La placa solo la corrige el equipo de ZIPP: se ve en el seguimiento del cliente. */}
+        <Input label="Placa (la cambia ZIPP)" value={plate} onChangeText={() => {}} editable={false} />
         {error ? <Notice tone="error">{error}</Notice> : null}
       </View>
     </Sheet>

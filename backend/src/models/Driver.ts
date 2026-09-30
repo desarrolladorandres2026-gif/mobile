@@ -5,6 +5,12 @@ export interface IDriver extends Document {
   userId: Types.ObjectId;
   vehicleType: VehicleType;
   licensePlate?: string;
+  /** Datos básicos de la moto, para el expediente. La placa vive en `licensePlate`. */
+  vehicle?: { brand?: string; model?: string; color?: string; year?: number; engineCc?: number; ownerName?: string };
+  /** Datos de la licencia que no viven en el documento: el número es la referencia de `DriverDocument` (`license`). */
+  license?: { category?: string };
+  /** Cuándo un administrador lo aprobó (vinculación). Los aprobados antes de este campo se leen de la auditoría. */
+  approvedAt?: Date;
 
   /**
    * A quién avisar si algo va mal.
@@ -18,6 +24,8 @@ export interface IDriver extends Document {
     name: string;
     phone: string;
     relationship?: string;
+    /** Cuándo se guardó o cambió por última vez. */
+    updatedAt?: Date;
   };
   status: DriverStatus;
   currentLocation: GeoPoint;
@@ -80,6 +88,7 @@ const driverSchema = new Schema<IDriver>(
           name: { type: String, required: true, trim: true, maxlength: 80 },
           phone: { type: String, required: true, trim: true, maxlength: 20 },
           relationship: { type: String, trim: true, maxlength: 40 },
+          updatedAt: { type: Date },
         },
         { _id: false }
       ),
@@ -90,6 +99,25 @@ const driverSchema = new Schema<IDriver>(
       trim: true,
       uppercase: true,
     },
+    vehicle: {
+      type: new Schema(
+        {
+          brand: { type: String, trim: true, maxlength: 40 },
+          model: { type: String, trim: true, maxlength: 40 },
+          color: { type: String, trim: true, maxlength: 30 },
+          year: { type: Number, min: 1980, max: 2100 },
+          engineCc: { type: Number, min: 50, max: 2500 },
+          ownerName: { type: String, trim: true, maxlength: 80 },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
+    license: {
+      type: new Schema({ category: { type: String, trim: true, uppercase: true, enum: ['A1', 'A2', 'B1', 'B2', 'B3', 'C1', 'C2', 'C3'] } }, { _id: false }),
+      default: undefined,
+    },
+    approvedAt: { type: Date },
     status: {
       type: String,
       enum: Object.values(DriverStatus),

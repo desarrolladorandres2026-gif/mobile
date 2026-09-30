@@ -59,6 +59,8 @@ interface AuthState {
 
   setAuth: (user: User, token: string, refreshToken: string) => void;
   setTokens: (token: string, refreshToken: string) => void;
+  /** Toma tokens que otra pestaña ya guardó: cambia el estado, no escribe. */
+  adoptTokens: (token: string, refreshToken: string) => void;
   markTwoFactorEnabled: () => void;
   setBusinesses: (businesses: Business[]) => void;
   setSelectedBusiness: (business: Business | null) => void;
@@ -101,6 +103,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ token, refreshToken });
   },
 
+  adoptTokens: (token, refreshToken) => {
+    if (get().token === token && get().refreshToken === refreshToken) return;
+    set({ token, refreshToken, isAuthenticated: true });
+  },
+
   markTwoFactorEnabled: () => {
     const user = get().user;
     if (!user) return;
@@ -128,3 +135,39 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 }));
 
+/**
+ * Mantiene al día las demás pestañas del mismo navegador.
+ *
+ * El evento `storage` solo se dispara en las pestañas que NO escribieron.
+ * Sin esto, cada pestaña conservaba en memoria el refresh token con el que
+ * arrancó y lo presentaba ya rotado (ver `lib/session.ts`).
+ */
+window.addEventListener('storage', (event) => {
+  if (event.key !== 'business_token' && event.key !== 'business_refresh_token') return;
+  const state = useAuthStore.getState();
+  const token = localStorage.getItem('business_token');
+  const refreshToken = localStorage.getItem('business_refresh_token');
+
+  // Cerraron sesión en otra pestaña: aquí también.
+  if (!token || !refreshToken) {
+    if (state.token) state.logout();
+    return;
+  }
+
+  // Entró otra cuenta en este navegador: recargar, no mezclar negocios.
+  const idOf = (t: string | null) => {
+    try {
+      return JSON.parse(atob((t ?? '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).id as string | undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const before = idOf(state.token);
+  const after = idOf(token);
+  if (before && after && before !== after) {
+    window.location.reload();
+    return;
+  }
+
+  state.adoptTokens(token, refreshToken);
+});

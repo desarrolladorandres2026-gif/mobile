@@ -34,6 +34,8 @@ const BUSINESS_LABEL: Record<string, string> = {
 
 const DRIVER_LABEL: Record<string, string> = {
   identity: 'documento de identidad',
+  identity_back: 'reverso del documento de identidad',
+  criminal_record: 'certificado de antecedentes judiciales',
   license: 'licencia de conducción',
   soat: 'SOAT',
   technical_review: 'revisión técnico-mecánica',

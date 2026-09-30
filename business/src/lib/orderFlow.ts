@@ -273,6 +273,11 @@ export interface BusinessOrder {
   deliveryDetails?: string;
   notes?: string;
   paymentMethod?: 'online' | 'cash_on_delivery';
+  /** Un pedido en línea solo se puede aceptar cuando está `paid`. */
+  paymentStatus?: string;
+  /** Cuándo pasó a ser del comercio un pedido programado. */
+  scheduledActivatedAt?: string | null;
+  cancelledBy?: 'client' | 'business' | 'driver' | 'admin' | 'system';
   subtotal: number;
   total: number;
   platformCommission?: number;

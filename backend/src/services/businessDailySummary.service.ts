@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import { UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 import { Order, Review } from '../models';
 import { OrderStatus, PaymentMethod } from '../types';
 import { bogotaDayRange, bogotaDateString, shiftDateString } from '../utils/period';
@@ -77,7 +78,7 @@ async function snapshot(businessId: Types.ObjectId, date: string): Promise<Busin
 
   const [[orders], [reviews]] = await Promise.all([
     Order.aggregate([
-      { $match: { businessId, createdAt: { $gte: from, $lte: to } } },
+      { $match: { businessId, $nor: [UNPAID_ONLINE_MATCH], createdAt: { $gte: from, $lte: to } } },
       {
         $group: {
           _id: null,
@@ -174,7 +175,7 @@ export async function summaryFor(businessIdRaw: string, dateRaw?: string): Promi
     snapshot(businessId, date),
     snapshot(businessId, baselineDate),
     Order.aggregate([
-      { $match: { businessId, createdAt: { $gte: from, $lte: to }, status: OrderStatus.DELIVERED } },
+      { $match: { businessId, $nor: [UNPAID_ONLINE_MATCH], createdAt: { $gte: from, $lte: to }, status: OrderStatus.DELIVERED } },
       { $unwind: '$items' },
       {
         $group: {
@@ -189,21 +190,21 @@ export async function summaryFor(businessIdRaw: string, dateRaw?: string): Promi
       { $project: { _id: 0, productId: { $toString: '$_id' }, name: 1, quantity: 1, sales: 1 } },
     ]),
     Order.aggregate([
-      { $match: { businessId, createdAt: { $gte: from, $lte: to }, status: OrderStatus.CANCELLED } },
+      { $match: { businessId, $nor: [UNPAID_ONLINE_MATCH], createdAt: { $gte: from, $lte: to }, status: OrderStatus.CANCELLED } },
       { $group: { _id: { $ifNull: ['$cancellationCode', { $ifNull: ['$cancellationReason', 'Sin motivo'] }] }, count: { $sum: 1 } } },
       { $sort: { count: -1 } },
       { $limit: 5 },
       { $project: { _id: 0, reason: '$_id', count: 1 } },
     ]),
     Order.aggregate([
-      { $match: { businessId, createdAt: { $gte: from, $lte: to } } },
+      { $match: { businessId, $nor: [UNPAID_ONLINE_MATCH], createdAt: { $gte: from, $lte: to } } },
       // Hora de Bogotá, no la del servidor ni UTC.
       { $group: { _id: { $hour: { date: '$createdAt', timezone: 'America/Bogota' } }, orders: { $sum: 1 } } },
       { $sort: { _id: 1 } },
       { $project: { _id: 0, hour: '$_id', orders: 1 } },
     ]),
     date === todayStr
-      ? Order.countDocuments({ businessId, status: { $in: OPEN_STATUSES } })
+      ? Order.countDocuments({ businessId, status: { $in: OPEN_STATUSES }, $nor: [UNPAID_ONLINE_MATCH], $or: [{ scheduledFor: null }, { scheduledFor: { $exists: false } }, { scheduledActivatedAt: { $ne: null } }] })
       : Promise.resolve(null),
   ]);
 

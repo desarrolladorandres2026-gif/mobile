@@ -30,6 +30,7 @@ export {
 } from './Product';
 export { Driver, IDriver } from './Driver';
 export { DriverLocation, IDriverLocation } from './DriverLocation';
+export { DriverShift, IDriverShift } from './DriverShift';
 export { Order, IOrder, IOrderItem, IOrderFinance } from './Order';
 
 // ── Traspaso físico del pedido ───────────────────────────────────────
@@ -77,7 +78,23 @@ export { LegalDocument, ILegalDocument, LegalDocumentKind, LegalAcceptance, ILeg
 export { Pqrs, IPqrs } from './Pqrs';
 export { SupportMacro, ISupportMacro } from './SupportMacro';
 export { CampaignSend, ICampaignSend, CampaignSendStatus } from './CampaignSend';
-export { DriverDocument, IDriverDocument } from './DriverDocument';
+export {
+  DriverDocument,
+  IDriverDocument,
+  IDriverDocumentHistoryEntry,
+  DriverDocumentType,
+  DriverDocumentEvent,
+  DRIVER_DOCUMENT_TYPES,
+  MAX_DRIVER_DOCUMENT_HISTORY,
+} from './DriverDocument';
+export {
+  DriverContract,
+  IDriverContract,
+  DriverContractStatus,
+  DRIVER_CONTRACT_STATUSES,
+  MAX_CONTRACT_HISTORY,
+  MAX_CONTRACT_EXTRA_FILES,
+} from './DriverContract';
 export { DriverOffer, IDriverOffer, OfferOutcome, DeclineReason } from './DriverOffer';
 export {
   Advertisement, IAdvertisement, AdActionType, AD_DURATION,

@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { driverController } from '../controllers/driver.controller';
-import { authenticate, authorize, requirePermission, requireFinanceAdmin, validate } from '../middlewares';
+import {
+  driverDossierController,
+  contractBody,
+  observationBody,
+  requestUpdateBody,
+  vehicleBody,
+} from '../controllers/driverDossier.controller';
+import { authenticate, authorize, requirePermission, requireFinanceAdmin, validate, driverDossierFileRateLimiter, driverDossierPdfRateLimiter, businessDocumentUploadRateLimiter } from '../middlewares';
 import { listDriversQuerySchema, driverIdParamSchema } from '../validators/driver.validator';
 import { Permission } from '../security';
 import { reportCashSchema } from '../validators/finance.validator';
@@ -51,12 +58,13 @@ const emergencyContactSchema = z.object({
 /** A quién avisar si algo va mal. Requisito previo del botón de pánico. */
 router.put('/emergency-contact', authenticate, authorize(UserRole.DRIVER), validate(emergencyContactSchema), (req, res, next) => driverController.setEmergencyContact(req, res, next));
 
+router.patch('/vehicle', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.updateOwnVehicle(req, res, next));
 router.get('/documents', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.getDocuments(req, res, next));
 // Sin `validate`: la foto del documento llega como multipart y el esquema
 // Zod correría antes de que multer hubiera poblado el cuerpo, rechazando
 // todo envío por vacío. La validación vive en el controlador, después de
 // leer el archivo — igual que en `/verifications` de aquí abajo.
-router.post('/documents', authenticate, authorize(UserRole.DRIVER), (req, res, next) => driverController.submitDocument(req, res, next));
+router.post('/documents', authenticate, authorize(UserRole.DRIVER), businessDocumentUploadRateLimiter, (req, res, next) => driverController.submitDocument(req, res, next));
 
 /**
  * A driver may declare a remittance; they may not settle it.
@@ -116,8 +124,8 @@ router.get('/onboarding-funnel', authenticate, authorize(UserRole.ADMIN), requir
     sendResponse(res, 200, 'Embudo de alta de domiciliarios', await driverFunnel());
   } catch (error) { next(error); }
 });
-router.get('/documents/queue', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), (req, res, next) => driverController.documentQueue(req, res, next));
-router.get('/:id/documents', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), (req, res, next) => driverController.listDriverDocuments(req, res, next));
+router.get('/documents/queue', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), driverDossierFileRateLimiter, (req, res, next) => driverController.documentQueue(req, res, next));
+router.get('/:id/documents', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE), driverDossierFileRateLimiter, (req, res, next) => driverController.listDriverDocuments(req, res, next));
 router.patch(
   '/documents/:documentId/review',
   authenticate,
@@ -129,6 +137,8 @@ router.patch(
         .object({
           status: z.enum(['approved', 'rejected']),
           rejectionReason: z.string().trim().min(5).max(300).optional(),
+          // `submittedAt` (ms) que el panel tenía en pantalla: detecta reenvíos durante la revisión.
+          revision: z.number().int().positive().optional(),
         })
         // O6: `rejectionReason` obligatorio si se rechaza — el servicio ya
         // lo exige, pero fallar aquí devuelve un mensaje de campo, no un 400 genérico.
@@ -140,6 +150,27 @@ router.patch(
   ),
   (req, res, next) => driverController.reviewDocument(req, res, next)
 );
+
+// ── Expediente digital ──────────────────────────────────────────────
+// Todo exige `drivers:approve` (la cédula y los antecedentes son lo que ya ve
+// quien revisa documentos). Los archivos se sirven por aquí, con el permiso
+// comprobado y auditoría, nunca como URL del almacén.
+const dossierAccess = [authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.DRIVERS_APPROVE)] as const;
+const dossierParams = z.object({ params: z.object({ id: objectId }) });
+const dossierDocParams = z.object({ params: z.object({ id: objectId, documentId: objectId }) });
+const dossierFileParams = z.object({ params: z.object({ id: objectId, fileId: z.union([z.literal('contract'), objectId]) }) });
+
+router.get('/:id/dossier', ...dossierAccess, validate(dossierParams), (req, res, next) => driverDossierController.get(req, res, next));
+router.get('/:id/dossier/pdf', ...dossierAccess, driverDossierPdfRateLimiter, validate(dossierParams), (req, res, next) => driverDossierController.exportPdf(req, res, next));
+router.get('/:id/documents/:documentId/file', ...dossierAccess, driverDossierFileRateLimiter, validate(dossierDocParams), (req, res, next) => driverDossierController.documentFile(req, res, next));
+router.post('/:id/documents/:documentId/request-update', ...dossierAccess, validate(z.object({ params: dossierDocParams.shape.params, body: requestUpdateBody })), (req, res, next) => driverDossierController.requestUpdate(req, res, next));
+router.post('/:id/documents/:documentId/observations', ...dossierAccess, validate(z.object({ params: dossierDocParams.shape.params, body: observationBody })), (req, res, next) => driverDossierController.addObservation(req, res, next));
+router.put('/:id/vehicle', ...dossierAccess, validate(z.object({ params: dossierParams.shape.params, body: vehicleBody })), (req, res, next) => driverDossierController.updateVehicle(req, res, next));
+router.put('/:id/contract', ...dossierAccess, validate(z.object({ params: dossierParams.shape.params, body: contractBody })), (req, res, next) => driverDossierController.upsertContract(req, res, next));
+router.post('/:id/contract/file', ...dossierAccess, businessDocumentUploadRateLimiter, validate(dossierParams), driverDossierController.attachFile('contract'));
+router.post('/:id/contract/extras', ...dossierAccess, businessDocumentUploadRateLimiter, validate(dossierParams), driverDossierController.attachFile('extra'));
+router.get('/:id/contract/files/:fileId', ...dossierAccess, driverDossierFileRateLimiter, validate(dossierFileParams), (req, res, next) => driverDossierController.contractFile(req, res, next));
+router.delete('/:id/contract/extras/:fileId', ...dossierAccess, validate(dossierFileParams), (req, res, next) => driverDossierController.removeExtra(req, res, next));
 
 // Va al final a propósito: `/:id` captura cualquier segmento, así que todas las
 // rutas GET estáticas de arriba (/profile, /metrics, /decline-reasons...) tienen que registrarse antes.

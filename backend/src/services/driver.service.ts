@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { Driver, IDriver, DriverDebt, DriverDocument, DriverOffer, User } from '../models';
+import { Driver, IDriver, DriverDebt, DriverDocument, DriverOffer, User, MAX_DRIVER_DOCUMENT_HISTORY } from '../models';
 import { AppError } from '../middlewares';
 import { escapeRegex } from '../utils';
 import { DriverStatus, DebtStatus } from '../types';
@@ -7,6 +7,8 @@ import { cashReconciliationService } from './cashReconciliation.service';
 import { payoutService } from './payout.service';
 import { PayoutBeneficiary } from '../types';
 import { cloudinary } from '../config';
+import { driverDossierService } from './driverDossier.service';
+import { driverShiftService } from './driverShift.service';
 
 /**
  * La fecha en la zona del servidor, como `YYYY-MM-DD`.
@@ -163,8 +165,12 @@ export class DriverService {
         'DRIVER_BUSY'
       );
     }
+    const before = driver.status;
     driver.status = status;
     await driver.save();
+    // Turnos: solo importa cruzar la frontera conectado/desconectado (busy ↔ available no cambia nada).
+    if (before === DriverStatus.OFFLINE && status !== DriverStatus.OFFLINE) await driverShiftService.open(driver._id);
+    if (before !== DriverStatus.OFFLINE && status === DriverStatus.OFFLINE) await driverShiftService.close(driver._id);
     return driver;
   }
 
@@ -282,6 +288,8 @@ export class DriverService {
     if (!driver) throw new AppError('Domiciliario no encontrado', 404);
     await this.assertDocumentsCurrent(driver._id.toString());
     driver.isApproved = true;
+    // Fecha de vinculación: la primera aprobación; reaprobar tras un rechazo no la reescribe.
+    if (!driver.approvedAt) driver.approvedAt = new Date();
     await driver.save();
     return driver;
   }
@@ -395,7 +403,7 @@ export class DriverService {
    */
   async submitDocument(
     userId: string,
-    input: { type: string; reference: string; expiresAt?: Date; image?: Buffer }
+    input: { type: string; reference: string; issuedAt?: Date; expiresAt?: Date; image?: Buffer }
   ) {
     const driver = await Driver.findOne({ userId });
     if (!driver) throw new AppError('Domiciliario no encontrado', 404);
@@ -420,11 +428,21 @@ export class DriverService {
         driverId: driver._id,
         type: input.type,
         reference: input.reference,
+        issuedAt: input.issuedAt,
         expiresAt: input.expiresAt,
         ...imagePatch,
         status: 'pending',
         reviewedBy: null,
         reviewedAt: null,
+        rejectionReason: null,
+        submittedAt: new Date(),
+        // Un reenvío cierra cualquier solicitud de actualización pendiente.
+        $unset: { updateRequest: 1 },
+        // Un reenvío sin foto nueva de algo que sigue en revisión no es un hecho nuevo: sin esto,
+        // reenviar 50 veces expulsaría del historial las notas y decisiones del equipo.
+        ...(input.image || existing?.status !== 'pending'
+          ? { $push: { history: { $each: [{ action: 'submitted', at: new Date() }], $slice: -MAX_DRIVER_DOCUMENT_HISTORY } } }
+          : {}),
       },
       { upsert: true, new: true, runValidators: true }
     );
@@ -436,8 +454,13 @@ export class DriverService {
     // mismo campo `imageUrl` que el panel y la app siempre leyeron.
     return documents.map((doc) => {
       const imageUrl = this.documentImageUrl(doc);
-      const { imageKey, ...rest } = doc;
-      return { ...rest, imageUrl };
+      const { imageKey, updateRequest, ...rest } = doc;
+      // `requestedBy` es el id del administrador: no sale hacia la app.
+      return {
+        ...rest,
+        imageUrl,
+        ...(updateRequest ? { updateRequest: { reason: updateRequest.reason, requestedAt: updateRequest.requestedAt } } : {}),
+      };
     });
   }
 
@@ -500,17 +523,38 @@ export class DriverService {
     };
   }
   /** O6: `rejectionReason` es obligatorio al rechazar — antes el domiciliario reintentaba a ciegas, sin saber qué corregir. */
-  async reviewDocument(id: string, adminId: string, status: 'approved'|'rejected', rejectionReason?: string) {
+  async reviewDocument(id: string, adminId: string, status: 'approved'|'rejected', rejectionReason?: string, revision?: number) {
     if (status === 'rejected' && (!rejectionReason || rejectionReason.trim().length < 5)) {
       throw new AppError('El motivo del rechazo es obligatorio (mínimo 5 caracteres)', 400);
     }
-    const document = await DriverDocument.findByIdAndUpdate(
-      id,
+    // `revision` es el `submittedAt` que el administrador tenía en pantalla: si el domiciliario
+    // reenvió entretanto, aprobar sería aprobar una foto que nadie miró.
+    const document = await DriverDocument.findOneAndUpdate(
+      { _id: id, ...(revision ? { submittedAt: new Date(revision) } : {}) },
       { status, reviewedBy: adminId, reviewedAt: new Date(), rejectionReason: status === 'rejected' ? rejectionReason!.trim() : null },
       { new: true, runValidators: true }
     );
-    if (!document) throw new AppError('Documento no encontrado', 404);
+    if (!document) {
+      if (revision && (await DriverDocument.exists({ _id: id }))) {
+        throw new AppError('El domiciliario reenvió el documento mientras lo revisabas. Recarga y revísalo de nuevo.', 409, 'DOCUMENT_CHANGED');
+      }
+      throw new AppError('Documento no encontrado', 404);
+    }
+    // Quién y cuándo, para el historial del expediente. Un fallo aquí no debe deshacer la revisión ya guardada.
+    await driverDossierService
+      .recordReview(id, adminId, status, status === 'rejected' ? rejectionReason!.trim() : undefined)
+      .catch((error) => console.error('[driver-dossier] historial de revisión', error));
     return document;
+  }
+
+  /** El propio domiciliario completa los datos básicos de su moto (marca, modelo, color, placa). */
+  async updateOwnVehicle(
+    userId: string,
+    input: { brand?: string; model?: string; color?: string; year?: number; engineCc?: number; ownerName?: string; licenseCategory?: string }
+  ): Promise<IDriver> {
+    const driver = await Driver.findOne({ userId }).select('_id');
+    if (!driver) throw new AppError('Domiciliario no encontrado', 404);
+    return driverDossierService.updateVehicle(driver._id.toString(), input);
   }
 
   /**

@@ -46,7 +46,6 @@ const STATUS_LABEL: Record<SendRecord['status'], string> = {
 };
 
 const fieldClass = 'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
-const labelClass = 'mb-1 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]';
 
 function describe(segment: Segment, businesses: BusinessOption[]): string {
  const parts: string[] = [segment.role === 'driver' ? 'Domiciliarios' : 'Clientes'];
@@ -146,7 +145,7 @@ export default function TargetedSends() {
  const messageOk = title.trim().length >= 3 && body.trim().length >= 3;
 
  return (
- <div className="space-y-6 animate-fade-in">
+ <div className="space-y-4 animate-fade-in">
  <div className="page-header">
  <div>
  <h1 className="page-title">Envíos dirigidos</h1>
@@ -164,48 +163,80 @@ export default function TargetedSends() {
  {notice && <p className="text-xs font-semibold text-[var(--color-success)]">{notice}</p>}
 
  <PermissionGate permission={Permission.NOTIFICATIONS_SEND}>
- <div className="grid gap-x-6 gap-y-4 border-y border-[var(--color-border-light)] py-5 md:grid-cols-2">
- <div>
- <label className={labelClass}>A quién</label>
+ <div className="space-y-3">
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell">A quién</th>
+ <th className="table-header-cell">Ciudad (de sus direcciones)</th>
+ {role === 'client' && (
+ <>
+ <th className="table-header-cell">Compraron en</th>
+ <th className="table-header-cell">Sin pedir hace (días)</th>
+ <th className="table-header-cell">Mín. pedidos entregados</th>
+ </>
+ )}
+ </tr>
+ </thead>
+ <tbody>
+ <tr>
+ <td>
  <select value={role} onChange={(e) => setRole(e.target.value as 'client' | 'driver')} className={fieldClass}>
  <option value="client">Clientes</option>
  <option value="driver">Domiciliarios</option>
  </select>
- </div>
- <div>
- <label className={labelClass}>Ciudad (de sus direcciones)</label>
+ </td>
+ <td>
  <input value={city} onChange={(e) => setCity(e.target.value)} maxLength={80} placeholder="Todas" className={fieldClass} />
- </div>
+ </td>
  {role === 'client' && (
  <>
- <div>
- <label className={labelClass}>Compraron en</label>
+ <td>
  <select value={businessId} onChange={(e) => setBusinessId(e.target.value)} className={fieldClass}>
  <option value="">Cualquier negocio</option>
  {businesses.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
  </select>
- </div>
- <div className="grid grid-cols-2 gap-4">
- <div>
- <label className={labelClass}>Sin pedir hace (días)</label>
+ </td>
+ <td>
  <input type="number" min={1} max={365} value={inactive} onChange={(e) => setInactive(e.target.value)} className={fieldClass} />
- </div>
- <div>
- <label className={labelClass}>Mín. pedidos entregados</label>
+ </td>
+ <td>
  <input type="number" min={1} max={1000} value={minOrders} onChange={(e) => setMinOrders(e.target.value)} className={fieldClass} />
- </div>
- </div>
+ </td>
  </>
  )}
- <div className="md:col-span-2">
- <label className={labelClass}>Título · {title.length}/60</label>
+ </tr>
+ </tbody>
+ </table>
+ </div>
+ </div>
+
+ <div className="table-container">
+ <div className="overflow-x-auto">
+ <table className="data-grid">
+ <thead>
+ <tr className="text-left">
+ <th className="table-header-cell w-1/3">Título · {title.length}/60</th>
+ <th className="table-header-cell">Mensaje · {body.length}/240</th>
+ </tr>
+ </thead>
+ <tbody>
+ <tr>
+ <td className="align-top">
  <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={60} className={fieldClass} />
+ </td>
+ <td>
+ <textarea value={body} onChange={(e) => setBody(e.target.value)} maxLength={240} rows={2} className={`${fieldClass} resize-none`} />
+ </td>
+ </tr>
+ </tbody>
+ </table>
  </div>
- <div className="md:col-span-2">
- <label className={labelClass}>Mensaje · {body.length}/240</label>
- <textarea value={body} onChange={(e) => setBody(e.target.value)} maxLength={240} rows={3} className={fieldClass} />
  </div>
- <div className="flex flex-wrap items-center gap-4 md:col-span-2">
+
+ <div className="flex flex-wrap items-center gap-4">
  <button
  onClick={preview}
  disabled={working}

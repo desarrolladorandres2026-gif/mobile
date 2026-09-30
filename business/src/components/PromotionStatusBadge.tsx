@@ -39,19 +39,19 @@ function resolve(promotion: PromotionLike): { label: string; tone: Tone } {
   return { label: 'Finalizada', tone: 'muted' };
 }
 
-const TONE_CLASSES: Record<Tone, string> = {
-  success: 'bg-[var(--color-success-bg)] text-[var(--color-success)]',
-  info: 'bg-[var(--color-info-bg)] text-[var(--color-info)]',
-  warning: 'bg-[var(--color-warning-bg)] text-[var(--color-warning)]',
-  muted: 'bg-[var(--color-bg-alt)] text-[var(--color-text-muted)] border border-[var(--color-border)]',
+const TONE_CLASSES: Record<Tone, { text: string; dot: string }> = {
+  success: { text: "text-[var(--color-success)]", dot: "bg-[var(--color-success)]" },
+  info: { text: "text-[var(--color-info)]", dot: "bg-[var(--color-info)]" },
+  warning: { text: "text-[var(--color-warning)]", dot: "bg-[var(--color-warning)]" },
+  muted: { text: "text-[var(--color-text-secondary)]", dot: "bg-[var(--color-text-secondary)]" },
 };
 
 export default function PromotionStatusBadge({ promotion }: { promotion: PromotionLike }) {
   const { label, tone } = resolve(promotion);
+  const { text, dot } = TONE_CLASSES[tone];
   return (
-    <span
-      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${TONE_CLASSES[tone]}`}
-    >
+    <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
       {label}
     </span>
   );

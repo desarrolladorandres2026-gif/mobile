@@ -595,6 +595,16 @@ export const useSubmitDriverDocument = () => {
   });
 };
 
+export const useUpdateDriverVehicle = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: driverApi.updateVehicle,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['driver', 'profile'] });
+    },
+  });
+};
+
 export const useDriverProfile = () =>
   useQuery({ queryKey: ['driver', 'profile'], queryFn: driverApi.getProfile });
 

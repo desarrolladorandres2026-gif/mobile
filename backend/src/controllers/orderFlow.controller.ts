@@ -147,12 +147,16 @@ export class OrderFlowController {
         orderNumber: order.orderNumber,
         stage: kind,
         arrivedAt,
+        businessId: participants.businessId,
       };
 
       if (kind === OrderCodeKind.PICKUP) {
-        io?.to(`business:${participants.businessId}`).emit('order:driver:arrived', payload);
+        // Una sola emisión a la unión de salas: Socket.IO entrega una vez por
+        // socket, así que el dueño (que está en las dos) ya no oye el aviso doble.
+        const rooms = [`business:${participants.businessId}`];
+        if (participants.businessOwnerId) rooms.push(`user:${participants.businessOwnerId}`);
+        io?.to(rooms).emit('order:driver:arrived', payload);
         if (participants.businessOwnerId) {
-          io?.to(`user:${participants.businessOwnerId}`).emit('order:driver:arrived', payload);
           notificationService
             .notifyDriverArrivedAtStore(
               participants.businessOwnerId,
@@ -464,6 +468,7 @@ export class OrderFlowController {
       orderNumber: order.orderNumber,
       status,
       stage: kind,
+      businessId: participants.businessId,
     };
 
     io?.to(`user:${participants.clientUserId}`).emit('order:status:changed', payload);

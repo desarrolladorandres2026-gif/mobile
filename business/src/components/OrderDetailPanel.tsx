@@ -1,23 +1,19 @@
-import { useEffect, useState } from 'react';
-import {
-  X, User, Bike, Camera, Lock, ShieldCheck, MapPin, Clock, Receipt,
-  Landmark, ImageOff, Phone,
-} from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { X, Lock, Camera, ImageOff } from 'lucide-react';
 import api from '../services/api';
 import OrderTimeline from './OrderTimeline';
 import {
   statusStyle, money, signedMoney, shortId, dateTime, clock,
   type BusinessOrder, type FlowState, type OrderFinance, type OrderItem, describeExtras,
-  type PopulatedDriver, type PopulatedUser,
 } from '../lib/orderFlow';
 import { SUPPORT_PHONE_DISPLAY, supportWhatsAppUrl } from '../lib/contact';
 
 /**
- * Todo lo que el comercio sabe de un pedido, en un panel lateral.
+ * Todo lo que el comercio sabe de un pedido, a pantalla completa.
  *
- * Es un cajón y no un modal centrado a propósito: el comercio consulta un
- * pedido *mientras* trabaja con la lista, y un modal que tapa la pantalla
- * obliga a cerrar para volver a mirar la cola de cocina.
+ * Ocupa el área de contenido y deja a la vista la barra lateral y la
+ * cabecera, para que el comercio no pierda la navegación. Se ordena en
+ * cuadrículas, igual que el resto del panel.
  *
  * Se apoya en tres lecturas del servidor y ninguna cuenta la hace el
  * navegador:
@@ -53,6 +49,12 @@ const PAYOUT_LABELS: Record<string, string> = {
   reversed: 'Revertido',
 };
 
+const DRIVER_STATUSES: Record<string, string> = {
+  available: 'Disponible',
+  busy: 'En reparto',
+  offline: 'Desconectado',
+};
+
 export default function OrderDetailPanel({ order, businessId, onClose, refreshKey = 0 }: Props) {
   const [flow, setFlow] = useState<FlowState | null>(null);
   const [line, setLine] = useState<StatementLine | null>(null);
@@ -84,7 +86,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
     return () => { alive = false; };
   }, [orderId, businessId, refreshKey]);
 
-  // `Escape` cierra: es un cajón y se comporta como tal.
+  // `Escape` cierra.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -103,139 +105,162 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
   const commission = finance.merchantCommission ?? order.platformCommission ?? 0;
   const funded = finance.merchantFundedDiscount ?? 0;
   const net = finance.businessPayout ?? order.businessPayout ?? 0;
+  const netShown = line ? line.netAmount : net;
+
+  const pickup = flow?.pickup;
+  const pickupEvidence = pickup?.evidence ?? null;
+
+  const driverRows: ReactNode[][] = driver
+    ? [
+        ['Nombre', driverUser?.name ?? 'Domiciliario'],
+        ['Estado', (driver.status ? DRIVER_STATUSES[driver.status] : null) ?? driver.status ?? ''],
+        ['Vehículo', `${driver.vehicleType === 'bicycle' ? 'Bicicleta' : 'Moto'}${driver.licensePlate ? ` · ${driver.licensePlate}` : ''}`],
+        ['Llegó al local', pickup?.arrivedAt ? clock(pickup.arrivedAt) : 'Todavía en camino al local'],
+        ['Foto de lo que recibe', pickupEvidence ? clock(pickupEvidence.uploadedAt) : 'Falta la foto de recogida'],
+        ['Recogida con código', pickup?.verifiedAt ? clock(pickup.verifiedAt) : 'El pedido aún no ha salido del local'],
+        ...(pickup?.attempts ? [['Intentos fallidos del código', String(pickup.attempts)]] : []),
+      ]
+    : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <button
-        type="button"
-        aria-label="Cerrar el detalle"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/40 backdrop-blur-[2px] cursor-default"
-      />
-
-      <aside
-        role="dialog"
-        aria-label={`Pedido ${order.orderNumber ?? shortId(order._id)}`}
-        className="relative h-full w-full sm:max-w-md lg:max-w-lg bg-[var(--color-surface)] border-l border-[var(--color-border)] shadow-2xl overflow-y-auto animate-fade-in"
-      >
-        {/* Encabezado fijo: el número y el estado siguen visibles al bajar. */}
-        <header className="sticky top-0 z-10 bg-[var(--color-surface)] border-b border-[var(--color-border)] px-5 py-4 flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-              Pedido
-            </p>
-            <h2 className="text-base font-bold text-[var(--color-text-main)] tabular truncate">
-              {order.orderNumber ?? shortId(order._id)}
-            </h2>
-            <div className="flex flex-wrap items-center gap-2 mt-1.5">
-              <span
-                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${style.chip}`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                {style.label}
-              </span>
-              <span className="text-[11px] text-[var(--color-text-muted)] flex items-center gap-1">
-                <Clock className="w-3 h-3" />
-                {dateTime(order.createdAt)}
-              </span>
-            </div>
+    // Área de contenido: bajo la cabecera (h-20) y junto a la barra lateral (w-30, fija desde lg).
+    <div
+      role="dialog"
+      aria-label={`Pedido ${order.orderNumber ?? shortId(order._id)}`}
+      className="fixed bottom-0 left-0 right-0 top-20 z-30 overflow-y-auto bg-[var(--color-bg)] p-6 lg:left-30 lg:p-8"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-bold tabular text-[var(--color-text-main)]">
+            Pedido {order.orderNumber ?? shortId(order._id)}
+          </h2>
+          <div className="mt-1.5 flex flex-wrap items-center gap-3">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${style.chip}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+              {style.label}
+            </span>
+            <span className="text-[11px] text-[var(--color-text-secondary)]">
+              {dateTime(order.createdAt)}
+            </span>
           </div>
+        </div>
 
-          <button
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer shrink-0"
-          >
-            <X className="w-4.5 h-4.5" />
-          </button>
-        </header>
+        <button
+          onClick={onClose}
+          aria-label="Cerrar"
+          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]"
+        >
+          <X className="h-4 w-4" /> Volver a pedidos
+        </button>
+      </div>
 
-        <div className="px-5 py-5 space-y-7">
-          {/* ── El código, cuando toca enseñarlo ── */}
-          {flow?.pickup.code ? <PickupCode code={flow.pickup.code} /> : null}
+      <div className="mt-6 space-y-6 pb-8">
+        {/* El código, cuando toca enseñarlo. Solo llega si el servidor lo entrega. */}
+        {flow?.pickup.code ? <PickupCode code={flow.pickup.code} /> : null}
 
-          {/* ── Cliente ── */}
-          <Section icon={User} title="Cliente">
-            <p className="text-sm font-semibold text-[var(--color-text-main)]">
-              {client?.name ?? 'Cliente'}
-            </p>
-            {client?.phone ? (
-              <a
-                href={`tel:${client.phone}`}
-                className="text-xs text-[var(--color-primary)] hover:underline inline-flex items-center gap-1 mt-0.5"
-              >
-                <Phone className="w-3 h-3" /> {client.phone}
-              </a>
-            ) : null}
-            <p className="text-xs text-[var(--color-text-secondary)] mt-1.5 flex items-start gap-1.5">
-              <MapPin className="w-3.5 h-3.5 mt-px shrink-0 text-[var(--color-text-muted)]" />
-              <span>
-                {order.deliveryAddress}
-                {order.deliveryDetails ? ` · ${order.deliveryDetails}` : ''}
-              </span>
-            </p>
-          </Section>
+        <Facts
+          title="Resumen"
+          items={[
+            ['Estado', style.label],
+            ['Creado', dateTime(order.createdAt)],
+            ['Pago', order.paymentMethod === 'online' ? 'Digital' : 'Efectivo al recibir'],
+            ['Liquidación', line ? (PAYOUT_LABELS[line.payoutStatus] ?? line.payoutStatus) : ''],
+            ['Neto para el comercio', money(netShown)],
+          ]}
+        />
 
-          {/* ── Productos ── */}
-          <Section icon={Receipt} title="Productos">
-            <ul className="divide-y divide-[var(--color-border-light)] -mt-1">
-              {(order.items ?? []).map((item: OrderItem, index: number) => (
-                <li key={index} className="py-2">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="text-xs font-semibold text-[var(--color-text-main)]">
-                      <span className="text-[var(--color-primary)] tabular">{item.quantity}×</span>{' '}
-                      {item.productName}
-                    </span>
-                    {/*
-                      `totalPrice` y no `price * quantity`: el pedido guarda
-                      el total de la línea ya con adicionales incluidos, y
-                      `price` sencillamente no existe en el esquema — la
-                      versión anterior de esta ficha mostraba $0 en todas
-                      las líneas por leer ese campo inexistente.
-                    */}
-                    <span className="text-xs font-bold tabular text-[var(--color-text-main)] shrink-0">
-                      {money(item.totalPrice ?? item.unitPrice * item.quantity)}
-                    </span>
-                  </div>
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <Grid
+            title="Cliente y entrega"
+            head={['Dato', 'Valor']}
+            empty="Sin datos del cliente."
+            rows={[
+              ['Nombre', client?.name ?? 'Cliente'],
+              ...(client?.phone
+                ? [['Teléfono', <a key="tel" href={`tel:${client.phone}`} className="text-[var(--color-primary)] hover:underline">{client.phone}</a>]]
+                : []),
+              ['Dirección', `${order.deliveryAddress ?? ''}${order.deliveryDetails ? ` · ${order.deliveryDetails}` : ''}`],
+              ...(order.notes ? [['Observaciones del cliente', <span key="obs" className="text-[var(--color-warning)]">{order.notes}</span>]] : []),
+            ]}
+          />
 
-                  {item.selectedExtras?.length ? (
-                    <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
-                      {describeExtras(item.selectedExtras)}
-                    </p>
-                  ) : null}
+          <Grid
+            title="Domiciliario"
+            head={['Dato', 'Valor']}
+            empty="Todavía no hay domiciliario asignado. Te avisamos en cuanto ZIPP asigne uno."
+            rows={driverRows}
+          />
+        </div>
 
-                  {item.notes ? (
-                    <p className="text-[11px] text-[var(--color-warning)] mt-0.5 font-medium">
-                      Nota: {item.notes}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+        {pickup?.lockedUntil ? (
+          <p className="text-xs font-semibold text-[var(--color-danger)]">
+            El domiciliario falló el código demasiadas veces y está bloqueado temporalmente.
+            No le entregues el pedido: avisa a soporte ZIPP al{' '}
+            {/* Enlace de WhatsApp y no `tel:`: esto se ve desde el computador del
+                mostrador, donde un `tel:` no tiene quién lo abra. */}
+            <a
+              href={supportWhatsAppUrl(
+                `Hola, soy un comercio de Zipp. El domiciliario${
+                  driver?.licensePlate ? ` de placa ${driver.licensePlate}` : ''
+                } quedó bloqueado por fallar el código de recogida.`,
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2"
+            >
+              {SUPPORT_PHONE_DISPLAY}
+            </a>.
+          </p>
+        ) : null}
 
-            {order.notes ? (
-              <p className="text-[11px] text-[var(--color-warning)] font-medium mt-2 px-2.5 py-2 rounded-lg bg-[var(--color-warning-bg)] border border-[var(--color-warning)]/30">
-                Observaciones del cliente: {order.notes}
-              </p>
-            ) : null}
-          </Section>
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <Grid
+            title="Productos"
+            head={['Cant.', 'Producto', 'Total']}
+            empty="Sin productos."
+            right={[2]}
+            rows={(order.items ?? []).map((item: OrderItem) => [
+              item.quantity,
+              <>
+                {item.productName}
+                {item.selectedExtras?.length ? (
+                  <span className="block text-[11px] text-[var(--color-text-secondary)]">
+                    {describeExtras(item.selectedExtras)}
+                  </span>
+                ) : null}
+                {item.notes ? (
+                  <span className="block text-[11px] text-[var(--color-warning)]">Nota: {item.notes}</span>
+                ) : null}
+              </>,
+              // `totalPrice` y no `price * quantity`: el pedido guarda el total
+              // de la línea ya con adicionales incluidos.
+              money(item.totalPrice ?? item.unitPrice * item.quantity),
+            ])}
+          />
 
-          {/* ── Domiciliario ── */}
-          <Section icon={Bike} title="Domiciliario">
-            {driver ? (
-              <DriverBlock driver={driver} user={driverUser ?? null} flow={flow} />
-            ) : (
-              <p className="text-xs text-[var(--color-text-muted)]">
-                Todavía no hay domiciliario asignado. Te avisamos en cuanto ZIPP
-                asigne uno.
-              </p>
-            )}
-          </Section>
+          <Grid
+            title="Detalle financiero"
+            head={['Concepto', 'Importe']}
+            empty="Sin desglose."
+            right={[1]}
+            rows={[
+              ['Venta de productos', money(productSubtotal)],
+              ...(funded > 0 ? [['Descuento que asumes', signedMoney(-funded)]] : []),
+              ['Comisión ZIPP', signedMoney(-commission)],
+              ...(line && line.reversedAmount > 0 ? [['Revertido por reembolso', signedMoney(-line.reversedAmount)]] : []),
+              ['Neto para el comercio', money(netShown)],
+              ...(line?.settledAt ? [['Consignado el', dateTime(line.settledAt)]] : []),
+            ]}
+          />
+        </div>
 
-          {/* ── Evidencia ── */}
-          <Section icon={Camera} title="Evidencia de recogida">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <section className="min-w-0 space-y-2">
+            <h3 className="text-sm font-bold text-[var(--color-text-main)]">Evidencia de recogida</h3>
             <Evidence
-              evidence={flow?.pickup.evidence ?? null}
+              evidence={pickupEvidence}
               loading={loading}
               emptyHint={
                 order.status === 'pending' || order.status === 'accepted'
@@ -243,115 +268,98 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
                   : 'El domiciliario todavía no ha tomado la foto.'
               }
             />
-            {/*
-              La foto de la entrega es la puerta de casa del cliente: el
-              backend no se la entrega al comercio, y decirlo aquí evita
-              que parezca que falta por un fallo.
-            */}
-            <p className="text-[11px] text-[var(--color-text-muted)] mt-2">
-              La foto de la entrega queda registrada para el cliente y para
-              soporte; no se comparte con el comercio.
+            {/* La foto de la entrega es la puerta de casa del cliente: el backend
+                no se la entrega al comercio, y decirlo evita que parezca un fallo. */}
+            <p className="text-[11px] text-[var(--color-text-secondary)]">
+              La foto de la entrega queda registrada para el cliente y para soporte; no se comparte con el comercio.
             </p>
-          </Section>
+          </section>
 
-          {/* ── Dinero ── */}
-          <Section icon={Landmark} title="Detalle financiero">
-            <dl className="divide-y divide-[var(--color-border-light)] -mt-1">
-              <Row label="Venta de productos" value={money(productSubtotal)} />
-              {funded > 0 && (
-                <Row label="Descuento que asumes" value={signedMoney(-funded)} tone="warning" />
-              )}
-              <Row label="Comisión ZIPP" value={signedMoney(-commission)} tone="warning" />
-              {line && line.reversedAmount > 0 ? (
-                <Row
-                  label="Revertido por reembolso"
-                  value={signedMoney(-line.reversedAmount)}
-                  tone="danger"
-                />
-              ) : null}
-              <Row
-                label="Neto para el comercio"
-                value={money(line ? line.netAmount : net)}
-                tone="primary"
-                strong
-              />
-            </dl>
-
-            <p className="text-[11px] text-[var(--color-text-muted)] mt-2.5">
-              Método de pago:{' '}
-              <span className="font-semibold text-[var(--color-text-secondary)]">
-                {order.paymentMethod === 'online' ? 'Digital' : 'Efectivo al recibir'}
-              </span>
-            </p>
-
-            {line ? (
-              <p className="text-[11px] mt-1.5 text-[var(--color-text-secondary)]">
-                Estado de liquidación:{' '}
-                <span className="font-semibold text-[var(--color-text-main)]">
-                  {PAYOUT_LABELS[line.payoutStatus] ?? line.payoutStatus}
-                </span>
-                {line.settledAt ? ` · consignado el ${dateTime(line.settledAt)}` : ''}
-              </p>
-            ) : null}
-          </Section>
-
-          {/* ── Historia ── */}
-          <Section icon={Clock} title="Historial del pedido">
+          <section className="min-w-0 space-y-2">
+            <h3 className="text-sm font-bold text-[var(--color-text-main)]">Historial del pedido</h3>
             <OrderTimeline orderId={orderId} />
-          </Section>
+          </section>
         </div>
-      </aside>
+      </div>
     </div>
   );
 }
 
 // ── Piezas ─────────────────────────────────────────────────────────────
 
-function Section({
-  icon: Icon, title, children,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  children: React.ReactNode;
-}) {
+/** Fila de encabezados sobre una fila de valores. */
+function Facts({ title, items }: { title: string; items: Array<[string, ReactNode]> }) {
   return (
-    <section>
-      <h3 className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] pb-2 mb-2.5 border-b border-[var(--color-border-light)]">
-        <Icon className="w-3.5 h-3.5 text-[var(--color-primary)]" />
-        {title}
-      </h3>
-      {children}
+    <section className="min-w-0 space-y-2">
+      <h3 className="text-sm font-bold text-[var(--color-text-main)]">{title}</h3>
+      <div className="table-container">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr>
+                {items.map(([label]) => (
+                  <th key={label} className="table-header-cell">{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {items.map(([label, value]) => (
+                  <td key={label} className="table-body-cell align-top text-sm font-semibold tabular">
+                    {value || '—'}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
   );
 }
 
-function Row({
-  label, value, tone = 'normal', strong = false,
+function Grid({
+  title, head, rows, empty, right = [],
 }: {
-  label: string;
-  value: string;
-  tone?: 'normal' | 'warning' | 'danger' | 'primary';
-  strong?: boolean;
+  title: string;
+  head: string[];
+  rows: ReactNode[][];
+  empty: string;
+  /** Índices de columnas alineadas a la derecha (importes). */
+  right?: number[];
 }) {
-  const tones = {
-    normal: 'text-[var(--color-text-main)]',
-    warning: 'text-[var(--color-warning)]',
-    danger: 'text-[var(--color-danger)]',
-    primary: 'text-[var(--color-primary)]',
-  };
   return (
-    <div className="flex items-center justify-between gap-3 py-2">
-      <dt
-        className={`text-xs ${
-          strong
-            ? 'font-bold text-[var(--color-primary)]'
-            : 'font-medium text-[var(--color-text-secondary)]'
-        }`}
-      >
-        {label}
-      </dt>
-      <dd className={`text-xs font-bold tabular ${tones[tone]}`}>{value}</dd>
-    </div>
+    <section className="min-w-0 space-y-2">
+      <h3 className="text-sm font-bold text-[var(--color-text-main)]">{title}</h3>
+      <div className="table-container">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr>
+                {head.map((h, i) => (
+                  <th key={h} className={`table-header-cell ${right.includes(i) ? 'text-right' : ''}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={head.length} className="table-body-cell text-[var(--color-text-secondary)]">{empty}</td>
+                </tr>
+              ) : (
+                rows.map((cells, r) => (
+                  <tr key={r}>
+                    {cells.map((c, i) => (
+                      <td key={i} className={`table-body-cell align-top ${right.includes(i) ? 'text-right tabular' : ''}`}>{c}</td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -365,134 +373,19 @@ function Row({
  */
 function PickupCode({ code }: { code: string }) {
   return (
-    <div className="rounded-xl border border-[var(--color-primary)]/40 bg-[var(--color-primary-bg)] px-4 py-3.5">
-      <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary-dark)]">
-        <Lock className="w-3.5 h-3.5" />
+    <section>
+      <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
+        <Lock className="h-3.5 w-3.5" />
         Código de recogida
       </p>
-      <p className="font-mono font-bold text-2xl tracking-[0.28em] text-[var(--color-primary-dark)] mt-1.5">
+      <p className="mt-1.5 font-mono text-3xl font-bold tracking-[0.28em] text-[var(--color-primary-dark)]">
         {code}
       </p>
-      <p className="text-[11px] text-[var(--color-text-secondary)] mt-1.5">
+      <p className="mt-1.5 text-xs text-[var(--color-text-secondary)]">
         Díctaselo al domiciliario. Solo entrégale el pedido cuando su app
         confirme que el código es correcto.
       </p>
-    </div>
-  );
-}
-
-function DriverBlock({ driver, user, flow }: { driver: PopulatedDriver; user: PopulatedUser | null; flow: FlowState | null }) {
-  const statuses: Record<string, string> = {
-    available: 'Disponible',
-    busy: 'En reparto',
-    offline: 'Desconectado',
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        {user?.avatar ? (
-          <img
-            src={user.avatar}
-            alt=""
-            className="w-10 h-10 rounded-full object-cover border border-[var(--color-border)]"
-          />
-        ) : (
-          <span className="w-10 h-10 rounded-full bg-[var(--color-primary-bg)] flex items-center justify-center shrink-0">
-            <Bike className="w-4.5 h-4.5 text-[var(--color-primary)]" />
-          </span>
-        )}
-
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-[var(--color-text-main)] truncate">
-            {user?.name ?? 'Domiciliario'}
-          </p>
-          <p className="text-[11px] text-[var(--color-text-muted)]">
-            {(driver.status ? statuses[driver.status] : null) ?? driver.status}
-            {driver.licensePlate ? ` · ${driver.licensePlate}` : ''}
-            {driver.vehicleType === 'bicycle' ? ' · Bicicleta' : ' · Moto'}
-          </p>
-        </div>
-      </div>
-
-      {/*
-        Tres hechos y sus horas. El comercio pregunta exactamente esto
-        cuando algo va mal: ¿llegó?, ¿se llevó el pedido?, ¿cuándo salió?
-      */}
-      <ul className="space-y-1.5">
-        <Fact
-          done={!!flow?.pickup.arrivedAt}
-          label="Llegó al local"
-          at={flow?.pickup.arrivedAt}
-          pending="Todavía en camino al local"
-        />
-        <Fact
-          done={!!flow?.pickup.evidence}
-          label="Registró la foto de lo que recibe"
-          at={flow?.pickup.evidence?.uploadedAt}
-          pending="Falta la foto de recogida"
-        />
-        <Fact
-          done={!!flow?.pickup.verifiedAt}
-          label="Recogida confirmada con código"
-          at={flow?.pickup.verifiedAt}
-          pending="El pedido aún no ha salido del local"
-        />
-      </ul>
-
-      {flow?.pickup.lockedUntil ? (
-        <p className="text-[11px] font-semibold text-[var(--color-danger)] px-2.5 py-2 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger)]/30">
-          El domiciliario falló el código demasiadas veces y está bloqueado
-          temporalmente. No le entregues el pedido: avisa a soporte ZIPP al{' '}
-          {/*
-            Enlace de WhatsApp y no `tel:`: esto se ve desde el computador del
-            mostrador, donde un `tel:` no tiene quién lo abra y el clic no hace
-            nada. El número queda visible igual para quien prefiera marcarlo.
-          */}
-          <a
-            href={supportWhatsAppUrl(
-              `Hola, soy un comercio de Zipp. El domiciliario${
-                driver.licensePlate ? ` de placa ${driver.licensePlate}` : ''
-              } quedó bloqueado por fallar el código de recogida.`,
-            )}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline underline-offset-2"
-          >
-            {SUPPORT_PHONE_DISPLAY}
-          </a>.
-        </p>
-      ) : flow?.pickup.attempts ? (
-        <p className="text-[11px] text-[var(--color-warning)] font-medium">
-          Lleva {flow.pickup.attempts} intento(s) fallido(s) del código.
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function Fact({
-  done, label, at, pending,
-}: {
-  done: boolean;
-  label: string;
-  at?: string | null;
-  pending: string;
-}) {
-  return (
-    <li className="flex items-center gap-2 text-[11px]">
-      <ShieldCheck
-        className={`w-3.5 h-3.5 shrink-0 ${
-          done ? 'text-[var(--color-success)]' : 'text-[var(--color-text-muted)]/50'
-        }`}
-      />
-      <span className={done ? 'text-[var(--color-text-main)] font-medium' : 'text-[var(--color-text-muted)]'}>
-        {done ? label : pending}
-      </span>
-      {done && at ? (
-        <span className="tabular text-[var(--color-text-muted)] ml-auto">{clock(at)}</span>
-      ) : null}
-    </li>
+    </section>
   );
 }
 
@@ -504,28 +397,28 @@ function Evidence({
   emptyHint: string;
 }) {
   if (loading) {
-    return <div className="h-36 rounded-xl bg-[var(--color-bg-alt)] animate-pulse" />;
+    return <div className="h-36 animate-pulse rounded-xl bg-[var(--color-bg-alt)]" />;
   }
 
   if (!evidence) {
     return (
-      <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] py-3">
-        <ImageOff className="w-4 h-4 shrink-0" />
+      <div className="flex items-center gap-2 py-3 text-xs text-[var(--color-text-secondary)]">
+        <ImageOff className="h-4 w-4 shrink-0" />
         {emptyHint}
       </div>
     );
   }
 
   return (
-    <figure className="rounded-xl overflow-hidden border border-[var(--color-border)]">
+    <figure>
       <img
         src={evidence.url}
         alt="Foto que tomó el domiciliario al recibir el pedido"
-        className="w-full h-44 object-cover bg-[var(--color-bg-alt)]"
+        className="h-56 w-full max-w-xl rounded-xl object-cover"
         loading="lazy"
       />
-      <figcaption className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold text-[var(--color-success)] bg-[var(--color-success-bg)]">
-        <Camera className="w-3.5 h-3.5" />
+      <figcaption className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-success)]">
+        <Camera className="h-3.5 w-3.5" />
         Registrada el {dateTime(evidence.uploadedAt)}
       </figcaption>
     </figure>

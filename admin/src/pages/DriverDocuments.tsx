@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import {
- AlertCircle, CheckCircle, X, FileText, RotateCw,
+ AlertCircle, ArrowLeft, CheckCircle, X, FileText, RotateCw, Eye,
 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
@@ -73,6 +73,11 @@ function daysUntil(date: string): number {
 }
 
 const isLink = (reference: string) => /^https?:\/\//i.test(reference);
+/** El tipo no viaja aparte: se deduce de la ruta (sin query), que es lo único que hay. */
+const isPdf = (url?: string) => !!url && /\.pdf($|[?#])/i.test(url);
+/** El archivo a mostrar: la foto/PDF subido o, si no hay, la referencia cuando es un enlace. */
+const fileOf = (doc: { imageUrl?: string; reference: string }) =>
+ doc.imageUrl || (isLink(doc.reference) ? doc.reference : undefined);
 
 function Thumb({ url, label }: { url?: string; label: string }) {
  if (!url) {
@@ -81,6 +86,14 @@ function Thumb({ url, label }: { url?: string; label: string }) {
  <FileText className="h-5 w-5" />
  <span className="text-[9px] font-bold uppercase tracking-wider">Sin foto</span>
  </div>
+ );
+ }
+ if (isPdf(url)) {
+ return (
+ <a href={url} target="_blank" rel="noreferrer" title={`Abrir ${label} (PDF)`} className="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 border border-[var(--color-border)] text-[var(--color-primary)]">
+ <FileText className="h-5 w-5" />
+ <span className="text-[9px] font-bold uppercase tracking-wider">PDF</span>
+ </a>
  );
  }
  return (
@@ -142,6 +155,7 @@ export default function DriverDocuments() {
  const [error, setError] = useState('');
  const [working, setWorking] = useState<string | null>(null);
  const [rejecting, setRejecting] = useState<string | null>(null);
+ const [reviewing, setReviewing] = useState<string | null>(null);
 
  const fetchAll = useCallback(async () => {
  try {
@@ -168,6 +182,7 @@ export default function DriverDocuments() {
  setWorking(id);
  await action();
  setRejecting(null);
+ setReviewing(null);
  // Se recarga todo: aprobar un documento puede mover a otros del mismo
  // domiciliario de grupo, y adivinarlo aquí sería adivinar la regla del servidor.
  await fetchAll();
@@ -184,15 +199,82 @@ export default function DriverDocuments() {
  const reviewCheck = (id: string, status: 'approved' | 'rejected', rejectionReason?: string) =>
  run(id, () => api.patch(`/drivers/verifications/${id}/review`, { status, rejectionReason }), 'No se pudo revisar la verificación.');
 
- const actions = (id: string, onApprove: () => void, onReject: (reason: string) => void) =>
- rejecting === id ? (
+ /** La fila solo abre la revisión: aprobar y rechazar viven dentro, con el detalle completo a la vista. */
+ const actions = (id: string) => (
+ <PermissionGate permission={Permission.DRIVERS_APPROVE}>
+ <button
+ onClick={() => { setRejecting(null); setReviewing(id); }}
+ className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-[#1A1409]"
+ >
+ <Eye className="h-4 w-4" /> Revisar
+ </button>
+ </PermissionGate>
+ );
+
+ const closeReview = () => { setReviewing(null); setRejecting(null); };
+
+ const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+ <div>
+ <dt className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{label}</dt>
+ <dd className="text-sm font-semibold text-[var(--color-text-main)]">{children}</dd>
+ </div>
+ );
+
+ /** Bloque de datos: título + cuadrícula de 2 columnas, separado por una línea fina. */
+ const DataGrid = ({ title, children }: { title: string; children: React.ReactNode }) => (
+ <section className="space-y-3 border-t border-[var(--color-border)] pt-4">
+ <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--color-primary)]">{title}</h2>
+ <dl className="grid grid-cols-2 gap-x-6 gap-y-4">{children}</dl>
+ </section>
+ );
+
+ const BigImage = ({ url, label }: { url?: string; label: string }) => (
+ <div className="space-y-1">
+ <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{label}</p>
+ {isPdf(url) ? (
+ <div className="space-y-2">
+ <iframe src={url} title={label} className="h-[70vh] w-full border border-[var(--color-border)]" />
+ <a href={url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[var(--color-primary)] hover:underline">
+ Abrir PDF en otra pestaña
+ </a>
+ </div>
+ ) : url ? (
+ <a href={url} target="_blank" rel="noreferrer" title="Abrir en tamaño completo">
+ <img src={url} alt={label} className="max-h-96 w-full object-contain" />
+ </a>
+ ) : (
+ <p className="py-8 text-center text-xs font-semibold text-[var(--color-text-main)]">Sin archivo</p>
+ )}
+ </div>
+ );
+
+ const reviewModal = (
+ title: string,
+ id: string,
+ body: React.ReactNode,
+ onApprove: () => void,
+ onReject: (reason: string) => void
+ ) =>
+ (
+ <div className="space-y-6">
+ <div className="space-y-5">
+ <div className="flex items-start justify-between gap-4">
+ <div>
+ <button onClick={closeReview} className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)]">
+ <ArrowLeft className="h-4 w-4" /> Volver a la verificación
+ </button>
+ <h1 className="page-title">{title}</h1>
+ </div>
+ </div>
+ {body}
+ <div className="flex justify-end border-t border-[var(--color-border)] pt-4">
+ {rejecting === id ? (
  <RejectForm busy={working === id} onCancel={() => setRejecting(null)} onConfirm={onReject} />
  ) : (
- <PermissionGate permission={Permission.DRIVERS_APPROVE}>
  <div className="flex items-center gap-2">
  <button
  onClick={onApprove}
- className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-white"
+ className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-[#1A1409]"
  >
  <CheckCircle className="h-4 w-4" />
  {working === id ? 'Guardando…' : 'Aprobar'}
@@ -204,8 +286,79 @@ export default function DriverDocuments() {
  <X className="h-4 w-4" /> Rechazar
  </button>
  </div>
- </PermissionGate>
+ )}
+ </div>
+ </div>
+ </div>
  );
+
+ const renderReview = () => {
+ if (!reviewing) return null;
+ const when = (d: string) => new Date(d).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+ const doc = [...queue.pending, ...queue.expired, ...queue.expiringSoon].find((d) => d._id === reviewing);
+ if (doc) {
+ const driver = doc.driverId;
+ return reviewModal(
+ DOCUMENT_LABELS[doc.type],
+ doc._id,
+ <div className="grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+ <BigImage url={fileOf(doc)} label={DOCUMENT_LABELS[doc.type]} />
+ <div className="space-y-6">
+ <DataGrid title="Domiciliario">
+ <Field label="Nombre">{driver?.userId?.name || 'Domiciliario'}</Field>
+ <Field label="Teléfono">{driver?.userId?.phone ?? '—'}</Field>
+ <Field label="Cuenta">{driver?.isApproved ? 'Aprobado' : 'Sin aprobar'}{driver?.isActive === false ? ' · inactivo' : ''}</Field>
+ </DataGrid>
+ <DataGrid title="Vehículo">
+ <Field label="Placa">{driver?.licensePlate ?? '—'}</Field>
+ <Field label="Tipo">{driver?.vehicleType ?? '—'}</Field>
+ </DataGrid>
+ <DataGrid title="Documento">
+ <Field label="Obligatorio">{BLOCKING_TYPES.has(doc.type) ? 'Sí' : 'No'}</Field>
+ <Field label="Referencia">
+ {isLink(doc.reference) ? (
+ <a href={doc.reference} target="_blank" rel="noreferrer" className="text-[var(--color-primary)] hover:underline">Ver documento</a>
+ ) : doc.reference}
+ </Field>
+ <Field label="Vence">{doc.expiresAt ? new Date(doc.expiresAt).toLocaleDateString('es-CO') : '—'}</Field>
+ <Field label="Enviado">{when(doc.createdAt)}</Field>
+ </DataGrid>
+ </div>
+ </div>,
+ () => reviewDocument(doc._id, 'approved'),
+ (reason) => reviewDocument(doc._id, 'rejected', reason)
+ );
+ }
+ const check = checks.find((c) => c._id === reviewing);
+ if (!check) return null;
+ return reviewModal(
+ CHECK_LABELS[check.type] ?? 'Verificación de identidad',
+ check._id,
+ <div className="space-y-6">
+ <p className="text-xs font-medium text-[var(--color-text-main)]">
+ Compara la selfie con la cédula y la foto de perfil. Si no es la misma persona, rechaza y di por qué.
+ </p>
+ <div className="grid gap-6 md:grid-cols-3">
+ <BigImage url={check.imageUrl} label={CHECK_LABELS[check.type] ?? 'Selfie'} />
+ <BigImage url={check.identityDocumentUrl} label="Cédula" />
+ <BigImage url={check.user?.avatar} label="Foto de perfil" />
+ </div>
+ <div className="grid gap-6 md:grid-cols-2">
+ <DataGrid title="Domiciliario">
+ <Field label="Nombre">{check.user?.name ?? 'Domiciliario'}</Field>
+ <Field label="Teléfono">{check.user?.phone ?? '—'}</Field>
+ </DataGrid>
+ <DataGrid title="Vehículo y envío">
+ <Field label="Placa">{check.driver?.licensePlate ?? '—'}</Field>
+ <Field label="Tipo">{check.driver?.vehicleType ?? '—'}</Field>
+ <Field label="Enviada">{when(check.createdAt)}</Field>
+ </DataGrid>
+ </div>
+ </div>,
+ () => reviewCheck(check._id, 'approved'),
+ (reason) => reviewCheck(check._id, 'rejected', reason)
+ );
+ };
 
  const renderDocument = (doc: DriverDocumentType, tone: 'pending' | 'expired' | 'soon') => {
   const driver = doc.driverId;
@@ -220,7 +373,7 @@ export default function DriverDocuments() {
 
   return (
    <tr key={doc._id}>
-    <td className="table-body-cell"><Thumb url={doc.imageUrl} label={DOCUMENT_LABELS[doc.type]} /></td>
+    <td className="table-body-cell"><Thumb url={fileOf(doc)} label={DOCUMENT_LABELS[doc.type]} /></td>
     <td className="table-body-cell text-[var(--color-text-main)]">{DOCUMENT_LABELS[doc.type]}</td>
     <td className={`table-body-cell ${blocking ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>{blocking ? 'Sí' : 'No'}</td>
     <td className="table-body-cell text-[var(--color-text-main)]">
@@ -241,11 +394,7 @@ export default function DriverDocuments() {
     <td className="table-body-cell text-[var(--color-text-main)]">{new Date(doc.createdAt).toLocaleDateString('es-CO')}</td>
     <td className={`table-body-cell ${state.className}`}>{state.text}</td>
     <td className="table-body-cell wrap">
-     {actions(
-      doc._id,
-      () => reviewDocument(doc._id, 'approved'),
-      (reason) => reviewDocument(doc._id, 'rejected', reason)
-     )}
+     {actions(doc._id)}
     </td>
    </tr>
   );
@@ -279,11 +428,7 @@ export default function DriverDocuments() {
      {waiting ? (
       <span className="text-[var(--color-text-main)]">Esperando la foto</span>
      ) : (
-      actions(
-       check._id,
-       () => reviewCheck(check._id, 'approved'),
-       (reason) => reviewCheck(check._id, 'rejected', reason)
-      )
+      actions(check._id)
      )}
     </td>
    </tr>
@@ -321,6 +466,9 @@ export default function DriverDocuments() {
  const term = search.trim().toLowerCase();
  const matches = (d: DriverDocumentType) =>
  !term || [d.driverId?.userId?.name, d.driverId?.licensePlate].some((v) => v?.toLowerCase().includes(term));
+
+ const review = renderReview();
+ if (review) return review;
 
  return (
  <div className="space-y-3">

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Order } from '../models';
-import { OrderStatus, UserRole, PaymentMethod } from '../types';
+import { OrderStatus, UserRole, PaymentMethod, PaymentStatus } from '../types';
 import { businessAnalyticsService } from '../services/businessAnalytics.service';
 import { orderService } from '../services/order.service';
 import {
@@ -40,6 +40,10 @@ describe('Analíticas del comercio', () => {
       {
         $set: {
           status,
+          // Un pedido en línea entregado ya se cobró; uno cancelado que
+          // llegó a cobrarse, se reembolsó. Sin cobro no cuenta para el
+          // comercio (nunca lo vio).
+          paymentStatus: status === OrderStatus.CANCELLED ? PaymentStatus.REFUNDED : PaymentStatus.PAID,
           createdAt: when,
           ...(status === OrderStatus.DELIVERED ? { deliveredAt: when } : {}),
         },

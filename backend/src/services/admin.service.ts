@@ -1124,7 +1124,7 @@ export class AdminService {
   }
 
   // ── Driver Management ──
-  async suspendDriver(driverId: string, req: Request) {
+  async suspendDriver(driverId: string, req: Request, reason?: string) {
     if (!(await Driver.exists({ _id: driverId }))) throw new AppError('Domiciliario no encontrado', 404);
 
     // Suspender a mitad de una entrega deja al cliente y al comercio esperando
@@ -1155,11 +1155,12 @@ export class AdminService {
       entityId: driver._id.toString(),
       severity: AuditSeverity.HIGH,
       description: 'Domiciliario suspendido',
+      metadata: reason ? { reason } : undefined,
     });
     return driver;
   }
 
-  async reactivateDriver(driverId: string, req: Request) {
+  async reactivateDriver(driverId: string, req: Request, reason?: string) {
     if (!(await Driver.exists({ _id: driverId }))) throw new AppError('Domiciliario no encontrado', 404);
 
     const driver = await Driver.findOneAndUpdate(
@@ -1175,6 +1176,7 @@ export class AdminService {
       entityId: driver._id.toString(),
       severity: AuditSeverity.MEDIUM,
       description: 'Domiciliario reactivado',
+      metadata: reason ? { reason } : undefined,
     });
     return driver;
   }

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X, AlertTriangle, UserPlus, UserMinus, RefreshCw, Ban, RotateCcw, BellRing } from 'lucide-react';
 import api from '../../services/api';
@@ -16,9 +16,8 @@ import InternalNotes from '../InternalNotes';
 import RefundPanel from '../RefundPanel';
 import {
  ErrorLine,
- Fact,
- Row,
- Section,
+ Facts,
+ Grid,
  Sub,
  actionButtonClass,
  fieldLabelClass,
@@ -121,13 +120,13 @@ interface Candidate {
 
 type Panel = 'assign' | 'cancel' | 'refund' | 'notify' | null;
 
-function CodeState({ label, code }: { label: string; code: CodeStatusView | null }) {
- if (!code) return <Fact label={label} value="Sin código" />;
+function codeSummary(code: CodeStatusView | null): string {
+ if (!code) return 'Sin código';
  const parts = [codeStatusLabels[code.status] ?? code.status];
  if (code.attempts > 0) parts.push(`${code.attempts} intento${code.attempts === 1 ? '' : 's'}`);
  if (code.usedAt) parts.push(dateTime(code.usedAt));
  else if (code.lockedUntil) parts.push(`bloqueado hasta ${dateTime(code.lockedUntil)}`);
- return <Fact label={label} value={parts.join(' · ')} />;
+ return parts.join(' · ');
 }
 
 interface HandoffPhoto {
@@ -357,11 +356,10 @@ export default function OrderProfile360({
 
  return (
  <>
- <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
- <div
- className="h-full w-full max-w-2xl overflow-y-auto bg-[var(--color-surface)] p-7"
- onClick={(e) => e.stopPropagation()}
- >
+ {/* Pantalla completa dentro del área de contenido: deja a la vista la
+ cabecera (h-20) y la barra lateral (w-30, fija desde lg). */}
+ <div className="fixed bottom-0 left-0 right-0 top-20 z-30 lg:left-30">
+ <div className="h-full w-full overflow-y-auto bg-[var(--color-bg)] p-6 lg:p-8">
  <div className="flex items-start justify-between gap-4">
  <div className="min-w-0">
  <h2 className="truncate text-lg font-bold text-[var(--color-text-main)]">
@@ -379,9 +377,9 @@ export default function OrderProfile360({
  <button
  onClick={onClose}
  aria-label="Cerrar"
- className="shrink-0 cursor-pointer rounded-lg border border-[var(--color-border)] p-1.5 text-[var(--color-text-main)]"
+ className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]"
  >
- <X className="h-4 w-4" />
+ <X className="h-4 w-4" /> Volver a pedidos
  </button>
  </div>
 
@@ -412,7 +410,7 @@ export default function OrderProfile360({
  </>
  )}
  {allowed.notify && (
- <button onClick={() => setPanel(panel === 'notify' ? null : 'notify')} className={actionButtonClass}>
+ <button onClick={() => setPanel(panel === 'notify' ? null : 'notify')} className={`${actionButtonClass} !border-transparent !px-1`}>
  <BellRing className="h-4 w-4" /> Reenviar aviso
  </button>
  )}
@@ -424,7 +422,7 @@ export default function OrderProfile360({
  {allowed.cancel && (
  <button
  onClick={() => setPanel(panel === 'cancel' ? null : 'cancel')}
- className={`${actionButtonClass} !border-[var(--color-danger)] !text-[var(--color-danger)]`}
+ className={`${actionButtonClass} !border-transparent !px-1 !text-[var(--color-danger)]`}
  >
  <Ban className="h-4 w-4" /> Cancelar
  </button>
@@ -595,314 +593,280 @@ export default function OrderProfile360({
  )}
  </div>
 
- <Section title="Resumen">
- <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3">
- <Fact label="Estado" value={<span className={status?.text}>{status?.label}</span>} />
- <Fact label="Pago" value={paymentMethodLabels[order.paymentMethod ?? ''] ?? order.paymentMethod} />
- <Fact
- label="Estado del cobro"
- value={paymentStatusLabels[order.paymentStatus ?? ''] ?? order.paymentStatus}
+ <div className="space-y-6 pb-8">
+ <Facts
+ title="Resumen"
+ items={[
+ ['Estado', <span className={status?.text}>{status?.label}</span>],
+ ['Pago', paymentMethodLabels[order.paymentMethod ?? ''] ?? order.paymentMethod],
+ ['Estado del cobro', paymentStatusLabels[order.paymentStatus ?? ''] ?? order.paymentStatus],
+ ['Creado', dateTime(order.createdAt)],
+ ['Aceptado', order.acceptedAt ? dateTime(order.acceptedAt) : ''],
+ ['Entregado', order.deliveredAt ? dateTime(order.deliveredAt) : ''],
+ ...(order.scheduledFor ? ([['Programado para', dateTime(order.scheduledFor)]] as Array<[string, ReactNode]>) : []),
+ ['Ciudad', order.city],
+ ]}
  />
- <Fact label="Creado" value={dateTime(order.createdAt)} />
- <Fact label="Aceptado" value={order.acceptedAt ? dateTime(order.acceptedAt) : ''} />
- <Fact label="Entregado" value={order.deliveredAt ? dateTime(order.deliveredAt) : ''} />
- {order.scheduledFor && <Fact label="Programado para" value={dateTime(order.scheduledFor)} />}
- <Fact label="Ciudad" value={order.city} />
- </div>
 
- {order.status === 'cancelled' && (
- <Sub title="Cancelación">
- <p className="text-[var(--color-text-main)]">
- {cancellationLabel(order.cancellationCode) || 'Sin motivo registrado'}
- {order.cancelledBy ? ` · por ${order.cancelledBy}` : ''}
- {order.cancellationReason ? ` — ${order.cancellationReason}` : ''}
- </p>
- </Sub>
- )}
-
- <Sub title="Dirección de entrega" empty="Sin dirección.">
- {address ? (
- <div className="space-y-0.5 text-[var(--color-text-main)]">
- <p>{address}</p>
- {typeof order.deliveryAddress === 'object' && order.deliveryAddress?.notes && (
- <p className="text-[var(--color-text-main)]">{order.deliveryAddress.notes}</p>
- )}
- {data.masked.sensitive && (
- <p className="text-[var(--color-text-main)]">
- Dirección exacta oculta: hace falta permiso de datos sensibles.
- </p>
- )}
- </div>
- ) : undefined}
- </Sub>
-
- {order.kind === 'errand' && order.errand ? (
- <Sub title="Mandado">
- <div className="space-y-0.5 text-[var(--color-text-main)]">
- {order.errand.description && <p>{order.errand.description}</p>}
- {order.errand.pickupAddress && <p>Recoger en {order.errand.pickupAddress}</p>}
- <p>
- Estimado {money(order.errand.estimatedCost)} · tope {money(order.errand.maxCost)}
- {order.errand.actualCost != null ? ` · real ${money(order.errand.actualCost)}` : ''}
- </p>
- </div>
- </Sub>
- ) : (
- <Sub title="Productos" empty="Sin productos.">
- {order.items?.length ? (
- <ul className="space-y-1.5">
- {order.items.map((item, i) => (
- <Row
- key={`${item.name}-${i}`}
- left={`${item.quantity} × ${item.name}`}
- right={item.price != null ? money(item.price * item.quantity) : undefined}
- />
- ))}
- </ul>
- ) : undefined}
- </Sub>
- )}
-
- {finance && (
- <Sub title="Lo que pagó el cliente">
- <ul className="space-y-1.5">
- {finance.productSubtotal != null && <Row left="Productos" right={money(finance.productSubtotal)} />}
- {finance.deliveryCustomerFee != null && <Row left="Domicilio" right={money(finance.deliveryCustomerFee)} />}
- {finance.customerServiceFee != null && <Row left="Tarifa de servicio" right={money(finance.customerServiceFee)} />}
- {finance.tip != null && finance.tip > 0 && <Row left="Propina" right={money(finance.tip)} />}
- {(finance.merchantFundedDiscount ?? 0) + (finance.platformFundedDiscount ?? 0) > 0 && (
- <Row
- left="Descuentos"
- right={`-${money((finance.merchantFundedDiscount ?? 0) + (finance.platformFundedDiscount ?? 0))}`}
- />
- )}
- {finance.customerTotal != null && <Row left="Total" right={money(finance.customerTotal)} />}
- {!data.masked.commissions && finance.merchantCommission != null && (
- <Row left="Comisión al comercio" right={money(finance.merchantCommission)} />
- )}
- {!data.masked.commissions && finance.platformNetRevenue != null && (
- <Row left="Ingreso neto de ZIPP" right={money(finance.platformNetRevenue)} />
- )}
- </ul>
- </Sub>
- )}
- </Section>
-
- <Section title="Partes">
- <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-3">
- <Fact
- label="Cliente"
- value={
+ <Facts
+ title="Partes"
+ items={[
+ [
+ 'Cliente',
  data.parties.client ? (
  <EntityLink type="user" id={data.parties.client._id}>
  {data.parties.client.name}
  </EntityLink>
- ) : undefined
- }
- />
- <Fact
- label="Comercio"
- value={
+ ) : undefined,
+ ],
+ ['Teléfono del cliente', data.parties.client?.phoneMasked],
+ [
+ 'Comercio',
  data.parties.business ? (
  <EntityLink type="business" id={data.parties.business._id}>
  {data.parties.business.name}
  </EntityLink>
- ) : order.kind === 'errand' ? 'Mandado, sin comercio' : undefined
- }
- />
- <Fact
- label="Domiciliario"
- value={
+ ) : order.kind === 'errand' ? 'Mandado, sin comercio' : undefined,
+ ],
+ [
+ 'Domiciliario',
  data.parties.driver ? (
  <EntityLink type="driver" id={data.parties.driver._id}>
  {data.parties.driver.name}
  </EntityLink>
- ) : 'Sin asignar'
- }
+ ) : 'Sin asignar',
+ ],
+ ]}
  />
- </div>
- {data.parties.client?.phoneMasked && (
- <p className="text-[var(--color-text-main)]">Teléfono del cliente: {data.parties.client.phoneMasked}</p>
- )}
- </Section>
 
- <Section title="Línea de tiempo">
- {data.timeline.length ? (
- <ul className="space-y-2">
- {data.timeline.map((t, i) => (
- <li key={`${t.action}-${t.at}-${i}`} className="flex justify-between gap-3">
- <span
- className={`min-w-0 ${
- t.incident ? 'font-semibold text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'
- }`}
- >
- {t.label}
- {t.actor?.name ? ` · ${t.actor.name}` : t.actor?.role ? ` · ${t.actor.role}` : ''}
- {t.derived ? ' (deducido)' : ''}
- </span>
- <span className="shrink-0 text-[var(--color-text-main)]">{dateTime(t.at)}</span>
- </li>
- ))}
- </ul>
+ <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+ {order.kind === 'errand' && order.errand ? (
+ <Grid
+ title="Mandado"
+ head={['Detalle', 'Valor']}
+ empty="Sin detalle."
+ right={[1]}
+ rows={[
+ ...(order.errand.description ? [['Descripción', order.errand.description]] : []),
+ ...(order.errand.pickupAddress ? [['Recoger en', order.errand.pickupAddress]] : []),
+ ['Costo estimado', money(order.errand.estimatedCost)],
+ ['Tope', money(order.errand.maxCost)],
+ ...(order.errand.actualCost != null ? [['Costo real', money(order.errand.actualCost)]] : []),
+ ]}
+ />
  ) : (
- <p className="text-[var(--color-text-main)]">Sin eventos registrados.</p>
+ <Grid
+ title="Productos"
+ head={['Cant.', 'Producto', 'Subtotal']}
+ empty="Sin productos."
+ right={[2]}
+ rows={(order.items ?? []).map((item) => [
+ item.quantity,
+ item.name,
+ item.price != null ? money(item.price * item.quantity) : '',
+ ])}
+ />
  )}
- </Section>
 
- <Section title="Despacho">
- <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3">
- <Fact label="Ronda" value={data.dispatch.round != null ? String(data.dispatch.round) : ''} />
- <Fact label="Ciclo" value={data.dispatch.cycle != null ? String(data.dispatch.cycle) : ''} />
- <Fact
- label="Oferta vigente hasta"
- value={data.dispatch.expiresAt ? dateTime(data.dispatch.expiresAt) : ''}
+ {finance && (
+ <Grid
+ title="Lo que pagó el cliente"
+ head={['Concepto', 'Importe']}
+ empty="Sin desglose."
+ right={[1]}
+ rows={[
+ ...(finance.productSubtotal != null ? [['Productos', money(finance.productSubtotal)]] : []),
+ ...(finance.deliveryCustomerFee != null ? [['Domicilio', money(finance.deliveryCustomerFee)]] : []),
+ ...(finance.customerServiceFee != null ? [['Tarifa de servicio', money(finance.customerServiceFee)]] : []),
+ ...(finance.tip != null && finance.tip > 0 ? [['Propina', money(finance.tip)]] : []),
+ ...((finance.merchantFundedDiscount ?? 0) + (finance.platformFundedDiscount ?? 0) > 0
+ ? [['Descuentos', `-${money((finance.merchantFundedDiscount ?? 0) + (finance.platformFundedDiscount ?? 0))}`]]
+ : []),
+ ...(finance.customerTotal != null ? [['Total', money(finance.customerTotal)]] : []),
+ ...(!data.masked.commissions && finance.merchantCommission != null
+ ? [['Comisión al comercio', money(finance.merchantCommission)]]
+ : []),
+ ...(!data.masked.commissions && finance.platformNetRevenue != null
+ ? [['Ingreso neto de ZIPP', money(finance.platformNetRevenue)]]
+ : []),
+ ]}
+ />
+ )}
+ </div>
+
+ <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+ <Grid
+ title="Entrega"
+ head={['Dato', 'Valor']}
+ empty="Sin dirección."
+ rows={[
+ ...(address ? [['Dirección', address]] : []),
+ ...(typeof order.deliveryAddress === 'object' && order.deliveryAddress?.notes
+ ? [['Notas', order.deliveryAddress.notes]]
+ : []),
+ ...(data.masked.sensitive ? [['Aviso', 'Dirección exacta oculta: hace falta permiso de datos sensibles.']] : []),
+ ...(order.status === 'cancelled'
+ ? [
+ [
+ 'Cancelación',
+ `${cancellationLabel(order.cancellationCode) || 'Sin motivo registrado'}${
+ order.cancelledBy ? ` · por ${order.cancelledBy}` : ''
+ }${order.cancellationReason ? ` — ${order.cancellationReason}` : ''}`,
+ ],
+ ]
+ : []),
+ ]}
+ />
+
+ <Facts
+ title="Despacho y conversación"
+ items={[
+ ['Ronda', data.dispatch.round != null ? String(data.dispatch.round) : ''],
+ ['Ciclo', data.dispatch.cycle != null ? String(data.dispatch.cycle) : ''],
+ ['Oferta vigente hasta', data.dispatch.expiresAt ? dateTime(data.dispatch.expiresAt) : ''],
+ ['Mensajes', String(data.conversation.messages)],
+ ['Llamadas', String(data.conversation.calls)],
+ ]}
  />
  </div>
- <Sub title="Ofertas" empty="Todavía no se ofreció a ningún domiciliario.">
- {data.dispatch.offers.length ? (
- <ul className="space-y-1.5">
- {data.dispatch.offers.map((o, i) => (
- <Row
- key={`${o.driverId}-${o.round}-${i}`}
- left={
+
+ <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+ <Grid
+ title="Línea de tiempo"
+ head={['Cuándo', 'Evento', 'Quién']}
+ empty="Sin eventos registrados."
+ rows={data.timeline.map((t) => [
+ dateTime(t.at),
+ <span className={t.incident ? 'text-[var(--color-danger)]' : ''}>
+ {t.label}
+ {t.derived ? ' (deducido)' : ''}
+ </span>,
+ t.actor?.name ?? t.actor?.role ?? '',
+ ])}
+ />
+
+ <Grid
+ title="Ofertas de despacho"
+ head={['Domiciliario', 'Ronda', 'Ofrecida', 'Resultado']}
+ empty="Todavía no se ofreció a ningún domiciliario."
+ rows={data.dispatch.offers.map((o) => [
  <>
  <EntityLink type="driver" id={o.driverId}>
  {o.driverName ?? 'Domiciliario'}
  </EntityLink>
- {o.round != null ? ` · ronda ${o.round}` : ''}
  {o.reason ? ` · ${offerReasonLabels[o.reason] ?? o.reason}` : ''}
- {o.offeredAt ? ` · ${dateTime(o.offeredAt)}` : ''}
- </>
- }
- right={outcomeLabels[o.outcome] ?? o.outcome}
+ </>,
+ o.round != null ? String(o.round) : '',
+ o.offeredAt ? dateTime(o.offeredAt) : '',
+ outcomeLabels[o.outcome] ?? o.outcome,
+ ])}
  />
- ))}
- </ul>
- ) : undefined}
- </Sub>
- </Section>
-
- <Section title="Conversación">
- <div className="grid grid-cols-2 gap-x-6 gap-y-4">
- <Fact label="Mensajes" value={String(data.conversation.messages)} />
- <Fact label="Llamadas" value={String(data.conversation.calls)} />
  </div>
- </Section>
 
  {data.handoff && (
- <Section title="Evidencias y trazabilidad">
- <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
- <CodeState label="Código de recogida" code={data.handoff.pickup} />
- <CodeState label="Código de entrega" code={data.handoff.delivery} />
- </div>
+ <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+ <Grid
+ title="Códigos de traspaso"
+ head={['Código', 'Estado']}
+ empty="Sin códigos."
+ rows={[
+ ['Recogida', codeSummary(data.handoff.pickup)],
+ ['Entrega', codeSummary(data.handoff.delivery)],
+ ]}
+ />
+ <div className="min-w-0">
  <HandoffPhotos orderId={data.order._id} count={data.handoff.evidences} />
- <p className="text-[var(--color-text-main)]">
- Los códigos nunca se muestran aquí: solo su estado. La bitácora del traspaso está en la línea de tiempo.
- </p>
- </Section>
+ </div>
+ </div>
  )}
 
  {data.money && (
- <Section title="Dinero">
- <Sub title="Pagos" empty="Sin pagos registrados.">
- {data.money.payments.length ? (
- <ul className="space-y-1.5">
- {data.money.payments.map((p) => (
- <Row
- key={p._id}
- left={`${dateTime(p.createdAt)} · ${p.status}${p.method ? ` · ${p.method}` : ''}`}
- right={money(p.amount)}
+ <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+ <Grid
+ title="Pagos"
+ head={['Fecha', 'Estado', 'Importe']}
+ empty="Sin pagos registrados."
+ right={[2]}
+ rows={data.money.payments.map((p) => [
+ dateTime(p.createdAt),
+ `${p.status}${p.method ? ` · ${p.method}` : ''}`,
+ money(p.amount),
+ ])}
  />
- ))}
- </ul>
- ) : undefined}
- </Sub>
  {data.money.refunds && (
- <Sub title="Reembolsos" empty="Sin reembolsos.">
- {data.money.refunds.length ? (
- <ul className="space-y-1.5">
- {data.money.refunds.map((r) => (
- <Row
- key={r._id}
- left={`${dateTime(r.createdAt)} · ${r.status}${r.reason ? ` — ${r.reason}` : ''}`}
- right={money(r.amount)}
+ <Grid
+ title="Reembolsos"
+ head={['Fecha', 'Estado', 'Importe']}
+ empty="Sin reembolsos."
+ right={[2]}
+ rows={data.money.refunds.map((r) => [
+ dateTime(r.createdAt),
+ `${r.status}${r.reason ? ` — ${r.reason}` : ''}`,
+ money(r.amount),
+ ])}
  />
- ))}
- </ul>
- ) : undefined}
- </Sub>
  )}
- <Sub title="Pagos a comercio y domiciliario" empty="Sin pagos generados.">
- {data.money.payouts.length ? (
- <ul className="space-y-1.5">
- {data.money.payouts.map((p) => (
- <Row
- key={p._id}
- left={`${p.beneficiary ?? 'Beneficiario'} · ${p.status}`}
- right={money(p.netAmount ?? p.amount)}
+ <Grid
+ title="Pagos a comercio y domiciliario"
+ head={['Beneficiario', 'Estado', 'Neto']}
+ empty="Sin pagos generados."
+ right={[2]}
+ rows={data.money.payouts.map((p) => [
+ p.beneficiary ?? 'Beneficiario',
+ p.status,
+ money(p.netAmount ?? p.amount),
+ ])}
  />
- ))}
- </ul>
- ) : undefined}
- </Sub>
- </Section>
+ </div>
  )}
 
- <Section title="Después del pedido">
- <Sub title="Reseña" empty="Sin reseña.">
- {data.after.review ? (
- <p className="text-[var(--color-text-main)]">
- {data.after.review.rating > 0 ? `${data.after.review.rating}★` : 'Sin calificación'}
- {data.after.review.comment ? ` — ${data.after.review.comment}` : ''}
- </p>
- ) : undefined}
- </Sub>
- <Sub title="PQRS" empty="Sin PQRS.">
- {data.after.pqrs.length ? (
- <ul className="space-y-1.5">
- {data.after.pqrs.map((p) => (
- <Row key={p._id} left={`${p.subject ?? 'PQRS'} · ${dateTime(p.createdAt)}`} right={p.status} />
- ))}
- </ul>
- ) : undefined}
- </Sub>
- {data.after.cashIncidents && (
- <Sub title="Incidentes de efectivo" empty="Sin incidentes de efectivo.">
- {data.after.cashIncidents.length ? (
- <ul className="space-y-1.5">
- {data.after.cashIncidents.map((c) => (
- <Row
- key={c._id}
- left={dateTime(c.createdAt)}
- right={`${c.amount != null ? `${money(c.amount)} · ` : ''}${c.status}`}
+ <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+ <Grid
+ title="Reseña"
+ head={['Calificación', 'Comentario']}
+ empty="Sin reseña."
+ rows={
+ data.after.review
+ ? [[data.after.review.rating > 0 ? `${data.after.review.rating}★` : 'Sin calificación', data.after.review.comment ?? '']]
+ : []
+ }
  />
- ))}
- </ul>
- ) : undefined}
- </Sub>
+ <Grid
+ title="PQRS"
+ head={['Asunto', 'Fecha', 'Estado']}
+ empty="Sin PQRS."
+ rows={data.after.pqrs.map((p) => [p.subject ?? 'PQRS', dateTime(p.createdAt), p.status])}
+ />
+ {data.after.cashIncidents && (
+ <Grid
+ title="Incidentes de efectivo"
+ head={['Fecha', 'Importe', 'Estado']}
+ empty="Sin incidentes de efectivo."
+ right={[1]}
+ rows={data.after.cashIncidents.map((c) => [
+ dateTime(c.createdAt),
+ c.amount != null ? money(c.amount) : '',
+ c.status,
+ ])}
+ />
  )}
  {data.after.sos && (
- <Sub title="Alertas SOS" empty="Sin alertas SOS.">
- {data.after.sos.length ? (
- <ul className="space-y-1.5">
- {data.after.sos.map((s) => (
- <Row
- key={s._id}
- left={`${dateTime(s.createdAt)}${s.note ? ` — ${s.note}` : ''}`}
- right={s.status}
+ <Grid
+ title="Alertas SOS"
+ head={['Fecha', 'Nota', 'Estado']}
+ empty="Sin alertas SOS."
+ rows={data.after.sos.map((s) => [dateTime(s.createdAt), s.note ?? '', s.status])}
  />
- ))}
- </ul>
- ) : undefined}
- </Sub>
  )}
- </Section>
+ </div>
 
  {allowed.note && (
- <Section title="Notas internas">
+ <section className="space-y-2">
+ <h3 className="text-sm font-bold text-[var(--color-text-main)]">Notas internas</h3>
  <InternalNotes entityType="order" entityId={orderId} />
- </Section>
+ </section>
  )}
+ </div>
  </div>
  )}
  </div>

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { orderService } from '../services/order.service';
-import { Notification } from '../models';
-import { UserRole } from '../types';
+import { Notification, Order } from '../models';
+import { UserRole, PaymentStatus } from '../types';
 import {
   GARZON, offsetKm, makeUser, makeBusiness, makeProduct, makePricingConfig,
 } from './factories';
@@ -48,6 +48,12 @@ describe('Notificaciones de pedido llevan orderId', () => {
     expect(clientNotice).not.toBeNull();
     expect(clientNotice!.data?.orderId).toBe(order._id.toString());
     expect(clientNotice!.data?.orderNumber).toBe(order.orderNumber);
+
+    // El comercio no se entera al crearse un pedido en línea: lo hace el
+    // cobro. Se simula que entró y se anuncia, como hace `onCaptured`.
+    await Order.updateOne({ _id: order._id }, { paymentStatus: PaymentStatus.PAID });
+    await orderService.announceToBusiness(order._id.toString());
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     const businessNotice = await Notification.findOne({ userId: owner._id });
     expect(businessNotice!.data?.orderId).toBe(order._id.toString());

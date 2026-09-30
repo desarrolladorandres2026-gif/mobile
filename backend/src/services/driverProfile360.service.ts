@@ -25,6 +25,7 @@ export interface DriverProfile360 {
     _id: string;
     type: string;
     reference?: string;
+    hasFile?: boolean;
     imageUrl?: string;
     expiresAt?: Date;
     status: string;
@@ -154,7 +155,7 @@ export async function profile360(driverId: string, options: DriverProfile360Opti
     DriverDocument.find({ driverId: id })
       .sort({ type: 1 })
       .limit(10)
-      .select('type reference imageUrl expiresAt status reviewedAt')
+      .select('type reference imageUrl imageKey expiresAt status reviewedAt')
       .lean(),
     Order.aggregate([
       { $match: { driverId: id, status: { $in: [OrderStatus.DELIVERED, OrderStatus.CANCELLED] } } },
@@ -301,8 +302,13 @@ export async function profile360(driverId: string, options: DriverProfile360Opti
 
   return {
     driver: safeDriver as DriverDetail,
-    documents: (documents as unknown as DriverProfile360['documents']).map((d) =>
-      sensitive ? d : { ...d, reference: maskLast4(d.reference) ?? undefined }
+    // `imageUrl` e `imageKey` no salen: la foto se abre por el endpoint del expediente (con auditoría).
+    documents: (documents as unknown as Array<DriverProfile360['documents'][number] & { imageKey?: string }>).map(
+      ({ imageUrl, imageKey, ...d }) => ({
+        ...d,
+        hasFile: !!(imageUrl || imageKey),
+        ...(sensitive ? {} : { reference: maskLast4(d.reference) ?? undefined }),
+      })
     ),
     activity: {
       totals: { delivered: countOf(OrderStatus.DELIVERED), cancelled: countOf(OrderStatus.CANCELLED) },

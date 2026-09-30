@@ -132,6 +132,16 @@ export enum AuditAction {
   DRIVER_SUSPENDED = 'driver_suspended',
   DRIVER_REACTIVATED = 'driver_reactivated',
   DRIVER_VERIFICATION = 'driver_verification',
+  // Expediente digital del domiciliario: cédula, antecedentes y papeles del vehículo
+  // son datos personales. Verlos, bajarlos o exportarlos deja rastro propio.
+  DRIVER_DOSSIER_VIEWED = 'driver_dossier_viewed',
+  DRIVER_DOCUMENT_VIEWED = 'driver_document_viewed',
+  DRIVER_DOCUMENT_DOWNLOADED = 'driver_document_downloaded',
+  DRIVER_DOSSIER_EXPORTED = 'driver_dossier_exported',
+  DRIVER_DOCUMENT_UPDATE_REQUESTED = 'driver_document_update_requested',
+  DRIVER_DOCUMENT_OBSERVATION = 'driver_document_observation',
+  DRIVER_CONTRACT_UPDATED = 'driver_contract_updated',
+  DRIVER_VEHICLE_UPDATED = 'driver_vehicle_updated',
 
   // Security events
   BRUTE_FORCE_DETECTED = 'brute_force_detected',

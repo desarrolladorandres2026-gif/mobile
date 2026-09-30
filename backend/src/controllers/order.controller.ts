@@ -6,7 +6,8 @@ import { Business, Driver } from '../models';
 import { AppError } from '../middlewares';
 import { can } from '../middlewares/auth';
 import { Permission } from '../security';
-import { customerFinanceView, merchantStaffOrderView } from '../services/profileMasking';
+import { customerFinanceView } from '../services/profileMasking';
+import { isMerchantVisible, orderEventPayload } from '../utils/merchantVisibility';
 import { emitToAdmin } from '../sockets/emitter';
 
 /**
@@ -68,29 +69,10 @@ export class OrderController {
       // tampoco: ese pedido ya se anunció la primera vez, y repetirlo hacía
       // sonar la cocina dos veces y le ofrecía a los domiciliarios dos veces
       // el mismo pedido.
+      // El anuncio al comercio vive en `orderService.announceToBusiness`: sale
+      // cuando el pedido se puede aceptar (efectivo al crear; en línea al
+      // cobrarse; programado al activarse), no aquí.
       if (io && !order.scheduledFor && !order.$locals?.replayed) {
-        const business = await Business.findById(order.businessId).select('ownerId');
-        if (business) {
-          // El pedido va entero y poblado, con la misma forma que devuelve
-          // el listado del comercio. Antes viajaba un resumen de cinco
-          // campos sin `_id`, sin `items` y sin cliente: el panel lo metía
-          // en su lista tal cual y la fila salía vacía —o rompía al leer
-          // `_id`—, así que el pedido nuevo solo aparecía de verdad tras
-          // refrescar. Empujar un pedido incompleto no es empujar nada.
-          const payload = await orderService.getById(order._id.toString());
-
-          // El dueño recibe el pedido entero; el personal (encargado y
-          // mostrador, que no tienen `settlements:view`), sin el pago al
-          // domiciliario ni el margen de ZIPP. Son dos emisiones y no una
-          // para poder mandar dos formas distintas; `except` saca al dueño
-          // de la segunda, porque su socket también está en la sala del
-          // negocio y si no le llegaría el pedido dos veces.
-          const ownerRoom = `user:${business.ownerId.toString()}`;
-          io.to(ownerRoom).emit('order:incoming', payload);
-          io.to(`business:${order.businessId!.toString()}`)
-            .except(ownerRoom)
-            .emit('order:incoming', merchantStaffOrderView(payload));
-        }
         // Notify drivers and admin
         io.to('drivers').emit('order:available', { orderId: order._id.toString(), city: order.city });
         emitToAdmin(io, 'orders', 'order:new', { orderId: order._id.toString(), orderNumber: order.orderNumber });
@@ -248,13 +230,7 @@ export class OrderController {
 
       const io = req.app.get('io');
       if (io) {
-        const payload = {
-          orderId: order._id.toString(),
-          orderNumber: order.orderNumber,
-          status: order.status,
-          driverId: order.driverId?.toString(),
-          cancellationReason: order.cancellationReason,
-        };
+        const payload = orderEventPayload(order);
         io.to(`user:${order.clientId.toString()}`).emit('order:status:changed', payload);
         const driverUid = await driverUserId(order.driverId);
         if (driverUid) {
@@ -262,7 +238,9 @@ export class OrderController {
         }
         // Un mandado no tiene comercio al que avisar: no hay nadie
         // preparando nada al otro lado.
-        if (order.businessId) {
+        // Un pedido que el comercio nunca vio (en línea sin pagar) no le
+        // concierne: su cancelación sería ruido sin nada que mostrar.
+        if (order.businessId && isMerchantVisible(order)) {
           io.to(`business:${order.businessId.toString()}`).emit('order:status:changed', payload);
         }
         emitToAdmin(io, 'orders', 'order:status:changed', payload);
@@ -319,12 +297,7 @@ export class OrderController {
 
       const io = req.app.get('io');
       if (io) {
-        const payload = {
-          orderId: order._id.toString(),
-          orderNumber: order.orderNumber,
-          status: order.status,
-          driverId: order.driverId?.toString(),
-        };
+        const payload = orderEventPayload(order);
         io.to(`user:${order.clientId.toString()}`).emit('order:driver:assigned', payload);
         const driverUid = await driverUserId(order.driverId);
         if (driverUid) {

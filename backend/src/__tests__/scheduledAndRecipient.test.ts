@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Order, Business } from '../models';
-import { OrderStatus, UserRole, PaymentMethod } from '../types';
+import { OrderStatus, UserRole, PaymentMethod, PaymentStatus } from '../types';
 import { orderService } from '../services/order.service';
 import { makeUser, makeBusiness, makeProduct, makePricingConfig, GARZON } from './factories';
 import { isOpenAt } from '../utils/businessHours';
@@ -41,7 +41,7 @@ describe('Destinatario y programación', () => {
   });
 
   beforeEach(async () => {
-    await makePricingConfig();
+    await makePricingConfig({ cashOnDeliveryEnabled: true, cashOnDeliveryMaxAmount: 1_000_000 });
     client = await makeUser({ role: UserRole.CLIENT });
     const owner = await makeUser({ role: UserRole.BUSINESS });
     business = await makeBusiness(owner._id, { lat: GARZON.lat, lng: GARZON.lng });
@@ -103,11 +103,20 @@ describe('Destinatario y programación', () => {
     expect(orders).toHaveLength(0);
   });
 
-  it('un pedido normal sí aparece de inmediato', async () => {
-    await newOrder();
+  it('un pedido normal (en efectivo) sí aparece de inmediato', async () => {
+    await newOrder({ paymentMethod: PaymentMethod.CASH_ON_DELIVERY });
 
     const { orders } = await orderService.getByBusiness(business._id.toString());
     expect(orders).toHaveLength(1);
+  });
+
+  it('un pedido en línea sin pagar no aparece hasta que se cobra', async () => {
+    const order = await newOrder();
+
+    expect((await orderService.getByBusiness(business._id.toString())).orders).toHaveLength(0);
+
+    await Order.updateOne({ _id: order._id }, { paymentStatus: PaymentStatus.PAID });
+    expect((await orderService.getByBusiness(business._id.toString())).orders).toHaveLength(1);
   });
 
   it('el barrido no activa lo que todavía está lejos', async () => {
@@ -120,7 +129,10 @@ describe('Destinatario y programación', () => {
     // El negocio declara 30 minutos de preparación; con el colchón de
     // viaje, un pedido para dentro de 40 minutos ya tiene que entrar.
     await Business.updateOne({ _id: business._id }, { deliveryTime: 30 });
-    await newOrder({ scheduledFor: new Date(Date.now() + 40 * 60 * 1000) });
+    await newOrder({
+      scheduledFor: new Date(Date.now() + 40 * 60 * 1000),
+      paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
+    });
 
     expect(await orderService.activateScheduledOrders()).toBe(1);
 

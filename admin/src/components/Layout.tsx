@@ -122,15 +122,15 @@ export default function Layout() {
  <div className="flex h-screen bg-[var(--color-bg)] dark:bg-[#080B11] text-[var(--color-text-main)] overflow-hidden font-sans transition-colors duration-200">
  {/* ── Navegación compacta, compartida con Business ── */}
  <aside className={`
- admin-sidebar fixed inset-y-0 left-0 z-50 w-30 bg-[#f1f1f1] border-r border-[#d7d7d7] flex flex-col shadow-[1px_0_3px_rgba(0,0,0,0.08)]
+ admin-sidebar fixed inset-y-0 left-0 z-50 w-30 bg-[var(--color-bg-alt)] border-r border-[var(--color-border)] flex flex-col shadow-[1px_0_3px_rgba(0,0,0,0.08)]
  transform transition-transform duration-300 ease-out
  lg:translate-x-0 lg:static lg:inset-0
  ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
  `}>
- <div className="relative h-14 shrink-0 border-b border-[#d7d7d7] flex items-center justify-center gap-2">
+ <div className="relative h-14 shrink-0 border-b border-[var(--color-border)] flex items-center justify-center gap-2">
  <ZippMark size={25} mono="#D69E26" />
- <span className="text-[15px] font-semibold tracking-tight text-[#4b4b4b]">ZIPP</span>
- <button aria-label="Cerrar menú" className="absolute right-2 top-2 p-1 text-[#555] hover:text-[#111] lg:hidden" onClick={() => setSidebarOpen(false)}>
+ <span className="text-[15px] font-semibold tracking-tight text-[var(--color-text-secondary)]">ZIPP</span>
+ <button aria-label="Cerrar menú" className="absolute right-2 top-2 p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] lg:hidden" onClick={() => setSidebarOpen(false)}>
  <Menu className="w-4 h-4" />
  </button>
  </div>
@@ -138,7 +138,7 @@ export default function Layout() {
  <nav aria-label="Navegación principal" lang="es" className="flex-1 overflow-y-auto overflow-x-hidden admin-sidebar-scroll py-1">
  {/* Una sola cuadrícula de dos columnas para todos los grupos: así no
  quedan huecos cuando un grupo tiene un número impar de ítems. */}
- <div className="grid grid-cols-2 border-t border-[#d7d7d7]">
+ <div className="grid grid-cols-2 border-t border-[var(--color-border)]">
  {NAV_GROUPS.flatMap((group) => group.items)
  .filter((item) => !item.hidden && hasPermission(item.permission))
  .map((item) => {
@@ -155,9 +155,9 @@ export default function Layout() {
  {...preloadOn(item.path)}
  title={item.label}
  aria-label={item.label}
- className={`relative flex min-h-16 min-w-0 flex-col items-center justify-center gap-0.5 border-b border-[#d7d7d7] px-0.5 py-1.5 text-[9.5px] font-medium transition-colors duration-150 odd:border-r ${isActive
- ? 'text-[#161616] font-semibold'
- : 'text-black hover:bg-black/4'
+ className={`relative flex min-h-16 min-w-0 flex-col items-center justify-center gap-0.5 border-b border-[var(--color-border)] px-0.5 py-1.5 text-[9.5px] font-medium transition-colors duration-150 odd:border-r ${isActive
+ ? 'text-[var(--color-text-main)] font-semibold'
+ : 'text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)]'
  }`}
  >
  {/* Con dos columnas una barra lateral quedaría en medio de la
@@ -165,7 +165,7 @@ export default function Layout() {
  {isActive && (
  <span className="absolute left-1/2 top-0 h-[3px] w-7 -translate-x-1/2 rounded-b-full bg-[#D69E26]" />
  )}
- <item.Icon fontSize={20} style={{ color: isActive ? '#292929' : 'currentColor' }} />
+ <item.Icon fontSize={20} style={{ color: isActive ? 'var(--color-text-main)' : 'currentColor' }} />
  <span className="w-full text-balance hyphens-auto break-words text-center leading-[1.15]">{item.label}</span>
  </NavLink>
  );
@@ -174,11 +174,11 @@ export default function Layout() {
  </nav>
 
  {/* Sidebar Footer */}
- <div className="px-2 py-2 border-t border-[#d7d7d7]">
+ <div className="px-2 py-2 border-t border-[var(--color-border)]">
  <button
  onClick={() => setShowLogoutModal(true)}
  title="Cerrar sesión"
- className="group flex flex-col items-center gap-1 w-full py-1 text-black hover:text-[var(--color-danger)] cursor-pointer"
+ className="group flex flex-col items-center gap-1 w-full py-1 text-[var(--color-text-main)] hover:text-[var(--color-danger)] cursor-pointer"
  >
  <LogOut className="w-5 h-5" strokeWidth={1.8} />
  <span className="text-[10px] font-medium">Salir</span>
@@ -198,18 +198,18 @@ export default function Layout() {
  <main className="flex-1 overflow-y-auto flex flex-col min-w-0 bg-[var(--color-bg)] dark:bg-[#080B11] transition-colors duration-200">
  <OrderNotifications />
  {/* Barra superior tipo Spotify, con búsqueda global existente. */}
- <header className="sticky top-0 z-30 h-20 bg-[#f1f1f1] border-b border-[#d7d7d7] px-4 sm:px-6 flex items-center gap-3 sm:gap-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
+ <header className="sticky top-0 z-30 h-20 bg-[var(--color-bg-alt)] border-b border-[var(--color-border)] px-4 sm:px-6 flex items-center gap-3 sm:gap-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
  <div className="flex items-center gap-2 sm:gap-3 shrink-0">
  <button
  aria-label="Abrir menú"
- className="lg:hidden p-2 rounded-full text-[#444] hover:bg-[#dedede] transition-colors cursor-pointer"
+ className="lg:hidden p-2 rounded-full text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
  onClick={() => setSidebarOpen(true)}
  >
  <Menu className="w-5 h-5" />
  </button>
- <button aria-label="Página anterior" onClick={() => navigate(-1)} className="hidden sm:grid w-9 h-9 place-items-center rounded-full text-[#777] hover:text-[#222] hover:bg-[#dedede] cursor-pointer"><ArrowLeft className="w-5 h-5" strokeWidth={2.4} /></button>
- <button aria-label="Página siguiente" onClick={() => navigate(1)} className="hidden sm:grid w-9 h-9 place-items-center rounded-full text-[#999] hover:text-[#222] hover:bg-[#dedede] cursor-pointer"><ArrowRight className="w-5 h-5" strokeWidth={2.4} /></button>
- <button aria-label="Ir al resumen diario" onClick={() => navigate('/daily-summary')} className="grid w-12 h-12 place-items-center rounded-full bg-[#303030] text-white hover:scale-105 hover:bg-[#D69E26] cursor-pointer"><Home className="w-6 h-6 fill-current" strokeWidth={2.2} /></button>
+ <button aria-label="Página anterior" onClick={() => navigate(-1)} className="hidden sm:grid w-9 h-9 place-items-center rounded-full text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"><ArrowLeft className="w-5 h-5" strokeWidth={2.4} /></button>
+ <button aria-label="Página siguiente" onClick={() => navigate(1)} className="hidden sm:grid w-9 h-9 place-items-center rounded-full text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"><ArrowRight className="w-5 h-5" strokeWidth={2.4} /></button>
+ <button aria-label="Ir al resumen diario" onClick={() => navigate('/daily-summary')} className="grid w-12 h-12 place-items-center rounded-full text-[var(--color-text-main)] hover:scale-105 hover:text-[#D69E26] cursor-pointer"><Home className="w-6 h-6 fill-current" strokeWidth={2.2} /></button>
  </div>
 
  {/* Búsqueda global: pedidos, clientes, comercios, domiciliarios, cupones */}
@@ -227,16 +227,16 @@ export default function Layout() {
  <div className="relative">
  <button
  onClick={() => setUserMenuOpen(!userMenuOpen)}
- className="flex items-center gap-2 rounded-full bg-white border border-[#d7d7d7] p-1 pr-3 hover:bg-[#fafafa] transition-all cursor-pointer"
+ className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
  >
- <div className="w-10 h-10 rounded-full bg-[#D69E26] flex items-center justify-center text-sm font-bold text-white ring-3 ring-white">
+ <div className="w-10 h-10 rounded-full bg-[#D69E26] flex items-center justify-center text-sm font-bold text-white">
  {user?.name?.charAt(0)?.toUpperCase() || 'A'}
  </div>
  <div className="text-left hidden xl:block max-w-36">
- <p className="text-xs font-bold text-[#333] leading-none truncate">{user?.name || 'Administrador'}</p>
- <p className="text-[10px] text-[#777] mt-1 leading-none truncate">{positionName || 'Sin cargo asignado'}</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)] leading-none truncate">{user?.name || 'Administrador'}</p>
+ <p className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-none truncate">{positionName || 'Sin cargo asignado'}</p>
  </div>
- <ChevronDown className="w-3.5 h-3.5 text-[#666] hidden sm:block" />
+ <ChevronDown className="w-3.5 h-3.5 text-[var(--color-text-secondary)] hidden sm:block" />
  </button>
 
  {userMenuOpen && (

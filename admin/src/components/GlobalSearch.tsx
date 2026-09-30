@@ -284,7 +284,7 @@ export default function GlobalSearch() {
 
  return (
  <div ref={rootRef} className="relative w-full max-w-2xl">
- <Search className="pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#666]" />
+ <Search className="pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--color-text-secondary)]" />
  <input
  ref={inputRef}
  type="text"
@@ -301,7 +301,7 @@ export default function GlobalSearch() {
  onFocus={() => setIsOpen(true)}
  onKeyDown={onKeyDown}
  placeholder="¿Qué quieres encontrar?"
- className="h-12 w-full rounded-full border border-[#d7d7d7] bg-white py-2 pl-12 pr-14 text-sm font-medium text-[#292929] placeholder:text-[#777] transition-all focus:border-[#D69E26] focus:ring-2 focus:ring-[#D69E26]/20 focus:outline-none"
+ className="h-12 w-full rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pl-12 pr-14 text-sm font-medium text-[var(--color-text-main)] placeholder:text-[var(--color-text-secondary)] transition-all focus:border-[#D69E26] focus:ring-2 focus:ring-[#D69E26]/20 focus:outline-none"
  />
  {loading ? (
  <RefreshCw className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-[var(--color-primary)]" />

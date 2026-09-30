@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import app from '../app';
-import { Product, Order } from '../models';
+import { Product, Order, PlatformPricingConfig } from '../models';
 import { OrderStatus, UserRole, PaymentMethod } from '../types';
 import { orderService } from '../services/order.service';
+import * as emitter from '../sockets/emitter';
 import { pricingService } from '../services/pricing.service';
+import { pricingConfigService } from '../services/pricingConfig.service';
 import { couponService } from '../services/coupon.service';
 import { ledgerService } from '../services/ledger.service';
 import {
@@ -171,11 +173,18 @@ describe('Pedidos — idempotencia y concurrencia', () => {
       except: (r: string) => chain(to, [...except, r]),
       emit: (event: string, payload: unknown) => { emitted.push({ event, to, except, payload }); return true; },
     });
-    const originalIo = app.get('io');
-    app.set('io', chain([], []));
+    // El anuncio al comercio sale por el `io` del módulo de sockets, no por
+    // `req.app`: se espía ese.
+    const ioSpy = vi.spyOn(emitter, 'getIO').mockReturnValue(chain([], []));
+
+    // El pedido en línea no se anuncia al crearse (espera al cobro): para
+    // probar que la réplica no vuelve a sonar hace falta uno aceptable ya,
+    // o sea en efectivo.
+    await PlatformPricingConfig.updateMany({}, { cashOnDeliveryEnabled: true, cashOnDeliveryMaxAmount: 1_000_000 });
+    pricingConfigService.invalidate();
 
     try {
-      const body = httpBody(product, { idempotencyKey: 'doble-toque' });
+      const body = httpBody(product, { idempotencyKey: 'doble-toque', paymentMethod: 'cash_on_delivery', cashPayment: { needsChange: false } });
       const first = await request(app).post('/api/v1/orders').set(await authHeader(client)).send(body).expect(201);
       const second = await request(app).post('/api/v1/orders').set(await authHeader(client)).send(body).expect(201);
 
@@ -198,7 +207,7 @@ describe('Pedidos — idempotencia y concurrencia', () => {
       expect(staff.payload.finance.platformGrossRevenue).toBeUndefined();
       expect(staff.payload.driverPayout).toBeUndefined();
     } finally {
-      app.set('io', originalIo);
+      ioSpy.mockRestore();
     }
   });
 

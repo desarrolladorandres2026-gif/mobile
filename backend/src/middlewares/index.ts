@@ -25,6 +25,8 @@ export {
   orderEvidenceRateLimiter,
   productImageUploadRateLimiter,
   businessDocumentUploadRateLimiter,
+  driverDossierFileRateLimiter,
+  driverDossierPdfRateLimiter,
   businessFiscalRateLimiter,
   payoutAccountRevealRateLimiter,
   twoFactorResetRateLimiter,

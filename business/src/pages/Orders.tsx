@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, RefreshCw, Eye, Store, AlertCircle, Check, MoreVertical } from 'lucide-react';
+import { Search, RefreshCw, Eye, Store, AlertCircle, Check } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useBusinessEvent } from '../hooks/realtimeContext';
+import { useActiveOrders } from '../hooks/useActiveOrders';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 import { useTrailingCallback } from '../hooks/useTrailingCallback';
 import OrderDetailPanel from '../components/OrderDetailPanel';
 import Pagination from '../components/Pagination';
-import PickupHandoff from '../components/PickupHandoff';
+import OrderBoard from '../components/OrderBoard';
 import RejectOrderDialog from '../components/RejectOrderDialog';
 import {
-  ORDER_STATUS, statusStyle, money, shortId, clock, dateTime, isActive, nextBusinessStep,
-  ACTIVE_STATUSES, type OrderStatus,
+  ORDER_STATUS, statusStyle, money, shortId, dateTime, isActive,
+  type OrderStatus,
   type BusinessOrder,
   type OrderItem,
 } from '../lib/orderFlow';
@@ -51,6 +53,18 @@ export default function Orders() {
 
   const queryClient = useQueryClient();
 
+  const [tab, setTab] = useState<'active' | 'history'>('active');
+
+  // "Ver pedido" del aviso llega como `/orders?pedido=<id>`: hay que estar en
+  // las activas para que el tablero pueda enseñarlo. Se ajusta durante el
+  // render (y no en un efecto) para no pintar primero el historial.
+  const focusId = useSearchParams()[0].get('pedido');
+  const [seenFocus, setSeenFocus] = useState<string | null>(null);
+  if (focusId && focusId !== seenFocus) {
+    setSeenFocus(focusId);
+    setTab('active');
+  }
+
   // ── Historial ──
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<OrderStatus | 'all'>('all');
@@ -74,13 +88,9 @@ export default function Orders() {
 
   const activeFilterLabel = FILTERS.find((option) => option.value === filter)?.label;
 
-  const queueQuery = useQuery({
-    queryKey: qk.activeOrders(businessId),
-    enabled: !!businessId,
-    queryFn: async () =>
-      (await api.get(`/orders/business/${businessId}`, { params: { status: ACTIVE_STATUSES.join(','), limit: 500 } }))
-        .data.data as BusinessOrder[],
-  });
+  // La misma consulta que lee la alarma global (hooks/useActiveOrders): el
+  // tablero y el timbre nunca discrepan sobre qué pedidos esperan.
+  const queueQuery = useActiveOrders(businessId);
   const queue = useMemo(() => queueQuery.data ?? [], [queueQuery.data]);
   const queueLoading = !!businessId && queueQuery.isPending;
   const queueError = queueQuery.isError ? 'No pudimos cargar las comandas activas.' : '';
@@ -121,19 +131,9 @@ export default function Orders() {
   // entregaba mientras estaba abierta seguía apareciendo "en camino" hasta
   // que alguien pulsaba Actualizar. La cola de comandas sí lo necesita
   // siempre: un pedido pendiente que nadie ve no se acepta a tiempo.
-  useBusinessEvent('order:incoming', (incoming) => {
-    // `businessId` llega poblado (un objeto) cuando el pedido viene entero
-    // por socket, y como cadena en el resto de eventos. Comparar sin
-    // normalizar dejaba fuera todos los pedidos nuevos.
-    const ref = incoming?.businessId;
-    const from = typeof ref === 'object' && ref !== null ? ref._id : ref;
-    if (!from || String(from) !== businessId) return;
-    queryClient.setQueryData<BusinessOrder[]>(qk.activeOrders(businessId), (previous = []) =>
-      // Un pedido puede llegar dos veces si el socket reconecta justo
-      // después de crearse; insertarlo sin comprobar duplicaría la fila.
-      previous.some((order) => order._id === incoming._id) ? previous : [incoming, ...previous]
-    );
-  });
+  // La llegada de pedidos nuevos al tablero ya no se maneja aquí: la
+  // alarma global (`useActiveOrdersLiveSync`, montada en el Layout) mantiene
+  // el caché al día en todas las pantallas, no solo en esta.
   useBusinessEvent('order:status:changed', () => {
     loadSoon();
     setLiveTick((tick) => tick + 1);
@@ -223,128 +223,63 @@ export default function Orders() {
         </div>
       )}
 
-      {/* ── Comandas activas ── */}
+      {/* ── Pestañas ── */}
+      <div role="tablist" aria-label="Vista de pedidos" className="flex items-end gap-8 border-b border-[var(--color-border)]">
+        {([["active", "Activas", filteredQueue.length], ["history", "Historial", null]] as const).map(([value, label, count]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={tab === value}
+            onClick={() => setTab(value)}
+            className={`-mb-px pb-3 text-sm font-bold border-b-2 cursor-pointer transition-colors ${
+              tab === value
+                ? "border-[var(--color-primary)] text-[var(--color-primary)]"
+                : "border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]"
+            }`}
+          >
+            {label}
+            {count !== null && <span className="ml-2 tabular text-xs">{count}</span>}
+          </button>
+        ))}
+      </div>
+
+      {tab === "active" && (
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="col-title border-b-0 pb-0 mb-0">Comandas activas</h2>
-            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-              {filteredQueue.length} pedido(s) en curso ahora mismo
-            </p>
-          </div>
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            Arrastra un pedido a la columna siguiente o usa su botón.
+          </p>
           <label className="flex h-10 w-full sm:w-72 items-center gap-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 text-[var(--color-text-secondary)] focus-within:border-[var(--color-primary)]">
             <Search className="w-4 h-4 shrink-0" />
             <input
               value={queueSearch}
               onChange={(event) => setQueueSearch(event.target.value)}
               placeholder="Buscar en la cocina…"
-              className="w-full bg-transparent text-xs text-[var(--color-text-main)] outline-none placeholder:text-[var(--color-text-muted)]"
+              className="w-full bg-transparent text-xs text-[var(--color-text-main)] outline-none placeholder:text-[var(--color-text-secondary)]"
             />
           </label>
         </div>
 
-        <div className="table-container">
-          <div className="hidden md:grid grid-cols-[1.2fr_1.25fr_1.1fr_0.7fr_auto] items-center gap-4 table-header-cell">
-            <span>Pedido</span><span>Cliente y productos</span><span>Estado</span><span>Total</span><span className="text-right">Acciones</span>
-          </div>
-
-          {queueLoading ? (
-            <p className="p-12 text-center text-xs font-semibold text-[var(--color-text-secondary)]">
-              Cargando comandas…
-            </p>
-          ) : filteredQueue.length === 0 ? (
-            <p className="p-10 text-center text-xs font-semibold text-[var(--color-text-muted)]">
-              No hay comandas activas en este momento.
-            </p>
-          ) : (
-            <ul className="divide-y divide-[var(--color-border)]">
-              {filteredQueue.map((order) => {
-                const style = statusStyle(order.status);
-                const step = nextBusinessStep(order.status);
-                const busy = busyOrderId === order._id;
-
-                return (
-                  <li
-                    key={order._id}
-                    className="px-4 py-4 hover:bg-[var(--color-surface-hover)] transition-colors flex flex-col md:grid md:grid-cols-[1.2fr_1.25fr_1.1fr_0.7fr_auto] md:items-center gap-4"
-                  >
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-bold tabular text-[var(--color-primary)]">
-                          {order.orderNumber ?? shortId(order._id)}
-                        </span>
-                        <span className="text-[10px] text-[var(--color-text-muted)] tabular">
-                          {clock(order.createdAt)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-[var(--color-text-main)]">
-                        {order.clientId?.name ?? 'Cliente'}
-                      </p>
-                      <p className="mt-1 text-xs font-medium text-[var(--color-text-secondary)] truncate">
-                        {(order.items ?? [])
-                          .map((item: OrderItem) => `${item.quantity}× ${item.productName}`)
-                          .join(' · ')}
-                      </p>
-                    </div>
-
-                    <span className={`inline-flex w-fit items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide border ${style.chip}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                      {style.label}
-                    </span>
-                    <span className="kpi-value text-base tabular">{money(order.total)}</span>
-
-                    <div className="flex items-center gap-2 justify-end shrink-0">
-                      {order.status === 'ready' ? (
-                        <PickupHandoff order={order} refreshKey={handoffTick} />
-                      ) : null}
-
-                      <div className="flex items-center gap-2">
-                        {order.status === 'pending' && (
-                          <button
-                            onClick={() => setRejecting(order)}
-                            disabled={busy}
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold text-[var(--color-danger)] bg-[var(--color-danger-bg)] border border-[var(--color-danger)]/30 hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50"
-                          >
-                            Rechazar
-                          </button>
-                        )}
-
-                        {step && (
-                          <button
-                            onClick={() => updateStatus(order._id, step.status)}
-                            disabled={busy}
-                            className="px-3.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider text-white bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                          >
-                            {busy ? 'Un momento…' : step.label}
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => setDetailOrder(order)}
-                          aria-label={`Ver el detalle del pedido ${order.orderNumber ?? ''}`}
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
-                        >
-                          Ver detalle
-                        </button>
-                        <button aria-label="Más acciones" className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]">
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+        {queueLoading ? (
+          <p className="p-12 text-center text-xs font-semibold text-[var(--color-text-secondary)]">Cargando comandas…</p>
+        ) : (
+          <OrderBoard
+            orders={filteredQueue}
+            focusId={focusId}
+            busyOrderId={busyOrderId}
+            handoffTick={handoffTick}
+            onAdvance={(order, status) => updateStatus(order._id, status)}
+            onReject={setRejecting}
+            onOpen={setDetailOrder}
+          />
+        )}
       </section>
+      )}
 
-      {/* ── Historial ── */}
+
+      {tab === "history" && (
       <section className="space-y-4">
-        <h2 className="col-title border-b-0 pb-0 mb-0">Historial</h2>
 
         {error && (
           <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
@@ -356,14 +291,14 @@ export default function Orders() {
         <div className="cols3" style={{ height: 'auto' }}>
           <div className="space-y-5">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-secondary)]" />
               <input
                 type="search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Buscar por número de pedido o cliente…"
                 aria-label="Buscar pedidos"
-                className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors"
+                className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-secondary)] outline-none focus:border-[var(--color-primary)] transition-colors"
               />
             </div>
             <div>
@@ -416,7 +351,7 @@ export default function Orders() {
                       </tr>
                     ) : visible.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="table-body-cell text-center text-[var(--color-text-muted)] py-12">
+                        <td colSpan={8} className="table-body-cell text-center text-[var(--color-text-secondary)] py-12">
                           {search
                             ? 'Ningún pedido coincide con la búsqueda.'
                             : 'Todavía no hay pedidos con ese estado.'}
@@ -463,7 +398,7 @@ export default function Orders() {
                                 {style.label}
                               </span>
                             </td>
-                            <td className="table-body-cell text-[var(--color-text-muted)] tabular">
+                            <td className="table-body-cell text-[var(--color-text-secondary)] tabular">
                               {dateTime(order.createdAt)}
                             </td>
                             <td className="table-body-cell">
@@ -487,6 +422,7 @@ export default function Orders() {
           </div>
         </div>
       </section>
+      )}
 
       {detailOrder && businessId && (
         <OrderDetailPanel

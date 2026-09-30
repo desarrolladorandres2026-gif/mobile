@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Tag, Power, Pencil, RotateCcw, Trash2, Info } from 'lucide-react';
+import { AlertCircle, Plus, Power, Pencil, RotateCcw, Trash2, Info } from 'lucide-react';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 import { CouponLogo, DeliveryLogo } from '../components/logos';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 import { money } from '../lib/orderFlow';
+import {
+  TYPE_LABELS, toDateInput, emptyCodeForm, emptyAutoForm, discountLabel, groupOf, consumption,
+  type Coupon, type PromotionGroup,
+} from '../lib/promotions';
 import ConfirmDialog from '../components/ConfirmDialog';
-import ProductMultiSelect from '../components/ProductMultiSelect';
-import DateRangeField from '../components/DateRangeField';
 import PromotionStatusBadge from '../components/PromotionStatusBadge';
-import NumericInput from '../components/NumericInput';
+import PromotionPanel from '../components/PromotionPanel';
 
 /**
  * Promociones que crea el propio comercio.
@@ -22,71 +24,24 @@ import NumericInput from '../components/NumericInput';
  * diferencia entre una herramienta útil y una sorpresa a fin de mes:
  *
  *  · **Con código**: el cliente lo escribe. Descuenta sobre el subtotal
- *    entero del pedido. Es lo que ya existía.
+ *    entero del pedido.
  *  · **Automática por productos**: sin código, se aplica sola cuando el
- *    carrito trae alguno de los productos elegidos, con fecha de inicio y
- *    fin. Es el mismo motor de cupones —presupuesto, auditoría, reparto—
- *    con un modo nuevo (`autoApply`) en vez de un mecanismo aparte.
+ *    carrito trae alguno de los productos elegidos. Es el mismo motor de
+ *    cupones —presupuesto, auditoría, reparto— con un modo (`autoApply`).
+ *
+ * La pantalla es solo la lista, agrupada por estado; crear y editar viven
+ * en un panel lateral (`PromotionPanel`) con vista previa del costo.
  */
 
-interface Coupon {
-  _id: string;
-  code: string;
-  title: string;
-  description?: string;
-  type: 'percentage' | 'fixed' | 'free_delivery';
-  scope?: 'product' | 'delivery' | 'service_fee';
-  value: number;
-  maxDiscountAmount?: number;
-  minOrderAmount?: number;
-  budgetLimit?: number;
-  budgetSpent?: number;
-  usageLimit?: number;
-  usedCount?: number;
-  validFrom?: string;
-  validUntil: string;
-  isActive: boolean;
-  autoApply?: boolean;
-  productIds?: string[];
-  availability?: { state: 'active' | 'scheduled' | 'exhausted' };
-}
-
-const TYPE_LABELS: Record<Coupon['type'], string> = {
-  percentage: 'Porcentaje',
-  fixed: 'Monto fijo',
-  free_delivery: 'Envío gratis',
-};
-
 function couponArt(type: Coupon['type']): ComponentType<{ size?: number }> {
-  if (type === 'free_delivery') return DeliveryLogo;
-  return CouponLogo;
+  return type === 'free_delivery' ? DeliveryLogo : CouponLogo;
 }
 
-const toDateInput = (iso?: string) => (iso ? iso.slice(0, 10) : '');
-
-const emptyCodeForm = {
-  code: '',
-  title: '',
-  type: 'percentage' as 'percentage' | 'fixed' | 'free_delivery',
-  value: 10,
-  minOrderAmount: 0,
-  budgetLimit: 0,
-  usageLimit: 0,
-  perUserLimit: 1,
-  validUntil: '',
-};
-
-const emptyAutoForm = {
-  title: '',
-  description: '',
-  type: 'percentage' as 'percentage' | 'fixed',
-  value: 20,
-  maxDiscountAmount: 0,
-  budgetLimit: 0,
-  validFrom: new Date().toISOString().slice(0, 10),
-  validUntil: '',
-  productIds: [] as string[],
-};
+const GROUPS: Array<{ key: PromotionGroup; title: string }> = [
+  { key: 'active', title: 'Activas' },
+  { key: 'scheduled', title: 'Programadas' },
+  { key: 'ended', title: 'Finalizadas y desactivadas' },
+];
 
 export default function Promotions() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
@@ -96,12 +51,14 @@ export default function Promotions() {
 
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
+  const [panelOpen, setPanelOpen] = useState(!!preselectProductId);
   const [mode, setMode] = useState<'code' | 'auto'>(preselectProductId ? 'auto' : 'code');
   const [codeForm, setCodeForm] = useState(emptyCodeForm);
   const [autoForm, setAutoForm] = useState(emptyAutoForm);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [showEnded, setShowEnded] = useState(false);
 
   useEffect(() => {
     if (preselectProductId) {
@@ -137,13 +94,24 @@ export default function Promotions() {
     return map;
   }, [coupons, editingId]);
 
-  const resetForms = () => {
+  const closePanel = useCallback(() => {
+    setPanelOpen(false);
     setCodeForm(emptyCodeForm);
     setAutoForm(emptyAutoForm);
     setEditingId(null);
+    setError('');
+  }, []);
+
+  const startCreate = () => {
+    setError('');
+    setEditingId(null);
+    setCodeForm(emptyCodeForm);
+    setAutoForm(emptyAutoForm);
+    setPanelOpen(true);
   };
 
   const startEdit = (coupon: Coupon) => {
+    setError('');
     setEditingId(coupon._id);
     if (coupon.autoApply) {
       setMode('auto');
@@ -172,10 +140,15 @@ export default function Promotions() {
         validUntil: toDateInput(coupon.validUntil),
       });
     }
+    setPanelOpen(true);
   };
 
   const createOrUpdateCode = async () => {
     if (!businessId) return;
+    if (!codeForm.validUntil) {
+      setError('Elige hasta cuándo es válida la promoción.');
+      return;
+    }
     try {
       setError('');
       setSaving(true);
@@ -192,7 +165,7 @@ export default function Promotions() {
       } else {
         await api.post(`/coupons/business/${businessId}`, payload);
       }
-      resetForms();
+      closePanel();
       await load();
     } catch (err) {
       setError(apiMessage(err, 'No se pudo guardar la promoción.'));
@@ -205,6 +178,10 @@ export default function Promotions() {
     if (!businessId) return;
     if (autoForm.productIds.length === 0) {
       setError('Elige al menos un producto para la promoción.');
+      return;
+    }
+    if (!autoForm.validFrom || !autoForm.validUntil) {
+      setError('Elige desde y hasta cuándo corre la promoción.');
       return;
     }
     try {
@@ -229,7 +206,7 @@ export default function Promotions() {
       } else {
         await api.post(`/coupons/business/${businessId}`, payload);
       }
-      resetForms();
+      closePanel();
       await load();
     } catch (err) {
       setError(apiMessage(err, 'No se pudo guardar la promoción.'));
@@ -238,23 +215,13 @@ export default function Promotions() {
     }
   };
 
-  const deactivate = async (couponId: string) => {
+  const toggle = async (couponId: string, action: 'deactivate' | 'reactivate') => {
     try {
       setError('');
-      await api.patch(`/coupons/business/${couponId}/deactivate`);
+      await api.patch(`/coupons/business/${couponId}/${action}`);
       await load();
     } catch (err) {
-      setError(apiMessage(err, 'No se pudo desactivar la promoción.'));
-    }
-  };
-
-  const reactivate = async (couponId: string) => {
-    try {
-      setError('');
-      await api.patch(`/coupons/business/${couponId}/reactivate`);
-      await load();
-    } catch (err) {
-      setError(apiMessage(err, 'No se pudo reactivar la promoción.'));
+      setError(apiMessage(err, action === 'deactivate' ? 'No se pudo desactivar la promoción.' : 'No se pudo reactivar la promoción.'));
     }
   };
 
@@ -271,11 +238,16 @@ export default function Promotions() {
     }
   };
 
-  const active = coupons.filter((c) => c.isActive && c.availability?.state === 'active');
-  const rest = coupons.filter((c) => !(c.isActive && c.availability?.state === 'active'));
+  const grouped = useMemo(() => {
+    const map: Record<PromotionGroup, Coupon[]> = { active: [], scheduled: [], ended: [] };
+    for (const coupon of coupons) map[groupOf(coupon)].push(coupon);
+    return map;
+  }, [coupons]);
+
+  const rowButton = 'flex items-center gap-1.5 text-xs font-semibold cursor-pointer hover:underline';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="page-header">
         <div>
           <h1 className="page-title">Promociones</h1>
@@ -283,6 +255,14 @@ export default function Promotions() {
             El descuento sale de tu liquidación, así que tú decides cuánto, sobre qué y hasta cuándo.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={startCreate}
+          className="px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-primary-dark)] transition-colors cursor-pointer flex items-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          Nueva promoción
+        </button>
       </div>
 
       <p className="text-xs text-[var(--color-text-secondary)] flex items-center gap-2">
@@ -294,317 +274,152 @@ export default function Promotions() {
         , no aquí.
       </p>
 
-      {(error || loadError) && (
+      {((!panelOpen && error) || loadError) && (
         <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <p className="flex-1 font-semibold">{error || loadError}</p>
         </div>
       )}
 
-      <div className="cols3 [--cols3-template:repeat(2,minmax(0,1fr))]">
-        <section className="space-y-4">
-          <div className="flex items-center gap-2">
-            <h2 className="col-title flex-1">{editingId ? 'Editar promoción' : 'Nueva promoción'}</h2>
-            {editingId && (
-              <button onClick={resetForms} className="text-xs font-semibold text-[var(--color-text-secondary)] hover:underline">
-                Cancelar edición
-              </button>
-            )}
-          </div>
-
-          {!editingId && (
-            <div className="flex gap-1.5 p-1 rounded-lg bg-[var(--color-bg-alt)] w-fit">
-              {(['code', 'auto'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                    mode === m
-                      ? 'bg-[var(--color-primary)] text-white'
-                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
-                  }`}
-                >
-                  {m === 'code' ? 'Con código' : 'Automática por productos'}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {mode === 'code' ? (
-            <div className="space-y-4">
-              <div className="grid gap-3 grid-cols-2">
-                <Field label="Código" hint="Lo que el cliente escribe en el carrito">
-                  <input
-                    value={codeForm.code}
-                    onChange={(e) => setCodeForm({ ...codeForm, code: e.target.value.toUpperCase() })}
-                    maxLength={20}
-                    placeholder="MARTES20"
-                    disabled={!!editingId}
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field label="Título" hint="Lo que el cliente ve en la lista de promociones">
-                  <input
-                    value={codeForm.title}
-                    onChange={(e) => setCodeForm({ ...codeForm, title: e.target.value })}
-                    maxLength={80}
-                    placeholder="20% los martes"
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field label="Tipo">
-                  <select
-                    value={codeForm.type}
-                    onChange={(e) => setCodeForm({ ...codeForm, type: e.target.value as Coupon['type'] })}
-                    disabled={!!editingId}
-                    className={inputClass}
-                  >
-                    <option value="percentage">Porcentaje de descuento</option>
-                    <option value="fixed">Monto fijo de descuento</option>
-                    <option value="free_delivery">Envío gratis</option>
-                  </select>
-                </Field>
-
-                {codeForm.type !== 'free_delivery' && (
-                  <Field
-                    label={codeForm.type === 'percentage' ? 'Porcentaje' : 'Monto'}
-                    hint={codeForm.type === 'percentage' ? 'Entre 1 y 100' : 'En pesos'}
-                  >
-                    <NumericInput
-                      value={codeForm.value}
-                      onValueChange={(d) => setCodeForm({ ...codeForm, value: Number(d) })}
-                      className={inputClass}
-                    />
-                  </Field>
-                )}
-
-                <Field label="Pedido mínimo" hint="Cero: sin mínimo">
-                  <NumericInput
-                    value={codeForm.minOrderAmount}
-                    onValueChange={(d) => setCodeForm({ ...codeForm, minOrderAmount: Number(d) })}
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field label="Presupuesto máximo" hint="Cero: sin tope">
-                  <NumericInput
-                    value={codeForm.budgetLimit}
-                    onValueChange={(d) => setCodeForm({ ...codeForm, budgetLimit: Number(d) })}
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field label="Usos totales" hint="Cero: ilimitado">
-                  <NumericInput
-                    value={codeForm.usageLimit}
-                    onValueChange={(d) => setCodeForm({ ...codeForm, usageLimit: Number(d) })}
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field label="Válida hasta">
-                  <input
-                    type="date"
-                    value={codeForm.validUntil}
-                    onChange={(e) => setCodeForm({ ...codeForm, validUntil: e.target.value })}
-                    className={inputClass}
-                  />
-                </Field>
-              </div>
-
-              <p className="text-[var(--color-warning)] text-xs font-semibold">
-                El presupuesto máximo solo frena de verdad si además pones un tope de usos: es el
-                que sí controla cuántas veces se cobra sin código.
-              </p>
-
-              <button onClick={createOrUpdateCode} disabled={saving} className={submitClass}>
-                {saving ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Crear promoción'}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <Field label="Título" hint="Lo que verás en tu lista de promociones">
-                <input
-                  value={autoForm.title}
-                  onChange={(e) => setAutoForm({ ...autoForm, title: e.target.value })}
-                  maxLength={80}
-                  placeholder="20% en hamburguesas"
-                  className={inputClass}
-                />
-              </Field>
-
-              <div className="grid gap-3 grid-cols-2">
-                <Field label="Tipo">
-                  <select
-                    value={autoForm.type}
-                    onChange={(e) => setAutoForm({ ...autoForm, type: e.target.value as 'percentage' | 'fixed' })}
-                    className={inputClass}
-                  >
-                    <option value="percentage">Porcentaje de descuento</option>
-                    <option value="fixed">Monto fijo de descuento</option>
-                  </select>
-                </Field>
-                <Field label={autoForm.type === 'percentage' ? 'Porcentaje' : 'Monto'}>
-                  <NumericInput
-                    value={autoForm.value}
-                    onValueChange={(d) => setAutoForm({ ...autoForm, value: Number(d) })}
-                    className={inputClass}
-                  />
-                </Field>
-                {autoForm.type === 'percentage' && (
-                  <Field label="Tope del descuento" hint="En pesos. Cero: sin tope">
-                    <NumericInput
-                      value={autoForm.maxDiscountAmount}
-                      onValueChange={(d) => setAutoForm({ ...autoForm, maxDiscountAmount: Number(d) })}
-                      className={inputClass}
-                    />
-                  </Field>
+      {loading ? (
+        <p className="py-2 text-xs text-[var(--color-text-secondary)]">Cargando promociones…</p>
+      ) : coupons.length === 0 ? (
+        <div className="py-16 space-y-3 max-w-md">
+          <p className="text-sm font-bold text-[var(--color-text-main)]">Todavía no tienes promociones</p>
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            Un cupón bien puesto llena las horas flojas. Empieza por un día concreto.
+          </p>
+          <button type="button" onClick={startCreate} className="text-xs font-bold text-[var(--color-primary)] hover:underline cursor-pointer">
+            Crear la primera
+          </button>
+        </div>
+      ) : (
+        GROUPS.map(({ key, title }) => {
+          const list = grouped[key];
+          if (list.length === 0 && key !== 'active') return null;
+          const collapsed = key === 'ended' && !showEnded;
+          return (
+            <section key={key} className="space-y-1">
+              <div className="flex items-baseline justify-between border-b border-[var(--color-border)] pb-2">
+                <h2 className="col-title border-b-0 pb-0 mb-0">{title} · {list.length}</h2>
+                {key === 'ended' && (
+                  <button type="button" onClick={() => setShowEnded((v) => !v)} className="text-xs font-semibold text-[var(--color-primary)] hover:underline cursor-pointer">
+                    {showEnded ? 'Ocultar' : 'Mostrar'}
+                  </button>
                 )}
               </div>
 
-              <DateRangeField
-                from={autoForm.validFrom}
-                to={autoForm.validUntil}
-                onChangeFrom={(v) => setAutoForm({ ...autoForm, validFrom: v })}
-                onChangeTo={(v) => setAutoForm({ ...autoForm, validUntil: v })}
-              />
-
-              <Field label="Productos en promoción" hint="Un producto solo puede estar en una promoción automática a la vez">
-                {businessId && (
-                  <ProductMultiSelect
-                    businessId={businessId}
-                    selected={autoForm.productIds}
-                    onChange={(ids) => setAutoForm({ ...autoForm, productIds: ids })}
-                    coveredByOther={coveredByOther}
-                  />
-                )}
-              </Field>
-
-              <button onClick={createOrUpdateAuto} disabled={saving} className={submitClass}>
-                {saving ? 'Guardando…' : editingId ? 'Guardar cambios' : 'Crear promoción'}
-              </button>
-            </div>
-          )}
-        </section>
-
-        <div className="space-y-6">
-        {([
-          { key: 'active', title: 'Activas', list: active },
-          { key: 'rest', title: 'Programadas, finalizadas y desactivadas', list: rest },
-        ] as const).map(({ key, title, list }) => (
-          <section key={key}>
-            <h2 className="col-title">{title} · {list.length}</h2>
-            {loading ? (
-              <p className="py-2 text-xs text-[var(--color-text-secondary)]">Cargando promociones…</p>
-            ) : list.length === 0 ? (
-              <div className="py-6 text-center space-y-2">
-                <Tag className="w-6 h-6 text-[var(--color-text-muted)] mx-auto" />
-                <p className="text-xs text-[var(--color-text-secondary)]">
-                  {key === 'active'
-                    ? 'Un cupón bien puesto llena las horas flojas. Empieza por un día concreto.'
-                    : 'Nada por aquí todavía.'}
-                </p>
-              </div>
-            ) : (
-              <ul className="divide-y divide-[var(--color-border)]">
-                {list.map((coupon) => {
-                  const CouponArt = couponArt(coupon.type);
-                  return (
-                    <li key={coupon._id} className={`py-4 flex flex-col gap-3 ${coupon.isActive ? '' : 'opacity-70'}`}>
-                      <div className="flex items-start gap-4 min-w-0">
-                        <CouponArt size={30} />
-                        <div className="min-w-0 space-y-1.5 flex-1">
-                          <div className="flex flex-wrap items-center gap-2.5">
-                            <h3 className="text-sm font-bold text-[var(--color-text-main)]">{coupon.title}</h3>
-                            {coupon.autoApply ? (
-                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-bg-alt)] text-[var(--color-text-muted)] border border-[var(--color-border)]">
-                                {coupon.productIds?.length ?? 0} producto(s)
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[var(--color-bg-alt)] text-[var(--color-text-muted)] border border-[var(--color-border)] font-mono">
-                                {coupon.code}
-                              </span>
-                            )}
-                            <PromotionStatusBadge promotion={coupon} />
-                          </div>
-
-                          <p className="text-xs text-[var(--color-text-secondary)] font-medium">
-                            {TYPE_LABELS[coupon.type]}
-                            {coupon.type === 'percentage' ? ` · ${coupon.value}%` : ''}
-                            {coupon.type === 'fixed' ? ` · ${money(coupon.value)}` : ''}
-                            {coupon.minOrderAmount ? ` · Mínimo ${money(coupon.minOrderAmount)}` : ''}
-                            {coupon.validFrom ? ` · Desde el ${new Date(coupon.validFrom).toLocaleDateString('es-CO')}` : ''}
-                            {` · Hasta el ${new Date(coupon.validUntil).toLocaleDateString('es-CO')}`}
-                          </p>
-
-                          <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-text-secondary)]">
-                            <span>
-                              Usada {coupon.usedCount ?? 0}
-                              {coupon.usageLimit ? ` de ${coupon.usageLimit}` : ' veces'}
-                            </span>
-                            {(coupon.budgetLimit ?? 0) > 0 && (
-                              <span className="font-mono">
-                                Gastado {money(coupon.budgetSpent ?? 0)} de {money(coupon.budgetLimit ?? 0)}
-                              </span>
-                            )}
+              {list.length === 0 ? (
+                <p className="py-6 text-xs text-[var(--color-text-secondary)]">Nada activo ahora mismo.</p>
+              ) : collapsed ? null : (
+                <ul className="divide-y divide-[var(--color-border)]">
+                  {list.map((coupon) => {
+                    const CouponArt = couponArt(coupon.type);
+                    const used = consumption(coupon);
+                    return (
+                      <li
+                        key={coupon._id}
+                        className={`py-5 grid gap-4 md:grid-cols-[minmax(0,2fr)_7rem_minmax(0,1.2fr)_auto] md:items-center ${coupon.isActive ? '' : 'opacity-70'}`}
+                      >
+                        <div className="flex items-start gap-4 min-w-0">
+                          <CouponArt size={30} />
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <h3 className="text-sm font-bold text-[var(--color-text-main)]">{coupon.title}</h3>
+                              <PromotionStatusBadge promotion={coupon} />
+                            </div>
+                            <p className="text-xs text-[var(--color-text-secondary)]">
+                              {coupon.autoApply ? (
+                                <>Automática · {coupon.productIds?.length ?? 0} producto(s)</>
+                              ) : (
+                                <>Código <span className="font-mono font-bold text-[var(--color-text-main)]">{coupon.code}</span></>
+                              )}
+                              {coupon.minOrderAmount ? ` · Mínimo ${money(coupon.minOrderAmount)}` : ''}
+                            </p>
+                            <p className="text-xs text-[var(--color-text-secondary)]">
+                              {coupon.validFrom ? `${new Date(coupon.validFrom).toLocaleDateString('es-CO')} → ` : 'Hasta el '}
+                              {new Date(coupon.validUntil).toLocaleDateString('es-CO')}
+                            </p>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          onClick={() => startEdit(coupon)}
-                          className="px-3.5 py-2 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] transition-all cursor-pointer flex items-center gap-1.5"
-                        >
-                          <Pencil className="w-4 h-4" />
-                          Editar
-                        </button>
+                        <div>
+                          <p className="text-xl font-bold tabular text-[var(--color-primary)]">{discountLabel(coupon.type, coupon.value)}</p>
+                          <p className="text-[11px] text-[var(--color-text-secondary)]">{TYPE_LABELS[coupon.type]}</p>
+                        </div>
 
-                        {coupon.isActive ? (
-                          <button
-                            onClick={() => deactivate(coupon._id)}
-                            className="px-3.5 py-2 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-danger)] transition-all cursor-pointer flex items-center gap-1.5"
-                          >
-                            <Power className="w-4 h-4" />
-                            Desactivar
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => reactivate(coupon._id)}
-                            className="px-3.5 py-2 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-success-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-success)] transition-all cursor-pointer flex items-center gap-1.5"
-                          >
-                            <RotateCcw className="w-4 h-4" />
-                            Reactivar
-                          </button>
-                        )}
+                        <div className="space-y-1.5 min-w-0">
+                          <p className="text-xs text-[var(--color-text-secondary)] tabular">
+                            {coupon.usedCount ?? 0} {(coupon.usedCount ?? 0) === 1 ? 'uso' : 'usos'}
+                            {used ? ` · ${used.label}` : ' · sin tope'}
+                          </p>
+                          {used && (
+                            <div className="h-0.5 w-full bg-[var(--color-border)]" role="progressbar" aria-valuenow={Math.round(used.ratio * 100)} aria-valuemin={0} aria-valuemax={100}>
+                              <div
+                                className={`h-full ${used.ratio >= 0.9 ? 'bg-[var(--color-danger)]' : 'bg-[var(--color-primary)]'}`}
+                                style={{ width: `${used.ratio * 100}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
 
-                        {(coupon.usedCount ?? 0) === 0 && (
-                          <button
-                            onClick={() => setConfirmDeleteId(coupon._id)}
-                            className="px-3.5 py-2 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-danger)] transition-all cursor-pointer flex items-center gap-1.5"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            Eliminar
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:justify-end">
+                          <button onClick={() => startEdit(coupon)} className={`${rowButton} text-[var(--color-text-main)]`}>
+                            <Pencil className="w-3.5 h-3.5" />
+                            Editar
                           </button>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {key === 'rest' && list.length > 0 && (
-              <p className="pt-2 text-xs text-[var(--color-text-muted)]">
-                Desactivar no borra la promoción: los pedidos que ya la usaron siguen apareciendo
-                en tus liquidaciones. Solo se puede eliminar de verdad una que nunca tuvo pedidos.
-              </p>
-            )}
-          </section>
-        ))}
-        </div>
-      </div>
+                          {coupon.isActive ? (
+                            <button onClick={() => toggle(coupon._id, 'deactivate')} className={`${rowButton} text-[var(--color-text-secondary)]`}>
+                              <Power className="w-3.5 h-3.5" />
+                              Desactivar
+                            </button>
+                          ) : (
+                            <button onClick={() => toggle(coupon._id, 'reactivate')} className={`${rowButton} text-[var(--color-success)]`}>
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              Reactivar
+                            </button>
+                          )}
+                          {(coupon.usedCount ?? 0) === 0 && (
+                            <button onClick={() => setConfirmDeleteId(coupon._id)} className={`${rowButton} text-[var(--color-danger)]`}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Eliminar
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
+              {key === 'ended' && showEnded && list.length > 0 && (
+                <p className="pt-2 text-xs text-[var(--color-text-secondary)]">
+                  Desactivar no borra la promoción: los pedidos que ya la usaron siguen apareciendo
+                  en tus liquidaciones. Solo se puede eliminar de verdad una que nunca tuvo pedidos.
+                </p>
+              )}
+            </section>
+          );
+        })
+      )}
+
+      {panelOpen && businessId && (
+        <PromotionPanel
+          mode={mode}
+          editing={!!editingId}
+          onModeChange={setMode}
+          codeForm={codeForm}
+          onCodeChange={setCodeForm}
+          autoForm={autoForm}
+          onAutoChange={setAutoForm}
+          businessId={businessId}
+          coveredByOther={coveredByOther}
+          saving={saving}
+          error={error}
+          onSubmit={mode === 'code' ? createOrUpdateCode : createOrUpdateAuto}
+          onClose={closePanel}
+        />
+      )}
 
       {confirmDeleteId && (
         <ConfirmDialog
@@ -616,30 +431,6 @@ export default function Promotions() {
           onCancel={() => setConfirmDeleteId(null)}
         />
       )}
-    </div>
-  );
-}
-
-const inputClass =
-  'w-full px-3 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)] disabled:opacity-50';
-
-const submitClass =
-  'px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white font-bold text-xs uppercase tracking-wider hover:bg-[#8A5D08] transition-all cursor-pointer shadow-xs disabled:opacity-60';
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-bold text-[var(--color-text-main)]">{label}</label>
-      {children}
-      {hint && <p className="text-xs text-[var(--color-text-muted)]">{hint}</p>}
     </div>
   );
 }

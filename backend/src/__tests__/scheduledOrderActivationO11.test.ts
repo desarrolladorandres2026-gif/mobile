@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Order, Business } from '../models';
+import { PaymentStatus } from '../types';
 import { UserRole, PaymentMethod } from '../types';
 import { orderService } from '../services/order.service';
 import { dispatchService, setDispatchEnabled, runSweepOnce } from '../services/dispatch.service';
@@ -65,8 +66,11 @@ describe('Activación de pedidos programados independiente del reparto automáti
     const saved = await Order.findById(order._id);
     expect(saved!.scheduledActivatedAt).not.toBeNull();
 
-    const { orders } = await orderService.getByBusiness(business._id.toString());
-    expect(orders).toHaveLength(1);
+    // Es en línea: activado no es lo mismo que aceptable. La cocina lo ve
+    // cuando el cobro entra, no antes.
+    expect((await orderService.getByBusiness(business._id.toString())).orders).toHaveLength(0);
+    await Order.updateOne({ _id: order._id }, { paymentStatus: PaymentStatus.PAID });
+    expect((await orderService.getByBusiness(business._id.toString())).orders).toHaveLength(1);
   });
 
   it('runSweepOnce() activa el programado aunque el interruptor esté apagado, y no dispara la cascada de ofertas', async () => {

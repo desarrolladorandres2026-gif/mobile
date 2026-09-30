@@ -2,8 +2,7 @@ import axios from 'axios';
 import { useAuthStore } from '../stores/authStore';
 import { apiErrorCode, apiStatus } from '../lib/apiError';
 import { getDeviceId } from '../lib/deviceId';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api/v1';
+import { API_BASE, ensureFreshToken, endSession, SessionEndedError } from '../lib/session';
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -26,45 +25,29 @@ api.interceptors.request.use((config) => {
 });
 
 /**
- * El access token dura solo 15 minutos. Antes, cualquier 401 —incluido el
- * que llega en cuanto expira, en medio de una jornada normal en el panel—
- * cerraba la sesión del comercio sin más. Ahora se intenta renovar primero
- * con el refresh token y solo se cierra sesión si eso también falla.
- *
- * `refreshPromise` evita que dos peticiones que expiran a la vez disparen
- * dos refrescos en paralelo: el backend rota el refresh token en cada uso y
- * trataría el segundo intento como reuse, revocando todas las sesiones.
+ * El access token dura solo 15 minutos: cuando expira en plena jornada, la
+ * petición vuelve a intentarse con un token renovado y el comercio no nota
+ * nada. La renovación vive en `lib/session.ts`, que la coordina entre
+ * pestañas (el backend rota el refresh token en cada uso y un token rotado
+ * presentado por otra pestaña se toma por robo). Aquí solo se decide qué
+ * hacer con el resultado.
  */
-let refreshPromise: Promise<string> | null = null;
-
-async function refreshAccessToken(): Promise<string> {
-  const refreshToken = useAuthStore.getState().refreshToken;
-  if (!refreshToken) throw new Error('No refresh token');
-
-  const { data } = await axios.post(`${API_BASE}/auth/refresh-token`, { refreshToken }, { headers: { 'X-Device-ID': getDeviceId() } });
-  const tokens = data.data as { accessToken: string; refreshToken: string };
-  useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
-  return tokens.accessToken;
-}
-
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-    if (apiStatus(error) === 401 && !originalRequest._retry) {
+    if (apiStatus(error) === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        if (!refreshPromise) {
-          refreshPromise = refreshAccessToken().finally(() => {
-            refreshPromise = null;
-          });
-        }
-        const accessToken = await refreshPromise;
+        const failed = String(originalRequest.headers?.Authorization ?? '').replace(/^Bearer /, '') || null;
+        const accessToken = await ensureFreshToken({ failedToken: failed });
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return api(originalRequest);
-      } catch {
-        useAuthStore.getState().logout();
-        window.location.href = '/login';
+      } catch (refreshError) {
+        // Solo un rechazo definitivo cierra la sesión. Un corte de red al
+        // renovar deja el error original: el comercio sigue dentro y la
+        // siguiente petición lo reintenta.
+        if (refreshError instanceof SessionEndedError) endSession();
         return Promise.reject(error);
       }
     }

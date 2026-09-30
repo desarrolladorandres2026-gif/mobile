@@ -894,6 +894,8 @@ export const sosApi = {
 
 export type DriverDocumentType =
   | 'identity'
+  | 'identity_back'
+  | 'criminal_record'
   | 'license'
   | 'soat'
   | 'technical_review'
@@ -957,6 +959,22 @@ export interface DriverDocumentRecord {
   status: 'pending' | 'approved' | 'rejected' | 'expired';
   /** Por qué lo rechazó el equipo. Solo si `status` es `rejected`. */
   rejectionReason?: string | null;
+  /** Fecha de expedición impresa en el papel (antecedentes). */
+  issuedAt?: string | null;
+  /** El equipo pidió una versión nueva aunque este siga vigente. */
+  updateRequest?: { reason: string; requestedAt: string } | null;
+}
+
+/** Datos básicos de la moto que se ven en el expediente del domiciliario. */
+export interface DriverVehicleInput {
+  brand?: string;
+  model?: string;
+  color?: string;
+  year?: number;
+  engineCc?: number;
+  ownerName?: string;
+  licenseCategory?: string;
+  licensePlate?: string;
 }
 
 export const driverApi = {
@@ -1017,12 +1035,14 @@ export const driverApi = {
   submitDocument: (input: {
     type: DriverDocumentType;
     reference: string;
+    issuedAt?: string;
     expiresAt?: string;
     imageUri?: string;
   }) => {
     const form = new FormData();
     form.append('type', input.type);
     form.append('reference', input.reference);
+    if (input.issuedAt) form.append('issuedAt', input.issuedAt);
     if (input.expiresAt) form.append('expiresAt', input.expiresAt);
     if (input.imageUri) {
       form.append('image', {
@@ -1038,6 +1058,10 @@ export const driverApi = {
       })
       .then((r) => r.data.data);
   },
+
+  /** Marca, modelo, color y placa de la moto. Los ve el equipo en tu expediente. */
+  updateVehicle: (input: DriverVehicleInput) =>
+    api.patch('/drivers/vehicle', input).then((r) => r.data.data),
 
   /** Verificaciones de identidad: las pedidas, las enviadas y las revisadas. */
   getVerifications: () =>

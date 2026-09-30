@@ -3,7 +3,8 @@ import { driverService } from '../services/driver.service';
 import { sendResponse, param, query, clampLimit } from '../utils';
 import { DriverStatus } from '../types';
 import { AuditAction, AuditSeverity, logAudit } from '../security';
-import { Driver, User } from '../models';
+import { Driver, User, DRIVER_DOCUMENT_TYPES } from '../models';
+import { vehicleBody } from './driverDossier.controller';
 import type { ListDriversQuery } from '../validators/driver.validator';
 import { AppError } from '../middlewares/errorHandler';
 import { emitToUser } from '../sockets/emitter';
@@ -19,8 +20,13 @@ import { z } from 'zod';
  * ruta, en el único sitio donde ahora pueden aplicarse.
  */
 const driverDocumentBody = z.object({
-  type: z.enum(['identity', 'license', 'soat', 'technical_review', 'vehicle_registration']),
+  type: z.enum(DRIVER_DOCUMENT_TYPES),
   reference: z.string().trim().min(3, 'El número del documento parece muy corto').max(500),
+  // El móvil manda `''` cuando el campo queda vacío: sin esto `z.coerce.date()` lo tomaría por una fecha inválida.
+  issuedAt: z.preprocess(
+    (v) => (v === '' || v === null ? undefined : v),
+    z.coerce.date().max(new Date(), 'La fecha de expedición no puede ser futura').optional()
+  ),
   expiresAt: z.coerce.date().optional(),
 });
 
@@ -171,17 +177,27 @@ export class DriverController {
       } catch (error) { next(error); }
     });
   }
+  /** El domiciliario completa marca, modelo, color y placa de su moto. */
+  async updateOwnVehicle(req: Request, res: Response, next: NextFunction) {
+    try {
+      // La placa la corrige solo el equipo: aparece en el tracking del cliente y en el traspaso.
+      const parsed = vehicleBody.omit({ licensePlate: true }).safeParse(req.body);
+      if (!parsed.success) throw new AppError(parsed.error.issues[0]?.message ?? 'Revisa los datos del vehículo', 400);
+      const driver = await driverService.updateOwnVehicle(req.user!._id.toString(), parsed.data);
+      sendResponse(res, 200, 'Vehículo actualizado', { vehicle: driver.vehicle, licensePlate: driver.licensePlate });
+    } catch (error) { next(error); }
+  }
   async getDocuments(req: Request, res: Response, next: NextFunction) { try { res.setHeader('Cache-Control', 'no-store'); const driver = await driverService.getByUserId(req.user!._id.toString()); sendResponse(res, 200, 'Documentos', await driverService.listDocuments(driver._id.toString())); } catch (error) { next(error); } }
-  async reviewDocument(req: Request, res: Response, next: NextFunction) { try { const document = await driverService.reviewDocument(param(req, 'documentId'), req.user!._id.toString(), req.body.status, req.body.rejectionReason); void logAudit(req, { action: AuditAction.DOCUMENT_REVIEWED, entity: 'driver_document', entityId: document._id.toString(), description: 'Documento de domiciliario verificado', metadata: { status: document.status, type: document.type, rejectionReason: document.rejectionReason } }); const view = { ...document.toObject(), imageUrl: driverService.documentImageUrl(document) }; delete (view as any).imageKey; sendResponse(res, 200, 'Documento verificado', view); } catch (error) { next(error); } }
-  async listDriverDocuments(req: Request, res: Response, next: NextFunction) { try { res.setHeader('Cache-Control', 'no-store'); sendResponse(res, 200, 'Documentos del domiciliario', await driverService.listDocuments(param(req, 'id'))); } catch (error) { next(error); } }
-  async documentQueue(req: Request, res: Response, next: NextFunction) { try { res.setHeader('Cache-Control', 'no-store'); sendResponse(res, 200, 'Cola de verificación', await driverService.reviewQueue(Number(query(req, 'expiringInDays')) || 30)); } catch (error) { next(error); } }
+  async reviewDocument(req: Request, res: Response, next: NextFunction) { try { const document = await driverService.reviewDocument(param(req, 'documentId'), req.user!._id.toString(), req.body.status, req.body.rejectionReason, req.body.revision); void logAudit(req, { action: AuditAction.DOCUMENT_REVIEWED, entity: 'driver_document', entityId: document._id.toString(), description: 'Documento de domiciliario verificado', metadata: { status: document.status, type: document.type, rejectionReason: document.rejectionReason } }); const view = { ...document.toObject(), imageUrl: driverService.documentImageUrl(document) }; delete (view as any).imageKey; sendResponse(res, 200, 'Documento verificado', view); } catch (error) { next(error); } }
+  async listDriverDocuments(req: Request, res: Response, next: NextFunction) { try { res.setHeader('Cache-Control', 'no-store'); void logAudit(req, { action: AuditAction.DRIVER_DOCUMENT_VIEWED, entity: 'driver', entityId: param(req, 'id'), description: 'Documentos de domiciliario listados (incluye enlaces a fotos)' }); sendResponse(res, 200, 'Documentos del domiciliario', await driverService.listDocuments(param(req, 'id'))); } catch (error) { next(error); } }
+  async documentQueue(req: Request, res: Response, next: NextFunction) { try { res.setHeader('Cache-Control', 'no-store'); void logAudit(req, { action: AuditAction.DRIVER_DOCUMENT_VIEWED, entity: 'driver_document', entityId: 'queue', description: 'Cola de verificación de documentos consultada (incluye enlaces a fotos)' }); sendResponse(res, 200, 'Cola de verificación', await driverService.reviewQueue(Number(query(req, 'expiringInDays')) || 30)); } catch (error) { next(error); } }
 
   /** Guarda a quién avisar si algo va mal. */
   async setEmergencyContact(req: Request, res: Response, next: NextFunction) {
     try {
       const driver = await driverService.getByUserId(req.user!._id.toString());
       const { Driver } = await import('../models');
-      await Driver.updateOne({ _id: driver._id }, { $set: { emergencyContact: req.body } });
+      await Driver.updateOne({ _id: driver._id }, { $set: { emergencyContact: { ...req.body, updatedAt: new Date() } } });
       sendResponse(res, 200, 'Contacto de emergencia guardado', req.body);
     } catch (error) { next(error); }
   }

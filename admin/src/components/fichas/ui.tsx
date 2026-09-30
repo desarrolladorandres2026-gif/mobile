@@ -52,6 +52,88 @@ export function ErrorLine({ children }: { children: ReactNode }) {
  );
 }
 
+/**
+ * Cuadrícula de datos de las fichas: mismo `data-grid` que el listado de
+ * Pedidos. `Facts` es una fila de encabezados sobre una fila de valores;
+ * `Grid` es una tabla con varias filas.
+ */
+export function Facts({ title, items }: { title: string; items: Array<[string, ReactNode]> }) {
+  return (
+    <section className="min-w-0 space-y-2">
+      <h3 className="text-sm font-bold text-[var(--color-text-main)]">{title}</h3>
+      <div className="table-container">
+        <div className="overflow-x-auto">
+          <table className="data-grid">
+            <thead>
+              <tr className="text-left">
+                {items.map(([label]) => (
+                  <th key={label} className="table-header-cell">{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {items.map(([label, value]) => (
+                  <td key={label} className="wrap">{value || '—'}</td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function Grid({
+  title,
+  head,
+  rows,
+  empty,
+  right = [],
+}: {
+  title: string;
+  head: string[];
+  rows: ReactNode[][];
+  empty: string;
+  /** Índices de columnas alineadas a la derecha (importes). */
+  right?: number[];
+}) {
+  return (
+    <section className="min-w-0 space-y-2">
+      <h3 className="text-sm font-bold text-[var(--color-text-main)]">{title}</h3>
+      <div className="table-container">
+        <div className="overflow-x-auto">
+          <table className="data-grid">
+            <thead>
+              <tr className="text-left">
+                {head.map((h, i) => (
+                  <th key={h} className={`table-header-cell ${right.includes(i) ? 'text-right' : ''}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={head.length} className="wrap">{empty}</td>
+                </tr>
+              ) : (
+                rows.map((cells, r) => (
+                  <tr key={r}>
+                    {cells.map((c, i) => (
+                      <td key={i} className={`wrap ${right.includes(i) ? 'text-right' : ''}`}>{c}</td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /** Botón de acción de la ficha: borde fino, sin relleno. */
 export const actionButtonClass =
  'flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)] disabled:opacity-60';

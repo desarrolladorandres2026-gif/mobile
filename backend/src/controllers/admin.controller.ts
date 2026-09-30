@@ -672,14 +672,14 @@ export class AdminController {
 
   async suspendDriver(req: Request, res: Response, next: NextFunction) {
     try {
-      const driver = await adminService.suspendDriver(param(req, 'id'), req);
+      const driver = await adminService.suspendDriver(param(req, 'id'), req, cleanReason(req.body?.reason));
       sendResponse(res, 200, 'Domiciliario suspendido', driver);
     } catch (error) { next(error); }
   }
 
   async reactivateDriver(req: Request, res: Response, next: NextFunction) {
     try {
-      const driver = await adminService.reactivateDriver(param(req, 'id'), req);
+      const driver = await adminService.reactivateDriver(param(req, 'id'), req, cleanReason(req.body?.reason));
       sendResponse(res, 200, 'Domiciliario reactivado', driver);
     } catch (error) { next(error); }
   }
@@ -718,9 +718,21 @@ export class AdminController {
         description: 'Ficha 360 de domiciliario consultada',
         metadata: { view },
       });
-      sendResponse(res, 200, 'Ficha del domiciliario', profile);
+      // Identidad, vehículo, operación, seguridad, cuenta e historial: mismo enmascarado que el resto de la ficha.
+      const { driverFichaService } = await import('../services/driverFicha.service');
+      const ficha = await driverFichaService.build(param(req, 'id'), {
+        sensitive: view === 'full',
+        finance: can(req, Permission.FINANCE_VIEW),
+        track: can(req, Permission.DRIVERS_TRACK),
+      });
+      sendResponse(res, 200, 'Ficha del domiciliario', { ...profile, ficha });
     } catch (error) { next(error); }
   }
+}
+
+/** Motivo opcional de una suspensión o reactivación: texto corto, sin espacios sobrantes. */
+function cleanReason(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim().slice(0, 300) : undefined;
 }
 
 export const adminController = new AdminController();

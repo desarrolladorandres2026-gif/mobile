@@ -21,13 +21,15 @@ export type BusinessEvent =
   | 'order:incoming'
   | 'order:status:changed'
   | 'order:driver:assigned'
-  | 'order:driver:arrived';
+  | 'order:driver:arrived'
+  | 'order:withdrawn';
 
 export const EVENTS: BusinessEvent[] = [
   'order:incoming',
   'order:status:changed',
   'order:driver:assigned',
   'order:driver:arrived',
+  'order:withdrawn',
 ];
 
 /**
@@ -51,8 +53,21 @@ export interface OrderStatusPayload {
   orderId: string;
   orderNumber: string;
   status: OrderStatus;
+  /** Local al que pertenece el aviso; los eventos antiguos no lo traían. */
+  businessId?: string;
   driverId?: string;
   cancellationReason?: string;
+  /** Quién canceló: el propio local no es una cancelación ajena. */
+  cancelledBy?: 'client' | 'business' | 'driver' | 'admin' | 'system';
+  stage?: 'pickup' | 'delivery';
+}
+
+/** El pedido dejó de poder aceptarse (pasó a pago en línea sin cobrar). */
+export interface OrderWithdrawnPayload {
+  orderId: string;
+  orderNumber: string;
+  businessId: string;
+  reason: string;
 }
 
 export interface DriverArrivedPayload {
@@ -60,6 +75,7 @@ export interface DriverArrivedPayload {
   orderNumber: string;
   stage: 'pickup' | 'delivery';
   arrivedAt: string;
+  businessId?: string;
 }
 
 export interface BusinessEventPayloads {
@@ -67,14 +83,22 @@ export interface BusinessEventPayloads {
   'order:status:changed': OrderStatusPayload;
   'order:driver:assigned': OrderStatusPayload;
   'order:driver:arrived': DriverArrivedPayload;
+  'order:withdrawn': OrderWithdrawnPayload;
 }
 
 export type AnyPayload = BusinessEventPayloads[BusinessEvent];
 export type Handler = (payload: AnyPayload) => void;
 export type Registry = Map<BusinessEvent, Set<Handler>>;
 
+export type ConnectionStatus = 'online' | 'connecting' | 'offline';
+
 export interface RealtimeValue {
   connected: boolean;
+  status: ConnectionStatus;
+  /** Desde cuándo está caída la conexión (ms), o `null` si está en línea. */
+  downSince: number | null;
+  /** Sube en cada conexión: quien lo vigila sabe que tiene que ponerse al día. */
+  epoch: number;
   subscribe: <E extends BusinessEvent>(
     event: E,
     handler: (payload: BusinessEventPayloads[E]) => void
@@ -83,6 +107,9 @@ export interface RealtimeValue {
 
 export const RealtimeContext = createContext<RealtimeValue>({
   connected: false,
+  status: 'connecting',
+  downSince: null,
+  epoch: 0,
   subscribe: () => () => {},
 });
 

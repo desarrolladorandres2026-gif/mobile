@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { Order, IOrder, IOrderFinance, Business, Commission, Driver, Product, User, Payout, BusinessDocument } from '../models';
+import { Order, IOrder, IOrderFinance, Business, Commission, Driver, Product, User, Payout, Payment, BusinessDocument } from '../models';
 import { AppError } from '../middlewares';
 import {
   OrderStatus,
@@ -17,11 +17,14 @@ import {
   DriverStatus,
   PayoutStatus,
   PayoutBeneficiary,
+  PaymentType,
 } from '../types';
 import { OrderSecurity } from '../security/orderSecurity';
-import { emitToUser } from '../sockets/emitter';
+import { getIO, emitToUser } from '../sockets/emitter';
 import { logSystemAudit, AuditAction, AuditSeverity } from '../security';
 import { notificationService } from './notification.service';
+import { merchantStaffOrderView } from './profileMasking';
+import { isActionableForBusiness, isMerchantVisible, UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 import { pricingService, Quote } from './pricing.service';
 import { couponService } from './coupon.service';
 import { ledgerService } from './ledger.service';
@@ -61,6 +64,9 @@ const ROLE_ALLOWED_STATUSES: Record<string, OrderStatus[]> = {
   [UserRole.BUSINESS]: [OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.CANCELLED],
   [UserRole.DRIVER]:   [OrderStatus.PICKED_UP, OrderStatus.ON_WAY, OrderStatus.DELIVERED],
   [UserRole.ADMIN]:    Object.values(OrderStatus).filter(s => s !== OrderStatus.PENDING),
+  // Procesos automáticos (no es un `UserRole`: ningún usuario puede llegar
+  // con este valor). Solo cancelan: el barrido de pedidos en línea abandonados.
+  system:              [OrderStatus.CANCELLED],
 };
 
 interface CreateOrderInput {
@@ -151,6 +157,19 @@ const MAX_SCHEDULE_AHEAD_MS = 7 * 24 * 60 * 60 * 1000;
  * traería pedidos que hay que descartar en la misma vuelta.
  */
 const MAX_PREP_LOOKAHEAD_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * Cuánto espera un pedido en línea sin pagar antes de cancelarse solo.
+ *
+ * Además de este corte, un pedido con un cobro todavía pagable (enlace
+ * vigente más margen) o ya en camino no se toca: el corte real es el mayor
+ * de los dos.
+ *
+ * TODO(usuario): decisión de negocio. Más corto libera antes el stock de un
+ * plato del que queda poco; más largo da margen a quien paga por PSE o
+ * transferencia y se demora. Hoy: 30 minutos.
+ */
+export const ABANDONED_ONLINE_ORDER_MS = 30 * 60_000;
 
 export class OrderService {
   /**
@@ -606,6 +625,10 @@ export class OrderService {
     // Crear notificaciones en background (no bloquea la respuesta)
     this.triggerOrderCreatedNotifications(order, business).catch(console.error);
 
+    // Efectivo: la cocina ya puede aceptarlo. En línea sin pagar: espera al
+    // cobro (`onCaptured`). Un fallo al avisar nunca tumba la creación.
+    await this.announceToBusiness(order._id.toString()).catch(console.error);
+
     return order;
   }
 
@@ -617,12 +640,67 @@ export class OrderService {
         order.orderNumber,
         business.name
       ),
-      notificationService.notifyBusinessNewOrder(
-        business.ownerId.toString(),
-        order._id.toString(),
-        order.orderNumber
-      ),
+      // El "Nuevo pedido" del comercio ya no sale de aquí: lo manda
+      // `announceToBusiness` cuando el pedido se puede aceptar. Un pedido en
+      // línea sin pagar no es un pedido para la cocina todavía.
     ]);
+  }
+
+  /**
+   * Anuncia el pedido al comercio en el momento en que puede aceptarlo.
+   *
+   * Antes el anuncio salía al crearse, también para los pedidos en línea
+   * sin pagar: la cocina sonaba, el comercio pulsaba Aceptar, recibía un
+   * 409, y cuando el pago por fin entraba ya nadie le avisaba. Ahora hay
+   * una sola puerta y cuatro momentos que la llaman: la creación (efectivo),
+   * el cobro aprobado, el cambio a efectivo y la activación de un
+   * programado. Anunciar dos veces el mismo pedido no hace daño: el panel
+   * lo identifica por `_id` y no lo repite.
+   */
+  async announceToBusiness(orderId: string): Promise<boolean> {
+    const io = getIO();
+    const order = await this.getById(orderId);
+    if (!isActionableForBusiness(order)) return false;
+
+    const businessId = String((order.businessId as unknown as { _id?: unknown })?._id ?? order.businessId);
+    const business = await Business.findById(businessId).select('ownerId');
+    if (!business) return false;
+    const ownerId = business.ownerId.toString();
+
+    // El dueño recibe el pedido entero; el personal (encargado y
+    // mostrador, que no tienen `settlements:view`), sin el pago al
+    // domiciliario ni el margen de ZIPP. Son dos emisiones para poder
+    // mandar dos formas distintas; `except` saca al dueño de la segunda,
+    // porque su socket también está en la sala del negocio.
+    if (io) {
+      const ownerRoom = `user:${ownerId}`;
+      io.to(ownerRoom).emit('order:incoming', order);
+      io.to(`business:${businessId}`).except(ownerRoom).emit('order:incoming', merchantStaffOrderView(order));
+    }
+
+    notificationService
+      .notifyBusinessNewOrder(ownerId, order._id.toString(), order.orderNumber)
+      .catch(console.error);
+    return true;
+  }
+
+  /**
+   * Retira del panel del comercio un pedido que dejó de poder aceptarse
+   * (el cliente pasó de efectivo a pago en línea antes de que se cobre).
+   */
+  async withdrawFromBusiness(order: IOrder): Promise<void> {
+    const io = getIO();
+    if (!io || !order.businessId) return;
+    const business = await Business.findById(order.businessId).select('ownerId');
+    const payload = {
+      orderId: order._id.toString(),
+      orderNumber: order.orderNumber,
+      businessId: order.businessId.toString(),
+      reason: 'payment_pending',
+    };
+    const rooms = [`business:${payload.businessId}`];
+    if (business) rooms.push(`user:${business.ownerId.toString()}`);
+    io.to(rooms).emit('order:withdrawn', payload);
   }
 
   async getById(id: string): Promise<IOrder> {
@@ -669,6 +747,11 @@ export class OrderService {
       { scheduledFor: { $exists: false } },
       { scheduledActivatedAt: { $ne: null } },
     ];
+
+    // Un pedido en línea sin pagar no es todavía un pedido para la cocina:
+    // aceptarlo da 409 y, si el pago nunca entra, quedaría "pendiente" para
+    // siempre en el tablero. Aparece cuando se cobra (`announceToBusiness`).
+    filter.$nor = [{ ...UNPAID_ONLINE_MATCH }];
 
     const skip = (page - 1) * limit;
     const [orders, total] = await Promise.all([
@@ -941,7 +1024,8 @@ export class OrderService {
       // eventos. Es la pregunta que hace soporte en cada reclamo, y hasta
       // ahora había que reconstruirla leyendo la bitácora.
       patch.cancelledBy = CANCELLER_BY_ROLE[userRole] ?? CancelledBy.SYSTEM;
-      patch.cancelledByUserId = userId;
+      // Un proceso automático no es una persona: sin `ObjectId` que guardar.
+      if (mongoose.Types.ObjectId.isValid(userId)) patch.cancelledByUserId = userId;
     }
 
     const claimed = await Order.findOneAndUpdate(
@@ -1081,14 +1165,11 @@ export class OrderService {
       activated++;
 
       // Se avisa igual que a un pedido nuevo: para el negocio, a partir de
-      // este momento es exactamente eso.
-      if (business?.ownerId) {
-        emitToUser(business.ownerId.toString(), 'order:incoming', {
-          orderId: order._id.toString(),
-          orderNumber: order.orderNumber,
-          scheduledFor: order.scheduledFor,
-        });
-      }
+      // este momento es exactamente eso. Antes viajaba una ficha de tres
+      // campos sin `_id` ni negocio, solo al dueño, y el panel la descartaba:
+      // el programado ni sonaba ni aparecía. Si es en línea y aún no se
+      // pagó, no se anuncia: lo hará el cobro.
+      await this.announceToBusiness(order._id.toString()).catch(console.error);
     }
 
     return activated;
@@ -1490,7 +1571,19 @@ export class OrderService {
       return;
     }
 
-    const captured = order.paymentStatus === PaymentStatus.PAID;
+    // El cobro puede entrar entre que se reclamó la cancelación y este punto
+    // (el webhook no espera a nadie). Por eso el paso a FAILED se hace antes
+    // de deshacer nada y con la condición dentro del filtro: si el pedido ya
+    // está PAID, se devuelve el dinero en vez de pisarlo con FAILED y dejar
+    // cobrado un pedido cancelado sin reembolso.
+    let captured = order.paymentStatus === PaymentStatus.PAID;
+    if (!captured) {
+      const flipped = await Order.updateOne(
+        { _id: order._id, paymentStatus: { $ne: PaymentStatus.PAID } },
+        { $set: { paymentStatus: PaymentStatus.FAILED } }
+      );
+      if (flipped.matchedCount === 0) captured = true;
+    }
 
     if (captured) {
       // Money was taken, so this is a real refund through the gateway.
@@ -1514,12 +1607,91 @@ export class OrderService {
       `cancel:${order._id}`
     );
 
-    // Se persiste aquí y no se deja para el llamador: desde que la
-    // transición se reclama de forma atómica, el documento del pedido ya
-    // está guardado cuando esto corre, y confiar en un `save()` posterior
-    // que ya no existe dejaría el cobro marcado como pendiente para siempre.
+    // `applyReversal` deja el cobro como `refunded`, y un pedido en línea
+    // `refunded` cuenta como cobrado para el comercio. Nada se cobró: se
+    // vuelve a cerrar como fallido, otra vez sin pisar un PAID que entrara
+    // mientras tanto, y se alinea la copia en memoria de quien llamó.
+    await Order.updateOne(
+      { _id: order._id, paymentStatus: { $ne: PaymentStatus.PAID } },
+      { $set: { paymentStatus: PaymentStatus.FAILED } }
+    );
     order.paymentStatus = PaymentStatus.FAILED;
-    await order.save();
+  }
+
+  /**
+   * Cierra los pedidos en línea que nadie pagó.
+   *
+   * Un checkout abandonado retiene stock, la reserva del cupón y un payout
+   * ACCRUED para siempre: el comercio ya no ve esos pedidos (no hay nada que
+   * aceptar) y nadie más los cerraba. Se cancelan con `CancelledBy.SYSTEM` por
+   * el mismo camino que cualquier cancelación, que devuelve stock, cupón y
+   * deshace el libro.
+   *
+   * Se salta el pedido que aún tiene un cobro en vuelo en la pasarela: ese lo
+   * resuelve `sweepPendingPayments` (hasta 24 h) y cancelarlo antes dejaría
+   * un cobro aprobado tarde sobre un pedido cerrado. La cancelación reclama
+   * la transición con el `paymentStatus` leído dentro del filtro, así que un
+   * pago que entre mientras tanto la hace fallar en vez de cancelar un pedido
+   * cobrado.
+   */
+  async cancelAbandonedOnlineOrders(now = new Date()): Promise<number> {
+    // Pedidos que todavía pueden cobrarse, y que por tanto no se tocan:
+    //  - un cobro PENDING con transacción real en la pasarela (lo resuelve
+    //    `sweepPendingPayments`, hasta 24 h);
+    //  - un enlace de pago aún vigente: el cliente puede reintentar a los 20
+    //    minutos y pagar a los 40, así que el corte cuenta desde el último
+    //    intento y no desde que se creó el pedido;
+    //  - dinero ya reclamado por `onCaptured` que aún no llegó al pedido.
+    const attemptWindowMs = (config.payments.wompi.checkoutExpiryMinutes + 5) * 60_000;
+    const inFlight = await Payment.distinct('orderId', {
+      $or: [
+        {
+          status: PaymentStatus.PENDING,
+          transactionId: { $exists: true, $ne: null },
+          $expr: { $ne: ['$transactionId', '$reference'] },
+          updatedAt: { $gt: new Date(now.getTime() - 24 * 60 * 60_000) },
+        },
+        { status: PaymentStatus.PENDING, createdAt: { $gt: new Date(now.getTime() - attemptWindowMs) } },
+        { status: PaymentStatus.PAID, type: PaymentType.ORDER_PAYMENT },
+      ],
+    });
+
+    // Los excluidos se quitan en la consulta y no después: con 50 pedidos en
+    // vuelo, tomar "los 50 más antiguos" y descartarlos dejaba a los
+    // abandonados más nuevos sin cancelar nunca.
+    const candidates = await Order.find({
+      _id: { $nin: inFlight },
+      status: OrderStatus.PENDING,
+      paymentMethod: PaymentMethod.ONLINE,
+      paymentStatus: { $nin: [PaymentStatus.PAID, PaymentStatus.REFUNDED] },
+      kind: { $ne: OrderKind.ERRAND },
+      createdAt: { $lt: new Date(now.getTime() - ABANDONED_ONLINE_ORDER_MS) },
+    })
+      .select('_id')
+      .sort({ createdAt: 1 })
+      .limit(50);
+
+    let cancelled = 0;
+    for (const { _id } of candidates) {
+      try {
+        await this.updateStatus(
+          _id.toString(),
+          OrderStatus.CANCELLED,
+          'system',
+          'system',
+          'Pedido en línea sin pagar: cancelado automáticamente',
+          {},
+          CancellationReason.OTHER
+        );
+        cancelled++;
+      } catch (err) {
+        // Un 409 es que el pedido cambió (p. ej. se pagó): no es un fallo.
+        if (!(err instanceof AppError && err.statusCode === 409)) {
+          console.error('[Order] No se pudo cancelar un pedido en línea abandonado:', _id.toString(), err);
+        }
+      }
+    }
+    return cancelled;
   }
 
   /**
@@ -1563,7 +1735,12 @@ export class OrderService {
     // ruido es lo que hace que se dejen de mirar las notificaciones que sí
     // importan. Faltaba justo la que más importa: hasta ahora, un cliente
     // que cancelaba dejaba a la cocina trabajando en un pedido muerto.
-    if (status === OrderStatus.CANCELLED || status === OrderStatus.DELIVERED) {
+    // Ni el rechazo del propio local (él lo hizo) ni la cancelación de un
+    // pedido que el comercio nunca llegó a ver (en línea sin pagar, o
+    // programado sin activar) merecen aviso.
+    const selfCancelled = status === OrderStatus.CANCELLED && order.cancelledBy === CancelledBy.BUSINESS;
+    const neverSeen = status === OrderStatus.CANCELLED && !isMerchantVisible(order);
+    if ((status === OrderStatus.CANCELLED || status === OrderStatus.DELIVERED) && !selfCancelled && !neverSeen) {
       const business = await Business.findById(order.businessId).select('ownerId');
       if (business) {
         const ownerId = business.ownerId.toString();
@@ -1974,6 +2151,12 @@ export class OrderService {
 
     if (next === PaymentMethod.CASH_ON_DELIVERY) {
       await paymentService.openCashPayment(applied);
+      // En efectivo ya se puede aceptar: es el momento de avisar a la cocina.
+      this.announceToBusiness(applied._id.toString()).catch(console.error);
+    } else if (applied.businessId) {
+      // Pasó a pago en línea: deja de poder aceptarse hasta que se cobre.
+      // El panel lo retira del tablero y el timbre se calla.
+      await this.withdrawFromBusiness(applied);
     }
 
     logSystemAudit({

@@ -1,18 +1,84 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BellRing, PackageCheck, X } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { BellRing, Bike, PackageX, Volume2, WifiOff, X } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
-import { useBusinessEvent } from '../hooks/realtimeContext';
-import { playNotificationSound, primeNotificationSound } from '../lib/notificationSound';
+import { useAlarmStore } from '../stores/alarmStore';
+import { useBusinessEvent, useRealtime } from '../hooks/realtimeContext';
+import { useActiveOrders, useActiveOrdersLiveSync } from '../hooks/useActiveOrders';
+import { useAudioState, useAudioUnlock, useRingLeadership } from '../hooks/useRingLeadership';
+import { playNotificationSound, primeNotificationSound, startRingLoop, stopRingLoop } from '../lib/notificationSound';
+import {
+  cancelledByLabel, isForeignCancellation, ringingOrders, ringPatternFor, waitingOrders, waitingSince,
+} from '../lib/orderAlarm';
+import { getFirstSeen } from '../lib/firstSeen';
+import { money, shortId, type BusinessOrder } from '../lib/orderFlow';
+import { qk } from '../lib/queryKeys';
+import { apiStatus } from '../lib/apiError';
 
-type Notice = { id: string; title: string; detail: string; tone: 'new' | 'cancelled' };
+/** Segundos sin conexión antes de avisar: un parpadeo de red no debe asustar. */
+const OFFLINE_GRACE_MS = 10_000;
+/** El aviso de "domiciliario en el local" se retira solo: es informativo. */
+const DRIVER_NOTICE_MS = 45_000;
 
-/** Avisos globales: no dependen de que la persona esté en el Dashboard. */
+type Notice = { id: string; kind: 'cancelled' | 'driver'; title: string; detail: string; orderId: string };
+
+/**
+ * Avisos globales de pedidos: no dependen de en qué pantalla esté el comercio.
+ *
+ * El timbre lo decide el **estado** de la lista de pedidos pendientes, no cada
+ * evento del socket: mientras haya uno aceptable sin atender, suena en bucle;
+ * en cuanto se acepta o se rechaza —en este equipo o en otro— se calla. Los
+ * eventos solo mantienen la lista al día. Solo suena lo que pide una acción
+ * del comercio (pedido nuevo y cancelación ajena); los cambios que provoca el
+ * propio local ya no hacen ruido.
+ */
 export default function OrderNotifications() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const businessId = useAuthStore((s) => s.selectedBusiness?._id);
   const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
+  const snoozes = useAlarmStore((s) => s.snoozes);
+  const snooze = useAlarmStore((s) => s.snooze);
+  const { status: connection, downSince } = useRealtime();
+
+  // Reloj de la alarma: mueve el tiempo de espera, el fin de los silencios y
+  // el aviso de conexión caída.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 5_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  // ── La lista que manda ──
+  const queue = useActiveOrders(businessId, { pollMs: connection === 'online' ? 30_000 : 10_000 });
+  useActiveOrdersLiveSync(businessId);
+  // Un empleado recibe el pedido por socket pero la lista le responde 403:
+  // sin la lista no hay estado fiable y no se hace sonar nada.
+  const listForbidden = queue.isError && apiStatus(queue.error) === 403;
+
+  const waiting = useMemo(
+    () => (listForbidden ? [] : waitingOrders(queue.data ?? [], getFirstSeen())),
+    [queue.data, listForbidden]
+  );
+  const ringing = useMemo(() => ringingOrders(waiting, snoozes, now), [waiting, snoozes, now]);
+  const pattern = ringPatternFor(ringing, now, getFirstSeen());
+
+  // ── El sonido ──
+  const audio = useAudioState();
+  useAudioUnlock(audio);
+  const eligible = soundEnabled && audio === 'running';
+  const isLeader = useRingLeadership(businessId, eligible);
+  const ringKind = isLeader && pattern ? pattern : null;
+
+  useEffect(() => {
+    if (ringKind) void startRingLoop(ringKind);
+    else stopRingLoop();
+  }, [ringKind]);
+  useEffect(() => stopRingLoop, []);
+
+  // ── Avisos puntuales ──
   const [notices, setNotices] = useState<Notice[]>([]);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
@@ -23,67 +89,169 @@ export default function OrderNotifications() {
     setNotices((current) => current.filter((notice) => notice.id !== id));
   }, []);
 
-  const show = useCallback((notice: Notice) => {
+  const show = useCallback((notice: Notice, autoDismissMs?: number) => {
     setNotices((current) => [notice, ...current.filter((item) => item.id !== notice.id)].slice(0, 3));
-    const oldTimer = timers.current.get(notice.id);
-    if (oldTimer) clearTimeout(oldTimer);
-    timers.current.set(notice.id, setTimeout(() => dismiss(notice.id), 10_000));
+    const old = timers.current.get(notice.id);
+    if (old) clearTimeout(old);
+    if (autoDismissMs) timers.current.set(notice.id, setTimeout(() => dismiss(notice.id), autoDismissMs));
   }, [dismiss]);
 
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
-
-  // Los navegadores exigen una interacción antes de permitir audio. Queda
-  // habilitado tras el primer clic o tecla de la sesión, sin pedir permisos.
   useEffect(() => {
-    const unlock = () => primeNotificationSound();
-    window.addEventListener('pointerdown', unlock, { once: true });
-    window.addEventListener('keydown', unlock, { once: true });
-    return () => {
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
-    };
+    const pending = timers.current;
+    return () => pending.forEach(clearTimeout);
   }, []);
 
-  useBusinessEvent('order:incoming', (order) => {
-    const ref = order.businessId;
-    const orderBusinessId = typeof ref === 'object' && ref !== null ? ref._id : ref;
-    if (!businessId || String(orderBusinessId) !== String(businessId)) return;
-    if (soundEnabled) playNotificationSound('new');
-    show({ id: `incoming:${order._id}`, title: '¡Nuevo pedido!', detail: `Pedido #${order.orderNumber ?? order._id.slice(-6)} listo para revisar.`, tone: 'new' });
+  /**
+   * ¿Es de este local? Los eventos nuevos traen `businessId`; si falta
+   * (servidor antiguo), se comprueba que el pedido esté en la lista de este
+   * local.
+   */
+  const isMine = (eventBusinessId: string | undefined, orderId: string) => {
+    if (eventBusinessId) return eventBusinessId === businessId;
+    return !!queryClient.getQueryData<BusinessOrder[]>(qk.activeOrders(businessId))?.some((order) => order._id === orderId);
+  };
+
+  useBusinessEvent('order:status:changed', (changed) => {
+    if (!isForeignCancellation(changed) || !isMine(changed.businessId, changed.orderId)) return;
+    if (isLeader) playNotificationSound('attention');
+    const why = changed.cancellationReason ? `: ${changed.cancellationReason}` : '.';
+    show({
+      id: `cancelled:${changed.orderId}`,
+      kind: 'cancelled',
+      orderId: changed.orderId,
+      title: `Pedido #${changed.orderNumber} cancelado`,
+      detail: `Lo canceló ${cancelledByLabel(changed.cancelledBy)}${why} No lo sigas preparando.`,
+    });
   });
 
-  useBusinessEvent('order:status:changed', (order) => {
-    if (soundEnabled) playNotificationSound(order.status === 'cancelled' ? 'attention' : 'update');
-    if (order.status === 'cancelled') {
-      show({ id: `cancelled:${order.orderId}`, title: 'Pedido cancelado', detail: `El pedido #${order.orderNumber} fue cancelado${order.cancellationReason ? `: ${order.cancellationReason}` : '.'}`, tone: 'cancelled' });
-      return;
-    }
-    show({ id: `status:${order.orderId}:${order.status}`, title: 'Pedido actualizado', detail: `El pedido #${order.orderNumber} cambió a ${order.status}.`, tone: 'new' });
+  useBusinessEvent('order:driver:arrived', (arrived) => {
+    if (arrived.stage !== 'pickup' || !isMine(arrived.businessId, arrived.orderId)) return;
+    show({
+      id: `arrived:${arrived.orderId}`,
+      kind: 'driver',
+      orderId: arrived.orderId,
+      title: 'Domiciliario en el local',
+      detail: `Pedido #${arrived.orderNumber}: pídele el código de recogida.`,
+    }, DRIVER_NOTICE_MS);
   });
 
-  useBusinessEvent('order:driver:assigned', (order) => {
-    if (soundEnabled) playNotificationSound('update');
-    show({ id: `driver:${order.orderId}`, title: 'Domiciliario asignado', detail: `Un domiciliario fue asignado al pedido #${order.orderNumber}.`, tone: 'new' });
-  });
+  const oldest = ringing[0] ?? waiting[0];
+  const oldestMinutes = oldest
+    ? Math.max(0, Math.floor((now - waitingSince(oldest, getFirstSeen()[oldest._id])) / 60_000))
+    : 0;
+  const offline = downSince !== null && now - downSince >= OFFLINE_GRACE_MS;
+  const showUnlock = soundEnabled && audio === 'suspended';
 
-  useBusinessEvent('order:driver:arrived', (order) => {
-    if (soundEnabled) playNotificationSound('attention');
-    show({ id: `arrived:${order.orderId}:${order.stage}`, title: order.stage === 'pickup' ? 'Domiciliario en el local' : 'Pedido en destino', detail: `Actualización del pedido #${order.orderNumber}.`, tone: 'new' });
-  });
+  const goToOrder = (orderId: string) => navigate(`/orders?pedido=${orderId}`);
 
-  if (!notices.length) return null;
+  if (!offline && !showUnlock && waiting.length === 0 && notices.length === 0) return null;
+
   return (
-    <section aria-live="assertive" aria-label="Notificaciones de pedidos" className="fixed right-4 top-20 z-[60] flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-3">
-      {notices.map((notice) => (
-        <button key={notice.id} type="button" onClick={() => { dismiss(notice.id); navigate('/orders'); }}
-          className={`group flex cursor-pointer items-start gap-3 rounded-2xl border p-4 text-left shadow-2xl backdrop-blur transition hover:-translate-y-0.5 ${notice.tone === 'new' ? 'border-[var(--color-success)]/40 bg-[var(--color-surface)]' : 'border-[var(--color-danger)]/40 bg-[var(--color-surface)]'}`}>
-          <span className={`mt-0.5 rounded-xl p-2 ${notice.tone === 'new' ? 'bg-[var(--color-success)]/15 text-[var(--color-success)]' : 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]'}`}>
-            {notice.tone === 'new' ? <PackageCheck className="h-5 w-5" /> : <BellRing className="h-5 w-5" />}
-          </span>
-          <span className="min-w-0 flex-1"><span className="block text-sm font-bold text-[var(--color-text-main)]">{notice.title}</span><span className="mt-1 block text-xs text-[var(--color-text-secondary)]">{notice.detail}</span><span className="mt-2 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)]">Ver pedidos</span></span>
-          <span onClick={(event) => { event.stopPropagation(); dismiss(notice.id); }} className="rounded-lg p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-alt)]" aria-label="Cerrar aviso"><X className="h-4 w-4" /></span>
+    <section aria-live="assertive" aria-label="Avisos de pedidos" className="fixed right-4 top-20 z-[60] flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-3">
+      {offline && (
+        <Toast tone="danger" icon={<WifiOff className="h-5 w-5" />} title="Sin conexión">
+          Los pedidos no están llegando. Reintentando…
+        </Toast>
+      )}
+
+      {showUnlock && (
+        <button
+          type="button"
+          onClick={primeNotificationSound}
+          className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[var(--color-warning)]/50 bg-[var(--color-surface)] p-4 text-left shadow-2xl backdrop-blur transition hover:-translate-y-0.5"
+        >
+          <Volume2 className="h-5 w-5 shrink-0 text-[var(--color-warning)]" />
+          <span className="text-sm font-bold text-[var(--color-text-main)]">Toca para activar el sonido de pedidos</span>
         </button>
+      )}
+
+      {oldest && (
+        <Toast
+          tone={pattern === 'urgent' ? 'danger' : 'success'}
+          icon={<BellRing className="h-5 w-5" />}
+          title={
+            pattern === 'urgent'
+              ? `Sin aceptar hace ${oldestMinutes} min`
+              : waiting.length > 1 ? `${waiting.length} pedidos nuevos` : '¡Nuevo pedido!'
+          }
+        >
+          <span className="block">{summary(oldest, oldestMinutes)}</span>
+          <span className="mt-3 flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => goToOrder(oldest._id)}
+              className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-[var(--color-primary-dark)]"
+            >
+              Ver pedido
+            </button>
+            {ringing.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => snooze(ringing.map((order) => order._id))}
+                className="cursor-pointer text-xs font-bold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:underline"
+              >
+                Silenciar 1 min
+              </button>
+            ) : (
+              <span className="text-xs font-semibold text-[var(--color-text-secondary)]">Silenciado</span>
+            )}
+          </span>
+        </Toast>
+      )}
+
+      {notices.map((notice) => (
+        <Toast
+          key={notice.id}
+          tone={notice.kind === 'cancelled' ? 'danger' : 'success'}
+          icon={notice.kind === 'cancelled' ? <PackageX className="h-5 w-5" /> : <Bike className="h-5 w-5" />}
+          title={notice.title}
+          onClose={() => dismiss(notice.id)}
+        >
+          <span className="block">{notice.detail}</span>
+          <button
+            type="button"
+            onClick={() => { dismiss(notice.id); goToOrder(notice.orderId); }}
+            className="mt-2 cursor-pointer text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)] hover:underline"
+          >
+            Ver pedido
+          </button>
+        </Toast>
       ))}
     </section>
+  );
+}
+
+function summary(order: BusinessOrder, minutes: number) {
+  const items = (order.items ?? []).map((item) => `${item.quantity}× ${item.productName}`).join(' · ');
+  const head = `#${order.orderNumber ?? shortId(order._id)} · ${money(order.total)} · hace ${minutes} min`;
+  return items ? `${head} · ${items}` : head;
+}
+
+const TONE = {
+  success: 'border-[var(--color-success)]/40 text-[var(--color-success)]',
+  danger: 'border-[var(--color-danger)]/40 text-[var(--color-danger)]',
+} as const;
+
+/** Superficie flotante de un aviso: es un toast, no una tarjeta de contenido. */
+function Toast({ tone, icon, title, onClose, children }: {
+  tone: keyof typeof TONE;
+  icon: ReactNode;
+  title: string;
+  onClose?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`flex items-start gap-3 rounded-2xl border bg-[var(--color-surface)] p-4 shadow-2xl backdrop-blur ${TONE[tone]}`}>
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-bold text-[var(--color-text-main)]">{title}</span>
+        <span className="mt-1 block text-xs text-[var(--color-text-secondary)]">{children}</span>
+      </span>
+      {onClose && (
+        <button type="button" onClick={onClose} aria-label="Cerrar aviso" className="cursor-pointer rounded-lg p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-alt)]">
+          <X className="h-4 w-4" />
+        </button>
+      )}
+    </div>
   );
 }

@@ -1356,6 +1356,12 @@ export class PaymentService {
     const orderClosed =
       order.status === OrderStatus.CANCELLED || order.paymentStatus === PaymentStatus.REFUNDED;
 
+    // El cliente cambió a efectivo mientras este intento seguía abierto en la
+    // pasarela, y el banco lo aprobó tarde. Dar ese cobro por bueno dejaría
+    // el pedido PAID con el dinero ya recibido en línea y el repartidor
+    // cobrándolo otra vez en la puerta: dos cobros por un pedido.
+    const methodChanged = order.paymentMethod !== PaymentMethod.ONLINE;
+
     // Otro intento del mismo pedido ya entró. Pasa cuando alguien abandona
     // la verificación del banco, paga con otro método y el banco aprueba el
     // primero de todas formas. Sin esto, el segundo cobro se asentaba en el
@@ -1371,10 +1377,12 @@ export class PaymentService {
       })
     );
 
-    if (shortPaid || orderClosed || alreadyPaid) {
+    if (shortPaid || orderClosed || alreadyPaid || methodChanged) {
       const reason = orderClosed
         ? 'Se cobró un pedido que ya estaba cancelado o reembolsado'
-        : alreadyPaid
+        : methodChanged
+          ? 'Se cobró en línea un pedido que el cliente ya cambió a otro método de pago'
+          : alreadyPaid
           ? 'Se cobró dos veces el mismo pedido: ya estaba pagado con otro intento'
           : `Se cobró ${payment.amount} por un pedido que cuesta ${orderTotal}`;
 
@@ -1418,10 +1426,43 @@ export class PaymentService {
     }
 
     // El dinero cubre el pedido y el pedido sigue vivo: se cierra el cobro.
-    await Order.updateOne(
-      { _id: order._id, paymentStatus: { $ne: PaymentStatus.REFUNDED } },
+    //
+    // Las condiciones que hicieron válido el cobro viajan dentro de la
+    // escritura: si entre la lectura de arriba y este punto el pedido se
+    // canceló (o cambió de método), no se marca PAID. Sin esto, cobro y
+    // cancelación a la vez dejaban un pedido cancelado con el dinero dentro,
+    // sin reembolso y con los payouts liberados.
+    const closedNow = await Order.updateOne(
+      {
+        _id: order._id,
+        status: { $ne: OrderStatus.CANCELLED },
+        paymentMethod: PaymentMethod.ONLINE,
+        paymentStatus: { $ne: PaymentStatus.REFUNDED },
+      },
       { $set: { paymentStatus: PaymentStatus.PAID } }
     );
+    if (closedNow.matchedCount === 0) {
+      await Payment.updateOne(
+        { _id: payment._id },
+        {
+          $set: {
+            'metadata.requiresReview': true,
+            'metadata.reviewReason': 'El pedido se cerró o cambió de método mientras entraba el cobro',
+          },
+        }
+      );
+      logSystemAudit({
+        userId: 'system',
+        role: 'system',
+        action: AuditAction.SUSPICIOUS_ACTIVITY,
+        entity: 'payment',
+        entityId: payment._id.toString(),
+        severity: AuditSeverity.HIGH,
+        description: 'Cobro retenido para revisión: el pedido se cerró mientras entraba el cobro',
+        metadata: { orderId: order._id.toString(), orderNumber: order.orderNumber, paidAmount: payment.amount },
+      }).catch(console.error);
+      return { order, changed: true };
+    }
     order.paymentStatus = PaymentStatus.PAID;
 
     // Imported lazily: the ledger and payout services import models that
@@ -1448,6 +1489,16 @@ export class PaymentService {
 
     // The money is ours, so what we owe becomes payable.
     await payoutService.release(order._id);
+
+    // El comercio se entera ahora que el dinero entró, no al crear el pedido.
+    // Va después del libro y de los payouts y sin esperar: así el aviso no
+    // alarga el hueco entre marcar PAID y asentar el cobro. Si falla, el
+    // pedido aparece igual al refrescar (lo decide `paymentStatus`, no el socket).
+    import('../order.service')
+      .then(({ orderService }) => orderService.announceToBusiness(order._id.toString()))
+      .catch((err) =>
+        console.error('[PAYMENTS] No se pudo anunciar el pedido al comercio', { orderId: order._id.toString(), err })
+      );
 
     // ── El mandado empieza a buscar domiciliario aquí ──
     //
@@ -2205,9 +2256,12 @@ export async function sweepPendingPayments(now = new Date()): Promise<{
 export function startPendingPaymentSweeper(intervalMs = 5 * 60_000): void {
   if (pendingSweepTimer) return;
   pendingSweepTimer = setInterval(() => {
-    sweepPendingPayments().catch((err) =>
-      console.error('[PAYMENTS] Falló el barrido de cobros pendientes:', err)
-    );
+    sweepPendingPayments()
+      // Primero se le pregunta a la pasarela y solo después se cierra lo que
+      // sigue sin pagar: así un cobro que sí entró no se cancela.
+      .then(() => import('../order.service'))
+      .then(({ orderService }) => orderService.cancelAbandonedOnlineOrders())
+      .catch((err) => console.error('[PAYMENTS] Falló el barrido de cobros pendientes:', err));
   }, intervalMs);
   // Que un temporizador de fondo no impida cerrar el proceso.
   pendingSweepTimer.unref?.();

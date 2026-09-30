@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { Review, Order, Business, Driver } from '../models';
 import { OrderStatus } from '../types';
+import { UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 
 /**
  * Puntaje de reputación interno: nunca se muestra al usuario, nunca decide
@@ -52,7 +53,8 @@ export async function recalculateBusinessReputation(businessId: string): Promise
       { $group: { _id: null, avg: { $avg: '$driverRatingOfBusiness' }, count: { $sum: 1 } } },
     ]),
     Order.aggregate([
-      { $match: { businessId: businessObjectId, createdAt: { $gte: since }, status: { $in: [OrderStatus.DELIVERED, OrderStatus.CANCELLED] } } },
+      // Un checkout abandonado no es una cancelación del comercio.
+      { $match: { businessId: businessObjectId, $nor: [UNPAID_ONLINE_MATCH], createdAt: { $gte: since }, status: { $in: [OrderStatus.DELIVERED, OrderStatus.CANCELLED] } } },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]),
     Review.countDocuments({
