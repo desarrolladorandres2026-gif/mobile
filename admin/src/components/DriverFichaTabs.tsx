@@ -87,7 +87,7 @@ export function FichaHeader({ data }: { data: Profile360 }) {
               {ok ? (
                 <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)]" />
               ) : (
-                <AlertTriangle className={`h-3.5 w-3.5 ${bad ? '' : 'text-[var(--color-warning)]'}`} />
+                <AlertTriangle className={`h-3.5 w-3.5 ${bad ? '' : 'text-[var(--color-text-main)]'}`} />
               )}
               {label}: {indicatorStyles[ind].label}
             </li>
@@ -147,7 +147,7 @@ export default function DriverFichaTabs({
             setFileError(err instanceof Error ? err.message : 'No se pudo abrir el documento.')
           );
         }}
-        className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-primary)]"
+        className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]"
       >
         <Eye className="h-3.5 w-3.5" /> Ver documento
       </button>

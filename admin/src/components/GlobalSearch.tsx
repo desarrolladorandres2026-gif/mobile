@@ -304,7 +304,7 @@ export default function GlobalSearch() {
  className="h-12 w-full rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pl-12 pr-14 text-sm font-medium text-[var(--color-text-main)] placeholder:text-[var(--color-text-secondary)] transition-all focus:border-[#D69E26] focus:ring-2 focus:ring-[#D69E26]/20 focus:outline-none"
  />
  {loading ? (
- <RefreshCw className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-[var(--color-primary)]" />
+ <RefreshCw className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-[var(--color-text-main)]" />
  ) : (
  <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 text-[10px] font-semibold text-[var(--color-text-main)] sm:block">
  Ctrl K
@@ -339,7 +339,7 @@ export default function GlobalSearch() {
  className={`${gi > 0 ? 'border-t border-[var(--color-border-light)]' : ''} ${stale ? 'opacity-60' : ''}`}
  >
  <p className="flex items-center gap-1.5 px-4 pb-1 pt-3 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
- <group.Icon className="h-3 w-3 text-[var(--color-primary)]" /> {group.label}
+ <group.Icon className="h-3 w-3 text-[var(--color-text-main)]" /> {group.label}
  </p>
  {group.hits.map((hit, hi) => {
  const index = group.offset + hi;
@@ -353,7 +353,7 @@ export default function GlobalSearch() {
  onMouseEnter={() => setCursor(index)}
  onClick={() => choose(hit)}
  className={`flex w-full cursor-pointer flex-col items-start px-4 py-2 text-left transition-colors ${
- selected ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-main)]'
+ selected ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'
  }`}
  >
  <span className={`text-xs font-bold ${selected ? 'underline underline-offset-2' : ''}`}>

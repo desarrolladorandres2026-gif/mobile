@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 export const DRIVER_DOCUMENT_TYPES = ['identity', 'identity_back', 'criminal_record', 'license', 'soat', 'technical_review', 'vehicle_registration'] as const;
 export type DriverDocumentType = (typeof DRIVER_DOCUMENT_TYPES)[number];
@@ -67,4 +68,5 @@ export interface IDriverDocument extends Document {
 }
 const schema = new Schema<IDriverDocument>({ driverId: { type: Schema.Types.ObjectId, ref: 'Driver', required: true }, type: { type: String, enum: [...DRIVER_DOCUMENT_TYPES], required: true }, reference: { type: String, required: true, trim: true, maxlength: 500 }, imageUrl: { type: String, trim: true }, imageKey: { type: String, trim: true }, isPrivate: { type: Boolean, default: false }, issuedAt: Date, expiresAt: Date, submittedAt: Date, status: { type: String, enum: ['pending','approved','rejected','expired'], default: 'pending' }, reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' }, reviewedAt: Date, rejectionReason: { type: String, trim: true, maxlength: 300 }, expiryRemindersSent: { type: [String], default: undefined, select: false }, updateRequest: { type: new Schema({ reason: { type: String, required: true, trim: true, maxlength: 300 }, requestedAt: { type: Date, required: true }, requestedBy: { type: Schema.Types.ObjectId, ref: 'User' } }, { _id: false }), default: undefined }, history: { type: [new Schema({ action: { type: String, enum: ['submitted', 'approved', 'rejected', 'update_requested', 'observation'], required: true }, at: { type: Date, required: true }, byUserId: { type: Schema.Types.ObjectId, ref: 'User' }, byName: { type: String, trim: true, maxlength: 120 }, note: { type: String, trim: true, maxlength: 500 } }, { _id: false })], default: undefined, select: false } }, { timestamps: true });
 schema.index({ driverId: 1, type: 1 }, { unique: true }); schema.index({ expiresAt: 1, status: 1 });
+schema.plugin(realtimeInvalidatePlugin, { resource: 'driver-documents' });
 export const DriverDocument = mongoose.model<IDriverDocument>('DriverDocument', schema);

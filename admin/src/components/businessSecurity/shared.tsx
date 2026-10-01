@@ -38,8 +38,8 @@ export function DeviceCell({
         <p className="flex flex-wrap gap-x-2 text-[11px] text-[var(--color-text-secondary)]">
           <span>{PLATFORM_LABELS[device.platform] ?? PLATFORM_LABELS.unknown}</span>
           {device.shortId && <span className="tabular">{device.shortId}</span>}
-          {!device.identified && <span className="font-bold text-[var(--color-warning)]">Sin identificar</span>}
-          {device.identified && device.isNew && <span className="font-bold text-[var(--color-warning)]">Nuevo</span>}
+          {!device.identified && <span className="font-bold text-[var(--color-text-main)]">Sin identificar</span>}
+          {device.identified && device.isNew && <span className="font-bold text-[var(--color-text-main)]">Nuevo</span>}
         </p>
       </div>
     </div>

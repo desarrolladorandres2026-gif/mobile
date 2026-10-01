@@ -157,7 +157,7 @@ export default function TwoFactorSetup() {
  <button
  type="button"
  onClick={handleCopy}
- className="flex items-center gap-1.5 text-xs font-mono font-semibold text-[var(--color-primary)] hover:underline cursor-pointer"
+ className="flex items-center gap-1.5 text-xs font-mono font-semibold text-[var(--color-text-main)] hover:underline cursor-pointer"
  >
  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
  {copied ? 'Copiado' : data.secret}

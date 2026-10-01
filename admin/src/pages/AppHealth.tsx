@@ -1,5 +1,6 @@
 ﻿import { Fragment, useCallback, useEffect, useState } from 'react';
-import { AlertCircle, RotateCw } from 'lucide-react';
+import { useLiveReload } from '../hooks/useLiveReload';
+import { AlertCircle } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { PermissionGate } from '../components/PermissionGate';
@@ -79,6 +80,7 @@ export default function AppHealth() {
  setLoading(false);
  }, [days]);
 
+ useLiveReload(['orders', 'drivers', 'businesses'], load);
  useEffect(() => { load(); }, [load]);
 
  // Resolver marca el MENSAJE en todas las versiones vistas hasta hoy.
@@ -106,12 +108,6 @@ export default function AppHealth() {
  <h1 className="page-title">Salud de la app</h1>
  <p className="page-subtitle">Lo que reventó en los teléfonos y lo que cuesta el recorte de fondo.</p>
  </div>
- <button
- onClick={load}
- className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--color-border)] px-4 py-2 text-xs font-semibold text-[var(--color-text-main)]"
- >
- <RotateCw className="h-4 w-4 text-[var(--color-primary)]" /> Actualizar
- </button>
  </div>
 
  {/* ── Crashes ── */}
@@ -123,7 +119,7 @@ export default function AppHealth() {
  <button
  key={d}
  onClick={() => setDays(d)}
- className={`cursor-pointer text-xs font-bold ${days === d ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-main)]'}`}
+ className={`cursor-pointer text-xs font-bold ${days === d ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}
  >
  {d === 1 ? '24 h' : `${d} días`}
  </button>
@@ -158,7 +154,7 @@ export default function AppHealth() {
  {resolvedCount > 0 && (
  <button
  onClick={() => setShowResolved((v) => !v)}
- className="cursor-pointer text-xs font-bold text-[var(--color-primary)]"
+ className="cursor-pointer text-xs font-bold text-[var(--color-text-main)]"
  >
  {showResolved ? 'Ocultar resueltos' : `Mostrar ${resolvedCount} ${resolvedCount === 1 ? 'resuelto' : 'resueltos'}`}
  </button>
@@ -205,7 +201,7 @@ export default function AppHealth() {
  {g.stack && (
  <button
  onClick={() => setOpenStack(openStack === key ? null : key)}
- className="ml-2 cursor-pointer text-[var(--color-primary)]"
+ className="ml-2 cursor-pointer text-[var(--color-text-main)]"
  >
  {openStack === key ? 'Ocultar traza' : 'Ver traza'}
  </button>
@@ -227,7 +223,7 @@ export default function AppHealth() {
  <button
  onClick={() => toggleResolved(g)}
  disabled={acting === g.message}
- className="cursor-pointer text-[var(--color-primary)] disabled:opacity-50"
+ className="cursor-pointer text-[var(--color-text-main)] disabled:opacity-50"
  >
  {g.status === 'resolved' ? 'Reabrir' : 'Marcar resuelto'}
  </button>

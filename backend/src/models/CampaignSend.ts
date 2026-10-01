@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 /**
@@ -40,4 +41,5 @@ const campaignSendSchema = new Schema<ICampaignSend>(
 
 campaignSendSchema.index({ createdAt: -1 });
 
+campaignSendSchema.plugin(realtimeInvalidatePlugin, { resource: 'campaigns' });
 export const CampaignSend = mongoose.model<ICampaignSend>('CampaignSend', campaignSendSchema);

@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, RotateCw, Scale } from 'lucide-react';
+import { useLiveReload } from '../hooks/useLiveReload';
+import { AlertCircle, Scale } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
@@ -73,6 +74,7 @@ export default function LegalOps() {
  }
  }, []);
 
+ useLiveReload(['users', 'settings'], load);
  useEffect(() => { load(); }, [load]);
 
  const answer = async (response?: string) => {
@@ -133,7 +135,7 @@ export default function LegalOps() {
  {isOpen && r.legalDueAt && (
  <p
  className={`flex items-center gap-1 font-bold ${
- r.legalOverdue ? 'text-[var(--color-danger)]' : r.legalDueSoon ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-main)]'
+ r.legalOverdue ? 'text-[var(--color-danger)]' : r.legalDueSoon ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'
  }`}
  >
  <Scale className="h-3 w-3" />
@@ -210,15 +212,9 @@ export default function LegalOps() {
  <h1 className="page-title">Datos personales</h1>
  <p className="page-subtitle">
  Solicitudes de Habeas Data (Ley 1581) · {open.length} abiertas{overdue ? ` · ${overdue} con plazo legal vencido` : ''}.
- Las PQRS se atienden en <Link to="/support" className="font-semibold text-[var(--color-primary)] underline">Soporte</Link>.
+ Las PQRS se atienden en <Link to="/support" className="font-semibold text-[var(--color-text-main)] underline">Soporte</Link>.
  </p>
  </div>
- <button
- onClick={load}
- className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--color-border)] px-4 py-2 text-xs font-semibold text-[var(--color-text-main)]"
- >
- <RotateCw className="h-4 w-4 text-[var(--color-primary)]" /> Actualizar
- </button>
  </div>
 
  {error && (

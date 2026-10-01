@@ -10,7 +10,7 @@ export interface SummaryItem {
 }
 
 const TONE = {
-  warning: 'text-[var(--color-warning)]',
+  warning: 'text-[var(--color-text-main)]',
   danger: 'text-[var(--color-danger)]',
 } as const;
 

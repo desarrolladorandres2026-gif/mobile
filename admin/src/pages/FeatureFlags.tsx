@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Plus, RotateCw, Trash2 } from 'lucide-react';
+import { useLiveReload } from '../hooks/useLiveReload';
+import { AlertCircle, Plus, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
@@ -55,6 +56,7 @@ export default function FeatureFlags() {
  }
  }, []);
 
+ useLiveReload(['settings'], load);
  useEffect(() => { load(); }, [load]);
 
  const run = async (action: () => Promise<unknown>, fallback: string) => {
@@ -96,12 +98,6 @@ export default function FeatureFlags() {
  <p className="page-subtitle">Enciende o apaga funciones sin publicar una versión. Un interruptor nuevo nace apagado.</p>
  </div>
  <div className="flex gap-2">
- <button
- onClick={load}
- className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--color-border)] px-4 py-2 text-xs font-semibold text-[var(--color-text-main)]"
- >
- <RotateCw className="h-4 w-4 text-[var(--color-primary)]" /> Actualizar
- </button>
  <PermissionGate permission={Permission.SETTINGS_UPDATE}>
  <button
  onClick={() => setDraft({ key: '', description: '' })}
@@ -159,7 +155,7 @@ export default function FeatureFlags() {
  <div className="min-w-0 flex-1">
  <p className="font-mono text-sm font-semibold text-[var(--color-text-main)]">{f.key}</p>
  <p className="text-xs text-[var(--color-text-main)]">{f.description}</p>
- {CRITICAL[f.key] && <p className="text-xs font-semibold text-[var(--color-warning)]">{CRITICAL[f.key]}</p>}
+ {CRITICAL[f.key] && <p className="text-xs font-semibold text-[var(--color-text-main)]">{CRITICAL[f.key]}</p>}
  </div>
  <PermissionGate
  permission={Permission.SETTINGS_UPDATE}
@@ -206,7 +202,7 @@ export default function FeatureFlags() {
  />
  </label>
  )}
- {CRITICAL[pending.flag.key] && <p className="text-xs font-semibold text-[var(--color-warning)]">{CRITICAL[pending.flag.key]}</p>}
+ {CRITICAL[pending.flag.key] && <p className="text-xs font-semibold text-[var(--color-text-main)]">{CRITICAL[pending.flag.key]}</p>}
  <p className="text-xs text-[var(--color-text-main)]">El cambio se nota en unos 10 segundos y queda en la auditoría.</p>
  <div className="flex justify-end gap-3">
  <button onClick={() => setPending(null)} className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)]">Cancelar</button>

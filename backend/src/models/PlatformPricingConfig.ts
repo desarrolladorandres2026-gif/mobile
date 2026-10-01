@@ -101,6 +101,18 @@ export interface IPlatformPricingConfig extends Document {
   gatewayOtherFixed: number;
   /** IVA que la pasarela le suma a su propia comisión. */
   gatewayFeeVatBps: number;
+  /**
+   * Sobre qué se calcula el IVA de la comisión: `total` = porcentaje + fijo
+   * (comportamiento histórico), `fixed` = solo la tarifa fija. Se confirma
+   * con el contrato de Wompi; mientras tanto conserva el comportamiento previo.
+   */
+  gatewayFeeVatBase: 'total' | 'fixed';
+  /**
+   * Qué parte de la comisión devuelve la pasarela al reembolsar, en bps:
+   * 0 = no reembolsable, 10000 = toda, intermedio = parcial. `null` = sin
+   * definir (no se asume nada). Por ahora solo se lee: no altera el libro.
+   */
+  gatewayFeeRefundBps: number | null;
 
   // ── Provenance ──
   createdBy?: Types.ObjectId | null;
@@ -171,6 +183,8 @@ const platformPricingConfigSchema = new Schema<IPlatformPricingConfig>(
     gatewayOtherBps: { ...bps, default: 0 },
     gatewayOtherFixed: { ...money, default: 0 },
     gatewayFeeVatBps: { ...bps, default: 0 },
+    gatewayFeeVatBase: { type: String, enum: ['total', 'fixed'], default: 'total' },
+    gatewayFeeRefundBps: { type: Number, default: null, min: 0, max: 10000, validate: (v: number | null) => v == null || Number.isInteger(v) },
 
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     changeReason: { type: String, default: 'Configuración inicial', maxlength: 300 },

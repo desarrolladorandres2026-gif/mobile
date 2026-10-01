@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { DriverStatus, VehicleType, GeoPoint } from '../types';
 
@@ -193,4 +194,5 @@ driverSchema.index({ currentLocation: '2dsphere' });
 driverSchema.index({ status: 1, isActive: 1, isApproved: 1 });
 // `userId` already declares `unique: true` on the path, which creates the index.
 
+driverSchema.plugin(realtimeInvalidatePlugin, { resource: 'drivers' });
 export const Driver = mongoose.model<IDriver>('Driver', driverSchema);

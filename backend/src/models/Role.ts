@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { Permission } from '../security/rbac';
 import { cacheInvalidationPlugin, CachePrefix } from '../cache';
@@ -63,4 +64,5 @@ roleSchema.plugin(cacheInvalidationPlugin, {
   prefixesFor: () => [CachePrefix.AUTHZ],
 });
 
+roleSchema.plugin(realtimeInvalidatePlugin, { resource: 'settings' });
 export const Role = mongoose.model<IRole>('Role', roleSchema);

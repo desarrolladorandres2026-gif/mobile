@@ -77,7 +77,7 @@ export function LayoutPicker({
  aria-pressed={active}
  className={`flex flex-col items-center gap-1.5 px-3 py-2 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer ${
  active
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >

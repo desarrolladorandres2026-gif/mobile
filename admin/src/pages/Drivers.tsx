@@ -224,7 +224,7 @@ export default function Drivers() {
  onClick={() => setAccountFilter(f.value)}
  className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${
  accountFilter === f.value
- ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-bold'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -286,7 +286,7 @@ export default function Drivers() {
 
  {loading ? (
  <div className="p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
- <RotateCw className="w-6 h-6 text-[var(--color-primary)] animate-spin mx-auto mb-2" />
+ <RotateCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin mx-auto mb-2" />
  Cargando domiciliarios...
  </div>
  ) : (
@@ -329,7 +329,7 @@ export default function Drivers() {
  <EntityLink type="driver" id={d._id}>{d.userId?.name || 'Domiciliario'}</EntityLink>
  </p>
  {debt > 0 && (
- <p className="text-[10px] font-bold text-[var(--color-warning)]">
+ <p className="text-[10px] font-bold text-[var(--color-text-main)]">
  Fondo por debajo: {money(debt)}
  </p>
  )}
@@ -377,7 +377,7 @@ export default function Drivers() {
  <td className={`${cellClass} text-right font-semibold`}>{d.totalDeliveries || 0}</td>
  <td className={`${cellClass} whitespace-nowrap`}>
  <span className="inline-flex items-center gap-1 font-medium">
- <Star className="w-3.5 h-3.5 text-[var(--color-warning)] fill-[var(--color-warning)]" />
+ <Star className="w-3.5 h-3.5 text-[var(--color-text-main)] fill-[var(--color-warning)]" />
  {d.rating > 0 ? d.rating.toFixed(1) : 'S/V'}
  <span className="text-[var(--color-text-main)]">({d.totalReviews ?? 0})</span>
  </span>
@@ -387,7 +387,7 @@ export default function Drivers() {
  <button
  onClick={() => openFicha('driver', d._id)}
  title="Ver perfil completo"
- className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-primary)] cursor-pointer"
+ className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer"
  >
  <Eye className="w-4 h-4" />
  </button>
@@ -396,7 +396,7 @@ export default function Drivers() {
  <button
  onClick={() => handleApprove(d._id)}
  title="Aprobar"
- className="p-2 rounded-lg text-[var(--color-primary)] cursor-pointer"
+ className="p-2 rounded-lg text-[var(--color-text-main)] cursor-pointer"
  >
  <CheckCircle className="w-4 h-4" />
  </button>
@@ -410,7 +410,7 @@ export default function Drivers() {
  className={`p-2 rounded-lg border cursor-pointer ${
  d.isActive
  ? 'border-[var(--color-danger)] text-[var(--color-danger)]'
- : 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ : 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  }`}
  >
  {d.isActive ? <Ban className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}

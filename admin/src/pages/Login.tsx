@@ -149,7 +149,7 @@ export default function Login() {
  <div className="min-h-screen bg-[var(--color-surface)] text-[var(--color-text-main)] flex flex-col items-center px-6 select-none">
  <header className="w-full max-w-sm pt-14 flex items-baseline gap-3">
  <span className="text-xl font-black tracking-tight">zipp</span>
- <span className="text-[10px] font-semibold tracking-[0.3em] text-[var(--color-primary)]">ADMINISTRACIÓN</span>
+ <span className="text-[10px] font-semibold tracking-[0.3em] text-[var(--color-text-main)]">ADMINISTRACIÓN</span>
  </header>
 
  <main className="w-full max-w-sm flex-1 flex flex-col justify-center py-12">
@@ -200,7 +200,7 @@ export default function Login() {
  <button
  type="button"
  onClick={() => { setChallengeToken(''); setMfaCode(''); setMfaError(''); setPassword(''); }}
- className="text-xs font-semibold text-[var(--color-text-main)]/70 hover:text-[var(--color-primary)] transition-colors cursor-pointer"
+ className="text-xs font-semibold text-[var(--color-text-main)]/70 hover:text-[var(--color-text-main)] transition-colors cursor-pointer"
  >
  Volver a intentar con otra cuenta
  </button>

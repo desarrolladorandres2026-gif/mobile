@@ -50,7 +50,7 @@ const KIND_LABEL: Record<RefundRow['kind'], string> = {
 
 const STATUS: Record<RefundRow['status'], { text: string; className: string }> = {
  completed: { text: 'Completado', className: 'text-[var(--color-success)]' },
- pending: { text: 'En curso', className: 'text-[var(--color-warning)]' },
+ pending: { text: 'En curso', className: 'text-[var(--color-text-main)]' },
  failed: { text: 'Falló', className: 'text-[var(--color-danger)]' },
 };
 
@@ -111,7 +111,7 @@ export default function Refunds() {
  onClick={() => { setFilter(t.id); setPage(1); }}
  className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${
  filter === t.id
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >

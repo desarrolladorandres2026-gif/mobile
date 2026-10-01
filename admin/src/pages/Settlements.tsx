@@ -248,7 +248,7 @@ export default function Settlements() {
  onClick={() => { setTab(id); setPage(1); setNotice(''); }}
  className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${
  tab === id
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -299,7 +299,7 @@ export default function Settlements() {
  )}
  </div>
 
- {notice && <p className="text-xs font-semibold text-[var(--color-primary)]">{notice}</p>}
+ {notice && <p className="text-xs font-semibold text-[var(--color-text-main)]">{notice}</p>}
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
  <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
@@ -347,7 +347,7 @@ export default function Settlements() {
  {p.net <= 0 ? (
  <span className="text-[var(--color-text-main)]">Saldo en contra: se descuenta en su próxima liquidación o se cobra desde Finanzas.</span>
  ) : canProcess ? (
- <button onClick={() => { setToSettle(p); setSettleError(''); }} className="cursor-pointer text-[var(--color-primary)]">
+ <button onClick={() => { setToSettle(p); setSettleError(''); }} className="cursor-pointer text-[var(--color-text-main)]">
  Liquidar
  </button>
  ) : null}
@@ -402,7 +402,7 @@ export default function Settlements() {
  <td className="table-body-cell text-[var(--color-text-main)]">{s.adSpendAmount > 0 ? `−${money(s.adSpendAmount)}` : '—'}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{s.clawbackAmount > 0 ? `−${money(s.clawbackAmount)}` : '—'}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{money(s.netAmount)}</td>
- <td className={`table-body-cell ${s.paymentStatus === 'paid' ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>
+ <td className={`table-body-cell ${s.paymentStatus === 'paid' ? 'text-[var(--color-success)]' : 'text-[var(--color-text-main)]'}`}>
  {s.paymentStatus === 'paid' ? 'Pagada' : 'Falta pagar'}
  </td>
  <td className="table-body-cell text-[var(--color-text-main)]">
@@ -412,7 +412,7 @@ export default function Settlements() {
  {s.receiptUrl && (
  <>
  {' · '}
- <a href={s.receiptUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-[var(--color-primary)]">
+ <a href={s.receiptUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-[var(--color-text-main)]">
  comprobante
  </a>
  </>
@@ -422,12 +422,12 @@ export default function Settlements() {
  </td>
  <td className="table-body-cell">
  {s.paymentStatus === 'paid' && canManage && (
- <button onClick={() => issueDocument(s)} className="cursor-pointer text-[var(--color-primary)]">
+ <button onClick={() => issueDocument(s)} className="cursor-pointer text-[var(--color-text-main)]">
  Emitir comprobante
  </button>
  )}
  {s.paymentStatus === 'pending' && canProcess && (
- <button onClick={() => openPay(s)} className="cursor-pointer text-[var(--color-primary)]">
+ <button onClick={() => openPay(s)} className="cursor-pointer text-[var(--color-text-main)]">
  Registrar pago
  </button>
  )}
@@ -504,20 +504,20 @@ export default function Settlements() {
  <button
  onClick={reveal}
  disabled={busy}
- className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)] disabled:opacity-60"
+ className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
  >
  <Eye className="h-3.5 w-3.5" /> Ver la cuenta a la que se paga
  </button>
  )}
  {needsRefresh && (
  <div className="space-y-1">
- <p className="text-[11px] font-semibold text-[var(--color-warning)]">
+ <p className="text-[11px] font-semibold text-[var(--color-text-main)]">
  La cuenta cambió o falta el registro de la cuenta de esta liquidación. Refréscala con la cuenta verificada actual antes de pagar.
  </p>
  <button
  onClick={refreshAccount}
  disabled={busy}
- className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)] disabled:opacity-60"
+ className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
  >
  <RefreshCw className="h-3.5 w-3.5" /> Refrescar cuenta
  </button>

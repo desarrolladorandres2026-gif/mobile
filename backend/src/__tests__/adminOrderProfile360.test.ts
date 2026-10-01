@@ -14,7 +14,7 @@ import { orderService } from '../services/order.service';
 import { orderSecurityService } from '../services/orderSecurity.service';
 import { paymentService, setPaymentProvider, SandboxPaymentProvider } from '../services/payments';
 import { cache } from '../cache';
-import { makeUser, makeBusiness, makeProduct, makeDriver, makePricingConfig, makeStaff, authHeader, GARZON } from './factories';
+import { makeUser, makeBusiness, makeProduct, makeDriver, makePricingConfig, makeStaff, authHeader, GARZON, pick } from './factories';
 
 const A = '/api/v1/admin/orders';
 
@@ -333,6 +333,131 @@ describe('Ficha 360 del pedido y acciones (B4 + H1..H4)', () => {
             .send({ status: OrderStatus.CANCELLED, cancellationCode: 'other', cancellationReason: 'motivo suficientemente largo' })
         ).status
       ).toBe(200);
+    });
+  });
+
+  describe('proyección de items: adicionales, notas y totalPrice real', () => {
+    const groups = [
+      { name: 'Tamaño', minSelect: 1, maxSelect: 1, sortOrder: 0, options: [{ name: 'Grande', price: 3000 }] },
+      { name: 'Salsas', minSelect: 0, maxSelect: 2, sortOrder: 1, options: [{ name: 'BBQ', price: 1000 }, { name: 'Ranch', price: 500 }] },
+    ];
+
+    it('a) producto sin adicionales: extras vacio y totalPrice = unitPrice*quantity', async () => {
+      const order = await orderService.create({
+        clientId: client._id.toString(),
+        businessId: business._id.toString(),
+        items: [{ productId: product._id.toString(), quantity: 2 }],
+        paymentMethod: PaymentMethod.ONLINE,
+        deliveryAddress: 'Cra 1 #2-3',
+        deliveryLongitude: GARZON.lng,
+        deliveryLatitude: GARZON.lat,
+      });
+      const su = await makeStaff({ roleSlug: 'super_admin' });
+      const res = await request(app).get(`${A}/${order._id}/profile-360`).set(await authHeader(su));
+      expect(res.status).toBe(200);
+      const item = res.body.data.order.items[0];
+      expect(item.extras).toEqual([]);
+      expect(item.notes).toBeUndefined();
+      expect(item.totalPrice).toBe(item.price * item.quantity);
+    });
+
+    it('b) adicionales pagos: extras con name/price/quantity correctos, totalPrice incluye su costo', async () => {
+      const withExtras = await makeProduct(business._id, { price: 20000, modifierGroups: groups });
+      const order = await orderService.create({
+        clientId: client._id.toString(),
+        businessId: business._id.toString(),
+        items: [{
+          productId: withExtras._id.toString(),
+          quantity: 1,
+          selectedExtras: [pick(withExtras, 'Tamaño', 'Grande'), pick(withExtras, 'Salsas', 'BBQ')],
+        }],
+        paymentMethod: PaymentMethod.ONLINE,
+        deliveryAddress: 'Cra 1 #2-3',
+        deliveryLongitude: GARZON.lng,
+        deliveryLatitude: GARZON.lat,
+      });
+      const su = await makeStaff({ roleSlug: 'super_admin' });
+      const res = await request(app).get(`${A}/${order._id}/profile-360`).set(await authHeader(su));
+      const item = res.body.data.order.items[0];
+      expect(item.extras).toHaveLength(2);
+      const byName = Object.fromEntries(item.extras.map((e: any) => [e.name, e]));
+      expect(byName['Grande']).toMatchObject({ name: 'Grande', price: 3000, quantity: 1 });
+      expect(byName['BBQ']).toMatchObject({ name: 'BBQ', price: 1000, quantity: 1 });
+      expect(item.totalPrice).toBeGreaterThan(item.price * item.quantity);
+      expect(item.totalPrice).toBe((20000 + 3000 + 1000) * 1);
+    });
+
+    it('c) notes se expone cuando existe y es undefined (no string vacio) cuando no hay', async () => {
+      const order = await orderService.create({
+        clientId: client._id.toString(),
+        businessId: business._id.toString(),
+        items: [
+          { productId: product._id.toString(), quantity: 1, notes: 'Sin cebolla por favor' },
+          { productId: product._id.toString(), quantity: 1 },
+        ],
+        paymentMethod: PaymentMethod.ONLINE,
+        deliveryAddress: 'Cra 1 #2-3',
+        deliveryLongitude: GARZON.lng,
+        deliveryLatitude: GARZON.lat,
+      });
+      const su = await makeStaff({ roleSlug: 'super_admin' });
+      const res = await request(app).get(`${A}/${order._id}/profile-360`).set(await authHeader(su));
+      const items = res.body.data.order.items;
+      expect(items[0].notes).toBe('Sin cebolla por favor');
+      expect(items[1].notes).toBeUndefined();
+      expect(Object.prototype.hasOwnProperty.call(items[1], 'notes') ? items[1].notes !== '' : true).toBe(true);
+    });
+
+    it('d) cantidad > 1 con adicionales: totalPrice = (unitPrice + extrasTotal) * quantity', async () => {
+      const withExtras = await makeProduct(business._id, { price: 15000, modifierGroups: groups });
+      const order = await orderService.create({
+        clientId: client._id.toString(),
+        businessId: business._id.toString(),
+        items: [{
+          productId: withExtras._id.toString(),
+          quantity: 3,
+          selectedExtras: [pick(withExtras, 'Tamaño', 'Grande'), pick(withExtras, 'Salsas', 'Ranch')],
+        }],
+        paymentMethod: PaymentMethod.ONLINE,
+        deliveryAddress: 'Cra 1 #2-3',
+        deliveryLongitude: GARZON.lng,
+        deliveryLatitude: GARZON.lat,
+      });
+      const su = await makeStaff({ roleSlug: 'super_admin' });
+      const res = await request(app).get(`${A}/${order._id}/profile-360`).set(await authHeader(su));
+      const item = res.body.data.order.items[0];
+      const extrasTotal = 3000 + 500; // Grande + Ranch
+      expect(item.totalPrice).toBe((15000 + extrasTotal) * 3);
+    });
+
+    it('e) varios productos: cada item mapea solo sus propios extras, sin mezclarse', async () => {
+      const productA = await makeProduct(business._id, { name: 'Producto A', price: 10000, modifierGroups: groups });
+      const productB = await makeProduct(business._id, {
+        name: 'Producto B',
+        price: 8000,
+        modifierGroups: [{ name: 'Extra B', minSelect: 0, maxSelect: 1, sortOrder: 0, options: [{ name: 'Topping', price: 2000 }] }],
+      });
+      const order = await orderService.create({
+        clientId: client._id.toString(),
+        businessId: business._id.toString(),
+        items: [
+          { productId: productA._id.toString(), quantity: 1, selectedExtras: [pick(productA, 'Tamaño', 'Grande')], notes: 'Nota A' },
+          { productId: productB._id.toString(), quantity: 1, selectedExtras: [pick(productB, 'Extra B', 'Topping')] },
+        ],
+        paymentMethod: PaymentMethod.ONLINE,
+        deliveryAddress: 'Cra 1 #2-3',
+        deliveryLongitude: GARZON.lng,
+        deliveryLatitude: GARZON.lat,
+      });
+      const su = await makeStaff({ roleSlug: 'super_admin' });
+      const res = await request(app).get(`${A}/${order._id}/profile-360`).set(await authHeader(su));
+      const items = res.body.data.order.items;
+      const itemA = items.find((i: any) => i.name === 'Producto A');
+      const itemB = items.find((i: any) => i.name === 'Producto B');
+      expect(itemA.extras.map((e: any) => e.name)).toEqual(['Grande']);
+      expect(itemA.notes).toBe('Nota A');
+      expect(itemB.extras.map((e: any) => e.name)).toEqual(['Topping']);
+      expect(itemB.notes).toBeUndefined();
     });
   });
 });

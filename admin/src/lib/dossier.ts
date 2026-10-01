@@ -82,7 +82,7 @@ export interface Dossier {
 /** Punto de estado: relleno por color, anillo para "no cargado". El texto siempre acompaña: el color solo no basta. */
 export const indicatorStyles: Record<DocumentIndicator, { label: string; dot: string; text: string }> = {
   valid: { label: 'Vigente', dot: 'bg-[var(--color-success)]', text: 'text-[var(--color-text-main)]' },
-  expiring: { label: 'Próximo a vencer', dot: 'bg-[var(--color-warning)]', text: 'text-[var(--color-warning)]' },
+  expiring: { label: 'Próximo a vencer', dot: 'bg-[var(--color-warning)]', text: 'text-[var(--color-text-main)]' },
   expired: { label: 'Vencido', dot: 'bg-[var(--color-danger)]', text: 'text-[var(--color-danger)]' },
   not_uploaded: {
     label: 'No cargado',

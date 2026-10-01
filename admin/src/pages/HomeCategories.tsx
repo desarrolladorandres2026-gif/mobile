@@ -298,7 +298,7 @@ export default function HomeCategories() {
  </span>
  </td>
  <td className="table-body-cell">
- <span className="text-[var(--color-primary)] font-mono font-bold text-[11px]">
+ <span className="text-[var(--color-text-main)] font-mono font-bold text-[11px]">
  {c.order}
  </span>
  </td>
@@ -322,7 +322,7 @@ export default function HomeCategories() {
  <PermissionGate permission={Permission.CONTENT_MANAGE}>
  <button
  onClick={() => openEdit(c)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Editar categoría"
  >
  <Pencil className="w-4 h-4" />
@@ -375,7 +375,7 @@ export default function HomeCategories() {
  <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <LayoutGrid className="w-5 h-5 text-[var(--color-primary)]" />
+ <LayoutGrid className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
  {editingId ? 'Editar Categoría' : 'Nueva Categoría de Inicio'}
  </h3>
@@ -401,7 +401,7 @@ export default function HomeCategories() {
  ) : (
  <label
  htmlFor="category-upload"
- className="flex flex-col items-center justify-center h-24 rounded-xl border-2 border-dashed border-[var(--color-border)] text-[var(--color-text-main)] cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors"
+ className="flex flex-col items-center justify-center h-24 rounded-xl border-2 border-dashed border-[var(--color-border)] text-[var(--color-text-main)] cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-text-main)] transition-colors"
  >
  <ImagePlus className="w-5 h-5 mb-1" />
  <span className="text-[11px] font-semibold text-center px-2">

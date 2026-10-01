@@ -20,8 +20,8 @@ import { PermissionGate } from '../PermissionGate';
 import SecurityGlance from '../businessSecurity/SecurityGlance';
 import {
  ErrorLine,
- Fact,
- Row,
+ Facts,
+ Grid,
  Section,
  Sub,
  actionButtonClass,
@@ -50,7 +50,7 @@ const documentLabels: Record<string, string> = {
 };
 
 const documentStatusStyles: Record<string, { label: string; text: string }> = {
- pending: { label: 'Por revisar', text: 'text-[var(--color-warning)]' },
+ pending: { label: 'Por revisar', text: 'text-[var(--color-text-main)]' },
  approved: { label: 'Aprobado', text: 'text-[#047857]' },
  rejected: { label: 'Rechazado', text: 'text-[var(--color-danger)]' },
  expired: { label: 'Vencido', text: 'text-[var(--color-danger)]' },
@@ -290,7 +290,7 @@ export default function BusinessProfile360({
  : b.isSuspended
  ? { text: 'Suspendido', tone: 'text-[var(--color-danger)]' }
  : !b.isApproved
- ? { text: 'Pendiente de aprobación', tone: 'text-[var(--color-warning)]' }
+ ? { text: 'Pendiente de aprobación', tone: 'text-[var(--color-text-main)]' }
  : { text: 'Activo', tone: 'text-[#047857]' }
  : null;
  const commissionText =
@@ -302,11 +302,10 @@ export default function BusinessProfile360({
 
  return (
  <>
- <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
- <div
- className="h-full w-full max-w-2xl overflow-y-auto bg-[var(--color-surface)] p-7"
- onClick={(e) => e.stopPropagation()}
- >
+ {/* Pantalla completa dentro del área de contenido: deja a la vista la
+ cabecera (h-20) y la barra lateral (w-30, fija desde lg). */}
+ <div className="fixed bottom-0 left-0 right-0 top-20 z-30 lg:left-30">
+ <div className="h-full w-full overflow-y-auto bg-[var(--color-bg)] p-6 lg:p-8">
  <div className="flex items-start justify-between gap-4">
  <div className="min-w-0">
  <h2 className="truncate text-lg font-bold text-[var(--color-text-main)]">
@@ -465,79 +464,81 @@ export default function BusinessProfile360({
  )}
  </div>
 
- <Section title="Identidad">
- <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3">
- <Fact
- label="Dueño"
- value={
+ <div className="columns-1 gap-6 xl:columns-2">
+ <div className="mb-6 break-inside-avoid">
+ <Facts
+ title="Identidad"
+ items={[
+ [
+ 'Dueño',
  data.owner ? (
  <EntityLink type="user" id={data.owner._id}>
  {data.owner.name}
  </EntityLink>
- ) : undefined
- }
+ ) : undefined,
+ ],
+ ['Categoría', b.category],
+ ['Ciudad', b.city],
+ ['Dirección', b.address],
+ ['Teléfono', b.phone],
+ ['Alta', day(b.createdAt)],
+ ['Aprobado', b.isApproved ? 'Sí' : 'No'],
+ ...(commissionText ? ([['Comisión', commissionText]] as Array<[string, ReactNode]>) : []),
+ ]}
  />
- <Fact label="Categoría" value={b.category} />
- <Fact label="Ciudad" value={b.city} />
- <Fact label="Dirección" value={b.address} />
- <Fact label="Teléfono" value={b.phone} />
- <Fact label="Alta" value={day(b.createdAt)} />
- <Fact label="Aprobado" value={b.isApproved ? 'Sí' : 'No'} />
- {commissionText && <Fact label="Comisión" value={commissionText} />}
  </div>
 
  {data.legal && (
- <Sub title="Datos fiscales">
- <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3">
- <Fact label="Razón social" value={data.legal.legalName} />
- <Fact label="NIT" value={data.legal.nitMasked} />
- <Fact
- label="Régimen"
- value={data.legal.taxRegime ? taxRegimeLabels[data.legal.taxRegime] ?? data.legal.taxRegime : ''}
+ <div className="mb-6 break-inside-avoid">
+ <Facts
+ title="Datos fiscales"
+ items={[
+ ['Razón social', data.legal.legalName],
+ ['NIT', data.legal.nitMasked],
+ ['Régimen', data.legal.taxRegime ? taxRegimeLabels[data.legal.taxRegime] ?? data.legal.taxRegime : ''],
+ ['Datos completos', data.legal.complete ? 'Sí' : 'Incompletos'],
+ ]}
  />
- <Fact label="Datos completos" value={data.legal.complete ? 'Sí' : 'Incompletos'} />
  </div>
- </Sub>
  )}
- </Section>
 
  {data.payoutAccount !== undefined && data.payoutAccount !== null && (
- <Section title="Cuenta de pago">
- <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3">
- <Fact
- label="Estado"
- value={
+ <div className="mb-6 break-inside-avoid">
+ <Facts
+ title="Cuenta de pago"
+ items={[
+ [
+ 'Estado',
  data.payoutAccount.status === 'verified'
  ? 'Verificada'
  : data.payoutAccount.status === 'pendingVerification'
  ? 'Por verificar'
  : data.payoutAccount.status === 'none'
  ? 'Sin cuenta registrada'
- : data.payoutAccount.status
- }
+ : data.payoutAccount.status,
+ ],
+ ['Banco', data.payoutAccount.bankName],
+ ['Tipo', data.payoutAccount.accountType],
+ ['Verificada', data.payoutAccount.verifiedAt ? day(data.payoutAccount.verifiedAt) : undefined],
+ ['Terminada en', data.payoutAccount.last4],
+ ]}
  />
- <Fact label="Banco" value={data.payoutAccount.bankName} />
- <Fact label="Tipo" value={data.payoutAccount.accountType} />
- <Fact label="Verificada" value={data.payoutAccount.verifiedAt ? day(data.payoutAccount.verifiedAt) : undefined} />
- <Fact label="Terminada en" value={data.payoutAccount.last4} />
  </div>
- </Section>
  )}
 
  {data.documents && (
- <Section title="Documentos">
- {data.documents.length ? (
- <ul className="space-y-2">
- {data.documents.map((doc) => {
+ <div className="mb-6 break-inside-avoid">
+ <Grid
+ title="Documentos"
+ head={['Documento', 'Estado', 'Detalle']}
+ empty="El comercio todavía no envió documentos."
+ rows={data.documents.map((doc) => {
  const st = documentStatusStyles[doc.status] ?? { label: doc.status, text: '' };
- const reviewer =
- typeof doc.reviewedBy === 'string' ? doc.reviewedBy : doc.reviewedBy?.name;
- return (
- <li key={doc._id} className="flex items-start justify-between gap-3">
- <div className="min-w-0 text-[var(--color-text-main)]">
- <p className="font-semibold text-[var(--color-text-main)]">
- {documentLabels[doc.type] ?? doc.type}
- </p>
+ const reviewer = typeof doc.reviewedBy === 'string' ? doc.reviewedBy : doc.reviewedBy?.name;
+ return [
+ documentLabels[doc.type] ?? doc.type,
+ <span key="estado" className={`font-semibold ${st.text}`}>{st.label}</span>,
+ <div key="detalle" className="space-y-0.5">
  <p>
  {doc.expiresAt ? `vence ${day(doc.expiresAt)}` : 'sin vencimiento'}
  {doc.reviewedAt ? ` · revisado ${day(doc.reviewedAt)}` : ''}
@@ -546,69 +547,58 @@ export default function BusinessProfile360({
  {doc.status === 'rejected' && doc.rejectionReason && (
  <p className="font-semibold text-[var(--color-danger)]">Motivo: {doc.rejectionReason}</p>
  )}
- </div>
- <div className="flex shrink-0 items-center gap-3">
- <span className={`font-semibold ${st.text}`}>{st.label}</span>
  <button
  type="button"
  onClick={() => openDocument(doc)}
  disabled={openingDoc === doc._id}
- className="cursor-pointer text-[11px] font-bold text-[var(--color-primary)] disabled:opacity-60"
+ className="cursor-pointer text-[11px] font-bold text-[var(--color-text-main)] disabled:opacity-60"
  >
  {openingDoc === doc._id ? 'Abriendo…' : 'Abrir'}
  </button>
- </div>
- </li>
- );
+ </div>,
+ ];
  })}
- </ul>
- ) : (
- <p className="text-[var(--color-text-main)]">El comercio todavía no envió documentos.</p>
- )}
- </Section>
+ />
+ </div>
  )}
 
  {data.team && (
- <Section title="Equipo">
- {data.team.length ? (
- <ul className="space-y-1.5">
- {data.team.map((m) => (
- <Row
- key={m._id}
- left={
- <>
- {m.name}
- {m.isActive === false ? ' (inactivo)' : ''}
- {m.phone ? ` · ${m.phone}` : ''}
- {m.createdAt ? ` · desde ${day(m.createdAt)}` : ''}
- </>
- }
- right={m.role}
+ <div className="mb-6 break-inside-avoid">
+ <Grid
+ title="Equipo"
+ head={['Nombre', 'Rol', 'Detalle']}
+ empty="Sin empleados registrados."
+ rows={data.team.map((m) => [
+ `${m.name}${m.isActive === false ? ' (inactivo)' : ''}`,
+ m.role,
+ `${m.phone ? m.phone : ''}${m.createdAt ? `${m.phone ? ' · ' : ''}desde ${day(m.createdAt)}` : ''}`,
+ ])}
  />
- ))}
- </ul>
- ) : (
- <p className="text-[var(--color-text-main)]">Sin empleados registrados.</p>
- )}
- </Section>
+ </div>
  )}
 
  <PermissionGate permission={Permission.SECURITY_VIEW}>
+ <div className="mb-6 break-inside-avoid">
  <Section title="Seguridad">
  <SecurityGlance businessId={businessId} />
  </Section>
+ </div>
  </PermissionGate>
 
  {data.menu && (
- <Section title="Menú">
- <div className="grid grid-cols-3 gap-x-6 gap-y-4">
- <Fact label="Productos" value={String(data.menu.products)} />
- <Fact label="Disponibles" value={String(data.menu.available)} />
- <Fact label="Agotados" value={String(Math.max(0, data.menu.products - data.menu.available))} />
+ <div className="mb-6 break-inside-avoid">
+ <Facts
+ title="Menú"
+ items={[
+ ['Productos', String(data.menu.products)],
+ ['Disponibles', String(data.menu.available)],
+ ['Agotados', String(Math.max(0, data.menu.products - data.menu.available))],
+ ]}
+ />
  </div>
- </Section>
  )}
 
+ <div className="mb-6 break-inside-avoid">
  <Deferred<BusinessAnalyticsData>
  title="Ventas"
  load={async () => (await api.get(`/businesses/${businessId}/analytics`, { params: { days: 30 } })).data.data}
@@ -616,34 +606,39 @@ export default function BusinessProfile360({
  {(a) => (
  <>
  <p className="text-[var(--color-text-main)]">Últimos {a.range.days} días, sobre pedidos entregados.</p>
- <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-3">
- <Fact label="Pedidos" value={String(a.totals.orders)} />
- <Fact label="Entregados" value={String(a.totals.delivered)} />
- <Fact label="Cancelados" value={`${a.totals.cancelled} (${a.totals.cancellationRate}%)`} />
- <Fact label="Ventas" value={money(a.totals.revenue)} />
- <Fact label="Ticket promedio" value={money(a.totals.averageTicket)} />
- <Fact
- label="Periodo anterior"
- value={`${a.previous.orders} pedidos · ${money(a.previous.revenue)}`}
+ <Facts
+ title="Totales"
+ items={[
+ ['Pedidos', String(a.totals.orders)],
+ ['Entregados', String(a.totals.delivered)],
+ ['Cancelados', `${a.totals.cancelled} (${a.totals.cancellationRate}%)`],
+ ['Ventas', money(a.totals.revenue)],
+ ['Ticket promedio', money(a.totals.averageTicket)],
+ ['Periodo anterior', `${a.previous.orders} pedidos · ${money(a.previous.revenue)}`],
+ ]}
  />
- </div>
  </>
  )}
  </Deferred>
+ </div>
 
  <PermissionGate permission={Permission.FINANCE_VIEW}>
+ <div className="mb-6 break-inside-avoid">
  <Deferred<BusinessStatementData>
  title="Dinero"
  load={async () => (await api.get(`/businesses/${businessId}/statement`)).data.data}
  >
  {(s) => (
  <>
- <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4">
- <Fact label="Deuda viva" value={money(s.outstanding)} />
- <Fact label="Acumulado" value={money(s.accrued)} />
- <Fact label="Por pagar" value={money(s.payable)} />
- <Fact label="Liquidado" value={money(s.settled)} />
- </div>
+ <Facts
+ title="Saldos"
+ items={[
+ ['Deuda viva', money(s.outstanding)],
+ ['Acumulado', money(s.accrued)],
+ ['Por pagar', money(s.payable)],
+ ['Liquidado', money(s.settled)],
+ ]}
+ />
  <Sub title="Próxima liquidación">
  <p className="text-[var(--color-text-main)]">
  {s.nextSettlement.orderCount} pedidos · neto{' '}
@@ -653,140 +648,120 @@ export default function BusinessProfile360({
  · comisión {money(s.nextSettlement.merchantCommission)}
  </p>
  </Sub>
- <Sub title="Semanas recientes" empty="Sin movimientos en el periodo.">
- {s.weeks.length ? (
- <ul className="space-y-1.5">
- {s.weeks.slice(0, 6).map((w) => (
- <Row
- key={w.periodStart}
- left={`${day(w.periodStart)} – ${day(w.periodEnd)} · ${w.orderCount} pedidos`}
- right={money(w.netAmount)}
+ <Grid
+ title="Semanas recientes"
+ head={['Periodo', 'Pedidos', 'Neto']}
+ empty="Sin movimientos en el periodo."
+ right={[2]}
+ rows={s.weeks.slice(0, 6).map((w) => [
+ `${day(w.periodStart)} – ${day(w.periodEnd)}`,
+ String(w.orderCount),
+ money(w.netAmount),
+ ])}
  />
- ))}
- </ul>
- ) : undefined}
- </Sub>
  </>
  )}
  </Deferred>
+ </div>
  </PermissionGate>
 
  {data.ads && (
- <Section title="Publicidad">
+ <div className="mb-6 break-inside-avoid">
  {data.ads.outstanding != null && data.ads.outstanding > 0 && (
- <p className="font-semibold text-[var(--color-warning)]">
+ <p className="mb-2 font-semibold text-[var(--color-text-main)]">
  Debe {money(data.ads.outstanding)} en publicidad.
  </p>
  )}
- <Sub title="Anuncios" empty="Sin anuncios.">
- {data.ads.advertisements.length ? (
- <ul className="space-y-1.5">
- {data.ads.advertisements.map((ad) => (
- <Row
- key={ad._id}
- left={`${ad.title ?? 'Anuncio'}${ad.endDate ? ` · hasta ${day(ad.endDate)}` : ''}`}
- right={ad.status === 'cancelled' ? 'Cancelado' : ad.status}
+ <div className="mb-6">
+ <Grid
+ title="Anuncios"
+ head={['Anuncio', 'Estado']}
+ empty="Sin anuncios."
+ rows={data.ads.advertisements.map((ad) => [
+ `${ad.title ?? 'Anuncio'}${ad.endDate ? ` · hasta ${day(ad.endDate)}` : ''}`,
+ ad.status === 'cancelled' ? 'Cancelado' : ad.status,
+ ])}
  />
- ))}
- </ul>
- ) : undefined}
- </Sub>
- <Sub title="Facturas" empty="Sin facturas.">
- {data.ads.invoices.length ? (
- <ul className="space-y-1.5">
- {data.ads.invoices.map((inv) => (
- <Row
- key={inv._id}
- left={`${day(inv.createdAt)} · ${inv.status === 'settled' ? 'Pagada' : inv.status === 'pending' ? 'Pendiente' : inv.status ?? ''}`}
- right={inv.amount != null ? money(inv.amount) : undefined}
+ </div>
+ <Grid
+ title="Facturas"
+ head={['Fecha', 'Estado', 'Importe']}
+ empty="Sin facturas."
+ right={[2]}
+ rows={data.ads.invoices.map((inv) => [
+ day(inv.createdAt),
+ inv.status === 'settled' ? 'Pagada' : inv.status === 'pending' ? 'Pendiente' : (inv.status ?? ''),
+ inv.amount != null ? money(inv.amount) : '',
+ ])}
  />
- ))}
- </ul>
- ) : undefined}
- </Sub>
- </Section>
+ </div>
  )}
 
  {data.promotions && (
- <Section title="Promociones">
- {data.promotions.cost30d != null && (
- <Fact label="Costo para el comercio, 30 días" value={money(data.promotions.cost30d)} />
- )}
- <Sub title="Cupones" empty="Sin cupones.">
- {data.promotions.coupons.length ? (
- <ul className="space-y-1.5">
- {data.promotions.coupons.map((c) => (
- <Row
- key={c._id}
- left={`${c.code}${c.validUntil ? ` · hasta ${day(c.validUntil)}` : ''}`}
- right={c.isActive ? 'Activo' : 'Inactivo'}
+ <div className="mb-6 break-inside-avoid">
+ <Grid
+ title="Cupones"
+ head={['Código', 'Vence', 'Estado']}
+ empty="Sin cupones."
+ rows={data.promotions.coupons.map((c) => [
+ c.code,
+ c.validUntil ? day(c.validUntil) : '',
+ c.isActive ? 'Activo' : 'Inactivo',
+ ])}
  />
- ))}
- </ul>
- ) : undefined}
- </Sub>
- </Section>
+ {data.promotions.cost30d != null && (
+ <p className="mt-2 text-[var(--color-text-main)]">
+ Costo para el comercio, 30 días: <span className="font-semibold">{money(data.promotions.cost30d)}</span>
+ </p>
+ )}
+ </div>
  )}
 
  {data.reputation && (
- <Section title="Reputación">
- <Fact
- label="Calificación"
- value={
+ <div className="mb-6 break-inside-avoid">
+ <Grid
+ title="Reputación"
+ head={['Fecha', 'Comentario', 'Calificación']}
+ empty={
  data.reputation.rating
- ? `${data.reputation.rating.toFixed(1)} (${data.reputation.totalReviews ?? 0})`
- : 'Sin calificaciones'
+ ? `Sin reseñas con comentario. Calificación: ${data.reputation.rating.toFixed(1)} (${data.reputation.totalReviews ?? 0})`
+ : 'Sin calificaciones.'
  }
+ right={[2]}
+ rows={data.reputation.reviews.map((r) => [day(r.createdAt), r.comment ?? '', `${r.rating}★`])}
  />
- {data.reputation.reviews.length > 0 && (
- <ul className="space-y-1.5">
- {data.reputation.reviews.map((r) => (
- <Row
- key={r._id}
- left={`${day(r.createdAt)}${r.comment ? ` — ${r.comment}` : ''}`}
- right={`${r.rating}★`}
- />
- ))}
- </ul>
- )}
- </Section>
+ </div>
  )}
 
  {data.support && (
- <Section title="Soporte">
- {data.support.length ? (
- <ul className="space-y-1.5">
- {data.support.map((p) => (
- <Row key={p._id} left={`${p.subject ?? 'PQRS'} · ${day(p.createdAt)}`} right={p.status} />
- ))}
- </ul>
- ) : (
- <p className="text-[var(--color-text-main)]">Sin PQRS relacionadas.</p>
- )}
- </Section>
+ <div className="mb-6 break-inside-avoid">
+ <Grid
+ title="Soporte"
+ head={['Asunto', 'Fecha', 'Estado']}
+ empty="Sin PQRS relacionadas."
+ rows={data.support.map((p) => [p.subject ?? 'PQRS', day(p.createdAt), p.status])}
+ />
+ </div>
  )}
 
  {data.history && (
- <Section title="Historial">
- {data.history.length ? (
- <ul className="space-y-1.5">
- {data.history.map((h) => (
- <Row
- key={h._id}
- left={`${dateTime(h.createdAt)} · ${h.description ?? h.action}`}
- right={h.actorName}
+ <div className="mb-6 break-inside-avoid">
+ <Grid
+ title="Historial"
+ head={['Cuándo', 'Qué', 'Quién']}
+ empty="Sin movimientos registrados."
+ rows={data.history.map((h) => [dateTime(h.createdAt), h.description ?? h.action, h.actorName ?? ''])}
  />
- ))}
- </ul>
- ) : (
- <p className="text-[var(--color-text-main)]">Sin movimientos registrados.</p>
- )}
- </Section>
+ </div>
  )}
 
- <Section title="Notas internas">
+ <div className="mb-6 break-inside-avoid">
+ <section className="space-y-2">
+ <h3 className="text-sm font-bold text-[var(--color-text-main)]">Notas internas</h3>
  <InternalNotes entityType="business" entityId={businessId} />
- </Section>
+ </section>
+ </div>
+ </div>
  </div>
  )}
  </div>

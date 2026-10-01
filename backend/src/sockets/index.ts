@@ -49,6 +49,8 @@ export function adminRoomsFor(authz: ResolvedAuthorization | undefined): string[
   if (perms.includes(Permission.SOS_VIEW)) rooms.push(adminRoom('sos'));
   // Bandeja de alertas: el evento no lleva datos, cada admin los pide por REST ya filtrados.
   if (perms.includes(Permission.ADMIN_PANEL)) rooms.push(adminRoom('alerts'));
+  // `invalidate`: solo dice QUÉ recurso cambió, sin datos; el REST filtra por permiso.
+  if (perms.includes(Permission.ADMIN_PANEL)) rooms.push(adminRoom('live'));
   return rooms;
 }
 

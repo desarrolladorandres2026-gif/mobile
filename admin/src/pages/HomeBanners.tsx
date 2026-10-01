@@ -86,9 +86,9 @@ const ACTION_ICONS: Record<ActionType, typeof Ban> = {
 };
 
 const STATUS_STYLES: Record<BannerStatus, { label: string; bg: string; text: string }> = {
- active: { label: 'Activo', bg: '#FDF7E7', text: '#D69E26' },
- scheduled: { label: 'Programado', bg: '#FDF7E7', text: '#D69E26' },
- expired: { label: 'Vencido', bg: '#FEF3C7', text: '#F59E0B' },
+ active: { label: 'Activo', bg: '#FDF7E7', text: 'var(--color-text-main)' },
+ scheduled: { label: 'Programado', bg: '#FDF7E7', text: 'var(--color-text-main)' },
+ expired: { label: 'Vencido', bg: '#FEF3C7', text: 'var(--color-text-main)' },
  inactive: { label: 'Inactivo', bg: '#EDF1F5', text: '#0B0F19' },
 };
 
@@ -130,7 +130,7 @@ export default function HomeBanners() {
  <button
  onClick={() => setTab('banners')}
  className={`px-4 py-2 text-xs font-bold whitespace-nowrap transition-all cursor-pointer border-b-2 ${tab === 'banners'
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -139,7 +139,7 @@ export default function HomeBanners() {
  <button
  onClick={() => setTab('blocks')}
  className={`px-4 py-2 text-xs font-bold whitespace-nowrap transition-all cursor-pointer border-b-2 ${tab === 'blocks'
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -392,7 +392,7 @@ function PromotionBannersPanel() {
  key={tab.id}
  onClick={() => setStatusFilter(tab.id)}
  className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${statusFilter === tab.id
- ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-bold'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -473,7 +473,7 @@ function PromotionBannersPanel() {
  </p>
  </td>
  <td className="table-body-cell">
- <span className="text-[var(--color-primary)] font-mono font-bold text-[11px]">
+ <span className="text-[var(--color-text-main)] font-mono font-bold text-[11px]">
  {b.displayOrder}
  </span>
  </td>
@@ -503,7 +503,7 @@ function PromotionBannersPanel() {
  <PermissionGate permission={Permission.CONTENT_MANAGE}>
  <button
  onClick={() => openEdit(b)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Editar banner"
  >
  <Pencil className="w-4 h-4" />
@@ -556,7 +556,7 @@ function PromotionBannersPanel() {
  <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <Images className="w-5 h-5 text-[var(--color-primary)]" />
+ <Images className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
  {editingId ? 'Editar Banner' : 'Nuevo Banner de Inicio'}
  </h3>
@@ -582,7 +582,7 @@ function PromotionBannersPanel() {
  ) : (
  <label
  htmlFor="banner-upload"
- className="flex flex-col items-center justify-center h-40 rounded-xl border-2 border-dashed border-[var(--color-border)] text-[var(--color-text-main)] cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors"
+ className="flex flex-col items-center justify-center h-40 rounded-xl border-2 border-dashed border-[var(--color-border)] text-[var(--color-text-main)] cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-text-main)] transition-colors"
  >
  <ImagePlus className="w-6 h-6 mb-1.5" />
  <span className="text-xs font-semibold">

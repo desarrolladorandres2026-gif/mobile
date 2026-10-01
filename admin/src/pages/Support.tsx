@@ -1,6 +1,7 @@
+import { useLiveReload } from '../hooks/useLiveReload';
 import { useCallback, useEffect, useState } from 'react';
 import {
- Inbox, RotateCw, UserCheck, Send, CheckCircle2, AlertTriangle, Timer, Scale,
+ Inbox, UserCheck, Send, CheckCircle2, AlertTriangle, Timer, Scale,
 } from 'lucide-react';
 import api from '../services/api';
 import SupportMacros from './SupportMacros';
@@ -78,7 +79,7 @@ function fillMacro(body: string, ticket: Ticket, agent?: string): string {
 
 const PRIORITY: Record<Ticket['priority'], { label: string; tone: string }> = {
  urgent: { label: 'Urgente', tone: 'text-[var(--color-danger)]' },
- high: { label: 'Alta', tone: 'text-[var(--color-warning)]' },
+ high: { label: 'Alta', tone: 'text-[var(--color-text-main)]' },
  normal: { label: 'Normal', tone: 'text-[var(--color-text-main)]' },
  low: { label: 'Baja', tone: 'text-[var(--color-text-main)]' },
 };
@@ -139,6 +140,7 @@ export default function Support() {
  }
  }, [onlyOverdue, onlyLegalOverdue, view, type, requester, term]);
 
+ useLiveReload(['support'], load);
  useEffect(() => {
  load();
  }, [load]);
@@ -204,7 +206,7 @@ export default function Support() {
  <div className="animate-fade-in space-y-3">
  <button
  onClick={() => setPanel(null)}
- className="cursor-pointer text-xs font-semibold text-[var(--color-primary)] underline"
+ className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)] underline"
  >
  ← Volver a la bandeja
  </button>
@@ -218,7 +220,7 @@ export default function Support() {
  <div className="animate-fade-in space-y-4">
  <button
  onClick={() => setSelectedId(null)}
- className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
+ className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)] hover:text-[var(--color-text-main)]"
  >
  ‹ Volver a la bandeja
  </button>
@@ -249,7 +251,7 @@ export default function Support() {
  selected.legalOverdue
  ? 'text-[var(--color-danger)]'
  : selected.legalDueSoon
- ? 'text-[var(--color-warning)]'
+ ? 'text-[var(--color-text-main)]'
  : 'text-[var(--color-text-main)]'
  }`}
  >
@@ -402,13 +404,6 @@ export default function Support() {
  PQRS de clientes, comercios y domiciliarios en una sola bandeja. Primero lo que vence por ley, luego por SLA interno
  </p>
  </div>
- <button
- onClick={load}
- className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
- >
- <RotateCw className="h-3.5 w-3.5" />
- <span>Actualizar</span>
- </button>
  </div>
 
  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-[var(--color-border-light)] pb-3">
@@ -454,14 +449,14 @@ export default function Support() {
  />
  <button
  onClick={() => setPanel('macros')}
- className="cursor-pointer text-xs font-semibold text-[var(--color-primary)] underline"
+ className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)] underline"
  >
  Respuestas predefinidas
  </button>
  <PermissionGate permission={Permission.ADMIN_PANEL}>
  <button
  onClick={() => setPanel('incidents')}
- className="cursor-pointer text-xs font-semibold text-[var(--color-primary)] underline"
+ className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)] underline"
  >
  Incidentes
  </button>
@@ -527,7 +522,7 @@ export default function Support() {
  onClick={() => openTicket(ticket._id)}
  className="cursor-pointer hover:!bg-[var(--color-bg-alt)] transition-colors"
  >
- <td className={`table-body-cell ${unanswered ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-main)]'}`}>{from}</td>
+ <td className={`table-body-cell ${unanswered ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}>{from}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{ticket.subject}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{TYPE_LABEL[ticket.type]}</td>
  <td className={`table-body-cell ${PRIORITY[ticket.priority].tone}`}>{PRIORITY[ticket.priority].label}</td>

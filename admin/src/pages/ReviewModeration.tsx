@@ -1,5 +1,6 @@
 ﻿import { useEffect, useState } from 'react';
-import { Star, AlertCircle, EyeOff, RefreshCw } from 'lucide-react';
+import { useLiveReload } from '../hooks/useLiveReload';
+import { Star, AlertCircle, EyeOff } from 'lucide-react';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
@@ -41,7 +42,7 @@ function Stars({ value, label }: { value: number; label: string }) {
  key={star}
  className={`w-3 h-3 ${
  star <= value
- ? 'text-[var(--color-warning)] fill-[var(--color-warning)]'
+ ? 'text-[var(--color-text-main)] fill-[var(--color-warning)]'
  : 'text-[var(--color-border)]'
  }`}
  />
@@ -71,6 +72,7 @@ export default function ReviewModeration() {
  }
  };
 
+ useLiveReload(['moderation'], fetchReviews);
  useEffect(() => { fetchReviews(); }, []);
 
  const moderate = async (reviewId: string, hidden: boolean) => {
@@ -120,13 +122,6 @@ export default function ReviewModeration() {
  <span>{hiddenCount} ocultas</span>
  </button>
 
- <button
- onClick={fetchReviews}
- className="p-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] hover:bg-[var(--color-bg-alt)] transition-all cursor-pointer"
- title="Actualizar"
- >
- <RefreshCw className="w-4 h-4 text-[var(--color-text-main)]" />
- </button>
  </div>
  </div>
 

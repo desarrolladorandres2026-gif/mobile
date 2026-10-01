@@ -8,6 +8,7 @@ import type {
  CodeStatusView,
  NotifyAudience,
  NotifyTemplate,
+ OrderMoneySummary,
  OrderProfile360Data,
 } from '../../lib/fichaTypes';
 import ConfirmDialog from '../ConfirmDialog';
@@ -46,17 +47,47 @@ const statusLabels: Record<string, { label: string; text: string }> = {
  cancelled: { label: 'Cancelado', text: 'text-[var(--color-danger)]' },
 };
 
-const paymentStatusLabels: Record<string, string> = {
- pending: 'Pago pendiente',
- pending_cash: 'Cobra al entregar',
- cash_received: 'Efectivo recibido',
- paid: 'Pagado',
- cash_not_received: 'Efectivo NO recibido',
- failed: 'Cobro fallido',
- refunded: 'Reembolsado',
+const paymentMethodLabels: Record<string, string> = {
+ online: 'Pago en línea',
+ cash_on_delivery: 'Efectivo',
+ cash: 'Efectivo',
 };
 
-const paymentMethodLabels: Record<string, string> = { online: 'En línea', cash: 'Efectivo' };
+const railLabels: Record<string, string> = {
+ CARD: 'Tarjeta',
+ NEQUI: 'Nequi',
+ PSE: 'PSE',
+ BANCOLOMBIA_TRANSFER: 'Bancolombia',
+ BANCOLOMBIA_COLLECT: 'Bancolombia',
+ DAVIPLATA: 'DaviPlata',
+};
+const railLabel = (raw?: string | null) => (raw ? railLabels[raw.toUpperCase()] ?? raw : '');
+
+/** El mismo estado se lee distinto según se cobre en la puerta o por la pasarela. */
+const cashStatusLabels: Record<string, string> = {
+ pending_cash: 'Pendiente de cobro',
+ cash_received: 'Cobrado por el domiciliario',
+ paid: 'Confirmado',
+ cash_not_received: 'Efectivo NO recibido',
+ failed: 'Cancelado sin cobrar',
+ refunded: 'Reembolsado',
+};
+const onlineStatusLabels: Record<string, string> = {
+ pending: 'Pendiente',
+ paid: 'Pagado',
+ failed: 'Fallido',
+ refunded: 'Reembolsado',
+};
+const paymentStateLabel = (method: string | undefined, status: string | undefined) => {
+ const s = status ?? '';
+ return (method === 'cash_on_delivery' || method === 'cash' ? cashStatusLabels : onlineStatusLabels)[s] ?? s;
+};
+
+const feeSourceNote: Record<string, string> = {
+ ledger: '',
+ estimate: ' (estimado con la tarifa vigente)',
+ unconfigured: ' (tarifa de Wompi sin configurar)',
+};
 
 const outcomeLabels: Record<string, string> = {
  pending: 'Esperando respuesta',
@@ -142,12 +173,13 @@ interface HandoffPhoto {
  * aparte de la ficha porque son lo único pesado del traspaso.
  */
 function HandoffPhotos({ orderId, count }: { orderId: string; count: number }) {
+ const [open, setOpen] = useState(false);
  const [photos, setPhotos] = useState<HandoffPhoto[] | null>(null);
  const [failed, setFailed] = useState(false);
  const [preview, setPreview] = useState<string | null>(null);
 
  useEffect(() => {
- if (count === 0) return;
+ if (!open || photos !== null) return;
  let alive = true;
  api
  .get(`/admin/orders/${orderId}/security`)
@@ -156,11 +188,32 @@ function HandoffPhotos({ orderId, count }: { orderId: string; count: number }) {
  return () => {
  alive = false;
  };
- }, [orderId, count]);
+ }, [open, orderId, photos]);
 
  return (
  <Sub title="Evidencias" empty="Sin fotos de recogida ni entrega.">
- {count === 0 ? undefined : failed ? (
+ {count === 0 ? undefined : (
+ <>
+ <button type="button" onClick={() => setOpen(true)} className={actionButtonClass}>
+ Ver evidencias ({count})
+ </button>
+ {open &&
+ createPortal(
+ <div
+ className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+ onClick={() => setOpen(false)}
+ >
+ <div
+ className="max-h-full w-full max-w-2xl overflow-y-auto bg-[var(--color-bg)] p-6"
+ onClick={(e) => e.stopPropagation()}
+ >
+ <div className="mb-4 flex items-center justify-between">
+ <h3 className="text-sm font-bold text-[var(--color-text-main)]">Evidencias</h3>
+ <button type="button" onClick={() => setOpen(false)} className={actionButtonClass}>
+ Cerrar
+ </button>
+ </div>
+ {failed ? (
  <ErrorLine>No se pudieron cargar las fotos.</ErrorLine>
  ) : photos === null ? (
  <p className="text-[var(--color-text-main)]">Cargando fotos…</p>
@@ -176,18 +229,117 @@ function HandoffPhotos({ orderId, count }: { orderId: string; count: number }) {
  ))}
  </div>
  )}
+ </div>
+ </div>,
+ document.body,
+ )}
  {preview &&
  createPortal(
  <div
- className="fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center bg-black/70 p-4"
+ className="fixed inset-0 z-[90] flex cursor-zoom-out items-center justify-center bg-black/70 p-4"
  onClick={() => setPreview(null)}
  >
  <img src={preview} alt="Evidencia" className="max-h-full max-w-full rounded-xl" />
  </div>,
  document.body,
  )}
+ </>
+ )}
  </Sub>
  );
+}
+
+const noFeeReason = (status?: string) =>
+ status === 'failed' ? 'el cobro falló' : status === 'refunded' ? 'cobro reembolsado' : 'el cobro aún no se ha capturado';
+
+const refundPolicyLabel = (bps?: number | null) =>
+ bps == null
+ ? 'Sin definir: falta confirmar con Wompi'
+ : bps === 0
+ ? 'No reembolsable'
+ : bps === 10000
+ ? 'Reembolsable'
+ : `Parcial: ${bps / 100}% reembolsable`;
+
+interface PaymentRef {
+ paymentId: string;
+ method: string;
+ status: string;
+ transactionId: string | null;
+ reference: string | null;
+ paymentMethodType: string | null;
+ createdAt: string;
+}
+
+/** ID de transacción y referencia: solo para auditoría y conciliación, aparte del resumen. */
+function PaymentRefs({ orderId }: { orderId: string }) {
+ const [refs, setRefs] = useState<PaymentRef[] | null>(null);
+ const [failed, setFailed] = useState(false);
+
+ useEffect(() => {
+ let alive = true;
+ api
+ .get(`/admin/orders/${orderId}/payment-refs`)
+ .then(({ data }) => alive && setRefs(data.data ?? []))
+ .catch(() => alive && setFailed(true));
+ return () => {
+ alive = false;
+ };
+ }, [orderId]);
+
+ if (failed) return <ErrorLine>No se pudieron cargar las referencias de pago.</ErrorLine>;
+ return (
+ <Grid
+ title="Referencias de pago (auditoría)"
+ head={['Fecha', 'Intento', 'ID de transacción', 'Referencia']}
+ empty={refs === null ? 'Cargando…' : 'Sin referencias.'}
+ rows={(refs ?? []).map((r) => [
+ dateTime(r.createdAt),
+ `${railLabel(r.paymentMethodType) || (r.method === 'cash_on_delivery' ? 'Efectivo' : 'En línea')} · ${paymentStateLabel(r.method, r.status)}`,
+ <span className="font-mono text-[11px]">{r.transactionId ?? '—'}</span>,
+ <span className="font-mono text-[11px]">{r.reference ?? '—'}</span>,
+ ])}
+ />
+ );
+}
+
+/**
+ * Filas del resumen interno de ZIPP. No es lo que pagó el cliente: aquí se ve
+ * a dónde fue el dinero y cuánto queda. Todas las cifras las arma el servidor
+ * según el método de pago real; esta función solo las presenta.
+ */
+function financialSummaryRows(summary: OrderMoneySummary, masked: boolean): Array<[string, ReactNode]> {
+ const s = summary;
+ const rows: Array<[string, string]> = [];
+ const add = (label: string, value: number | null | undefined, negative = false) => {
+ if (value == null) return;
+ rows.push([label, `${negative && value > 0 ? '-' : ''}${money(value)}`]);
+ };
+ add(s.collected ? 'Total cobrado al cliente' : 'Total del pedido (aún sin cobrar)', s.customerTotal);
+ if (!masked) add('Comisión ZIPP (al comercio)', s.merchantCommission);
+ add('Pago al domiciliario', s.driverPayout);
+ add(
+ s.kind === 'cash' ? 'Costo de procesamiento de pago' : 'Costo de procesamiento Wompi',
+ s.gatewayFee,
+ true,
+ );
+ if (!masked) {
+ add('Neto para el comercio', s.merchantNet);
+ add('Ingreso bruto de ZIPP', s.platformGross);
+ if (s.platformResult != null) add('Resultado neto de ZIPP', s.platformResult);
+ }
+ return [
+ ...rows,
+ ...(!masked && s.platformResult == null
+ ? ([['Resultado neto de ZIPP', 'Sin asientos en el libro todavía']] as Array<[string, string]>)
+ : []),
+ ...(s.gatewayFeeApplies && s.paymentStatus === 'refunded'
+ ? ([['Comisión Wompi en el reembolso', refundPolicyLabel(s.gatewayFeeRefundBps)]] as Array<[string, string]>)
+ : []),
+ ...(s.kind === 'online' && !s.gatewayFeeApplies
+ ? ([['Nota', `Sin costo Wompi: ${noFeeReason(s.paymentStatus)}`]] as Array<[string, string]>)
+ : []),
+ ];
 }
 
 export default function OrderProfile360({
@@ -353,6 +505,7 @@ export default function OrderProfile360({
  ? order.deliveryAddress
  : order?.deliveryAddress?.address;
  const finance = order?.finance;
+ const money360 = data?.money ?? null;
 
  return (
  <>
@@ -390,9 +543,9 @@ export default function OrderProfile360({
  ) : !data || !order || !allowed ? (
  <p className="mt-6 text-sm text-[var(--color-text-main)]">Cargando…</p>
  ) : (
- <div className="mt-5 text-xs">
+ <div className="mt-3 text-xs">
  {/* Acciones: cada una solo con su bandera del servidor. */}
- <div className="space-y-3 pb-6">
+ <div className="space-y-3 pb-3">
  <div className="flex flex-wrap items-center gap-2.5">
  {allowed.assign && !hasDriver && (
  <button onClick={openAssign} className={actionButtonClass}>
@@ -431,7 +584,7 @@ export default function OrderProfile360({
 
  {notice && <p className="font-semibold text-[#047857]">{notice}</p>}
  {warning && (
- <p className="flex items-start gap-1.5 font-semibold text-[var(--color-warning)]">
+ <p className="flex items-start gap-1.5 font-semibold text-[var(--color-text-main)]">
  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {warning}
  </p>
  )}
@@ -571,7 +724,7 @@ export default function OrderProfile360({
  />
  </label>
  {isPaid && (
- <p className="font-semibold text-[var(--color-warning)]">
+ <p className="font-semibold text-[var(--color-text-main)]">
  Este pedido está pagado: cancelarlo reembolsa
  {customerTotal != null ? ` ${money(customerTotal)}` : ' el total'} al cliente.
  </p>
@@ -598,8 +751,11 @@ export default function OrderProfile360({
  title="Resumen"
  items={[
  ['Estado', <span className={status?.text}>{status?.label}</span>],
- ['Pago', paymentMethodLabels[order.paymentMethod ?? ''] ?? order.paymentMethod],
- ['Estado del cobro', paymentStatusLabels[order.paymentStatus ?? ''] ?? order.paymentStatus],
+ ['Método de pago', paymentMethodLabels[order.paymentMethod ?? ''] ?? order.paymentMethod],
+ ['Cobro', order.paymentMethod === 'cash_on_delivery' ? 'Contraentrega' : 'Por la pasarela'],
+ ...(money360?.summary?.provider ? ([['Proveedor', money360.summary.provider]] as Array<[string, ReactNode]>) : []),
+ ...(money360?.summary?.railRaw ? ([['Medio', railLabel(money360.summary.railRaw)]] as Array<[string, ReactNode]>) : []),
+ ['Estado del pago', paymentStateLabel(order.paymentMethod, order.paymentStatus)],
  ['Creado', dateTime(order.createdAt)],
  ['Aceptado', order.acceptedAt ? dateTime(order.acceptedAt) : ''],
  ['Entregado', order.deliveredAt ? dateTime(order.deliveredAt) : ''],
@@ -639,7 +795,8 @@ export default function OrderProfile360({
  ]}
  />
 
- <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+ <div className="columns-1 gap-6 xl:columns-2">
+ <div className="mb-6 break-inside-avoid">
  {order.kind === 'errand' && order.errand ? (
  <Grid
  title="Mandado"
@@ -662,39 +819,26 @@ export default function OrderProfile360({
  right={[2]}
  rows={(order.items ?? []).map((item) => [
  item.quantity,
- item.name,
- item.price != null ? money(item.price * item.quantity) : '',
- ])}
- />
+ <div key="producto" className="min-w-0 space-y-0.5">
+ <p>{item.name}</p>
+ {item.extras && item.extras.length > 0 && (
+ <p className="text-xs text-[var(--color-text-main)]">
+ {item.extras.map((e) => `${e.name}${e.quantity > 1 ? ` x${e.quantity}` : ''}`).join(', ')}
+ </p>
  )}
-
- {finance && (
- <Grid
- title="Lo que pagó el cliente"
- head={['Concepto', 'Importe']}
- empty="Sin desglose."
- right={[1]}
- rows={[
- ...(finance.productSubtotal != null ? [['Productos', money(finance.productSubtotal)]] : []),
- ...(finance.deliveryCustomerFee != null ? [['Domicilio', money(finance.deliveryCustomerFee)]] : []),
- ...(finance.customerServiceFee != null ? [['Tarifa de servicio', money(finance.customerServiceFee)]] : []),
- ...(finance.tip != null && finance.tip > 0 ? [['Propina', money(finance.tip)]] : []),
- ...((finance.merchantFundedDiscount ?? 0) + (finance.platformFundedDiscount ?? 0) > 0
- ? [['Descuentos', `-${money((finance.merchantFundedDiscount ?? 0) + (finance.platformFundedDiscount ?? 0))}`]]
- : []),
- ...(finance.customerTotal != null ? [['Total', money(finance.customerTotal)]] : []),
- ...(!data.masked.commissions && finance.merchantCommission != null
- ? [['Comisión al comercio', money(finance.merchantCommission)]]
- : []),
- ...(!data.masked.commissions && finance.platformNetRevenue != null
- ? [['Ingreso neto de ZIPP', money(finance.platformNetRevenue)]]
- : []),
- ]}
+ {item.notes && <p className="text-xs italic text-[var(--color-text-main)]">"{item.notes}"</p>}
+ </div>,
+ item.totalPrice != null
+ ? money(item.totalPrice)
+ : item.price != null
+ ? money(item.price * item.quantity)
+ : '',
+ ])}
  />
  )}
  </div>
 
- <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+ <div className="mb-6 break-inside-avoid">
  <Grid
  title="Entrega"
  head={['Dato', 'Valor']}
@@ -717,7 +861,9 @@ export default function OrderProfile360({
  : []),
  ]}
  />
+ </div>
 
+ <div className="mb-6 break-inside-avoid">
  <Facts
  title="Despacho y conversación"
  items={[
@@ -730,7 +876,7 @@ export default function OrderProfile360({
  />
  </div>
 
- <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+ <div className="mb-6 break-inside-avoid">
  <Grid
  title="Línea de tiempo"
  head={['Cuándo', 'Evento', 'Quién']}
@@ -744,7 +890,9 @@ export default function OrderProfile360({
  t.actor?.name ?? t.actor?.role ?? '',
  ])}
  />
+ </div>
 
+ <div className="mb-6 break-inside-avoid">
  <Grid
  title="Ofertas de despacho"
  head={['Domiciliario', 'Ronda', 'Ofrecida', 'Resultado']}
@@ -764,7 +912,7 @@ export default function OrderProfile360({
  </div>
 
  {data.handoff && (
- <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+ <div className="mb-6 break-inside-avoid">
  <Grid
  title="Códigos de traspaso"
  head={['Código', 'Estado']}
@@ -774,53 +922,108 @@ export default function OrderProfile360({
  ['Entrega', codeSummary(data.handoff.delivery)],
  ]}
  />
- <div className="min-w-0">
+ </div>
+ )}
+
+ {data.handoff && (
+ <div className="mb-6 min-w-0 break-inside-avoid">
  <HandoffPhotos orderId={data.order._id} count={data.handoff.evidences} />
  </div>
- </div>
  )}
 
- {data.money && (
- <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+ <div className="mb-6 break-inside-avoid">
+ {!data.money ? (
+ <p className="text-xs font-semibold text-[var(--color-text-main)]">
+ Pagos y resumen financiero ocultos: hace falta el permiso de finanzas.
+ </p>
+ ) : (
  <Grid
- title="Pagos"
- head={['Fecha', 'Estado', 'Importe']}
- empty="Sin pagos registrados."
- right={[2]}
- rows={data.money.payments.map((p) => [
- dateTime(p.createdAt),
- `${p.status}${p.method ? ` · ${p.method}` : ''}`,
+ title="Dinero del pedido"
+ head={['Concepto', 'Importe']}
+ empty="Sin movimientos de dinero."
+ right={[1]}
+ rows={[
+ ...(finance
+ ? ([
+ ['Lo que pagó el cliente'] as [string],
+ ...(finance.productSubtotal != null ? [['Productos', money(finance.productSubtotal)] as [string, string]] : []),
+ ...(finance.deliveryCustomerFee != null
+ ? [['Domicilio', money(finance.deliveryCustomerFee)] as [string, string]]
+ : []),
+ ...(finance.customerServiceFee != null
+ ? [['Tarifa de servicio', money(finance.customerServiceFee)] as [string, string]]
+ : []),
+ ...(finance.tip != null && finance.tip > 0 ? [['Propina', money(finance.tip)] as [string, string]] : []),
+ ...((finance.merchantFundedDiscount ?? 0) + (finance.platformFundedDiscount ?? 0) > 0
+ ? [
+ [
+ 'Descuentos',
+ `-${money((finance.merchantFundedDiscount ?? 0) + (finance.platformFundedDiscount ?? 0))}`,
+ ] as [string, string],
+ ]
+ : []),
+ ...(finance.customerTotal != null ? [['Total', money(finance.customerTotal)] as [string, string]] : []),
+ ] as Array<[string, ReactNode]>)
+ : []),
+ ...(money360?.summary
+ ? ([['Resumen financiero de ZIPP'] as [string], ...financialSummaryRows(money360.summary, data.masked.commissions)] as Array<
+ [string, ReactNode]
+ >)
+ : []),
+ ['Pagos'],
+ ...data.money.payments.map((p): [ReactNode, ReactNode] => {
+ const cash = p.method === 'cash_on_delivery';
+ const fee = p.gatewayFee;
+ const lines = [
+ `Método: ${cash ? 'Efectivo' : 'Pago en línea'}`,
+ ...(cash ? [] : ['Proveedor: Wompi']),
+ ...(!cash && p.paymentMethodType ? [`Medio: ${railLabel(p.paymentMethodType)}`] : []),
+ `Estado: ${paymentStateLabel(p.method, p.status)}`,
+ ...(fee
+ ? [
+ `Costo de procesamiento: ${money(fee.total)}${feeSourceNote[fee.source]}`,
+ ...(fee.percentage != null
+ ? [`· Porcentaje ${money(fee.percentage)} · Fijo ${money(fee.fixed ?? 0)} · IVA ${money(fee.vat ?? 0)}`]
+ : []),
+ ]
+ : []),
+ ...(p.netReceived != null ? [`Neto recibido: ${money(p.netReceived)}`] : []),
+ ];
+ return [
+ <div className="space-y-0.5">
+ <p className="font-semibold">{dateTime(p.createdAt)}</p>
+ {lines.map((l) => (
+ <div key={l}>{l}</div>
+ ))}
+ </div>,
  money(p.amount),
- ])}
- />
- {data.money.refunds && (
- <Grid
- title="Reembolsos"
- head={['Fecha', 'Estado', 'Importe']}
- empty="Sin reembolsos."
- right={[2]}
- rows={data.money.refunds.map((r) => [
- dateTime(r.createdAt),
- `${r.status}${r.reason ? ` — ${r.reason}` : ''}`,
- money(r.amount),
- ])}
+ ];
+ }),
+ ...(data.money.refunds && data.money.refunds.length > 0
+ ? ([
+ ['Reembolsos'] as [string],
+ ...data.money.refunds.map(
+ (r): [string, string] => [`${dateTime(r.createdAt)} · ${r.status}${r.reason ? ` — ${r.reason}` : ''}`, money(r.amount)],
+ ),
+ ] as Array<[string, ReactNode]>)
+ : []),
+ ['Pagos a comercio y domiciliario'],
+ ...data.money.payouts.map((p): [string, string] => [
+ `${p.beneficiary === 'business' ? 'Comercio' : p.beneficiary === 'driver' ? 'Domiciliario' : (p.beneficiary ?? 'Beneficiario')} · ${p.status}`,
+ money(p.netAmount ?? p.amount),
+ ]),
+ ]}
  />
  )}
- <Grid
- title="Pagos a comercio y domiciliario"
- head={['Beneficiario', 'Estado', 'Neto']}
- empty="Sin pagos generados."
- right={[2]}
- rows={data.money.payouts.map((p) => [
- p.beneficiary ?? 'Beneficiario',
- p.status,
- money(p.netAmount ?? p.amount),
- ])}
- />
+ </div>
+
+ {data.money && data.money.payments.some((p) => p.method === 'online') && (
+ <div className="mb-6 break-inside-avoid">
+ <PaymentRefs orderId={data.order._id} />
  </div>
  )}
 
- <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+ <div className="mb-6 break-inside-avoid">
  <Grid
  title="Reseña"
  head={['Calificación', 'Comentario']}
@@ -831,13 +1034,19 @@ export default function OrderProfile360({
  : []
  }
  />
+ </div>
+
+ <div className="mb-6 break-inside-avoid">
  <Grid
  title="PQRS"
  head={['Asunto', 'Fecha', 'Estado']}
  empty="Sin PQRS."
  rows={data.after.pqrs.map((p) => [p.subject ?? 'PQRS', dateTime(p.createdAt), p.status])}
  />
+ </div>
+
  {data.after.cashIncidents && (
+ <div className="mb-6 break-inside-avoid">
  <Grid
  title="Incidentes de efectivo"
  head={['Fecha', 'Importe', 'Estado']}
@@ -849,14 +1058,18 @@ export default function OrderProfile360({
  c.status,
  ])}
  />
+ </div>
  )}
+
  {data.after.sos && (
+ <div className="mb-6 break-inside-avoid">
  <Grid
  title="Alertas SOS"
  head={['Fecha', 'Nota', 'Estado']}
  empty="Sin alertas SOS."
  rows={data.after.sos.map((s) => [dateTime(s.createdAt), s.note ?? '', s.status])}
  />
+ </div>
  )}
  </div>
 

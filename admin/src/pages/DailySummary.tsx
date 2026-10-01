@@ -1,3 +1,4 @@
+import { useLiveReload } from '../hooks/useLiveReload';
 import { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Printer, RefreshCw, X } from 'lucide-react';
@@ -296,7 +297,7 @@ function FinanceDetail({ date, onClose }: { date: string; onClose: () => void })
  {longDate(date)} · pedidos entregados y cancelados ese día
  </p>
  </div>
- <button onClick={onClose} className="p-1 text-[var(--color-text-main)] hover:text-[var(--color-primary)] cursor-pointer" aria-label="Cerrar">
+ <button onClick={onClose} className="p-1 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer" aria-label="Cerrar">
  <X className="w-4 h-4" />
  </button>
  </div>
@@ -366,8 +367,8 @@ function FinanceDetail({ date, onClose }: { date: string; onClose: () => void })
  <div className="flex items-center justify-between pt-3 mt-2 border-t border-[var(--color-border)] text-xs">
  <span className="text-[var(--color-text-secondary)]">{num(data.total)} pedidos · página {page} de {pages}</span>
  <span className="flex gap-2">
- <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="px-2 py-1 font-semibold text-[var(--color-primary)] disabled:opacity-40 cursor-pointer">Anterior</button>
- <button disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className="px-2 py-1 font-semibold text-[var(--color-primary)] disabled:opacity-40 cursor-pointer">Siguiente</button>
+ <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="px-2 py-1 font-semibold text-[var(--color-text-main)] disabled:opacity-40 cursor-pointer">Anterior</button>
+ <button disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className="px-2 py-1 font-semibold text-[var(--color-text-main)] disabled:opacity-40 cursor-pointer">Siguiente</button>
  </span>
  </div>
  )}
@@ -401,6 +402,7 @@ export default function DailySummary() {
  }
  }, [date]);
 
+ useLiveReload(['orders', 'finance'], load);
  useEffect(() => { load(); }, [load]);
 
  const isToday = date === todayStr();
@@ -422,7 +424,7 @@ export default function DailySummary() {
  </div>
 
  <div className="flex items-center gap-1 no-print">
- <button onClick={() => setDate((d) => shift(d, -1))} className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-primary)] transition-colors cursor-pointer" title="Día anterior">
+ <button onClick={() => setDate((d) => shift(d, -1))} className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] transition-colors cursor-pointer" title="Día anterior">
  <ChevronLeft className="w-4 h-4" />
  </button>
  <input
@@ -432,18 +434,15 @@ export default function DailySummary() {
  onChange={(e) => e.target.value && setDate(e.target.value)}
  className="px-2 py-1.5 text-xs text-[var(--color-text-main)] bg-transparent border-b border-[var(--color-border)] focus:outline-none focus:border-[var(--color-primary)] cursor-pointer"
  />
- <button onClick={() => setDate((d) => shift(d, 1))} disabled={isToday} className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-primary)] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" title="Día siguiente">
+ <button onClick={() => setDate((d) => shift(d, 1))} disabled={isToday} className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" title="Día siguiente">
  <ChevronRight className="w-4 h-4" />
  </button>
- <button onClick={load} className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-primary)] transition-colors cursor-pointer" title="Refrescar">
- <RefreshCw className="w-4 h-4" />
- </button>
  <PermissionGate permission={Permission.FINANCE_VIEW}>
- <button onClick={() => setShowDetail(true)} className="px-3 py-1.5 text-xs font-bold text-[var(--color-primary)] hover:text-[#8A5D08] transition-colors cursor-pointer">
+ <button onClick={() => setShowDetail(true)} className="px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)] hover:text-[#8A5D08] transition-colors cursor-pointer">
  Ver detalle financiero
  </button>
  </PermissionGate>
- <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[var(--color-primary)] hover:text-[#8A5D08] transition-colors cursor-pointer">
+ <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)] hover:text-[#8A5D08] transition-colors cursor-pointer">
  <Printer className="w-3.5 h-3.5" />
  Imprimir
  </button>
@@ -452,7 +451,7 @@ export default function DailySummary() {
 
  {loading || !t || !data ? (
  <div className="flex flex-col items-center justify-center h-80 text-[var(--color-text-main)] space-y-3">
- <RefreshCw className="w-7 h-7 text-[var(--color-primary)] animate-spin" />
+ <RefreshCw className="w-7 h-7 text-[var(--color-text-main)] animate-spin" />
  <p className="text-xs font-semibold">
  {loading ? 'Reconstruyendo el día...' : loadError || 'No se pudo cargar el resumen de este día.'}
  </p>

@@ -10,6 +10,7 @@ import GlobalSearch from './GlobalSearch';
 import AlertsTray from './AlertsTray';
 import OrderNotifications from './OrderNotifications';
 import FichaHost from './fichas/FichaHost';
+import { useAdminSocketStatus } from '../hooks/useAdminSocket';
 import { useAuthStore } from '../stores/authStore';
 import { NAV_GROUPS } from '../lib/navigation';
 import { preloadOn } from '../lib/lazyPage';
@@ -18,7 +19,7 @@ import { ZippMark } from './ZippMark';
 function PageLoading() {
  return (
  <div className="flex items-center justify-center py-24">
- <RefreshCw className="w-6 h-6 text-[var(--color-primary)] animate-spin" />
+ <RefreshCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin" />
  </div>
  );
 }
@@ -44,6 +45,7 @@ const lastActivity = () => {
 };
 
 export default function Layout() {
+  const liveStatus = useAdminSocketStatus();
  const navigate = useNavigate();
  const location = useLocation();
  const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -161,10 +163,7 @@ export default function Layout() {
  }`}
  >
  {/* Con dos columnas una barra lateral quedaría en medio de la
- barra: el activo se marca con un trazo dorado arriba. */}
- {isActive && (
- <span className="absolute left-1/2 top-0 h-[3px] w-7 -translate-x-1/2 rounded-b-full bg-[#D69E26]" />
- )}
+ barra: el activo se marca con el icono en dorado. */}
  <item.Icon fontSize={20} style={{ color: isActive ? 'var(--color-text-main)' : 'currentColor' }} />
  <span className="w-full text-balance hyphens-auto break-words text-center leading-[1.15]">{item.label}</span>
  </NavLink>
@@ -209,7 +208,7 @@ export default function Layout() {
  </button>
  <button aria-label="Página anterior" onClick={() => navigate(-1)} className="hidden sm:grid w-9 h-9 place-items-center rounded-full text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"><ArrowLeft className="w-5 h-5" strokeWidth={2.4} /></button>
  <button aria-label="Página siguiente" onClick={() => navigate(1)} className="hidden sm:grid w-9 h-9 place-items-center rounded-full text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"><ArrowRight className="w-5 h-5" strokeWidth={2.4} /></button>
- <button aria-label="Ir al resumen diario" onClick={() => navigate('/daily-summary')} className="grid w-12 h-12 place-items-center rounded-full text-[var(--color-text-main)] hover:scale-105 hover:text-[#D69E26] cursor-pointer"><Home className="w-6 h-6 fill-current" strokeWidth={2.2} /></button>
+ <button aria-label="Ir al resumen diario" onClick={() => navigate('/daily-summary')} className="grid w-12 h-12 place-items-center rounded-full text-[var(--color-text-main)] hover:scale-105 hover:text-[var(--color-text-secondary)] cursor-pointer"><Home className="w-6 h-6 fill-current" strokeWidth={2.2} /></button>
  </div>
 
  {/* Búsqueda global: pedidos, clientes, comercios, domiciliarios, cupones */}
@@ -217,6 +216,14 @@ export default function Layout() {
 
  {/* Right Header Actions */}
  <div className="ml-auto flex items-center gap-2 sm:gap-3 shrink-0">
+ {liveStatus && (
+ <span
+ role="status"
+ className={`hidden sm:inline text-[11px] font-semibold ${liveStatus === 'live' ? 'text-[var(--color-success)]' : 'text-[var(--color-text-main)]'}`}
+ >
+ {liveStatus === 'live' ? 'En vivo' : 'Reconectando…'}
+ </span>
+ )}
  {/* Theme Toggle (Claro / Oscuro / Automático) */}
  <ThemeToggle />
 
@@ -264,7 +271,7 @@ export default function Layout() {
  </header>
 
  {authzMode === 'observe' && observedPermissions.length > 0 && (
- <p className="px-6 lg:px-8 pt-3 text-xs font-semibold text-[var(--color-warning)]">
+ <p className="px-6 lg:px-8 pt-3 text-xs font-semibold text-[var(--color-text-main)]">
  Modo observación: hoy conservas accesos que perderás al activar el bloqueo.
  </p>
  )}

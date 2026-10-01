@@ -37,7 +37,7 @@ export default function EntityLink({ type, id, children, className = '', hideWhe
  e.stopPropagation();
  open(type, id);
  }}
- className={`cursor-pointer text-left underline-offset-2 hover:text-[var(--color-primary)] hover:underline ${className}`}
+ className={`cursor-pointer text-left underline-offset-2 hover:text-[var(--color-text-main)] hover:underline ${className}`}
  >
  {children}
  </button>

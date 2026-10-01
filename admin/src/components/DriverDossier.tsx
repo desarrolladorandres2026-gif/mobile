@@ -257,10 +257,10 @@ function DocumentTable({
                       <div className="flex items-center gap-1">
                         {doc.hasFile && (
                           <>
-                            <button type="button" onClick={() => file(doc, 'inline')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-primary)]">
+                            <button type="button" onClick={() => file(doc, 'inline')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]">
                               <Eye className="h-3.5 w-3.5" /> Ver
                             </button>
-                            <button type="button" onClick={() => file(doc, 'attachment')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-primary)]">
+                            <button type="button" onClick={() => file(doc, 'attachment')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]">
                               <Download className="h-3.5 w-3.5" /> Descargar
                             </button>
                           </>
@@ -446,10 +446,10 @@ function ContractSection({ dossier, onDone, onFileError }: { dossier: Dossier; o
       <td>{dossierDay(f.uploadedAt)}</td>
       <td>
         <div className="flex items-center gap-1">
-          <button type="button" onClick={() => openFile(f, 'inline')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-primary)]">
+          <button type="button" onClick={() => openFile(f, 'inline')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]">
             <Eye className="h-3.5 w-3.5" /> Ver
           </button>
-          <button type="button" onClick={() => openFile(f, 'attachment')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-primary)]">
+          <button type="button" onClick={() => openFile(f, 'attachment')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]">
             <Download className="h-3.5 w-3.5" /> Descargar
           </button>
           {removable && (

@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { RefundStatus, RefundKind } from '../types';
 
@@ -94,6 +95,7 @@ refundSchema.index(
   }
 );
 
+refundSchema.plugin(realtimeInvalidatePlugin, { resource: 'finance' });
 export const Refund = mongoose.model<IRefund>('Refund', refundSchema);
 
 // ── Webhook de-duplication ───────────────────────────────────────────

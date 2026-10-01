@@ -34,10 +34,10 @@ describe('salas de admin por permiso', () => {
     expect(soporte).not.toContain('admin:fleet');
 
     const ops = await roomsOf(await makeStaff({ roleSlug: 'operaciones' }));
-    expect([...ops].sort()).toEqual(['admin:alerts', 'admin:fleet', 'admin:orders', 'admin:sos']);
+    expect([...ops].sort()).toEqual(['admin:alerts', 'admin:fleet', 'admin:live', 'admin:orders', 'admin:sos']);
 
-    expect(await roomsOf(await makeStaff({ roleSlug: null }))).toEqual(['admin:alerts']);
-    expect((await roomsOf(await makeStaff({ roleSlug: 'super_admin' }))).length).toBe(4);
+    expect(await roomsOf(await makeStaff({ roleSlug: null }))).toEqual(['admin:alerts', 'admin:live']);
+    expect((await roomsOf(await makeStaff({ roleSlug: 'super_admin' }))).length).toBe(5);
   });
 
   it('observe: nadie pierde eventos (legacyUnion)', async () => {

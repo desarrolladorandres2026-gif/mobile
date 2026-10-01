@@ -97,7 +97,7 @@ export default function Exports() {
  onClick={() => setKind(k.id)}
  className={`block w-full cursor-pointer py-2.5 text-left ${kind === k.id ? '' : 'opacity-70 hover:opacity-100'}`}
  >
- <p className={`text-sm font-bold ${kind === k.id ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-main)]'}`}>{k.label}</p>
+ <p className={`text-sm font-bold ${kind === k.id ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}>{k.label}</p>
  {kind === k.id && <p className="text-[11px] text-[var(--color-text-main)]">{current.hint}</p>}
  </button>
  ))}
@@ -123,7 +123,7 @@ export default function Exports() {
  </label>
 
  {error && <p className="text-xs font-semibold text-[var(--color-danger)]">{error}</p>}
- {notice && <p className="text-xs font-semibold text-[var(--color-primary)]">{notice}</p>}
+ {notice && <p className="text-xs font-semibold text-[var(--color-text-main)]">{notice}</p>}
 
  <button
  onClick={download}

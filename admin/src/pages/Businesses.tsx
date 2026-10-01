@@ -284,7 +284,7 @@ export default function Businesses() {
  onClick={() => setArchived(tab.value)}
  className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${
  archived === tab.value
- ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-bold'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -300,7 +300,7 @@ export default function Businesses() {
  onClick={() => setSelectedCategory(cat.id)}
  className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${
  selectedCategory === cat.id
- ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-bold'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -375,7 +375,7 @@ export default function Businesses() {
  )}
  </>
  ) : !b.isApproved ? (
- <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-warning)]">Sin aprobar</p>
+ <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-main)]">Sin aprobar</p>
  ) : b.isSuspended ? (
  <>
  <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-danger)]">Suspendido por ZIPP</p>
@@ -391,12 +391,12 @@ export default function Businesses() {
  </p>
  )}
  {b.isFeatured && !b.isArchived && (
- <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-warning)]">Destacado</p>
+ <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-main)]">Destacado</p>
  )}
  </td>
  <td className={`${cellClass} whitespace-nowrap`}>
  <span className="inline-flex items-center gap-1 font-medium">
- <Star className="w-3.5 h-3.5 text-[var(--color-warning)] fill-[var(--color-warning)]" />
+ <Star className="w-3.5 h-3.5 text-[var(--color-text-main)] fill-[var(--color-warning)]" />
  {b.rating ? b.rating.toFixed(1) : 'S/V'}
  <span className="text-[var(--color-text-main)]">({b.totalReviews ?? 0})</span>
  </span>
@@ -423,7 +423,7 @@ export default function Businesses() {
  <button
  onClick={() => handleToggleFeatured(b)}
  title={b.isFeatured ? 'Quitar de destacados' : 'Destacar'}
- className={`p-2 rounded-lg border border-[var(--color-border)] cursor-pointer ${b.isFeatured ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-main)]'}`}
+ className={`p-2 rounded-lg border border-[var(--color-border)] cursor-pointer ${b.isFeatured ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}
  >
  <Star className={`w-4 h-4 ${b.isFeatured ? 'fill-[var(--color-warning)]' : ''}`} />
  </button>
@@ -431,7 +431,7 @@ export default function Businesses() {
  <button
  onClick={() => (b.isSuspended ? liftSuspension(b) : setPending({ kind: 'suspend', business: b }))}
  title={b.isSuspended ? 'Levantar suspensión' : 'Suspender'}
- className={`p-2 rounded-lg border cursor-pointer ${b.isSuspended ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-[var(--color-border)] text-[var(--color-danger)]'}`}
+ className={`p-2 rounded-lg border cursor-pointer ${b.isSuspended ? 'border-[var(--color-primary)] text-[var(--color-text-main)]' : 'border-[var(--color-border)] text-[var(--color-danger)]'}`}
  >
  <Power className="w-4 h-4" />
  </button>
@@ -482,7 +482,7 @@ export default function Businesses() {
  <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <Store className="w-5 h-5 text-[var(--color-primary)]" />
+ <Store className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Nuevo Comercio Aliado</h3>
  </div>
  <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg">

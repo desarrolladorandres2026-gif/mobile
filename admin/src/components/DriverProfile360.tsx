@@ -232,7 +232,7 @@ export default function DriverProfile360({
  setViewError('');
  setWantFull(currentView !== 'full');
  }}
- className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-primary)]"
+ className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]"
  >
  {currentView === 'full' ? (
  <><EyeOff className="h-3 w-3" /> Volver a la vista enmascarada</>
@@ -287,7 +287,7 @@ export default function DriverProfile360({
  className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 py-2 text-xs font-bold uppercase tracking-wider ${
  account === 'active'
  ? 'border-[var(--color-danger)] text-[var(--color-danger)]'
- : 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ : 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  }`}
  >
  {account === 'active' ? (

@@ -51,7 +51,7 @@ export const ROLE_LABELS: Record<BusinessRole, string> = {
 export const STATUS_STYLES: Record<SessionStatus, { label: string; text: string }> = {
   active: { label: 'Activa', text: 'text-[var(--color-success)]' },
   revoked: { label: 'Revocada', text: 'text-[var(--color-text-secondary)]' },
-  expired: { label: 'Expirada', text: 'text-[var(--color-warning)]' },
+  expired: { label: 'Expirada', text: 'text-[var(--color-text-main)]' },
 };
 
 export const METHOD_LABELS: Record<string, string> = {
@@ -84,7 +84,7 @@ export const PLATFORM_LABELS: Record<string, string> = {
 export const filterInput =
   'h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]';
 export const filterLabel = 'text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]';
-export const linkButton = 'cursor-pointer text-xs font-bold text-[var(--color-primary)] hover:underline disabled:opacity-60';
+export const linkButton = 'cursor-pointer text-xs font-bold text-[var(--color-text-main)] hover:underline disabled:opacity-60';
 export const dangerLink = 'cursor-pointer text-xs font-bold text-[var(--color-danger)] hover:underline disabled:opacity-60';
 
 export const dateTime = (iso?: string | null) =>

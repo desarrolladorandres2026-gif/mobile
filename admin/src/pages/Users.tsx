@@ -2,6 +2,7 @@
  Search, CheckCircle2, RotateCw, X, Shield, UserCog, User, Store, Bike, Zap,
  Plus, Briefcase, KeyRound, Ban, Copy, History, ShieldOff, type LucideIcon,
 } from 'lucide-react';
+import { useLiveReload } from '../hooks/useLiveReload';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
 import EntityLink from '../components/EntityLink';
@@ -43,13 +44,13 @@ const roles: Array<{ value: string; label: string; description: string; icon: Lu
 
 const roleLabels: Record<string, { label: string; classes: string }> = {
  client: { label: 'Cliente', classes: 'text-[#8A5D08]' },
- business: { label: 'Negocio', classes: 'text-[var(--color-primary-light)]' },
- driver: { label: 'Domiciliario', classes: 'text-[var(--color-primary)]' },
+ business: { label: 'Negocio', classes: 'text-[var(--color-text-main)]' },
+ driver: { label: 'Domiciliario', classes: 'text-[var(--color-text-main)]' },
  admin: { label: 'Admin', classes: 'text-[var(--color-text-main)] font-extrabold' },
 };
 
 const statusMeta: Record<Status, { label: string; dot: string; text: string }> = {
- active: { label: 'Activo', dot: 'bg-[var(--color-primary)]', text: 'text-[var(--color-primary)]' },
+ active: { label: 'Activo', dot: 'bg-[var(--color-primary)]', text: 'text-[var(--color-text-main)]' },
  inactive: { label: 'Inactivo', dot: 'bg-[var(--color-text-muted)]', text: 'text-[var(--color-text-main)]' },
  blocked: { label: 'Bloqueado', dot: 'bg-[var(--color-danger)]', text: 'text-[var(--color-danger)]' },
 };
@@ -155,6 +156,7 @@ export default function Users() {
  };
 
  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+ useLiveReload(['users'], fetchUsers);
  useEffect(() => { fetchRbacCatalog(); }, []);
 
  useEffect(() => {
@@ -323,13 +325,6 @@ export default function Users() {
  <p className="page-subtitle">Administración de clientes, comercios, domiciliarios y administradores</p>
  </div>
  <div className="flex justify-center gap-2">
- <button
- onClick={fetchUsers}
- className="px-4 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-xs"
- >
- <RotateCw className="w-4 h-4 text-[var(--color-primary)]" />
- <span>Actualizar</span>
- </button>
  <PermissionGate permission={Permission.USERS_CREATE}>
  <button
  onClick={() => setCreatingStaff(true)}
@@ -362,7 +357,7 @@ export default function Users() {
  onClick={() => setRoleFilter(r)}
  className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${
  roleFilter === r
- ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-bold'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -379,7 +374,7 @@ export default function Users() {
  {/* Table */}
  {loading ? (
  <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
- <RotateCw className="w-6 h-6 text-[var(--color-primary)] animate-spin mx-auto mb-2" />
+ <RotateCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin mx-auto mb-2" />
  Cargando listado de usuarios...
  </div>
  ) : (
@@ -426,7 +421,7 @@ export default function Users() {
  {u.role === 'admin' && (
  <button
  onClick={() => openAccessModal(u)}
- className="flex items-center gap-1 text-[10px] text-[var(--color-text-main)] hover:text-[var(--color-primary)] cursor-pointer mt-0.5"
+ className="flex items-center gap-1 text-[10px] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer mt-0.5"
  >
  <Briefcase className="w-2.5 h-2.5" />
  {positionName || 'Sin cargo'}
@@ -469,7 +464,7 @@ export default function Users() {
  {status !== 'active' && (
  <button
  onClick={() => setConfirmStatus({ user: u, status: 'active' })}
- className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase border bg-[var(--color-primary-bg)] text-[var(--color-primary)] border-[var(--color-primary-bg)] hover:bg-[var(--color-primary-bg)] cursor-pointer"
+ className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase border bg-[var(--color-primary-bg)] text-[var(--color-text-main)] border-[var(--color-primary-bg)] hover:bg-[var(--color-primary-bg)] cursor-pointer"
  >
  Activar
  </button>
@@ -582,7 +577,7 @@ export default function Users() {
  <div ref={modalRef} className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5">
  <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
  <div className="flex items-center gap-2">
- <Shield className="w-5 h-5 text-[var(--color-primary)]" />
+ <Shield className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Tipo de Cuenta</h3>
  </div>
  <button onClick={() => setEditingUser(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
@@ -610,11 +605,11 @@ export default function Users() {
  onClick={() => setSelectedRole(role.value)}
  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer text-left ${
  isSelected
- ? 'border-[var(--color-primary)] bg-[var(--color-primary-bg)] text-[var(--color-primary)] shadow-xs'
+ ? 'border-[var(--color-primary)] bg-[var(--color-primary-bg)] text-[var(--color-text-main)] shadow-xs'
  : 'border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] text-[var(--color-text-main)]'
  }`}
  >
- <role.icon className={`w-5 h-5 ${isSelected ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-main)]'}`} />
+ <role.icon className={`w-5 h-5 ${isSelected ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`} />
  <div className="flex-1 min-w-0">
  <p className="text-xs font-bold text-[var(--color-text-main)]">{role.label}</p>
  <p className="text-[10px] opacity-80 text-[var(--color-text-main)]">{role.description}</p>
@@ -649,7 +644,7 @@ export default function Users() {
  <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5 max-h-[90vh] overflow-y-auto">
  <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
  <div className="flex items-center gap-2">
- <Shield className="w-5 h-5 text-[var(--color-primary)]" />
+ <Shield className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Cargo y Roles — {accessUser.name}</h3>
  </div>
  <button onClick={() => setAccessUser(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
@@ -679,7 +674,7 @@ export default function Users() {
  const checked = accessForm.roleIds.includes(r._id);
  return (
  <label key={r._id} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer select-none text-xs font-medium ${checked ? 'bg-[var(--color-primary-bg)] text-[#8A5D08]' : 'hover:bg-[var(--color-bg)] text-[var(--color-text-main)]'}`}>
- <input type="checkbox" checked={checked} onChange={() => toggleAccessRole(r._id)} className="w-3.5 h-3.5 rounded border-[var(--color-border)] text-[var(--color-primary)]" />
+ <input type="checkbox" checked={checked} onChange={() => toggleAccessRole(r._id)} className="w-3.5 h-3.5 rounded border-[var(--color-border)] text-[var(--color-text-main)]" />
  {r.name}
  </label>
  );
@@ -704,7 +699,7 @@ export default function Users() {
  lo de las demás personas está en Roles > Revisión de accesos. */}
  {authzMode === 'observe' && accessUser._id === currentUserId && observedPermissions.length > 0 && (
  <div>
- <label className="block text-[11px] font-bold text-[var(--color-warning)] uppercase tracking-wider mb-1.5">
+ <label className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5">
  Perdería al activar el bloqueo ({observedPermissions.length})
  </label>
  <div className="flex flex-wrap gap-x-2 gap-y-1 max-h-24 overflow-y-auto">
@@ -733,7 +728,7 @@ export default function Users() {
  <div className="zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-2.5">
  <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
  <div className="flex items-center gap-2">
- <KeyRound className="w-5 h-5 text-[var(--color-primary)]" />
+ <KeyRound className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Restablecer Contraseña</h3>
  </div>
  <button onClick={() => { setResetUser(null); setTempPassword(null); }} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
@@ -764,7 +759,7 @@ export default function Users() {
  <code className="flex-1 text-xs font-mono text-[var(--color-text-main)] break-all">{tempPassword}</code>
  <button
  onClick={() => { navigator.clipboard?.writeText(tempPassword); setToast({ message: 'Copiado al portapapeles', type: 'success' }); }}
- className="p-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-primary)] cursor-pointer"
+ className="p-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer"
  >
  <Copy className="w-3.5 h-3.5" />
  </button>
@@ -829,7 +824,7 @@ export default function Users() {
  <code className="flex-1 text-xs font-mono text-[var(--color-text-main)] break-all">{reset2faTempPassword}</code>
  <button
  onClick={() => { navigator.clipboard?.writeText(reset2faTempPassword); setToast({ message: 'Copiado al portapapeles', type: 'success' }); }}
- className="p-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-primary)] cursor-pointer"
+ className="p-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer"
  >
  <Copy className="w-3.5 h-3.5" />
  </button>
@@ -881,7 +876,7 @@ export default function Users() {
  {/* Toast Notification */}
  {toast && (
  <div className={`fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 shadow-lg animate-fade-in ${
- toast.type === 'success' ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)] text-[var(--color-primary)]' : 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)] text-[var(--color-danger)]'
+ toast.type === 'success' ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)] text-[var(--color-text-main)]' : 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)] text-[var(--color-danger)]'
  }`}>
  <CheckCircle2 className="w-4 h-4" />
  <span>{toast.message}</span>

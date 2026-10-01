@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import {
   OrderStatus,
@@ -449,4 +450,5 @@ orderSchema.index({ businessId: 1, createdAt: -1 });
 orderSchema.index({ businessId: 1, status: 1, createdAt: -1 });
 orderSchema.index({ driverId: 1, createdAt: -1 });
 
+orderSchema.plugin(realtimeInvalidatePlugin, { resource: 'orders' });
 export const Order = mongoose.model<IOrder>('Order', orderSchema);

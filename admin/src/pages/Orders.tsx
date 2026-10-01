@@ -1,3 +1,4 @@
+import { useLiveReload } from '../hooks/useLiveReload';
 import { Search, RotateCw, Eye, AlertCircle, Filter } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -133,6 +134,7 @@ export default function Orders() {
  }
  }, [statusFilter, debouncedSearch, page]);
 
+ useLiveReload(['orders'], fetchOrders);
  useEffect(() => {
  fetchOrders();
  }, [fetchOrders]);
@@ -174,13 +176,6 @@ export default function Orders() {
  <h1 className="page-title">Monitoreo de Pedidos</h1>
  <p className="page-subtitle">Historial en tiempo real de todas las solicitudes procesadas</p>
  </div>
- <button
- onClick={fetchOrders}
- className="px-4 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs"
- >
- <RotateCw className="w-4 h-4 text-[var(--color-primary)]" />
- <span>Actualizar lista</span>
- </button>
  </div>
 
  {/* Filter & Search Bar */}
@@ -205,7 +200,7 @@ export default function Orders() {
  aria-expanded={filterOpen}
  className="h-10 px-4 w-full md:w-auto bg-[var(--color-surface)] hover:bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2"
  >
- <Filter className="w-4 h-4 text-[var(--color-primary)]" />
+ <Filter className="w-4 h-4 text-[var(--color-text-main)]" />
  <span>Filtros{statusFilter !== 'all' ? `: ${filterOptions.find((f) => f.key === statusFilter)?.label}` : ''}</span>
  </button>
  {filterOpen && (
@@ -217,7 +212,7 @@ export default function Orders() {
  onClick={() => { setStatusFilter(f.key); setFilterOpen(false); }}
  className={`w-full text-left px-4 py-2 text-xs cursor-pointer hover:bg-[var(--color-bg)] ${
  statusFilter === f.key
- ? 'text-[var(--color-primary)] font-bold'
+ ? 'text-[var(--color-text-main)] font-bold'
  : 'text-[var(--color-text-main)] font-semibold'
  }`}
  >
@@ -238,7 +233,7 @@ export default function Orders() {
  {/* Table */}
  {loading ? (
  <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
- <RotateCw className="w-6 h-6 text-[var(--color-primary)] animate-spin mx-auto mb-2" />
+ <RotateCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin mx-auto mb-2" />
  Cargando listado de pedidos...
  </div>
  ) : (
@@ -266,7 +261,7 @@ export default function Orders() {
  onClick={() => openFicha('order', o._id)}
  className="cursor-pointer hover:!bg-[var(--color-bg-alt)] transition-colors"
  >
- <td className="table-body-cell font-mono text-[var(--color-primary)] font-bold text-xs">
+ <td className="table-body-cell font-mono text-[var(--color-text-main)] font-bold text-xs">
  <EntityLink type="order" id={o._id}>#{orderLabel(o)}</EntityLink>
  </td>
  <td className="table-body-cell font-semibold text-[var(--color-text-main)]">
@@ -315,7 +310,7 @@ export default function Orders() {
  e.stopPropagation();
  openFicha('order', o._id);
  }}
- className="p-1.5 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-primary)] transition-all cursor-pointer"
+ className="p-1.5 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] transition-all cursor-pointer"
  title="Ver detalle del pedido"
  >
  <Eye className="w-4 h-4" />

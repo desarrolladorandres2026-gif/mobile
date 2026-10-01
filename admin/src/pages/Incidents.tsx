@@ -1,8 +1,9 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
+import { useLiveReload } from '../hooks/useLiveReload';
 import { useNavigate } from 'react-router-dom';
 import {
  AlertTriangle, ShieldAlert, Banknote, MessageSquareWarning, Clock,
- RotateCw, ArrowRight, ShieldCheck, Scale, FileWarning, Megaphone, Undo2,
+ ArrowRight, ShieldCheck, Scale, FileWarning, Megaphone, Undo2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import api from '../services/api';
@@ -117,7 +118,7 @@ const SEVERITY: Record<Severity, { label: string; bar: string; chip: string }> =
  high: {
  label: 'Alto',
  bar: 'bg-[var(--color-warning)]',
- chip: 'text-[var(--color-warning)]',
+ chip: 'text-[var(--color-text-main)]',
  },
  medium: {
  label: 'Medio',
@@ -177,24 +178,9 @@ export default function Incidents() {
  }
  }, []);
 
- useEffect(() => {
- load();
- // Un centro de incidentes que hay que refrescar a mano deja de ser un
- // centro de incidentes en cuanto alguien se distrae. Medio minuto es
- // suficiente: son consultas de conteo, no de listado pesado.
- // Con la pestaña oculta no se pide nada; al volver se refresca de una.
- const timer = setInterval(() => {
- if (document.visibilityState === 'visible') load();
- }, 30_000);
- const onVisible = () => {
- if (document.visibilityState === 'visible') load();
- };
- document.addEventListener('visibilitychange', onVisible);
- return () => {
- clearInterval(timer);
- document.removeEventListener('visibilitychange', onVisible);
- };
- }, [load]);
+ useEffect(() => { load(); }, [load]);
+ // Se mantiene al día solo: `invalidate` por socket, más recarga al volver a la pestaña.
+ useLiveReload(['support', 'finance', 'orders', 'moderation'], load);
 
  // Una emergencia no puede depender del refresco de 30 segundos: llega por
  // socket a la sala `admin` (el backend mete ahí a todo administrador al
@@ -219,13 +205,6 @@ export default function Incidents() {
  Todo lo que está abierto ahora mismo, en un solo sitio y por gravedad
  </p>
  </div>
- <button
- onClick={load}
- className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-xs font-semibold text-[var(--color-text-main)] shadow-xs transition-all hover:bg-[var(--color-bg)]"
- >
- <RotateCw className="h-4 w-4 text-[var(--color-primary)]" />
- <span>Actualizar</span>
- </button>
  </div>
 
  {justArrived ? (
@@ -269,7 +248,7 @@ export default function Incidents() {
  onClick={() => setFilter(key)}
  className={`cursor-pointer px-3 py-1.5 text-xs font-semibold transition-colors border-b-2 ${
  filter === key
- ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-bold'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -325,7 +304,7 @@ export default function Incidents() {
  {/* Un incidente sin a dónde ir es una notificación. Las
  fichas se abren aquí mismo; quien no tiene el permiso
  de ver ese tipo no ve el enlace. */}
- <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-[var(--color-primary)]">
+ <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-[var(--color-text-main)]">
  <EntityLink type="order" id={incident.orderId} hideWhenDenied>Ver pedido</EntityLink>
  <EntityLink type="user" id={incident.userId} hideWhenDenied>Ver usuario</EntityLink>
  <EntityLink type="business" id={incident.businessId} hideWhenDenied>Ver comercio</EntityLink>

@@ -61,7 +61,7 @@ export function VersionHistory({ onClose, onRestore, canManage }: {
  <div className="flex items-baseline gap-2">
  <span className="font-mono text-sm font-bold text-[var(--color-text-main)]">v{row.version}</span>
  {row.version === current ? (
- <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)]">En la app</span>
+ <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">En la app</span>
  ) : null}
  <span className="ml-auto text-[11px] text-[var(--color-text-main)]">
  {new Date(row.publishedAt).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })}
@@ -75,7 +75,7 @@ export function VersionHistory({ onClose, onRestore, canManage }: {
  {canManage ? (
  <div className="flex gap-4 pt-1">
  <button type="button" onClick={() => onRestore(row.version, 'draft')}
- className="text-xs font-semibold text-[var(--color-primary)] cursor-pointer">
+ className="text-xs font-semibold text-[var(--color-text-main)] cursor-pointer">
  Traer al borrador
  </button>
  {row.version !== current ? (

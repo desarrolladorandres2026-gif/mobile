@@ -61,7 +61,7 @@ export default function Cash() {
  <h1 className="page-title">Efectivo por domiciliario</h1>
  <p className="page-subtitle">Lo que cada persona debe rendir a ZIPP, lo declarado y lo vencido</p>
  </div>
- <Link to="/financials" className="text-xs font-semibold text-[var(--color-primary)] underline underline-offset-2">
+ <Link to="/financials" className="text-xs font-semibold text-[var(--color-text-main)] underline underline-offset-2">
  Verificar consignaciones en Finanzas
  </Link>
  </div>

@@ -12,6 +12,9 @@ const router = Router({ mergeParams: true });
 router.get('/profile-360', requirePermission(Permission.ORDERS_VIEW_ALL), (req, res, next) =>
   adminOrdersController.profile360(req, res, next)
 );
+router.get('/payment-refs', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
+  adminOrdersController.paymentRefs(req, res, next)
+);
 router.post('/unassign-driver', requirePermission(Permission.ORDERS_ASSIGN_DRIVER), (req, res, next) =>
   adminOrdersController.unassignDriver(req, res, next)
 );

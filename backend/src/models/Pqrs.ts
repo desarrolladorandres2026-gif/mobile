@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 export interface IPqrs extends Document { userId: Types.ObjectId; type: 'petition'|'complaint'|'claim'|'suggestion'; subject: string; detail: string; status: 'received'|'in_review'|'answered'|'closed'; evidence: Array<{ url: string; name: string; uploadedAt: Date }>; responses: Array<{ message: string; userId: Types.ObjectId; createdAt: Date }>;
   /**
@@ -63,4 +64,5 @@ pqrsSchema.index({ assignedTo: 1, status: 1 });
 pqrsSchema.index({ orderId: 1 });
 pqrsSchema.index({ businessId: 1, createdAt: -1 });
 pqrsSchema.index({ driverId: 1, createdAt: -1 });
+pqrsSchema.plugin(realtimeInvalidatePlugin, { resource: 'support' });
 export const Pqrs = mongoose.model<IPqrs>('Pqrs', pqrsSchema);

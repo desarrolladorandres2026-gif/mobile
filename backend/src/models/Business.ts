@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { BusinessCategory, GeoPoint, WeekSchedule } from '../types';
 import { normalize } from '../utils/text';
@@ -564,4 +565,5 @@ businessSchema.plugin(cacheInvalidationPlugin, {
   },
 });
 
+businessSchema.plugin(realtimeInvalidatePlugin, { resource: 'businesses' });
 export const Business = mongoose.model<IBusiness>('Business', businessSchema);

@@ -43,7 +43,7 @@ function Segmented<T extends string>({ value, options, onChange }: {
  aria-pressed={value === option.id}
  className={`px-3 h-8 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
  value === option.id
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -183,7 +183,7 @@ function ManualProductPicker({ ids, onChange, businesses, known, onKnown }: {
  <span className="truncate">{p.name}</span>
  {ids.includes(p._id)
  ? <span className="text-[var(--color-text-main)]">Elegido</span>
- : <Plus className="w-3.5 h-3.5 text-[var(--color-primary)]" />}
+ : <Plus className="w-3.5 h-3.5 text-[var(--color-text-main)]" />}
  </button>
  </li>
  ))}
@@ -394,7 +394,7 @@ function BandEditor({ section, onChange, options }: {
  ))}
  {section.pattern.length < 6 ? (
  <button type="button" onClick={() => setPattern([...section.pattern, { kind: 'carousel', rows: 1, card: 'compact' }])}
- className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)] cursor-pointer">
+ className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] cursor-pointer">
  <Plus className="w-3.5 h-3.5" /> Agregar posición al patrón
  </button>
  ) : null}
@@ -438,7 +438,7 @@ export function SectionEditor({ section, onChange, options, businesses, knownPro
  return (
  <div className="space-y-5">
  <div>
- <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-primary)]">{TYPE_LABEL[section.type]}</p>
+ <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{TYPE_LABEL[section.type]}</p>
  <p className="text-xs text-[var(--color-text-main)] mt-1">{TYPE_HINT[section.type]}</p>
  </div>
 
@@ -486,7 +486,7 @@ export function SectionEditor({ section, onChange, options, businesses, knownPro
  <VisibilityFields rules={section.rules} onChange={(rules) => onChange({ ...section, rules })} />
  ) : (
  <button type="button" onClick={() => setShowRules(true)}
- className="text-xs font-semibold text-[var(--color-primary)] cursor-pointer pt-5 border-t border-[var(--color-border-light)] w-full text-left">
+ className="text-xs font-semibold text-[var(--color-text-main)] cursor-pointer pt-5 border-t border-[var(--color-border-light)] w-full text-left">
  Programar cuándo se muestra (franja, días, fechas)
  </button>
  )}

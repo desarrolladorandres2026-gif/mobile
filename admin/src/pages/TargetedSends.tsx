@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, RotateCw, Send } from 'lucide-react';
+import { useLiveReload } from '../hooks/useLiveReload';
+import { AlertCircle, Send } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
@@ -94,6 +95,7 @@ export default function TargetedSends() {
  }
  }, []);
 
+ useLiveReload(['campaigns'], loadHistory);
  useEffect(() => {
  loadHistory();
  fetchBusinessOptions(queryClient)
@@ -101,13 +103,9 @@ export default function TargetedSends() {
  .catch(() => setBusinesses([]));
  }, [loadHistory, queryClient]);
 
- // Mientras haya un envío en curso, se refresca solo el historial.
+
+ // Un envío en curso bloquea uno nuevo; el historial se mantiene al día por `invalidate` (campaigns).
  const sending = history.some((h) => h.status === 'sending');
- useEffect(() => {
- if (!sending) return;
- const t = setInterval(loadHistory, 5000);
- return () => clearInterval(t);
- }, [sending, loadHistory]);
 
  // Cambiar el segmento invalida la vista previa: confirmar exige verla de nuevo.
  useEffect(() => { setReach(null); }, [role, city, businessId, inactive, minOrders]);
@@ -264,9 +262,6 @@ export default function TargetedSends() {
  <div>
  <div className="mb-2 flex items-center justify-between">
  <h2 className="text-sm font-bold text-[var(--color-text-main)]">Historial</h2>
- <button onClick={loadHistory} className="cursor-pointer text-xs font-semibold text-[var(--color-primary)]">
- <RotateCw className="mr-1 inline h-3 w-3" /> Actualizar
- </button>
  </div>
  {history.length === 0 ? (
  <p className="py-8 text-center text-xs font-semibold text-[var(--color-text-main)]">Aún no se ha enviado nada.</p>

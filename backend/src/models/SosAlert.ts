@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 /**
@@ -83,4 +84,5 @@ sosAlertSchema.index({ status: 1, createdAt: -1 });
 sosAlertSchema.index({ driverId: 1, createdAt: -1 });
 sosAlertSchema.index({ location: '2dsphere' });
 
+sosAlertSchema.plugin(realtimeInvalidatePlugin, { resource: 'support' });
 export const SosAlert = mongoose.model<ISosAlert>('SosAlert', sosAlertSchema);

@@ -1,5 +1,6 @@
 ﻿import { Fragment, useCallback, useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle, RotateCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { useLiveReload } from '../hooks/useLiveReload';
+import { AlertCircle, CheckCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
@@ -87,7 +88,7 @@ const DOCUMENT_LABELS: Record<DocumentType, string> = {
 
 const STATUS_STYLES: Record<BusinessDoc['status'], { label: string; className: string }> = {
  approved: { label: 'Aprobado', className: 'text-[#047857]' },
- pending: { label: 'Por revisar', className: 'text-[var(--color-warning)]' },
+ pending: { label: 'Por revisar', className: 'text-[var(--color-text-main)]' },
  rejected: { label: 'Rechazado', className: 'text-[var(--color-danger)]' },
  expired: { label: 'Vencido', className: 'text-[var(--color-danger)]' },
 };
@@ -123,6 +124,7 @@ export default function BusinessApprovals() {
  }
  }, []);
 
+ useLiveReload(['businesses'], fetchPending);
  useEffect(() => { fetchPending(); }, [fetchPending]);
 
  // Los datos fiscales y la cuenta no viajan en la cola: se piden al abrir el
@@ -222,12 +224,6 @@ export default function BusinessApprovals() {
  {pending.length} por revisar. Aprobar fija los términos con los que se le paga: documentos, datos fiscales y cuenta de pago verificada.
  </p>
  </div>
- <button
- onClick={fetchPending}
- className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--color-border)] px-4 py-2 text-xs font-semibold text-[var(--color-text-main)]"
- >
- <RotateCw className="h-4 w-4 text-[var(--color-primary)]" /> Actualizar
- </button>
  </div>
 
  {error && (
@@ -299,7 +295,7 @@ export default function BusinessApprovals() {
  <Fragment key={business._id}>
  <tr>
  <td className="table-body-cell">
- <button onClick={() => openBusiness(business._id)} className="flex cursor-pointer items-center gap-1 text-left text-[var(--color-primary)]">
+ <button onClick={() => openBusiness(business._id)} className="flex cursor-pointer items-center gap-1 text-left text-[var(--color-text-main)]">
  {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
  {business.name}
  </button>
@@ -311,12 +307,12 @@ export default function BusinessApprovals() {
  {business.ownerId?.name ?? 'Sin asignar'}
  {business.ownerId?.phone ? ` · ${business.ownerId.phone}` : ''}
  </td>
- <td className="table-body-cell wrap text-[var(--color-warning)]">{blockers.length ? blockers.join(' · ') : '—'}</td>
+ <td className="table-body-cell wrap text-[var(--color-text-main)]">{blockers.length ? blockers.join(' · ') : '—'}</td>
  <td className="table-body-cell">
  {/* Nunca deshabilitado: si algo falta, el servidor lo dice y enseña qué. */}
  <button
  onClick={() => approveBusiness(business._id)}
- className={blockers.length === 0 ? 'cursor-pointer text-[var(--color-primary)]' : 'cursor-pointer text-[var(--color-text-main)]'}
+ className={blockers.length === 0 ? 'cursor-pointer text-[var(--color-text-main)]' : 'cursor-pointer text-[var(--color-text-main)]'}
  >
  {working === business._id ? 'Aprobando…' : 'Aprobar comercio'}
  </button>
@@ -353,9 +349,9 @@ export default function BusinessApprovals() {
  {p.holderDocument ? ` (${p.holderDocument})` : p.holderDocumentMasked ? ` (${p.holderDocumentMasked})` : ''}
  </p>
  {p.holderMatchesLegal === false && (
- <p className="font-semibold text-[var(--color-warning)]">El titular no coincide con el documento fiscal del comercio.</p>
+ <p className="font-semibold text-[var(--color-text-main)]">El titular no coincide con el documento fiscal del comercio.</p>
  )}
- <p className={p.verificationStatus === 'verified' ? 'font-bold text-[#047857]' : 'font-bold text-[var(--color-warning)]'}>
+ <p className={p.verificationStatus === 'verified' ? 'font-bold text-[#047857]' : 'font-bold text-[var(--color-text-main)]'}>
  {p.verificationStatus === 'verified' ? 'Verificada por finanzas' : 'Pendiente de verificación'}
  </p>
  {(canProcessPayouts || canRevealAccount) && (
@@ -414,7 +410,7 @@ export default function BusinessApprovals() {
  <img src={doc.fileUrl} alt={DOCUMENT_LABELS[doc.type]} loading="lazy" className="h-12 w-12 object-cover" />
  </a>
  ) : doc.hasFile && doc.fileUrl ? (
- <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-[var(--color-primary)]">PDF</a>
+ <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-[var(--color-text-main)]">PDF</a>
  ) : (
  <span className="text-[var(--color-text-main)]">Sin archivo</span>
  )}
@@ -441,7 +437,7 @@ export default function BusinessApprovals() {
  </button>
  )}
  {!doc.hasFile && /^https?:\/\//i.test(doc.reference) && (
- <a href={doc.reference} target="_blank" rel="noreferrer" className="text-[var(--color-primary)]">Enlace</a>
+ <a href={doc.reference} target="_blank" rel="noreferrer" className="text-[var(--color-text-main)]">Enlace</a>
  )}
  </div>
  </td>

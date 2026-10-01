@@ -73,10 +73,43 @@ export interface OrderFinanceView {
  appliedCommissionBps?: number;
 }
 
+/** Resumen interno de dinero del pedido; lo arma el servidor según el método real. */
+export interface OrderMoneySummary {
+ kind: 'cash' | 'online';
+ provider: string | null;
+ rail: string | null;
+ railRaw: string | null;
+ paymentStatus?: string;
+ customerTotal: number | null;
+ driverPayout: number | null;
+ /** ¿Entró dinero de verdad? Efectivo recibido o cobro capturado. */
+ collected?: boolean;
+ gatewayFee: number;
+ gatewayFeeApplies: boolean;
+ /** 0 = no reembolsable, 10000 = toda, intermedio = parcial; null = sin definir. */
+ gatewayFeeRefundBps?: number | null;
+ // Solo con `commissions:view`.
+ merchantCommission?: number | null;
+ merchantNet?: number | null;
+ platformGross?: number | null;
+ /** Del libro mayor (misma definición que Resumen diario y Finanzas); null = sin asientos. */
+ platformResult?: number | null;
+}
+
+export interface OrderProfile360ItemExtra {
+ name: string;
+ price: number;
+ quantity: number;
+}
+
 export interface OrderProfile360Item {
  name: string;
  quantity: number;
  price?: number;
+ /** Total real del item (incluye adicionales); fuente de verdad para el subtotal mostrado. */
+ totalPrice?: number;
+ extras?: OrderProfile360ItemExtra[];
+ notes?: string;
 }
 
 export interface OrderProfile360Data {
@@ -137,7 +170,23 @@ export interface OrderProfile360Data {
  } | null;
  /** null sin `finance:view`. */
  money: {
- payments: Array<{ _id: string; amount: number; status: string; method?: string; createdAt: string }>;
+ summary?: OrderMoneySummary | null;
+ payments: Array<{
+ _id: string;
+ amount: number;
+ status: string;
+ method?: string;
+ paymentMethodType?: string | null;
+ createdAt: string;
+ gatewayFee?: {
+ total: number;
+ source: 'ledger' | 'estimate' | 'unconfigured';
+ percentage: number | null;
+ fixed: number | null;
+ vat: number | null;
+ } | null;
+ netReceived?: number | null;
+ }>;
  refunds?: Array<{ _id: string; amount: number; status: string; kind?: string; reason?: string; createdAt: string }>;
  payouts: Array<{ _id: string; beneficiary?: string; amount?: number; netAmount?: number; status: string; createdAt?: string }>;
  ledgerHref?: string;

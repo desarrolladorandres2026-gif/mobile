@@ -67,7 +67,7 @@ export function SectionList({
  ) : null}
  <button type="button" onClick={() => onSelect(section.id)} className="flex-1 min-w-0 text-left cursor-pointer">
  <div className="flex items-baseline gap-2">
- <span className={`font-mono text-xs ${selected ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-main)]'}`}>
+ <span className={`font-mono text-xs ${selected ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}>
  {String(index + 1).padStart(2, '0')}
  </span>
  <span className={`text-sm font-semibold truncate ${section.hidden ? 'text-[var(--color-text-main)] line-through' : 'text-[var(--color-text-main)]'}`}>

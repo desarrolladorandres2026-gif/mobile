@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { cacheInvalidationPlugin, CachePrefix } from '../cache';
 
@@ -50,4 +51,5 @@ positionSchema.plugin(cacheInvalidationPlugin, {
   prefixesFor: () => [CachePrefix.AUTHZ],
 });
 
+positionSchema.plugin(realtimeInvalidatePlugin, { resource: 'settings' });
 export const Position = mongoose.model<IPosition>('Position', positionSchema);

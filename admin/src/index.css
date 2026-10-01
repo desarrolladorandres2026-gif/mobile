@@ -302,6 +302,17 @@
 .data-grid td.wrap {
   white-space: normal;
 }
+/* Fila de sección dentro de una tabla unificada: separa bloques por
+   tipografía y una línea, nunca por una caja de color. */
+.data-grid td.section-row {
+  padding-top: 0.6rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  background-color: var(--color-bg-alt);
+}
 .data-grid th {
   background-color: var(--color-bg-alt);
 }

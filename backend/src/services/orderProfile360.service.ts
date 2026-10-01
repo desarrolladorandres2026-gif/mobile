@@ -1,3 +1,4 @@
+import { isValidObjectId } from 'mongoose';
 import {
   Order,
   Business,
@@ -7,6 +8,7 @@ import {
   Payment,
   Refund,
   Payout,
+  LedgerEntry,
   Review,
   Pqrs,
   CashPaymentIncident,
@@ -16,7 +18,10 @@ import {
   OrderEvidence,
 } from '../models';
 import { AppError } from '../middlewares';
-import { OrderStatus, OrderKind, PaymentStatus, UserRole } from '../types';
+import { OrderStatus, OrderKind, PaymentStatus, PaymentMethod, PaymentType, LedgerAccount, LedgerDirection, UserRole } from '../types';
+import { pricingConfigService } from './pricingConfig.service';
+import { platformResultService } from './platformResult.service';
+import { gatewayFeeBreakdown, gatewayFeeMethod } from '../utils/gatewayFee';
 import { Permission } from '../security/rbac';
 import { resolveOrderAccess } from './orderAccess.service';
 import { orderTimelineService } from './orderTimeline.service';
@@ -114,6 +119,9 @@ export async function profile360(input: Profile360Input) {
     cashIncidents,
     sos,
     notes,
+    gatewayLedger,
+    pricingConfig,
+    ledgerResult,
   ] = await Promise.all([
     orderTimelineService.forOrder(access),
     canEvidences ? orderSecurityService.getState(oid.toString()) : Promise.resolve(null),
@@ -124,7 +132,7 @@ export async function profile360(input: Profile360Input) {
     OrderMessage.countDocuments({ orderId: oid }),
     OrderCall.countDocuments({ orderId: oid }),
     canEvidences ? OrderEvidence.countDocuments({ orderId: oid }) : Promise.resolve(0),
-    canFinance ? Payment.find({ orderId: oid }).sort({ createdAt: -1 }).limit(20).select('amount status method createdAt').lean() : empty,
+    canFinance ? Payment.find({ orderId: oid, type: PaymentType.ORDER_PAYMENT }).sort({ createdAt: -1 }).limit(20).select('amount status method paymentMethodType createdAt').lean() : empty,
     canFinance && canRefundsView ? Refund.find({ orderId: oid }).sort({ createdAt: -1 }).limit(20).select('amount status kind reason createdAt').lean() : empty,
     canFinance ? Payout.find({ orderId: oid }).limit(10).select('beneficiary amount reversedAmount status createdAt').lean() : empty,
     Review.findOne({ orderId: oid }).select('businessRating driverRating comment createdAt').lean(),
@@ -132,6 +140,13 @@ export async function profile360(input: Profile360Input) {
     canFinance ? CashPaymentIncident.find({ orderId: oid }).limit(10).select('status amount createdAt').lean() : empty,
     canSos ? SosAlert.find({ orderId: oid }).sort({ createdAt: -1 }).limit(10).select('status note createdAt').lean() : empty,
     internalNoteService.listFor({ entityType: 'order', entityId: oid.toString(), limit: 20, actor: input.noteActor }),
+    // Lo que realmente se asentó como costo de pasarela (idempotente por cobro).
+    canFinance
+      ? LedgerEntry.find({ orderId: oid, account: LedgerAccount.PAYMENT_PROCESSING_EXPENSE }).select('direction amount').lean()
+      : empty,
+    canFinance ? pricingConfigService.getCurrent() : Promise.resolve(null),
+    // Resultado por pedido con la MISMA definición del Resumen diario y Finanzas.
+    canFinance && canCommissions ? platformResultService.forOrder(oid) : Promise.resolve(null),
   ]);
 
   // Nombres de los domiciliarios de las ofertas (una consulta).
@@ -185,6 +200,78 @@ export async function profile360(input: Profile360Input) {
 
   const driverUser = driver?.userId as any;
 
+  // ── Dinero según el método de pago real ──
+  // El costo de pasarela solo existe en un cobro online capturado. En
+  // efectivo es 0 por definición; en un intento pendiente o fallido no se ha
+  // procesado nada. El total sale del libro (lo realmente asentado) y solo si
+  // no hay asiento se estima con la configuración vigente.
+  const isCash = order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY;
+  const ledgerFee = (gatewayLedger as any[]).reduce(
+    (s, e) => s + (e.direction === LedgerDirection.DEBIT ? e.amount : -e.amount),
+    0
+  );
+  const isCaptured = (p: any) =>
+    p.method === PaymentMethod.ONLINE && (p.status === PaymentStatus.PAID || p.status === PaymentStatus.REFUNDED);
+  const capturedCount = (payments as any[]).filter(isCaptured).length;
+  const capturedIdx = (payments as any[]).findIndex(isCaptured);
+  const feeFor = (p: any, idx: number) => {
+    if (!pricingConfig || !isCaptured(p)) return null;
+    const parts = gatewayFeeBreakdown(pricingConfig as any, p.paymentMethodType, p.amount);
+    // El asiento es del pedido, no de un intento: con un solo cobro capturado es
+    // de ese cobro; con varios no se reparte (se estima cada uno y el resumen
+    // conserva el total asentado).
+    const recorded = ledgerFee > 0 && capturedCount === 1 && idx === capturedIdx;
+    const total = recorded ? ledgerFee : parts.total;
+    // Si la tarifa cambió después de cobrar, las partes de hoy ya no suman lo asentado.
+    const partsMatch = parts.total === total;
+    return {
+      total,
+      source: recorded ? 'ledger' : parts.total > 0 ? 'estimate' : 'unconfigured',
+      percentage: partsMatch ? parts.percentage : null,
+      fixed: partsMatch ? parts.fixed : null,
+      vat: partsMatch ? parts.vat : null,
+    };
+  };
+  const capturedPayment: any = capturedIdx >= 0 ? (payments as any[])[capturedIdx] : null;
+  const capturedFee = capturedPayment ? feeFor(capturedPayment, capturedIdx) : null;
+  const lastPayment: any = (payments as any[])[0] ?? null;
+  const railType: string | null = (capturedPayment ?? lastPayment)?.paymentMethodType ?? null;
+  // Con varios cobros capturados manda el libro, que es lo realmente asentado.
+  const gatewayFeeTotal = isCash ? 0 : capturedCount > 1 && ledgerFee > 0 ? ledgerFee : capturedFee?.total ?? 0;
+  // ¿Entró dinero de verdad? Efectivo: lo recibió el domiciliario; online: capturado por la pasarela.
+  const collected = isCash
+    ? order.paymentStatus === PaymentStatus.CASH_RECEIVED || order.paymentStatus === PaymentStatus.PAID
+    : order.paymentStatus === PaymentStatus.PAID;
+  const fin = finance as Record<string, number> | undefined;
+  const summary = canFinance
+    ? {
+        kind: isCash ? 'cash' : 'online',
+        provider: isCash ? null : 'Wompi',
+        rail: isCash ? null : railType ? gatewayFeeMethod(railType) === 'other' ? railType : gatewayFeeMethod(railType) : null,
+        railRaw: isCash ? null : railType,
+        paymentStatus: order.paymentStatus,
+        customerTotal: fin?.customerTotal ?? null,
+        driverPayout: fin?.driverPayout ?? null,
+        collected,
+        gatewayFee: gatewayFeeTotal,
+        gatewayFeeApplies: !isCash && !!capturedFee,
+        // Política vigente de la config (no la de la fecha del cobro). null = sin definir:
+        // no se asume que Wompi devuelva ni que retenga su comisión al reembolsar.
+        gatewayFeeRefundBps: pricingConfig?.gatewayFeeRefundBps ?? null,
+        ...(canCommissions && fin
+          ? {
+              merchantCommission: fin.merchantCommission ?? null,
+              merchantNet: fin.businessPayout ?? null,
+              // Del libro, no de la foto de la cotización: incluye reversos, faltantes de
+              // efectivo y la comisión de pasarela realmente asentada. null = sin asientos.
+              platformGross: ledgerResult?.grossRevenue ?? null,
+              platformResult: ledgerResult?.netAfterGatewayCosts ?? null,
+              platformResultSource: 'ledger',
+            }
+          : {}),
+      }
+    : null;
+
   return {
     order: {
       _id: String(oid),
@@ -200,7 +287,14 @@ export async function profile360(input: Profile360Input) {
       cancelledBy: order.cancelledBy ?? null,
       paymentMethod: order.paymentMethod,
       paymentStatus: order.paymentStatus,
-      items: order.items.map((i) => ({ name: i.productName, quantity: i.quantity, price: i.unitPrice })),
+      items: order.items.map((i) => ({
+        name: i.productName,
+        quantity: i.quantity,
+        price: i.unitPrice,
+        totalPrice: i.totalPrice,
+        extras: (i.selectedExtras ?? []).map((e) => ({ name: e.name, price: e.price, quantity: e.quantity ?? 1 })),
+        notes: i.notes || undefined,
+      })),
       errand,
       city: order.city,
       zoneId: order.zoneId ? String(order.zoneId) : null,
@@ -240,13 +334,20 @@ export async function profile360(input: Profile360Input) {
       : null,
     money: canFinance
       ? {
-          payments: payments.map((p: any) => ({
-            _id: String(p._id),
-            amount: p.amount,
-            status: p.status,
-            method: p.method,
-            createdAt: iso(p.createdAt),
-          })),
+          summary,
+          payments: payments.map((p: any, i: number) => {
+            const fee = feeFor(p, i);
+            return {
+              _id: String(p._id),
+              amount: p.amount,
+              status: p.status,
+              method: p.method,
+              paymentMethodType: p.paymentMethodType ?? null,
+              createdAt: iso(p.createdAt),
+              gatewayFee: fee,
+              netReceived: fee ? p.amount - fee.total : null,
+            };
+          }),
           ...(canRefundsView
             ? {
                 refunds: refunds.map((r: any) => ({
@@ -352,4 +453,29 @@ export async function resendNotification(orderId: string, audience: NotifyAudien
   return { sent: true, audience, template };
 }
 
-export const orderProfile360Service = { profile360, resendNotification };
+/**
+ * Identificadores del cobro para auditoría y conciliación con Wompi. Van en
+ * una respuesta propia y no en `profile-360` a propósito: esa ficha tiene un
+ * test que prohíbe `transactionId`/`reference` en `money`, y aquí solo llega
+ * quien pide expresamente ver referencias (finance:view).
+ */
+async function paymentRefs(orderId: string) {
+  if (!isValidObjectId(orderId)) throw new AppError('Pedido no encontrado', 404);
+  if (!(await Order.exists({ _id: orderId }))) throw new AppError('Pedido no encontrado', 404);
+  const payments = await Payment.find({ orderId, type: PaymentType.ORDER_PAYMENT })
+    .sort({ createdAt: -1 })
+    .limit(20)
+    .select('method status paymentMethodType transactionId reference createdAt')
+    .lean();
+  return payments.map((p: any) => ({
+    paymentId: String(p._id),
+    method: p.method,
+    status: p.status,
+    paymentMethodType: p.paymentMethodType ?? null,
+    transactionId: p.transactionId ?? null,
+    reference: p.reference ?? null,
+    createdAt: iso(p.createdAt),
+  }));
+}
+
+export const orderProfile360Service = { profile360, resendNotification, paymentRefs };

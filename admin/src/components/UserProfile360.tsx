@@ -80,7 +80,7 @@ function Section({
  return (
  <div className="space-y-2 border-t border-[var(--color-border-light)] py-4">
  <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
- <Icon className="h-3 w-3 text-[var(--color-primary)]" /> {title}
+ <Icon className="h-3 w-3 text-[var(--color-text-main)]" /> {title}
  </span>
  {empty ? <p className="text-[var(--color-text-main)]">Nada por aquí.</p> : children}
  </div>
@@ -158,7 +158,7 @@ export default function UserProfile360({
  setViewError('');
  setWantFull(currentView !== 'full');
  }}
- className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-primary)]"
+ className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]"
  >
  {currentView === 'full' ? (
  <><EyeOff className="h-3 w-3" /> Volver a la vista enmascarada</>

@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
+import { useLiveReload } from '../hooks/useLiveReload';
 import {
  Search, RotateCw, Plus, X, CheckCircle2, Briefcase, Pencil, Trash2, Users as UsersIcon,
 } from 'lucide-react';
@@ -55,6 +56,7 @@ export default function Positions() {
  }
  };
 
+ useLiveReload(['settings', 'users'], fetchAll);
  useEffect(() => { fetchAll(); }, []);
 
  useEffect(() => {
@@ -149,13 +151,6 @@ export default function Positions() {
  <p className="page-subtitle">El puesto de cada persona en la organización. Cada cargo trae consigo los roles que le asignes.</p>
  </div>
  <div className="flex justify-center gap-2">
- <button
- onClick={fetchAll}
- className="px-4 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-xs"
- >
- <RotateCw className="w-4 h-4 text-[var(--color-primary)]" />
- <span>Actualizar</span>
- </button>
  <PermissionGate permission={Permission.POSITIONS_CREATE}>
  <button
  onClick={openCreate}
@@ -183,7 +178,7 @@ export default function Positions() {
 
  {loading ? (
  <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
- <RotateCw className="w-6 h-6 text-[var(--color-primary)] animate-spin mx-auto mb-2" />
+ <RotateCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin mx-auto mb-2" />
  Cargando cargos...
  </div>
  ) : (
@@ -203,7 +198,7 @@ export default function Positions() {
  <tr key={p._id} className="hover:bg-[var(--color-bg)] transition-colors">
  <td className="table-body-cell">
  <div className="flex items-center gap-2">
- <Briefcase className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+ <Briefcase className="w-3.5 h-3.5 text-[var(--color-text-main)]" />
  <div>
  <p className="text-xs font-bold text-[var(--color-text-main)]">{p.name}</p>
  {p.description && <p className="text-[10px] text-[var(--color-text-main)]">{p.description}</p>}
@@ -222,7 +217,7 @@ export default function Positions() {
  </td>
  <td className="table-body-cell">
  <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${
- p.isActive ? 'text-[var(--color-primary)]' : 'text-[var(--color-danger)]'
+ p.isActive ? 'text-[var(--color-text-main)]' : 'text-[var(--color-danger)]'
  }`}>
  <span className={`w-1.5 h-1.5 rounded-full ${p.isActive ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-danger)]'}`} />
  {p.isActive ? 'Activo' : 'Inactivo'}
@@ -285,7 +280,7 @@ export default function Positions() {
  <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5 max-h-[90vh] overflow-y-auto">
  <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
  <div className="flex items-center gap-2">
- <Briefcase className="w-5 h-5 text-[var(--color-primary)]" />
+ <Briefcase className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">{editing ? 'Editar Cargo' : 'Nuevo Cargo'}</h3>
  </div>
  <button onClick={closeModal} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
@@ -327,7 +322,7 @@ export default function Positions() {
  checked ? 'bg-[var(--color-primary-bg)] text-[#8A5D08]' : 'hover:bg-[var(--color-bg)] text-[var(--color-text-main)]'
  }`}
  >
- <input type="checkbox" checked={checked} onChange={() => toggleRole(r._id)} className="w-3.5 h-3.5 rounded border-[var(--color-border)] text-[var(--color-primary)]" />
+ <input type="checkbox" checked={checked} onChange={() => toggleRole(r._id)} className="w-3.5 h-3.5 rounded border-[var(--color-border)] text-[var(--color-text-main)]" />
  {r.name}
  </label>
  );
@@ -407,7 +402,7 @@ export default function Positions() {
 
  {toast && (
  <div className={`fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 shadow-lg animate-fade-in ${
- toast.type === 'success' ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)] text-[var(--color-primary)]' : 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)] text-[var(--color-danger)]'
+ toast.type === 'success' ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)] text-[var(--color-text-main)]' : 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)] text-[var(--color-danger)]'
  }`}>
  <CheckCircle2 className="w-4 h-4" />
  <span>{toast.message}</span>

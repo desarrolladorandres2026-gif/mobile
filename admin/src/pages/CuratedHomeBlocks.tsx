@@ -93,9 +93,9 @@ const ITEM_BOUNDS: Record<BlockKind, { min: number; max: number }> = {
 };
 
 const STATUS_STYLES: Record<BlockStatus, { label: string; bg: string; text: string }> = {
- active: { label: 'Activo', bg: '#FDF7E7', text: '#D69E26' },
- scheduled: { label: 'Programado', bg: '#FDF7E7', text: '#D69E26' },
- expired: { label: 'Vencido', bg: '#FEF3C7', text: '#F59E0B' },
+ active: { label: 'Activo', bg: '#FDF7E7', text: 'var(--color-text-main)' },
+ scheduled: { label: 'Programado', bg: '#FDF7E7', text: 'var(--color-text-main)' },
+ expired: { label: 'Vencido', bg: '#FEF3C7', text: 'var(--color-text-main)' },
  inactive: { label: 'Inactivo', bg: '#EDF1F5', text: '#0B0F19' },
 };
 
@@ -350,7 +350,7 @@ export default function CuratedHomeBlocks() {
  <div className="border-b border-[var(--color-border-light)] pb-3">
  <button
  onClick={() => setShowOrderMap((v) => !v)}
- className="cursor-pointer text-xs font-bold text-[var(--color-primary)]"
+ className="cursor-pointer text-xs font-bold text-[var(--color-text-main)]"
  >
  {showOrderMap ? 'Ocultar' : 'Ver'} el orden del Inicio
  </button>
@@ -384,7 +384,7 @@ export default function CuratedHomeBlocks() {
  key={k}
  onClick={() => setKindFilter(k)}
  className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${kindFilter === k
- ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-bold'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -444,7 +444,7 @@ export default function CuratedHomeBlocks() {
  </td>
  <td className="table-body-cell text-xs text-[var(--color-text-main)]">{b.items.length}</td>
  <td className="table-body-cell">
- <span className="text-[var(--color-primary)] font-mono font-bold text-[11px]">
+ <span className="text-[var(--color-text-main)] font-mono font-bold text-[11px]">
  {b.order}
  </span>
  </td>
@@ -468,7 +468,7 @@ export default function CuratedHomeBlocks() {
  <PermissionGate permission={Permission.CONTENT_MANAGE}>
  <button
  onClick={() => openEdit(b)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Editar bloque"
  >
  <Pencil className="w-4 h-4" />
@@ -515,7 +515,7 @@ export default function CuratedHomeBlocks() {
  <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <LayoutGrid className="w-5 h-5 text-[var(--color-primary)]" />
+ <LayoutGrid className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
  {editingId ? 'Editar Bloque' : 'Nuevo Bloque Curado'}
  </h3>
@@ -620,7 +620,7 @@ export default function CuratedHomeBlocks() {
  onClick={() => toggleItem(item.id)}
  disabled={disabled}
  className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-xs font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
- selected ? 'bg-[var(--color-primary-bg)] text-[var(--color-primary)]' : 'text-[var(--color-text-main)] hover:bg-[var(--color-bg)]'
+ selected ? 'bg-[var(--color-primary-bg)] text-[var(--color-text-main)]' : 'text-[var(--color-text-main)] hover:bg-[var(--color-bg)]'
  }`}
  >
  <span className="truncate">{item.label}</span>

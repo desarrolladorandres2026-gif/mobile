@@ -38,6 +38,8 @@ interface PricingConfig {
  gatewayNequiFixed: number;
  gatewayOtherBps: number;
  gatewayOtherFixed: number;
+ gatewayFeeVatBase?: 'total' | 'fixed';
+ gatewayFeeRefundBps?: number | null;
  gatewayFeeVatBps: number;
  changeReason: string;
  updatedAt: string;
@@ -157,7 +159,7 @@ export default function Pricing() {
 
  const ctrlMoneda = (campo: keyof PricingConfig) => (
  <div className="relative">
- <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-primary)]">$</span>
+ <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-main)]">$</span>
  <NumericInput
  value={valor<number>(campo) ?? 0}
  onValueChange={(d) => set(campo as string, Number(d))}
@@ -177,7 +179,7 @@ export default function Pricing() {
  onChange={(e) => set(campo as string, porcentajeABps(e.target.value))}
  className={`${inputBase} pl-2 pr-6`}
  />
- <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-primary)]">%</span>
+ <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-main)]">%</span>
  </div>
  );
 
@@ -204,6 +206,36 @@ export default function Pricing() {
  <option value="on">Activado</option>
  </select>
  );
+
+ const selectClass =
+ 'h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none cursor-pointer';
+
+ const ctrlVatBase = () => (
+ <select
+ value={valor<string>('gatewayFeeVatBase') ?? 'total'}
+ onChange={(e) => set('gatewayFeeVatBase', e.target.value)}
+ className={selectClass}
+ >
+ <option value="total">Porcentaje + fijo</option>
+ <option value="fixed">Solo la tarifa fija</option>
+ </select>
+ );
+
+ const ctrlRefundPolicy = () => {
+ const actual = valor<number | null>('gatewayFeeRefundBps');
+ return (
+ <select
+ value={actual == null ? 'unset' : String(actual)}
+ onChange={(e) => set('gatewayFeeRefundBps', e.target.value === 'unset' ? null : Number(e.target.value))}
+ className={selectClass}
+ >
+ <option value="unset">Sin definir</option>
+ <option value="0">No reembolsable</option>
+ <option value="10000">Reembolsable</option>
+ {actual != null && actual !== 0 && actual !== 10000 && <option value={String(actual)}>Parcial ({actual / 100}%)</option>}
+ </select>
+ );
+ };
 
  /** Un parámetro: etiqueta, control, texto largo (tooltip) y nota corta (5.ª columna). */
  interface Param { etiqueta: string; control: React.ReactNode; ayuda?: string; nota?: string }
@@ -276,9 +308,9 @@ export default function Pricing() {
  else siguiente[cat] = porcentajeABps(e.target.value);
  set('categoryCommissionBps', siguiente);
  }}
- className={`${inputBase} pl-2 pr-6 text-[var(--color-primary)]`}
+ className={`${inputBase} pl-2 pr-6 text-[var(--color-text-main)]`}
  />
- <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-primary)]">%</span>
+ <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-main)]">%</span>
  </div>
  ),
  };
@@ -294,11 +326,11 @@ export default function Pricing() {
  </div>
  <div className="text-right">
  <p className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider">Versión activa</p>
- <p className="text-sm font-bold text-[var(--color-primary)] font-mono">v{config.version}</p>
+ <p className="text-sm font-bold text-[var(--color-text-main)] font-mono">v{config.version}</p>
  </div>
  </div>
 
- <div className="text-[var(--color-warning)] text-xs flex items-center gap-2.5">
+ <div className="text-[var(--color-text-main)] text-xs flex items-center gap-2.5">
  <AlertTriangle className="w-4 h-4 shrink-0" />
  <p className="font-medium">
  Toda modificación publica una <strong>nueva versión con auditoría</strong>. Los pedidos en curso no se ven afectados por cambios de tarifas.
@@ -376,6 +408,8 @@ export default function Pricing() {
  { etiqueta: 'Otros: Porcentaje', control: ctrlBps('gatewayOtherBps'), nota: 'Bancolombia, Daviplata y otros carriles', ayuda: 'Bancolombia, Daviplata y cualquier otro carril de Wompi.' },
  { etiqueta: 'Otros: Fijo', control: ctrlMoneda('gatewayOtherFixed') },
  { etiqueta: 'IVA sobre la Comisión', control: ctrlBps('gatewayFeeVatBps'), nota: 'Solo si el contrato lo cobra aparte', ayuda: 'El IVA que Wompi le suma a su propia comisión. Solo aplica si tu contrato lo cobra aparte.' },
+ { etiqueta: 'Base del IVA', control: ctrlVatBase(), nota: 'Confirmar con el contrato', ayuda: 'Sobre qué se calcula el IVA: porcentaje + fijo (por defecto) o solo la tarifa fija.' },
+ { etiqueta: 'Comisión al Reembolsar', control: ctrlRefundPolicy(), nota: 'Por ahora solo informativo', ayuda: 'Si Wompi devuelve su comisión al reembolsar. Sin definir no asume nada; por ahora solo se muestra en el detalle del pedido y no altera el libro.' },
  ]))}
 
  {seccion('Auditoría de cambios de tarifas', 'Últimas versiones publicadas.', (
@@ -393,7 +427,7 @@ export default function Pricing() {
  <tbody>
  {audit.map((entrada) => (
  <tr key={entrada._id}>
- <td className="table-body-cell font-mono font-bold text-[var(--color-primary)]">v{entrada.fromVersion ?? 0} → v{entrada.toVersion}</td>
+ <td className="table-body-cell font-mono font-bold text-[var(--color-text-main)]">v{entrada.fromVersion ?? 0} → v{entrada.toVersion}</td>
  <td className="table-body-cell font-mono text-[var(--color-text-main)]">{new Date(entrada.createdAt).toLocaleString('es-CO')}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{entrada.changedByName || entrada.changedBy?.name || '—'}</td>
  <td className="table-body-cell font-mono text-[var(--color-text-main)]">{Object.keys(entrada.changes ?? {}).length}</td>
@@ -436,7 +470,7 @@ export default function Pricing() {
  )}
 
  {ok && (
- <div className="fixed bottom-24 right-6 z-50 p-3.5 rounded-xl bg-[var(--color-primary-bg)] border border-[var(--color-primary-bg)] text-[var(--color-primary)] text-xs font-bold animate-fade-in flex items-center gap-2 shadow-lg">
+ <div className="fixed bottom-24 right-6 z-50 p-3.5 rounded-xl bg-[var(--color-primary-bg)] border border-[var(--color-primary-bg)] text-[var(--color-text-main)] text-xs font-bold animate-fade-in flex items-center gap-2 shadow-lg">
  <CheckCircle2 className="w-4 h-4" />
  <span>{ok}</span>
  </div>

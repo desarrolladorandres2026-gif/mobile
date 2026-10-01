@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
+import { useLiveReload } from '../hooks/useLiveReload';
 import { Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
@@ -127,6 +128,7 @@ export default function SearchInsights() {
  }
  }, []);
 
+ useLiveReload(['settings'], fetchAll);
  useEffect(() => {
  fetchAll();
  fetchBusinessOptions(queryClient)
@@ -194,12 +196,6 @@ export default function SearchInsights() {
  Lo que la gente escribió en la app durante los últimos {days} días.
  </p>
  </div>
- <button
- onClick={fetchAll}
- className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center gap-2"
- >
- Actualizar
- </button>
  </div>
 
  {error ? (
@@ -297,7 +293,7 @@ export default function SearchInsights() {
  <PermissionGate permission={Permission.CONTENT_MANAGE}>
  <button
  onClick={() => openAction(row)}
- className="cursor-pointer text-[11px] font-bold text-[var(--color-primary)]"
+ className="cursor-pointer text-[11px] font-bold text-[var(--color-text-main)]"
  >
  {row.rule ? 'Cambiar' : 'Resolver'}
  </button>

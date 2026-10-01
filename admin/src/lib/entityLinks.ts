@@ -39,16 +39,36 @@ const FICHA_TYPES = Object.keys(FICHA_VIEW_PERMISSION) as FichaType[];
 // El id acaba en una URL de la API: solo caracteres de un identificador.
 const ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** Lee `?ficha=<tipo>:<id>` de una query string. Null si falta o es inválido. */
-export function parseFicha(search: string): FichaRef | null {
- const raw = new URLSearchParams(search).get('ficha');
- if (!raw) return null;
+// Cuántos niveles de "volver" se recuerdan (pedido → comercio → dueño → …).
+// Nadie navega más hondo que esto; es solo un tope defensivo para la URL.
+const MAX_BACK_DEPTH = 8;
+
+function decodeRef(raw: string): FichaRef | null {
  const sep = raw.indexOf(':');
  if (sep < 1) return null;
  const type = raw.slice(0, sep);
  const id = raw.slice(sep + 1);
  if (!FICHA_TYPES.includes(type as FichaType) || !ID_SHAPE.test(id)) return null;
  return { type: type as FichaType, id };
+}
+
+const encodeRef = (r: FichaRef) => `${r.type}:${r.id}`;
+
+/** Lee `?ficha=<tipo>:<id>` de una query string. Null si falta o es inválido. */
+export function parseFicha(search: string): FichaRef | null {
+ const raw = new URLSearchParams(search).get('ficha');
+ return raw ? decodeRef(raw) : null;
+}
+
+/** Pila de fichas abiertas antes de la actual, de la más antigua a la más reciente. */
+function parseBackStack(search: string): FichaRef[] {
+ const raw = new URLSearchParams(search).get('back');
+ if (!raw) return [];
+ return raw
+ .split(',')
+ .map(decodeRef)
+ .filter((r): r is FichaRef => r !== null)
+ .slice(-MAX_BACK_DEPTH);
 }
 
 export interface FichaControls {
@@ -68,6 +88,14 @@ export function useFicha(): FichaControls {
  const open = useCallback(
  (type: FichaType, id: string) => {
  const params = new URLSearchParams(search);
+ // Si ya había una ficha abierta (p. ej. el pedido), queda en la pila de
+ // "volver": cerrar la nueva (el comercio, el domiciliario…) debe
+ // reaparecer sobre la anterior, no sobre la lista de fondo.
+ const existing = parseFicha(search);
+ if (existing) {
+ const stack = [...parseBackStack(search), existing];
+ params.set('back', stack.map(encodeRef).join(','));
+ }
  params.set('ficha', `${type}:${id}`);
  // Sin `replace`: abrir otra ficha es un paso más, y"atrás" vuelve a la anterior.
  navigate({ pathname, search: `?${params.toString()}`, hash });
@@ -77,7 +105,14 @@ export function useFicha(): FichaControls {
 
  const close = useCallback(() => {
  const params = new URLSearchParams(search);
+ const stack = parseBackStack(search);
+ const prev = stack.pop();
+ if (prev) {
+ params.set('ficha', encodeRef(prev));
+ } else {
  params.delete('ficha');
+ }
+ if (stack.length) params.set('back', stack.map(encodeRef).join(',')); else params.delete('back');
  const rest = params.toString();
  // Con `replace`: cerrar no debe dejar una entrada que reabra la ficha al volver.
  navigate({ pathname, search: rest ? `?${rest}` : '', hash }, { replace: true });

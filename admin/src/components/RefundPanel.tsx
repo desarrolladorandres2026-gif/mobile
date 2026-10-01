@@ -167,7 +167,7 @@ export default function RefundPanel({
  return (
  <div className="space-y-3 py-4">
  <span className="text-[10px] font-bold text-[var(--color-text-main)] uppercase tracking-wider flex items-center gap-1">
- <RotateCcw className="w-3 h-3 text-[var(--color-warning)]" /> Reembolsos
+ <RotateCcw className="w-3 h-3 text-[var(--color-text-main)]" /> Reembolsos
  </span>
 
  {loading ? (
@@ -193,7 +193,7 @@ export default function RefundPanel({
  {r.status === 'completed' ? (
  <Check className="w-4 h-4 shrink-0 text-[var(--color-success)]" />
  ) : (
- <AlertTriangle className="w-4 h-4 shrink-0 text-[var(--color-warning)]" />
+ <AlertTriangle className="w-4 h-4 shrink-0 text-[var(--color-text-main)]" />
  )}
  </li>
  ))}
@@ -210,7 +210,7 @@ export default function RefundPanel({
  onClick={() => { setMode(m.id); setError(''); }}
  className={`cursor-pointer rounded-lg border px-2.5 py-1 text-[11px] font-semibold ${
  mode === m.id
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-[var(--color-border)] text-[var(--color-text-main)]'
  }`}
  >
@@ -287,7 +287,7 @@ export default function RefundPanel({
  onClick={() => setOpen(true)}
  className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- <RotateCcw className="w-3.5 h-3.5 text-[var(--color-warning)]" />
+ <RotateCcw className="w-3.5 h-3.5 text-[var(--color-text-main)]" />
  Reembolso o contracargo {alreadyRefunded > 0 ? `(quedan ${money(remaining)})` : ''}
  </button>
  )

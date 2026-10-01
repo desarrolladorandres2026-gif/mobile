@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { PaymentType, PaymentStatus, PaymentMethod } from '../types';
 
@@ -210,4 +211,5 @@ paymentSchema.index(
   }
 );
 
+paymentSchema.plugin(realtimeInvalidatePlugin, { resource: 'finance' });
 export const Payment = mongoose.model<IPayment>('Payment', paymentSchema);

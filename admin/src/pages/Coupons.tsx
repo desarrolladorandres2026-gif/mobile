@@ -404,7 +404,7 @@ export default function Coupons() {
  key={tab.id}
  onClick={() => setEstadoFiltro(tab.id)}
  className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${estadoFiltro === tab.id
- ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-bold'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -458,13 +458,13 @@ export default function Coupons() {
 
  return (
  <tr key={c._id}>
- <td className="table-body-cell text-[var(--color-primary)]">{c.code}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{c.code}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{c.title}</td>
  <td className="table-body-cell" style={{ color: st.text }}>{st.label}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{describirBeneficio(c)}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{c.fundedBy === 'business' ? (negocio?.name || 'El comercio') : 'ZIPP'}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{c.minOrderAmount > 0 ? cop(c.minOrderAmount) : '—'}</td>
- <td className="table-body-cell text-[var(--color-primary)]">
+ <td className="table-body-cell text-[var(--color-text-main)]">
  {[c.firstOrderOnly && 'Solo primer pedido', c.isPublic && 'Visible en la app'].filter(Boolean).join(' · ') || '—'}
  </td>
  <td className="table-body-cell text-[var(--color-text-main)]">{new Date(c.validUntil).toLocaleDateString('es-CO')}</td>
@@ -478,7 +478,7 @@ export default function Coupons() {
  <button
  onClick={() => verHistorial(c)}
  title="Historial de uso"
- className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
+ className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-text-main)]"
  >
  <History className="w-4 h-4" />
  </button>
@@ -486,7 +486,7 @@ export default function Coupons() {
  <button
  onClick={() => openEdit(c)}
  title="Editar"
- className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
+ className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-text-main)]"
  >
  <Pencil className="w-4 h-4" />
  </button>
@@ -521,9 +521,9 @@ export default function Coupons() {
  <div className="zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-3 max-h-[85vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <History className="w-5 h-5 text-[var(--color-primary)]" />
+ <History className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
- Uso de <span className="font-mono text-[var(--color-primary)]">{historial.coupon.code}</span>
+ Uso de <span className="font-mono text-[var(--color-text-main)]">{historial.coupon.code}</span>
  </h3>
  </div>
  <button onClick={() => setHistorial(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
@@ -579,7 +579,7 @@ export default function Coupons() {
  <div className="zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <Ticket className="w-5 h-5 text-[var(--color-primary)]" />
+ <Ticket className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
  {editingId ? 'Editar Cupón' : 'Nuevo Cupón'}
  </h3>

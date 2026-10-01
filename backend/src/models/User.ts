@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { UserRole } from '../types';
@@ -494,4 +495,5 @@ userSchema.index({ twoFactorEnabled: 1 });
 userSchema.index({ positionId: 1 });
 userSchema.index({ roleIds: 1 });
 
+userSchema.plugin(realtimeInvalidatePlugin, { resource: 'users' });
 export const User = mongoose.model<IUser>('User', userSchema);

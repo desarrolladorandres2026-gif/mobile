@@ -118,13 +118,19 @@ export function Grid({
                   <td colSpan={head.length} className="wrap">{empty}</td>
                 </tr>
               ) : (
-                rows.map((cells, r) => (
-                  <tr key={r}>
-                    {cells.map((c, i) => (
-                      <td key={i} className={`wrap ${right.includes(i) ? 'text-right' : ''}`}>{c}</td>
-                    ))}
-                  </tr>
-                ))
+                rows.map((cells, r) =>
+                  cells.length === 1 ? (
+                    <tr key={r}>
+                      <td colSpan={head.length} className="section-row">{cells[0]}</td>
+                    </tr>
+                  ) : (
+                    <tr key={r}>
+                      {cells.map((c, i) => (
+                        <td key={i} className={`wrap ${right.includes(i) ? 'text-right' : ''}`}>{c}</td>
+                      ))}
+                    </tr>
+                  ),
+                )
               )}
             </tbody>
           </table>

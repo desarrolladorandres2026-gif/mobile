@@ -46,7 +46,7 @@ interface Daily {
 
 const STATUS_LABEL: Record<PaymentRow['status'], { text: string; className: string }> = {
  paid: { text: 'Aprobado', className: 'text-[var(--color-success)]' },
- refunded: { text: 'Reembolsado', className: 'text-[var(--color-warning)]' },
+ refunded: { text: 'Reembolsado', className: 'text-[var(--color-text-main)]' },
  pending: { text: 'Pendiente', className: 'text-[var(--color-text-main)]' },
  failed: { text: 'Fallido', className: 'text-[var(--color-danger)]' },
 };
@@ -110,7 +110,7 @@ export default function Payments() {
  onClick={() => { setTab(t); setPage(1); }}
  className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${
  tab === t
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -200,7 +200,7 @@ export default function Payments() {
  ) : (
  <>
  {!daily.feeConfigured && (
- <p className="text-xs font-semibold text-[var(--color-warning)]">
+ <p className="text-xs font-semibold text-[var(--color-text-main)]">
  La tarifa de Wompi está sin configurar (Tarifas y Precios): la comisión asentada es 0 y el depósito esperado es igual a lo cobrado.
  </p>
  )}

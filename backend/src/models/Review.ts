@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import {
   ReviewReasonClientToBusiness, ReviewReasonClientToDriver,
@@ -147,4 +148,5 @@ reviewSchema.plugin(cacheInvalidationPlugin, {
   },
 });
 
+reviewSchema.plugin(realtimeInvalidatePlugin, { resource: 'moderation' });
 export const Review = mongoose.model<IReview>('Review', reviewSchema);

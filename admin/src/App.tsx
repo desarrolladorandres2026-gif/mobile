@@ -58,10 +58,8 @@ const FeatureFlags = lazyPage(() => import('./pages/FeatureFlags'), '/feature-fl
 const Coupons = lazyPage(() => import('./pages/Coupons'), '/coupons');
 const Zones = lazyPage(() => import('./pages/Zones'), '/zones');
 const HomeBanners = lazyPage(() => import('./pages/HomeBanners'), '/home-banners');
-const HomeCategories = lazyPage(() => import('./pages/HomeCategories'), '/home-categories');
-const CuratedHomeBlocks = lazyPage(() => import('./pages/CuratedHomeBlocks'), '/curated-home-blocks');
+const HomeContent = lazyPage(() => import('./pages/HomeContent'), '/home-content');
 const SearchInsights = lazyPage(() => import('./pages/SearchInsights'), '/search-insights');
-const ExploreBuilder = lazyPage(() => import('./pages/ExploreBuilder'), '/explore-builder');
 
 // 30 s de frescura por defecto: navegar entre páginas y volver no repite
 // peticiones que acaban de hacerse, y cada pantalla sigue pudiendo pedir
@@ -166,10 +164,11 @@ function App() {
  <Route path="coupons" element={guard('/coupons', <Coupons />)} />
  <Route path="zones" element={guard('/zones', <Zones />)} />
  <Route path="home-banners" element={guard('/home-banners', <HomeBanners />)} />
- <Route path="home-categories" element={guard('/home-categories', <HomeCategories />)} />
- <Route path="curated-home-blocks" element={guard('/curated-home-blocks', <CuratedHomeBlocks />)} />
+ <Route path="home-content" element={guard('/home-content', <HomeContent />)} />
+ <Route path="home-categories" element={<Navigate to="/home-content?tab=categories" replace />} />
+ <Route path="curated-home-blocks" element={<Navigate to="/home-content?tab=blocks" replace />} />
+ <Route path="explore-builder" element={<Navigate to="/home-content?tab=explore" replace />} />
  <Route path="search-insights" element={guard('/search-insights', <SearchInsights />)} />
- <Route path="explore-builder" element={guard('/explore-builder', <ExploreBuilder />)} />
  </Route>
  <Route path="*" element={<Navigate to="/" />} />
  </Routes>

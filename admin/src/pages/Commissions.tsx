@@ -137,7 +137,7 @@ export default function Commissions() {
  <td className="table-body-cell text-[var(--color-text-main)]">{money(c.businessAmount)}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{money(c.driverAmount)}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{money(c.platformAmount)}</td>
- <td className={`table-body-cell ${c.status === 'settled' ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>
+ <td className={`table-body-cell ${c.status === 'settled' ? 'text-[var(--color-success)]' : 'text-[var(--color-text-main)]'}`}>
  {c.status === 'settled' ? `Liquidada ${day(c.settledAt ?? undefined)}` : 'Por liquidar'}
  </td>
  </tr>

@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
+import { useLiveReload } from '../hooks/useLiveReload';
 import {
  Lock, CheckCircle2, X, ScrollText, MonitorSmartphone, LogOut,
 } from 'lucide-react';
@@ -198,6 +199,8 @@ export default function Security() {
  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [activeTab]);
 
+ useLiveReload(['users'], () => { if (activeTab === 'sessions') fetchSessions(); });
+
  const handleRevokeSession = async (userId: string) => {
  try {
  await api.delete(`/security/sessions/user/${userId}`);
@@ -231,8 +234,8 @@ export default function Security() {
 
  const getRiskBadge = (level: string) => {
  const map: Record<string, string> = {
- low: 'text-[var(--color-primary)]',
- medium: 'text-[var(--color-warning)]',
+ low: 'text-[var(--color-text-main)]',
+ medium: 'text-[var(--color-text-main)]',
  high: 'text-[var(--color-chart-purple)]',
  critical: 'text-[var(--color-danger)] font-bold'
  };
@@ -242,7 +245,7 @@ export default function Security() {
  const getSeverityBadge = (severity: string) => {
  const map: Record<string, string> = {
  low: 'text-[#8A5D08]',
- medium: 'text-[var(--color-warning)]',
+ medium: 'text-[var(--color-text-main)]',
  high: 'text-[var(--color-chart-purple)]',
  critical: 'text-[var(--color-danger)] font-bold'
  };
@@ -276,7 +279,7 @@ export default function Security() {
  onClick={() => { setActiveTab(tab); setLoading(true); }}
  className={`px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap border-b-2 ${
  activeTab === tab
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -329,7 +332,7 @@ export default function Security() {
  </td>
  <td className="table-body-cell font-bold text-[var(--color-text-main)] text-xs">{ev.action}</td>
  <td className="table-body-cell text-xs text-[var(--color-text-main)]">{ev.description}</td>
- <td className="table-body-cell text-xs font-mono text-[var(--color-primary)]">{ev.ip && ev.ip !== 'system' ? ev.ip : 'Interno'}</td>
+ <td className="table-body-cell text-xs font-mono text-[var(--color-text-main)]">{ev.ip && ev.ip !== 'system' ? ev.ip : 'Interno'}</td>
  </tr>
  ))}
  </tbody>
@@ -361,7 +364,7 @@ export default function Security() {
  <td className="table-body-cell text-xs font-mono text-[var(--color-text-main)]">
  {new Date(al.createdAt).toLocaleString('es-CO')}
  </td>
- <td className="table-body-cell font-mono text-[var(--color-primary)] text-xs font-bold">{al.userId}</td>
+ <td className="table-body-cell font-mono text-[var(--color-text-main)] text-xs font-bold">{al.userId}</td>
  <td className="table-body-cell">
  <span className={`text-[10px] font-bold uppercase ${getRiskBadge(al.riskLevel)}`}>
  {al.riskLevel}
@@ -371,7 +374,7 @@ export default function Security() {
  <td className="table-body-cell text-xs font-semibold text-[var(--color-text-main)]">{al.type}</td>
  <td className="table-body-cell">
  <span className={`text-[10px] font-bold uppercase ${
- al.status === 'open' ? 'text-[var(--color-danger)]' : 'text-[var(--color-primary)]'
+ al.status === 'open' ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'
  }`}>
  {al.status === 'open' ? 'Abierta' : 'Resuelta'}
  </span>
@@ -431,7 +434,7 @@ export default function Security() {
 
  <div className="table-container">
  <div className="px-5 py-3.5 border-b border-[var(--color-border-light)] bg-[var(--color-bg)] flex items-center gap-2">
- <ScrollText className="w-4 h-4 text-[var(--color-primary)]" />
+ <ScrollText className="w-4 h-4 text-[var(--color-text-main)]" />
  <h3 className="text-sm font-bold text-[var(--color-text-main)]">Registro de Auditoría</h3>
  </div>
  <div className="overflow-x-auto">
@@ -456,7 +459,7 @@ export default function Security() {
  </td>
  <td className="table-body-cell font-bold text-[var(--color-text-main)] text-xs">{log.action}</td>
  <td className="table-body-cell text-xs text-[var(--color-text-main)] max-w-xs truncate" title={log.description}>{log.description}</td>
- <td className="table-body-cell text-xs font-mono text-[var(--color-primary)]">{log.ip}</td>
+ <td className="table-body-cell text-xs font-mono text-[var(--color-text-main)]">{log.ip}</td>
  </tr>
  ))}
  {auditLogs.length === 0 && (
@@ -486,7 +489,7 @@ export default function Security() {
 
  <div className="table-container">
  <div className="px-5 py-3.5 border-b border-[var(--color-border-light)] bg-[var(--color-bg)] flex items-center gap-2">
- <MonitorSmartphone className="w-4 h-4 text-[var(--color-primary)]" />
+ <MonitorSmartphone className="w-4 h-4 text-[var(--color-text-main)]" />
  <h3 className="text-sm font-bold text-[var(--color-text-main)]">Sesiones Activas</h3>
  </div>
  <div className="overflow-x-auto">
@@ -505,7 +508,7 @@ export default function Security() {
  <tr key={s._id} className="hover:bg-[var(--color-bg)] transition-colors">
  <td className="table-body-cell text-xs font-mono text-[var(--color-text-main)]">{s.userId.slice(-8)}</td>
  <td className="table-body-cell text-xs text-[var(--color-text-main)]">{s.deviceInfo?.os} · {s.deviceInfo?.browser} ({s.deviceInfo?.platform})</td>
- <td className="table-body-cell text-xs font-mono text-[var(--color-primary)]">{s.ip}</td>
+ <td className="table-body-cell text-xs font-mono text-[var(--color-text-main)]">{s.ip}</td>
  <td className="table-body-cell text-xs font-mono text-[var(--color-text-main)]">{new Date(s.lastActivity).toLocaleString('es-CO')}</td>
  <td className="table-body-cell">
  <button
@@ -624,7 +627,7 @@ export default function Security() {
  {/* Toast Notification */}
  {toast && (
  <div className={`fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 shadow-lg animate-fade-in ${
- toast.type === 'success' ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)] text-[var(--color-primary)]' : 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)] text-[var(--color-danger)]'
+ toast.type === 'success' ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)] text-[var(--color-text-main)]' : 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)] text-[var(--color-danger)]'
  }`}>
  <CheckCircle2 className="w-4 h-4" />
  <span>{toast.message}</span>

@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, BellRing, RotateCw, X } from 'lucide-react';
+import { Bell, BellRing, X } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { useFicha } from '../lib/entityLinks';
@@ -19,13 +19,12 @@ import { useAdminSocketEvents, useTrailingCallback } from '../hooks/useAdminSock
  * pestaña visible.
  */
 
-const POLL_MS = 60_000;
 const LIMIT = 50;
 const SEEN_BATCH = 100;
 
 const SEVERITY: Record<AlertSeverity, { label: string; text: string; dot: string }> = {
  critical: { label: 'Crítico', text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
- high: { label: 'Alto', text: 'text-[var(--color-warning)]', dot: 'bg-[var(--color-warning)]' },
+ high: { label: 'Alto', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-warning)]' },
  medium: { label: 'Medio', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-border-strong)]' },
 };
 
@@ -90,15 +89,11 @@ export default function AlertsTray() {
 
  useEffect(() => {
  void load();
- const timer = setInterval(() => {
- if (document.visibilityState === 'visible') void load();
- }, POLL_MS);
- const onVisible = () => {
+  const onVisible = () => {
  if (document.visibilityState === 'visible') void load();
  };
  document.addEventListener('visibilitychange', onVisible);
  return () => {
- clearInterval(timer);
  document.removeEventListener('visibilitychange', onVisible);
  };
  }, [load]);
@@ -194,11 +189,11 @@ export default function AlertsTray() {
  <div ref={rootRef} className="relative">
  {banner ? (
  <div role="alert" className="fixed right-4 top-20 z-[60] flex w-[calc(100vw-2rem)] max-w-sm items-start gap-3 rounded-2xl border border-[var(--color-warning)]/40 bg-[var(--color-surface)] p-4 shadow-2xl animate-fade-in">
- <span className="rounded-xl bg-[var(--color-warning)]/15 p-2 text-[var(--color-warning)]"><BellRing className="h-5 w-5" /></span>
+ <span className="rounded-xl bg-[var(--color-warning)]/15 p-2 text-[var(--color-text-main)]"><BellRing className="h-5 w-5" /></span>
  <button type="button" onClick={() => goTo(banner)} className="min-w-0 flex-1 cursor-pointer text-left">
  <span className="block text-sm font-bold text-[var(--color-text-main)]">Nueva alerta: {banner.title}</span>
  <span className="mt-1 block text-xs text-[var(--color-text-main)]">{banner.detail}</span>
- <span className="mt-2 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)]">Abrir y gestionar</span>
+ <span className="mt-2 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Abrir y gestionar</span>
  </button>
  <button type="button" onClick={() => setBanner(null)} aria-label="Cerrar aviso" className="cursor-pointer rounded-lg p-1 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)]"><X className="h-4 w-4" /></button>
  </div>
@@ -223,14 +218,6 @@ export default function AlertsTray() {
  <div className="zipp-modal absolute right-0 z-50 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl shadow-xl animate-fade-in">
  <div className="flex items-center justify-between px-4 py-3">
  <p className="text-xs font-bold text-[var(--color-text-main)]">Alertas</p>
- <button
- type="button"
- onClick={() => void load()}
- title="Actualizar"
- className="cursor-pointer rounded-lg p-1 text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
- >
- <RotateCw className="h-3.5 w-3.5" />
- </button>
  </div>
 
  {error ? (
@@ -254,7 +241,7 @@ export default function AlertsTray() {
  key={item.key}
  type="button"
  onClick={() => goTo(item)}
- className="flex w-full cursor-pointer items-start gap-3 border-t border-[var(--color-border-light)] px-4 py-3 text-left transition-colors hover:text-[var(--color-primary)]"
+ className="flex w-full cursor-pointer items-start gap-3 border-t border-[var(--color-border-light)] px-4 py-3 text-left transition-colors hover:text-[var(--color-text-main)]"
  >
  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${severity.dot}`} />
  <span className="min-w-0 flex-1">
@@ -289,7 +276,7 @@ export default function AlertsTray() {
  setIsOpen(false);
  navigate('/incidents');
  }}
- className="cursor-pointer text-xs font-semibold text-[var(--color-primary)] hover:underline"
+ className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)] hover:underline"
  >
  Abrir el centro de incidentes
  </button>

@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, RotateCw } from 'lucide-react';
+import { useLiveReload } from '../hooks/useLiveReload';
+import { AlertCircle } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import SummaryGrid from '../components/SummaryGrid';
@@ -58,6 +59,7 @@ export default function ProMembership() {
  }
  }, []);
 
+ useLiveReload(['pro'], load);
  useEffect(() => { load(); }, [load]);
 
  return (
@@ -67,12 +69,6 @@ export default function ProMembership() {
  <h1 className="page-title">Zipp Pro</h1>
  <p className="page-subtitle">Miembros, margen del plan y renovaciones que fallan.</p>
  </div>
- <button
- onClick={load}
- className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--color-border)] px-4 py-2 text-xs font-semibold text-[var(--color-text-main)]"
- >
- <RotateCw className="h-4 w-4 text-[var(--color-primary)]" /> Actualizar
- </button>
  </div>
 
  {error && (
@@ -140,7 +136,7 @@ export default function ProMembership() {
  La comisión es la estimada con la tarifa de Tarifas y Precios; la real sale del reporte de Wompi.
  </p>
  {!data.last30Days.complete && (
- <p className="mt-2 text-xs text-[var(--color-warning)]">
+ <p className="mt-2 text-xs text-[var(--color-text-main)]">
  El margen sale inflado:
  {!data.last30Days.gatewayFeeConfigured && ' la tarifa de Wompi sigue en 0 (llénala en Tarifas y Precios con tu contrato)'}
  {!data.last30Days.gatewayFeeConfigured && data.last30Days.ordersWithoutData > 0 && ' y'}

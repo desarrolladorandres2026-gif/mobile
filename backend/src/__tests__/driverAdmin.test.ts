@@ -453,7 +453,7 @@ describe('Ficha 360 (GET /admin/drivers/:id/profile-360)', () => {
 
     expect(raw).not.toMatch(/reputationScore|reputationUpdatedAt/);
     expect(raw).not.toMatch(/password|twoFactorSecret|recoveryCodes/i);
-    expect(Object.keys(res.body.data).sort()).toEqual(['activity', 'documents', 'driver', 'finance', 'incidents', 'masked', 'notes', 'view']);
+    expect(Object.keys(res.body.data).sort()).toEqual(['activity', 'documents', 'driver', 'ficha', 'finance', 'incidents', 'masked', 'notes', 'view']);
   });
 
   it('un domiciliario sin historial devuelve secciones vacías, no error', async () => {

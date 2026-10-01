@@ -107,7 +107,7 @@ export default function FiscalDocuments() {
  <tbody>
  {items.map((d) => (
  <tr key={d._id} onClick={() => setOpen(d)} className="cursor-pointer hover:!bg-[var(--color-bg-alt)] transition-colors">
- <td className="table-body-cell text-[var(--color-primary)]">{d.number}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{d.number}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{d.party.name}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{TYPE_LABEL[d.type]}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{day(d.issuedAt)}</td>

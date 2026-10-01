@@ -57,7 +57,7 @@ export function ThemeToggle() {
  }}
  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all text-left cursor-pointer ${
  isSelected
- ? 'text-[var(--color-primary)] font-bold'
+ ? 'text-[var(--color-text-main)] font-bold'
  : 'text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)]'
  }`}
  >
@@ -70,7 +70,7 @@ export function ThemeToggle() {
  </div>
  </div>
 
- {isSelected && <Check className="w-3.5 h-3.5 text-[var(--color-primary)]" />}
+ {isSelected && <Check className="w-3.5 h-3.5 text-[var(--color-text-main)]" />}
  </button>
  );
  })}

@@ -61,6 +61,9 @@ export const updatePricingConfigSchema = z.object({
       gatewayOtherBps: bps.optional(),
       gatewayOtherFixed: money.optional(),
       gatewayFeeVatBps: bps.optional(),
+      gatewayFeeVatBase: z.enum(['total', 'fixed']).optional(),
+      // null = sin definir; 0 = no reembolsable; 10000 = reembolsable.
+      gatewayFeeRefundBps: bps.nullable().optional(),
     })
     .strict()
     .refine(

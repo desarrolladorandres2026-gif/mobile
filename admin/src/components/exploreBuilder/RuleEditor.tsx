@@ -37,7 +37,7 @@ export function Chips({ values, selected, onToggle, label }: {
  aria-pressed={on}
  className={`px-2.5 py-1 rounded-full border text-[11px] font-semibold cursor-pointer transition-colors ${
  on
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -193,7 +193,7 @@ export function RuleEditor({ value, onChange, options, minSize, targetSize, onSi
  <button
  type="button"
  onClick={() => onChange({ ...value, all: [...value.all, defaultRule('discount')] })}
- className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)] cursor-pointer"
+ className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] cursor-pointer"
  >
  <Plus className="w-3.5 h-3.5" /> Agregar condición
  </button>

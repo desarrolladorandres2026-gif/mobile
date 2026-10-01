@@ -47,6 +47,21 @@ export class AdminOrdersController {
     } catch (error) { next(error); }
   }
 
+  async paymentRefs(req: Request, res: Response, next: NextFunction) {
+    try {
+      const orderId = param(req, 'id');
+      const data = await orderProfile360Service.paymentRefs(orderId);
+      void logAudit(req, {
+        action: AuditAction.PROFILE_VIEWED,
+        entity: 'order',
+        entityId: orderId,
+        severity: AuditSeverity.LOW,
+        description: 'Referencias de pago del pedido consultadas',
+      });
+      sendResponse(res, 200, 'Referencias de pago', data);
+    } catch (error) { next(error); }
+  }
+
   async unassignDriver(req: Request, res: Response, next: NextFunction) {
     try {
       const orderId = param(req, 'id');

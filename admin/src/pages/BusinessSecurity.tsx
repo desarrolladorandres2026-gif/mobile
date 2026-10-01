@@ -182,7 +182,7 @@ export default function BusinessSecurity() {
       {summary && (
         <>
           {summary.unknownActiveSessions > 0 && (
-            <p className="flex items-start gap-2 text-sm font-semibold text-[var(--color-warning)]">
+            <p className="flex items-start gap-2 text-sm font-semibold text-[var(--color-text-main)]">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
                 {summary.unknownActiveSessions === 1
@@ -233,7 +233,7 @@ export default function BusinessSecurity() {
                     {m.twoFactorEnabled ? (
                       <span className="inline-flex items-center gap-1 font-semibold text-[var(--color-success)]"><ShieldCheck className="h-3.5 w-3.5" /> 2FA activo</span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 font-semibold text-[var(--color-warning)]"><ShieldOff className="h-3.5 w-3.5" /> Sin 2FA</span>
+                      <span className="inline-flex items-center gap-1 font-semibold text-[var(--color-text-main)]"><ShieldOff className="h-3.5 w-3.5" /> Sin 2FA</span>
                     )}
                     <span>Contraseña: {m.passwordChangedAt ? `cambiada ${dateTime(m.passwordChangedAt)}` : 'nunca cambiada'}</span>
                     <span>Último acceso: {dateTime(m.lastLoginAt)}</span>
@@ -346,7 +346,7 @@ function Stat({ label, value, warn }: { label: string; value: number; warn?: boo
   return (
     <div className="min-w-0">
       <dt className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">{label}</dt>
-      <dd className={`kpi-value text-2xl ${warn ? '!text-[var(--color-warning)]' : ''}`}>{value}</dd>
+      <dd className={`kpi-value text-2xl ${warn ? '!text-[var(--color-text-main)]' : ''}`}>{value}</dd>
     </div>
   );
 }

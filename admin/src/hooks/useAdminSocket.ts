@@ -1,4 +1,4 @@
-ï»¿import { useCallback, useEffect, useRef } from 'react';
+ï»¿import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
@@ -106,4 +106,29 @@ export function useTrailingCallback(fn: () => void, waitMs: number): () => void 
  latest.current();
  }, waitMs);
  }, [waitMs]);
+}
+
+/**
+ * Estado de la conexión en vivo, para el indicador del Layout.
+ * `null` mientras no hay sesión o aún no se abrió el socket.
+ */
+export function useAdminSocketStatus(): 'live' | 'reconnecting' | null {
+ const [status, setStatus] = useState<'live' | 'reconnecting' | null>(null);
+ useEffect(() => {
+ const s = acquire();
+ if (!s) return;
+ const up = () => setStatus('live');
+ const down = () => setStatus('reconnecting');
+ setStatus(s.connected ? 'live' : 'reconnecting');
+ s.on('connect', up);
+ s.on('disconnect', down);
+ s.on('connect_error', down);
+ return () => {
+ s.off('connect', up);
+ s.off('disconnect', down);
+ s.off('connect_error', down);
+ release();
+ };
+ }, []);
+ return status;
 }

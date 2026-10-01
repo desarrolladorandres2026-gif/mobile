@@ -43,11 +43,11 @@ export default function ConfirmDialog({
  button: 'bg-[var(--color-danger)] text-white hover:opacity-90',
  },
  warning: {
- icon: 'text-[var(--color-warning)]',
+ icon: 'text-[var(--color-text-main)]',
  button: 'bg-[var(--color-warning)] text-white hover:opacity-90',
  },
  default: {
- icon: 'text-[var(--color-primary)]',
+ icon: 'text-[var(--color-text-main)]',
  button: 'bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-dark)]',
  },
  }[variant];

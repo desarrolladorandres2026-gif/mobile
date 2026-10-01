@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 /**
@@ -97,6 +98,7 @@ export function isProActive(
   return sub.currentPeriodEnd.getTime() > now.getTime();
 }
 
+proSubscriptionSchema.plugin(realtimeInvalidatePlugin, { resource: 'pro' });
 export const ProSubscription = mongoose.model<IProSubscription>(
   'ProSubscription',
   proSubscriptionSchema

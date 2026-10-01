@@ -45,6 +45,8 @@ export const EDITABLE_PRICING_FIELDS = [
   'gatewayOtherBps',
   'gatewayOtherFixed',
   'gatewayFeeVatBps',
+  'gatewayFeeVatBase',
+  'gatewayFeeRefundBps',
 ] as const;
 
 export type EditablePricingField = (typeof EDITABLE_PRICING_FIELDS)[number];

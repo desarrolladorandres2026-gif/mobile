@@ -36,7 +36,7 @@ interface Invoice {
 }
 
 const VIEW_LABEL: Record<View, { text: string; className: string }> = {
- to_deduct: { text: 'Se descuenta en su próxima liquidación', className: 'text-[var(--color-warning)]' },
+ to_deduct: { text: 'Se descuenta en su próxima liquidación', className: 'text-[var(--color-text-main)]' },
  deducted: { text: 'Descontada de una liquidación', className: 'text-[var(--color-success)]' },
  to_collect: { text: 'Por cobrar', className: 'text-[var(--color-danger)]' },
  collected: { text: 'Cobrada', className: 'text-[var(--color-success)]' },
@@ -117,7 +117,7 @@ export default function AdInvoices() {
  onClick={() => { setView(f.id); setPage(1); }}
  className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${
  view === f.id
- ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -183,7 +183,7 @@ export default function AdInvoices() {
  {i.view === 'to_collect' && (
  <button
  onClick={() => { setCollecting(i); setForm({ reference: '', receiptUrl: '' }); setFormError(''); }}
- className="cursor-pointer text-[var(--color-primary)]"
+ className="cursor-pointer text-[var(--color-text-main)]"
  >
  Registrar cobro
  </button>

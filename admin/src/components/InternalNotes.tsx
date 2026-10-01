@@ -168,7 +168,7 @@ export default function InternalNotes({
  type="button"
  onClick={loadMore}
  disabled={loadingMore}
- className="cursor-pointer text-xs font-semibold text-[var(--color-primary)]"
+ className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)]"
  >
  {loadingMore ? 'Cargando…' : 'Cargar más'}
  </button>

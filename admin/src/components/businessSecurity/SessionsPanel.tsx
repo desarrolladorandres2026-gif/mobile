@@ -131,7 +131,7 @@ export default function SessionsPanel({ businessId, members, filters, onFiltersC
                   <td className="table-body-cell max-w-[16rem]"><DeviceCell device={s.device} /></td>
                   <td className="table-body-cell tabular text-[11px]">
                     {s.ip}
-                    {s.lastIp !== s.ip && <p className="text-[var(--color-warning)]" title="La sesión cambió de red">ahora {s.lastIp}</p>}
+                    {s.lastIp !== s.ip && <p className="text-[var(--color-text-main)]" title="La sesión cambió de red">ahora {s.lastIp}</p>}
                   </td>
                   <td className="table-body-cell text-[11px]">{dateTime(s.createdAt)}</td>
                   <td className="table-body-cell text-[11px]">{dateTime(s.lastActivity)}</td>

@@ -62,7 +62,7 @@ export default function DeviceDetail({ businessId, recordId, onClose, onRevoke }
         {d && data && (
           <div className="mt-6 space-y-7 text-xs text-[var(--color-text-main)]">
             {!d.identified && (
-              <p className="font-semibold text-[var(--color-warning)]">
+              <p className="font-semibold text-[var(--color-text-main)]">
                 Sin identificador propio: se reconoce solo por el navegador, así que dos equipos con el mismo navegador aparecen como uno.
                 Pasa con sesiones abiertas antes de la actualización o con accesos que no vienen del panel.
               </p>

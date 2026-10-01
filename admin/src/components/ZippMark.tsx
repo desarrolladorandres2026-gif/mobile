@@ -60,7 +60,7 @@ export function ZippWordmark({
  className="w-auto object-contain select-none"
  />
  {label ? (
- <span className="text-[10px] text-primary-light font-bold tracking-[0.14em] uppercase px-1.5 py-0.5 rounded bg-primary/15 border border-primary/30">
+ <span className="text-[10px] text-[var(--color-text-main)] font-bold tracking-[0.14em] uppercase px-1.5 py-0.5 rounded bg-primary/15 border border-primary/30">
  {label}
  </span>
  ) : null}

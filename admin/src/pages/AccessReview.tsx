@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RotateCw } from 'lucide-react';
+import { useLiveReload } from '../hooks/useLiveReload';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
@@ -39,6 +39,7 @@ export default function AccessReview() {
  }
  }, []);
 
+ useLiveReload(['users', 'settings'], load);
  useEffect(() => {
  void load();
  }, [load]);
@@ -75,13 +76,6 @@ export default function AccessReview() {
  </p>
  </div>
  <div className="flex items-center gap-2 shrink-0">
- <button
- onClick={() => void load()}
- className="px-3 py-2 border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] rounded-lg cursor-pointer flex items-center gap-2"
- >
- <RotateCw className="w-4 h-4 text-[var(--color-primary)]" />
- Actualizar
- </button>
  {data && (
  <button
  onClick={() => setConfirm(enforcing ? 'disable' : 'enable')}

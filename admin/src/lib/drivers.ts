@@ -34,7 +34,7 @@ export function driverAccountState(d: Pick<DriverListItem, 'isApproved' | 'isAct
 }
 
 export const accountStateStyles: Record<DriverAccountState, { label: string; text: string }> = {
- pending: { label: 'Pendiente de aprobación', text: 'text-[var(--color-warning)]' },
+ pending: { label: 'Pendiente de aprobación', text: 'text-[var(--color-text-main)]' },
  active: { label: 'Activo', text: 'text-[#047857]' },
  suspended: { label: 'Suspendido', text: 'text-[var(--color-danger)]' },
 };

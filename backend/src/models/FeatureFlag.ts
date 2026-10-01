@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
 /**
@@ -36,4 +37,5 @@ const featureFlagSchema = new Schema<IFeatureFlag>(
   { timestamps: true }
 );
 
+featureFlagSchema.plugin(realtimeInvalidatePlugin, { resource: 'settings' });
 export const FeatureFlag = mongoose.model<IFeatureFlag>('FeatureFlag', featureFlagSchema);

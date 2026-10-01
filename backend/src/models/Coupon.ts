@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import { CouponType, CouponFundedBy, CouponScope } from '../types';
 import { cacheInvalidationPlugin, CachePrefix } from '../cache';
@@ -254,6 +255,7 @@ couponSchema.plugin(cacheInvalidationPlugin, {
   prefixesFor: () => [CachePrefix.OFFERS],
 });
 
+couponSchema.plugin(realtimeInvalidatePlugin, { resource: 'coupons' });
 export const Coupon = mongoose.model<ICoupon>('Coupon', couponSchema);
 
 // ── Redemptions ──────────────────────────────────────────────────────

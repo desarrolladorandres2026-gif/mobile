@@ -27,7 +27,7 @@ export default function SecurityGlance({ businessId }: { businessId: string }) {
   return (
     <div className="space-y-3">
       {data.unknownActiveSessions > 0 && (
-        <p className="flex items-start gap-1.5 font-semibold text-[var(--color-warning)]">
+        <p className="flex items-start gap-1.5 font-semibold text-[var(--color-text-main)]">
           <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           {data.unknownActiveSessions === 1
             ? '1 sesión abierta desde un dispositivo nuevo o sin identificar.'
@@ -51,7 +51,7 @@ export default function SecurityGlance({ businessId }: { businessId: string }) {
           </li>
         )}
       </ul>
-      <Link to={`/businesses/${businessId}/security`} className="inline-block text-xs font-bold text-[var(--color-primary)] hover:underline">
+      <Link to={`/businesses/${businessId}/security`} className="inline-block text-xs font-bold text-[var(--color-text-main)] hover:underline">
         Abrir centro de seguridad
       </Link>
     </div>

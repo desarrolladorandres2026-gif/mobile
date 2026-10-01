@@ -271,7 +271,7 @@ export default function ExploreBuilder() {
  if (loading && !options) {
  return (
  <div className="flex items-center justify-center py-24">
- <RefreshCw className="w-6 h-6 text-[var(--color-primary)] animate-spin" />
+ <RefreshCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin" />
  </div>
  );
  }
@@ -350,7 +350,7 @@ export default function ExploreBuilder() {
  {ADD_ORDER.map((type) => (
  <li key={type}>
  <button type="button" onClick={() => addSection(type)} className="w-full text-left py-3 cursor-pointer group">
- <span className="block text-sm font-semibold text-[var(--color-text-main)] group-hover:text-[var(--color-primary)]">{TYPE_LABEL[type]}</span>
+ <span className="block text-sm font-semibold text-[var(--color-text-main)] group-hover:text-[var(--color-text-main)]">{TYPE_LABEL[type]}</span>
  <span className="block text-[11px] text-[var(--color-text-main)] mt-0.5">{TYPE_HINT[type]}</span>
  </button>
  </li>
@@ -360,7 +360,7 @@ export default function ExploreBuilder() {
  </li>
  </ul>
  ) : (
- <button type="button" onClick={() => setAddOpen(true)} className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)] cursor-pointer pt-1">
+ <button type="button" onClick={() => setAddOpen(true)} className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] cursor-pointer pt-1">
  <Plus className="w-3.5 h-3.5" /> Agregar sección {selected ? 'debajo de la seleccionada' : ''}
  </button>
  )
@@ -374,7 +374,7 @@ export default function ExploreBuilder() {
  </p>
  ))}
  {(preview?.warnings ?? []).map((line, i) => (
- <p key={`w${i}`} className="flex items-start gap-2 text-[11px] text-[var(--color-warning)]">
+ <p key={`w${i}`} className="flex items-start gap-2 text-[11px] text-[var(--color-text-main)]">
  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" /> {line}
  </p>
  ))}

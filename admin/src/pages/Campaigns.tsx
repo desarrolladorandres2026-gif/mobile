@@ -447,7 +447,7 @@ export default function Campaigns() {
  key={tab.id}
  onClick={() => setStatusFilter(tab.id)}
  className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border-b-2 ${statusFilter === tab.id
- ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
+ ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-bold'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
  }`}
  >
@@ -502,7 +502,7 @@ export default function Campaigns() {
  mirado no sale en la app. Se avisa aquí porque
  esta es la lista donde se revisa. */}
  {c.approvalStatus === 'pending' ? (
- <p className="text-xs font-bold text-[var(--color-warning)]">
+ <p className="text-xs font-bold text-[var(--color-text-main)]">
  La compró el comercio y espera revisión — no se está mostrando
  </p>
  ) : null}
@@ -519,7 +519,7 @@ export default function Campaigns() {
  ) : null}
  <div className="flex flex-wrap items-center gap-2.5 text-xs text-[var(--color-text-main)]">
  <span>{new Date(c.startDate).toLocaleDateString('es-CO')} — {new Date(c.endDate).toLocaleDateString('es-CO')}</span>
- <span className="text-[var(--color-primary)] font-mono font-bold text-[11px]">
+ <span className="text-[var(--color-text-main)] font-mono font-bold text-[11px]">
  Prioridad: {c.priority}
  </span>
  <span className="flex items-center gap-1">
@@ -579,7 +579,7 @@ export default function Campaigns() {
  ) : null}
  <button
  onClick={() => openStats(c)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Ver estadísticas"
  >
  <BarChart3 className="w-4 h-4" />
@@ -588,7 +588,7 @@ export default function Campaigns() {
  <PermissionGate permission={Permission.ADS_MANAGE}>
  <button
  onClick={() => openEdit(c)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Editar campaña"
  >
  <Pencil className="w-4 h-4" />
@@ -675,7 +675,7 @@ export default function Campaigns() {
  <div className="zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-3" onClick={(e) => e.stopPropagation()}>
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <BarChart3 className="w-5 h-5 text-[var(--color-primary)]" />
+ <BarChart3 className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">{statsCampaign.campaignName}</h3>
  </div>
  <button onClick={() => setStatsCampaign(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
@@ -749,7 +749,7 @@ export default function Campaigns() {
  <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <Megaphone className="w-5 h-5 text-[var(--color-primary)]" />
+ <Megaphone className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">{editingId ? 'Editar Campaña' : 'Nueva Campaña Publicitaria'}</h3>
  </div>
  <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
@@ -821,7 +821,7 @@ export default function Campaigns() {
  ) : (
  <label
  htmlFor="flyer-upload"
- className="flex flex-col items-center justify-center h-40 rounded-xl border-2 border-dashed border-[var(--color-border)] text-[var(--color-text-main)] cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] transition-colors"
+ className="flex flex-col items-center justify-center h-40 rounded-xl border-2 border-dashed border-[var(--color-border)] text-[var(--color-text-main)] cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-text-main)] transition-colors"
  >
  <ImagePlus className="w-6 h-6 mb-1.5" />
  <span className="text-xs font-semibold">{uploading ? 'Subiendo...' : 'Selecciona una imagen (JPG, PNG, WEBP · máx. 5MB)'}</span>
@@ -829,7 +829,7 @@ export default function Campaigns() {
  )}
  <input id="flyer-upload" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} className="hidden" disabled={uploading} />
  {aspectWarning && (
- <div className="mt-2 flex items-start gap-2 text-[11px] font-medium text-[var(--color-warning)]">
+ <div className="mt-2 flex items-start gap-2 text-[11px] font-medium text-[var(--color-text-main)]">
  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
  <span>{aspectWarning} Puedes continuar y usarla igual.</span>
  </div>

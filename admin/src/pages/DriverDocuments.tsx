@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
+import { useLiveReload } from '../hooks/useLiveReload';
 import {
- AlertCircle, ArrowLeft, CheckCircle, X, FileText, RotateCw, Eye,
+ AlertCircle, ArrowLeft, CheckCircle, X, FileText, Eye,
 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
@@ -90,7 +91,7 @@ function Thumb({ url, label }: { url?: string; label: string }) {
  }
  if (isPdf(url)) {
  return (
- <a href={url} target="_blank" rel="noreferrer" title={`Abrir ${label} (PDF)`} className="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 border border-[var(--color-border)] text-[var(--color-primary)]">
+ <a href={url} target="_blank" rel="noreferrer" title={`Abrir ${label} (PDF)`} className="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 border border-[var(--color-border)] text-[var(--color-text-main)]">
  <FileText className="h-5 w-5" />
  <span className="text-[9px] font-bold uppercase tracking-wider">PDF</span>
  </a>
@@ -174,6 +175,7 @@ export default function DriverDocuments() {
  }
  }, []);
 
+ useLiveReload(['driver-documents', 'drivers'], fetchAll);
  useEffect(() => { fetchAll(); }, [fetchAll]);
 
  const run = async (id: string, action: () => Promise<unknown>, fallback: string) => {
@@ -223,7 +225,7 @@ export default function DriverDocuments() {
  /** Bloque de datos: título + cuadrícula de 2 columnas, separado por una línea fina. */
  const DataGrid = ({ title, children }: { title: string; children: React.ReactNode }) => (
  <section className="space-y-3 border-t border-[var(--color-border)] pt-4">
- <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--color-primary)]">{title}</h2>
+ <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]">{title}</h2>
  <dl className="grid grid-cols-2 gap-x-6 gap-y-4">{children}</dl>
  </section>
  );
@@ -234,7 +236,7 @@ export default function DriverDocuments() {
  {isPdf(url) ? (
  <div className="space-y-2">
  <iframe src={url} title={label} className="h-[70vh] w-full border border-[var(--color-border)]" />
- <a href={url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[var(--color-primary)] hover:underline">
+ <a href={url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[var(--color-text-main)] hover:underline">
  Abrir PDF en otra pestaña
  </a>
  </div>
@@ -260,7 +262,7 @@ export default function DriverDocuments() {
  <div className="space-y-5">
  <div className="flex items-start justify-between gap-4">
  <div>
- <button onClick={closeReview} className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)]">
+ <button onClick={closeReview} className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)]">
  <ArrowLeft className="h-4 w-4" /> Volver a la verificación
  </button>
  <h1 className="page-title">{title}</h1>
@@ -317,7 +319,7 @@ export default function DriverDocuments() {
  <Field label="Obligatorio">{BLOCKING_TYPES.has(doc.type) ? 'Sí' : 'No'}</Field>
  <Field label="Referencia">
  {isLink(doc.reference) ? (
- <a href={doc.reference} target="_blank" rel="noreferrer" className="text-[var(--color-primary)] hover:underline">Ver documento</a>
+ <a href={doc.reference} target="_blank" rel="noreferrer" className="text-[var(--color-text-main)] hover:underline">Ver documento</a>
  ) : doc.reference}
  </Field>
  <Field label="Vence">{doc.expiresAt ? new Date(doc.expiresAt).toLocaleDateString('es-CO') : '—'}</Field>
@@ -368,7 +370,7 @@ export default function DriverDocuments() {
    tone === 'expired'
     ? { text: 'Vencido', className: 'text-[var(--color-danger)]' }
     : tone === 'soon' && days !== null
-     ? { text: days <= 0 ? 'Vence hoy' : `Vence en ${days} día${days === 1 ? '' : 's'}`, className: 'text-[var(--color-warning)]' }
+     ? { text: days <= 0 ? 'Vence hoy' : `Vence en ${days} día${days === 1 ? '' : 's'}`, className: 'text-[var(--color-text-main)]' }
      : { text: 'Por revisar', className: 'text-[var(--color-text-main)]' };
 
   return (
@@ -380,10 +382,10 @@ export default function DriverDocuments() {
      {driver?.userId?.name || 'Domiciliario'}
      {driver?.userId?.phone ? ` · ${driver.userId.phone}` : ''}
     </td>
-    <td className="table-body-cell text-[var(--color-primary)]">{driver?.licensePlate ?? '—'}</td>
+    <td className="table-body-cell text-[var(--color-text-main)]">{driver?.licensePlate ?? '—'}</td>
     <td className="table-body-cell">
      {isLink(doc.reference) ? (
-      <a href={doc.reference} target="_blank" rel="noreferrer" className="text-[var(--color-primary)] hover:underline">
+      <a href={doc.reference} target="_blank" rel="noreferrer" className="text-[var(--color-text-main)] hover:underline">
        Ver documento
       </a>
      ) : (
@@ -418,7 +420,7 @@ export default function DriverDocuments() {
      {check.user?.name ?? 'Domiciliario'}
      {check.user?.phone ? ` · ${check.user.phone}` : ''}
     </td>
-    <td className="table-body-cell text-[var(--color-primary)]">{check.driver?.licensePlate ?? '—'}</td>
+    <td className="table-body-cell text-[var(--color-text-main)]">{check.driver?.licensePlate ?? '—'}</td>
     <td className={`table-body-cell ${overdue ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
      {waiting
       ? `Solicitada, sin respuesta${check.dueAt ? ` · plazo ${when(check.dueAt)}` : ''}`
@@ -479,12 +481,6 @@ export default function DriverDocuments() {
  {queue.expired.length} vencidos · {queue.pending.length} documentos por revisar · {pendingChecks.length} verificaciones de identidad
  </p>
  </div>
- <button
- onClick={fetchAll}
- className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--color-border)] px-4 py-2 text-xs font-semibold text-[var(--color-text-main)]"
- >
- <RotateCw className="h-4 w-4 text-[var(--color-primary)]" /> Actualizar
- </button>
  </div>
 
  <input

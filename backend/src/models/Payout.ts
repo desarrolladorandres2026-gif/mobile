@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import {
   PayoutStatus,
@@ -115,6 +116,7 @@ payoutSchema.pre('validate', function (next) {
   next();
 });
 
+payoutSchema.plugin(realtimeInvalidatePlugin, { resource: 'finance' });
 export const Payout = mongoose.model<IPayout>('Payout', payoutSchema);
 
 // ── Settlement batches ───────────────────────────────────────────────

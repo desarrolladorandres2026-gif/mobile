@@ -111,8 +111,6 @@ export async function profile360(driverId: string, options: DriverProfile360Opti
   }
   const id = new Types.ObjectId(driverId);
 
-  const driver = await driverService.getDetail(driverId);
-
   // Los pedidos recientes alimentan dos secciones (lista y PQRS): una sola
   // consulta, y el cruce con PQRS espera a que llegue.
   const recentOrdersP = Order.find({ driverId: id })
@@ -135,6 +133,7 @@ export async function profile360(driverId: string, options: DriverProfile360Opti
   );
 
   const [
+    driver,
     recentOrders,
     pqrs,
     documents,
@@ -150,6 +149,7 @@ export async function profile360(driverId: string, options: DriverProfile360Opti
     sanctionRows,
     notes,
   ] = await Promise.all([
+    driverService.getDetail(driverId),
     recentOrdersP,
     pqrsP,
     DriverDocument.find({ driverId: id })

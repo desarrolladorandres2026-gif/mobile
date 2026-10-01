@@ -108,47 +108,65 @@ export const platformResultService = {
     };
     if (range) match.createdAt = { $gte: range.from, $lte: range.to };
 
-    const rows: Array<{ _id: LedgerAccount; balance: number }> = await LedgerEntry.aggregate([
-      { $match: match },
-      {
-        $group: {
-          _id: '$account',
-          balance: {
-            $sum: {
-              $cond: [{ $eq: ['$direction', LedgerDirection.DEBIT] }, '$amount', { $multiply: ['$amount', -1] }],
-            },
+    return resultFromBalances(await balancesByAccount(match), range);
+  },
+
+  /**
+   * Resultado de UN pedido con la misma definición que el periodo: los saldos
+   * de sus asientos. `null` si el pedido no tiene asientos de resultado (no se
+   * ha cobrado ni entregado nada), para no mostrar un cero que parece cierto.
+   */
+  async forOrder(orderId: unknown): Promise<PlatformResult | null> {
+    const match = { orderId, account: { $in: [...REVENUE_ACCOUNTS, ...EXPENSE_ACCOUNTS] } };
+    const rows = await balancesByAccount(match);
+    return rows.length === 0 ? null : resultFromBalances(rows);
+  },
+};
+
+type BalanceRow = { _id: LedgerAccount; balance: number };
+
+async function balancesByAccount(match: Record<string, unknown>): Promise<BalanceRow[]> {
+  return LedgerEntry.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: '$account',
+        balance: {
+          $sum: {
+            $cond: [{ $eq: ['$direction', LedgerDirection.DEBIT] }, '$amount', { $multiply: ['$amount', -1] }],
           },
         },
       },
-    ]);
+    },
+  ]);
+}
 
-    const balance = (account: LedgerAccount) => rows.find((r) => r._id === account)?.balance ?? 0;
+function resultFromBalances(rows: BalanceRow[], range?: DateRange): PlatformResult {
+  const balance = (account: LedgerAccount) => rows.find((r) => r._id === account)?.balance ?? 0;
 
-    const grossRevenue = -REVENUE_ACCOUNTS.reduce((sum, a) => sum + balance(a), 0);
-    const promotionExpense = balance(LedgerAccount.PROMOTION_EXPENSE);
-    const cashShortageExpense = balance(LedgerAccount.CASH_SHORTAGE_EXPENSE);
-    const driverFeeAbsorbed = balance(LedgerAccount.DRIVER_FEE_ABSORBED_EXPENSE);
-    const badDebt = balance(LedgerAccount.BAD_DEBT_EXPENSE);
-    const processingExpense = balance(LedgerAccount.PAYMENT_PROCESSING_EXPENSE);
+  const grossRevenue = -REVENUE_ACCOUNTS.reduce((sum, a) => sum + balance(a), 0);
+  const promotionExpense = balance(LedgerAccount.PROMOTION_EXPENSE);
+  const cashShortageExpense = balance(LedgerAccount.CASH_SHORTAGE_EXPENSE);
+  const driverFeeAbsorbed = balance(LedgerAccount.DRIVER_FEE_ABSORBED_EXPENSE);
+  const badDebt = balance(LedgerAccount.BAD_DEBT_EXPENSE);
+  const processingExpense = balance(LedgerAccount.PAYMENT_PROCESSING_EXPENSE);
 
-    return {
-      // `+ 0` evita un `-0` cuando no hay asientos.
-      grossRevenue: grossRevenue + 0,
-      promotionExpense,
-      cashShortageExpense,
-      driverFeeAbsorbed,
-      badDebt,
-      processingExpense,
-      netBeforeGatewayCosts:
-        grossRevenue - promotionExpense - cashShortageExpense - driverFeeAbsorbed - badDebt + 0,
-      netAfterGatewayCosts:
-        grossRevenue - promotionExpense - cashShortageExpense - driverFeeAbsorbed - badDebt - processingExpense + 0,
-      incomplete: true,
-      incompleteReason: PLATFORM_RESULT_INCOMPLETE_REASON,
-      range: {
-        from: range ? range.from.toISOString() : null,
-        to: range ? range.to.toISOString() : null,
-      },
-    };
-  },
-};
+  return {
+    // `+ 0` evita un `-0` cuando no hay asientos.
+    grossRevenue: grossRevenue + 0,
+    promotionExpense,
+    cashShortageExpense,
+    driverFeeAbsorbed,
+    badDebt,
+    processingExpense,
+    netBeforeGatewayCosts: grossRevenue - promotionExpense - cashShortageExpense - driverFeeAbsorbed - badDebt + 0,
+    netAfterGatewayCosts:
+      grossRevenue - promotionExpense - cashShortageExpense - driverFeeAbsorbed - badDebt - processingExpense + 0,
+    incomplete: true,
+    incompleteReason: PLATFORM_RESULT_INCOMPLETE_REASON,
+    range: {
+      from: range ? range.from.toISOString() : null,
+      to: range ? range.to.toISOString() : null,
+    },
+  };
+}

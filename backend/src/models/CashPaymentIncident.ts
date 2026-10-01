@@ -1,3 +1,4 @@
+import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import {
   CashIncidentType,
@@ -134,6 +135,7 @@ cashPaymentIncidentSchema.index({ orderId: 1, type: 1 }, { unique: true });
 cashPaymentIncidentSchema.index({ status: 1, createdAt: -1 });
 cashPaymentIncidentSchema.index({ driverId: 1, status: 1 });
 
+cashPaymentIncidentSchema.plugin(realtimeInvalidatePlugin, { resource: 'finance' });
 export const CashPaymentIncident = mongoose.model<ICashPaymentIncident>(
   'CashPaymentIncident',
   cashPaymentIncidentSchema

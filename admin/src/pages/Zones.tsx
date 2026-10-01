@@ -350,7 +350,7 @@ export default function Zones() {
  <tr key={z._id}>
  <td className="table-body-cell text-[var(--color-text-main)]">{z.name}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{z.city}</td>
- <td className="table-body-cell" style={z.isActive ? { color: '#D69E26' } : { color: '#0B0F19' }}>{z.isActive ? 'Activa' : 'Inactiva'}</td>
+ <td className="table-body-cell" style={z.isActive ? { color: 'var(--color-text-main)' } : { color: 'var(--color-text-secondary)' }}>{z.isActive ? 'Activa' : 'Inactiva'}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{z.baseFee === null ? 'tarifa global' : cop(z.baseFee)}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{z.perKm === null ? 'tarifa global' : cop(z.perKm)}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{z.surcharge > 0 ? cop(z.surcharge) : '—'}</td>
@@ -361,7 +361,7 @@ export default function Zones() {
  <button
  onClick={() => openHistory(z)}
  title="Historial de tarifas"
- className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
+ className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-text-main)]"
  >
  Historial
  </button>
@@ -369,7 +369,7 @@ export default function Zones() {
  <button
  onClick={() => openEdit(z)}
  title="Editar"
- className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-primary)]"
+ className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-text-main)]"
  >
  <Pencil className="w-4 h-4" />
  </button>
@@ -396,7 +396,7 @@ export default function Zones() {
  <div className="zipp-modal w-full max-w-3xl rounded-2xl p-6 space-y-3 max-h-[92vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <MapPin className="w-5 h-5 text-[var(--color-primary)]" />
+ <MapPin className="w-5 h-5 text-[var(--color-text-main)]" />
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
  {editingId ? 'Editar Zona' : 'Nueva Zona de Cobertura'}
  </h3>
