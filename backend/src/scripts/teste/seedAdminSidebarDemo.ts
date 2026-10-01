@@ -75,6 +75,26 @@ import { parseArgs } from './common';
 
 const MARK = 'DEMO SIDEBAR —';
 
+/**
+ * `findOneAndUpdate` con `upsert` siempre devuelve un documento, exista ya
+ * o se acabe de crear — por eso no sirve para contar inserciones reales.
+ * `includeResultMetadata` trae `lastErrorObject.upserted`, que solo viene
+ * poblado cuando el upsert insertó, así el reporte final cuenta lo que de
+ * verdad se creó en esta corrida (y da 0 en una segunda corrida, como debe).
+ */
+async function upsert<T>(
+  model: any,
+  filter: Record<string, unknown>,
+  setOnInsert: Record<string, unknown>
+): Promise<{ doc: T; inserted: boolean }> {
+  const result = (await model.findOneAndUpdate(filter, { $setOnInsert: setOnInsert }, {
+    upsert: true,
+    new: true,
+    includeResultMetadata: true,
+  })) as { value: T; lastErrorObject?: { upserted?: unknown } };
+  return { doc: result.value, inserted: Boolean(result.lastErrorObject?.upserted) };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   await connectGuarded((args.db as string) || 'zipp');
@@ -111,23 +131,17 @@ async function main() {
       [center.lng - d, center.lat + d],
       [center.lng - d, center.lat - d],
     ];
-    const res = await Zone.findOneAndUpdate(
-      { name: z.name },
-      {
-        $setOnInsert: {
-          name: z.name,
-          city: 'Garzón',
-          area: { type: 'Polygon', coordinates: [ring] },
-          surcharge: z.surcharge,
-          minOrder: z.minOrder,
-          priority: z.priority,
-          isActive: true,
-          version: 1,
-        },
-      },
-      { upsert: true, new: true }
-    );
-    if (res) zoneCount++;
+    const { inserted } = await upsert(Zone, { name: z.name }, {
+      name: z.name,
+      city: 'Garzón',
+      area: { type: 'Polygon', coordinates: [ring] },
+      surcharge: z.surcharge,
+      minOrder: z.minOrder,
+      priority: z.priority,
+      isActive: true,
+      version: 1,
+    });
+    if (inserted) zoneCount++;
   }
 
   // ── 2. Review ────────────────────────────────────────────────────────
@@ -141,25 +155,19 @@ async function main() {
   for (let i = 0; i < Math.min(reviewTexts.length, orders.length); i++) {
     const order = orders[i];
     const t = reviewTexts[i];
-    const res = await Review.findOneAndUpdate(
-      { orderId: order._id },
-      {
-        $setOnInsert: {
-          orderId: order._id,
-          userId: order.clientId,
-          businessId: order.businessId,
-          driverId: order.driverId ?? pick(drivers, i)._id,
-          businessRating: t.businessRating,
-          businessRatingReasons: t.businessReasons,
-          driverRating: t.driverRating,
-          driverRatingReasons: t.driverReasons,
-          comment: t.comment,
-          isHidden: false,
-        },
-      },
-      { upsert: true, new: true }
-    );
-    if (res) reviewCount++;
+    const { inserted } = await upsert(Review, { orderId: order._id }, {
+      orderId: order._id,
+      userId: order.clientId,
+      businessId: order.businessId,
+      driverId: order.driverId ?? pick(drivers, i)._id,
+      businessRating: t.businessRating,
+      businessRatingReasons: t.businessReasons,
+      driverRating: t.driverRating,
+      driverRatingReasons: t.driverReasons,
+      comment: t.comment,
+      isHidden: false,
+    });
+    if (inserted) reviewCount++;
   }
 
   // ── 3. ProSubscription ──────────────────────────────────────────────
@@ -175,26 +183,20 @@ async function main() {
     const def = proDefs[i];
     const periodEnd = new Date(now.getTime() + def.daysLeft * 86400000);
     const periodStart = new Date(periodEnd.getTime() - 30 * 86400000);
-    const res = await ProSubscription.findOneAndUpdate(
-      { userId: client._id },
-      {
-        $setOnInsert: {
-          userId: client._id,
-          status: def.status,
-          planId: 'pro_mensual',
-          price: 14900,
-          currency: 'COP',
-          startedAt: periodStart,
-          currentPeriodStart: periodStart,
-          currentPeriodEnd: periodEnd,
-          autoRenew: def.status === 'active',
-          cancelledAt: def.status === 'cancelled' ? now : null,
-          renewalFailures: def.status === 'expired' ? 3 : 0,
-        },
-      },
-      { upsert: true, new: true }
-    );
-    if (res) proCount++;
+    const { inserted } = await upsert(ProSubscription, { userId: client._id }, {
+      userId: client._id,
+      status: def.status,
+      planId: 'pro_mensual',
+      price: 14900,
+      currency: 'COP',
+      startedAt: periodStart,
+      currentPeriodStart: periodStart,
+      currentPeriodEnd: periodEnd,
+      autoRenew: def.status === 'active',
+      cancelledAt: def.status === 'cancelled' ? now : null,
+      renewalFailures: def.status === 'expired' ? 3 : 0,
+    });
+    if (inserted) proCount++;
   }
 
   // ── 4. Refund (decorativo, no pasa por ledger — ver cabecera) ───────
@@ -211,33 +213,27 @@ async function main() {
     const total = order.finance?.customerTotal ?? 30000;
     const amount = def.kind === RefundKind.FULL ? total : Math.round(total * 0.4);
     const key = `${MARK} refund-${order._id}-${i}`;
-    const res = await Refund.findOneAndUpdate(
-      { idempotencyKey: key },
-      {
-        $setOnInsert: {
-          orderId: order._id,
-          kind: def.kind,
-          status: def.status,
-          amount,
-          currency: 'COP',
-          reason: def.reason,
-          allocation: {
-            fromMerchantPayout: Math.round(amount * 0.5),
-            fromDriverPayout: 0,
-            fromCommission: Math.round(amount * 0.3),
-            fromServiceFee: 0,
-            fromDeliveryMargin: 0,
-            fromTax: 0,
-            fromPlatform: amount - Math.round(amount * 0.5) - Math.round(amount * 0.3),
-          },
-          idempotencyKey: key,
-          requestedBy: admin._id,
-          processedAt: def.status === RefundStatus.COMPLETED ? now : null,
-        },
+    const { inserted } = await upsert(Refund, { idempotencyKey: key }, {
+      orderId: order._id,
+      kind: def.kind,
+      status: def.status,
+      amount,
+      currency: 'COP',
+      reason: def.reason,
+      allocation: {
+        fromMerchantPayout: Math.round(amount * 0.5),
+        fromDriverPayout: 0,
+        fromCommission: Math.round(amount * 0.3),
+        fromServiceFee: 0,
+        fromDeliveryMargin: 0,
+        fromTax: 0,
+        fromPlatform: amount - Math.round(amount * 0.5) - Math.round(amount * 0.3),
       },
-      { upsert: true, new: true }
-    );
-    if (res) refundCount++;
+      idempotencyKey: key,
+      requestedBy: admin._id,
+      processedAt: def.status === RefundStatus.COMPLETED ? now : null,
+    });
+    if (inserted) refundCount++;
   }
 
   // ── 5. FeatureFlag ───────────────────────────────────────────────────
@@ -249,12 +245,8 @@ async function main() {
   ];
   let flagCount = 0;
   for (const f of flagDefs) {
-    const res = await FeatureFlag.findOneAndUpdate(
-      { key: f.key },
-      { $setOnInsert: { ...f, updatedBy: admin._id } },
-      { upsert: true, new: true }
-    );
-    if (res) flagCount++;
+    const { inserted } = await upsert(FeatureFlag, { key: f.key }, { ...f, updatedBy: admin._id });
+    if (inserted) flagCount++;
   }
 
   // ── 6. Commission (decorativo, ver cabecera) ─────────────────────────
@@ -263,23 +255,17 @@ async function main() {
     const order = orders[i];
     const finance = order.finance;
     if (!finance) continue;
-    const res = await Commission.findOneAndUpdate(
-      { orderId: order._id },
-      {
-        $setOnInsert: {
-          orderId: order._id,
-          businessId: order.businessId,
-          driverId: order.driverId ?? null,
-          platformAmount: finance.merchantCommission ?? 0,
-          businessAmount: finance.businessPayout ?? 0,
-          driverAmount: finance.driverPayout ?? 0,
-          status: order.status === 'cancelled' ? CommissionStatus.PENDING : CommissionStatus.SETTLED,
-          settledAt: order.status === 'cancelled' ? null : now,
-        },
-      },
-      { upsert: true, new: true }
-    );
-    if (res) commissionCount++;
+    const { inserted } = await upsert(Commission, { orderId: order._id }, {
+      orderId: order._id,
+      businessId: order.businessId,
+      driverId: order.driverId ?? null,
+      platformAmount: finance.merchantCommission ?? 0,
+      businessAmount: finance.businessPayout ?? 0,
+      driverAmount: finance.driverPayout ?? 0,
+      status: order.status === 'cancelled' ? CommissionStatus.PENDING : CommissionStatus.SETTLED,
+      settledAt: order.status === 'cancelled' ? null : now,
+    });
+    if (inserted) commissionCount++;
   }
 
   // ── 7. Coupon + CouponRedemption ─────────────────────────────────────
@@ -345,31 +331,23 @@ async function main() {
   let couponCount = 0;
   const couponIds: Types.ObjectId[] = [];
   for (const c of couponDefs) {
-    const res = await Coupon.findOneAndUpdate(
-      { code: c.code },
-      { $setOnInsert: c },
-      { upsert: true, new: true }
-    );
-    if (res) {
-      couponCount++;
-      couponIds.push(res._id as Types.ObjectId);
-    }
+    const { doc, inserted } = await upsert<{ _id: Types.ObjectId }>(Coupon, { code: c.code }, c);
+    if (inserted) couponCount++;
+    couponIds.push(doc._id);
   }
   let redemptionCount = 0;
   for (let i = 0; i < Math.min(2, couponIds.length, orders.length, clients.length); i++) {
-    const res = await CouponRedemption.findOneAndUpdate(
+    const { inserted } = await upsert(
+      CouponRedemption,
       { orderId: orders[i]._id, couponId: couponIds[i] },
       {
-        $setOnInsert: {
-          couponId: couponIds[i],
-          userId: orders[i].clientId ?? clients[i]._id,
-          orderId: orders[i]._id,
-          discountAmount: 5000,
-        },
-      },
-      { upsert: true, new: true }
+        couponId: couponIds[i],
+        userId: orders[i].clientId ?? clients[i]._id,
+        orderId: orders[i]._id,
+        discountAmount: 5000,
+      }
     );
-    if (res) redemptionCount++;
+    if (inserted) redemptionCount++;
   }
 
   // ── 8. CampaignSend ───────────────────────────────────────────────────
@@ -424,42 +402,36 @@ async function main() {
   let legalDocCount = 0;
   const legalDocIds: Types.ObjectId[] = [];
   for (const l of legalDefs) {
-    const res = await LegalDocument.findOneAndUpdate(
+    const { doc, inserted } = await upsert<{ _id: Types.ObjectId }>(
+      LegalDocument,
       { kind: l.kind, version: l.version },
       {
-        $setOnInsert: {
-          kind: l.kind,
-          version: l.version,
-          title: l.title,
-          content: `Contenido de demostración para "${l.title}". Texto de relleno para probar el panel, no es el documento legal real.`,
-          effectiveAt: now,
-          isActive: true,
-          publishedBy: admin._id,
-        },
-      },
-      { upsert: true, new: true }
+        kind: l.kind,
+        version: l.version,
+        title: l.title,
+        content: `Contenido de demostración para "${l.title}". Texto de relleno para probar el panel, no es el documento legal real.`,
+        effectiveAt: now,
+        isActive: true,
+        publishedBy: admin._id,
+      }
     );
-    if (res) {
-      legalDocCount++;
-      legalDocIds.push(res._id as Types.ObjectId);
-    }
+    if (inserted) legalDocCount++;
+    legalDocIds.push(doc._id);
   }
   let legalAcceptanceCount = 0;
   for (let i = 0; i < Math.min(legalDocIds.length, clients.length); i++) {
-    const res = await LegalAcceptance.findOneAndUpdate(
+    const { inserted } = await upsert(
+      LegalAcceptance,
       { userId: clients[i]._id, documentId: legalDocIds[i] },
       {
-        $setOnInsert: {
-          userId: clients[i]._id,
-          documentId: legalDocIds[i],
-          version: legalDefs[i].version,
-          ipHash: 'demo-hash',
-          acceptedAt: now,
-        },
-      },
-      { upsert: true, new: true }
+        userId: clients[i]._id,
+        documentId: legalDocIds[i],
+        version: legalDefs[i].version,
+        ipHash: 'demo-hash',
+        acceptedAt: now,
+      }
     );
-    if (res) legalAcceptanceCount++;
+    if (inserted) legalAcceptanceCount++;
   }
 
   // ── 13. Settlement (antes que FiscalDocument, que depende de esto) ──
@@ -617,32 +589,26 @@ async function main() {
     const driverId = order.driverId ?? drivers[i % drivers.length]._id;
     const status = cashStatuses[i];
     const amount = Math.round((order.finance?.merchantCommission ?? 3000) + (order.finance?.customerServiceFee ?? 0));
-    const res = await CashReconciliation.findOneAndUpdate(
-      { orderId: order._id },
-      {
-        $setOnInsert: {
-          driverId,
-          orderId: order._id,
-          amount: amount || 3000,
-          breakdown: {
-            merchantCommission: order.finance?.merchantCommission ?? 3000,
-            customerServiceFee: order.finance?.customerServiceFee ?? 0,
-            deliveryMargin: order.finance?.deliveryMargin ?? 0,
-            taxPayable: order.finance?.taxPayable ?? 0,
-          },
-          currency: 'COP',
-          status,
-          dueAt: new Date(now.getTime() + 2 * 86400000),
-          reportedAt: status !== CashReconciliationStatus.PENDING ? now : null,
-          verifiedAt: status === CashReconciliationStatus.VERIFIED || status === CashReconciliationStatus.SETTLED ? now : null,
-          verifiedBy: status === CashReconciliationStatus.VERIFIED || status === CashReconciliationStatus.SETTLED ? admin._id : null,
-          verificationMethod: status === CashReconciliationStatus.VERIFIED || status === CashReconciliationStatus.SETTLED ? 'admin_confirmation' : null,
-          settledAt: status === CashReconciliationStatus.SETTLED ? now : null,
-        },
+    const { inserted } = await upsert(CashReconciliation, { orderId: order._id }, {
+      driverId,
+      orderId: order._id,
+      amount: amount || 3000,
+      breakdown: {
+        merchantCommission: order.finance?.merchantCommission ?? 3000,
+        customerServiceFee: order.finance?.customerServiceFee ?? 0,
+        deliveryMargin: order.finance?.deliveryMargin ?? 0,
+        taxPayable: order.finance?.taxPayable ?? 0,
       },
-      { upsert: true, new: true }
-    );
-    if (res) cashReconCount++;
+      currency: 'COP',
+      status,
+      dueAt: new Date(now.getTime() + 2 * 86400000),
+      reportedAt: status !== CashReconciliationStatus.PENDING ? now : null,
+      verifiedAt: status === CashReconciliationStatus.VERIFIED || status === CashReconciliationStatus.SETTLED ? now : null,
+      verifiedBy: status === CashReconciliationStatus.VERIFIED || status === CashReconciliationStatus.SETTLED ? admin._id : null,
+      verificationMethod: status === CashReconciliationStatus.VERIFIED || status === CashReconciliationStatus.SETTLED ? 'admin_confirmation' : null,
+      settledAt: status === CashReconciliationStatus.SETTLED ? now : null,
+    });
+    if (inserted) cashReconCount++;
   }
 
   // Una incidencia abierta sobre uno de esos mismos pedidos, si hay Payment.
