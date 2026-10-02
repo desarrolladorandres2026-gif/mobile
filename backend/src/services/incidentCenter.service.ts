@@ -1,9 +1,12 @@
 import {
   CashPaymentIncident, SosAlert, SosStatus, Pqrs, Order, DataRequest, Payout,
-  CashReconciliation, BusinessDocument, DriverDocument, Advertisement, AdInvoice, Refund,
+  CashReconciliation, BusinessDocument, DriverDocument, Advertisement, AdInvoice, Refund, Payment,
 } from '../models';
 import { AdApprovalStatus } from '../models/Advertisement';
-import { CashIncidentStatus, CashReconciliationStatus, OrderStatus, PayoutStatus, RefundStatus } from '../types';
+import {
+  CashIncidentStatus, CashReconciliationStatus, OrderKind, OrderStatus, PaymentStatus, PaymentType, PayoutStatus, RefundStatus,
+} from '../types';
+import { UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 import { dispatchService } from './dispatch.service';
 import { FraudAlert, FraudAlertStatus, UserRiskProfile } from '../security';
 import { businessDaysUntil } from '../utils';
@@ -25,6 +28,8 @@ export const INCIDENT_PERMISSION: Record<string, Permission> = {
   driver_document_expiring: Permission.DRIVERS_APPROVE,
   ad_uninvoiced: Permission.ADS_VIEW,
   refund_failed: Permission.REFUNDS_VIEW,
+  payment_review: Permission.REFUNDS_VIEW,
+  order_unaccepted: Permission.ORDERS_VIEW_ALL,
 };
 
 /** `allows(permiso)`: normalmente `(p) => can(req, p)`. Sin él, se niega todo (falla cerrado): quien quiera todo debe decirlo con `() => true`. */
@@ -45,7 +50,8 @@ export type PermissionCheck = (permission: Permission) => boolean;
 
 export type IncidentKind =
   | 'sos' | 'fraud' | 'cash' | 'complaint' | 'stalled_order' | 'pqrs_legal' | 'data_request_legal' | 'clawback_overdue'
-  | 'unassigned_order' | 'cash_overdue' | 'business_document_expiring' | 'driver_document_expiring' | 'ad_uninvoiced' | 'refund_failed';
+  | 'unassigned_order' | 'cash_overdue' | 'business_document_expiring' | 'driver_document_expiring' | 'ad_uninvoiced' | 'refund_failed'
+  | 'payment_review' | 'order_unaccepted';
 export type IncidentSeverity = 'critical' | 'high' | 'medium';
 
 export interface Incident {
@@ -104,6 +110,14 @@ function expiryPhrase(expiresAt: Date): string {
  */
 const STALLED_AFTER_MS = 45 * 60 * 1000;
 
+/**
+ * Cuánto puede esperar un pedido que el comercio ya puede aceptar (pagado en
+ * línea, en efectivo, o programado ya activado) sin que nadie lo acepte.
+ * Pasado esto, el cliente lleva diez minutos mirando "esperando al
+ * comercio", y si pagó, con su dinero dentro.
+ */
+const UNACCEPTED_AFTER_MS = 10 * 60 * 1000;
+
 /** Cuántos días puede un arrastre de comercio esperar sin cobrar antes de necesitar seguimiento. */
 const CLAWBACK_OVERDUE_DAYS = 14;
 
@@ -127,12 +141,14 @@ export class IncidentCenterService {
       allows(INCIDENT_PERMISSION[kind]) ? Promise.resolve(run()) : Promise.resolve([]);
 
     const unassignedSince = new Date(Date.now() - UNASSIGNED_AFTER_MS);
+    const unacceptedSince = new Date(Date.now() - UNACCEPTED_AFTER_MS);
     const documentWindow = new Date(Date.now() + DOCUMENT_EXPIRY_WINDOW_DAYS * DAY_MS);
     const cyclesBeforeAlert = dispatchService.CYCLES_BEFORE_ALERT;
 
     const [
       sos, fraud, cash, complaints, stalled, legalPqrs, legalDataRequests, overdueClawbacks,
       unassigned, cashOverdue, businessDocs, driverDocs, endedAds, failedRefunds,
+      paymentsOnHold, unaccepted,
     ] = await Promise.all([
       gated('sos', () =>
         SosAlert.find({ status: { $in: [SosStatus.ACTIVE, SosStatus.ACKNOWLEDGED] } })
@@ -289,6 +305,46 @@ export class IncidentCenterService {
           .sort({ createdAt: -1 })
           .limit(30)
           .select('orderId amount reason createdAt')
+          .lean()
+      ),
+
+      // Cobros que entraron pero que el sistema no dio por buenos (doble
+      // cobro, pedido ya cancelado, monto distinto, cambio de metodo). El
+      // dinero del cliente esta cobrado y el pedido no avanzo: hasta aqui
+      // solo quedaba una linea de auditoria que nadie trabajaba.
+      gated('payment_review', () =>
+        Payment.find({
+          type: PaymentType.ORDER_PAYMENT,
+          status: PaymentStatus.PAID,
+          'metadata.requiresReview': true,
+          'metadata.reviewResolvedAt': { $exists: false },
+        })
+          .sort({ processedAt: 1 })
+          .limit(30)
+          .select('orderId userId amount metadata processedAt createdAt')
+          .lean()
+      ),
+
+      // Pedidos que el comercio ya puede aceptar y nadie acepta. Los en
+      // linea sin pagar quedan fuera (no son del comercio todavia), igual
+      // que los programados sin activar. `updatedAt` es cuando se volvieron
+      // aceptables: al crearse (efectivo), al cobrarse o al activarse.
+      gated('order_unaccepted', () =>
+        Order.find({
+          status: OrderStatus.PENDING,
+          kind: { $ne: OrderKind.ERRAND },
+          businessId: { $ne: null },
+          updatedAt: { $lt: unacceptedSince },
+          $or: [
+            { scheduledFor: null },
+            { scheduledFor: { $exists: false } },
+            { scheduledActivatedAt: { $ne: null } },
+          ],
+          $nor: [{ ...UNPAID_ONLINE_MATCH }],
+        })
+          .sort({ updatedAt: 1 })
+          .limit(30)
+          .select('orderNumber clientId businessId paymentMethod paymentStatus total finance.customerTotal updatedAt')
           .lean()
       ),
     ]);
@@ -485,6 +541,36 @@ export class IncidentCenterService {
         at: r.createdAt,
         orderId: r.orderId ? String(r.orderId) : undefined,
       })),
+
+      ...paymentsOnHold.map((p: any) => ({
+        kind: 'payment_review' as const,
+        severity: 'high' as IncidentSeverity,
+        id: String(p._id),
+        key: makeKey('payment_review', String(p._id), 'open'),
+        title: 'Cobro retenido para revisión',
+        detail: `${money(p.amount)}: ${p.metadata?.reviewReason || 'sin motivo registrado'}`,
+        at: p.processedAt ?? p.createdAt,
+        userId: p.userId ? String(p.userId) : undefined,
+        orderId: p.orderId ? String(p.orderId) : undefined,
+      })),
+
+      ...unaccepted.map((o: any) => {
+        const paid = o.paymentStatus === PaymentStatus.PAID;
+        const waitedMin = Math.floor((Date.now() - new Date(o.updatedAt).getTime()) / 60_000);
+        return {
+          kind: 'order_unaccepted' as const,
+          severity: (paid ? 'high' : 'medium') as IncidentSeverity,
+          id: String(o._id),
+          key: makeKey('order_unaccepted', String(o._id), 'waiting'),
+          title: paid ? 'Pedido pagado sin aceptar' : 'Pedido sin aceptar',
+          detail: `${o.orderNumber} lleva ${waitedMin} min esperando que el comercio lo acepte` +
+            (paid ? ` (cobrado ${money(o.finance?.customerTotal ?? o.total)})` : ''),
+          at: o.updatedAt,
+          userId: String(o.clientId),
+          orderId: String(o._id),
+          businessId: o.businessId ? String(o.businessId) : undefined,
+        };
+      }),
     ];
 
     const weight: Record<IncidentSeverity, number> = { critical: 0, high: 1, medium: 2 };

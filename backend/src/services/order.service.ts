@@ -56,6 +56,9 @@ const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 export const TERMINAL_ORDER_STATUSES: OrderStatus[] = (Object.keys(VALID_TRANSITIONS) as OrderStatus[])
   .filter((s) => VALID_TRANSITIONS[s].length === 0);
 
+/** Estados en los que el cliente puede cancelar por su cuenta: la cocina aún no empezó. */
+const CLIENT_CANCELLABLE_STATUSES: OrderStatus[] = [OrderStatus.PENDING, OrderStatus.ACCEPTED];
+
 /** Estados en los que aún se puede soltar al domiciliario (nunca tras la recogida). */
 const UNASSIGNABLE_STATUSES: OrderStatus[] = [OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY];
 
@@ -909,6 +912,33 @@ export class OrderService {
       throw new AppError(`Tu rol no puede establecer el estado "${status}"`, 403);
     }
 
+    // ── Hasta dónde cancela el cliente por su cuenta ──
+    //
+    // Antes podía cancelar en cualquier estado con salida a CANCELLED,
+    // incluido "en camino", y si el pedido estaba pagado `onCancelled`
+    // emitía un reembolso total automático: el comercio había cocinado y el
+    // domiciliario hecho el viaje. La app no ofrecía el botón, pero la API sí
+    // lo aceptaba. Mismo corte que para el admin sin permiso de reembolsos:
+    // mientras la cocina no empezó (PENDING/ACCEPTED). Después, lo resuelve
+    // soporte o el comercio. Un mandado nace en READY (no hay cocina) y se
+    // puede cancelar mientras el domiciliario no lo haya recogido; si ya
+    // compró, lo frena la regla de abajo.
+    const clientCancellable =
+      order.kind === OrderKind.ERRAND
+        ? [...CLIENT_CANCELLABLE_STATUSES, OrderStatus.READY]
+        : CLIENT_CANCELLABLE_STATUSES;
+    if (
+      userRole === UserRole.CLIENT &&
+      status === OrderStatus.CANCELLED &&
+      !clientCancellable.includes(order.status)
+    ) {
+      throw new AppError(
+        'Tu pedido ya se está preparando y no se puede cancelar desde la app. Escríbenos a soporte.',
+        409,
+        'CLIENT_CANCEL_TOO_LATE'
+      );
+    }
+
     // ── Un mandado comprado ya no se cancela ──
     //
     // Cancelar significa "esto no ha pasado", y en cuanto el domiciliario
@@ -1719,6 +1749,9 @@ export class OrderService {
         },
         { status: PaymentStatus.PENDING, createdAt: { $gt: new Date(now.getTime() - attemptWindowMs) } },
         { status: PaymentStatus.PAID, type: PaymentType.ORDER_PAYMENT },
+        // Un cobro cuya creación se cortó por la red sin saber si Wompi lo
+        // creó: lo resuelve el barrido de cobros, no esta cancelación.
+        { status: PaymentStatus.PENDING, 'metadata.creationUncertain': true },
       ],
     });
 

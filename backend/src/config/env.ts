@@ -629,6 +629,12 @@ export const config = {
       // 0 disables the bound.
       webhookMaxAgeSeconds: parseInt(process.env.WOMPI_WEBHOOK_MAX_AGE_SECONDS || '259200', 10),
       /**
+       * Tiempo máximo de cada llamada a la API de Wompi. Sin él, una petición
+       * que Wompi no contesta dejaba colgados el cobro, la confirmación del
+       * webhook y el barrido de cobros pendientes, que va de uno en uno.
+       */
+      httpTimeoutMs: parseInt(process.env.WOMPI_HTTP_TIMEOUT_MS || '15000', 10),
+      /**
        * A dónde devuelve Wompi a quien paga con PSE o Bancolombia.
        *
        * La fija el servidor y no la app: https y en un dominio nuestro, que es
