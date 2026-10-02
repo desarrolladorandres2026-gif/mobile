@@ -15,6 +15,9 @@ import DocumentExpiryNotice from './DocumentExpiryNotice';
 import NewDeviceNotice from './NewDeviceNotice';
 import { ZippMark } from './ZippMark';
 import { preloadOn } from '../lib/lazyPage';
+import { onDesktopCloseStoreRequest, takePendingDesktopCrashReport, clearDesktopCrashReport } from '../lib/desktop';
+import { usePermissions } from '../hooks/usePermissions';
+import { canSee, homeFor } from '../lib/permissions';
 import {
   CalendarLtrRegular, BoxRegular, WalletRegular,
   FoodRegular, TagRegular, MegaphoneRegular, StarRegular,
@@ -51,6 +54,18 @@ export default function Layout() {
   const [loadingBusinesses, setLoadingBusinesses] = useState(false);
   const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
   const toggleSound = usePreferencesStore((s) => s.toggleSound);
+  const { access, can } = usePermissions(selectedBusiness?._id);
+  const visibleNav = nav.filter((item) => canSee(item.path, access));
+
+  // Un empleado que cae en una sección del dueño (la portada es el resumen
+  // de ventas) se lleva a la primera que sí puede usar, en vez de dejarlo
+  // ante una pantalla que responde 403.
+  const section = nav.find((item) =>
+    item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)
+  )?.path;
+  useEffect(() => {
+    if (access && section && !canSee(section, access)) navigate(homeFor(access), { replace: true });
+  }, [access, section, navigate]);
 
   /**
    * Abierto / cerrado es un hecho del servidor, no de esta pestaña.
@@ -62,13 +77,14 @@ export default function Layout() {
    */
   const isStoreOpen = selectedBusiness?.isActive !== false;
 
-  const toggleStore = async () => {
+  const setStoreOpen = async (next: boolean) => {
     if (!selectedBusiness || pausing) return;
-    const next = !isStoreOpen;
     setPausing(true);
     setPauseError('');
     try {
-      const { data } = await api.put(`/businesses/${selectedBusiness._id}`, { isActive: next });
+      // Endpoint propio: lo usan también el encargado y el mostrador, que no
+      // pueden pasar por el PUT del perfil.
+      const { data } = await api.patch(`/businesses/${selectedBusiness._id}/open`, { isActive: next });
       // Se refleja lo que respondió el servidor, no lo que se pidió: si la
       // escritura no cuajó, el interruptor no debe mentir.
       setSelectedBusiness({ ...selectedBusiness, isActive: data.data?.isActive ?? next });
@@ -78,6 +94,33 @@ export default function Layout() {
       setPausing(false);
     }
   };
+
+  const toggleStore = () => setStoreOpen(!isStoreOpen);
+
+  // Zipp Negocios pide cerrar el negocio antes de salir ("Cerrar el negocio
+  // y salir" de la bandeja). Si ya estaba cerrado no hay nada que hacer —
+  // y sobre todo, no hay que "abrirlo" por error llamando a toggle.
+  useEffect(() => onDesktopCloseStoreRequest(() => {
+    if (isStoreOpen) return setStoreOpen(false);
+  }), [isStoreOpen, selectedBusiness]);
+
+  // Si Zipp Negocios se cayó o se congeló antes de esta carga, el
+  // contenedor dejó el reporte guardado — él no tiene sesión para
+  // mandarlo. Se envía una sola vez, al montar el layout ya autenticado,
+  // y solo se borra si el POST sale bien.
+  useEffect(() => {
+    let cancelled = false;
+    takePendingDesktopCrashReport().then(async (report) => {
+      if (!report || cancelled) return;
+      try {
+        await api.post('/telemetry/crash', report);
+        await clearDesktopCrashReport();
+      } catch {
+        // Se reintenta en el próximo arranque: no se borra sin confirmar.
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   /**
    * Refresca la lista de negocios del usuario autenticado al montar el layout.
@@ -167,7 +210,7 @@ export default function Layout() {
           <div className="flex items-center justify-center gap-2">
             <button
               onClick={toggleStore}
-              disabled={pausing || !selectedBusiness}
+              disabled={pausing || !selectedBusiness || !can('store:toggle')}
               aria-pressed={isStoreOpen}
               title={
                 isStoreOpen
@@ -226,8 +269,10 @@ export default function Layout() {
             </p>
           )}
 
+          {/* El error sí se ve: con el aviso oculto, un Abierto/Cerrado que no
+              cuajó no dejaba ninguna señal y el comercio creía haber cerrado. */}
           {pauseError && (
-            <p className="sr-only">
+            <p role="alert" className="mt-1 text-center text-[9px] font-semibold leading-snug text-[var(--color-danger)]">
               {pauseError}
             </p>
           )}
@@ -236,7 +281,7 @@ export default function Layout() {
         {/* Navigation */}
         <nav aria-label="Navegación principal" className="flex-1 overflow-y-auto business-sidebar-scroll pt-1">
           <div className="flex flex-col">
-            {nav.map((item) => {
+            {visibleNav.map((item) => {
               const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
               return (
                 <NavLink

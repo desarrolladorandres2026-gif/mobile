@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { businessService, businessImageService, payoutService, publicCatalogService } from '../services';
 import { can } from '../middlewares/auth';
 import { AppError, uploadBusinessImage, uploadBusinessDocumentFile, cacheHeaders } from '../middlewares';
-import { Business } from '../models';
+import { Business, BusinessPermission as BusinessPermissionEnum } from '../models';
 import { PayoutStatus } from '../types';
 import { sendResponse, param, query, toCsv, csvFilename, clampLimit } from '../utils';
 import { UserRole } from '../types';
@@ -26,11 +26,7 @@ export class BusinessController {
 
       // Un comercio solo descarga lo suyo. Sin esto, cambiar el id en la
       // URL entregaría las ventas del vecino.
-      if (user.role !== UserRole.ADMIN) {
-        const { Business } = await import('../models');
-        const owns = await Business.exists({ _id: businessId, ownerId: user._id });
-        if (!owns) throw new AppError('No autorizado', 403);
-      }
+      await this.assertBusinessPermission(req, businessId, 'SETTLEMENTS_VIEW', 'Sin permisos para ver liquidaciones.');
 
       const from = query(req, 'from');
       const to = query(req, 'to');
@@ -65,36 +61,40 @@ export class BusinessController {
 
   // ── Empleados del comercio ──
 
+  private async staffService() {
+    const { businessStaffService } = await import('../services/businessStaff.service');
+    const { BusinessPermission } = await import('../models');
+    return { businessStaffService, BusinessPermission };
+  }
+
   async listStaff(req: Request, res: Response, next: NextFunction) {
     try {
-      const { businessStaffService } = await import('../services/businessStaff.service');
-      const { BusinessPermission } = await import('../models');
-
+      const { businessStaffService, BusinessPermission } = await this.staffService();
       await businessStaffService.assertCan(
         req.user!._id.toString(),
         param(req, 'id'),
-        BusinessPermission.STAFF_MANAGE
+        BusinessPermission.TEAM_VIEW,
+        'Sin permisos para ver al equipo.'
       );
 
       sendResponse(res, 200, 'Empleados', await businessStaffService.list(param(req, 'id')));
     } catch (error) { next(error); }
   }
 
+  /** Invita a alguien: queda pendiente hasta que acepte. */
   async addStaff(req: Request, res: Response, next: NextFunction) {
     try {
-      const { businessStaffService } = await import('../services/businessStaff.service');
-      const { BusinessPermission } = await import('../models');
-
+      const { businessStaffService, BusinessPermission } = await this.staffService();
       await businessStaffService.assertCan(
         req.user!._id.toString(),
         param(req, 'id'),
-        BusinessPermission.STAFF_MANAGE
+        BusinessPermission.TEAM_INVITE,
+        'Sin permisos para invitar empleados.'
       );
 
-      const staff = await businessStaffService.add(
+      const staff = await businessStaffService.invite(
         param(req, 'id'),
-        req.body.phone,
-        req.body.role,
+        { phone: req.body.phone, role: req.body.role, name: req.body.name, email: req.body.email },
         req.user!._id.toString()
       );
 
@@ -102,27 +102,105 @@ export class BusinessController {
         action: AuditAction.BUSINESS_UPDATED,
         entity: 'business',
         entityId: param(req, 'id'),
-        description: `Empleado agregado con papel ${req.body.role}`,
+        description: `Empleado invitado con papel ${req.body.role}`,
         metadata: { staffUserId: staff?.userId?.toString?.(), role: req.body.role },
       });
 
-      sendResponse(res, 201, 'Empleado agregado', staff);
+      sendResponse(res, 201, 'Invitación enviada', staff);
+    } catch (error) { next(error); }
+  }
+
+  /** Cambiar el papel, o suspender / reactivar. */
+  async updateStaff(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { businessStaffService, BusinessPermission } = await this.staffService();
+      const businessId = param(req, 'id');
+      const actorId = req.user!._id.toString();
+      const { role, suspended } = req.body as { role?: any; suspended?: boolean };
+
+      let staff;
+      if (role) {
+        await businessStaffService.assertCan(actorId, businessId, BusinessPermission.TEAM_CHANGE_ROLE, 'Sin permisos para cambiar roles.');
+        staff = await businessStaffService.changeRole(businessId, param(req, 'staffId'), role, actorId);
+      }
+      if (suspended !== undefined) {
+        await businessStaffService.assertCan(actorId, businessId, BusinessPermission.TEAM_EDIT, 'Sin permisos para editar empleados.');
+        staff = await businessStaffService.setSuspended(businessId, param(req, 'staffId'), suspended, actorId);
+      }
+
+      void logAudit(req, {
+        action: AuditAction.BUSINESS_UPDATED,
+        entity: 'business',
+        entityId: businessId,
+        description: role ? `Papel de empleado cambiado a ${role}` : suspended ? 'Empleado suspendido' : 'Empleado reactivado',
+        metadata: { staffUserId: staff?.userId?.toString?.(), role, suspended },
+      });
+
+      sendResponse(res, 200, 'Empleado actualizado', staff);
     } catch (error) { next(error); }
   }
 
   async removeStaff(req: Request, res: Response, next: NextFunction) {
     try {
-      const { businessStaffService } = await import('../services/businessStaff.service');
-      const { BusinessPermission } = await import('../models');
+      const { businessStaffService, BusinessPermission } = await this.staffService();
+      const actorId = req.user!._id.toString();
+      await businessStaffService.assertCan(actorId, param(req, 'id'), BusinessPermission.TEAM_REMOVE, 'Sin permisos para eliminar empleados.');
 
-      await businessStaffService.assertCan(
-        req.user!._id.toString(),
-        param(req, 'id'),
-        BusinessPermission.STAFF_MANAGE
-      );
+      const staff = await businessStaffService.remove(param(req, 'id'), param(req, 'staffId'), actorId);
 
-      const staff = await businessStaffService.remove(param(req, 'id'), param(req, 'staffId'));
+      void logAudit(req, {
+        action: AuditAction.BUSINESS_UPDATED,
+        entity: 'business',
+        entityId: param(req, 'id'),
+        description: 'Acceso de empleado retirado',
+        metadata: { staffUserId: staff?.userId?.toString?.() },
+      });
+
       sendResponse(res, 200, 'Acceso retirado', staff);
+    } catch (error) { next(error); }
+  }
+
+  /** Invitaciones sin responder de quien pregunta (no depende de ningún negocio). */
+  async myInvitations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { businessStaffService } = await this.staffService();
+      sendResponse(res, 200, 'Invitaciones', await businessStaffService.pendingInvitations(req.user!._id.toString()));
+    } catch (error) { next(error); }
+  }
+
+  async respondInvitation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { businessStaffService } = await this.staffService();
+      const accept = req.body.accept as boolean;
+      const staff = await businessStaffService.respondToInvitation(req.user!._id.toString(), param(req, 'staffId'), accept);
+      sendResponse(res, 200, accept ? 'Invitación aceptada' : 'Invitación rechazada', staff);
+    } catch (error) { next(error); }
+  }
+
+  /** Abrir o cerrar el negocio. Dueño y personal con `store:toggle`. */
+  async setOpen(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      if (req.user!.role !== UserRole.ADMIN) {
+        const { businessStaffService } = await import('../services/businessStaff.service');
+        const { BusinessPermission } = await import('../models');
+        await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission.STORE_TOGGLE);
+      }
+
+      const isActive = req.body.isActive as boolean;
+      const business = await businessService.setOpen(businessId, isActive);
+
+      // Quién abrió y quién cerró queda escrito: con varias personas en el
+      // mostrador, "¿por qué estábamos cerrados a las 8?" tiene respuesta.
+      void logAudit(req, {
+        action: AuditAction.BUSINESS_UPDATED,
+        entity: 'business',
+        entityId: businessId,
+        description: isActive ? 'Negocio abierto' : 'Negocio cerrado',
+        metadata: { isActive },
+      });
+
+      sendResponse(res, 200, isActive ? 'Negocio abierto' : 'Negocio cerrado', business);
     } catch (error) { next(error); }
   }
 
@@ -130,11 +208,14 @@ export class BusinessController {
   async myPermissions(req: Request, res: Response, next: NextFunction) {
     try {
       const { businessStaffService } = await import('../services/businessStaff.service');
-      const permissions = await businessStaffService.permissionsFor(
+      // El papel viaja junto a los permisos: el panel esconde al personal las
+      // pantallas cuyos endpoints aún son solo del dueño, aunque el papel
+      // declare el permiso (p. ej. el encargado y `menu:manage`).
+      const access = await businessStaffService.accessFor(
         req.user!._id.toString(),
         param(req, 'id')
       );
-      sendResponse(res, 200, 'Permisos', { permissions });
+      sendResponse(res, 200, 'Permisos', { permissions: access?.permissions ?? [], role: access?.role ?? null });
     } catch (error) { next(error); }
   }
 
@@ -144,11 +225,7 @@ export class BusinessController {
       const businessId = param(req, 'id');
       const user = req.user!;
 
-      if (user.role !== UserRole.ADMIN) {
-        const { Business } = await import('../models');
-        const owns = await Business.exists({ _id: businessId, ownerId: user._id });
-        if (!owns) throw new AppError('No autorizado', 403);
-      }
+      await this.assertBusinessPermission(req, businessId, 'ANALYTICS_VIEW', 'Sin permisos para ver estadísticas.');
 
       const { businessAnalyticsService } = await import('../services/businessAnalytics.service');
       const data = await businessAnalyticsService.analyticsFor(businessId, {
@@ -165,11 +242,7 @@ export class BusinessController {
       const businessId = param(req, 'id');
       const user = req.user!;
 
-      if (user.role !== UserRole.ADMIN) {
-        const { Business } = await import('../models');
-        const owns = await Business.exists({ _id: businessId, ownerId: user._id });
-        if (!owns) throw new AppError('No autorizado', 403);
-      }
+      await this.assertBusinessPermission(req, businessId, 'FINANCIAL_VIEW', 'Sin permisos para ver información financiera.');
 
       const { businessDailySummaryService } = await import('../services/businessDailySummary.service');
       const data = await businessDailySummaryService.summaryFor(businessId, query(req, 'date'));
@@ -225,7 +298,8 @@ export class BusinessController {
   private async assertBusinessFileAccess(
     req: Request,
     businessId: string,
-    adminPermissions: Permission[]
+    adminPermissions: Permission[],
+    businessPermission: 'SETTINGS_MANAGE' | 'DOCUMENTS_MANAGE' = 'SETTINGS_MANAGE'
   ): Promise<{ isAdmin: boolean }> {
     if (req.user!.role === UserRole.ADMIN) {
       if (!adminPermissions.some((permission) => can(req, permission))) {
@@ -236,13 +310,13 @@ export class BusinessController {
 
     const { businessStaffService } = await import('../services/businessStaff.service');
     const { BusinessPermission } = await import('../models');
-    await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission.SETTINGS_MANAGE);
+    await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission[businessPermission]);
     return { isAdmin: false };
   }
 
   /** Papeles: el admin necesita poder aprobar comercios. */
   private assertCanManageDocuments(req: Request, businessId: string) {
-    return this.assertBusinessFileAccess(req, businessId, [Permission.BUSINESSES_APPROVE]);
+    return this.assertBusinessFileAccess(req, businessId, [Permission.BUSINESSES_APPROVE], 'DOCUMENTS_MANAGE');
   }
 
   async listDocuments(req: Request, res: Response, next: NextFunction) {
@@ -616,11 +690,24 @@ export class BusinessController {
    */
   private async assertOwnsBusiness(req: Request, businessId: string) {
     const business = await businessService.getById(businessId);
-    const isAdmin = req.user?.role === 'admin';
-    if (!isAdmin && business.ownerId.toString() !== req.user!._id.toString()) {
-      throw new AppError('No autorizado', 403);
-    }
+    await this.assertBusinessPermission(req, businessId, 'BUSINESS_EDIT', 'Sin permisos para modificar la información del negocio.');
     return business;
+  }
+
+  /**
+   * Permiso por nombre, resuelto contra el rol de la persona en ESTE negocio.
+   * Un Admin de plataforma ya pasó por `adminRequires` en la ruta.
+   */
+  private async assertBusinessPermission(
+    req: Request,
+    businessId: string,
+    permission: keyof typeof BusinessPermissionEnum,
+    message: string
+  ): Promise<void> {
+    if (req.user!.role === UserRole.ADMIN) return;
+    const { businessStaffService } = await import('../services/businessStaff.service');
+    const { BusinessPermission } = await import('../models');
+    await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission[permission], message);
   }
 
   async getMyBusinesses(req: Request, res: Response, next: NextFunction) {
@@ -645,14 +732,7 @@ export class BusinessController {
    * tercera vez que se escribe.
    */
   private async assertCanReadFinance(req: Request, businessId: string): Promise<void> {
-    // Solo el dueño: leer la ficha entera para comparar un id era traer el
-    // documento completo en cada consulta de cuentas.
-    const business = await Business.findById(businessId).select('ownerId').lean();
-    if (!business) throw new AppError('Negocio no encontrado', 404);
-    const isAdmin = req.user?.role === 'admin';
-    if (!isAdmin && String(business.ownerId) !== req.user!._id.toString()) {
-      throw new AppError('No autorizado', 403);
-    }
+    await this.assertBusinessPermission(req, businessId, 'SETTLEMENTS_VIEW', 'Sin permisos para ver liquidaciones.');
   }
 
   /**

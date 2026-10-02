@@ -82,7 +82,7 @@ export default function ActiveSessions() {
 
   const others = (sessions ?? []).filter((s) => !s.current);
 
-  // El aviso de nuevo dispositivo enlaza a `/settings#sesiones`. En una SPA
+  // El aviso de nuevo dispositivo enlaza a `/security#sesiones`. En una SPA
   // el navegador no baja solo hasta el ancla: se hace aquí, una vez que la
   // lista ya tiene su alto real.
   const { hash } = useLocation();

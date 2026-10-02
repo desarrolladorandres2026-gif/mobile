@@ -1,5 +1,6 @@
 import { RefreshCw } from 'lucide-react';
 import { useUpdateAvailable } from '../lib/checkForUpdates';
+import { isDesktop } from '../lib/desktop';
 
 /**
  * Aviso de deploy nuevo, fijo arriba de toda la pantalla.
@@ -11,7 +12,11 @@ import { useUpdateAvailable } from '../lib/checkForUpdates';
 export default function UpdateBanner() {
   const { updateAvailable, applyUpdate } = useUpdateAvailable();
 
-  if (!updateAvailable) return null;
+  // En escritorio, `useUpdateAvailable` ya recarga sola en un momento
+  // tranquilo: el banner (y su botón, que nadie va a pulsar en el
+  // mostrador) no aporta nada y solo parpadearía un instante antes de la
+  // recarga automática.
+  if (!updateAvailable || isDesktop()) return null;
 
   return (
     <div className="fixed inset-x-0 top-0 z-[100] flex items-center justify-center gap-3 px-4 py-2.5 bg-[var(--color-primary)] text-white text-xs font-semibold shadow-lg animate-fade-in">

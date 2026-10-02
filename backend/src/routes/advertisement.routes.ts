@@ -24,8 +24,8 @@ async function assertOwnsBusinessOrAdmin(req: any, businessId: string): Promise<
     throw new AppError('No tienes permisos suficientes para esta acción', 403);
   }
   const permissions = await businessStaffService.permissionsFor(req.user!._id.toString(), businessId);
-  if (permissions.length === 0) {
-    throw new AppError('No autorizado', 403);
+  if (!permissions.includes(BusinessPermission.ADVERTISING_MANAGE)) {
+    throw new AppError('Sin permisos para gestionar publicidad.', 403);
   }
 }
 

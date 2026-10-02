@@ -293,11 +293,16 @@ export class AdvertisementService {
     budget: number;
     targetCities?: string[];
   }): Promise<IAdvertisement> {
-    const business = await Business.findById(input.businessId).select('name ownerId city');
+    const business = await Business.findById(input.businessId).select('name city');
     if (!business) throw new AppError('Negocio no encontrado', 404);
-    if (business.ownerId.toString() !== input.ownerId) {
-      throw new AppError('No puedes comprar publicidad para otro negocio', 403);
-    }
+    const { businessStaffService } = await import('./businessStaff.service');
+    const { BusinessPermission } = await import('../models');
+    await businessStaffService.assertCan(
+      input.ownerId,
+      input.businessId,
+      BusinessPermission.ADVERTISING_MANAGE,
+      'Sin permisos para gestionar publicidad.'
+    );
 
     if (!input.budget) {
       throw new AppError(

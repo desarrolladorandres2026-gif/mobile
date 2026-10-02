@@ -47,6 +47,11 @@ const adminSuperOnly = (req: Request, _res: Response, next: NextFunction) => {
 
 const router = Router();
 
+const respondInvitationSchema = z.object({
+  params: z.object({ staffId: objectId }),
+  body: z.object({ accept: z.boolean() }).strict(),
+});
+
 // Public
 // ── Alta y verificación documental ──
 // Va antes de `/:id` para que "pending" no se lea como el id de un negocio.
@@ -90,6 +95,9 @@ router.post('/:id/payout-account/reauth-otp', authenticate, authorize(UserRole.B
 router.patch('/:id/payout-account/verify', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.PAYOUTS_PROCESS), businessFiscalRateLimiter, validate(verifyPayoutAccountSchema), (req, res, next) => businessController.verifyPayoutAccount(req, res, next));
 router.get('/:id/payout-account/reveal', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.PAYOUTS_REVEAL_ACCOUNT), payoutAccountRevealRateLimiter, businessFiscalRateLimiter, validate(idParamSchema), (req, res, next) => businessController.revealPayoutAccount(req, res, next));
 
+// Invitaciones: las responde la propia persona, sin depender de ningún negocio.
+router.get('/my/invitations', authenticate, authorize(UserRole.BUSINESS), (req, res, next) => businessController.myInvitations(req, res, next));
+router.post('/my/invitations/:staffId', authenticate, authorize(UserRole.BUSINESS), validate(respondInvitationSchema), (req, res, next) => businessController.respondInvitation(req, res, next));
 router.get('/my/businesses', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_VIEW), (req, res, next) => businessController.getMyBusinesses(req, res, next));
 
 // Lo que ZIPP le debe a este comercio. La propiedad se verifica en el
@@ -97,13 +105,34 @@ router.get('/my/businesses', authenticate, authorize(UserRole.BUSINESS, UserRole
 const staffSchema = z.object({
   body: z.object({
     phone: z.string().trim().min(7).max(20),
-    role: z.enum(['manager', 'staff']),
+    role: z.enum(['manager', 'operator', 'cashier']),
+    name: z.string().trim().max(120).optional(),
+    email: z.string().trim().email().max(160).optional(),
   }),
 });
 
+const updateStaffSchema = z.object({
+  params: z.object({ id: objectId, staffId: objectId }),
+  body: z.object({
+    role: z.enum(['manager', 'operator', 'cashier']).optional(),
+    suspended: z.boolean().optional(),
+  }).strict().refine((b) => b.role !== undefined || b.suspended !== undefined, 'Nada que actualizar'),
+});
+
+
 router.get('/:id/staff', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_VIEW), (req, res, next) => businessController.listStaff(req, res, next));
 router.post('/:id/staff', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(staffSchema), (req, res, next) => businessController.addStaff(req, res, next));
+router.patch('/:id/staff/:staffId', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(updateStaffSchema), (req, res, next) => businessController.updateStaff(req, res, next));
 router.delete('/:id/staff/:staffId', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => businessController.removeStaff(req, res, next));
+/**
+ * Abrir/Cerrar. Endpoint propio para que el personal con `store:toggle` lo
+ * haga sin pasar por el PUT genérico del perfil, que es solo del dueño.
+ */
+const setOpenSchema = z.object({
+  params: z.object({ id: objectId }),
+  body: z.object({ isActive: z.boolean() }).strict(),
+});
+router.patch('/:id/open', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(setOpenSchema), (req, res, next) => businessController.setOpen(req, res, next));
 router.get('/:id/my-permissions', authenticate, (req, res, next) => businessController.myPermissions(req, res, next));
 
 router.get('/:id/daily-summary', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.FINANCE_VIEW), validate(idParamSchema), (req, res, next) => businessController.dailySummary(req, res, next));

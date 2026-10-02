@@ -15,6 +15,10 @@ import InfoTab, { type Schedule, type FreeDeliveryWindow } from './profile/InfoT
 import DocumentsTab from './profile/DocumentsTab';
 import TeamTab from './profile/TeamTab';
 import SecurityTab from './profile/SecurityTab';
+import DesktopTab from './profile/DesktopTab';
+import { isDesktop } from '../lib/desktop';
+import { usePermissions } from '../hooks/usePermissions';
+import { canSee } from '../lib/permissions';
 
 /**
  * Perfil del negocio: cabecera tipo Facebook (portada + logo + nombre) y,
@@ -34,6 +38,10 @@ const TABS = [
   { path: '/documents', label: 'Documentos y pagos' },
   { path: '/staff', label: 'Equipo' },
   { path: '/security', label: 'Seguridad' },
+  // Solo tiene sentido dentro de Zipp Negocios: `canSee` ya la esconde del
+  // menú en el navegador (ver `lib/permissions.ts`), y la propia `DesktopTab`
+  // tampoco muestra nada fuera de escritorio.
+  { path: '/desktop', label: 'Este equipo' },
 ] as const;
 
 /**
@@ -338,22 +346,7 @@ export default function Profile() {
             )}
           </div>
 
-          <nav aria-label="Secciones del perfil" className="flex gap-5 overflow-x-auto border-t border-[var(--color-border-light)]">
-            {TABS.map((tab) => (
-              <button
-                key={tab.path}
-                type="button"
-                onClick={() => goToTab(tab.path)}
-                className={`shrink-0 py-4 -mb-px text-xs font-bold uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
-                  activeTab === tab.path
-                    ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
-                    : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
+          <ProfileTabs businessId={businessId} activeTab={activeTab} onSelect={goToTab} />
         </div>
       </section>
 
@@ -398,6 +391,7 @@ export default function Profile() {
           {activeTab === '/documents' && <DocumentsTab />}
           {activeTab === '/staff' && <TeamTab />}
           {activeTab === '/security' && <SecurityTab />}
+          {activeTab === '/desktop' && <DesktopTab />}
         </>
       )}
 
@@ -463,5 +457,43 @@ export default function Profile() {
         document.body
       )}
     </div>
+  );
+}
+
+/**
+ * Las pestañas del perfil, filtradas por papel. Seguridad es de la persona
+ * (su 2FA, sus sesiones) y la usa también el personal; las demás son del
+ * dueño (ver NAV_REQUIREMENT). Va en un componente aparte para no meter un
+ * hook más en `Profile`, cuya memoización manual el compilador de React deja
+ * de poder conservar en cuanto cambia el cuerpo.
+ */
+function ProfileTabs({
+  businessId,
+  activeTab,
+  onSelect,
+}: {
+  businessId: string | undefined;
+  activeTab: string;
+  onSelect: (path: string) => void;
+}) {
+  const { access } = usePermissions(businessId);
+  const visibleTabs = TABS.filter((tab) => (tab.path === '/desktop' ? isDesktop() : true) && canSee(tab.path, access));
+  return (
+    <nav aria-label="Secciones del perfil" className="flex gap-5 overflow-x-auto border-t border-[var(--color-border-light)]">
+      {visibleTabs.map((tab) => (
+        <button
+          key={tab.path}
+          type="button"
+          onClick={() => onSelect(tab.path)}
+          className={`shrink-0 py-4 -mb-px text-xs font-bold uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+            activeTab === tab.path
+              ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
+              : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </nav>
   );
 }

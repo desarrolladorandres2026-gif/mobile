@@ -23,6 +23,7 @@ import { startDispatchSweeper, stopDispatchSweeper } from './services/dispatch.s
 import { startCartAbandonmentSweeper, stopCartAbandonmentSweeper } from './services/cartActivity.service';
 import { startProRenewalSweeper, stopProRenewalSweeper } from './services/pro.service';
 import { startCashOverdueSweeper } from './services/cashReconciliation.service';
+import { startPanelPresenceSweeper } from './services/businessPresence.service';
 import { startDocumentExpirySweeper, stopDocumentExpirySweeper } from './services/documentExpiry.service';
 import { startPendingPaymentSweeper, stopPendingPaymentSweeper } from './services/payments';
 import { startBackgroundRemovalSweeper, stopBackgroundRemovalSweeper } from './services/backgroundRemoval.service';
@@ -252,6 +253,7 @@ const start = async () => {
   startPendingPaymentSweeper();
   startBackgroundRemovalSweeper();
   startCashOverdueSweeper();
+  startPanelPresenceSweeper();
   startDocumentExpirySweeper();
 
   httpServer.listen(config.port, '0.0.0.0', () => {

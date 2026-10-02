@@ -1659,6 +1659,25 @@ export class BusinessService {
   }
 
   /**
+   * Abrir o cerrar el negocio: solo `isActive`.
+   *
+   * Va aparte de `update` porque lo usan también el encargado y el mostrador
+   * (`store:toggle`), que no deben poder tocar nada más del perfil por el
+   * PUT genérico. Archivado no se abre (como en `update`); la suspensión de
+   * ZIPP es otro campo y esto no la quita.
+   */
+  async setOpen(id: string, isActive: boolean): Promise<IBusiness> {
+    const business = await Business.findById(id);
+    if (!business) throw new AppError('Negocio no encontrado', 404);
+    if (business.isArchived) {
+      throw new AppError('Negocio archivado: contacta a soporte para reactivarlo', 403);
+    }
+    business.isActive = isActive;
+    await business.save();
+    return business;
+  }
+
+  /**
    * C1: un negocio no se elimina. Con pedidos, liquidaciones y reseñas
    * colgando de su `_id`, un borrado duro es corrupción de datos con forma
    * de función. El camino real es `archive` (S11), que soporte ejecuta.

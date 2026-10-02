@@ -2,6 +2,7 @@ import axios from 'axios';
 import { useAuthStore } from '../stores/authStore';
 import { getDeviceId } from './deviceId';
 import { createRefresher, decodeJwtPayload, needsRefresh, SessionEndedError } from './sessionCore';
+import { desktopReportStatus } from './desktop';
 
 export { SessionEndedError };
 
@@ -73,6 +74,10 @@ export const ensureFreshToken = createRefresher({
 
 /** Cierra la sesión en esta pestaña y lleva al inicio de sesión. */
 export function endSession() {
+  // En Zipp Negocios esto es la señal de "nadie está recibiendo pedidos":
+  // el contenedor pasa la ventana al frente y avisa, en vez de quedarse
+  // mostrando la pantalla de login en segundo plano sin que nadie lo note.
+  desktopReportStatus({ connection: 'offline', session: 'ended', storeOpen: false, quiet: true });
   useAuthStore.getState().logout();
   window.location.href = '/login';
 }

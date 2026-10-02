@@ -82,12 +82,18 @@ publish_spa() {
   log "$app: build local"
   ( cd "$app" && npm run build )
 
-  # El contenido se reemplaza entero: los assets de Vite llevan hash en el
-  # nombre, así que dejar los viejos solo acumula basura que nadie sirve.
+  # Nada de `rm -rf` sobre la raíz: dejaba un instante sin index.html y
+  # borraba los chunks que las pestañas abiertas (y la app de escritorio,
+  # que no recarga sola) siguen pidiendo. El build sube a un dir temporal y
+  # swap-spa.sh lo coloca en orden; ver su cabecera.
+  log "$app: subiendo build"
+  local staging
+  staging="$(sshv "mktemp -d /tmp/zipp-$app-XXXXXX")"
+  tar czf - -C "$app/dist" . | sshv "tar xzf - -C '$staging'"
+
   log "$app: publicando en $root"
-  tar czf - -C "$app/dist" . \
-  | sshv "rm -rf '$root'/* && tar xzf - -C '$root' \
-          && chown -R zipp:www-data '$root' && chmod -R a+rX '$root'"
+  tr -d '\r' < deploy/scripts/lib/swap-spa.sh | sshv "bash -s -- '$staging' '$root'"
+  sshv "rm -rf '$staging' && chown -R zipp:www-data '$root' && chmod -R a+rX '$root'"
 }
 
 for t in "${TARGETS[@]}"; do

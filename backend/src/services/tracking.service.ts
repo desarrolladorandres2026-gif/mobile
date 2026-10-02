@@ -403,7 +403,7 @@ export async function getOrderTracking(
   user: { _id: Types.ObjectId | string; role: string },
   options: { includeTrail?: boolean } = {}
 ): Promise<OrderTracking> {
-  const { order } = await resolveOrderAccess(orderId, user);
+  const { order, participant } = await resolveOrderAccess(orderId, user);
 
   const [business, driver] = await Promise.all([
     Business.findById(order.businessId).select('name location'),
@@ -441,8 +441,13 @@ export async function getOrderTracking(
     etaSeconds += secondLeg.durationSeconds;
   }
 
+  // ALTO 3 (auditoría 2026-10-01): el comercio no persigue al cliente, y
+  // tampoco necesita el trazo completo del viaje del domiciliario — solo
+  // dónde está ahora, mientras el pedido sigue en curso.
+  const isBusiness = participant === 'business';
+
   let trail: LatLng[] = [];
-  if (options.includeTrail) {
+  if (options.includeTrail && !isBusiness) {
     const points = await DriverLocation.find({ orderId: order._id })
       .select('location')
       .sort({ recordedAt: 1 })
@@ -456,8 +461,12 @@ export async function getOrderTracking(
     orderId: order._id.toString(),
     status: order.status,
     phase,
+    // El mismo criterio que ya usa la sala de socket `track:driver`
+    // (sockets/index.ts): fuera de READY/PICKED_UP/ON_WAY no hay nada que
+    // seguir, y mostrar la última posición conocida sería vigilar a la
+    // persona, no al pedido.
     driver:
-      driver && driverLocation
+      driver && driverLocation && phase !== 'idle'
         ? {
             id: driver._id.toString(),
             name: (driver.userId as unknown as { name?: string })?.name ?? null,
@@ -485,7 +494,7 @@ export async function getOrderTracking(
     },
     destination: {
       address: order.deliveryAddress,
-      location: destinationLocation,
+      location: isBusiness ? null : destinationLocation,
     },
     route,
     etaSeconds,

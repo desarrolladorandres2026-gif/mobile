@@ -9,7 +9,7 @@
 #   1. Si el VPS tiene un clon con remoto, trae la rama y la deja EXACTA
 #      (git reset --hard). Si no, despliega el código que ya está ahí.
 #   2. backend  -> npm ci + build + recarga PM2 + verificación de salud.
-#   3. cada SPA -> npm ci + build + copia atómica a su raíz de Nginx.
+#   3. cada SPA -> npm ci + build + publicación sin huecos (lib/swap-spa.sh).
 #
 # Qué NO hace: tocar .env, migrar la base (eso es un paso manual y
 # consciente), ni reiniciar Nginx (solo se recarga si cambió su config).
@@ -127,15 +127,12 @@ deploy_spa() {
   npm ci
   npm run build
 
-  # Copia atómica: build en un dir hermano y swap con mv, para que
-  # Nginx nunca sirva un dist a medio escribir.
   # Las raíces las creó provision.sh como zipp:www-data (755): zipp escribe
-  # su contenido sin sudo y Nginx (www-data) lo lee. No se renombra el
-  # propio dir (zipp no puede en /var/www): rsync sincroniza el contenido.
-  # --delete-after borra los assets viejos al final, cuando el index.html
-  # nuevo ya está en su sitio, para no dejar una ventana con 404.
+  # su contenido sin sudo y Nginx (www-data) lo lee. swap-spa.sh coloca el
+  # build sin dejar huecos y conserva los chunks del build anterior para las
+  # pestañas que siguen abiertas; ver su cabecera.
   log "$app: publicando en $root"
-  rsync -a --delete-after --chmod=a+rX dist/ "$root/"
+  bash "$REPO/deploy/scripts/lib/swap-spa.sh" "$REPO/$app/dist" "$root"
 }
 
 # ── Orquestación ─────────────────────────────────────────────────────

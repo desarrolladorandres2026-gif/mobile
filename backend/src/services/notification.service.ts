@@ -190,6 +190,22 @@ export class NotificationService {
     });
   }
 
+  /**
+   * Al dueño: su negocio está Abierto pero ningún panel lo tiene conectado
+   * hace rato (`businessPresence.service.ts`). Un pedido nuevo no suena en
+   * ningún lado si esto pasa — por eso es `SYSTEM` y no `ORDER`: no es que
+   * un pedido concreto falle, es que nadie está escuchando ninguno.
+   */
+  async notifyBusinessPanelDisconnected(ownerId: string, businessId: string) {
+    return this.create({
+      userId: ownerId,
+      type: NotificationType.SYSTEM,
+      title: 'Tu negocio está Abierto sin nadie conectado',
+      body: 'Ningún panel de Zipp está recibiendo tus pedidos en este momento. Ábrelo o cierra el negocio si no vas a atender.',
+      data: { businessId, event: 'panel_disconnected' },
+    });
+  }
+
   /** Al comercio: ya se sabe quién va a venir a recoger. */
   async notifyBusinessDriverAssigned(
     ownerId: string,

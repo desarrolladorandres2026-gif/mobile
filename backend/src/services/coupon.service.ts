@@ -467,13 +467,12 @@ export class CouponService {
     businessId: string,
     input: Record<string, unknown>
   ): Promise<ICoupon> {
-    const { Business } = await import('../models');
-    const business = await Business.findById(businessId).select('ownerId city');
+    const { Business, BusinessPermission } = await import('../models');
+    const { businessStaffService } = await import('./businessStaff.service');
+    const business = await Business.findById(businessId).select('city');
 
     if (!business) throw new AppError('Negocio no encontrado', 404);
-    if (business.ownerId.toString() !== ownerId) {
-      throw new AppError('No puedes crear promociones de otro negocio', 403);
-    }
+    await businessStaffService.assertCan(ownerId, businessId, BusinessPermission.PROMOTIONS_MANAGE, 'Sin permisos para gestionar promociones.');
 
     const autoApply = input.autoApply === true;
 
@@ -586,13 +585,12 @@ export class CouponService {
     ownerId: string,
     businessId: string
   ): Promise<Array<Record<string, unknown> & { availability: CouponAvailability }>> {
-    const { Business } = await import('../models');
-    const business = await Business.findById(businessId).select('ownerId');
+    const { Business, BusinessPermission } = await import('../models');
+    const { businessStaffService } = await import('./businessStaff.service');
+    const business = await Business.findById(businessId).select('_id');
 
     if (!business) throw new AppError('Negocio no encontrado', 404);
-    if (business.ownerId.toString() !== ownerId) {
-      throw new AppError('No autorizado', 403);
-    }
+    await businessStaffService.assertCan(ownerId, businessId, BusinessPermission.PROMOTIONS_VIEW, 'Sin permisos para ver promociones.');
 
     const coupons = await Coupon.find({ businessId, fundedBy: CouponFundedBy.BUSINESS }).sort({
       createdAt: -1,
@@ -611,11 +609,14 @@ export class CouponService {
       throw new AppError('Promoción no encontrada', 404);
     }
 
-    const { Business } = await import('../models');
-    const business = await Business.findById(coupon.businessId).select('ownerId');
-    if (!business || business.ownerId.toString() !== ownerId) {
-      throw new AppError('No autorizado', 403);
-    }
+    const { BusinessPermission } = await import('../models');
+    const { businessStaffService } = await import('./businessStaff.service');
+    await businessStaffService.assertCan(
+      ownerId,
+      coupon.businessId.toString(),
+      BusinessPermission.PROMOTIONS_MANAGE,
+      'Sin permisos para gestionar promociones.'
+    );
 
     return coupon;
   }

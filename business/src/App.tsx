@@ -34,6 +34,7 @@ const ProfileInfoPage = lazyPage(() => import('./pages/Profile'), '/settings');
 const ProfileDocumentsPage = lazyPage(() => import('./pages/Profile'), '/documents');
 const ProfileStaffPage = lazyPage(() => import('./pages/Profile'), '/staff');
 const ProfileSecurityPage = lazyPage(() => import('./pages/Profile'), '/security');
+const ProfileDesktopPage = lazyPage(() => import('./pages/Profile'), '/desktop');
 
 /**
  * Caché de lecturas del panel. 30 s de frescura: ir de Pedidos a la cocina
@@ -87,6 +88,7 @@ function App() {
               <Route path="documents" element={<ProfileDocumentsPage />} />
               <Route path="settings" element={<ProfileInfoPage />} />
               <Route path="security" element={<ProfileSecurityPage />} />
+              <Route path="desktop" element={<ProfileDesktopPage />} />
             </Route>
           </Route>
 

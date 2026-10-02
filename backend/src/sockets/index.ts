@@ -6,6 +6,7 @@ import { verifyAccessToken, isLegacyTokenAcceptable, DecodedToken } from '../uti
 import { Business, BusinessStaff, Driver, Order, OrderCall, User } from '../models';
 import { OrderCallStatus, OrderStatus } from '../types';
 import { resolveOrderAccess } from '../services/orderAccess.service';
+import { markPanelSeen } from '../services/businessPresence.service';
 import {
   ingestPing,
   forgetDriver,
@@ -49,7 +50,7 @@ export function adminRoomsFor(authz: ResolvedAuthorization | undefined): string[
   if (perms.includes(Permission.SOS_VIEW)) rooms.push(adminRoom('sos'));
   // Bandeja de alertas: el evento no lleva datos, cada admin los pide por REST ya filtrados.
   if (perms.includes(Permission.ADMIN_PANEL)) rooms.push(adminRoom('alerts'));
-  // `invalidate`: solo dice QUÉ recurso cambió, sin datos; el REST filtra por permiso.
+  // `invalidate`: solo dice QUï¿½ recurso cambiï¿½, sin datos; el REST filtra por permiso.
   if (perms.includes(Permission.ADMIN_PANEL)) rooms.push(adminRoom('live'));
   return rooms;
 }
@@ -295,6 +296,10 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
         const ids = new Set<string>(owned.map((b) => b._id.toString()));
         for (const staff of staffOf) ids.add(staff.businessId.toString());
         for (const id of ids) socket.join(`business:${id}`);
+
+        // "Â¿Hay un panel escuchando?" para la alerta de Abierto sin app
+        // conectada (businessPresence.service.ts). No bloquea el join.
+        markPanelSeen([...ids]).catch((err) => console.error('[Socket] Error marcando presencia del panel:', err));
       } catch (err) {
         console.error('[Socket] Error cargando negocios del usuario:', err);
       }

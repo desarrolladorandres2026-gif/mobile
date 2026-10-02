@@ -50,6 +50,13 @@ export default function SecurityGlance({ businessId }: { businessId: string }) {
             Último acceso: {data.lastSuccessfulLogin.user.name}, {dateTime(data.lastSuccessfulLogin.createdAt)}
           </li>
         )}
+        <li className="text-[var(--color-text-secondary)]">
+          {data.installations.length > 0
+            ? `${data.installations.length === 1 ? '1 Zipp Negocios conectado' : `${data.installations.length} Zipp Negocios conectados`} ahora mismo.`
+            : data.business.panelSeenAt
+              ? `Sin Zipp Negocios conectado. Último panel: ${dateTime(data.business.panelSeenAt)}.`
+              : 'Ningún panel se ha conectado todavía.'}
+        </li>
       </ul>
       <Link to={`/businesses/${businessId}/security`} className="inline-block text-xs font-bold text-[var(--color-text-main)] hover:underline">
         Abrir centro de seguridad

@@ -32,7 +32,9 @@ export interface SecurityEventRow {
 }
 
 export interface SecuritySummary {
-  business: { id: string; name: string };
+  business: { id: string; name: string; panelSeenAt: string | null };
+  /** Sesiones abiertas ahora mismo desde Zipp Negocios (la app de escritorio). */
+  installations: Array<{ userId: string; name: string | null; appVersion: string; lastActivity: string }>;
   activeSessions: number;
   unknownActiveSessions: number;
   knownDevices: number;

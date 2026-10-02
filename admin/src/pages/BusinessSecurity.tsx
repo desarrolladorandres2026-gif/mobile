@@ -220,6 +220,31 @@ export default function BusinessSecurity() {
             </p>
           )}
 
+          <section className="space-y-2 border-t border-[var(--color-border-light)] pt-6">
+            <h2 className="text-sm font-bold text-[var(--color-text-main)]">Instalaciones</h2>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              {summary.business.panelSeenAt
+                ? `Último panel conectado: ${dateTime(summary.business.panelSeenAt)}.`
+                : 'Ningún panel se ha conectado todavía.'}
+            </p>
+            {summary.installations.length > 0 ? (
+              <ul className="divide-y divide-[var(--color-border-light)]">
+                {summary.installations.map((inst) => (
+                  <li key={inst.userId} className="flex items-center justify-between gap-3 py-2 text-xs">
+                    <span className="font-semibold text-[var(--color-text-main)]">{inst.name ?? 'Sin nombre'}</span>
+                    <span className="text-[var(--color-text-secondary)]">
+                      Zipp Negocios {inst.appVersion} · conectado {dateTime(inst.lastActivity)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-[var(--color-text-secondary)]">
+                Sin Zipp Negocios conectado ahora mismo (solo cuenta mientras la sesión está abierta).
+              </p>
+            )}
+          </section>
+
           <section className="space-y-3 border-t border-[var(--color-border-light)] pt-6">
             <h2 className="text-sm font-bold text-[var(--color-text-main)]">Protección de las cuentas</h2>
             <ul className="divide-y divide-[var(--color-border-light)]">

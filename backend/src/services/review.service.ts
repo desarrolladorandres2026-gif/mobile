@@ -209,10 +209,14 @@ export class ReviewService {
     const review = await Review.findById(reviewId);
     if (!review) throw new AppError('Reseña no encontrada', 404);
 
-    const business = await Business.findById(review.businessId).select('ownerId');
-    if (!business || business.ownerId.toString() !== ownerId) {
-      throw new AppError('No puedes responder a una reseña de otro negocio', 403);
-    }
+    const { businessStaffService } = await import('./businessStaff.service');
+    const { BusinessPermission } = await import('../models');
+    await businessStaffService.assertCan(
+      ownerId,
+      review.businessId.toString(),
+      BusinessPermission.REVIEWS_RESPOND,
+      'Sin permisos para responder reseñas.'
+    );
 
     if (review.businessReply) {
       throw new AppError('Ya respondiste a esta reseña', 409);

@@ -33,3 +33,10 @@ coverage/
 *.keystore
 *.jks
 keystore.properties
+
+# ── Zipp Negocios (desktop/): empaquetado y la llave de actualizaciones ──
+# La llave PRIVADA de `scripts/keygen.mjs` nunca vive en el repo; esto es
+# una red de seguridad por si alguien la guarda sin querer junto al código.
+desktop/release/
+desktop/.release-tmp/
+*.pem

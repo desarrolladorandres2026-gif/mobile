@@ -146,6 +146,20 @@ export interface IBusiness extends Document {
    */
   commissionRateBps: number;
   isActive: boolean;
+  /**
+   * Última vez que un panel de este negocio (web o Zipp Negocios) se
+   * conectó por socket. `null` si nunca se ha visto ninguno. La usa
+   * `businessPresence.service.ts` para avisar cuando el negocio está
+   * Abierto sin nadie escuchando pedidos — ver `panelDisconnectedNotifiedAt`.
+   */
+  panelSeenAt: Date | null;
+  /**
+   * Cuándo se avisó por última vez de que este negocio estaba Abierto sin
+   * panel conectado. Se limpia en cuanto vuelve a verse un panel, para que
+   * la próxima desconexión avise de nuevo — y para no repetir el aviso en
+   * cada barrido mientras sigue sin conectarse.
+   */
+  panelDisconnectedNotifiedAt: Date | null;
   /** Requires admin approval; a merchant cannot switch itself live. */
   /**
    * Compra mínima a partir de la cual el negocio regala el domicilio.
@@ -401,6 +415,8 @@ const businessSchema = new Schema<IBusiness>(
       type: Boolean,
       default: true,
     },
+    panelSeenAt: { type: Date, default: null },
+    panelDisconnectedNotifiedAt: { type: Date, default: null },
     freeDeliveryThreshold: { type: Number, default: 0, min: 0 },
     freeDeliveryValidFrom: { type: Date, default: () => new Date(0) },
     freeDeliveryValidUntil: { type: Date, default: () => new Date('2999-12-31') },
@@ -515,6 +531,8 @@ businessSchema.index({ category: 1, isActive: 1 });
 businessSchema.index({ city: 1, isActive: 1 });
 businessSchema.index({ isApproved: 1, isActive: 1 });
 businessSchema.index({ isArchived: 1 });
+// Soporta el barrido de "Abierto sin app conectada" (businessPresence.service.ts).
+businessSchema.index({ isActive: 1, panelDisconnectedNotifiedAt: 1 });
 // Cola de cuentas de pago pendientes y detección de la misma cuenta en varios
 // comercios (migración 018 los crea en producción).
 businessSchema.index({ 'payoutAccount.verificationStatus': 1 }, { sparse: true });

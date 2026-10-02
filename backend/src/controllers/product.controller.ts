@@ -8,7 +8,8 @@ import { sendResponse, param, query, clampLimit } from '../utils';
 import { AppError, cacheHeaders } from '../middlewares';
 import { uploadProductImage } from '../middlewares/upload';
 import { UserRole } from '../types';
-import { Business } from '../models';
+import { BusinessPermission } from '../models';
+import { assertBusinessCan } from '../services/businessStaff.service';
 
 /**
  * El error de multer, en el idioma y con el código del resto de la API.
@@ -33,10 +34,14 @@ function uploadError(err: unknown): AppError {
   );
 }
 
-async function assertOwnsBusiness(req: Request, businessId: string) {
-  if (req.user!.role === UserRole.ADMIN) return;
-  const owned = await Business.exists({ _id: businessId, ownerId: req.user!._id });
-  if (!owned) throw new AppError('No autorizado para modificar este comercio', 403);
+/**
+ * Quién puede tocar el catálogo de un negocio lo decide el permiso, no el
+ * papel ni la propiedad: el propietario y el administrador entran por
+ * `catalog:*`; el operador y el cajero solo consultan, y el 403 sale de aquí
+ * aunque llamen al endpoint directamente.
+ */
+function assertCatalog(req: Request, businessId: string, permission: BusinessPermission, action: string) {
+  return assertBusinessCan(req.user!, businessId, permission, `Sin permisos para ${action}.`);
 }
 
 export class ProductController {
@@ -63,7 +68,7 @@ export class ProductController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      await assertOwnsBusiness(req, req.body.businessId);
+      await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_CREATE, 'crear productos');
       const product = await productService.create(req.body);
       sendResponse(res, 201, 'Producto creado', product);
     } catch (error) { next(error); }
@@ -121,7 +126,16 @@ export class ProductController {
 
   async update(req: Request, res: Response, next: NextFunction) {
     try {
-      await assertOwnsBusiness(req, req.body.businessId);
+      await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_EDIT, 'modificar productos');
+      // El precio es dinero: tocarlo (o las opciones, que también cobran) pide
+      // su propio permiso, aparte de editar el resto de la ficha.
+      if (req.body.price !== undefined || req.body.modifierGroups !== undefined) {
+        const current = await productService.getOwned(param(req, 'id'), req.body.businessId);
+        const priceChanged = req.body.price !== undefined && req.body.price !== current.price;
+        if (priceChanged || req.body.modifierGroups !== undefined) {
+          await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_CHANGE_PRICE, 'modificar precios');
+        }
+      }
       const product = await productService.update(param(req, 'id'), req.body.businessId, req.body);
       sendResponse(res, 200, 'Producto actualizado', product);
     } catch (error) { next(error); }
@@ -129,7 +143,7 @@ export class ProductController {
 
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
-      await assertOwnsBusiness(req, req.body.businessId);
+      await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_DELETE, 'eliminar productos');
       await productService.delete(param(req, 'id'), req.body.businessId);
       sendResponse(res, 200, 'Producto eliminado');
     } catch (error) { next(error); }
@@ -165,7 +179,7 @@ export class ProductController {
         }
 
         const businessId = String(req.body?.businessId ?? '');
-        await assertOwnsBusiness(req, businessId);
+        await assertCatalog(req, businessId, BusinessPermission.CATALOG_EDIT, 'modificar productos');
 
         const product = await productService.getOwned(param(req, 'id'), businessId);
         let updated = await productImageService.replace({
@@ -194,7 +208,7 @@ export class ProductController {
    */
   async requestBackgroundRemoval(req: Request, res: Response, next: NextFunction) {
     try {
-      await assertOwnsBusiness(req, req.body.businessId);
+      await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_EDIT, 'modificar productos');
       const product = await productService.getOwned(param(req, 'id'), req.body.businessId);
       const updated = await backgroundRemovalService.request(product, 'retry');
       const status = updated.imageAsset?.backgroundRemoval?.status;
@@ -222,7 +236,7 @@ export class ProductController {
         }
 
         const businessId = String(req.body?.businessId ?? '');
-        await assertOwnsBusiness(req, businessId);
+        await assertCatalog(req, businessId, BusinessPermission.CATALOG_EDIT, 'modificar productos');
 
         const product = await productService.getOwned(param(req, 'id'), businessId);
         const updated = await productImageService.addToGallery({
@@ -239,7 +253,7 @@ export class ProductController {
   async removeGalleryImage(req: Request, res: Response, next: NextFunction) {
     try {
       const { businessId, publicId } = req.body;
-      await assertOwnsBusiness(req, businessId);
+      await assertCatalog(req, businessId, BusinessPermission.CATALOG_EDIT, 'modificar productos');
 
       const product = await productService.getOwned(param(req, 'id'), businessId);
       const updated = await productImageService.removeFromGallery(product, publicId);
@@ -255,7 +269,7 @@ export class ProductController {
   async updateImageOptions(req: Request, res: Response, next: NextFunction) {
     try {
       const { businessId, enhance, useOriginal } = req.body;
-      await assertOwnsBusiness(req, businessId);
+      await assertCatalog(req, businessId, BusinessPermission.CATALOG_EDIT, 'modificar productos');
 
       const product = await productService.getOwned(param(req, 'id'), businessId);
       const updated = await productImageService.updateOptions(product, { enhance, useOriginal });
@@ -266,7 +280,7 @@ export class ProductController {
 
   async deleteImage(req: Request, res: Response, next: NextFunction) {
     try {
-      await assertOwnsBusiness(req, req.body.businessId);
+      await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_EDIT, 'modificar productos');
       const product = await productService.getOwned(param(req, 'id'), req.body.businessId);
       const updated = await productImageService.remove(product);
       sendResponse(res, 200, 'Imagen eliminada', updated);

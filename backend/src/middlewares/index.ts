@@ -14,6 +14,7 @@ export {
   authRateLimiter,
   otpRateLimiter,
   sensitiveRateLimiter,
+  crashReportRateLimiter,
   refreshRateLimiter,
   paymentInitiateRateLimiter,
   paymentStatusRateLimiter,

@@ -19,6 +19,14 @@ const router = Router();
  * binarios distintos, con sus propias fichas de tienda y sus propios
  * ciclos de publicación: forzar la actualización de una no puede dejar sin
  * trabajar a los domiciliarios de la otra.
+ *
+ * `business-desktop` es Zipp Negocios (desktop/): no tiene tienda de
+ * aplicaciones, así que en vez de `androidUrl`/`iosUrl` lleva `downloadUrl`
+ * — el alias estable que publica `desktop/scripts/release.mjs`. El
+ * contenedor normalmente ya se actualiza solo (`main/updater.ts`); esta
+ * palanca es para el caso en que esa actualización automática esté rota y
+ * una versión vieja con un fallo siga corriendo en el mostrador de un
+ * comercio sin que nadie lo note.
  */
 const APPS = {
   client: {
@@ -31,7 +39,13 @@ const APPS = {
     androidUrl: process.env.DRIVER_ANDROID_STORE_URL || null,
     iosUrl: process.env.DRIVER_IOS_STORE_URL || null,
   },
+  'business-desktop': {
+    minSupported: process.env.MIN_BUSINESS_DESKTOP_VERSION || '0.0.0',
+    downloadUrl: process.env.BUSINESS_DESKTOP_DOWNLOAD_URL || null,
+  },
 } as const;
+
+type AppKey = keyof typeof APPS;
 
 /**
  * Público y sin autenticación.
@@ -44,7 +58,8 @@ const APPS = {
  * a la separación en dos apps, y todas ellas son de clientes.
  */
 router.get('/version', (req, res) => {
-  const app = req.query.app === 'driver' ? 'driver' : 'client';
+  const app: AppKey =
+    req.query.app === 'driver' ? 'driver' : req.query.app === 'business-desktop' ? 'business-desktop' : 'client';
 
   sendResponse(res, 200, 'Versión mínima soportada', {
     app,

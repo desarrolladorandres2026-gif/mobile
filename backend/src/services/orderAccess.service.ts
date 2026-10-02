@@ -1,8 +1,17 @@
 import mongoose, { Types } from 'mongoose';
-import { Order, IOrder, Business, Driver } from '../models';
+import { Order, IOrder, Business, Driver, BusinessPermission, BusinessRole } from '../models';
 import { AppError } from '../middlewares';
 import { UserRole } from '../types';
 import { Permission } from '../security/rbac';
+import { businessStaffService, isInStaffScope } from './businessStaff.service';
+import { OrderStatus } from '../types';
+
+/**
+ * Copia local de `TERMINAL_ORDER_STATUSES` (order.service): importarla de
+ * allí cerraría un ciclo, porque order.service ya depende de este archivo.
+ * El test de acceso de personal fija que coincidan.
+ */
+export const TERMINAL_STATUSES: readonly string[] = [OrderStatus.DELIVERED, OrderStatus.CANCELLED];
 
 /**
  * Quién es alguien *respecto a un pedido concreto*.
@@ -22,6 +31,12 @@ export interface OrderAccess {
   driverId: string | null;
   /** El repartidor asignado, si lo hay, aunque quien consulte sea otro. */
   assignedDriverId: string | null;
+  /**
+   * Papel en el comercio cuando `participant` es `business`: el dueño o su
+   * personal. Lo que el personal no debe ver (margen, pago al domiciliario)
+   * se recorta mirando esto.
+   */
+  businessRole?: BusinessRole;
 }
 
 interface Requester {
@@ -83,10 +98,24 @@ export async function resolveOrderAccess(
     }
   }
 
-  if (user.role === UserRole.BUSINESS) {
-    const owned = await Business.exists({ _id: order.businessId, ownerId: userId });
-    if (owned) {
-      return { order, participant: 'business', userId, driverId: null, assignedDriverId };
+  // El dueño y su personal con `orders:view` (el mostrador, solo el día).
+  // Antes solo el dueño: el empleado del mostrador no podía ver el código de
+  // recogida que le pide el domiciliario.
+  if (user.role === UserRole.BUSINESS && order.businessId) {
+    const access = await businessStaffService.accessFor(userId, order.businessId.toString());
+    if (
+      access &&
+      access.permissions.includes(BusinessPermission.ORDERS_VIEW) &&
+      isInStaffScope(access.role, order, TERMINAL_STATUSES)
+    ) {
+      return {
+        order,
+        participant: 'business',
+        userId,
+        driverId: null,
+        assignedDriverId,
+        businessRole: access.role,
+      };
     }
   }
 

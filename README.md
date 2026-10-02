@@ -1,6 +1,6 @@
 # ZIPP
 
-Plataforma de domicilios. Monorepo con cuatro aplicaciones:
+Plataforma de domicilios. Monorepo con seis aplicaciones:
 
 | Carpeta | Qué es | Stack | Puerto |
 |---|---|---|---|
@@ -9,6 +9,7 @@ Plataforma de domicilios. Monorepo con cuatro aplicaciones:
 | [business/](business/) | Panel de comercios | Vite · React 19 · Tailwind 4 | `3002` |
 | [admin/](admin/) | Panel de administración | Vite · React 19 · Tailwind 4 · Recharts | `3001` |
 | [web/](web/) | Sitio público (landing) | Vite · React 19 · Tailwind 4 | `3003` |
+| [desktop/](desktop/) | Zipp Negocios: contenedor de escritorio de `business/` para Windows | Electron · TypeScript | — |
 
 ---
 

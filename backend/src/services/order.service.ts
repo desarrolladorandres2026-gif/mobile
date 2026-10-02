@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { Order, IOrder, IOrderFinance, Business, Commission, Driver, Product, User, Payout, Payment, BusinessDocument } from '../models';
+import { Order, IOrder, IOrderFinance, Business, Commission, Driver, Product, User, Payout, Payment, BusinessDocument, BusinessPermission, BusinessRole } from '../models';
 import { AppError } from '../middlewares';
 import {
   OrderStatus,
@@ -24,6 +24,7 @@ import { getIO, emitToUser } from '../sockets/emitter';
 import { logSystemAudit, AuditAction, AuditSeverity } from '../security';
 import { notificationService } from './notification.service';
 import { merchantStaffOrderView } from './profileMasking';
+import { businessStaffService, isInStaffScope } from './businessStaff.service';
 import { isActionableForBusiness, isMerchantVisible, UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 import { pricingService, Quote } from './pricing.service';
 import { couponService } from './coupon.service';
@@ -711,8 +712,14 @@ export class OrderService {
       // tiene `getAvailableOrders`. Sin esto caía a buscar por dirección de
       // texto, que Maps no siempre resuelve al punto correcto.
       .populate('businessId', 'name logo address phone location')
+      // ALTO 2 (auditoría 2026-10-01): sin `select` aquí viajaba el documento
+      // `Driver` entero —contacto de emergencia, fondo rotatorio, ganancias,
+      // ubicación y velocidad en vivo— a cualquiera con acceso al pedido,
+      // dueño y personal del comercio incluidos. Misma lista que ya usa
+      // `getByBusiness`.
       .populate({
         path: 'driverId',
+        select: 'vehicleType licensePlate status currentLocation lastLocationAt rating',
         populate: { path: 'userId', select: 'name phone avatar' },
       });
     if (!order) throw new AppError('Pedido no encontrado', 404);
@@ -729,8 +736,20 @@ export class OrderService {
     return { orders, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
-  async getByBusiness(businessId: string, status?: string, page = 1, limit = 20) {
+  /**
+   * `scope` recorta lo que ve un papel concreto del comercio (el mostrador,
+   * solo el día: `staffOrderScope`). Va en `$and` porque `$or` y `$nor` ya
+   * están ocupados por las reglas de abajo.
+   */
+  async getByBusiness(
+    businessId: string,
+    status?: string,
+    page = 1,
+    limit = 20,
+    scope: Record<string, unknown> | null = null
+  ) {
     const filter: Record<string, unknown> = { businessId };
+    if (scope) filter.$and = [scope];
     // La cocina necesita ver TODOS los estados activos a la vez, no uno
     // solo: "pending,accepted,preparing,ready" pide una lista. El resto
     // de pantallas (como el historial del comercio) sigue mandando un
@@ -768,6 +787,21 @@ export class OrderService {
         }),
       Order.countDocuments(filter),
     ]);
+
+    // ALTO 3 (auditoría 2026-10-01): sin esto, el historial entero del
+    // comercio traía la ubicación y la hora exacta en que se vio por
+    // última vez a cada domiciliario que alguna vez repartió para ese
+    // negocio — se podía seguir a una persona mucho después de haber
+    // entregado. Solo tiene sentido verla con el pedido en curso.
+    const ACTIVE_FOR_TRACKING: OrderStatus[] = [OrderStatus.READY, OrderStatus.PICKED_UP, OrderStatus.ON_WAY];
+    for (const order of orders) {
+      const driver = order.driverId as unknown as { currentLocation?: unknown; lastLocationAt?: unknown } | null;
+      if (driver && !ACTIVE_FOR_TRACKING.includes(order.status)) {
+        driver.currentLocation = undefined;
+        driver.lastLocationAt = undefined;
+      }
+    }
+
     return { orders, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
@@ -829,11 +863,24 @@ export class OrderService {
     if (userRole === UserRole.CLIENT && order.clientId.toString() !== userId) {
       throw new AppError('No autorizado para modificar este pedido', 403);
     }
+    // El dueño y su personal con `orders:manage` (encargado y mostrador).
+    // Antes solo el dueño: el empleado veía el pedido sonar y no podía
+    // aceptarlo. El recorte del mostrador ("solo el día") vale también aquí.
+    // El papel se guarda para el candado de abajo: cancelar un pedido ya
+    // pagado no es una decisión que el personal deba poder tomar solo.
+    let businessStaffRole: BusinessRole | undefined;
     if (userRole === UserRole.BUSINESS) {
-      const business = await Business.findById(order.businessId);
-      if (!business || business.ownerId.toString() !== userId) {
+      const access = order.businessId
+        ? await businessStaffService.accessFor(userId, order.businessId.toString())
+        : null;
+      if (
+        !access ||
+        !access.permissions.includes(BusinessPermission.ORDERS_MANAGE) ||
+        !isInStaffScope(access.role, order, TERMINAL_ORDER_STATUSES)
+      ) {
         throw new AppError('No autorizado para modificar este pedido', 403);
       }
+      businessStaffRole = access.role;
     }
     // Un domiciliario solo manda sobre el pedido que tiene asignado.
     //
@@ -903,6 +950,25 @@ export class OrderService {
         'Cancelar este pedido pagado reembolsa al cliente y exige el permiso de reembolsos. Pide a Finanzas que lo cancele.',
         403,
         'REFUND_PERMISSION_REQUIRED'
+      );
+    }
+
+    // MEDIO 7 (auditoría 2026-10-01): un empleado del mostrador podía
+    // entregar un pedido ya pagado "por fuera" y cancelarlo en el panel para
+    // que el cliente recuperara el dinero de algo que sí se entregó — fraude
+    // interno sin que el dueño se enterara. Igual que al admin, cancelar un
+    // pedido pagado desde que entra a cocina ya es decisión del dueño.
+    if (
+      businessStaffRole &&
+      businessStaffRole !== BusinessRole.OWNER &&
+      status === OrderStatus.CANCELLED &&
+      order.paymentStatus === PaymentStatus.PAID &&
+      [OrderStatus.PREPARING, OrderStatus.READY].includes(order.status)
+    ) {
+      throw new AppError(
+        'Este pedido ya está pagado: solo el dueño del negocio puede cancelarlo desde aquí.',
+        403,
+        'OWNER_CANCEL_REQUIRED'
       );
     }
 

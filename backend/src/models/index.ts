@@ -168,6 +168,11 @@ export {
   BusinessRole,
   BusinessPermission,
   BUSINESS_ROLE_PERMISSIONS,
+  STAFF_ROLES,
+  COUNTER_ROLES,
+  normalizeStaffRole,
+  StaffRole,
+  StaffStatus,
 } from './BusinessStaff';
 
 export { SosAlert, ISosAlert, SosStatus } from './SosAlert';

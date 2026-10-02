@@ -504,6 +504,12 @@ export class OrderFlowController {
   async getChat(req: Request, res: Response, next: NextFunction) {
     try {
       const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      // MEDIO 5 (auditoría 2026-10-01): el chat es entre cliente y
+      // domiciliario; el comercio no es parte de esa conversación (el
+      // cliente puede estar contando dónde vive, o diciendo que está sola).
+      // Antes "cualquier parte del pedido" incluía al dueño, y ahora
+      // también al personal.
+      assertParticipant(access, ['client', 'driver', 'admin'], 'leer esta conversación');
       const result = await orderChatService.list(access, {
         page: Number(query(req, 'page')) || 1,
         limit: clampLimit(query(req, 'limit'), 100, 50),
@@ -526,6 +532,7 @@ export class OrderFlowController {
   async sendMessage(req: Request, res: Response, next: NextFunction) {
     try {
       const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      assertParticipant(access, ['client', 'driver'], 'escribir en esta conversación');
       const message = await orderChatService.send(access, req.body.message);
       const participants = await getOrderParticipants(access.order);
 

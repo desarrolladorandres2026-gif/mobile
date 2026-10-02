@@ -2,7 +2,7 @@
 
 Plataforma colombiana de domicilios y marketplace. Arranca en ciudades intermedias —Garzón, Huila— y de ahí a otros municipios. No es solo una app de domicilios: es el ecosistema local que conecta usuarios, comercios, repartidores y ZIPP.
 
-Monorepo de cinco paquetes npm independientes. No hay workspaces, no hay `package.json` raíz.
+Monorepo de seis paquetes npm independientes. No hay workspaces, no hay `package.json` raíz.
 
 | Carpeta | Qué es | Puerto |
 |---|---|---|
@@ -11,6 +11,7 @@ Monorepo de cinco paquetes npm independientes. No hay workspaces, no hay `packag
 | `admin/` | Panel de administración · Vite · React 19 | 3001 |
 | `business/` | Panel de comercios · Vite · React 19 | 3002 |
 | `web/` | Sitio público · Vite · React 19 | 3003 |
+| `desktop/` | Zipp Negocios: Electron que carga `business/` en un comercio, 24/7 | — |
 
 El arranque local, las credenciales del seed, el cálculo del dinero, los códigos de traspaso, el tracking y el despliegue ya están en [README.md](README.md). No lo repitas aquí.
 
@@ -50,6 +51,7 @@ Antes de proponer cualquier cambio: **¿esto realmente mejora ZIPP?** Que otra p
 | `backend` | `npm test` · `npm run typecheck` · `npm run lint` |
 | `mobile` | `npm run typecheck` · `npm test` (no tiene ESLint) |
 | `admin` · `business` · `web` | `npm run lint` · **`npx tsc -b`** |
+| `desktop` | `npm run typecheck` · `npm test` (no tiene ESLint) |
 
 **`tsc --noEmit` en `admin`, `business` y `web` no comprueba absolutamente nada.** Sus `tsconfig.json` son `{"files": [], "references": [...]}`: cero archivos de entrada, siempre verde. El código real está en `tsconfig.app.json`. Usa `npx tsc -b`; si falla (no declaran `composite: true`), usa `npx tsc -p tsconfig.app.json --noEmit`.
 

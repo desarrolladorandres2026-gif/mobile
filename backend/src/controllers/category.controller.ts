@@ -2,19 +2,17 @@ import { Request, Response, NextFunction } from 'express';
 import { categoryService, publicCatalogService } from '../services';
 import { sendResponse, param, query } from '../utils';
 import { AppError, cacheHeaders } from '../middlewares';
-import { UserRole } from '../types';
-import { Business } from '../models';
+import { BusinessPermission } from '../models';
+import { assertBusinessCan } from '../services/businessStaff.service';
 
-async function assertOwnsBusiness(req: Request, businessId: string) {
-  if (req.user!.role === UserRole.ADMIN) return;
-  const owned = await Business.exists({ _id: businessId, ownerId: req.user!._id });
-  if (!owned) throw new AppError('No autorizado para modificar este comercio', 403);
+function assertCatalog(req: Request, businessId: string) {
+  return assertBusinessCan(req.user!, businessId, BusinessPermission.CATALOG_EDIT, 'Sin permisos para modificar categorías.');
 }
 
 export class CategoryController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      await assertOwnsBusiness(req, req.body.businessId);
+      await assertCatalog(req, req.body.businessId);
       const category = await categoryService.create(req.body);
       sendResponse(res, 201, 'Categoría creada', category);
     } catch (error) {
@@ -34,7 +32,7 @@ export class CategoryController {
 
   async update(req: Request, res: Response, next: NextFunction) {
     try {
-      await assertOwnsBusiness(req, req.body.businessId);
+      await assertCatalog(req, req.body.businessId);
       const category = await categoryService.update(
         param(req, 'id'),
         req.body.businessId,
@@ -48,7 +46,7 @@ export class CategoryController {
 
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
-      await assertOwnsBusiness(req, req.body.businessId);
+      await assertCatalog(req, req.body.businessId);
       await categoryService.delete(param(req, 'id'), req.body.businessId);
       sendResponse(res, 200, 'Categoría eliminada');
     } catch (error) {

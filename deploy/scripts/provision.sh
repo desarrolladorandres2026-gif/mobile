@@ -63,12 +63,13 @@ fi
 
 echo "──> Directorios"
 mkdir -p "$APP_DIR" "$LOG_DIR"
-mkdir -p /var/www/zipp-admin /var/www/zipp-business /var/www/zipp-web
+mkdir -p /var/www/zipp-admin /var/www/zipp-business /var/www/zipp-web /var/www/zipp-downloads/negocios
 chown -R "$APP_USER:$APP_USER" "$APP_DIR" "$LOG_DIR"
-# Raíces de los SPA: las escribe `zipp` (deploy.sh corre como ese usuario),
-# las lee Nginx (www-data). Dueño zipp, grupo www-data, 755.
-chown -R "$APP_USER:www-data" /var/www/zipp-admin /var/www/zipp-business /var/www/zipp-web
-chmod 755 /var/www/zipp-admin /var/www/zipp-business /var/www/zipp-web
+# Raíces de los SPA (y de las descargas de Zipp Negocios, deploy/nginx/downloads.conf):
+# las escribe `zipp` (deploy.sh / release.mjs corren con ese usuario o por
+# scp+ssh como root), las lee Nginx (www-data). Dueño zipp, grupo www-data, 755.
+chown -R "$APP_USER:www-data" /var/www/zipp-admin /var/www/zipp-business /var/www/zipp-web /var/www/zipp-downloads
+chmod 755 /var/www/zipp-admin /var/www/zipp-business /var/www/zipp-web /var/www/zipp-downloads /var/www/zipp-downloads/negocios
 
 echo "──> Cortafuegos (UFW)"
 ufw allow OpenSSH

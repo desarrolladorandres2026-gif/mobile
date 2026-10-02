@@ -2,11 +2,13 @@ import { Request, Response, NextFunction } from 'express';
 import { orderService, driverService } from '../services';
 import { sendResponse, param, query, clientIp, userAgent, clampLimit } from '../utils';
 import { OrderStatus, UserRole, CancellationReason } from '../types';
-import { Business, Driver } from '../models';
+import { Driver, BusinessPermission, BusinessRole } from '../models';
 import { AppError } from '../middlewares';
 import { can } from '../middlewares/auth';
 import { Permission } from '../security';
-import { customerFinanceView } from '../services/profileMasking';
+import { customerFinanceView, merchantStaffOrderView } from '../services/profileMasking';
+import { businessStaffService, staffOrderScope, isInStaffScope, type BusinessAccess } from '../services/businessStaff.service';
+import { TERMINAL_ORDER_STATUSES } from '../services/order.service';
 import { isMerchantVisible, orderEventPayload } from '../utils/merchantVisibility';
 import { emitToAdmin } from '../sockets/emitter';
 
@@ -88,8 +90,16 @@ export class OrderController {
       const user = req.user!;
       const isClient = order.clientId._id?.toString?.() === user._id.toString() || order.clientId.toString() === user._id.toString();
       const isDriver = order.driverId && (order.driverId as any).userId?._id?.toString?.() === user._id.toString();
-      const isBusiness = user.role === UserRole.BUSINESS && (await Business.exists({ _id: (order.businessId as any)._id ?? order.businessId, ownerId: user._id }));
+      const businessAccess = user.role === UserRole.BUSINESS && !isClient && !isDriver && order.businessId
+        ? await businessStaffService.accessFor(user._id.toString(), String((order.businessId as any)._id ?? order.businessId))
+        : null;
+      const isBusiness = !!businessAccess
+        && businessAccess.permissions.includes(BusinessPermission.ORDERS_VIEW)
+        && isInStaffScope(businessAccess.role, order, TERMINAL_ORDER_STATUSES);
       if (user.role !== UserRole.ADMIN && !isClient && !isDriver && !isBusiness) throw new AppError('No autorizado para ver este pedido', 403);
+      if (isBusiness && businessAccess!.role !== BusinessRole.OWNER) {
+        return sendResponse(res, 200, 'Pedido obtenido', merchantStaffOrderView(order, { terminal: TERMINAL_ORDER_STATUSES.includes(order.status) }));
+      }
       // H3: el margen de ZIPP solo para quien ve comisiones.
       if (user.role === UserRole.ADMIN && !can(req, Permission.COMMISSIONS_VIEW)) {
         const plain = typeof (order as any).toObject === 'function' ? (order as any).toObject() : { ...(order as any) };
@@ -152,17 +162,29 @@ export class OrderController {
 
   async getBusinessOrders(req: Request, res: Response, next: NextFunction) {
     try {
+      // Dueño y personal con `orders:view`. Antes solo el dueño: el empleado
+      // recibía el pedido por socket, la lista le respondía 403 y su panel
+      // no podía hacer sonar nada.
+      let access: BusinessAccess | null = null;
       if (req.user!.role === UserRole.BUSINESS) {
-        const owned = await Business.exists({ _id: param(req, 'businessId'), ownerId: req.user!._id });
-        if (!owned) return next(new AppError('No autorizado para ver pedidos de este comercio', 403));
+        access = await businessStaffService.accessFor(req.user!._id.toString(), param(req, 'businessId'));
+        if (!access?.permissions.includes(BusinessPermission.ORDERS_VIEW)) {
+          return next(new AppError('No autorizado para ver pedidos de este comercio', 403));
+        }
       }
       const result = await orderService.getByBusiness(
         param(req, 'businessId'),
         query(req, 'status'),
         Number(query(req, 'page')) || 1,
-        clampLimit(query(req, 'limit'), 100, 20)
+        clampLimit(query(req, 'limit'), 100, 20),
+        access ? staffOrderScope(access.role, TERMINAL_ORDER_STATUSES) : null
       );
-      sendResponse(res, 200, 'Pedidos del negocio', result.orders, result.meta);
+      // El personal no ve el margen de ZIPP ni el pago al domiciliario: la
+      // misma forma que ya le llega por socket (`announceToBusiness`).
+      const orders = access && access.role !== BusinessRole.OWNER
+        ? result.orders.map((order) => merchantStaffOrderView(order, { terminal: TERMINAL_ORDER_STATUSES.includes(order.status) }))
+        : result.orders;
+      sendResponse(res, 200, 'Pedidos del negocio', orders, result.meta);
     } catch (error) { next(error); }
   }
 
@@ -247,11 +269,32 @@ export class OrderController {
       }
 
       const partial = Boolean((order.$locals as Record<string, unknown> | undefined)?.cancelSideEffectsFailed);
+
+      // ALTO 1 (auditoría 2026-10-01): esto devolvía el pedido entero, margen
+      // de ZIPP y pago al domiciliario incluidos, a quien acaba de aceptarlo
+      // o cancelarlo — el cliente y el personal del comercio. El mismo
+      // recorte que ya tiene `getById`.
+      let body: unknown = order;
+      if (req.user!.role === UserRole.CLIENT) {
+        const plain = typeof (order as any).toObject === 'function' ? (order as any).toObject() : { ...(order as any) };
+        plain.finance = customerFinanceView(plain.finance);
+        delete plain.driverPayout;
+        body = plain;
+      } else if (req.user!.role === UserRole.BUSINESS && order.businessId) {
+        const access = await businessStaffService.accessFor(
+          req.user!._id.toString(),
+          String((order.businessId as any)._id ?? order.businessId)
+        );
+        if (access && access.role !== BusinessRole.OWNER) {
+          body = merchantStaffOrderView(order, { terminal: TERMINAL_ORDER_STATUSES.includes(order.status) });
+        }
+      }
+
       sendResponse(
         res,
         200,
         partial ? 'Pedido cancelado, pero falló la reversión del cobro: queda pendiente para Finanzas' : 'Estado actualizado',
-        order
+        body
       );
     } catch (error) { next(error); }
   }

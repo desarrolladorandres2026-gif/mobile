@@ -218,7 +218,7 @@ describe('M3 · publicidad: facturas/deuda exigen SETTLEMENTS_VIEW al staff', ()
     await BusinessStaff.create({
       businessId: business._id,
       userId: staffUser._id,
-      role: BusinessRole.STAFF,
+      role: BusinessRole.OPERATOR,
       phone: staffUser.phone,
       isActive: true,
     });

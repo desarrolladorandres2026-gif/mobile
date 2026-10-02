@@ -41,6 +41,8 @@
     "migrate:staff-roles": "tsx src/migrations/019-staff-roles.ts",
     "migrate:admin-fase2-indexes": "tsx src/migrations/021-admin-fase2-indexes.ts",
     "migrate:security-events": "tsx src/migrations/022-security-events.ts",
+    "migrate:business-panel-presence": "tsx src/migrations/024-business-panel-presence.ts",
+    "migrate:business-roles-v2": "tsx src/migrations/025-business-roles-v2.ts",
     "test": "vitest run",
     "test:load": "vitest run --config vitest.load.config.ts",
     "test:watch": "vitest",

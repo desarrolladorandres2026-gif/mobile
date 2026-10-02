@@ -1,6 +1,6 @@
 import { Request } from 'express';
 import { Types } from 'mongoose';
-import { Business, BusinessStaff, SecurityEvent, SecurityEventType, User, IUser, ISecurityEvent } from '../models';
+import { Business, BusinessStaff, normalizeStaffRole, SecurityEvent, SecurityEventType, User, IUser, ISecurityEvent } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { UserRole } from '../types';
 import { escapeRegex } from '../utils';
@@ -38,7 +38,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Tope del CSV: un informe es un archivo que alguien abre, no un volcado. */
 const EXPORT_MAX_ROWS = 5000;
 
-export type MemberRole = 'owner' | 'manager' | 'staff';
+export type MemberRole = 'owner' | 'manager' | 'operator' | 'cashier';
 
 export interface SecurityMember {
   userId: string;
@@ -125,14 +125,14 @@ type FingerprintRef = { _id: Types.ObjectId; userId: string; deviceId: string; f
 
 export class BusinessSecurityService {
   /** El negocio y quienes tienen (o tuvieron) acceso a su panel. 404 si no existe. */
-  async loadMembers(businessId: string): Promise<{ business: { _id: Types.ObjectId; name: string }; members: SecurityMember[] }> {
+  async loadMembers(businessId: string): Promise<{ business: { _id: Types.ObjectId; name: string; panelSeenAt: Date | null }; members: SecurityMember[] }> {
     if (!Types.ObjectId.isValid(businessId)) throw new AppError('Negocio no encontrado', 404);
-    const business = await Business.findById(businessId).select('name ownerId').lean();
+    const business = await Business.findById(businessId).select('name ownerId panelSeenAt').lean();
     if (!business) throw new AppError('Negocio no encontrado', 404);
 
     const staff = await BusinessStaff.find({ businessId }).select('userId role isActive').lean();
     const roleOf = new Map<string, { role: MemberRole; active: boolean }>();
-    for (const s of staff) roleOf.set(String(s.userId), { role: s.role as MemberRole, active: s.isActive });
+    for (const s of staff) roleOf.set(String(s.userId), { role: normalizeStaffRole(s.role) as MemberRole, active: s.isActive });
     roleOf.set(String(business.ownerId), { role: 'owner', active: true });
 
     const users = await User.find({ _id: { $in: [...roleOf.keys()] } })
@@ -155,7 +155,10 @@ export class BusinessSecurityService {
     });
     // El dueño primero, después por nombre.
     members.sort((a, b) => (a.businessRole === 'owner' ? -1 : b.businessRole === 'owner' ? 1 : a.name.localeCompare(b.name)));
-    return { business: { _id: business._id as Types.ObjectId, name: business.name }, members };
+    return {
+      business: { _id: business._id as Types.ObjectId, name: business.name, panelSeenAt: business.panelSeenAt ?? null },
+      members,
+    };
   }
 
   private async fingerprintsFor(sessions: Array<Pick<LeanSession, 'userId' | 'deviceId'>>): Promise<Map<string, FingerprintRef>> {
@@ -234,7 +237,9 @@ export class BusinessSecurityService {
     const bid = business._id;
 
     const [openSessions, knownDevices, newDevices30d, failedAttempts7d, lastLogin, lastEvent] = await Promise.all([
-      Session.find({ $and: [{ userId: { $in: ids } }, activeSessionFilter(now)] }).select('userId deviceId identified').lean(),
+      Session.find({ $and: [{ userId: { $in: ids } }, activeSessionFilter(now)] })
+        .select('userId deviceId identified deviceInfo lastActivity')
+        .lean(),
       DeviceFingerprint.countDocuments({ userId: { $in: ids } }),
       SecurityEvent.countDocuments({ businessIds: bid, type: SecurityEventType.NEW_DEVICE, createdAt: { $gte: new Date(now.getTime() - 30 * DAY_MS) } }),
       SecurityEvent.countDocuments({
@@ -259,8 +264,22 @@ export class BusinessSecurityService {
     const memberMap = new Map(members.map((m) => [m.userId, m]));
     const names = await this.namesOf([lastLogin?.actorId && String(lastLogin.actorId), lastEvent?.actorId && String(lastEvent.actorId)], memberMap);
 
+    // Instalaciones de Zipp Negocios (la app de escritorio) conectadas ahora
+    // mismo: `deviceInfo.appVersion` solo lo escribe esa app (ver
+    // `parseUserAgent`). `panelSeenAt` cubre también el panel web, que no
+    // tiene versión que mostrar.
+    const installations = openSessions
+      .filter((s) => s.deviceInfo?.appVersion)
+      .map((s) => ({
+        userId: s.userId.toString(),
+        name: memberMap.get(s.userId.toString())?.name ?? null,
+        appVersion: s.deviceInfo!.appVersion!,
+        lastActivity: s.lastActivity,
+      }));
+
     return {
-      business: { id: String(bid), name: business.name },
+      business: { id: String(bid), name: business.name, panelSeenAt: business.panelSeenAt ?? null },
+      installations,
       activeSessions: openSessions.length,
       unknownActiveSessions,
       knownDevices,

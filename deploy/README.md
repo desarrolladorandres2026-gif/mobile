@@ -35,6 +35,7 @@ zipp-web   zipp-admin  zipp-business     Node · zipp-api
 | Portal comercios | `business/` → `dist/` | `/var/www/zipp-business` | `comercios.REEMPLAZAR_DOMINIO` |
 | Landing pública | `web/` → `dist/` | `/var/www/zipp-web` | `REEMPLAZAR_DOMINIO` + `www` |
 | App móvil (PWA) | `mobile/` | *(opcional)* la sirve el backend | `app.REEMPLAZAR_DOMINIO` |
+| Descargas de Zipp Negocios | `desktop/` → `release/` | `/var/www/zipp-downloads/negocios` (`deploy/nginx/downloads.conf`) | `descargas.REEMPLAZAR_DOMINIO` |
 
 ### Lo que NO va a Hostinger
 
@@ -83,6 +84,7 @@ www          A     <IP_DEL_VPS>
 api          A     <IP_DEL_VPS>
 panel        A     <IP_DEL_VPS>
 comercios    A     <IP_DEL_VPS>
+descargas    A     <IP_DEL_VPS>      # solo si vas a distribuir Zipp Negocios
 app          A     <IP_DEL_VPS>      # solo si vas a servir la PWA
 ```
 
@@ -198,6 +200,13 @@ sudo sed -i 's/REEMPLAZAR_DOMINIO/tudominio.com/' \
         /etc/nginx/sites-available/api.tudominio.com
 sudo ln -s /etc/nginx/sites-available/api.tudominio.com /etc/nginx/sites-enabled/
 
+# Descargas de Zipp Negocios (no es una plantilla: ya trae el nombre fijo)
+sudo cp /var/www/zipp/deploy/nginx/downloads.conf \
+        /etc/nginx/sites-available/descargas.REEMPLAZAR_DOMINIO
+sudo sed -i 's/REEMPLAZAR_DOMINIO/tudominio.com/' \
+        /etc/nginx/sites-available/descargas.tudominio.com
+sudo ln -s /etc/nginx/sites-available/descargas.tudominio.com /etc/nginx/sites-enabled/
+
 # Los tres SPA, a partir de la plantilla (ver la tabla dentro del archivo)
 for pair in "panel.tudominio.com:/var/www/zipp-admin" \
             "comercios.tudominio.com:/var/www/zipp-business" \
@@ -213,6 +222,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 # Certificados (uno por dominio; la landing lleva apex + www juntos)
 sudo certbot --nginx -d api.tudominio.com
+sudo certbot --nginx -d descargas.tudominio.com
 sudo certbot --nginx -d panel.tudominio.com
 sudo certbot --nginx -d comercios.tudominio.com
 sudo certbot --nginx -d tudominio.com -d www.tudominio.com
@@ -235,6 +245,7 @@ curl -s https://api.tudominio.com/health | jq      # status OK, database "connec
 curl -sI https://panel.tudominio.com                # 200, HTML
 curl -sI https://comercios.tudominio.com            # 200
 curl -sI https://tudominio.com                      # 200
+curl -sI https://descargas.tudominio.com            # 404 (vacío hasta el primer `npm run dist` de desktop/)
 ```
 
 - Abre `panel.tudominio.com`, entra con un admin y comprueba que **no
@@ -284,10 +295,13 @@ sudo -u zipp bash /var/www/zipp/deploy/scripts/deploy.sh admin business
 ```
 
 `deploy.sh` hace `git reset --hard origin/main`: el VPS queda **exacto** a
-la rama, sin cambios locales que arrastrar. Publica cada SPA con
-`rsync --delete-after`, que sube los assets nuevos antes de borrar los
-viejos para que Nginx nunca quede sirviendo un `index.html` que apunta a
-archivos que ya no están.
+la rama, sin cambios locales que arrastrar. Cada SPA (aquí y en
+`publish-from-local.sh`) se publica con `scripts/lib/swap-spa.sh`: llegan
+los archivos nuevos sin borrar nada, `index.html` se cambia con un `mv`
+atómico, `version.json` va después, y de `assets/` se conservan los del
+build nuevo **y los del anterior** (lista en `.assets-current`). Las
+pestañas abiertas —y la app de escritorio, que no recarga sola— siguen
+encontrando los chunks del build con el que arrancaron hasta que recargan.
 
 ### Migraciones de base de datos
 
@@ -391,7 +405,7 @@ recompilar nada ni publicar una versión de la app.
 - [ ] `verify_and_maybe_rollback()` implementada.
 - [ ] `deploy.sh all` termina en verde.
 - [ ] `pm2 save` + `pm2 startup` (sobrevive a un reinicio del VPS).
-- [ ] Certificados emitidos para los 5 nombres; `certbot renew --dry-run` OK.
+- [ ] Certificados emitidos para los 6 nombres; `certbot renew --dry-run` OK.
 - [ ] `/health` = 200 con `database: connected`.
 - [ ] `socket.io` llega a **101** desde el panel (no se queda en polling).
 - [ ] Login de admin sin errores de CORS.

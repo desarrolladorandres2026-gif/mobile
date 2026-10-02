@@ -76,6 +76,27 @@ export const sensitiveRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * Reporte de crashes — 30 por hora, propio y no el de `sensitiveRateLimiter`.
+ *
+ * Compartir el cupo con cambiar contraseña, apagar el 2FA o cerrar todas las
+ * sesiones significaba que un teléfono —o un PC con Zipp Negocios— que
+ * entrara en bucle de crash podía agotarle a la misma persona, en la misma
+ * hora, el cupo para esas operaciones de verdad sensibles. 30 alcanza para
+ * reportar sin convertirse en el canal por el que alguien agota el cupo de
+ * otra cosa a propósito.
+ */
+export const crashReportRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(30),
+  message: {
+    success: false,
+    message: 'Demasiados reportes. Intenta más tarde.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ── Payments ─────────────────────────────────────────────────────────
 // The payment routes used to sit behind nothing but the global 100/15min
 // limiter, sharing one bucket with every other API call. Each of the three

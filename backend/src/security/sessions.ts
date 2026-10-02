@@ -220,6 +220,12 @@ export function parseUserAgent(ua: string): ISession['deviceInfo'] {
   };
   if (!ua || ua === 'unknown') return info;
 
+  // La app de escritorio Zipp Negocios (desktop/) añade este sufijo al UA
+  // por defecto de Electron (que de otro modo diría "Chrome · Windows",
+  // indistinguible de abrir el panel en un navegador cualquiera).
+  const desktopApp = ua.match(/ZippNegocios\/([\d.]+)/);
+  if (desktopApp) info.appVersion = desktopApp[1];
+
   if (/ipad|tablet/i.test(ua) || (/android/i.test(ua) && !/mobile/i.test(ua))) info.platform = 'tablet';
   else if (/mobile|iphone|ipod|android/i.test(ua)) info.platform = 'mobile';
   else info.platform = 'desktop';
@@ -244,6 +250,8 @@ export function parseUserAgent(ua: string): ISession['deviceInfo'] {
   }
 
   const browsers: Array<[RegExp, string]> = [
+    // Antes de Edge/Chrome: el UA de Electron igual dice "Chrome/...".
+    [/ZippNegocios\//, 'Zipp Negocios'],
     [/expo/i, 'Expo'],
     [/edg(?:e|a|ios)?\/([\d.]+)/i, 'Edge'],
     [/(?:opr|opera)\/([\d.]+)/i, 'Opera'],

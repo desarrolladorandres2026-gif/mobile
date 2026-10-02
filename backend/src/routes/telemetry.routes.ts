@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { ClientError } from '../models';
 import { authenticate, validate } from '../middlewares';
-import { sensitiveRateLimiter } from '../middlewares';
+import { crashReportRateLimiter } from '../middlewares';
 import { sendResponse } from '../utils';
 
 const router = Router();
@@ -23,13 +23,16 @@ const crashSchema = z.object({
 });
 
 /**
- * Recibe un crash del teléfono.
+ * Recibe un crash del teléfono, o de Zipp Negocios (la app de escritorio,
+ * `platform: 'windows-desktop'`).
  *
- * Va con el limitador de peticiones sensibles a propósito: un error de
- * render se repite en bucle mientras la pantalla siga montada, y aunque la
- * app ya deduplica por firma, el servidor no puede confiar en que el
- * cliente que le reporta un fallo esté sano — es literalmente lo contrario
- * de lo que el reporte dice.
+ * Limitador propio (`crashReportRateLimiter`), no el de operaciones
+ * sensibles: un error de render se repite en bucle mientras la pantalla
+ * siga montada, y aunque la app ya deduplica por firma, el servidor no
+ * puede confiar en que el cliente que le reporta un fallo esté sano — es
+ * literalmente lo contrario de lo que el reporte dice. Compartir el cupo
+ * con cambiar contraseña o cerrar sesiones dejaba que un bucle de crash
+ * agotara, de rebote, el cupo de esas operaciones (auditoría 2026-10-02).
  *
  * Nunca devuelve error al cliente por un reporte mal formado más allá de la
  * validación: quien está reportando un crash no tiene nada que hacer con un
@@ -38,7 +41,7 @@ const crashSchema = z.object({
 router.post(
   '/crash',
   authenticate,
-  sensitiveRateLimiter,
+  crashReportRateLimiter,
   validate(crashSchema),
   async (req, res, next) => {
     try {

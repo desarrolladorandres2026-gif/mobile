@@ -30,6 +30,9 @@ const CHROME_WIN = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 const EDGE_WIN = `${CHROME_WIN} Edg/128.0.2739.42`;
 const SAFARI_IPHONE =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+// `desktop/src/main/window.ts` añade este sufijo al UA por defecto de
+// Electron (que de otro modo diría "Chrome · Windows").
+const ZIPP_NEGOCIOS_WIN = `${CHROME_WIN} Electron/33.4.11 ZippNegocios/0.1.0`;
 
 interface LoginOptions {
   deviceId?: string | null;
@@ -79,6 +82,12 @@ describe('Identificación de dispositivos', () => {
     expect(parseUserAgent(CHROME_WIN)).toMatchObject({ browser: 'Chrome', browserVersion: '128', os: 'Windows', platform: 'desktop' });
     expect(parseUserAgent(EDGE_WIN)).toMatchObject({ browser: 'Edge', browserVersion: '128', os: 'Windows' });
     expect(parseUserAgent(SAFARI_IPHONE)).toMatchObject({ browser: 'Safari', browserVersion: '17', os: 'iOS', osVersion: '17.5', platform: 'mobile' });
+  });
+
+  it('etiqueta Zipp Negocios (app de escritorio) en vez de Chrome, con su versión', () => {
+    expect(parseUserAgent(ZIPP_NEGOCIOS_WIN)).toMatchObject({
+      browser: 'Zipp Negocios', os: 'Windows', platform: 'desktop', appVersion: '0.1.0',
+    });
   });
 
   it('crea la sesión con el dispositivo del cliente, el método y sin 2FA; y la registra en el historial', async () => {
@@ -243,7 +252,7 @@ describe('Revocaciones desde el panel admin', () => {
   it('cerrar todas las del negocio exige TOTP y alcanza al dueño y al personal activo', async () => {
     const { owner, business, businessId } = await ownerWithBusiness();
     const cashier = await makeUser({ role: UserRole.BUSINESS, name: 'Cajero' });
-    await BusinessStaff.create({ businessId: business._id, userId: cashier._id, role: BusinessRole.STAFF });
+    await BusinessStaff.create({ businessId: business._id, userId: cashier._id, role: BusinessRole.OPERATOR });
     await login(owner.email!, { deviceId: randomUUID() });
     await login(cashier.email!, { deviceId: randomUUID() });
 
@@ -281,7 +290,7 @@ describe('Revocaciones desde el panel admin', () => {
   it('una cuenta administrativa que es empleada del comercio no se toca desde aquí', async () => {
     const { business, businessId } = await ownerWithBusiness();
     const adminStaff = await makeUser({ role: UserRole.ADMIN, name: 'Admin empleado' });
-    await BusinessStaff.create({ businessId: business._id, userId: adminStaff._id, role: BusinessRole.STAFF });
+    await BusinessStaff.create({ businessId: business._id, userId: adminStaff._id, role: BusinessRole.OPERATOR });
     await authHeader(adminStaff);
     const session = await Session.findOne({ userId: String(adminStaff._id) }).lean();
 
@@ -452,7 +461,7 @@ describe('Filtros, paginación y resumen', () => {
   it('valida los filtros y pagina de verdad', async () => {
     const { owner, business, businessId } = await ownerWithBusiness();
     const staff = await makeUser({ role: UserRole.BUSINESS, name: 'Mesero', email: 'mesero@zipp.test' });
-    await BusinessStaff.create({ businessId: business._id, userId: staff._id, role: BusinessRole.STAFF });
+    await BusinessStaff.create({ businessId: business._id, userId: staff._id, role: BusinessRole.OPERATOR });
     for (let i = 0; i < 3; i += 1) await login(owner.email!, { deviceId: randomUUID() });
     await login(staff.email!, { deviceId: randomUUID() });
     const { header } = await securityAdmin();

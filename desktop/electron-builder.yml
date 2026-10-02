@@ -1,0 +1,53 @@
+# ZIPP · Zipp Negocios — empaquetado de escritorio
+#
+# Sin certificado Authenticode hasta que exista la S.A.S (ver
+# zipp-sas-y-marca-en-pagos): Windows mostrará "Windows protegió tu PC" al
+# instalar, y se pasa con "Más información → Ejecutar de todas formas". La
+# seguridad de las actualizaciones NO depende de esto — ver `src/shared/manifest.ts`.
+appId: co.zipp.negocios
+productName: Zipp Negocios
+copyright: Copyright © Zipp
+
+directories:
+  output: release
+
+# Apaga los fuses de Electron (RunAsNode, NODE_OPTIONS, --inspect, carga
+# solo desde el asar firmado). Ver scripts/afterPack.js.
+afterPack: scripts/afterPack.js
+
+files:
+  - dist/**/*
+  - static/**/*
+  - package.json
+
+extraResources:
+  - from: assets/tray.png
+    to: tray.png
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: assets/icon.ico
+  # Sin firma hasta tener el certificado de la S.A.S.
+  signAndEditExecutable: false
+
+nsis:
+  oneClick: true
+  perMachine: false
+  # Sin permiso de administrador: instala en el perfil del usuario, igual
+  # que no pide UAC en cada actualización silenciosa.
+  allowElevation: false
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Zipp Negocios
+  # Limpia la entrada de inicio automático del registro al desinstalar
+  # (autostart.ts la escribe en HKCU, no en algo que electron-builder sepa
+  # deshacer por su cuenta). Ver installer.nsh.
+  include: installer.nsh
+
+# Sin `publish`: la subida a `descargas.<dominio>` es manual
+# (`scripts/release.mjs`), no automática desde aquí — el dominio todavía
+# no existe (ver el plan, Fase 0.1).
+publish: null

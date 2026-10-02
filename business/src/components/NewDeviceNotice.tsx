@@ -62,7 +62,7 @@ export default function NewDeviceNotice() {
       <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
       <span>
         {notice.body} <span className="text-[var(--color-text-muted)] font-medium">({when})</span>{' '}
-        <Link to="/settings#sesiones" className="underline underline-offset-2">Revisar sesiones</Link>
+        <Link to="/security#sesiones" className="underline underline-offset-2">Revisar sesiones</Link>
         {' · '}
         <button
           type="button"

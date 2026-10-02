@@ -81,14 +81,38 @@ export const MERCHANT_STAFF_FINANCE_FIELDS = [
   'businessPayout',
 ] as const;
 
-/** El pedido tal como lo recibe el personal de un comercio por socket. */
-export function merchantStaffOrderView<T extends object>(order: T): T {
+/**
+ * El pedido tal como lo recibe el personal de un comercio (dueño aparte):
+ * por socket al anunciarlo, y por API en lista, detalle y cambio de estado.
+ *
+ * `terminal` recorta más: el historial cerrado (entregado o cancelado) no
+ * es asunto operativo, así que ahí se enmascara el teléfono del cliente y
+ * se quita la ubicación exacta de entrega y el teléfono de quien recibió.
+ * Sin esto, cualquier empleado con `orders:view` podía paginar el historial
+ * entero y llevarse la base de clientes con teléfono y dirección (hallazgo
+ * ALTO 4, auditoría 2026-10-01). Un pedido en curso sí los necesita: la
+ * cocina puede tener que llamar al cliente.
+ */
+export function merchantStaffOrderView<T extends object>(order: T, opts: { terminal?: boolean } = {}): T {
   const plain: Record<string, unknown> =
     typeof (order as { toObject?: () => unknown }).toObject === 'function'
       ? ((order as { toObject: () => Record<string, unknown> }).toObject())
       : { ...(order as Record<string, unknown>) };
   plain.finance = pick(plain.finance, MERCHANT_STAFF_FINANCE_FIELDS);
   delete plain.driverPayout;
+
+  if (opts.terminal) {
+    const client = plain.clientId;
+    if (client && typeof client === 'object') {
+      (client as Record<string, unknown>).phone = maskPhone((client as Record<string, unknown>).phone as string);
+    }
+    delete plain.deliveryLocation;
+    const recipient = plain.recipient;
+    if (recipient && typeof recipient === 'object') {
+      delete (recipient as Record<string, unknown>).phone;
+    }
+  }
+
   return plain as T;
 }
 

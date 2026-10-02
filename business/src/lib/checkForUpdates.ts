@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { isDesktop } from './desktop';
+import { isQuietNow, onQuietChange } from './quietState';
 
 /**
  * Detección de deploys nuevos por polling de /version.json.
@@ -85,6 +87,22 @@ export function useUpdateAvailable() {
   }, []);
 
   const applyUpdate = () => window.location.reload();
+
+  // En escritorio no hay nadie para pulsar "Actualizar ahora" a las 3 a.m.:
+  // se recarga sola, pero solo en un momento tranquilo (sin pedidos
+  // esperando). Si justo hay uno sonando, espera a que `OrderNotifications`
+  // avise que ya se calmó — nunca interrumpe una pantalla llena de pedidos
+  // a medio aceptar.
+  useEffect(() => {
+    if (!updateAvailable || !isDesktop()) return;
+    if (isQuietNow()) {
+      applyUpdate();
+      return;
+    }
+    return onQuietChange(() => {
+      if (isQuietNow()) applyUpdate();
+    });
+  }, [updateAvailable]);
 
   return { updateAvailable, applyUpdate };
 }

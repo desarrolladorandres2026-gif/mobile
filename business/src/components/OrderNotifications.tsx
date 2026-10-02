@@ -13,6 +13,9 @@ import {
   cancelledByLabel, isForeignCancellation, ringingOrders, ringPatternFor, waitingOrders, waitingSince,
 } from '../lib/orderAlarm';
 import { getFirstSeen } from '../lib/firstSeen';
+import { isQuietMoment } from '../lib/quietMoment';
+import { setQuiet } from '../lib/quietState';
+import { desktopAttention, desktopReportStatus, onDesktopNotificationClick } from '../lib/desktop';
 import { money, shortId, type BusinessOrder } from '../lib/orderFlow';
 import { qk } from '../lib/queryKeys';
 import { apiStatus } from '../lib/apiError';
@@ -38,6 +41,7 @@ export default function OrderNotifications() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const businessId = useAuthStore((s) => s.selectedBusiness?._id);
+  const storeOpen = useAuthStore((s) => s.selectedBusiness?.isActive !== false);
   const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
   const snoozes = useAlarmStore((s) => s.snoozes);
   const snooze = useAlarmStore((s) => s.snooze);
@@ -54,8 +58,9 @@ export default function OrderNotifications() {
   // ── La lista que manda ──
   const queue = useActiveOrders(businessId, { pollMs: connection === 'online' ? 30_000 : 10_000 });
   useActiveOrdersLiveSync(businessId);
-  // Un empleado recibe el pedido por socket pero la lista le responde 403:
-  // sin la lista no hay estado fiable y no se hace sonar nada.
+  // Si la lista responde 403 (un empleado dado de baja con la sesión aún
+  // abierta) no hay estado fiable y no se hace sonar nada. El personal
+  // activo ya recibe la lista: el backend la abre a `orders:view`.
   const listForbidden = queue.isError && apiStatus(queue.error) === 403;
 
   const waiting = useMemo(
@@ -64,6 +69,32 @@ export default function OrderNotifications() {
   );
   const ringing = useMemo(() => ringingOrders(waiting, snoozes, now), [waiting, snoozes, now]);
   const pattern = ringPatternFor(ringing, now, getFirstSeen());
+
+  // ── Zipp Negocios (app de escritorio) ──
+  //
+  // Independiente del sonido a propósito: con el volumen apagado, la
+  // ventana igual debe pasar al frente y la notificación de Windows debe
+  // salir. `window.zippDesktop` no existe en el navegador, así que esto no
+  // hace nada fuera de la app de escritorio.
+  useEffect(() => {
+    desktopAttention({ pattern, count: ringing.length, orderNumber: ringing[0]?.orderNumber });
+  }, [pattern, ringing]);
+
+  useEffect(() => {
+    const quiet = isQuietMoment({ ringingCount: ringing.length });
+    setQuiet(quiet);
+    desktopReportStatus({
+      connection: connection === 'online' ? 'online' : 'offline',
+      session: 'active',
+      storeOpen,
+      quiet,
+    });
+  }, [connection, storeOpen, ringing.length]);
+
+  useEffect(() => onDesktopNotificationClick((orderNumber) => {
+    const order = (queue.data ?? []).find((o) => o.orderNumber === orderNumber);
+    if (order) navigate(`/orders/${order._id}`);
+  }), [queue.data, navigate]);
 
   // ── El sonido ──
   const audio = useAudioState();
