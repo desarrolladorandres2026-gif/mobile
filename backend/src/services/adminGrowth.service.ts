@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { User, ProSubscription, ProSubscriptionStatus, Payment, Order } from '../models';
+import { User, ProSubscription, ProSubscriptionStatus, isProActive, Payment, Order, type IProSubscription } from '../models';
 import { FraudAlert, FraudAlertType } from '../security';
 import { PRO_PLAN } from '../config/pro';
 import { OrderStatus, PaymentStatus, PaymentType } from '../types';
@@ -269,6 +269,10 @@ export class AdminGrowthService {
       recent: recent.map((s) => ({
         name: nameOf.get(String(s.userId)) ?? 'Sin nombre',
         status: s.status,
+        // El estado solo no basta: una ACTIVE cuya renovación aún se
+        // reintenta, o una CANCELLED a la que el barrido no ha llegado,
+        // ya no dan beneficios. Misma definición que la app y los precios.
+        member: isProActive(s as Pick<IProSubscription, 'status' | 'currentPeriodEnd'>, now),
         price: s.price,
         since: s.startedAt,
         validUntil: s.currentPeriodEnd,

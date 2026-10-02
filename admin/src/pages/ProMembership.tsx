@@ -29,7 +29,7 @@ interface Data {
  complete: boolean;
  };
  atRisk: { name: string; renewalFailures: number; lastAttemptAt: string | null; validUntil: string | null }[];
- recent: { name: string; status: string; price: number; since: string | null; validUntil: string | null; autoRenew: boolean }[];
+ recent: { name: string; status: string; member?: boolean; price: number; since: string | null; validUntil: string | null; autoRenew: boolean }[];
 }
 
 const cop = (n: number) => `$${n.toLocaleString('es-CO')}`;
@@ -41,6 +41,13 @@ const STATUS_LABEL: Record<string, string> = {
  expired: 'Vencida',
  pending: 'Cobro en curso',
 };
+
+/** El estado guardado no basta: lo que da beneficios es la fecha (ver `isProActive`). */
+function statusLabel(r: Data['recent'][number]): string {
+ if (r.member === false && r.status === 'active') return 'Sin beneficios (reintentando cobro)';
+ if (r.member === false && r.status === 'cancelled') return 'Vencida';
+ return STATUS_LABEL[r.status] ?? r.status;
+}
 
 export default function ProMembership() {
  const [data, setData] = useState<Data | null>(null);
@@ -196,7 +203,7 @@ export default function ProMembership() {
  {data.recent.map((r, i) => (
  <tr key={i}>
  <td className="table-body-cell text-[var(--color-text-main)]">{r.name}</td>
- <td className="table-body-cell text-[var(--color-text-main)]">{STATUS_LABEL[r.status] ?? r.status}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{statusLabel(r)}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{cop(r.price)}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{day(r.since)}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">{day(r.validUntil)}</td>

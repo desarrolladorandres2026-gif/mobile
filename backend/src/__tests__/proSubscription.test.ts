@@ -274,6 +274,52 @@ describe('Ciclo de vida de la membresía', () => {
   });
 });
 
+describe('Renovación que falla', () => {
+  let client: any;
+
+  beforeEach(async () => {
+    client = await makeUser({ role: UserRole.CLIENT });
+  });
+
+  it('un rechazo de renovación con el periodo ya cumplido no la vence: quedan reintentos', async () => {
+    await makeMember(client._id.toString(), {
+      currentPeriodEnd: new Date(Date.now() - 60_000),
+      renewalFailures: 1,
+    });
+
+    const payment = new Payment({
+      userId: client._id,
+      type: PaymentType.PRO_SUBSCRIPTION,
+      method: PaymentMethod.ONLINE,
+      status: PaymentStatus.FAILED,
+      amount: PRO_PLAN.price,
+      currency: PRO_PLAN.currency,
+      reference: `ZIPP-PRO-${client._id}-TEST-RENEW`,
+      metadata: { renewal: true },
+    });
+    await proService.settlePayment(payment as never, PaymentStatus.FAILED);
+
+    const sub = await ProSubscription.findOne({ userId: client._id });
+    // Lo vence el barrido cuando se agoten los intentos, no el segundo "no".
+    expect(sub!.status).toBe(ProSubscriptionStatus.ACTIVE);
+    expect(sub!.renewalFailures).toBe(2);
+  });
+
+  it('abandonar el primer cobro no deja la membresía en "cobro en curso"', async () => {
+    await ProSubscription.create({
+      userId: client._id,
+      status: ProSubscriptionStatus.PENDING,
+      planId: PRO_PLAN.id,
+      price: PRO_PLAN.price,
+    });
+
+    await proService.releaseAbandonedAttempt(client._id.toString());
+
+    const sub = await ProSubscription.findOne({ userId: client._id });
+    expect(sub!.status).toBe(ProSubscriptionStatus.EXPIRED);
+  });
+});
+
 describe('Barrido de renovaciones', () => {
   let client: any;
 

@@ -356,6 +356,7 @@ export interface UserProfileExtras {
  }>;
  pro?: {
  status?: string;
+ member?: boolean;
  plan?: string;
  startedAt?: string;
  currentPeriodEnd?: string | null;
