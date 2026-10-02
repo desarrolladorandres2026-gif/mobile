@@ -4,13 +4,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { BellRing, Bike, PackageX, Volume2, WifiOff, X } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { usePreferencesStore } from '../stores/preferencesStore';
-import { useAlarmStore } from '../stores/alarmStore';
 import { useBusinessEvent, useRealtime } from '../hooks/realtimeContext';
 import { useActiveOrders, useActiveOrdersLiveSync } from '../hooks/useActiveOrders';
 import { useAudioState, useAudioUnlock, useRingLeadership } from '../hooks/useRingLeadership';
 import { playNotificationSound, primeNotificationSound, startRingLoop, stopRingLoop } from '../lib/notificationSound';
 import {
-  cancelledByLabel, isForeignCancellation, ringingOrders, ringPatternFor, waitingOrders, waitingSince,
+  cancelledByLabel, isForeignCancellation, ringPatternFor, waitingOrders, waitingSince,
 } from '../lib/orderAlarm';
 import { getFirstSeen } from '../lib/firstSeen';
 import { isQuietMoment } from '../lib/quietMoment';
@@ -43,12 +42,9 @@ export default function OrderNotifications() {
   const businessId = useAuthStore((s) => s.selectedBusiness?._id);
   const storeOpen = useAuthStore((s) => s.selectedBusiness?.isActive !== false);
   const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
-  const snoozes = useAlarmStore((s) => s.snoozes);
-  const snooze = useAlarmStore((s) => s.snooze);
   const { status: connection, downSince } = useRealtime();
 
-  // Reloj de la alarma: mueve el tiempo de espera, el fin de los silencios y
-  // el aviso de conexión caída.
+  // Reloj de la alarma: mueve el tiempo de espera y el aviso de conexión caída.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 5_000);
@@ -67,8 +63,7 @@ export default function OrderNotifications() {
     () => (listForbidden ? [] : waitingOrders(queue.data ?? [], getFirstSeen())),
     [queue.data, listForbidden]
   );
-  const ringing = useMemo(() => ringingOrders(waiting, snoozes, now), [waiting, snoozes, now]);
-  const pattern = ringPatternFor(ringing, now, getFirstSeen());
+  const pattern = ringPatternFor(waiting, now, getFirstSeen());
 
   // ── Zipp Negocios (app de escritorio) ──
   //
@@ -77,11 +72,11 @@ export default function OrderNotifications() {
   // salir. `window.zippDesktop` no existe en el navegador, así que esto no
   // hace nada fuera de la app de escritorio.
   useEffect(() => {
-    desktopAttention({ pattern, count: ringing.length, orderNumber: ringing[0]?.orderNumber });
-  }, [pattern, ringing]);
+    desktopAttention({ pattern, count: waiting.length, orderNumber: waiting[0]?.orderNumber });
+  }, [pattern, waiting]);
 
   useEffect(() => {
-    const quiet = isQuietMoment({ ringingCount: ringing.length });
+    const quiet = isQuietMoment({ ringingCount: waiting.length });
     setQuiet(quiet);
     desktopReportStatus({
       connection: connection === 'online' ? 'online' : 'offline',
@@ -89,7 +84,7 @@ export default function OrderNotifications() {
       storeOpen,
       quiet,
     });
-  }, [connection, storeOpen, ringing.length]);
+  }, [connection, storeOpen, waiting.length]);
 
   useEffect(() => onDesktopNotificationClick((orderNumber) => {
     const order = (queue.data ?? []).find((o) => o.orderNumber === orderNumber);
@@ -166,7 +161,7 @@ export default function OrderNotifications() {
     }, DRIVER_NOTICE_MS);
   });
 
-  const oldest = ringing[0] ?? waiting[0];
+  const oldest = waiting[0];
   const oldestMinutes = oldest
     ? Math.max(0, Math.floor((now - waitingSince(oldest, getFirstSeen()[oldest._id])) / 60_000))
     : 0;
@@ -215,17 +210,6 @@ export default function OrderNotifications() {
             >
               Ver pedido
             </button>
-            {ringing.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => snooze(ringing.map((order) => order._id))}
-                className="cursor-pointer text-xs font-bold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:underline"
-              >
-                Silenciar 1 min
-              </button>
-            ) : (
-              <span className="text-xs font-semibold text-[var(--color-text-secondary)]">Silenciado</span>
-            )}
           </span>
         </Toast>
       )}

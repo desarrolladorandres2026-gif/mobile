@@ -11,15 +11,12 @@ import type { OrderStatusPayload } from '../hooks/realtimeContext';
  * este archivo es puro para poder probarlo sin navegador.
  */
 
-/** Cuánto dura "Silenciar" sobre los pedidos que están sonando. */
-export const SNOOZE_MS = 60_000;
-
 export type RingPattern = 'normal' | 'urgent';
 
 export interface EscalationInput {
   /** Minutos que lleva esperando el pedido más antiguo que está sonando. */
   oldestWaitingMinutes: number;
-  /** Pedidos sonando ahora mismo (los silenciados no cuentan). */
+  /** Pedidos sonando ahora mismo: todos los que esperan aceptación. */
   ringingCount: number;
 }
 
@@ -73,19 +70,6 @@ export function waitingOrders(
     .sort((a, b) => waitingSince(a, firstSeen[a._id]) - waitingSince(b, firstSeen[b._id]));
 }
 
-/**
- * Los que hacen ruido ahora: esperan y no están silenciados. Un pedido que
- * entra después de pulsar "Silenciar" no está en el mapa, así que suena de
- * inmediato: silenciar calla lo que ya se vio, no lo que todavía no llegó.
- */
-export function ringingOrders(
-  waiting: readonly BusinessOrder[],
-  snoozes: Readonly<Record<string, number>>,
-  now: number
-): BusinessOrder[] {
-  return waiting.filter((order) => (snoozes[order._id] ?? 0) <= now);
-}
-
 /** `null` si no hay nada que hacer sonar. */
 export function ringPatternFor(
   ringing: readonly BusinessOrder[],
@@ -99,11 +83,6 @@ export function ringPatternFor(
     oldestWaitingMinutes: Math.max(0, Math.floor((now - oldest) / 60_000)),
     ringingCount: ringing.length,
   });
-}
-
-/** Los silencios vencidos se sueltan para que el mapa no crezca sin fin. */
-export function pruneSnoozes(snoozes: Record<string, number>, now: number): Record<string, number> {
-  return Object.fromEntries(Object.entries(snoozes).filter(([, until]) => until > now));
 }
 
 /**

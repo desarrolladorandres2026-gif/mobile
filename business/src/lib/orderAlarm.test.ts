@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  isActionable, isForeignCancellation, pruneSnoozes, ringPatternFor, ringingOrders, waitingOrders, waitingSince,
+  isActionable, isForeignCancellation, ringPatternFor, waitingOrders, waitingSince,
   type EscalationInput,
 } from './orderAlarm';
 import type { BusinessOrder } from './orderFlow';
@@ -62,26 +62,13 @@ describe('waitingSince', () => {
   });
 });
 
-describe('waitingOrders / ringingOrders', () => {
+describe('waitingOrders', () => {
   const a = order('a', { createdAt: minutesAgo(10) });
   const b = order('b', { createdAt: minutesAgo(30) });
   const c = order('c', { status: 'accepted' });
 
   it('solo los aceptables, el más antiguo primero', () => {
     expect(waitingOrders([a, b, c]).map((o) => o._id)).toEqual(['b', 'a']);
-  });
-
-  it('un pedido silenciado calla hasta que vence el silencio', () => {
-    const waiting = waitingOrders([a, b]);
-    expect(ringingOrders(waiting, { b: NOW + 30_000 }, NOW).map((o) => o._id)).toEqual(['a']);
-    expect(ringingOrders(waiting, { b: NOW - 1 }, NOW).map((o) => o._id)).toEqual(['b', 'a']);
-  });
-
-  it('un pedido nuevo suena aunque el resto esté silenciado', () => {
-    const fresh = order('z', { createdAt: minutesAgo(0) });
-    const waiting = waitingOrders([a, b, fresh]);
-    const silenced = { a: NOW + 60_000, b: NOW + 60_000 };
-    expect(ringingOrders(waiting, silenced, NOW).map((o) => o._id)).toEqual(['z']);
   });
 });
 
@@ -101,12 +88,6 @@ describe('ringPatternFor', () => {
 
   it('mientras el usuario no escriba su política, el timbre es normal', () => {
     expect(ringPatternFor([order('a', { createdAt: minutesAgo(99) })], NOW)).toBe('normal');
-  });
-});
-
-describe('pruneSnoozes', () => {
-  it('suelta los silencios vencidos', () => {
-    expect(pruneSnoozes({ a: NOW + 1, b: NOW, c: NOW - 1 }, NOW)).toEqual({ a: NOW + 1 });
   });
 });
 
