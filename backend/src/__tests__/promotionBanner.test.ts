@@ -179,6 +179,24 @@ describe('Banners de inicio — validación del destino', () => {
       .expect(201);
   });
 
+  it('acepta un término de búsqueda y rechaza uno vacío o demasiado largo', async () => {
+    const admin = await makeUser({ role: UserRole.ADMIN });
+    const banner = await createBanner(admin, { actionType: 'search', actionValue: 'pizza' });
+    expect(banner.actionType).toBe('search');
+
+    await request(app)
+      .post(BASE)
+      .set(await authHeader(admin))
+      .send(bannerBody({ actionType: 'search', actionValue: ' ' }))
+      .expect(400);
+
+    await request(app)
+      .post(BASE)
+      .set(await authHeader(admin))
+      .send(bannerBody({ actionType: 'search', actionValue: 'x'.repeat(61) }))
+      .expect(400);
+  });
+
   it('rechaza un negocio de destino que no existe', async () => {
     const admin = await makeUser({ role: UserRole.ADMIN });
     await request(app)
