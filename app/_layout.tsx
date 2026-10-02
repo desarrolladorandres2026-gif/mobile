@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -20,6 +20,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useNotificationsRealtime } from '../hooks/useRealtime';
 import { useSessionGuard } from '../hooks/useSessionGuard';
 import { ZippSplashLoader } from '../components/brand/ZippSplashLoader';
+import { UpdateBanner } from '../components/ui';
 import { registerServiceWorker } from '../lib/pwa';
 
 // Registra la tarea de ubicación en segundo plano.
@@ -49,6 +50,7 @@ const queryClient = new QueryClient({
 function RootLayoutContent() {
   const { isLoading, loadStoredAuth } = useAuthStore();
   const { c, isDark } = useTheme();
+  const [updateReady, setUpdateReady] = useState(false);
 
   // Notificaciones: push del sistema (app cerrada) + campana en vivo (app abierta).
   usePushNotifications();
@@ -72,19 +74,9 @@ function RootLayoutContent() {
   useEffect(() => {
     loadStoredAuth();
 
-    // TODO(usuario): cuando hay una versión nueva del shell esperando, ¿qué
-    // hace la PWA? Dos caminos válidos, con trade-offs distintos:
-    //  a) Recargar sola (`window.location.reload()`) — el usuario siempre
-    //     tiene la última versión, pero puede perder texto sin enviar o
-    //     interrumpir un flujo (ej. a mitad del checkout).
-    //  b) Mostrar un banner tipo "Hay una versión nueva, toca para
-    //     actualizar" — más respetuoso del flujo en curso, pero exige que
-    //     construyas ese componente y que el usuario note el aviso.
-    // El proyecto ya tiene banners/toasts en components/? revisa ahí antes
-    // de crear uno nuevo.
-    registerServiceWorker(() => {
-      // placeholder: hoy no hace nada, ver TODO arriba.
-    });
+    // PWA: si ya se descargó una versión nueva, avisamos con un banner en
+    // vez de recargar solos, para no cortar un checkout a la mitad.
+    registerServiceWorker(() => setUpdateReady(true));
   }, []);
 
   // Antes del return condicional de abajo: un hook no puede depender de si
@@ -110,6 +102,11 @@ function RootLayoutContent() {
         <Stack.Screen name="(client)" options={{ animation: 'fade' }} />
         <Stack.Screen name="(driver)" options={{ animation: 'fade' }} />
       </Stack>
+      <UpdateBanner
+        visible={updateReady}
+        onUpdate={() => window.location.reload()}
+        onDismiss={() => setUpdateReady(false)}
+      />
     </>
   );
 }

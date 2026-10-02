@@ -213,6 +213,44 @@ export function OfflineBanner({ visible }: { visible: boolean }) {
   );
 }
 
+/**
+ * Aviso de que la PWA ya descargó una versión nueva (solo web).
+ *
+ * No recarga sola: el usuario puede estar a mitad de un pedido o escribiendo
+ * una dirección, y recargar sin avisar le borraría eso. Le dejamos elegir el
+ * momento con "Actualizar", o cerrar el aviso con "Luego" y seguir.
+ */
+export function UpdateBanner({
+  visible, onUpdate, onDismiss,
+}: { visible: boolean; onUpdate: () => void; onDismiss: () => void }) {
+  const { c } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  if (!visible) return null;
+
+  return (
+    <Animated.View
+      entering={SlideInUp.duration(Motion.base)}
+      exiting={SlideOutUp.duration(Motion.fast)}
+      style={[
+        styles.update,
+        {
+          backgroundColor: c.surfaceRaised,
+          borderBottomColor: c.border,
+          paddingTop: insets.top + Spacing.sm,
+        },
+      ]}
+      accessibilityLiveRegion="polite"
+    >
+      <Text v="bodyS" style={styles.updateText}>
+        Hay una versión nueva de Zipp.
+      </Text>
+      <Button title="Luego" variant="ghost" size="sm" haptic="none" onPress={onDismiss} />
+      <Button title="Actualizar" size="sm" onPress={onUpdate} />
+    </Animated.View>
+  );
+}
+
 // ──────────────────────────────────────────────────────────────
 // Éxito
 // ──────────────────────────────────────────────────────────────
@@ -297,4 +335,16 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm + 2,
     paddingHorizontal: Spacing.lg,
   },
+  update: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    zIndex: 101,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingBottom: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  updateText: { flex: 1 },
 });
