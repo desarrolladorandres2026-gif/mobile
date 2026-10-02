@@ -29,7 +29,7 @@ export type { BadgeProps, BadgeTone, ChipProps, MetaItem } from './Badge';
 export {
   EmptyState, ErrorState, Notice,
   Skeleton, BusinessCardSkeleton, LoadingScreen,
-  OfflineBanner, SuccessCheck,
+  OfflineBanner, UpdateBanner, SuccessCheck,
 } from './Feedback';
 export type { EmptyStateProps } from './Feedback';
 
