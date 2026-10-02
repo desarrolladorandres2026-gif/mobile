@@ -72,4 +72,4 @@ export const ACTIVE_ORDER_STATUSES = [
  * Número de soporte de Zipp (WhatsApp / llamada).
  * Se incluye el código de país 57 donde sea necesario.
  */
-export const SUPPORT_PHONE = '3001234567';
+export const SUPPORT_PHONE = '3112421673';
