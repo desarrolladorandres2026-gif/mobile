@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Megaphone, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
+import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 import NumericInput from '../components/NumericInput';
@@ -85,6 +86,10 @@ const emptyForm = {
 export default function Advertising() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
+  // Las facturas y la deuda de publicidad son dinero del negocio: el
+  // administrador compra campañas, pero esto lo ve quien ve liquidaciones.
+  const { access } = usePermissions(businessId);
+  const seesBilling = !access || access.permissions.includes('settlements:view');
 
   const queryClient = useQueryClient();
   const [form, setForm] = useState(emptyForm);
@@ -92,12 +97,14 @@ export default function Advertising() {
   const [saving, setSaving] = useState(false);
 
   const adsQuery = useQuery({
-    queryKey: qk.advertising(businessId),
-    enabled: !!businessId,
+    queryKey: [...qk.advertising(businessId), seesBilling],
+    enabled: !!businessId && !!access,
     queryFn: async () => {
       const [list, billing] = await Promise.all([
         api.get(`/advertisements/business/${businessId}`),
-        api.get(`/advertisements/business/${businessId}/invoices`),
+        seesBilling
+          ? api.get(`/advertisements/business/${businessId}/invoices`)
+          : Promise.resolve({ data: { data: { invoices: [], outstanding: 0 } } }),
       ]);
       return {
         campaigns: (list.data.data ?? []) as Campaign[],
@@ -393,8 +400,12 @@ export default function Advertising() {
         </div>
       ) : null}
 
-          {invoices.length === 0 && outstanding <= 0 ? (
-            <p className="text-xs text-[var(--color-text-muted)]">Aún no hay campañas cerradas.</p>
+          {!seesBilling ? (
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Lo facturado por publicidad lo ve el propietario junto a sus liquidaciones.
+            </p>
+          ) : invoices.length === 0 && outstanding <= 0 ? (
+            <p className="text-xs text-[var(--color-text-secondary)]">Aún no hay campañas cerradas.</p>
           ) : null}
         </section>
       </div>
