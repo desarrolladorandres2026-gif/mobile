@@ -1319,9 +1319,13 @@ export const useSetDefaultAddress = () => {
 /**
  * Los banners activos de una superficie (inicio, descuentos, ...).
  *
- * `staleTime` de 5 minutos porque un banner es contenido editorial, no
- * estado del pedido: refetchear en cada foco solo gastaría datos del
- * cliente. `retry: false` para que una API caída no deje al carrusel
+ * `staleTime` de 1 minuto, el mismo margen que ya tiene la caché del
+ * servidor. Con 5 minutos, y la respuesta guardada en disco entre aperturas
+ * (lib/queryPersistence), un banner recién publicado desde el panel podía
+ * tardar ese rato en aparecer aunque se cerrara y abriera la app, y en la
+ * PWA no hay gesto de refrescar que lo salte. Sigue sin pedirse en cada
+ * render: solo al montar o al volver a la app, y solo si ya pasó el minuto.
+ * `retry: false` para que una API caída no deje al carrusel
  * girando en "cargando" — devuelve error y la pantalla sigue sin él.
  *
  * El arreglo vacío por defecto hace que "sin banners", "sin conexión" y
@@ -1333,7 +1337,7 @@ export const useHomeBanners = (placement: 'home' | 'offers' = 'home', enabled = 
     queryFn: () => bannersApi.getActive(placement),
     enabled,
     retry: false,
-    staleTime: 5 * 60_000,
+    staleTime: 60_000,
     gcTime: 30 * 60_000,
   });
 

@@ -4,7 +4,10 @@ import { BANNER_SCREEN_KEYS, BANNER_DURATION } from '../models/PromotionBanner';
 
 const OBJECT_ID = /^[a-f\d]{24}$/i;
 
-const actionTypes = ['none', 'url', 'business', 'category', 'screen'] as const;
+// Tiene que listar los mismos tipos que `BannerActionType` del modelo. Si
+// falta uno, el panel lo ofrece en el desplegable pero el servidor responde
+// 400 al guardar y el banner nunca llega a la app.
+const actionTypes = ['none', 'url', 'business', 'category', 'screen', 'search'] as const;
 const placements = ['home', 'explore', 'all'] as const;
 
 /**
@@ -28,6 +31,8 @@ const actionValueMatchesType = (data: {
       return (Object.values(BusinessCategory) as string[]).includes(value);
     case 'screen':
       return BANNER_SCREEN_KEYS.includes(value);
+    case 'search':
+      return value.length >= 2 && value.length <= 60;
     default:
       return true;
   }
