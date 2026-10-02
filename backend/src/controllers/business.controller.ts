@@ -250,6 +250,25 @@ export class BusinessController {
     } catch (error) { next(error); }
   }
 
+  /**
+   * La portada de quien no ve dinero: una forma por papel, decidida por sus
+   * permisos (ver `businessRoleSummary.service`). Nunca trae neto,
+   * comisión ni descuentos asumidos; eso sigue en `dailySummary`.
+   */
+  async roleSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      const { businessStaffService } = await import('../services/businessStaff.service');
+      const access = await businessStaffService.accessFor(req.user!._id.toString(), businessId);
+      if (!access) throw new AppError('Sin permisos para ver este negocio.', 403, 'BUSINESS_PERMISSION_DENIED');
+
+      const { businessRoleSummaryService } = await import('../services/businessRoleSummary.service');
+      const data = await businessRoleSummaryService.roleSummaryFor(access, businessId);
+      if (!data) throw new AppError('Sin permisos para ver los pedidos del día.', 403, 'BUSINESS_PERMISSION_DENIED');
+      sendResponse(res, 200, 'Resumen del día', data);
+    } catch (error) { next(error); }
+  }
+
   // ── Alta y verificación documental ──
 
   /** Cola de negocios esperando revisión, con lo que le falta a cada uno. */

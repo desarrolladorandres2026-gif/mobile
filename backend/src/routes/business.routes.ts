@@ -136,6 +136,8 @@ router.patch('/:id/open', authenticate, authorize(UserRole.BUSINESS, UserRole.AD
 router.get('/:id/my-permissions', authenticate, (req, res, next) => businessController.myPermissions(req, res, next));
 
 router.get('/:id/daily-summary', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.FINANCE_VIEW), validate(idParamSchema), (req, res, next) => businessController.dailySummary(req, res, next));
+// Solo personal del negocio: el admin de plataforma ya tiene el cierre completo.
+router.get('/:id/role-summary', authenticate, authorize(UserRole.BUSINESS), validate(idParamSchema), (req, res, next) => businessController.roleSummary(req, res, next));
 router.get('/:id/analytics', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_VIEW), (req, res, next) => businessController.analytics(req, res, next));
 router.get('/:id/statement/export', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.FINANCE_VIEW), (req, res, next) => businessController.exportSales(req, res, next));
 router.get('/:id/statement', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.FINANCE_VIEW), (req, res, next) => businessController.getStatement(req, res, next));
