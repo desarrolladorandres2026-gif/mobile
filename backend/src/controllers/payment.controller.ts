@@ -452,6 +452,33 @@ export class PaymentController {
     } catch (error) { next(error); }
   }
 
+  /** Cierra un cobro retenido para revisión (centro de incidentes). */
+  async resolveReview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const payment = await paymentService.resolveReview({
+        paymentId: param(req, 'paymentId'),
+        adminId: req.user!._id.toString(),
+        note: req.body.note,
+      });
+      void logAudit(req, {
+        action: AuditAction.PAYMENT_REVIEW_RESOLVED,
+        entity: 'payment',
+        entityId: payment._id.toString(),
+        severity: AuditSeverity.HIGH,
+        description: `Cobro retenido de $${payment.amount.toLocaleString('es-CO')} marcado como resuelto`,
+        metadata: {
+          orderId: payment.orderId?.toString(),
+          reviewReason: payment.metadata?.reviewReason,
+          note: req.body.note,
+        },
+      });
+      sendResponse(res, 200, 'Cobro marcado como resuelto', {
+        paymentId: payment._id.toString(),
+        reviewResolvedAt: payment.metadata?.reviewResolvedAt,
+      });
+    } catch (error) { next(error); }
+  }
+
   async listRefunds(req: Request, res: Response, next: NextFunction) {
     try {
       const refunds = await refundService.listForOrder(param(req, 'orderId'));

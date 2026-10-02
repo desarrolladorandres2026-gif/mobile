@@ -92,6 +92,7 @@ export enum AuditAction {
   CASH_DEBT_LIMIT_BLOCKED = 'cash_debt_limit_blocked',
   REFUND_ISSUED = 'refund_issued',
   CHARGEBACK_RECORDED = 'chargeback_recorded',
+  PAYMENT_REVIEW_RESOLVED = 'payment_review_resolved',
   COMMISSION_ADJUSTED = 'commission_adjusted',
   PAYOUT_PROCESSED = 'payout_processed',
   SETTLEMENT_PAYMENT_REGISTERED = 'settlement_payment_registered',

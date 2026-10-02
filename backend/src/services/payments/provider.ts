@@ -325,6 +325,15 @@ export interface PaymentProvider {
 
   getPayment(paymentId: string): Promise<PaymentIntent>;
 
+  /**
+   * La transacción creada con nuestra referencia, o `null` si la pasarela
+   * confirma que no existe ninguna. Lanza si no se le pudo preguntar.
+   *
+   * Es lo que resuelve un cobro cuya creación se cortó por la red: sin
+   * esto no hay forma de saber si la pasarela lo alcanzó a crear.
+   */
+  findPaymentByReference?(reference: string): Promise<PaymentIntent | null>;
+
   refund(paymentId: string, amount?: number): Promise<PaymentIntent>;
 
   /**

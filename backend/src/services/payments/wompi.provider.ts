@@ -306,6 +306,19 @@ function unescapeHtml(value: string): string {
     .replace(/&amp;/g, '&');
 }
 
+/**
+ * `fetch` con tiempo límite para toda llamada a Wompi.
+ *
+ * Una llamada que vence lanza como cualquier fallo de red, que es lo que es:
+ * no sabemos qué pasó del otro lado. Quien crea un cobro trata ese caso
+ * aparte (ver `PaymentService.initiateNative`), porque Wompi pudo haberlo
+ * creado igual.
+ */
+function wompiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const ms = config.payments.wompi.httpTimeoutMs;
+  return fetch(url, ms > 0 ? { ...init, signal: AbortSignal.timeout(ms) } : init);
+}
+
 export class WompiPaymentProvider implements PaymentProvider {
   readonly name = 'wompi';
 
@@ -440,6 +453,33 @@ export class WompiPaymentProvider implements PaymentProvider {
   }
 
   /**
+   * Busca por nuestra referencia la transacción que Wompi haya creado.
+   *
+   * Wompi solo permite esta búsqueda con la llave privada. Se usa poco: solo
+   * cuando la creación de un cobro se cortó por la red y no sabemos si la
+   * transacción llegó a existir.
+   */
+  async findPaymentByReference(reference: string): Promise<PaymentIntent | null> {
+    const res = await wompiFetch(
+      `${this.apiBaseUrl}/transactions?reference=${encodeURIComponent(reference)}`,
+      { headers: { Authorization: `Bearer ${this.privateKey}` } }
+    );
+
+    if (!res.ok) {
+      throw new Error(`Wompi respondió ${res.status} al buscar la referencia ${reference}`);
+    }
+
+    const body = (await res.json()) as { data?: WompiTransaction[] };
+    if (!Array.isArray(body?.data)) {
+      throw new Error(`Respuesta de Wompi sin lista de transacciones para ${reference}`);
+    }
+
+    // La referencia es única por intento: si Wompi devuelve algo, es esa.
+    const tx = body.data.find((t) => t?.reference === reference);
+    return tx ? this.mapTransaction(tx) : null;
+  }
+
+  /**
    * Reads a transaction back from Wompi.
    *
    * Authorised with the *public* key, which is what Wompi documents for this
@@ -449,7 +489,7 @@ export class WompiPaymentProvider implements PaymentProvider {
    * only for `refund()`, which genuinely needs it.
    */
   async getPayment(paymentId: string): Promise<PaymentIntent> {
-    const res = await fetch(`${this.apiBaseUrl}/transactions/${encodeURIComponent(paymentId)}`, {
+    const res = await wompiFetch(`${this.apiBaseUrl}/transactions/${encodeURIComponent(paymentId)}`, {
       headers: { Authorization: `Bearer ${this.publicKey}` },
     });
 
@@ -483,7 +523,7 @@ export class WompiPaymentProvider implements PaymentProvider {
       );
     }
 
-    const res = await fetch(`${this.apiBaseUrl}/transactions/${encodeURIComponent(paymentId)}/void`, {
+    const res = await wompiFetch(`${this.apiBaseUrl}/transactions/${encodeURIComponent(paymentId)}/void`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.privateKey}` },
     });
@@ -703,7 +743,7 @@ export class WompiPaymentProvider implements PaymentProvider {
     const cached = this.checkoutConfigCache;
     if (cached && cached.expiresAt > Date.now()) return cached.value;
 
-    const res = await fetch(`${this.apiBaseUrl}/merchants/${encodeURIComponent(this.publicKey)}`);
+    const res = await wompiFetch(`${this.apiBaseUrl}/merchants/${encodeURIComponent(this.publicKey)}`);
 
     if (!res.ok) {
       throw new Error(`Wompi respondió ${res.status} al pedir la configuración del comercio`);
@@ -881,7 +921,7 @@ export class WompiPaymentProvider implements PaymentProvider {
 
     if (Object.keys(customerData).length) body.customer_data = customerData;
 
-    const res = await fetch(`${this.apiBaseUrl}/transactions`, {
+    const res = await wompiFetch(`${this.apiBaseUrl}/transactions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.privateKey}`,
@@ -927,7 +967,7 @@ export class WompiPaymentProvider implements PaymentProvider {
     const cached = this.pseBanksCache;
     if (cached && cached.expiresAt > Date.now()) return cached.value;
 
-    const res = await fetch(`${this.apiBaseUrl}/pse/financial_institutions`, {
+    const res = await wompiFetch(`${this.apiBaseUrl}/pse/financial_institutions`, {
       headers: { Authorization: `Bearer ${this.publicKey}` },
     });
 
@@ -962,7 +1002,7 @@ export class WompiPaymentProvider implements PaymentProvider {
    * cobrar más tarde sin que el cliente vuelva a escribir nada.
    */
   async createPaymentSource(input: CreatePaymentSourceInput): Promise<{ id: number }> {
-    const res = await fetch(`${this.apiBaseUrl}/payment_sources`, {
+    const res = await wompiFetch(`${this.apiBaseUrl}/payment_sources`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.privateKey}`,
@@ -1037,7 +1077,7 @@ export class WompiPaymentProvider implements PaymentProvider {
     token: string,
     body?: Record<string, unknown>
   ): Promise<{ ok: boolean; httpStatus: number; payload: WompiOtpResponse | null }> {
-    const res = await fetch(url, {
+    const res = await wompiFetch(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
