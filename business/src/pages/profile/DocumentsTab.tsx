@@ -70,8 +70,8 @@ const STATUS: Record<DocView['status'], { label: string; className: string }> = 
 };
 
 const fieldClass =
-  'h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]';
-const labelClass = 'mb-1 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]';
+  'h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]';
+const labelClass = 'mb-1 block text-xs font-medium text-[var(--color-text-main)]';
 
 const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('es-CO') : '');
 
@@ -121,7 +121,7 @@ function DocumentRow({ businessId, type, doc, onDone }: { businessId: string; ty
         <div className="flex min-w-0 items-start gap-3">
           <FileText className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-muted)]" />
           <div className="min-w-0">
-            <p className="text-sm font-bold text-[var(--color-text-main)]">{DOCUMENT_LABELS[type]}</p>
+            <p className="text-sm font-semibold text-[var(--color-text-main)]">{DOCUMENT_LABELS[type]}</p>
             {doc ? (
               <>
                 <p className="font-mono text-xs text-[var(--color-text-secondary)]">{doc.reference}</p>
@@ -141,7 +141,7 @@ function DocumentRow({ businessId, type, doc, onDone }: { businessId: string; ty
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {status && <span className={`text-[10px] font-bold uppercase tracking-wider ${status.className}`}>{status.label}</span>}
+          {status && <span className={`text-[11px] font-semibold ${status.className}`}>{status.label}</span>}
           {doc?.hasFile && doc.fileUrl && (
             <a href={doc.fileUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[var(--color-primary)] hover:underline">
               Ver archivo
@@ -149,7 +149,7 @@ function DocumentRow({ businessId, type, doc, onDone }: { businessId: string; ty
           )}
           <button
             onClick={() => setOpen((v) => !v)}
-            className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[11px] font-semibold text-[var(--color-text-main)]"
+            className="cursor-pointer rounded-md border border-[var(--color-border)] px-3 py-1.5 text-[11px] font-semibold text-[var(--color-text-main)]"
           >
             {open ? 'Cancelar' : doc ? 'Reemplazar' : 'Subir'}
           </button>
@@ -178,7 +178,7 @@ function DocumentRow({ businessId, type, doc, onDone }: { businessId: string; ty
           <div className="md:col-span-3 flex flex-wrap items-center gap-3">
             <button
               onClick={submit}
-              className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white"
+              className="cursor-pointer rounded-md bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] px-4 py-2 text-xs font-semibold text-[var(--zipp-obsidian)]"
             >
               {busy ? 'Subiendo…' : 'Enviar a revisión'}
             </button>
@@ -330,7 +330,7 @@ export default function DocumentsTab() {
   const approved = types.filter((t) => docs.find((d) => d.type === t)?.status === 'approved').length;
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-5">
       <div>
         <p className="page-subtitle">
           {approved} de {types.length} documentos aprobados ·{' '}
@@ -409,7 +409,7 @@ export default function DocumentsTab() {
                 <input type="email" value={legalForm.billingEmail} onChange={(e) => setLegalForm({ ...legalForm, billingEmail: e.target.value })} className={fieldClass} />
               </label>
             </div>
-            <button onClick={saveLegal} className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white">
+            <button onClick={saveLegal} className="cursor-pointer rounded-md bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] px-4 py-2 text-xs font-semibold text-[var(--zipp-obsidian)]">
               {saving === 'legal' ? 'Guardando…' : 'Guardar datos fiscales'}
             </button>
           </section>
@@ -421,7 +421,7 @@ export default function DocumentsTab() {
                 <p className="text-xs text-[var(--color-text-secondary)]">
                   Registrada: <strong className="text-[var(--color-text-main)]">{payout.method === 'bank' ? payout.bankName : payout.method}</strong>{' '}
                   <span className="font-mono">{payout.accountMasked}</span> · titular {payout.holderName} ·{' '}
-                  <span className={payout.verificationStatus === 'verified' ? 'font-bold text-[#047857]' : 'font-bold text-[var(--color-warning)]'}>
+                  <span className={payout.verificationStatus === 'verified' ? 'font-semibold text-[#047857]' : 'font-semibold text-[var(--color-warning)]'}>
                     {payout.verificationStatus === 'verified' ? 'verificada' : 'pendiente de verificación'}
                   </span>
                   . Si la cambias, ZIPP debe verificarla de nuevo antes de girarte dinero.
@@ -485,7 +485,7 @@ export default function DocumentsTab() {
                     className={`${fieldClass} w-full`}
                     placeholder={reauth.channel === 'password' ? 'Contraseña' : 'Código de 6 dígitos'}
                   />
-                  <button onClick={savePayout} className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white">
+                  <button onClick={savePayout} className="cursor-pointer rounded-md bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] px-4 py-2 text-xs font-semibold text-[var(--zipp-obsidian)]">
                     {saving === 'payout' ? 'Confirmando…' : 'Confirmar y guardar'}
                   </button>
                   <button onClick={() => { setReauth(null); setReauthProof(''); setReauthError(''); }} className="cursor-pointer text-xs font-semibold text-[var(--color-text-secondary)]">
@@ -495,7 +495,7 @@ export default function DocumentsTab() {
                 {reauthError && <p className="text-xs font-semibold text-[var(--color-danger)]">{reauthError}</p>}
               </div>
             ) : (
-              <button onClick={startPayoutSave} className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white">
+              <button onClick={startPayoutSave} className="cursor-pointer rounded-md bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] px-4 py-2 text-xs font-semibold text-[var(--zipp-obsidian)]">
                 {payout ? 'Reemplazar cuenta' : 'Guardar cuenta'}
               </button>
             )}

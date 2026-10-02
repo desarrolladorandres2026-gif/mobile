@@ -25,9 +25,8 @@ export type OrderStatus =
 export interface StatusStyle {
   /** Cómo se llama en la cocina, no en la base de datos. */
   label: string;
-  /** Clases de la pastilla: fondo, borde y tinta. */
-  chip: string;
-  /** Color del punto que la acompaña. */
+  /** Color del punto que acompaña la etiqueta. El texto va en el color
+   *  normal: el estado lo dice el punto, no una pastilla con fondo y borde. */
   dot: string;
 }
 
@@ -39,49 +38,40 @@ export interface StatusStyle {
 export const ORDER_STATUS: Record<OrderStatus, StatusStyle> = {
   pending: {
     label: 'Pendiente',
-    chip: 'bg-[var(--color-warning-bg)] border-[var(--color-warning)]/40 text-[var(--color-warning)]',
     dot: 'bg-[var(--color-warning)]',
   },
   accepted: {
     label: 'Aceptado',
-    chip: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-light)]/40 text-[var(--color-primary)]',
     dot: 'bg-[var(--color-primary-light)]',
   },
   preparing: {
     label: 'En cocina',
-    chip: 'bg-[var(--color-warning-bg)] border-[var(--color-warning)]/40 text-[var(--color-warning)]',
     dot: 'bg-[var(--color-warning)]',
   },
   ready: {
     label: 'Listo para recoger',
-    chip: 'bg-[var(--color-primary-bg)] border-[var(--color-primary-light)]/40 text-[var(--color-primary)]',
     dot: 'bg-[var(--color-primary-light)]',
   },
   picked_up: {
     label: 'Recogido',
-    chip: 'bg-[var(--color-primary-bg)] border-[var(--color-primary)]/40 text-[var(--color-primary-dark)]',
     dot: 'bg-[var(--color-primary)]',
   },
   on_way: {
     label: 'En camino',
-    chip: 'bg-[var(--color-primary-bg)] border-[var(--color-primary)]/40 text-[var(--color-primary-dark)]',
     dot: 'bg-[var(--color-primary)]',
   },
   delivered: {
     label: 'Entregado',
-    chip: 'bg-[var(--color-success-bg)] border-[var(--color-success)]/40 text-[var(--color-success)]',
     dot: 'bg-[var(--color-success)]',
   },
   cancelled: {
     label: 'Cancelado',
-    chip: 'bg-[var(--color-danger-bg)] border-[var(--color-danger)]/40 text-[var(--color-danger)]',
     dot: 'bg-[var(--color-danger)]',
   },
 };
 
 const UNKNOWN_STATUS: StatusStyle = {
   label: 'Desconocido',
-  chip: 'bg-[var(--color-bg-alt)] border-[var(--color-border)] text-[var(--color-text-secondary)]',
   dot: 'bg-[var(--color-text-muted)]',
 };
 

@@ -203,7 +203,7 @@ export default function BusinessLocationField({ value, onChange }: Props) {
   return (
     <div className="space-y-2">
       <div className="relative">
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] focus-within:border-[var(--color-primary)]">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] focus-within:border-[var(--color-primary)]">
           {searching ? (
             <RefreshCw className="w-4 h-4 text-[var(--color-text-muted)] shrink-0 animate-spin" />
           ) : (
@@ -229,7 +229,7 @@ export default function BusinessLocationField({ value, onChange }: Props) {
         </div>
 
         {suggestions.length > 0 && (
-          <div className="absolute z-[500] top-full left-0 right-0 mt-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg overflow-hidden">
+          <div className="absolute z-[500] top-full left-0 right-0 mt-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] shadow-md overflow-hidden">
             {suggestions.map((s, i) => (
               <button
                 key={i}
@@ -252,7 +252,7 @@ export default function BusinessLocationField({ value, onChange }: Props) {
         </p>
       )}
 
-      <div className="relative rounded-xl overflow-hidden border border-[var(--color-border)]" style={{ height: 260 }}>
+      <div className="relative rounded-md overflow-hidden border border-[var(--color-border)]" style={{ height: 260 }}>
         <div ref={mapRef} className="w-full h-full" />
 
         <button
@@ -260,7 +260,7 @@ export default function BusinessLocationField({ value, onChange }: Props) {
           onClick={useMyLocation}
           disabled={locating}
           title="Usar mi ubicación actual"
-          className="absolute bottom-3 right-3 z-[400] w-9 h-9 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] shadow-md grid place-items-center cursor-pointer disabled:opacity-50"
+          className="absolute bottom-3 right-3 z-[400] w-8 h-8 rounded-md bg-[var(--color-surface)] border border-[var(--color-border-strong)] grid place-items-center cursor-pointer disabled:opacity-50"
         >
           <LocateFixed className={`w-4 h-4 text-[var(--color-primary)] ${locating ? 'animate-pulse' : ''}`} />
         </button>

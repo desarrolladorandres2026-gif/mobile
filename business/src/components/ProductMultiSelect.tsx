@@ -67,11 +67,11 @@ export default function ProductMultiSelect({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar producto…"
-          className="w-full pl-8 pr-3 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
+          className="w-full pl-8 pr-3 py-2 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
         />
       </div>
 
-      <div className="max-h-64 overflow-y-auto divide-y divide-[var(--color-border)] border border-[var(--color-border)] rounded-lg">
+      <div className="max-h-64 overflow-y-auto divide-y divide-[var(--color-border)] border border-[var(--color-border)] rounded-md">
         {menuQuery.isPending ? (
           <p className="py-4 text-center text-xs text-[var(--color-text-secondary)]">Cargando productos…</p>
         ) : filtered.length === 0 ? (
@@ -101,7 +101,7 @@ export default function ProductMultiSelect({
                 <span className="flex-1 min-w-0 truncate text-[var(--color-text-main)]">{product.name}</span>
                 <span className="text-xs text-[var(--color-text-secondary)] font-mono">{money(product.price)}</span>
                 {other && (
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-bg-alt)] text-[var(--color-text-muted)] shrink-0">
+                  <span className="text-[11px] font-semibold px-1.5 py-0.5 rounded bg-[var(--color-bg-alt)] text-[var(--color-text-muted)] shrink-0">
                     En otra promo
                   </span>
                 )}

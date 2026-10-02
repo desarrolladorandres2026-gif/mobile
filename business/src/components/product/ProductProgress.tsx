@@ -28,7 +28,7 @@ export default function ProductProgress({ progress, editing }: { progress: Progr
       </div>
       <p className="text-xs text-[var(--color-text-secondary)]" aria-live="polite">
         Paso {progress.current} de 3:{' '}
-        <span className="font-bold text-[var(--color-text-main)]">{labels[progress.current - 1]}</span>
+        <span className="font-semibold text-[var(--color-text-main)]">{labels[progress.current - 1]}</span>
       </p>
     </div>
   );

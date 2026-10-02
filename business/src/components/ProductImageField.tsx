@@ -380,7 +380,7 @@ export default function ProductImageField({
                   className="mt-0.5 accent-[var(--color-primary)]"
                 />
                 <span className="min-w-0">
-                  <span className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-text-main)]">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)]">
                     <Scissors className="w-3.5 h-3.5 text-[var(--color-primary)]" />
                     Quitar el fondo
                   </span>
@@ -425,7 +425,7 @@ export default function ProductImageField({
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           disabled={capabilities?.enabled === false || busy === 'upload'}
-          className={`w-full rounded-2xl border border-dashed transition-colors flex flex-col items-center justify-center cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] ${
+          className={`w-full rounded-md border border-dashed transition-colors flex flex-col items-center justify-center cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] ${
             dragging
               ? 'border-[var(--color-primary)] bg-[var(--color-primary-bg)]'
               : 'border-[var(--color-border-strong)]'
@@ -436,19 +436,19 @@ export default function ProductImageField({
           ) : (
             <ImagePlus className={`${hero ? 'w-8 h-8' : 'w-6 h-6'} text-[var(--color-primary)]`} />
           )}
-          <span className={`${hero ? 'text-sm' : 'text-xs'} font-bold text-[var(--color-text-main)]`}>
+          <span className={`${hero ? 'text-sm' : 'text-xs'} font-semibold text-[var(--color-text-main)]`}>
             {busy === 'upload' ? 'Subiendo…' : hero ? 'Selecciona la foto que quieres cargar' : 'Agregar imagen'}
           </span>
           {hero && !busy ? (
             <span className="text-xs text-[var(--color-text-secondary)]">O arrástrala y suéltala aquí</span>
           ) : null}
           {capabilities?.enabled === false ? (
-            <span className="text-[11px] text-[var(--color-text-main)] px-6 text-center font-bold">
+            <span className="text-[11px] text-[var(--color-text-main)] px-6 text-center font-semibold">
               La subida de imágenes no está disponible en este entorno.
             </span>
           ) : hero ? (
             <>
-              <span className="mt-2 rounded-lg bg-[var(--color-primary)] px-7 py-2 text-xs font-bold text-white">
+              <span className="mt-2 rounded-md bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] px-7 py-2 text-xs font-semibold text-[var(--zipp-obsidian)]">
                 Seleccionar foto
               </span>
               <span className="mt-2 text-[11px] text-[var(--color-text-secondary)] text-center">
@@ -456,7 +456,7 @@ export default function ProductImageField({
               </span>
             </>
           ) : (
-            <span className="text-[11px] text-[var(--color-text-main)] px-6 text-center font-bold">
+            <span className="text-[11px] text-[var(--color-text-main)] px-6 text-center font-semibold">
               {requirements}
             </span>
           )}
@@ -553,7 +553,7 @@ export default function ProductImageField({
             <img
               src={pendingPreview}
               alt="Vista previa del producto"
-              className="w-full aspect-square rounded-2xl object-cover bg-[var(--color-bg-alt)]"
+              className="w-full aspect-square rounded-md object-cover bg-[var(--color-bg-alt)]"
             />
           ) : (
             <SmartImage
@@ -562,12 +562,12 @@ export default function ProductImageField({
               base="detail"
               sizes="300px"
               priority
-              className="w-full aspect-square rounded-2xl"
+              className="w-full aspect-square rounded-md"
             />
           )}
 
           {showSpinner && (
-            <div className="absolute inset-0 rounded-2xl bg-black/45 grid place-items-center">
+            <div className="absolute inset-0 rounded-md bg-black/45 grid place-items-center">
               <RefreshCw className="w-6 h-6 text-white animate-spin" />
             </div>
           )}
@@ -604,7 +604,7 @@ export default function ProductImageField({
             <img
               src={pendingPreview}
               alt="Vista previa del producto"
-              className="w-28 h-28 rounded-2xl object-cover bg-[var(--color-bg-alt)]"
+              className="w-28 h-28 rounded-md object-cover bg-[var(--color-bg-alt)]"
             />
           ) : (
             <SmartImage
@@ -613,12 +613,12 @@ export default function ProductImageField({
               base="detail"
               sizes="112px"
               priority
-              className="w-28 h-28 rounded-2xl"
+              className="w-28 h-28 rounded-md"
             />
           )}
 
           {showSpinner && (
-            <div className="absolute inset-0 rounded-2xl bg-black/45 grid place-items-center">
+            <div className="absolute inset-0 rounded-md bg-black/45 grid place-items-center">
               <RefreshCw className="w-5 h-5 text-white animate-spin" />
             </div>
           )}
@@ -665,7 +665,7 @@ function Frame({ children, variant = 'default' }: { children: React.ReactNode; v
   return (
     <div className={variant === 'hero' ? 'space-y-3' : 'space-y-2.5'}>
       {variant === 'default' ? (
-        <span className="block text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+        <span className="block text-[11px] font-semibold text-[var(--color-text-main)]">
           Foto del producto
         </span>
       ) : null}
@@ -695,7 +695,7 @@ function Action({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${tone}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${tone}`}
     >
       <Icon className="w-3.5 h-3.5" />
       {label}

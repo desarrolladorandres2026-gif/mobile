@@ -17,10 +17,10 @@ import {
  */
 
 const inputClass =
-  'h-9 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-semibold text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors';
+  'h-9 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] px-3 text-xs text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors';
 
 const iconButton =
-  'h-8 w-8 inline-flex items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-[var(--color-text-main)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-default';
+  'h-8 w-8 inline-flex items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-[var(--color-text-main)] cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-default';
 
 interface Props {
   groups: GroupDraft[];
@@ -46,7 +46,7 @@ export default function ModifierGroupsEditor({ groups, onChange }: Props) {
     <div className="border-t border-[var(--color-border-light)] pt-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <span className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">
+          <span className="block text-[11px] font-semibold text-[var(--color-text-main)]">
             Opciones para elegir
           </span>
           <p className="text-[11px] text-[var(--color-text-main)] mt-0.5">
@@ -57,7 +57,7 @@ export default function ModifierGroupsEditor({ groups, onChange }: Props) {
           type="button"
           onClick={() => onChange([...groups, emptyGroup()])}
           disabled={groups.length >= 15}
-          className="px-3 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-surface-hover)] text-xs font-bold text-[var(--color-text-main)] cursor-pointer transition-colors inline-flex items-center gap-1.5 disabled:opacity-40"
+          className="px-3 h-8 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] cursor-pointer transition-colors inline-flex items-center gap-1.5 disabled:opacity-40"
         >
           <Plus className="w-3.5 h-3.5" />
           Grupo
@@ -72,7 +72,7 @@ export default function ModifierGroupsEditor({ groups, onChange }: Props) {
         return (
           <div
             key={group._id ?? `new-${gi}`}
-            className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 space-y-3"
+            className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3 space-y-3"
           >
             <div className="flex items-center gap-2">
               <input
@@ -145,7 +145,7 @@ export default function ModifierGroupsEditor({ groups, onChange }: Props) {
                     onValueChange={(digits) => updateOption(gi, oi, { price: digits })}
                     placeholder="0"
                     aria-label={`Precio adicional de ${option.name || `opción ${oi + 1}`}`}
-                    className={`${inputClass} w-24 tabular font-bold text-[var(--color-primary)]`}
+                    className={`${inputClass} w-24 tabular font-semibold text-[var(--color-primary)]`}
                   />
                   <button
                     type="button"
@@ -172,7 +172,7 @@ export default function ModifierGroupsEditor({ groups, onChange }: Props) {
                 type="button"
                 onClick={() => updateGroup(gi, { options: [...group.options, emptyOption()] })}
                 disabled={group.options.length >= 30}
-                className="text-xs font-bold text-[var(--color-primary)] hover:underline cursor-pointer inline-flex items-center gap-1 disabled:opacity-40"
+                className="text-xs font-semibold text-[var(--color-primary)] hover:underline cursor-pointer inline-flex items-center gap-1 disabled:opacity-40"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Opción

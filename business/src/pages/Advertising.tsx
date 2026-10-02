@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Megaphone, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { AlertCircle, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 import { usePermissions } from '../hooks/usePermissions';
@@ -58,17 +58,17 @@ const STATUS: Record<Campaign['approvalStatus'], { label: string; icon: typeof C
   pending: {
     label: 'En revisión',
     icon: Clock,
-    cls: 'bg-[var(--color-warning-bg)] text-[var(--color-warning)]',
+    cls: 'text-[var(--color-warning)]',
   },
   approved: {
     label: 'Aprobada',
     icon: CheckCircle2,
-    cls: 'bg-[var(--color-success-bg)] text-[var(--color-success)]',
+    cls: 'text-[var(--color-success)]',
   },
   rejected: {
     label: 'Rechazada',
     icon: XCircle,
-    cls: 'bg-[var(--color-danger-bg)] text-[var(--color-danger)]',
+    cls: 'text-[var(--color-danger)]',
   },
 };
 
@@ -165,11 +165,11 @@ export default function Advertising() {
     }
   };
 
-  const field = 'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
-  const label = 'block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] mb-1';
+  const field = 'w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-main)]';
+  const label = 'block text-xs font-medium text-[var(--color-text-main)] mb-1';
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       <div className="page-header">
         <div>
           <h1 className="page-title">Publicidad</h1>
@@ -285,7 +285,7 @@ export default function Advertising() {
         <button
           onClick={submit}
           disabled={saving}
-          className="w-full cursor-pointer rounded-lg bg-[var(--color-primary)] py-2 text-xs font-bold uppercase tracking-wider text-white disabled:opacity-50"
+          className="w-full h-9 cursor-pointer rounded-md bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] text-xs font-semibold text-[var(--zipp-obsidian)] disabled:opacity-50"
         >
           {saving ? 'Enviando…' : 'Enviar a revisión'}
         </button>
@@ -296,10 +296,9 @@ export default function Advertising() {
       {loading ? (
         <p className="text-sm text-[var(--color-text-muted)]">Cargando…</p>
       ) : campaigns.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-10">
-          <Megaphone className="h-8 w-8 text-[var(--color-text-muted)]" />
-          <p className="font-semibold text-[var(--color-text-main)]">Todavía no te has anunciado</p>
-          <p className="max-w-sm text-center text-sm text-[var(--color-text-secondary)]">
+        <div className="space-y-1 py-4">
+          <p className="text-sm font-medium text-[var(--color-text-main)]">Todavía no te has anunciado</p>
+          <p className="max-w-sm text-xs text-[var(--color-text-secondary)]">
             Tu anuncio aparece a pantalla completa cuando alguien abre la app. Pones un tope y no
             se gasta un peso más.
           </p>
@@ -324,11 +323,11 @@ export default function Advertising() {
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-bold text-[var(--color-text-main)]">{c.campaignName}</p>
+                      <p className="text-sm font-medium text-[var(--color-text-main)]">{c.campaignName}</p>
                       <span
-                        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${state.cls}`}
+                        className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)]"
                       >
-                        <Icon className="h-3 w-3" /> {state.label}
+                        <Icon className={`h-3.5 w-3.5 ${state.cls}`} /> {state.label}
                       </span>
                     </div>
                     <p className="text-xs text-[var(--color-text-secondary)]">
@@ -341,7 +340,7 @@ export default function Advertising() {
                   </div>
 
                   <div className="text-right">
-                    <p className="text-sm font-bold text-[var(--color-text-main)]">{money(spent)}</p>
+                    <p className="text-sm font-medium tabular text-[var(--color-text-main)]">{money(spent)}</p>
                     <p className="text-[11px] text-[var(--color-text-muted)]">
                       {served.toLocaleString('es-CO')}
                       {cap ? ` de ${cap.toLocaleString('es-CO')}` : ''}{' '}
@@ -351,7 +350,7 @@ export default function Advertising() {
                 </div>
 
                 {cap ? (
-                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--color-bg-alt)]">
+                  <div className="mt-2 h-1 overflow-hidden bg-[var(--color-border)]">
                     <div
                       className="h-full bg-[var(--color-primary)]"
                       style={{ width: `${Math.min(100, (served / cap) * 100)}%` }}
@@ -391,7 +390,7 @@ export default function Advertising() {
                   {i.impressions.toLocaleString('es-CO')} impresiones ·{' '}
                   {i.clicks.toLocaleString('es-CO')} clics
                 </span>
-                <span className="font-bold text-[var(--color-text-main)]">
+                <span className="font-semibold text-[var(--color-text-main)]">
                   {money(i.amount)} {i.settledAt ? '· descontado' : '· pendiente'}
                 </span>
               </li>

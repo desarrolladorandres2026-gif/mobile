@@ -122,7 +122,7 @@ export default function RoleSummary() {
   if (!businessId) {
     return (
       <div className="py-20 text-center space-y-2">
-        <p className="font-bold text-[var(--color-text-main)] text-base">Sin establecimiento seleccionado</p>
+        <p className="font-semibold text-[var(--color-text-main)] text-base">Sin establecimiento seleccionado</p>
         <p className="text-xs text-[var(--color-text-secondary)]">Elige un negocio en el menú lateral.</p>
       </div>
     );
@@ -131,7 +131,7 @@ export default function RoleSummary() {
   const heading = data ? TITLES[data.kind] : { title: 'Resumen del día', subtitle: '' };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       <div className="page-header">
         <div>
           <h1 className="page-title">{heading.title}</h1>
@@ -145,13 +145,13 @@ export default function RoleSummary() {
             disabled={query.isFetching}
             aria-label="Actualizar"
             title="Actualizar"
-            className="p-2 rounded-full text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer disabled:cursor-wait"
+            className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer disabled:cursor-wait"
           >
             <RefreshCw className={`w-4 h-4 ${query.isFetching ? 'animate-spin' : ''}`} />
           </button>
           <Link
             to="/orders"
-            className="inline-flex items-center gap-1.5 text-xs font-bold text-[var(--color-primary)] hover:underline underline-offset-2"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)] hover:underline underline-offset-2"
           >
             Ir a Pedidos
             <ArrowRight className="w-3.5 h-3.5" />

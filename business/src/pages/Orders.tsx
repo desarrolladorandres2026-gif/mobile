@@ -190,7 +190,7 @@ export default function Orders() {
     return (
       <div className="py-20 text-center space-y-2">
         <Store className="w-8 h-8 text-[var(--color-primary)] mx-auto" />
-        <p className="font-bold text-[var(--color-text-main)] text-base">
+        <p className="font-semibold text-[var(--color-text-main)] text-base">
           Sin establecimiento seleccionado
         </p>
         <p className="text-xs text-[var(--color-text-secondary)]">
@@ -201,7 +201,7 @@ export default function Orders() {
   }
 
   return (
-    <div className="space-y-10 animate-fade-in">
+    <div className="space-y-5">
       <div className="page-header">
         <div>
           <h1 className="page-title">Pedidos</h1>
@@ -209,22 +209,22 @@ export default function Orders() {
         </div>
         <button
           onClick={load}
-          className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer flex items-center justify-center gap-2"
+          className="h-8 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-medium text-[var(--color-text-main)] cursor-pointer flex items-center justify-center gap-1.5"
         >
-          <RefreshCw className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+          <RefreshCw className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
           Actualizar
         </button>
       </div>
 
       {(actionError || queueError) && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
+        <div role="alert" className="flex items-start gap-2 border-l-2 border-[var(--color-danger)] pl-3 py-0.5">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="text-xs font-semibold text-[var(--color-danger)]">{actionError || queueError}</p>
         </div>
       )}
 
       {/* ── Pestañas ── */}
-      <div role="tablist" aria-label="Vista de pedidos" className="flex items-end gap-8 border-b border-[var(--color-border)]">
+      <div role="tablist" aria-label="Vista de pedidos" className="flex items-end gap-6 border-b border-[var(--color-border)]">
         {([["active", "Activas", filteredQueue.length], ["history", "Historial", null]] as const).map(([value, label, count]) => (
           <button
             key={value}
@@ -232,14 +232,14 @@ export default function Orders() {
             role="tab"
             aria-selected={tab === value}
             onClick={() => setTab(value)}
-            className={`-mb-px pb-3 text-sm font-bold border-b-2 cursor-pointer transition-colors ${
+            className={`-mb-px pb-2 text-[13px] border-b-2 cursor-pointer ${
               tab === value
-                ? "border-[var(--color-primary)] text-[var(--color-primary)]"
+                ? "border-[var(--color-primary)] text-[var(--color-text-main)] font-semibold"
                 : "border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]"
             }`}
           >
             {label}
-            {count !== null && <span className="ml-2 tabular text-xs">{count}</span>}
+            {count !== null && <span className="ml-1.5 tabular text-xs font-normal text-[var(--color-text-secondary)]">{count}</span>}
           </button>
         ))}
       </div>
@@ -250,7 +250,7 @@ export default function Orders() {
           <p className="text-xs text-[var(--color-text-secondary)]">
             Arrastra un pedido a la columna siguiente o usa su botón.
           </p>
-          <label className="flex h-10 w-full sm:w-72 items-center gap-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 text-[var(--color-text-secondary)] focus-within:border-[var(--color-primary)]">
+          <label className="flex h-8 w-full sm:w-64 items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 text-[var(--color-text-secondary)] focus-within:border-[var(--color-primary)]">
             <Search className="w-4 h-4 shrink-0" />
             <input
               value={queueSearch}
@@ -282,7 +282,7 @@ export default function Orders() {
       <section className="space-y-4">
 
         {error && (
-          <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
+          <div role="alert" className="flex items-start gap-2 border-l-2 border-[var(--color-danger)] pl-3 py-0.5">
             <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
             <p className="text-xs font-semibold text-[var(--color-danger)]">{error}</p>
           </div>
@@ -298,7 +298,7 @@ export default function Orders() {
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Buscar por número de pedido o cliente…"
                 aria-label="Buscar pedidos"
-                className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-secondary)] outline-none focus:border-[var(--color-primary)] transition-colors"
+                className="w-full h-8 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-secondary)] outline-none focus:border-[var(--color-primary)] transition-colors"
               />
             </div>
             <div>
@@ -365,10 +365,10 @@ export default function Orders() {
                             key={order._id}
                             className="hover:bg-[var(--color-surface-hover)] transition-colors"
                           >
-                            <td className="table-body-cell tabular font-bold text-[var(--color-primary)]">
+                            <td className="table-body-cell tabular font-medium whitespace-nowrap">
                               {order.orderNumber ?? shortId(order._id)}
                             </td>
-                            <td className="table-body-cell font-bold text-[var(--color-text-main)]">
+                            <td className="table-body-cell whitespace-nowrap">
                               {order.clientId?.name ?? 'Cliente'}
                             </td>
                             <td className="table-body-cell text-[var(--color-text-secondary)] max-w-xs truncate">
@@ -376,36 +376,28 @@ export default function Orders() {
                                 .map((item: OrderItem) => `${item.quantity}× ${item.productName}`)
                                 .join(', ')}
                             </td>
-                            <td className="table-body-cell text-right tabular font-bold text-[var(--color-text-main)]">
+                            <td className="table-body-cell text-right tabular font-medium">
                               {money(order.total)}
                             </td>
                             <td className="table-body-cell">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
-                                  order.paymentMethod === 'online'
-                                    ? 'bg-[var(--color-primary-bg)] text-[var(--color-primary)] border-[var(--color-primary)]/40'
-                                    : 'bg-[var(--color-warning-bg)] text-[var(--color-warning)] border-[var(--color-warning)]/40'
-                                }`}
-                              >
-                                {order.paymentMethod === 'online' ? 'Digital' : 'Efectivo'}
-                              </span>
+                              {order.paymentMethod === 'online' ? 'Digital' : 'Efectivo'}
                             </td>
                             <td className="table-body-cell">
                               <span
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${style.chip}`}
+                                className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-main)] whitespace-nowrap"
                               >
                                 <span className={`w-1.5 h-1.5 rounded-full ${style.dot} shrink-0`} />
                                 {style.label}
                               </span>
                             </td>
-                            <td className="table-body-cell text-[var(--color-text-secondary)] tabular">
+                            <td className="table-body-cell text-[var(--color-text-secondary)] tabular whitespace-nowrap">
                               {dateTime(order.createdAt)}
                             </td>
                             <td className="table-body-cell">
                               <button
                                 onClick={() => setDetailOrder(order)}
                                 aria-label={`Ver el detalle del pedido ${order.orderNumber ?? ''}`}
-                                className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
+                                className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
