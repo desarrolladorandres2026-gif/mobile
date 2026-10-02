@@ -21,12 +21,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
-      "package": "com.zipp.app",
-      "config": {
-        "googleMaps": {
-          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"
-        }
-      }
+      "package": "com.zipp.app"
     },
     "web": {
       "favicon": "./assets/favicon.png",
