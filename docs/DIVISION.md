@@ -10,18 +10,24 @@
 - Migración [025-business-roles-v2.ts](backend/src/migrations/025-business-roles-v2.ts) + script `migrate:business-roles-v2` (manual, no urge: el código ya lee 'staff' como operator).
 - Tests: businessStaff.test.ts reescrito; nuevo businessRbacEndpoints.test.ts (403 por endpoint).
 
-## Pendiente inmediato (el usuario cortó antes de aplicarlo)
-- En businessSecurity.service.ts: `MemberRole` ya ampliado a owner|manager|operator|cashier; FALTA `normalizeStaffRole(s.role)` en `loadMembers` (línea ~134) e importarlo, luego `npm run typecheck`, `npm run lint`, `npm test` completos en backend.
-- Verificar que admin/ (BusinessSecurity, types.ts, SecurityGlance) no rompa con los nuevos valores de rol ('operator','cashier'; el viejo 'staff' ya no sale).
+## Hecho (cierre de Fase 1) — 2026-10-02
+- `normalizeStaffRole` ya estaba en `loadMembers` de businessSecurity.service.ts. admin/ (types.ts, labels.ts) pasa a owner|manager|operator|cashier con etiquetas Propietario/Administrador/Operador/Cajero.
 
-## Fase 2 (frontend business/)
-- [permissions.ts](business/src/lib/permissions.ts): reflejar los nuevos permisos/roles; NAV_REQUIREMENT hoy usa 'owner' para casi todo → pasar a permisos (menu→catalog:view, promotions→promotions:view, reviews→reviews:view, staff→team:view, settlements→settlements:view, documents→documents:view, settings→settings:view, '/'→ según rol). Añadir "Ventas del turno" para cajero.
-- Layout.tsx: header con negocio + nombre + rol; sidebar dinámico (ya usa `canSee`/`homeFor`).
-- Equipo ([TeamTab.tsx](business/src/pages/profile/TeamTab.tsx)): tabla Nombre|Rol|Estado|Último acceso|Acciones, invitar (nombre, correo, teléfono, rol), cambiar rol, suspender, eliminar; pantalla para aceptar invitaciones pendientes tras login (GET /my/invitations).
-- Frontend en modo lectura para operador en Menú (ocultar crear/editar/precio/eliminar) y respetar 403 con el mensaje del backend. Reglas del usuario: sin cajas/fondos, nunca `text-muted`, lucide, sin emojis; verificar con `npx tsc -b` y `npm run lint`.
+## Hecho (Fase 2, frontend business/)
+- [permissions.ts](business/src/lib/permissions.ts): permisos granulares, 4 roles, `ROLE_LABELS`, `normalizeRole` ('staff'→operator). NAV_REQUIREMENT por permiso ('/'→orders:view, menu→catalog:view, promotions→promotions:view, advertising→advertising:manage, reviews→reviews:view, staff→team:view, settlements→settlements:view, documents→documents:manage, settings→settings:view).
+- Layout: cabecera con negocio + nombre + rol; para el cajero '/' se llama "Ventas del turno". El aviso de documentos solo se consulta con `documents:manage`.
+- [PendingInvitations.tsx](business/src/components/PendingInvitations.tsx): invitaciones pendientes arriba de cada página, aceptar/rechazar (GET/POST /my/invitations).
+- [TeamTab.tsx](business/src/pages/profile/TeamTab.tsx): tabla Nombre|Rol|Estado|Último acceso|Acciones; invitar (nombre, correo, teléfono, rol), cambiar rol, suspender/reactivar, eliminar/cancelar invitación. El administrador solo reparte operador/cajero (espejo de `assertCanGrant`).
+- Menú en modo consulta sin catalog:create/edit/delete; Publicidad no pide facturas sin settlements:view.
 
-## Fase 3 (dashboards por rol)
-- daily-summary hoy exige `financial:view` (solo propietario). Falta un resumen con forma por rol: administrador (operativo, sin neto/comisión), operador (pedidos nuevos/preparando/listos/completados), cajero (ventas del turno, métodos de pago, pendientes). Endpoint(s) nuevos o respuesta recortada por permiso; nunca exponer comisión/neto sin `financial:view`.
+## Hecho (Fase 3, dashboards por rol)
+- [businessRoleSummary.service.ts](backend/src/services/businessRoleSummary.service.ts) + GET /businesses/:id/role-summary (solo rol BUSINESS): `operations` (analytics:view, sin neto/comisión/descuentos, lista blanca de campos), `shift` (shift:view: ventas del día por medio de pago, pendientes) y `kitchen` (orders:view: cola por estado). Tests: businessRoleSummary.test.ts.
+- business/: `pages/Home.tsx` elige DailySummary (financial:view) o `pages/RoleSummary.tsx`.
+
+## Pendiente
+- `orders:cancel` está en el modelo pero ningún endpoint lo consulta: cancelar lo decide `orders:manage` + el candado "pedido pagado → solo dueño" en order.service. Decidir si el administrador debe poder cancelar pagados (hoy no) y si operador/cajero deben poder cancelar no pagados (hoy sí).
+- Disponibilidad (agotado) pide catalog:edit, así que el operador no puede marcar un plato agotado. Confirmar si debe poder.
+- "Turno" = día de Bogotá; no hay modelo de turnos.
 
 ## Notas / desviaciones a confirmar con el usuario
 - Se mantuvo el estilo `catalog:edit` (dos puntos) del código existente, no `catalog.edit`.

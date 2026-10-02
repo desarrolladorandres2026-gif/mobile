@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
-import type { BusinessPermission, MyAccess } from '../lib/permissions';
+import { normalizeRole, type BusinessPermission, type MyAccess } from '../lib/permissions';
 
 /**
  * Papel y permisos de quien está conectado en el local seleccionado.
@@ -17,12 +17,14 @@ export function usePermissions(businessId: string | undefined) {
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<MyAccess> => {
       const data = (await api.get(`/businesses/${businessId}/my-permissions`)).data.data ?? {};
-      return { role: data.role ?? null, permissions: data.permissions ?? [] };
+      return { role: normalizeRole(data.role), permissions: data.permissions ?? [] };
     },
   });
   const access = query.data;
   return {
     access,
+    /** Ya respondió el servidor (bien o mal): no hay más que esperar. */
+    settled: query.isFetched,
     /** Sin respuesta todavía se asume que sí: ver `canSee`. */
     can: (permission: BusinessPermission) => !access || access.permissions.includes(permission),
   };

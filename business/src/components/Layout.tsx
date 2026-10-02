@@ -17,7 +17,8 @@ import { ZippMark } from './ZippMark';
 import { preloadOn } from '../lib/lazyPage';
 import { onDesktopCloseStoreRequest, takePendingDesktopCrashReport, clearDesktopCrashReport } from '../lib/desktop';
 import { usePermissions } from '../hooks/usePermissions';
-import { canSee, homeFor } from '../lib/permissions';
+import { canSee, homeFor, ROLE_LABELS } from '../lib/permissions';
+import PendingInvitations from './PendingInvitations';
 import {
   CalendarLtrRegular, BoxRegular, WalletRegular,
   FoodRegular, TagRegular, MegaphoneRegular, StarRegular,
@@ -46,6 +47,7 @@ export default function Layout() {
   const setSelectedBusiness = useAuthStore((s) => s.setSelectedBusiness);
   const setBusinesses = useAuthStore((s) => s.setBusinesses);
   const logout = useAuthStore((s) => s.logout);
+  const user = useAuthStore((s) => s.user);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [businessesError, setBusinessesError] = useState('');
@@ -55,7 +57,14 @@ export default function Layout() {
   const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
   const toggleSound = usePreferencesStore((s) => s.toggleSound);
   const { access, can } = usePermissions(selectedBusiness?._id);
-  const visibleNav = nav.filter((item) => canSee(item.path, access));
+  const visibleNav = nav
+    .filter((item) => canSee(item.path, access))
+    // Para el cajero la portada son sus ventas del turno, y así se llama.
+    .map((item) =>
+      item.path === '/' && access && !access.permissions.includes('financial:view') && access.permissions.includes('shift:view')
+        ? { ...item, label: 'Ventas del turno' }
+        : item
+    );
 
   // Un empleado que cae en una sección del dueño (la portada es el resumen
   // de ventas) se lleva a la primera que sí puede usar, en vez de dejarlo
@@ -377,19 +386,25 @@ export default function Layout() {
             <button aria-label="Notificaciones" title="Notificaciones" className="hidden sm:grid w-9 h-9 place-items-center text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] rounded-full cursor-pointer">
               <Bell className="w-5 h-5" />
             </button>
+            {/* Quién está conectado y con qué papel: con varias personas en el
+                mismo PC del mostrador, saber en qué cuenta se está evita
+                que alguien opere con la sesión de otro sin darse cuenta. */}
             <button
               type="button"
-              onClick={() => navigate('/settings')}
-              title="Ver perfil del negocio"
-              aria-label="Ver perfil del negocio"
+              onClick={() => navigate(canSee('/settings', access) ? '/settings' : '/security')}
+              title={canSee('/settings', access) ? 'Ver perfil del negocio' : 'Ver la seguridad de tu cuenta'}
+              aria-label={canSee('/settings', access) ? 'Ver perfil del negocio' : 'Ver la seguridad de tu cuenta'}
               className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
             >
               <div className="w-10 h-10 rounded-full bg-[#D69E26] flex items-center justify-center text-sm font-bold text-white">
                 {selectedBusiness?.name?.charAt(0) || 'N'}
               </div>
-              <div className="text-left hidden xl:block max-w-36">
+              <div className="text-left hidden sm:block max-w-44">
                 <p className="text-xs font-bold text-[var(--color-text-main)] leading-none truncate">{selectedBusiness?.name || 'Comercio'}</p>
-                <p className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-none">Negocio aliado</p>
+                <p className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-none truncate">
+                  {user?.name || 'Tu cuenta'}
+                  {access?.role ? ` · ${ROLE_LABELS[access.role]}` : ''}
+                </p>
               </div>
             </button>
           </div>
@@ -423,7 +438,12 @@ export default function Layout() {
                 otra pantalla. Van aquí, arriba de cada página, porque un
                 documento vencido bloquea pedidos sin importar dónde esté
                 mirando el dueño. */}
-            {selectedBusiness && <DocumentExpiryNotice businessId={selectedBusiness._id} />}
+            <PendingInvitations onAccepted={loadBusinesses} />
+            {/* Solo quien puede subir documentos: al resto el aviso no le
+                sirve y la consulta le respondería 403 en cada página. */}
+            {selectedBusiness && access?.permissions.includes('documents:manage') && (
+              <DocumentExpiryNotice businessId={selectedBusiness._id} />
+            )}
             <NewDeviceNotice />
             {/* La barra lateral sigue en pantalla mientras llega el archivo
                 de la página (las páginas se cargan bajo demanda, ver App). */}

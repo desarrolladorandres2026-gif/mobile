@@ -17,7 +17,7 @@ import { lazyPage } from './lib/lazyPage';
  */
 const Login = lazyPage(() => import('./pages/Login'), '/login');
 const TwoFactorSetup = lazyPage(() => import('./pages/TwoFactorSetup'), '/setup-2fa');
-const DailySummaryPage = lazyPage(() => import('./pages/DailySummary'), '/');
+const HomePage = lazyPage(() => import('./pages/Home'), '/');
 const OrdersPage = lazyPage(() => import('./pages/Orders'), '/orders');
 const MenuPage = lazyPage(() => import('./pages/Menu'), '/menu');
 const ReviewsPage = lazyPage(() => import('./pages/Reviews'), '/reviews');
@@ -76,7 +76,7 @@ function App() {
             {/* Fuera del Layout: con el 2FA pendiente, todo lo que el Layout pide responde 403. */}
             <Route path="/setup-2fa" element={<TwoFactorSetup />} />
             <Route path="/" element={<Layout />}>
-              <Route index element={<DailySummaryPage />} />
+              <Route index element={<HomePage />} />
               <Route path="orders" element={<OrdersPage />} />
               <Route path="settlements" element={<SettlementsPage />} />
               <Route path="menu" element={<MenuPage />} />
