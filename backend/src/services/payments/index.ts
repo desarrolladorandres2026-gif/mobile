@@ -1270,6 +1270,14 @@ export class PaymentService {
       return { status: outcome(latest?.status ?? PaymentStatus.FAILED) };
     }
 
+    // Retirar el cobro no pasa por `applyGatewayStatus`, así que la
+    // membresía que esperaba este cobro no se entera sola: quedaría en
+    // PENDING para siempre. Si el banco aprueba después de todas formas,
+    // `FAILED → PAID` la sigue activando.
+    if (payment.type === PaymentType.PRO_SUBSCRIPTION) {
+      await proService.releaseAbandonedAttempt(payment.userId.toString());
+    }
+
     return { status: 'abandoned' };
   }
 

@@ -162,6 +162,14 @@ export class ProService {
       );
     }
 
+    // La renovación se cobra sin nadie en pantalla, así que el correo que
+    // se escribió hoy tiene que quedar en la cuenta: si no, el mes que viene
+    // no habría con qué cobrar a quien se registró con el teléfono. La app
+    // también lo guarda, pero sin esperar respuesta; esto no depende de ella.
+    if (!user.email && !user.receiptEmail && input.customerEmail) {
+      await User.updateOne({ _id: user._id }, { $set: { receiptEmail: input.customerEmail } });
+    }
+
     const plan = PRO_PLAN;
 
     // La suscripción existe antes que el cobro, en PENDING: si el webhook
@@ -183,17 +191,36 @@ export class ProService {
       { upsert: true, new: true, runValidators: true }
     );
 
-    const result = await paymentService.initiateProNative({
-      userId: input.userId,
-      amount: plan.price,
-      description: `${plan.name} · ${plan.periodDays} días`,
-      customer: { name: user.name, phone: user.phone, email },
-      instrument: input.instrument,
-      acceptanceToken: input.acceptanceToken,
-      personalDataAuthToken: input.personalDataAuthToken,
-      browserInfo: input.browserInfo,
-      metadata: { planId: plan.id, subscriptionId: sub!._id.toString() },
-    });
+    let result: Awaited<ReturnType<typeof paymentService.initiateProNative>>;
+    try {
+      result = await paymentService.initiateProNative({
+        userId: input.userId,
+        amount: plan.price,
+        description: `${plan.name} · ${plan.periodDays} días`,
+        customer: { name: user.name, phone: user.phone, email },
+        instrument: input.instrument,
+        acceptanceToken: input.acceptanceToken,
+        personalDataAuthToken: input.personalDataAuthToken,
+        browserInfo: input.browserInfo,
+        metadata: { planId: plan.id, subscriptionId: sub!._id.toString() },
+      });
+    } catch (error) {
+      // El cobro no llegó a crearse (la pasarela lo rechazó, o había otro
+      // en curso). Sin esto la suscripción quedaba en PENDING para siempre:
+      // nadie más la mueve, porque ningún webhook va a hablar de un cobro
+      // que no existe, y el panel la contaba como "cobro en curso". Se
+      // devuelve a como estaba —condicionado a PENDING, por si un webhook
+      // del intento anterior la activó entretanto—.
+      await ProSubscription.updateOne(
+        { _id: sub!._id, status: ProSubscriptionStatus.PENDING },
+        {
+          $set: existing
+            ? { status: existing.status, renewalFailures: existing.renewalFailures, autoRenew: existing.autoRenew }
+            : { status: ProSubscriptionStatus.EXPIRED },
+        }
+      );
+      throw error;
+    }
 
     await ProSubscription.updateOne(
       { _id: sub!._id },
@@ -235,23 +262,40 @@ export class ProService {
 
     if (status !== PaymentStatus.FAILED) return;
 
-    // Un rechazo mientras el periodo pagado sigue vivo es un fallo de
-    // renovación: no se toca el acceso, se cuenta el intento y el barrido
-    // lo volverá a intentar. Un rechazo sin periodo vivo es sencillamente
-    // que no llegó a haber membresía.
+    // Un rechazo de renovación nunca da la membresía por vencida aquí: se
+    // cuenta el intento y el barrido lo volverá a intentar hasta agotar
+    // `PRO_RENEWAL_MAX_ATTEMPTS`, y es el barrido quien la vence. Antes se
+    // vencía en cuanto el rechazo llegaba con el periodo ya cumplido, y como
+    // el segundo intento cae justo al vencer (se cobra 24 h antes y se
+    // reintenta 24 h después), en la práctica solo había dos intentos, no
+    // tres. Un rechazo del primer cobro sí es sencillamente que no llegó a
+    // haber membresía.
     const live = isProActive(sub);
+    const renewal = payment.metadata?.renewal === true;
     await ProSubscription.updateOne(
       { _id: sub._id },
       {
         $inc: { renewalFailures: 1 },
         $set: {
           lastRenewalAttemptAt: new Date(),
-          ...(live ? {} : { status: ProSubscriptionStatus.EXPIRED }),
+          ...(live || renewal ? {} : { status: ProSubscriptionStatus.EXPIRED }),
         },
       }
     );
 
     emitToUser(userId, 'pro:updated', { member: live });
+  }
+
+  /**
+   * La persona abandonó el primer cobro (p. ej. a mitad del 3D Secure) y
+   * el intento se retiró sin que la pasarela dijera nada. Sin cobro vivo no
+   * hay "cobro en curso" que enseñar.
+   */
+  async releaseAbandonedAttempt(userId: string): Promise<void> {
+    await ProSubscription.updateOne(
+      { userId, status: ProSubscriptionStatus.PENDING },
+      { $set: { status: ProSubscriptionStatus.EXPIRED } }
+    );
   }
 
   /** Enciende (o extiende) la membresía tras un cobro aprobado. */
@@ -419,7 +463,10 @@ export class ProService {
     const user = await User.findById(sub.userId);
     if (!user) throw new AppError('Usuario no encontrado', 404);
 
-    const email = user.email;
+    // El mismo orden que al suscribirse: quien se registró con el teléfono
+    // no tiene `email`, tiene el correo de comprobantes. Mirar solo `email`
+    // hacía fallar todas sus renovaciones.
+    const email = user.email || user.receiptEmail;
     if (!email) {
       // Sin correo no hay cobro posible en Wompi. Es un dato que la cuenta
       // tenía al suscribirse, así que llegar aquí significa que lo quitó.
