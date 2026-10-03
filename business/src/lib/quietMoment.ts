@@ -15,7 +15,7 @@
  * nada esperando sonar.
  */
 export interface QuietMomentInput {
-  /** Pedidos sonando ahora mismo (ver `orderAlarm.ringingOrders`). */
+  /** Pedidos sonando ahora mismo (ver `orderAlarm.waitingOrders`). */
   ringingCount: number;
 }
 

@@ -4,7 +4,6 @@ import { ShieldAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
-import { usePreferencesStore } from '../stores/preferencesStore';
 import { playNotificationSound } from '../lib/notificationSound';
 
 /**
@@ -27,7 +26,6 @@ interface NotificationItem {
 
 export default function NewDeviceNotice() {
   const queryClient = useQueryClient();
-  const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
   const { data: notice } = useQuery({
     queryKey: qk.accountNotifications(),
     queryFn: async () => (await api.get('/notifications', { params: { limit: 20 } })).data.data as NotificationItem[],
@@ -42,7 +40,7 @@ export default function NewDeviceNotice() {
   });
 
   useEffect(() => {
-    if (!notice || !soundEnabled) return;
+    if (!notice) return;
     const key = `business_notification_sound:${notice._id}`;
     try {
       if (sessionStorage.getItem(key)) return;
@@ -51,7 +49,7 @@ export default function NewDeviceNotice() {
       // Si el navegador bloquea storage, el sonido sigue siendo opcional.
     }
     playNotificationSound('attention');
-  }, [notice, soundEnabled]);
+  }, [notice]);
 
   if (!notice) return null;
 
