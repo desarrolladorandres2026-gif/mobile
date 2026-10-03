@@ -124,28 +124,18 @@ export default function BusinessImageField({
 
   return (
     <div className={className}>
-      {slot === 'cover' ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onTrigger}
-          className="flex items-center gap-1.5 rounded-lg bg-black/55 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm hover:bg-black/70 cursor-pointer disabled:opacity-60"
-        >
-          {value ? <Pencil className="h-3.5 w-3.5" /> : <ImagePlus className="h-3.5 w-3.5" />}
-          {busy ? 'Subiendo…' : value ? 'Editar portada' : 'Subir portada'}
-        </button>
-      ) : (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onTrigger}
-          aria-label={value ? 'Editar logo' : 'Subir logo'}
-          title={value ? 'Editar logo' : 'Subir logo'}
-          className="grid h-8 w-8 place-items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] shadow-md hover:text-[var(--color-text-main)] cursor-pointer disabled:opacity-60"
-        >
-          {value ? <Pencil className="h-3.5 w-3.5" /> : <ImagePlus className="h-3.5 w-3.5" />}
-        </button>
-      )}
+      {/* Mismo botón de icono para logo y portada: las dos son miniaturas
+          en la cabecera del perfil. */}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onTrigger}
+        aria-label={busy ? 'Subiendo…' : `${value ? 'Editar' : 'Subir'} ${slot === 'cover' ? 'portada' : 'logo'}`}
+        title={busy ? 'Subiendo…' : `${value ? 'Editar' : 'Subir'} ${slot === 'cover' ? 'portada' : 'logo'}`}
+        className="grid h-7 w-7 place-items-center rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+      >
+        {value ? <Pencil className="h-3.5 w-3.5" /> : <ImagePlus className="h-3.5 w-3.5" />}
+      </button>
 
       {menuOpen && (
         <>
@@ -157,7 +147,7 @@ export default function BusinessImageField({
           />
           <div
             role="menu"
-            className={`absolute z-50 mt-1.5 w-44 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-xl ${
+            className={`absolute z-50 mt-1.5 w-44 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-md ${
               slot === 'cover' ? 'right-0' : 'left-0'
             }`}
           >
@@ -192,16 +182,16 @@ export default function BusinessImageField({
             type="button"
             aria-label="Cancelar"
             onClick={() => !busy && setPicked(null)}
-            className="absolute inset-0 bg-black/50 backdrop-blur-[2px] cursor-default"
+            className="absolute inset-0 bg-black/50 cursor-default"
           />
           <div
             role="dialog"
             aria-label={`Encuadrar ${noun}`}
-            className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-2xl animate-fade-in space-y-4"
+            className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto zipp-modal p-6 space-y-4"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-base font-bold text-[var(--color-text-main)]">Encuadra tu {noun}</h3>
+                <h3 className="text-base font-semibold text-[var(--color-text-main)]">Encuadra tu {noun}</h3>
                 <p className="mt-1 text-xs text-[var(--color-text-secondary)]">{hint}</p>
               </div>
               <button
@@ -209,7 +199,7 @@ export default function BusinessImageField({
                 onClick={() => setPicked(null)}
                 disabled={busy}
                 aria-label="Cerrar"
-                className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer shrink-0"
+                className="p-1 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer shrink-0"
               >
                 <X className="h-4 w-4" />
               </button>

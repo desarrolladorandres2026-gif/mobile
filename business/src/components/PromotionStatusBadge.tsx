@@ -40,9 +40,9 @@ function resolve(promotion: PromotionLike): { label: string; tone: Tone } {
 }
 
 const TONE_CLASSES: Record<Tone, { text: string; dot: string }> = {
-  success: { text: "text-[var(--color-success)]", dot: "bg-[var(--color-success)]" },
-  info: { text: "text-[var(--color-info)]", dot: "bg-[var(--color-info)]" },
-  warning: { text: "text-[var(--color-warning)]", dot: "bg-[var(--color-warning)]" },
+  success: { text: "text-[var(--color-text-secondary)]", dot: "bg-[var(--color-success)]" },
+  info: { text: "text-[var(--color-text-secondary)]", dot: "bg-[var(--color-info)]" },
+  warning: { text: "text-[var(--color-text-secondary)]", dot: "bg-[var(--color-warning)]" },
   muted: { text: "text-[var(--color-text-secondary)]", dot: "bg-[var(--color-text-secondary)]" },
 };
 
@@ -50,7 +50,7 @@ export default function PromotionStatusBadge({ promotion }: { promotion: Promoti
   const { label, tone } = resolve(promotion);
   const { text, dot } = TONE_CLASSES[tone];
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${text}`}>
+    <span className={`inline-flex items-center gap-1.5 text-xs ${text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
       {label}
     </span>

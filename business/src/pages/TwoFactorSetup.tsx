@@ -132,7 +132,7 @@ export default function TwoFactorSetup() {
         {!data && (
           <form onSubmit={handleUnlock} className="mt-8 space-y-6">
             <label className="block">
-              <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--color-text-main)]/60">
+              <span className="text-[11px] font-semibold text-[var(--color-text-main)]/60">
                 Confirma tu contraseña
               </span>
               <input
@@ -165,7 +165,7 @@ export default function TwoFactorSetup() {
         {data && (
           <>
             <section className="mt-8">
-              <p className="text-[11px] font-semibold tracking-widest uppercase text-[var(--color-text-main)]/60">
+              <p className="text-[11px] font-semibold text-[var(--color-text-main)]/60">
                 1 · Escanea el código
               </p>
               <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-main)]/70">
@@ -186,7 +186,7 @@ export default function TwoFactorSetup() {
             <div className="mt-8 h-px bg-[var(--color-border)]" />
 
             <section className="mt-8">
-              <p className="text-[11px] font-semibold tracking-widest uppercase text-[var(--color-text-main)]/60">
+              <p className="text-[11px] font-semibold text-[var(--color-text-main)]/60">
                 2 · Guarda tus códigos de recuperación
               </p>
               <p className="mt-2 text-xs leading-relaxed text-[var(--color-text-main)]/70">
@@ -204,7 +204,7 @@ export default function TwoFactorSetup() {
 
             <form onSubmit={handleVerify} className="mt-8 space-y-6">
               <label className="block">
-                <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--color-text-main)]/60">
+                <span className="text-[11px] font-semibold text-[var(--color-text-main)]/60">
                   3 · Escribe el código de 6 dígitos
                 </span>
                 <input

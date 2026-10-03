@@ -108,35 +108,35 @@ export default function DailySummary() {
   const t = data?.today;
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       <style>{`@media print { aside, header.sticky, .no-print { display: none !important; } @page { size: A4; margin: 12mm; } html, body, #root, main { height: auto !important; overflow: visible !important; background: #fff !important; } }`}</style>
 
       <div className="page-header">
         <div>
           <h1 className="page-title">Resumen del día</h1>
-          <p className="page-subtitle capitalize">{longDate(date)}</p>
+          <p className="page-subtitle first-letter:uppercase">{longDate(date)}</p>
         </div>
         <div className="flex items-center gap-1 no-print">
           <button onClick={() => setDate((d) => shift(d, -1))} title="Día anterior"
-            className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-primary)] cursor-pointer">
+            className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer">
             <ChevronLeft className="w-4 h-4" />
           </button>
           <input type="date" value={date} max={todayStr()}
             onChange={(e) => e.target.value && setDate(e.target.value)}
-            className="px-2 py-1.5 text-xs text-[var(--color-text-main)] bg-transparent border-b border-[var(--color-border)] focus:outline-none focus:border-[var(--color-primary)] cursor-pointer" />
+            className="h-8 px-2 rounded-md text-xs text-[var(--color-text-main)] bg-[var(--color-surface)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-primary)] cursor-pointer" />
           {!isToday && (
             <button onClick={() => setDate((d) => shift(d, 1))} title="Día siguiente"
-              className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-primary)] cursor-pointer">
+              className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer">
               <ChevronRight className="w-4 h-4" />
             </button>
           )}
           <button onClick={() => query.refetch()} title="Actualizar"
-            className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-primary)] cursor-pointer">
+            className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer">
             <RefreshCw className={`w-4 h-4 ${query.isFetching ? 'animate-spin' : ''}`} />
           </button>
           <button onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[var(--color-primary)] hover:text-[var(--color-primary-dark)] cursor-pointer">
-            <Printer className="w-3.5 h-3.5" /> Imprimir
+            className="ml-2 flex items-center gap-1.5 h-8 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-medium text-[var(--color-text-main)] cursor-pointer">
+            <Printer className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" /> Imprimir
           </button>
         </div>
       </div>
@@ -206,10 +206,10 @@ export default function DailySummary() {
                       <li key={p.productId} className="flex items-center justify-between gap-3 py-1 text-xs">
                         <span className="flex items-center gap-3 min-w-0">
                           <span className="w-4 text-[var(--color-text-secondary)] tabular">{i + 1}</span>
-                          <span className="font-semibold text-[var(--color-text-main)] truncate">{p.name}</span>
+                          <span className="text-[var(--color-text-main)] truncate">{p.name}</span>
                         </span>
                         <span className="tabular shrink-0 text-[var(--color-text-main)]">
-                          {num(p.quantity)} u · <span className="font-bold text-[var(--color-primary)]">{money(p.sales)}</span>
+                          {num(p.quantity)} u · {money(p.sales)}
                         </span>
                       </li>
                     ))}
@@ -251,10 +251,10 @@ function Comparison({ rows, baselineDate, isToday }: { rows: ComparisonRow[]; ba
             const color = improved == null ? 'text-[var(--color-text-main)]' : improved ? 'text-[#059669]' : 'text-[var(--color-danger)]';
             return (
               <tr key={r.metric}>
-                <td className="py-1 pr-2 font-semibold text-[var(--color-text-main)]">{r.label}</td>
-                <td className="py-1 text-right tabular font-bold text-[var(--color-text-main)]">{fmt(r.metric, r.today)}</td>
+                <td className="py-1 pr-2 text-[var(--color-text-main)]">{r.label}</td>
+                <td className="py-1 text-right tabular font-medium text-[var(--color-text-main)]">{fmt(r.metric, r.today)}</td>
                 <td className="py-1 text-right tabular text-[var(--color-text-secondary)]">{fmt(r.metric, r.baseline)}</td>
-                <td className={`py-1 text-right tabular font-semibold ${color}`}>
+                <td className={`py-1 text-right tabular ${color}`}>
                   {r.deltaPct == null ? '—' : `${r.deltaPct > 0 ? '+' : ''}${r.deltaPct}%`}
                 </td>
               </tr>
@@ -269,7 +269,7 @@ function Comparison({ rows, baselineDate, isToday }: { rows: ComparisonRow[]; ba
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-2 pb-1.5 text-sm font-bold text-[var(--color-text-main)] border-b border-[var(--color-border)]">{title}</h2>
+      <h2 className="col-title">{title}</h2>
       {children}
     </section>
   );
@@ -279,7 +279,7 @@ function Line({ label, value, strong }: { label: string; value: string; strong?:
   return (
     <div className="flex items-center justify-between py-1 text-xs">
       <span className="text-[var(--color-text-main)]">{label}</span>
-      <span className={`tabular ${strong ? 'font-bold' : 'font-semibold'} text-[var(--color-text-main)]`}>{value}</span>
+      <span className={`tabular ${strong ? 'font-semibold' : ''} text-[var(--color-text-main)]`}>{value}</span>
     </div>
   );
 }

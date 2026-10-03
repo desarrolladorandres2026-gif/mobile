@@ -271,7 +271,7 @@ export default function Profile() {
     return (
       <div className="py-20 text-center space-y-2">
         <Store className="w-8 h-8 text-[var(--color-primary)] mx-auto" />
-        <p className="font-bold text-[var(--color-text-main)] text-base">
+        <p className="font-semibold text-[var(--color-text-main)] text-base">
           Sin establecimiento seleccionado
         </p>
         <p className="text-xs text-[var(--color-text-secondary)]">
@@ -282,72 +282,74 @@ export default function Profile() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in [--cols3-offset:33rem]">
-      {/* Perfil de negocio: portada, identidad y navegación en una sola ficha. */}
-      <section className="overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_8px_20px_rgba(20,20,20,0.055)]">
-        <div className="relative h-40 sm:h-52 lg:h-32 bg-linear-to-br from-[#2e2e2e] via-[#505050] to-[#D69E26]">
-          {coverImage ? (
-            <img src={coverImage} alt={`Portada de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
-          ) : (
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_76%_18%,rgba(255,255,255,0.25),transparent_26%)]" />
-          )}
-          <div className="absolute inset-0 bg-linear-to-t from-black/25 to-transparent" />
-          {editing && !loading && (
-            <BusinessImageField
-              businessId={selectedBusiness._id}
-              slot="cover"
-              value={coverImage}
-              onChange={setImage('coverImage')}
-              onError={setError}
-              className="absolute right-4 top-4"
-            />
-          )}
-        </div>
-
-        <div className="relative px-5 pb-0 sm:px-8">
-          <div className="absolute -top-14 left-5 sm:left-8">
-            <div className="grid h-28 w-28 place-items-center overflow-hidden rounded-2xl border-4 border-white bg-[#f1f1f1] shadow-lg">
-              {logo ? (
-                <img src={logo} alt={`Logo de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
-              ) : (
-              <span className="text-3xl font-bold text-[#9C6E0E]">{selectedBusiness.name.charAt(0)}</span>
+    <div className="space-y-6 [--cols3-offset:19rem]">
+      {/* Perfil de negocio: identidad, imágenes y pestañas, sin ficha ni portada
+          a sangre. La portada se ve como una miniatura más: es un dato del
+          negocio, no un decorado de esta pantalla. */}
+      <section className="border-b border-[var(--color-border)]">
+        <div className="flex flex-col gap-4 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="relative shrink-0">
+              <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-md border border-dashed border-[var(--color-border)]">
+                {logo ? (
+                  <img src={logo} alt={`Logo de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="text-lg font-semibold text-[var(--color-text-secondary)]">{selectedBusiness.name.charAt(0)}</span>
+                )}
+              </div>
+              {editing && !loading && (
+                <BusinessImageField
+                  businessId={selectedBusiness._id}
+                  slot="logo"
+                  value={logo}
+                  onChange={setImage('logo')}
+                  onError={setError}
+                  className="absolute -bottom-2 -right-2"
+                />
               )}
             </div>
-            {editing && !loading && (
-              <BusinessImageField
-                businessId={selectedBusiness._id}
-                slot="logo"
-                value={logo}
-                onChange={setImage('logo')}
-                onError={setError}
-                className="absolute -bottom-1 -right-1"
-              />
-            )}
-          </div>
-
-          <div className="flex flex-col gap-4 pt-[4.5rem] pb-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <h1 className="truncate text-2xl font-semibold tracking-[-0.035em] text-[var(--color-text-main)]">{selectedBusiness.name}</h1>
-              <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-[var(--color-text-secondary)]">
+              <h1 className="page-title truncate">{selectedBusiness.name}</h1>
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[13px] text-[var(--color-text-secondary)]">
                 <span className="capitalize">{selectedBusiness.category?.replace(/_/g, ' ')}</span>
                 {selectedBusiness.city && <><span>·</span><span>{selectedBusiness.city}</span></>}
                 {totalReviews > 0 && <><span>·</span><span className="inline-flex items-center gap-1"><Star className="h-3.5 w-3.5 fill-current text-[var(--color-warning)]" />{rating.toFixed(1)} ({totalReviews})</span></>}
               </p>
             </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="relative h-14 w-32 shrink-0 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]">
+              {coverImage ? (
+                <img src={coverImage} alt={`Portada de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
+              ) : (
+                <span className="grid h-full place-items-center text-[11px] text-[var(--color-text-secondary)]">Sin portada</span>
+              )}
+              {editing && !loading && (
+                <BusinessImageField
+                  businessId={selectedBusiness._id}
+                  slot="cover"
+                  value={coverImage}
+                  onChange={setImage('coverImage')}
+                  onError={setError}
+                  className="absolute right-1 top-1"
+                />
+              )}
+            </div>
             {!editing && !loading && (
               <button
                 type="button"
                 onClick={startEditing}
-                className="self-start flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[var(--color-border)] text-xs font-bold text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer lg:self-auto"
+                className="flex h-8 items-center gap-1.5 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-medium text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
               >
                 <Pencil className="h-3.5 w-3.5" />
                 Editar perfil
               </button>
             )}
           </div>
-
-          <ProfileTabs businessId={businessId} activeTab={activeTab} onSelect={goToTab} />
         </div>
+
+        <ProfileTabs businessId={businessId} activeTab={activeTab} onSelect={goToTab} />
       </section>
 
       {TAB_SUBTITLES[activeTab] && <p className="page-subtitle">{TAB_SUBTITLES[activeTab]}</p>}
@@ -398,10 +400,10 @@ export default function Profile() {
       {/* Barra de edición: flota abajo mientras se edita (y un momento
           después de guardar, para confirmarlo). Leyendo, no ocupa sitio. */}
       {((editing && activeTab === '/settings' && !loading) || saved) && (
-        <div className="sticky bottom-4 z-30 animate-fade-in">
+        <div className="sticky bottom-4 z-30">
           <div
             role="status"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 shadow-xl"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5 shadow-md"
           >
             {editing ? (
               <>
@@ -418,7 +420,7 @@ export default function Profile() {
                     type="button"
                     onClick={cancel}
                     disabled={saving}
-                    className="px-3 py-2 rounded-lg text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] cursor-pointer disabled:opacity-50"
+                    className="px-3 py-2 rounded-md text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] cursor-pointer disabled:opacity-50"
                   >
                     Cancelar
                   </button>
@@ -426,7 +428,7 @@ export default function Profile() {
                     type="button"
                     onClick={save}
                     disabled={saving}
-                    className="px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-primary-dark)] transition-all cursor-pointer disabled:opacity-70"
+                    className="h-8 px-4 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] cursor-pointer disabled:opacity-70"
                   >
                     {saving ? 'Guardando…' : 'Guardar cambios'}
                   </button>
@@ -442,8 +444,8 @@ export default function Profile() {
         </div>
       )}
 
-      {/* Portal: el `animate-fade-in` de la raíz deja un `transform` que
-          encerraría a este `fixed` dentro de la página. */}
+      {/* Portal: el diálogo es `fixed` y no debe depender de ningún
+          `transform` de un contenedor de la página. */}
       {pendingTab && createPortal(
         <ConfirmDialog
           title="Tienes cambios sin guardar"
@@ -479,15 +481,15 @@ function ProfileTabs({
   const { access } = usePermissions(businessId);
   const visibleTabs = TABS.filter((tab) => (tab.path === '/desktop' ? isDesktop() : true) && canSee(tab.path, access));
   return (
-    <nav aria-label="Secciones del perfil" className="flex gap-5 overflow-x-auto border-t border-[var(--color-border-light)]">
+    <nav aria-label="Secciones del perfil" className="flex gap-6 overflow-x-auto">
       {visibleTabs.map((tab) => (
         <button
           key={tab.path}
           type="button"
           onClick={() => onSelect(tab.path)}
-          className={`shrink-0 py-4 -mb-px text-xs font-bold uppercase tracking-wider border-b-2 cursor-pointer transition-colors ${
+          className={`shrink-0 pb-2 -mb-px text-[13px] border-b-2 cursor-pointer ${
             activeTab === tab.path
-              ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
+              ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-semibold'
               : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
           }`}
         >

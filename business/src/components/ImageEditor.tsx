@@ -246,7 +246,7 @@ export default function ImageEditor({
         </p>
         <button
           onClick={onCancel}
-          className="px-4 py-2 rounded-lg text-xs font-semibold border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
+          className="px-4 py-2 rounded-md text-xs font-semibold border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
         >
           Elegir otra
         </button>
@@ -263,7 +263,7 @@ export default function ImageEditor({
 
       {/* Lienzo de recorte. El marco es el encuadre real de destino. */}
       <div
-        className="relative mx-auto w-full max-w-[320px] rounded-2xl overflow-hidden bg-[var(--color-bg-alt)] select-none"
+        className="relative mx-auto w-full max-w-[320px] rounded-md overflow-hidden bg-[var(--color-bg-alt)] select-none"
         style={{ aspectRatio: `${aspect.w} / ${aspect.h}` }}
       >
         <canvas
@@ -288,7 +288,7 @@ export default function ImageEditor({
           <div className="absolute inset-y-0 left-2/3 w-px bg-white/25" />
           <div className="absolute inset-x-0 top-1/3 h-px bg-white/25" />
           <div className="absolute inset-x-0 top-2/3 h-px bg-white/25" />
-          <div className="absolute inset-0 ring-1 ring-inset ring-white/40 rounded-2xl" />
+          <div className="absolute inset-0 ring-1 ring-inset ring-white/40 rounded-md" />
         </div>
       </div>
 
@@ -298,7 +298,7 @@ export default function ImageEditor({
           type="button"
           onClick={() => applyZoom(zoom - 0.25)}
           aria-label="Alejar"
-          className="p-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] cursor-pointer shrink-0"
+          className="p-1.5 rounded-md border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] cursor-pointer shrink-0"
         >
           <ZoomOut className="w-4 h-4" />
         </button>
@@ -318,7 +318,7 @@ export default function ImageEditor({
           type="button"
           onClick={() => applyZoom(zoom + 0.25)}
           aria-label="Acercar"
-          className="p-1.5 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] cursor-pointer shrink-0"
+          className="p-1.5 rounded-md border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] cursor-pointer shrink-0"
         >
           <ZoomIn className="w-4 h-4" />
         </button>
@@ -338,7 +338,7 @@ export default function ImageEditor({
           type="button"
           onClick={onCancel}
           disabled={busy}
-          className="flex-1 py-2 rounded-lg text-xs font-semibold text-[var(--color-text-secondary)] border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] cursor-pointer disabled:opacity-50"
+          className="flex-1 py-2 rounded-md text-xs font-semibold text-[var(--color-text-secondary)] border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] cursor-pointer disabled:opacity-50"
         >
           <X className="w-3.5 h-3.5 inline mr-1.5 -mt-px" />
           Cancelar
@@ -347,7 +347,7 @@ export default function ImageEditor({
           type="button"
           onClick={confirm}
           disabled={!ready || busy}
-          className="flex-1 py-2 rounded-lg text-xs font-bold text-white bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex-1 py-2 rounded-md text-xs font-semibold text-[var(--zipp-obsidian)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {busy ? (
             'Subiendo…'
@@ -376,7 +376,7 @@ function EditorButton({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
+      className="p-2 rounded-md border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary-bg)] transition-colors cursor-pointer"
     >
       <Icon className="w-4 h-4" />
     </button>

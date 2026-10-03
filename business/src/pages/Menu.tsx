@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
-  Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, Tag, SquarePlus, ChevronDown, ChevronRight, Clock,
+  Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, Tag, ChevronRight, Clock,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import api from '../services/api';
@@ -513,25 +513,29 @@ export default function Menu() {
     return (
       <div className="space-y-6">
         {categories.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-text-main)]">
+          <div role="tablist" aria-label="Filtrar por categoría" className="flex flex-wrap items-end gap-x-6 border-b border-[var(--color-border)]">
             <button
+              role="tab"
+              aria-selected={active === null}
               onClick={() => setFilterCategory(null)}
-              className={`text-xs px-3 py-1 rounded-full border transition-colors cursor-pointer ${
+              className={`-mb-px pb-2 text-[13px] border-b-2 cursor-pointer ${
                 active === null
-                  ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
-                  : 'border-[var(--color-border)] text-[var(--color-text-main)]'
+                  ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-semibold'
+                  : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
               }`}
             >
               Todas
             </button>
             {categories.map((category) => (
-              <span key={category._id} className="inline-flex items-center gap-0.5">
+              <span key={category._id} className="group inline-flex items-end gap-1">
                 <button
+                  role="tab"
+                  aria-selected={active === category._id}
                   onClick={() => setFilterCategory(category._id)}
-                  className={`text-xs px-3 py-1 rounded-full border transition-colors cursor-pointer ${
+                  className={`-mb-px pb-2 text-[13px] border-b-2 cursor-pointer ${
                     active === category._id
-                      ? 'border-[var(--color-primary)] text-[var(--color-primary)] font-bold'
-                      : 'border-[var(--color-border)] text-[var(--color-text-main)]'
+                      ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-semibold'
+                      : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
                   }`}
                 >
                   {category.name}
@@ -541,7 +545,7 @@ export default function Menu() {
                     onClick={() => actions.current.deleteCategory(category._id)}
                     title="Eliminar categoría"
                     aria-label={`Eliminar la categoría ${category.name}`}
-                    className="p-1 rounded-md text-[var(--color-text-main)] hover:text-[var(--color-danger)] transition-colors cursor-pointer"
+                    className="mb-1.5 p-0.5 rounded text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] cursor-pointer"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -560,32 +564,32 @@ export default function Menu() {
             {sorted.map((product) => (
               <li
                 key={product._id}
-                className="flex items-center gap-4 py-4 border-b border-[var(--color-border)]"
+                className="flex items-center gap-3 py-3 border-b border-[var(--color-border)]"
               >
                 <SmartImage
                   images={product.images}
                   alt={product.name}
                   base="thumb"
-                  sizes="72px"
-                  className="w-[72px] h-[72px] rounded-lg shrink-0"
+                  sizes="48px"
+                  className="w-12 h-12 rounded-md shrink-0"
                 />
 
-                <div className="flex-1 min-w-0 space-y-1">
-                  <h3 className="text-sm font-bold text-[var(--color-text-main)] leading-snug">
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <h3 className="text-sm font-semibold text-[var(--color-text-main)] leading-snug">
                     {product.name}
                   </h3>
-                  <p className="text-[11px] font-medium text-[var(--color-text-main)]">
+                  <p className="text-xs text-[var(--color-text-secondary)]">
                     {categoryName.get(product.categoryId) ?? 'Sin categoría'}
                     {product.prepTimeMinutes ? ` · ${product.prepTimeMinutes} min` : ''}
                     {product.requiresAgeVerification ? ' · +18' : ''}
                     {!product.images ? ' · Sin foto' : ''}
                   </p>
                   {product.description && (
-                    <p className="text-xs leading-snug text-[var(--color-text-main)] line-clamp-2">
+                    <p className="text-xs leading-snug text-[var(--color-text-secondary)] line-clamp-1">
                       {product.description}
                     </p>
                   )}
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-bold">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-medium empty:hidden">
                     {product.promotedBy && (
                       <a
                         href={`/promotions?productId=${product._id}`}
@@ -619,15 +623,15 @@ export default function Menu() {
                 <div className="text-right shrink-0">
                   {product.discountPrice ? (
                     <>
-                      <p className="text-[11px] text-[var(--color-text-main)] line-through tabular">
+                      <p className="text-[11px] text-[var(--color-text-secondary)] line-through tabular">
                         {money(product.price)}
                       </p>
-                      <p className="text-base font-bold text-[var(--color-primary)] tabular">
+                      <p className="text-sm font-semibold text-[var(--color-primary-dark)] tabular">
                         {money(product.discountPrice)}
                       </p>
                     </>
                   ) : (
-                    <p className="text-base font-bold text-[var(--color-text-main)] tabular">
+                    <p className="text-sm font-semibold text-[var(--color-text-main)] tabular">
                       {money(product.price)}
                     </p>
                   )}
@@ -640,18 +644,18 @@ export default function Menu() {
                     onClick={() => actions.current.toggle(product)}
                     title={product.isAvailable ? 'Marcar como agotado' : 'Volver a ofrecerlo'}
                     aria-label={`Cambiar disponibilidad de ${product.name}`}
-                    className="p-1 cursor-pointer hover:scale-105 transition-transform"
+                    className="p-1 cursor-pointer"
                   >
                     {product.isAvailable ? (
                       <ToggleRight className="w-6 h-6 text-[var(--color-primary)]" />
                     ) : (
-                      <ToggleLeft className="w-6 h-6 text-[var(--color-text-main)]" />
+                      <ToggleLeft className="w-6 h-6 text-[var(--color-text-secondary)]" />
                     )}
                   </button>
                   <button
                     onClick={() => actions.current.edit(product)}
                     aria-label={`Editar ${product.name}`}
-                    className="p-2 rounded-md text-[var(--color-text-main)] hover:text-[var(--color-primary)] transition-colors cursor-pointer"
+                    className="p-2 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
                   >
                     <Edit className="w-4 h-4" />
                   </button>
@@ -660,7 +664,7 @@ export default function Menu() {
                   <button
                     onClick={() => actions.current.deleteProduct(product._id)}
                     aria-label={`Eliminar ${product.name}`}
-                    className="p-2 rounded-md text-[var(--color-text-main)] hover:text-[var(--color-danger)] transition-colors cursor-pointer"
+                    className="p-2 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -678,7 +682,7 @@ export default function Menu() {
   if (!selectedBusiness) {
     return (
       <div className="py-20 text-center space-y-2">
-        <p className="font-bold text-[var(--color-text-main)] text-base">
+        <p className="font-semibold text-[var(--color-text-main)] text-base">
           Sin establecimiento seleccionado
         </p>
         <p className="text-xs text-[var(--color-text-secondary)]">
@@ -718,7 +722,7 @@ export default function Menu() {
   const advancedSummary = describeAdvanced(productForm.extras.length, productForm.modifierGroups.length);
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       {/* Con el formulario abierto la lista se oculta (no se desmonta) y el
           formulario ocupa el área de contenido, junto a la barra lateral. */}
       <div className={showProductModal ? 'hidden' : 'space-y-6'}>
@@ -736,9 +740,10 @@ export default function Menu() {
           {canEdit && (
           <button
             onClick={() => setShowCategoryModal(true)}
-            className="inline-flex items-center gap-1 px-1 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] transition-colors cursor-pointer"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-xs font-medium text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
           >
-            + Nueva categoría
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Nueva categoría
           </button>
           )}
           {/*
@@ -753,13 +758,10 @@ export default function Menu() {
           {canCreate && (
           <button
             onClick={startNewProduct}
-            className="inline-flex h-11 min-w-48 items-center justify-between gap-8 rounded-[11px] bg-[#ff2851] px-4 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#e92147] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff2851] cursor-pointer"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 text-xs font-semibold text-[var(--zipp-obsidian)] hover:bg-[var(--color-primary-light)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)] cursor-pointer"
           >
-            <span className="inline-flex items-center gap-3">
-              <SquarePlus className="h-[18px] w-[18px]" strokeWidth={2.5} aria-hidden="true" />
-              Nuevo producto
-            </span>
-            <ChevronDown className="h-[18px] w-[18px]" strokeWidth={2.5} aria-hidden="true" />
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Nuevo producto
           </button>
           )}
         </div>
@@ -767,7 +769,7 @@ export default function Menu() {
       </div>
 
       {(error || loadError) && (
-        <div className="rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
+        <div role="alert" className="border-l-2 border-[var(--color-danger)] pl-3 py-0.5">
           <p className="text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
         </div>
       )}
@@ -778,9 +780,9 @@ export default function Menu() {
         desplegable llegaba vacío y el servidor devolvía un 500 genérico.
       */}
       {!loading && noCategories && canEdit && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-primary)]/30 bg-[var(--color-primary-bg)] p-3.5">
+        <div className="flex items-start gap-3 border-l-2 border-[var(--color-primary)] pl-3 py-0.5">
           <div className="flex-1">
-            <p className="text-xs font-bold text-[var(--color-text-main)]">
+            <p className="text-xs font-semibold text-[var(--color-text-main)]">
               Empieza creando una categoría
             </p>
             <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">
@@ -790,7 +792,7 @@ export default function Menu() {
           </div>
           <button
             onClick={startNewProduct}
-            className="px-3 py-1.5 rounded-lg bg-[var(--color-primary)] text-white text-[11px] font-bold cursor-pointer shrink-0 hover:bg-[var(--color-primary-dark)] transition-colors"
+            className="h-8 px-3 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] text-xs font-semibold cursor-pointer shrink-0 hover:bg-[var(--color-primary-light)]"
           >
             Crear categoría
           </button>
@@ -798,11 +800,7 @@ export default function Menu() {
       )}
 
       {loading ? (
-        <div className="table-container p-16 text-center">
-          <p className="text-xs font-semibold text-[var(--color-text-secondary)]">
-            Cargando catálogo…
-          </p>
-        </div>
+        <p className="py-10 text-xs text-[var(--color-text-secondary)]">Cargando catálogo…</p>
       ) : (
         catalogList
       )}
@@ -832,10 +830,10 @@ export default function Menu() {
 
       {/* ── Categoría ── */}
       {showCategoryModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4 animate-fade-in">
-          <div className="w-full max-w-sm rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-2xl p-6 space-y-4">
-            <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-3">
-              <h3 className="text-base font-bold text-[var(--color-text-main)]">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm zipp-modal p-5 space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm font-semibold text-[var(--color-text-main)]">
                 Nueva categoría
               </h3>
               <button
@@ -844,9 +842,9 @@ export default function Menu() {
                   setCategoryLeadsToProduct(false);
                 }}
                 aria-label="Cerrar"
-                className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
+                className="p-1 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -861,7 +859,7 @@ export default function Menu() {
               <div>
                 <label
                   htmlFor="category-name"
-                  className="block text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1.5"
+                  className="block text-[11px] font-semibold text-[var(--color-text-secondary)] mb-1.5"
                 >
                   Nombre de la categoría
                 </label>
@@ -878,7 +876,7 @@ export default function Menu() {
               </div>
               <button
                 type="submit"
-                className="w-full h-10 rounded-lg bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] text-white font-bold text-xs uppercase tracking-wider cursor-pointer transition-colors"
+                className="w-full h-9 rounded-md bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] text-[var(--zipp-obsidian)] font-semibold text-xs cursor-pointer transition-colors"
               >
                 {categoryLeadsToProduct ? 'Crear y seguir con el producto' : 'Crear categoría'}
               </button>
@@ -889,7 +887,7 @@ export default function Menu() {
 
       {/* ── Producto ── */}
       {showProductModal && (
-        <form id="product-form" onSubmit={handleSaveProduct} className="animate-fade-in">
+        <form id="product-form" onSubmit={handleSaveProduct}>
           <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] pb-4">
             <div className="min-w-0">
               <nav aria-label="Ruta" className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)]">
@@ -911,9 +909,9 @@ export default function Menu() {
               type="button"
               onClick={closeProductForm}
               aria-label="Cerrar"
-              className="p-2 rounded-lg text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
+              className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
 
@@ -940,7 +938,7 @@ export default function Menu() {
               />
 
               <div className="space-y-2.5 border-t border-[var(--color-border)] pt-4">
-                <h3 className="text-sm font-bold text-[var(--color-text-main)]">Recomendaciones</h3>
+                <h3 className="text-sm font-semibold text-[var(--color-text-main)]">Recomendaciones</h3>
                 <ProductRecommendations checks={checks} />
               </div>
 
@@ -1029,7 +1027,7 @@ export default function Menu() {
                       value={productForm.price}
                       onValueChange={(digits) => setProductForm({ ...productForm, price: digits })}
                       placeholder="25.000"
-                      className={`${inputClass} tabular font-bold`}
+                      className={`${inputClass} tabular font-semibold`}
                     />
                   </Field>
 
@@ -1048,7 +1046,7 @@ export default function Menu() {
                       disabled={!!editingProduct?.promotedBy}
                       onValueChange={(digits) => setProductForm({ ...productForm, discountPrice: digits })}
                       placeholder="20.000"
-                      className={`${inputClass} tabular font-bold text-[var(--color-primary-dark)] disabled:opacity-50`}
+                      className={`${inputClass} tabular font-semibold text-[var(--color-primary-dark)] disabled:opacity-50`}
                     />
                   </Field>
                 </div>
@@ -1072,7 +1070,7 @@ export default function Menu() {
                         setProductForm({ ...productForm, prepTimeMinutes: event.target.value })
                       }
                       placeholder="Ej.: 40"
-                      className={`${inputClass} pr-16 tabular font-bold`}
+                      className={`${inputClass} pr-16 tabular font-semibold`}
                     />
                     <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center gap-1.5 text-xs text-[var(--color-text-secondary)]">
                       min
@@ -1111,7 +1109,7 @@ export default function Menu() {
               <div className="space-y-4 border-t border-[var(--color-border)] pt-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <h2 id="advanced-options-title" className="text-sm font-bold text-[var(--color-text-main)]">
+                    <h2 id="advanced-options-title" className="text-sm font-semibold text-[var(--color-text-main)]">
                       Opciones avanzadas
                     </h2>
                     <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
@@ -1124,7 +1122,7 @@ export default function Menu() {
                     aria-checked={advancedOpen}
                     aria-labelledby="advanced-options-title"
                     onClick={() => setAdvancedOpen((open) => !open)}
-                    className="shrink-0 p-1 cursor-pointer hover:scale-105 transition-transform"
+                    className="shrink-0 p-1 cursor-pointer transition-transform"
                   >
                     {advancedOpen ? (
                       <ToggleRight className="h-8 w-8 text-[var(--color-primary)]" />
@@ -1154,13 +1152,13 @@ export default function Menu() {
                           onValueChange={(digits) => setNewExtra({ ...newExtra, price: digits })}
                           placeholder="3.000"
                           aria-label="Precio del extra"
-                          className={`${inputBase} w-28 shrink-0 h-9 tabular font-bold text-[var(--color-primary-dark)]`}
+                          className={`${inputBase} w-28 shrink-0 h-9 tabular font-semibold text-[var(--color-primary-dark)]`}
                         />
                         <button
                           type="button"
                           onClick={handleAddExtra}
                           aria-label="Añadir extra"
-                          className="px-3 h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-bold text-[var(--color-text-main)] cursor-pointer transition-colors"
+                          className="px-3 h-9 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] cursor-pointer transition-colors"
                         >
                           <Plus className="w-4 h-4" />
                         </button>
@@ -1244,7 +1242,7 @@ export default function Menu() {
 
           {/* Plana: mismo fondo que la página y una línea fina. El fondo solo
               importa en pantallas angostas, donde la página sí desplaza. */}
-          <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-[var(--color-border)] bg-[var(--color-bg)] py-3">
+          <div className="sticky bottom-0 z-10 mt-4 flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-[var(--color-border)] bg-[var(--color-bg)] py-3">
             {modalError && (
               <p role="alert" className="max-w-md text-center text-xs font-semibold text-[var(--color-danger)]">
                 {modalError}
@@ -1253,7 +1251,7 @@ export default function Menu() {
             <button
               type="submit"
               disabled={saving}
-              className="h-11 min-w-56 rounded-lg bg-[var(--color-primary)] px-8 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-[var(--color-primary-dark)] cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+              className="h-8 rounded-md bg-[var(--color-primary)] px-4 text-xs font-semibold text-[var(--zipp-obsidian)] transition-colors hover:bg-[var(--color-primary-light)] cursor-pointer disabled:opacity-60 disabled:cursor-wait"
             >
               {saving ? 'Guardando…' : editingProduct ? 'Guardar cambios' : 'Crear producto'}
             </button>
@@ -1270,7 +1268,7 @@ export default function Menu() {
  * extra se quedaba con toda la fila y el nombre, aplastado.
  */
 const inputBase =
-  'h-10 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] px-3.5 text-sm font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors';
+  'h-9 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] px-3 text-sm text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors';
 
 const inputClass = `w-full ${inputBase}`;
 

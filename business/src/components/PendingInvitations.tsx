@@ -67,7 +67,7 @@ export default function PendingInvitations({ onAccepted }: { onAccepted: () => u
               <button
                 onClick={() => respond(invitation, true)}
                 disabled={busy !== null}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--color-primary)] text-white text-xs font-bold cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] text-[var(--zipp-obsidian)] text-xs font-semibold cursor-pointer disabled:opacity-60 disabled:cursor-wait"
               >
                 <Check className="w-3.5 h-3.5" />
                 {busy === invitation._id ? 'Guardando…' : 'Aceptar'}
@@ -75,7 +75,7 @@ export default function PendingInvitations({ onAccepted }: { onAccepted: () => u
               <button
                 onClick={() => respond(invitation, false)}
                 disabled={busy !== null}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] hover:text-[var(--color-danger)] cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] hover:text-[var(--color-danger)] cursor-pointer disabled:opacity-60 disabled:cursor-wait"
               >
                 <X className="w-3.5 h-3.5" />
                 Rechazar

@@ -17,7 +17,7 @@ export default function SecurityTab() {
         <div className="flex items-start gap-3">
           <AuthenticatorMark className="w-6 h-6 shrink-0 mt-0.5" />
           <div>
-            <h2 className="text-sm font-bold text-[var(--color-text-main)]">Verificación en dos pasos</h2>
+            <h2 className="text-sm font-semibold text-[var(--color-text-main)]">Verificación en dos pasos</h2>
             <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
               {twoFactorEnabled
                 ? 'Activa. Al entrar te pedimos el código de Google Authenticator.'
@@ -28,14 +28,14 @@ export default function SecurityTab() {
         {!twoFactorEnabled && (
           <Link
             to="/setup-2fa"
-            className="self-start sm:self-auto px-4 py-2 rounded-lg bg-[var(--color-text-main)] text-[var(--color-surface)] font-bold text-xs uppercase tracking-wider hover:opacity-90 transition-opacity"
+            className="self-start sm:self-auto inline-flex items-center h-8 px-4 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)]"
           >
             Activar
           </Link>
         )}
       </section>
 
-      <div className="border-t border-[var(--color-border-light)] pt-6">
+      <div className="pt-2">
         <ActiveSessions />
       </div>
     </div>

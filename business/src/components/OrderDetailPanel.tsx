@@ -123,20 +123,20 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
     : [];
 
   return (
-    // Área de contenido: bajo la cabecera (h-20) y junto a la barra lateral (w-30, fija desde lg).
+    // Área de contenido: bajo la cabecera (h-12) y junto a la barra lateral (w-52, fija desde lg).
     <div
       role="dialog"
       aria-label={`Pedido ${order.orderNumber ?? shortId(order._id)}`}
-      className="fixed bottom-0 left-0 right-0 top-20 z-30 overflow-y-auto bg-[var(--color-bg)] p-6 lg:left-30 lg:p-8"
+      className="fixed bottom-0 left-0 right-0 top-12 z-30 overflow-y-auto bg-[var(--color-bg)] px-5 py-5 lg:left-52 lg:px-8 lg:py-6"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="truncate text-lg font-bold tabular text-[var(--color-text-main)]">
+          <h2 className="page-title truncate tabular">
             Pedido {order.orderNumber ?? shortId(order._id)}
           </h2>
           <div className="mt-1.5 flex flex-wrap items-center gap-3">
             <span
-              className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${style.chip}`}
+              className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-main)] whitespace-nowrap"
             >
               <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
               {style.label}
@@ -150,7 +150,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
         <button
           onClick={onClose}
           aria-label="Cerrar"
-          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]"
+          className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-xs font-medium text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)]"
         >
           <X className="h-4 w-4" /> Volver a pedidos
         </button>
@@ -258,7 +258,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <section className="min-w-0 space-y-2">
-            <h3 className="text-sm font-bold text-[var(--color-text-main)]">Evidencia de recogida</h3>
+            <h3 className="text-[13px] font-semibold text-[var(--color-text-main)]">Evidencia de recogida</h3>
             <Evidence
               evidence={pickupEvidence}
               loading={loading}
@@ -276,7 +276,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
           </section>
 
           <section className="min-w-0 space-y-2">
-            <h3 className="text-sm font-bold text-[var(--color-text-main)]">Historial del pedido</h3>
+            <h3 className="text-[13px] font-semibold text-[var(--color-text-main)]">Historial del pedido</h3>
             <OrderTimeline orderId={orderId} />
           </section>
         </div>
@@ -291,7 +291,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
 function Facts({ title, items }: { title: string; items: Array<[string, ReactNode]> }) {
   return (
     <section className="min-w-0 space-y-2">
-      <h3 className="text-sm font-bold text-[var(--color-text-main)]">{title}</h3>
+      <h3 className="text-[13px] font-semibold text-[var(--color-text-main)]">{title}</h3>
       <div className="table-container">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -305,7 +305,7 @@ function Facts({ title, items }: { title: string; items: Array<[string, ReactNod
             <tbody>
               <tr>
                 {items.map(([label, value]) => (
-                  <td key={label} className="table-body-cell align-top text-sm font-semibold tabular">
+                  <td key={label} className="table-body-cell align-top tabular">
                     {value || '—'}
                   </td>
                 ))}
@@ -330,7 +330,7 @@ function Grid({
 }) {
   return (
     <section className="min-w-0 space-y-2">
-      <h3 className="text-sm font-bold text-[var(--color-text-main)]">{title}</h3>
+      <h3 className="text-[13px] font-semibold text-[var(--color-text-main)]">{title}</h3>
       <div className="table-container">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -374,11 +374,11 @@ function Grid({
 function PickupCode({ code }: { code: string }) {
   return (
     <section>
-      <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
+      <p className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-secondary)]">
         <Lock className="h-3.5 w-3.5" />
         Código de recogida
       </p>
-      <p className="mt-1.5 font-mono text-3xl font-bold tracking-[0.28em] text-[var(--color-primary-dark)]">
+      <p className="mt-1.5 font-mono text-2xl font-semibold tracking-[0.2em] text-[var(--color-primary-dark)]">
         {code}
       </p>
       <p className="mt-1.5 text-xs text-[var(--color-text-secondary)]">
@@ -397,7 +397,7 @@ function Evidence({
   emptyHint: string;
 }) {
   if (loading) {
-    return <div className="h-36 animate-pulse rounded-xl bg-[var(--color-bg-alt)]" />;
+    return <div className="h-36 animate-pulse rounded-md bg-[var(--color-bg-alt)]" />;
   }
 
   if (!evidence) {
@@ -414,7 +414,7 @@ function Evidence({
       <img
         src={evidence.url}
         alt="Foto que tomó el domiciliario al recibir el pedido"
-        className="h-56 w-full max-w-xl rounded-xl object-cover"
+        className="h-56 w-full max-w-xl rounded-md object-cover"
         loading="lazy"
       />
       <figcaption className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-success)]">

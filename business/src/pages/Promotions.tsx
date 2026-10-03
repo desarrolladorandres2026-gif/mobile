@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Plus, Power, Pencil, RotateCcw, Trash2, Info } from 'lucide-react';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
-import { CouponLogo, DeliveryLogo } from '../components/logos';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 import { money } from '../lib/orderFlow';
@@ -32,10 +31,6 @@ import PromotionPanel from '../components/PromotionPanel';
  * La pantalla es solo la lista, agrupada por estado; crear y editar viven
  * en un panel lateral (`PromotionPanel`) con vista previa del costo.
  */
-
-function couponArt(type: Coupon['type']): ComponentType<{ size?: number }> {
-  return type === 'free_delivery' ? DeliveryLogo : CouponLogo;
-}
 
 const GROUPS: Array<{ key: PromotionGroup; title: string }> = [
   { key: 'active', title: 'Activas' },
@@ -244,10 +239,10 @@ export default function Promotions() {
     return map;
   }, [coupons]);
 
-  const rowButton = 'flex items-center gap-1.5 text-xs font-semibold cursor-pointer hover:underline';
+  const rowButton = 'flex items-center gap-1.5 text-xs font-medium cursor-pointer hover:underline';
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="page-header">
         <div>
           <h1 className="page-title">Promociones</h1>
@@ -258,7 +253,7 @@ export default function Promotions() {
         <button
           type="button"
           onClick={startCreate}
-          className="px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-primary-dark)] transition-colors cursor-pointer flex items-center gap-2"
+          className="h-8 px-3 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] cursor-pointer flex items-center gap-1.5"
         >
           <Plus className="w-4 h-4" />
           Nueva promoción
@@ -285,11 +280,11 @@ export default function Promotions() {
         <p className="py-2 text-xs text-[var(--color-text-secondary)]">Cargando promociones…</p>
       ) : coupons.length === 0 ? (
         <div className="py-16 space-y-3 max-w-md">
-          <p className="text-sm font-bold text-[var(--color-text-main)]">Todavía no tienes promociones</p>
+          <p className="text-sm font-semibold text-[var(--color-text-main)]">Todavía no tienes promociones</p>
           <p className="text-xs text-[var(--color-text-secondary)]">
             Un cupón bien puesto llena las horas flojas. Empieza por un día concreto.
           </p>
-          <button type="button" onClick={startCreate} className="text-xs font-bold text-[var(--color-primary)] hover:underline cursor-pointer">
+          <button type="button" onClick={startCreate} className="text-xs font-semibold text-[var(--color-primary)] hover:underline cursor-pointer">
             Crear la primera
           </button>
         </div>
@@ -300,8 +295,8 @@ export default function Promotions() {
           const collapsed = key === 'ended' && !showEnded;
           return (
             <section key={key} className="space-y-1">
-              <div className="flex items-baseline justify-between border-b border-[var(--color-border)] pb-2">
-                <h2 className="col-title border-b-0 pb-0 mb-0">{title} · {list.length}</h2>
+              <div className="flex items-baseline justify-between border-b border-[var(--color-border)] pb-1.5">
+                <h2 className="text-[13px] font-semibold text-[var(--color-text-main)]">{title} · {list.length}</h2>
                 {key === 'ended' && (
                   <button type="button" onClick={() => setShowEnded((v) => !v)} className="text-xs font-semibold text-[var(--color-primary)] hover:underline cursor-pointer">
                     {showEnded ? 'Ocultar' : 'Mostrar'}
@@ -314,25 +309,23 @@ export default function Promotions() {
               ) : collapsed ? null : (
                 <ul className="divide-y divide-[var(--color-border)]">
                   {list.map((coupon) => {
-                    const CouponArt = couponArt(coupon.type);
                     const used = consumption(coupon);
                     return (
                       <li
                         key={coupon._id}
-                        className={`py-5 grid gap-4 md:grid-cols-[minmax(0,2fr)_7rem_minmax(0,1.2fr)_auto] md:items-center ${coupon.isActive ? '' : 'opacity-70'}`}
+                        className={`py-3 grid gap-4 md:grid-cols-[minmax(0,2fr)_8rem_minmax(0,1.2fr)_auto] md:items-center ${coupon.isActive ? '' : 'opacity-70'}`}
                       >
-                        <div className="flex items-start gap-4 min-w-0">
-                          <CouponArt size={30} />
-                          <div className="min-w-0 space-y-1">
+                        <div className="min-w-0">
+                          <div className="min-w-0 space-y-0.5">
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                              <h3 className="text-sm font-bold text-[var(--color-text-main)]">{coupon.title}</h3>
+                              <h3 className="text-sm font-medium text-[var(--color-text-main)]">{coupon.title}</h3>
                               <PromotionStatusBadge promotion={coupon} />
                             </div>
                             <p className="text-xs text-[var(--color-text-secondary)]">
                               {coupon.autoApply ? (
                                 <>Automática · {coupon.productIds?.length ?? 0} producto(s)</>
                               ) : (
-                                <>Código <span className="font-mono font-bold text-[var(--color-text-main)]">{coupon.code}</span></>
+                                <>Código <span className="font-mono font-semibold text-[var(--color-text-main)]">{coupon.code}</span></>
                               )}
                               {coupon.minOrderAmount ? ` · Mínimo ${money(coupon.minOrderAmount)}` : ''}
                             </p>
@@ -344,7 +337,7 @@ export default function Promotions() {
                         </div>
 
                         <div>
-                          <p className="text-xl font-bold tabular text-[var(--color-primary)]">{discountLabel(coupon.type, coupon.value)}</p>
+                          <p className="text-sm font-semibold tabular text-[var(--color-text-main)]">{discountLabel(coupon.type, coupon.value)}</p>
                           <p className="text-[11px] text-[var(--color-text-secondary)]">{TYPE_LABELS[coupon.type]}</p>
                         </div>
 
