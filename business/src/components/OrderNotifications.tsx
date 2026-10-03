@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { BellRing, Bike, PackageX, Volume2, WifiOff, X } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
-import { usePreferencesStore } from '../stores/preferencesStore';
 import { useBusinessEvent, useRealtime } from '../hooks/realtimeContext';
 import { useActiveOrders, useActiveOrdersLiveSync } from '../hooks/useActiveOrders';
 import { useAudioState, useAudioUnlock, useRingLeadership } from '../hooks/useRingLeadership';
@@ -41,7 +40,6 @@ export default function OrderNotifications() {
   const queryClient = useQueryClient();
   const businessId = useAuthStore((s) => s.selectedBusiness?._id);
   const storeOpen = useAuthStore((s) => s.selectedBusiness?.isActive !== false);
-  const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
   const { status: connection, downSince } = useRealtime();
 
   // Reloj de la alarma: mueve el tiempo de espera y el aviso de conexión caída.
@@ -94,7 +92,7 @@ export default function OrderNotifications() {
   // ── El sonido ──
   const audio = useAudioState();
   useAudioUnlock(audio);
-  const eligible = soundEnabled && audio === 'running';
+  const eligible = audio === 'running';
   const isLeader = useRingLeadership(businessId, eligible);
   const ringKind = isLeader && pattern ? pattern : null;
 
@@ -166,7 +164,7 @@ export default function OrderNotifications() {
     ? Math.max(0, Math.floor((now - waitingSince(oldest, getFirstSeen()[oldest._id])) / 60_000))
     : 0;
   const offline = downSince !== null && now - downSince >= OFFLINE_GRACE_MS;
-  const showUnlock = soundEnabled && audio === 'suspended';
+  const showUnlock = audio === 'suspended';
 
   const goToOrder = (orderId: string) => navigate(`/orders?pedido=${orderId}`);
 

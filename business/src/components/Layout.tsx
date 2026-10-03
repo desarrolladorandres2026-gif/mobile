@@ -1,12 +1,11 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   AlertCircle, LogOut, Menu, X,
-  Volume2, VolumeX, ChevronDown, ArrowLeft, ArrowRight, Bell, Home, Search
+  ChevronDown, ArrowLeft, ArrowRight, Bell, Home, Search
 } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
-import { usePreferencesStore } from '../stores/preferencesStore';
 import ConfirmDialog from './ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
 import OrderNotifications from './OrderNotifications';
@@ -54,8 +53,6 @@ export default function Layout() {
   const [pausing, setPausing] = useState(false);
   const [pauseError, setPauseError] = useState('');
   const [loadingBusinesses, setLoadingBusinesses] = useState(false);
-  const soundEnabled = usePreferencesStore((s) => s.soundEnabled);
-  const toggleSound = usePreferencesStore((s) => s.toggleSound);
   const { access, can } = usePermissions(selectedBusiness?._id);
   const visibleNav = nav
     .filter((item) => canSee(item.path, access))
@@ -214,7 +211,7 @@ export default function Layout() {
           </div>
         )}
 
-        {/* Estado y sonido se mantienen accesibles sin ensanchar la barra. */}
+        {/* El estado se mantiene accesible sin ensanchar la barra. */}
         <div className="px-2 pt-2 pb-1">
           <div className="flex items-center justify-center gap-2">
             <button
@@ -236,23 +233,6 @@ export default function Layout() {
                 }`}
               />
               <span>{pausing ? 'Guardando…' : isStoreOpen ? 'Abierto' : 'Cerrado'}</span>
-            </button>
-
-            <button
-              onClick={toggleSound}
-              aria-pressed={soundEnabled}
-              className="p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] transition-all cursor-pointer"
-              title={
-                soundEnabled
-                  ? 'Suena un aviso al entrar un pedido. Púlsalo para silenciarlo.'
-                  : 'Los pedidos entran en silencio. Púlsalo para activar el aviso.'
-              }
-            >
-              {soundEnabled ? (
-                <Volume2 className="w-3.5 h-3.5 text-[var(--color-success)]" />
-              ) : (
-                <VolumeX className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
-              )}
             </button>
           </div>
 
