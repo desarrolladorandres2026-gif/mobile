@@ -45,11 +45,11 @@ const DAYS: Array<{ key: string; label: string }> = [
 const money = (value: number) => `$${value.toLocaleString('es-CO')}`;
 
 const INPUT =
-  'w-full px-3 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] ' +
+  'w-full px-3 py-2 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] ' +
   'text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]';
 
 const TIME_INPUT =
-  'px-2 py-1 rounded-md bg-[var(--color-bg)] border border-[var(--color-border)] text-xs ' +
+  'px-2 py-1 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-xs ' +
   'text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]';
 
 export interface FreeDeliveryWindow {
@@ -197,7 +197,7 @@ export default function InfoTab({
             className="accent-[var(--color-primary)] cursor-pointer mt-0.5"
           />
           <span className="space-y-0.5">
-            <span className="block text-xs font-bold text-[var(--color-text-main)]">
+            <span className="block text-xs font-semibold text-[var(--color-text-main)]">
               Mostrar la franja de envío gratis
             </span>
             <span className="block text-xs text-[var(--color-text-secondary)]">
@@ -222,7 +222,7 @@ export default function InfoTab({
 
         <Field label="Punto de recogida">
           <Suspense
-            fallback={<div className="h-64 rounded-xl bg-[var(--color-bg-alt)] animate-pulse" />}
+            fallback={<div className="h-64 rounded-md bg-[var(--color-bg-alt)] animate-pulse" />}
           >
             <BusinessLocationField
               key={businessId}
@@ -260,7 +260,7 @@ export default function InfoTab({
                     onChange={(e) => setDay(day.key, { isOpen: e.target.checked })}
                     className="accent-[var(--color-primary)] cursor-pointer"
                   />
-                  <span className="text-xs font-bold text-[var(--color-text-main)]">{day.label}</span>
+                  <span className="text-xs font-semibold text-[var(--color-text-main)]">{day.label}</span>
                 </label>
 
                 {isOpen ? (
@@ -317,7 +317,7 @@ export default function InfoTab({
 
           {threshold > 0 && (
             <div className="sm:col-span-3 space-y-3 pt-1">
-              <p className="text-xs font-bold text-[var(--color-text-main)]">
+              <p className="text-xs font-semibold text-[var(--color-text-main)]">
                 Vigencia del envío gratis <span className="font-normal text-[var(--color-text-muted)]">(opcional)</span>
               </p>
               <DateRangeField
@@ -344,10 +344,10 @@ export default function InfoTab({
                               : [...freeDeliveryWindow.validDays, index],
                           })
                         }
-                        className={`w-7 h-7 rounded-full text-[10px] font-bold cursor-pointer transition-all ${
+                        className={`w-7 h-7 rounded-full text-[10px] font-semibold cursor-pointer transition-colors ${
                           active
-                            ? 'bg-[var(--color-primary)] text-white'
-                            : 'bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-secondary)]'
+                            ? 'bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] text-[var(--zipp-obsidian)]'
+                            : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)]'
                         }`}
                       >
                         {day.label.slice(0, 1)}
@@ -475,7 +475,7 @@ function InfoView({
               key={row.days}
               className="flex items-center justify-between gap-4 min-h-10 border-b border-[var(--color-border-light)]"
             >
-              <dt className="text-xs font-bold text-[var(--color-text-main)]">{row.days}</dt>
+              <dt className="text-xs font-semibold text-[var(--color-text-main)]">{row.days}</dt>
               <dd className={`text-xs ${row.hours ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-muted)]'}`}>
                 {row.hours ?? 'Cerrado'}
               </dd>
@@ -571,7 +571,7 @@ function Block({
   return (
     <section className="space-y-3 pb-6">
       <div className="space-y-1.5">
-        <h2 className="text-sm font-bold text-[var(--color-text-main)]">{title}</h2>
+        <h2 className="text-sm font-semibold text-[var(--color-text-main)]">{title}</h2>
         <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">{description}</p>
         {warning && (
           <p className="text-xs font-semibold leading-relaxed text-[var(--color-warning)]">{warning}</p>
@@ -591,7 +591,7 @@ function Field({
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-bold text-[var(--color-text-main)]">{label}</label>
+      <label className="text-xs font-semibold text-[var(--color-text-main)]">{label}</label>
       {children}
       {hint && <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">{hint}</p>}
     </div>
@@ -620,17 +620,17 @@ function ColorSwatch({
       title={label}
       aria-label={label}
       aria-pressed={active}
-      className={`w-9 h-9 rounded-full cursor-pointer transition-all grid place-items-center ${
+      className={`w-9 h-9 rounded-full cursor-pointer transition-colors grid place-items-center ${
         active
           ? 'ring-2 ring-offset-2 ring-[var(--color-primary)] ring-offset-[var(--color-bg)]'
-          : 'hover:scale-105'
+          : ''
       }`}
       style={color ? { backgroundColor: color } : undefined}
     >
       {color ? (
         active && <Check className="w-4 h-4 text-white" />
       ) : (
-        <span className="w-full h-full rounded-full border border-dashed border-[var(--color-border-strong)] grid place-items-center text-[10px] font-bold text-[var(--color-text-muted)]">
+        <span className="w-full h-full rounded-full border border-dashed border-[var(--color-border-strong)] grid place-items-center text-[10px] font-semibold text-[var(--color-text-muted)]">
           {active ? <Check className="w-4 h-4 text-[var(--color-primary)]" /> : 'A'}
         </span>
       )}

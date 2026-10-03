@@ -67,10 +67,10 @@ export default function Support() {
 
   const ready = !!businessId && subject.trim().length >= 3 && detail.trim().length >= 10;
   const fieldClass =
-    'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
+    'w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-main)]';
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       <div className="page-header">
         <h1 className="page-title">Soporte</h1>
         <p className="page-subtitle">Cuéntanos qué pasa y te respondemos por aquí</p>
@@ -111,7 +111,7 @@ export default function Support() {
           <button
             onClick={() => send.mutate()}
             disabled={!ready || send.isPending}
-            className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+            className="cursor-pointer rounded-md bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] px-4 py-2 text-xs font-semibold text-[var(--zipp-obsidian)] disabled:opacity-50"
           >
             {send.isPending ? 'Enviando…' : 'Enviar caso'}
           </button>
@@ -138,8 +138,8 @@ export default function Support() {
               <ul className="divide-y divide-[var(--color-border-light)]">
                 {list.map((t) => (
               <li key={t._id} className="py-4">
-              <p className="font-bold text-[var(--color-text-main)]">{t.subject}</p>
-              <p className="text-[11px] uppercase tracking-wider text-[var(--color-text-muted)]">
+              <p className="text-sm font-semibold text-[var(--color-text-main)]">{t.subject}</p>
+              <p className="text-[11px] text-[var(--color-text-muted)]">
                 {TYPE_LABEL[t.type]} · {STATUS_LABEL[t.status]} · {dateTime(t.createdAt)}
               </p>
               <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--color-text-secondary)]">{t.detail}</p>

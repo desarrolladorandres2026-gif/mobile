@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  RefreshCw, Landmark, AlertCircle, ChevronRight, ArrowLeft, Store, Download,
+  RefreshCw, AlertCircle, ChevronRight, ArrowLeft, Store, Download,
 } from 'lucide-react';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
@@ -161,7 +161,7 @@ export default function Settlements() {
     return (
       <div className="py-20 text-center space-y-2">
         <Store className="w-8 h-8 text-[var(--color-primary)] mx-auto" />
-        <p className="font-bold text-[var(--color-text-main)] text-base">
+        <p className="font-semibold text-[var(--color-text-main)] text-base">
           Sin establecimiento seleccionado
         </p>
         <p className="text-xs text-[var(--color-text-secondary)]">
@@ -174,15 +174,15 @@ export default function Settlements() {
   const next = statement?.nextSettlement;
 
   return (
-    <div className="space-y-5 animate-fade-in">
-      <div className="page-header !mb-0">
+    <div className="space-y-5">
+      <div className="page-header">
         <div>
           <h1 className="page-title">Liquidaciones</h1>
           <p className="page-subtitle">
             Lo que ZIPP te debe, de dónde viene y qué ya se consignó
           </p>
         </div>
-        <div className="flex items-center justify-center gap-2">
+        <div className="flex items-center gap-2">
           {/*
             Se descarga por el cliente axios y se convierte en blob, en vez
             de abrir la URL con el token como parámetro. Un token en la
@@ -192,24 +192,24 @@ export default function Settlements() {
           */}
           <button
             onClick={downloadCsv}
-            className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer flex items-center gap-2"
+            className="h-8 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-medium text-[var(--color-text-main)] cursor-pointer flex items-center gap-1.5"
           >
-            <Download className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+            <Download className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
             Exportar CSV
           </button>
 
           <button
             onClick={refresh}
-            className="px-4 py-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text-main)] transition-colors cursor-pointer flex items-center gap-2"
+            className="h-8 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-medium text-[var(--color-text-main)] cursor-pointer flex items-center gap-1.5"
           >
-            <RefreshCw className="w-3.5 h-3.5 text-[var(--color-primary)]" />
+            <RefreshCw className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
             Actualizar
           </button>
         </div>
       </div>
 
       {(error || loadError) && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger-bg)] p-3.5">
+        <div role="alert" className="flex items-start gap-2 border-l-2 border-[var(--color-danger)] pl-3 py-0.5">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
         </div>
@@ -228,7 +228,7 @@ export default function Settlements() {
       <div className="cols3 [--cols3-offset:21rem]">
       <div className="space-y-6">
         <section>
-          <h2 className="text-sm font-bold text-[var(--color-text-main)] border-b border-[var(--color-border-light)] pb-2.5 mb-1">
+          <h2 className="col-title">
             Cómo se calcula tu próxima liquidación
           </h2>
           <dl className="divide-y divide-[var(--color-border-light)]">
@@ -257,7 +257,7 @@ export default function Settlements() {
         </section>
 
         <section>
-          <h2 className="text-sm font-bold text-[var(--color-text-main)] border-b border-[var(--color-border-light)] pb-2.5 mb-1">
+          <h2 className="col-title">
             Semanas anteriores
           </h2>
 
@@ -266,16 +266,16 @@ export default function Settlements() {
               <table className="w-full">
                 <thead>
                   <tr className="text-left">
-                    <th className="py-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
+                    <th className="py-2 text-[11px] font-semibold text-[var(--color-text-muted)]">
                       Semana del
                     </th>
-                    <th className="py-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] text-right">
+                    <th className="py-2 pl-3 text-[11px] font-semibold text-[var(--color-text-muted)] text-right whitespace-nowrap">
                       Ventas
                     </th>
-                    <th className="py-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] text-right">
+                    <th className="py-2 pl-3 text-[11px] font-semibold text-[var(--color-text-muted)] text-right whitespace-nowrap">
                       Comisión
                     </th>
-                    <th className="py-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] text-right">
+                    <th className="py-2 pl-3 text-[11px] font-semibold text-[var(--color-text-muted)] text-right whitespace-nowrap">
                       Neto
                     </th>
                   </tr>
@@ -287,17 +287,17 @@ export default function Settlements() {
                         {new Date(week.periodStart).toLocaleDateString('es-CO', {
                           day: 'numeric', month: 'short',
                         })}
-                        <span className="text-[var(--color-text-muted)] font-normal">
-                          {' '}· {week.orderCount} pedido(s)
+                        <span className="block text-[var(--color-text-secondary)] font-normal">
+                          {week.orderCount} pedido(s)
                         </span>
                       </td>
-                      <td className="py-2.5 text-xs tabular text-right text-[var(--color-text-secondary)]">
+                      <td className="py-2.5 pl-3 text-xs tabular text-right whitespace-nowrap text-[var(--color-text-secondary)]">
                         {money(week.productSubtotal)}
                       </td>
-                      <td className="py-2.5 text-xs tabular text-right text-[var(--color-warning)]">
+                      <td className="py-2.5 pl-3 text-xs tabular text-right whitespace-nowrap text-[var(--color-text-secondary)]">
                         {signedMoney(-week.merchantCommission)}
                       </td>
-                      <td className="py-2.5 text-xs tabular text-right font-bold text-[var(--color-text-main)]">
+                      <td className="py-2.5 pl-3 text-xs tabular text-right whitespace-nowrap font-semibold text-[var(--color-text-main)]">
                         {money(week.netAmount)}
                       </td>
                     </tr>
@@ -314,8 +314,7 @@ export default function Settlements() {
 
       {/* ── Consignaciones ── */}
       <section>
-        <h2 className="text-sm font-bold text-[var(--color-text-main)] border-b border-[var(--color-border-light)] pb-3 mb-1 flex items-center gap-2">
-          <Landmark className="w-4 h-4 text-[var(--color-primary)]" />
+        <h2 className="col-title">
           Consignaciones realizadas
         </h2>
 
@@ -327,12 +326,12 @@ export default function Settlements() {
                 <li key={batch._id}>
                   <button
                     onClick={() => setFocus(open ? { kind: 'next' } : { kind: 'settlement', batch })}
-                    className={`w-full flex items-center justify-between gap-4 py-3 text-left cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] px-2 -mx-2 rounded-lg ${
+                    className={`w-full flex items-center justify-between gap-4 py-2.5 text-left cursor-pointer hover:bg-[var(--color-surface-hover)] px-2 -mx-2 rounded-md ${
                       open ? 'bg-[var(--color-surface-hover)]' : ''
                     }`}
                   >
                     <div className="min-w-0">
-                      <p className="text-xs font-bold text-[var(--color-text-main)]">
+                      <p className="text-xs font-semibold text-[var(--color-text-main)]">
                         {dateTime(batch.createdAt)}
                         {batch.reference ? (
                           <span className="font-normal text-[var(--color-text-muted)]">
@@ -359,7 +358,7 @@ export default function Settlements() {
                       </p>
                     </div>
                     <span className="flex items-center gap-2 shrink-0">
-                      <span className="text-sm font-bold tabular text-[var(--color-success)]">
+                      <span className="text-sm font-medium tabular text-[var(--color-text-main)]">
                         {money(batch.netAmount)}
                       </span>
                       <ChevronRight
@@ -385,8 +384,8 @@ export default function Settlements() {
 
       {/* ── Las ventas del conjunto enfocado ── */}
       <section className="span2">
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border-light)] pb-2.5 mb-1">
-          <h2 className="text-sm font-bold text-[var(--color-text-main)]">
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] pb-1.5 mb-1">
+          <h2 className="text-[13px] font-semibold text-[var(--color-text-main)]">
             {focus.kind === 'settlement'
               ? `Ventas pagadas el ${dateTime(focus.batch.createdAt)}`
               : 'Ventas que entrarán en la próxima liquidación'}
@@ -435,27 +434,27 @@ export default function Settlements() {
                     const style = statusStyle(line.orderStatus);
                     return (
                       <tr key={line.orderId} className="hover:bg-[var(--color-surface-hover)] transition-colors">
-                        <td className="table-body-cell tabular font-bold text-[var(--color-primary)]">
+                        <td className="table-body-cell tabular font-medium whitespace-nowrap">
                           {line.orderNumber}
                         </td>
-                        <td className="table-body-cell text-[var(--color-text-muted)] tabular">
+                        <td className="table-body-cell text-[var(--color-text-muted)] tabular whitespace-nowrap">
                           {dateTime(line.deliveredAt ?? line.createdAt)}
                         </td>
                         <td className="table-body-cell">
                           <span
-                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wide border ${style.chip}`}
+                            className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-main)] whitespace-nowrap"
                           >
                             <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
                             {style.label}
                           </span>
                         </td>
-                        <td className="table-body-cell text-right tabular">
+                        <td className="table-body-cell text-right tabular whitespace-nowrap">
                           {money(line.productSubtotal)}
                         </td>
-                        <td className="table-body-cell text-right tabular text-[var(--color-warning)]">
+                        <td className="table-body-cell text-right tabular whitespace-nowrap text-[var(--color-warning)]">
                           {signedMoney(-line.merchantCommission)}
                         </td>
-                        <td className="table-body-cell text-right tabular font-bold text-[var(--color-text-main)]">
+                        <td className="table-body-cell text-right tabular whitespace-nowrap font-semibold text-[var(--color-text-main)]">
                           {money(line.netAmount)}
                         </td>
                       </tr>
@@ -466,17 +465,17 @@ export default function Settlements() {
 
               {lineTotals && lines?.length ? (
                 <tfoot>
-                  <tr className="bg-[var(--color-bg)]">
-                    <td className="table-body-cell font-bold text-[var(--color-text-main)]" colSpan={3}>
+                  <tr>
+                    <td className="table-body-cell font-semibold text-[var(--color-text-main)]" colSpan={3}>
                       {lineTotals.orderCount} venta(s)
                     </td>
-                    <td className="table-body-cell text-right tabular font-bold">
+                    <td className="table-body-cell text-right tabular whitespace-nowrap font-semibold">
                       {money(lineTotals.productSubtotal)}
                     </td>
-                    <td className="table-body-cell text-right tabular font-bold text-[var(--color-warning)]">
+                    <td className="table-body-cell text-right tabular whitespace-nowrap font-semibold text-[var(--color-warning)]">
                       {signedMoney(-lineTotals.merchantCommission)}
                     </td>
-                    <td className="table-body-cell text-right tabular font-bold text-[var(--color-primary)]">
+                    <td className="table-body-cell text-right tabular whitespace-nowrap font-semibold">
                       {money(lineTotals.netAmount)}
                     </td>
                   </tr>
@@ -509,7 +508,7 @@ function FormulaRow({
       <dt
         className={`text-xs ${
           strong
-            ? 'font-bold text-[var(--color-primary)]'
+            ? 'font-semibold text-[var(--color-text-main)]'
             : 'font-medium text-[var(--color-text-secondary)]'
         }`}
       >

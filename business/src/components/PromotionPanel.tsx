@@ -12,7 +12,7 @@ import {
 
 /**
  * Pantalla completa para crear o editar una promoción. Ocupa el área de
- * contenido: bajo la cabecera (h-20) y junto a la barra lateral (w-30, fija
+ * contenido: bajo la cabecera (h-12) y junto a la barra lateral (w-52, fija
  * desde lg), igual que `OrderDetailPanel`.
  *
  * Va en un portal: el contenedor de la página anima con `transform`, y un
@@ -26,12 +26,12 @@ import {
  */
 
 export const inputClass =
-  'w-full px-3 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)] disabled:opacity-50';
+  'w-full px-3 py-2 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)] disabled:opacity-50';
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-bold text-[var(--color-text-main)]">{label}</label>
+      <label className="text-xs font-semibold text-[var(--color-text-main)]">{label}</label>
       {children}
       {hint && <p className="text-xs text-[var(--color-text-secondary)]">{hint}</p>}
     </div>
@@ -85,11 +85,11 @@ export default function PromotionPanel({
     <div
       role="dialog"
       aria-label={editing ? 'Editar promoción' : 'Nueva promoción'}
-      className="fixed bottom-0 left-0 right-0 top-20 z-30 overflow-y-auto bg-[var(--color-bg)] p-6 lg:left-30 lg:p-8"
+      className="fixed bottom-0 left-0 right-0 top-12 z-30 overflow-y-auto bg-[var(--color-bg)] px-5 py-5 lg:left-52 lg:px-8 lg:py-6"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="text-lg font-bold text-[var(--color-text-main)]">
+          <h2 className="page-title">
             {editing ? 'Editar promoción' : 'Nueva promoción'}
           </h2>
           <p className="text-xs text-[var(--color-text-secondary)] mt-1.5">
@@ -102,7 +102,7 @@ export default function PromotionPanel({
         <button
           type="button"
           onClick={onClose}
-          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]"
+          className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-xs font-medium text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)]"
         >
           <X className="h-4 w-4" /> Volver a promociones
         </button>
@@ -119,7 +119,7 @@ export default function PromotionPanel({
                   role="tab"
                   aria-selected={mode === value}
                   onClick={() => onModeChange(value)}
-                  className={`-mb-px pb-2.5 text-xs font-bold border-b-2 cursor-pointer transition-colors ${
+                  className={`-mb-px pb-2.5 text-xs font-semibold border-b-2 cursor-pointer transition-colors ${
                     mode === value
                       ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
                       : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
@@ -191,7 +191,7 @@ export default function PromotionPanel({
               </div>
 
               <div className="border-t border-[var(--color-border)] pt-5 space-y-4">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Topes</h3>
+                <h3 className="text-xs font-semibold text-[var(--color-text-secondary)]">Topes</h3>
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   <Field label="Presupuesto máximo" hint="Cero: sin tope">
                     <NumericInput
@@ -287,11 +287,11 @@ export default function PromotionPanel({
           {/* ── Vista previa ── */}
           <div className="space-y-6">
             <div className="space-y-1.5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
+              <h3 className="text-xs font-semibold text-[var(--color-text-secondary)]">
                 Así lo verá el cliente
               </h3>
-              <p className="text-2xl font-bold tabular text-[var(--color-primary)]">{previewValue}</p>
-              <p className="text-sm font-bold text-[var(--color-text-main)]">{title || 'Sin título todavía'}</p>
+              <p className="text-lg font-semibold tabular text-[var(--color-text-main)]">{previewValue}</p>
+              <p className="text-sm font-semibold text-[var(--color-text-main)]">{title || 'Sin título todavía'}</p>
               <p className="text-xs text-[var(--color-text-secondary)]">
                 {[
                   isCode ? (codeForm.code.trim() ? `Código ${codeForm.code.trim()}` : 'Sin código todavía') : `${autoForm.productIds.length} producto(s), se aplica sola`,
@@ -302,11 +302,11 @@ export default function PromotionPanel({
             </div>
 
             <div className="space-y-1">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
+              <h3 className="text-xs font-semibold text-[var(--color-text-secondary)]">
                 Lo que te puede costar
               </h3>
               {cost !== null ? (
-                <p className="text-sm font-bold tabular text-[var(--color-text-main)]">
+                <p className="text-sm font-semibold tabular text-[var(--color-text-main)]">
                   Hasta {money(cost)} de tu liquidación
                 </p>
               ) : (
@@ -320,7 +320,7 @@ export default function PromotionPanel({
         </aside>
       </div>
 
-      <div className="sticky bottom-0 -mx-6 border-t border-[var(--color-border)] bg-[var(--color-bg)] px-6 py-4 lg:-mx-8 lg:px-8 space-y-3">
+      <div className="sticky -bottom-5 -mx-5 border-t border-[var(--color-border)] bg-[var(--color-bg)] px-5 py-3 lg:-bottom-6 lg:-mx-8 lg:px-8 space-y-3">
         {error && (
           <p className="flex items-start gap-2 text-xs font-semibold text-[var(--color-danger)]">
             <AlertCircle className="w-4 h-4 shrink-0" />
@@ -335,7 +335,7 @@ export default function PromotionPanel({
             type="button"
             onClick={onSubmit}
             disabled={saving}
-            className="px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white font-bold text-xs uppercase tracking-wider hover:bg-[var(--color-primary-dark)] transition-colors cursor-pointer disabled:opacity-60"
+            className="px-4 py-2 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] transition-colors cursor-pointer disabled:opacity-60"
           >
             {saving ? 'Guardando…' : editing ? 'Guardar cambios' : 'Crear promoción'}
           </button>

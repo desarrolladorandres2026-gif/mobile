@@ -34,7 +34,7 @@ export default function SummaryGrid({ items }: { items: SummaryItem[] }) {
                   {k.loading ? (
                     <span className="block h-4 w-24 rounded bg-[var(--color-bg-alt)] animate-pulse" />
                   ) : (
-                    <p className={`text-sm font-bold tabular ${k.strong ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-main)]'}`}>
+                    <p className={`text-sm font-semibold tabular ${k.strong ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-main)]'}`}>
                       {k.value}
                     </p>
                   )}

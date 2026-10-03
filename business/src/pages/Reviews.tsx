@@ -97,16 +97,16 @@ export default function Reviews() {
   // Función, no componente: un componente declarado dentro del render se
   // remonta en cada tecla y el campo de respuesta perdería el foco.
   const renderReview = (review: (typeof rated)[number]) => (
-            <li key={review._id} className="py-4 space-y-3">
+            <li key={review._id} className="py-3 space-y-2">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1.5">
           <div className="flex items-center gap-2.5">
-            <h3 className="text-sm font-bold text-[var(--color-text-main)]">
+            <h3 className="text-sm font-medium text-[var(--color-text-main)]">
               {review.userId?.name ?? 'Cliente'}
             </h3>
             <Stars value={review.businessRating ?? 0} />
           </div>
-          <p className="text-xs text-[var(--color-text-muted)] font-medium">
+          <p className="text-xs text-[var(--color-text-secondary)]">
             {dateTime(review.createdAt)}
           </p>
         </div>
@@ -123,8 +123,8 @@ export default function Reviews() {
       )}
 
       {review.businessReply ? (
-        <div className="pl-3 border-l-2 border-[var(--color-primary)] space-y-1">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)]">
+        <div className="pl-3 border-l-2 border-[var(--color-border-strong)] space-y-1">
+          <p className="text-[11px] font-semibold text-[var(--color-text-secondary)]">
             Tu respuesta
           </p>
           <p className="text-sm text-[var(--color-text-secondary)]">{review.businessReply}</p>
@@ -144,13 +144,13 @@ export default function Reviews() {
             onKeyDown={(e) => { if (e.key === 'Enter') sendReply(review._id); }}
             maxLength={500}
             placeholder="Responde a este cliente…"
-            className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
+            className="flex-1 min-w-0 h-8 px-3 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
           />
           <button
             onClick={() => sendReply(review._id)}
-            className="px-3.5 py-2 rounded-lg bg-[var(--color-primary)] text-white font-bold text-xs uppercase tracking-wider hover:bg-[#8A5D08] transition-all cursor-pointer flex items-center justify-center gap-1.5"
+            className="h-8 px-3 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] transition-colors cursor-pointer flex items-center justify-center gap-1.5"
           >
-            <Send className="w-4 h-4" />
+            <Send className="w-3.5 h-3.5" />
             {sending === review._id ? 'Enviando…' : 'Responder'}
           </button>
         </div>
@@ -176,20 +176,13 @@ export default function Reviews() {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)] text-xs font-bold text-[var(--color-text-main)] shadow-xs">
-            <Star className="w-3.5 h-3.5 text-[var(--color-warning)] fill-[var(--color-warning)]" />
-            <span>{average ? average.toFixed(1) : 'Sin calificar'}</span>
-            <span className="text-[var(--color-text-muted)] font-semibold">
-              ({rated.length})
-            </span>
-          </div>
-
           <button
             onClick={fetchReviews}
-            className="p-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] hover:bg-[var(--color-bg-alt)] transition-all cursor-pointer"
+            className="h-8 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-medium text-[var(--color-text-main)] cursor-pointer flex items-center gap-1.5"
             title="Actualizar"
           >
-            <RefreshCw className="w-4 h-4 text-[var(--color-text-secondary)]" />
+            <RefreshCw className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
+            Actualizar
           </button>
         </div>
       </div>
@@ -208,7 +201,7 @@ export default function Reviews() {
       ) : rated.length === 0 ? (
         <div className="py-16 text-center space-y-2">
           <Star className="w-8 h-8 text-[var(--color-text-muted)] mx-auto" />
-          <p className="text-sm font-bold text-[var(--color-text-main)]">Todavía no hay reseñas</p>
+          <p className="text-sm font-semibold text-[var(--color-text-main)]">Todavía no hay reseñas</p>
           <p className="text-xs text-[var(--color-text-secondary)] font-medium">
             Aparecerán aquí cuando tus clientes califiquen sus pedidos.
           </p>
@@ -217,7 +210,7 @@ export default function Reviews() {
         <div className="cols3">
           <section>
             <h2 className="col-title">Calificación</h2>
-            <p className="text-4xl font-semibold tracking-[-0.03em] tabular text-[var(--color-text-main)]">
+            <p className="text-2xl font-semibold tabular text-[var(--color-text-main)]">
               {average ? average.toFixed(1) : '—'}
             </p>
             <p className="mt-1 text-xs text-[var(--color-text-secondary)]">{rated.length} reseña(s)</p>

@@ -93,7 +93,7 @@ export default function ProductGalleryField({
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+        <span className="text-[11px] font-semibold text-[var(--color-text-main)]">
           Fotos adicionales
         </span>
         <span className="text-[11px] text-[var(--color-text-main)]">
@@ -110,7 +110,7 @@ export default function ProductGalleryField({
         {images.map((image, index) => (
           <div
             key={publicIds[index] ?? image.thumb}
-            className="relative h-16 w-16 overflow-hidden rounded-lg border border-[var(--color-border)]"
+            className="relative h-16 w-16 overflow-hidden rounded-md border border-[var(--color-border)]"
           >
             <img src={image.thumb} alt="" className="h-full w-full object-cover" />
             <button
@@ -130,7 +130,7 @@ export default function ProductGalleryField({
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={busy}
-            className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-[var(--color-border)] text-[var(--color-text-main)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
+            className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed border-[var(--color-border)] text-[var(--color-text-main)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-50"
           >
             <ImagePlus className="h-4 w-4" />
             <span className="text-[10px] font-semibold">{busy ? '…' : 'Añadir'}</span>
