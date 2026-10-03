@@ -345,6 +345,7 @@ export default function UserProfile360({
  {data.pro.plan ? ` · ${data.pro.plan}` : ''}
  {data.pro.startedAt ? ` · desde ${day(data.pro.startedAt)}` : ''}
  {data.pro.currentPeriodEnd ? ` · vigente hasta ${day(data.pro.currentPeriodEnd)}` : ''}
+ {data.pro.member != null ? ` · ${data.pro.member ? 'con beneficios hoy' : 'sin beneficios hoy'}` : ''}
  {data.pro.cancelledAt ? ` · cancelada ${day(data.pro.cancelledAt)}` : ''}
  {data.pro.autoRenew != null ? ` · ${data.pro.autoRenew ? 'renovación automática' : 'sin renovación'}` : ''}
  </p>

@@ -21,6 +21,7 @@ import ModifierGroupsEditor from '../components/ModifierGroupsEditor';
 import NumericInput from '../components/NumericInput';
 import { toDrafts, fromDrafts } from '../lib/modifierGroups';
 import { fetchBusinessSettings } from '../lib/businessSettings';
+import { usePermissions } from '../hooks/usePermissions';
 import {
   EMPTY_PRODUCT_FORM, PREP_TIME_MAX, discountPercent, hasDraftContent, productChecklist,
   productProgress, rawDiscountPercent, readPricing, type PricingField, type ProductFormState,
@@ -47,6 +48,14 @@ const PRICING_INPUT: Record<PricingField, string> = {
 export default function Menu() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
+
+  // El operador consulta la carta pero no la cambia: sin estos permisos se
+  // esconden los controles que el backend respondería con 403.
+  const { can } = usePermissions(businessId);
+  const canCreate = can('catalog:create');
+  const canEdit = can('catalog:edit');
+  const canDelete = can('catalog:delete');
+  const readOnly = !canCreate && !canEdit && !canDelete;
 
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
@@ -527,14 +536,16 @@ export default function Menu() {
                 >
                   {category.name}
                 </button>
-                <button
-                  onClick={() => actions.current.deleteCategory(category._id)}
-                  title="Eliminar categoría"
-                  aria-label={`Eliminar la categoría ${category.name}`}
-                  className="p-1 rounded-md text-[var(--color-text-main)] hover:text-[var(--color-danger)] transition-colors cursor-pointer"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
+                {canEdit && (
+                  <button
+                    onClick={() => actions.current.deleteCategory(category._id)}
+                    title="Eliminar categoría"
+                    aria-label={`Eliminar la categoría ${category.name}`}
+                    className="p-1 rounded-md text-[var(--color-text-main)] hover:text-[var(--color-danger)] transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
               </span>
             ))}
           </div>
@@ -622,7 +633,9 @@ export default function Menu() {
                   )}
                 </div>
 
+                {(canEdit || canDelete) && (
                 <div className="flex items-center gap-1 shrink-0">
+                  {canEdit && (<>
                   <button
                     onClick={() => actions.current.toggle(product)}
                     title={product.isAvailable ? 'Marcar como agotado' : 'Volver a ofrecerlo'}
@@ -642,6 +655,8 @@ export default function Menu() {
                   >
                     <Edit className="w-4 h-4" />
                   </button>
+                  </>)}
+                  {canDelete && (
                   <button
                     onClick={() => actions.current.deleteProduct(product._id)}
                     aria-label={`Eliminar ${product.name}`}
@@ -649,14 +664,16 @@ export default function Menu() {
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
+                  )}
                 </div>
+                )}
               </li>
             ))}
           </ul>
         )}
       </div>
     );
-  }, [categories, products, filterCategory]);
+  }, [categories, products, filterCategory, canEdit, canDelete]);
 
   if (!selectedBusiness) {
     return (
@@ -709,16 +726,21 @@ export default function Menu() {
         <div>
           <h1 className="page-title">Menú y productos</h1>
           <p className="page-subtitle">
-            Platos, disponibilidad, precios y fotos de tu establecimiento
+            {readOnly
+              ? 'Consulta de la carta: precios, disponibilidad y tiempos. Los cambios los hace el propietario o un administrador.'
+              : 'Platos, disponibilidad, precios y fotos de tu establecimiento'}
           </p>
         </div>
+        {!readOnly && (
         <div className="flex items-center justify-center gap-2.5">
+          {canEdit && (
           <button
             onClick={() => setShowCategoryModal(true)}
             className="inline-flex items-center gap-1 px-1 py-2 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] transition-colors cursor-pointer"
           >
             + Nueva categoría
           </button>
+          )}
           {/*
             El botón nunca se deshabilita.
 
@@ -728,6 +750,7 @@ export default function Menu() {
             si falta la categoría, se pide primero y después se abre el
             producto solo.
           */}
+          {canCreate && (
           <button
             onClick={startNewProduct}
             className="inline-flex h-11 min-w-48 items-center justify-between gap-8 rounded-[11px] bg-[#ff2851] px-4 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#e92147] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff2851] cursor-pointer"
@@ -738,7 +761,9 @@ export default function Menu() {
             </span>
             <ChevronDown className="h-[18px] w-[18px]" strokeWidth={2.5} aria-hidden="true" />
           </button>
+          )}
         </div>
+        )}
       </div>
 
       {(error || loadError) && (
@@ -752,7 +777,7 @@ export default function Menu() {
         y el botón lleva al mismo sitio que "Nuevo producto": antes, el
         desplegable llegaba vacío y el servidor devolvía un 500 genérico.
       */}
-      {!loading && noCategories && (
+      {!loading && noCategories && canEdit && (
         <div className="flex items-start gap-2.5 rounded-xl border border-[var(--color-primary)]/30 bg-[var(--color-primary-bg)] p-3.5">
           <div className="flex-1">
             <p className="text-xs font-bold text-[var(--color-text-main)]">

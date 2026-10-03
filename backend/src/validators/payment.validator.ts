@@ -321,6 +321,14 @@ export const orderPaymentsSchema = z.object({
   params: z.object({ orderId: objectId }),
 });
 
+/** POST /payments/:paymentId/review/resolve */
+export const resolvePaymentReviewSchema = z.object({
+  params: z.object({ paymentId: objectId }),
+  body: z.object({
+    note: z.string().trim().min(10, 'Describe en al menos 10 caracteres cómo se resolvió').max(500),
+  }),
+});
+
 /**
  * POST /payments/orders/:orderId/chargeback
  *

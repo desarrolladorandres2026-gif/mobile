@@ -35,6 +35,8 @@ const KIND_ROUTE: Record<string, string> = {
  cash_overdue: '/financials',
  clawback_overdue: '/financials',
  refund_failed: '/financials',
+ payment_review: '/incidents',
+ order_unaccepted: '/orders',
  complaint: '/support',
  pqrs_legal: '/support',
  data_request_legal: '/legal',

@@ -599,9 +599,12 @@ export class PaymentService {
         browserInfo: input.browserInfo,
       });
     } catch (error) {
-      // Se cierra la fila para liberar el hueco del índice; si no, el cliente
-      // quedaría bloqueado sin poder reintentar nunca.
-      return this.failCreation(payment, error);
+      // Un "no" explícito de la pasarela cierra la fila para liberar el hueco
+      // del índice; si no, el cliente quedaría bloqueado sin poder reintentar.
+      // Cualquier otro fallo (red, tiempo agotado) no dice si Wompi alcanzó a
+      // crear la transacción, y eso se pregunta antes de cerrar nada.
+      const found = await this.onCreationError(payment, error);
+      intent = found;
     }
 
     await Payment.updateOne(
@@ -707,7 +710,7 @@ export class PaymentService {
         browserInfo: input.browserInfo,
       });
     } catch (error) {
-      return this.failCreation(payment, error);
+      intent = await this.onCreationError(payment, error);
     }
 
     await Payment.updateOne(
@@ -749,21 +752,25 @@ export class PaymentService {
       existing.transactionId && existing.transactionId !== existing.reference
     );
 
-    if (!hasGatewayRecord) {
-      await this.retireAttempt(
-        existing,
-        'Intento de membresía que no llegó a la pasarela; sustituido por uno nuevo',
-        { supersededAmount: existing.amount, supersededAt: new Date().toISOString() }
-      );
-      return;
-    }
-
     let asked = false;
-    try {
-      await this.sync(existing.transactionId!);
-      asked = true;
-    } catch {
-      // Sin respuesta de la pasarela se decide con la fila local.
+    if (!hasGatewayRecord) {
+      const decision = await this.settleUnconfirmedAttempt(existing);
+      if (decision === 'retire') {
+        await this.retireAttempt(
+          existing,
+          'Intento de membresía que no llegó a la pasarela; sustituido por uno nuevo',
+          { supersededAmount: existing.amount, supersededAt: new Date().toISOString() }
+        );
+        return;
+      }
+      asked = decision === 'resolved';
+    } else {
+      try {
+        await this.sync(existing.transactionId!);
+        asked = true;
+      } catch {
+        // Sin respuesta de la pasarela se decide con la fila local.
+      }
     }
 
     const refreshed = await Payment.findById(existing._id);
@@ -913,23 +920,29 @@ export class PaymentService {
       existing.transactionId && existing.transactionId !== existing.reference
     );
 
-    if (!hasGatewayRecord) {
-      // Nunca llegó a la pasarela: retirarla no puede perder dinero.
-      await this.retireAttempt(
-        existing,
-        'Intento anterior que no llegó a la pasarela; sustituido por uno nuevo',
-        { supersededAmount: existing.amount, supersededAt: new Date().toISOString() }
-      );
-      return;
-    }
-
     let asked = false;
-    try {
-      await this.sync(existing.transactionId!);
-      asked = true;
-    } catch {
-      // No se pudo preguntar. Se decide con lo que diga la fila local, que
-      // es lo único disponible.
+    if (!hasGatewayRecord) {
+      // Sin id de la pasarela no basta con suponer que nunca llegó: puede
+      // estar creándose ahora mismo en otra petición, o haberse creado justo
+      // antes de un corte de red. Ver `settleUnconfirmedAttempt`.
+      const decision = await this.settleUnconfirmedAttempt(existing);
+      if (decision === 'retire') {
+        await this.retireAttempt(
+          existing,
+          'Intento anterior que no llegó a la pasarela; sustituido por uno nuevo',
+          { supersededAmount: existing.amount, supersededAt: new Date().toISOString() }
+        );
+        return;
+      }
+      asked = decision === 'resolved';
+    } else {
+      try {
+        await this.sync(existing.transactionId!);
+        asked = true;
+      } catch {
+        // No se pudo preguntar. Se decide con lo que diga la fila local, que
+        // es lo único disponible.
+      }
     }
 
     const refreshed = await Payment.findById(existing._id);
@@ -990,6 +1003,137 @@ export class PaymentService {
         source: 'create',
       });
     }
+  }
+
+  /**
+   * La creación de un cobro falló. ¿Existe o no la transacción en Wompi?
+   *
+   * Antes todo fallo cerraba la fila como FAILED. Pero si la conexión se
+   * cortaba *después* de que Wompi creara el cobro, el cliente reintentaba,
+   * pagaba con un intento nuevo y el primero se aprobaba igual: dos cobros.
+   * Ahora solo un rechazo explícito (`GatewayRejectedError`) cierra la fila
+   * sin preguntar. Lo demás se busca por referencia: si existe, se sigue con
+   * esa transacción como si la respuesta hubiera llegado; si Wompi dice que
+   * no existe, se cierra; si no se le puede preguntar, la fila queda abierta
+   * y marcada, y nadie puede abrir otro cobro hasta saberlo.
+   */
+  private async onCreationError(payment: IPayment, error: unknown): Promise<PaymentIntent> {
+    if (error instanceof GatewayRejectedError) return this.failCreation(payment, error);
+
+    const outcome = await this.reconcileByReference(payment);
+    if (outcome.kind === 'found') return outcome.intent;
+    if (outcome.kind === 'absent' || outcome.kind === 'unsupported') {
+      return this.failCreation(payment, error);
+    }
+
+    const detail = ((error as Error)?.message || 'sin detalle').slice(0, 400);
+    console.error('[PAYMENTS] No se sabe si la pasarela creó el cobro', {
+      paymentId: payment._id.toString(),
+      detail,
+    });
+    await Payment.updateOne(
+      { _id: payment._id, status: PaymentStatus.PENDING },
+      { $set: { 'metadata.creationUncertain': true, 'metadata.gatewayDetail': detail } }
+    );
+    throw new AppError(
+      'No pudimos confirmar si el pago se procesó. No lo intentes otra vez todavía: revisa tu pedido en unos minutos.',
+      502,
+      'PAYMENT_UNCERTAIN'
+    );
+  }
+
+  /**
+   * Busca en la pasarela, por nuestra referencia, un intento que todavía no
+   * tiene id de la pasarela. Si aparece, la fila asciende a ese id y su
+   * estado pasa por `applyGatewayStatus` como cualquier otro.
+   */
+  private async reconcileByReference(payment: IPayment): Promise<
+    | { kind: 'found'; intent: PaymentIntent }
+    | { kind: 'absent' }
+    | { kind: 'unknown' }
+    | { kind: 'unsupported' }
+  > {
+    const provider = getPaymentProvider();
+    if (!provider.findPaymentByReference || !payment.reference) return { kind: 'unsupported' };
+
+    let intent: PaymentIntent | null;
+    try {
+      intent = await provider.findPaymentByReference(payment.reference);
+    } catch (error) {
+      console.error('[PAYMENTS] No se pudo buscar el cobro por referencia', {
+        paymentId: payment._id.toString(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { kind: 'unknown' };
+    }
+    if (!intent) return { kind: 'absent' };
+
+    await Payment.updateOne(
+      { _id: payment._id, transactionId: payment.reference },
+      {
+        $set: {
+          transactionId: intent.id,
+          ...(intent.paymentMethodType ? { paymentMethodType: intent.paymentMethodType } : {}),
+          ...(intent.rawStatus ? { gatewayStatus: intent.rawStatus } : {}),
+        },
+        $unset: { 'metadata.creationUncertain': '' },
+      }
+    );
+    await this.applyGatewayStatus(intent.id, intent.status, intent.amount, {
+      gatewayTransactionId: intent.id,
+      currency: intent.currency,
+      message: intent.declineReason,
+      paymentMethodType: intent.paymentMethodType,
+      rawStatus: intent.rawStatus,
+      source: 'sync',
+    });
+    return { kind: 'found', intent };
+  }
+
+  /**
+   * Resuelve, desde el barrido, un cobro cuya creación quedó en duda.
+   * Si Wompi confirma que no existe, se cierra y el cliente puede reintentar.
+   */
+  async resolveUncertainCreation(paymentId: string): Promise<void> {
+    const payment = await Payment.findOne({
+      _id: paymentId,
+      status: PaymentStatus.PENDING,
+      'metadata.creationUncertain': true,
+    });
+    if (!payment || payment.transactionId !== payment.reference) return;
+
+    const outcome = await this.reconcileByReference(payment);
+    if (outcome.kind === 'absent') {
+      await this.retireAttempt(payment, 'La pasarela confirmó que el cobro no llegó a crearse', {
+        creationUncertain: false,
+      });
+    } else if (outcome.kind === 'unknown') {
+      throw new Error('La pasarela no respondió a la búsqueda por referencia');
+    }
+  }
+
+  /**
+   * Qué hacer con un intento PENDING que todavía no tiene id de la pasarela.
+   *
+   *  · `busy`: no se puede decidir aún. Un cobro dentro de la app recién
+   *    creado puede estar, en este mismo instante, esperando la respuesta de
+   *    Wompi en otra petición (el doble toque); retirarlo abría un segundo
+   *    cobro. Tampoco se retira uno marcado como incierto si Wompi no
+   *    contesta.
+   *  · `resolved`: Wompi lo tenía y la fila ya se sincronizó; hay que mirar
+   *    su estado nuevo.
+   *  · `retire`: Wompi confirma que no existe (o el proveedor no sabe
+   *    buscar, que es lo de siempre): retirarlo no puede perder dinero.
+   */
+  private async settleUnconfirmedAttempt(payment: IPayment): Promise<'busy' | 'resolved' | 'retire'> {
+    const native = Boolean(payment.metadata?.instrumentKind);
+    const graceMs = (config.payments.wompi.httpTimeoutMs || 15_000) + 15_000;
+    if (native && Date.now() - new Date(payment.createdAt).getTime() < graceMs) return 'busy';
+
+    const outcome = await this.reconcileByReference(payment);
+    if (outcome.kind === 'found') return 'resolved';
+    if (outcome.kind === 'absent' || outcome.kind === 'unsupported') return 'retire';
+    return payment.metadata?.creationUncertain || native ? 'busy' : 'retire';
   }
 
   /**
@@ -1101,10 +1245,16 @@ export class PaymentService {
           'GATEWAY_ERROR'
         );
       }
-      const refreshed = await Payment.findById(payment._id);
-      if (refreshed && refreshed.status !== PaymentStatus.PENDING) {
-        return { status: outcome(refreshed.status) };
-      }
+    } else if ((await this.settleUnconfirmedAttempt(payment)) === 'busy') {
+      throw new AppError(
+        'No pudimos confirmar con el banco si el pago entró. Espera un momento e inténtalo de nuevo.',
+        502,
+        'GATEWAY_ERROR'
+      );
+    }
+    const refreshed = await Payment.findById(payment._id);
+    if (refreshed && refreshed.status !== PaymentStatus.PENDING) {
+      return { status: outcome(refreshed.status) };
     }
 
     const retired = await this.retireAttempt(
@@ -1118,6 +1268,14 @@ export class PaymentService {
       // Otro camino lo resolvió entre la consulta y el retiro.
       const latest = await Payment.findById(payment._id);
       return { status: outcome(latest?.status ?? PaymentStatus.FAILED) };
+    }
+
+    // Retirar el cobro no pasa por `applyGatewayStatus`, así que la
+    // membresía que esperaba este cobro no se entera sola: quedaría en
+    // PENDING para siempre. Si el banco aprueba después de todas formas,
+    // `FAILED → PAID` la sigue activando.
+    if (payment.type === PaymentType.PRO_SUBSCRIPTION) {
+      await proService.releaseAbandonedAttempt(payment.userId.toString());
     }
 
     return { status: 'abandoned' };
@@ -1172,6 +1330,24 @@ export class PaymentService {
     const nextStatus = toPaymentStatus(status);
 
     if (payment.status === nextStatus) {
+      // Otra entrega del mismo cobro aprobado. Si la primera se cortó
+      // después del reclamo, aquí se termina lo que quedó pendiente; un
+      // error se propaga para que el webhook responda 5xx y Wompi reintente.
+      if (nextStatus === PaymentStatus.PAID) {
+        await this.resumeCapture(payment._id.toString(), key);
+      }
+      const order = await this.orderOf(payment);
+      return { order, changed: false };
+    }
+
+    // Un intento que cerramos nosotros (abandonado, sustituido, cambio de
+    // método, pedido cancelado) no vuelve a abrirse porque la pasarela diga
+    // que sigue pendiente. La tabla permite FAILED → PENDING para reintentos,
+    // pero reabrirlo así le devolvía al pedido un `paymentStatus` de pago en
+    // línea —aunque ya fuera en efectivo— y chocaba con el intento vigente en
+    // el índice de "uno abierto por pedido". Si al final se aprueba,
+    // FAILED → PAID sigue entrando y `onCaptured` decide.
+    if (payment.status === PaymentStatus.FAILED && nextStatus === PaymentStatus.PENDING) {
       const order = await this.orderOf(payment);
       return { order, changed: false };
     }
@@ -1395,29 +1571,7 @@ export class PaymentService {
         orderStatus: order.status,
       });
 
-      await Payment.updateOne(
-        { _id: payment._id },
-        { $set: { 'metadata.requiresReview': true, 'metadata.reviewReason': reason } }
-      );
-
-      logSystemAudit({
-        userId: 'system',
-        role: 'system',
-        action: AuditAction.SUSPICIOUS_ACTIVITY,
-        entity: 'payment',
-        entityId: payment._id.toString(),
-        severity: AuditSeverity.HIGH,
-        description: `Cobro retenido para revisión: ${reason}`,
-        metadata: {
-          orderId: order._id.toString(),
-          orderNumber: order.orderNumber,
-          orderStatus: order.status,
-          paidAmount: payment.amount,
-          orderTotal,
-          reference: payment.reference,
-          transactionId: payment.transactionId,
-        },
-      }).catch(console.error);
+      await this.holdForReview(order, payment, reason);
 
       // El pago queda PAID —el dinero entró— pero el pedido no avanza y
       // nada se libera. Queda dinero cobrado con un pedido sin cerrar, que
@@ -1442,29 +1596,33 @@ export class PaymentService {
       { $set: { paymentStatus: PaymentStatus.PAID } }
     );
     if (closedNow.matchedCount === 0) {
-      await Payment.updateOne(
-        { _id: payment._id },
-        {
-          $set: {
-            'metadata.requiresReview': true,
-            'metadata.reviewReason': 'El pedido se cerró o cambió de método mientras entraba el cobro',
-          },
-        }
+      await this.holdForReview(
+        order,
+        payment,
+        'El pedido se cerró o cambió de método mientras entraba el cobro'
       );
-      logSystemAudit({
-        userId: 'system',
-        role: 'system',
-        action: AuditAction.SUSPICIOUS_ACTIVITY,
-        entity: 'payment',
-        entityId: payment._id.toString(),
-        severity: AuditSeverity.HIGH,
-        description: 'Cobro retenido para revisión: el pedido se cerró mientras entraba el cobro',
-        metadata: { orderId: order._id.toString(), orderNumber: order.orderNumber, paidAmount: payment.amount },
-      }).catch(console.error);
       return { order, changed: true };
     }
     order.paymentStatus = PaymentStatus.PAID;
 
+    await this.finishCapture(order, payment, key);
+    return { order, changed: true };
+  }
+
+  /**
+   * Lo que sigue a un pedido ya marcado PAID: asiento del cobro, liberación
+   * de lo que se le debe al comercio y al domiciliario, y el aviso.
+   *
+   * Separado de `onCaptured` para poder repetirse. Antes vivía al final de
+   * ese método, detrás del reclamo atómico del `Payment`: si algo fallaba
+   * aquí (un corte de Mongo, un reinicio a mitad de despliegue), el
+   * reintento de Wompi encontraba el pago ya PAID, lo daba por procesado y
+   * nadie volvía a escribir el asiento ni a liberar los pagos. Cada paso es
+   * idempotente —el asiento por referencia, la liberación solo mueve lo que
+   * sigue ACCRUED—, así que repetirlo no duplica nada. La marca
+   * `metadata.captureSettledAt` dice que ya no queda nada por hacer.
+   */
+  private async finishCapture(order: IOrder, payment: IPayment, key: string): Promise<void> {
     // Imported lazily: the ledger and payout services import models that
     // import this module, and a static cycle would leave one side undefined.
     const { ledgerService } = await import('../ledger.service');
@@ -1490,10 +1648,16 @@ export class PaymentService {
     // The money is ours, so what we owe becomes payable.
     await payoutService.release(order._id);
 
+    await Payment.updateOne(
+      { _id: payment._id },
+      { $set: { 'metadata.captureSettledAt': new Date().toISOString() } }
+    );
+
     // El comercio se entera ahora que el dinero entró, no al crear el pedido.
     // Va después del libro y de los payouts y sin esperar: así el aviso no
     // alarga el hueco entre marcar PAID y asentar el cobro. Si falla, el
-    // pedido aparece igual al refrescar (lo decide `paymentStatus`, no el socket).
+    // pedido aparece igual al refrescar (lo decide `paymentStatus`, no el
+    // socket), y si nadie lo acepta salta la alerta de pedido sin aceptar.
     import('../order.service')
       .then(({ orderService }) => orderService.announceToBusiness(order._id.toString()))
       .catch((err) =>
@@ -1507,13 +1671,174 @@ export class PaymentService {
     // disparador es el cobro — y tiene que serlo: mandar a alguien a
     // adelantar $50.000 de su bolsillo por un pedido que todavía no está
     // pagado sería ponerle su dinero a jugar por nosotros.
-    if (order.kind === OrderKind.ERRAND && !order.driverId) {
+    //
+    // `!order.dispatch`: solo si la búsqueda nunca arrancó. `startDispatch`
+    // la reinicia desde cero, y una reanudación no debe borrar las rondas ya
+    // ofrecidas.
+    if (order.kind === OrderKind.ERRAND && !order.driverId && !order.dispatch) {
       import('../dispatch.service')
         .then(({ startDispatch }) => startDispatch(order._id.toString()))
         .catch((err) => console.error('[Errand] No se pudo iniciar el reparto:', err));
     }
+  }
 
-    return { order, changed: true };
+  /**
+   * Termina un cobro aprobado que quedó a medias.
+   *
+   * El `Payment` pasa a PAID con un reclamo atómico y todo lo demás va
+   * después. Si el proceso cae entre medias, el pago dice PAID y el resto
+   * no ocurrió: el pedido sin marcar (el comercio nunca lo ve) o el asiento
+   * y los pagos sin liberar. Esto lo retoma desde donde quedó. Lo llaman el
+   * reintento del webhook, la consulta de estado y el barrido.
+   *
+   * Un candado corto en la fila evita que dos de ellos lo hagan a la vez.
+   */
+  async resumeCapture(paymentId: string, key?: string): Promise<boolean> {
+    const now = new Date();
+    const payment = await Payment.findOneAndUpdate(
+      {
+        _id: paymentId,
+        type: PaymentType.ORDER_PAYMENT,
+        method: PaymentMethod.ONLINE,
+        status: PaymentStatus.PAID,
+        'metadata.captureSettledAt': { $exists: false },
+        'metadata.requiresReview': { $ne: true },
+        $or: [
+          { 'metadata.captureResumeLockUntil': { $exists: false } },
+          { 'metadata.captureResumeLockUntil': { $lt: now.toISOString() } },
+        ],
+      },
+      { $set: { 'metadata.captureResumeLockUntil': new Date(now.getTime() + 60_000).toISOString() } },
+      { new: true }
+    );
+    if (!payment) return false;
+
+    const releaseLock = () =>
+      Payment.updateOne({ _id: payment._id }, { $unset: { 'metadata.captureResumeLockUntil': '' } });
+
+    try {
+      const order = await this.orderOf(payment);
+      if (!order) {
+        await releaseLock();
+        return false;
+      }
+      const lookup = key ?? payment.transactionId ?? payment.reference ?? '';
+
+      // El pedido todavía no refleja el cobro: se repite el juicio completo
+      // (monto, pedido cerrado, cambio de método, doble cobro) desde cero.
+      if (order.paymentStatus !== PaymentStatus.PAID && order.paymentStatus !== PaymentStatus.REFUNDED) {
+        await this.onCaptured(order, payment, lookup);
+        await releaseLock();
+        return true;
+      }
+
+      // Reembolsado o cancelado: esas cuentas ya las deshizo quien canceló.
+      if (order.paymentStatus === PaymentStatus.REFUNDED || order.status === OrderStatus.CANCELLED) {
+        await Payment.updateOne(
+          { _id: payment._id },
+          {
+            $set: { 'metadata.captureSettledAt': now.toISOString() },
+            $unset: { 'metadata.captureResumeLockUntil': '' },
+          }
+        );
+        return true;
+      }
+
+      // El pedido dice PAID. Si lo pagó *otro* intento anterior, este es un
+      // segundo cobro que cayó antes de poder marcarse: se retiene igual que
+      // lo habría retenido `onCaptured`, y nunca se asienta como ingreso.
+      const other = await Payment.findOne({
+        orderId: order._id,
+        _id: { $ne: payment._id },
+        type: PaymentType.ORDER_PAYMENT,
+        status: PaymentStatus.PAID,
+        'metadata.requiresReview': { $ne: true },
+      }).sort({ processedAt: 1, _id: 1 });
+      const otherIsFirst =
+        other &&
+        ((other.processedAt?.getTime() ?? 0) < (payment.processedAt?.getTime() ?? 0) ||
+          ((other.processedAt?.getTime() ?? 0) === (payment.processedAt?.getTime() ?? 0) &&
+            other._id.toString() < payment._id.toString()));
+      if (otherIsFirst) {
+        await this.holdForReview(
+          order,
+          payment,
+          'Se cobró dos veces el mismo pedido: ya estaba pagado con otro intento'
+        );
+        await releaseLock();
+        return true;
+      }
+
+      await this.finishCapture(order, payment, lookup);
+      await releaseLock();
+      return true;
+    } catch (error) {
+      await releaseLock().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** Marca un cobro para que una persona lo revise y deja constancia. */
+  private async holdForReview(order: IOrder, payment: IPayment, reason: string): Promise<void> {
+    const orderTotal = order.finance?.customerTotal ?? order.total;
+    await Payment.updateOne(
+      { _id: payment._id },
+      { $set: { 'metadata.requiresReview': true, 'metadata.reviewReason': reason, 'metadata.reviewOpenedAt': new Date().toISOString() } }
+    );
+    logSystemAudit({
+      userId: 'system',
+      role: 'system',
+      action: AuditAction.SUSPICIOUS_ACTIVITY,
+      entity: 'payment',
+      entityId: payment._id.toString(),
+      severity: AuditSeverity.HIGH,
+      description: `Cobro retenido para revisión: ${reason}`,
+      metadata: {
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        orderStatus: order.status,
+        paidAmount: payment.amount,
+        orderTotal,
+        reference: payment.reference,
+        transactionId: payment.transactionId,
+      },
+    }).catch(console.error);
+
+    // A la bandeja del centro de incidentes: sin esto el cobro solo quedaba
+    // en la bitácora y nadie lo trabajaba.
+    import('../alerts.service')
+      .then(({ notifyAlertsChanged }) => notifyAlertsChanged('payment_review'))
+      .catch(() => undefined);
+  }
+
+  /**
+   * Una persona de Finanzas cierra un cobro retenido: lo reembolsó por
+   * fuera, lo aplicó a mano, o comprobó que no había nada que hacer. Solo
+   * deja constancia; no mueve dinero (eso va por los reembolsos).
+   */
+  async resolveReview(input: { paymentId: string; adminId: string; note: string }): Promise<IPayment> {
+    const resolved = await Payment.findOneAndUpdate(
+      {
+        _id: input.paymentId,
+        'metadata.requiresReview': true,
+        'metadata.reviewResolvedAt': { $exists: false },
+      },
+      {
+        $set: {
+          'metadata.reviewResolvedAt': new Date().toISOString(),
+          'metadata.reviewResolvedBy': input.adminId,
+          'metadata.reviewResolution': input.note,
+        },
+      },
+      { new: true }
+    );
+    if (!resolved) {
+      throw new AppError('No hay un cobro pendiente de revisión con ese identificador', 404);
+    }
+    import('../alerts.service')
+      .then(({ notifyAlertsChanged }) => notifyAlertsChanged('payment_review'))
+      .catch(() => undefined);
+    return resolved;
   }
 
   /**
@@ -2250,13 +2575,85 @@ export async function sweepPendingPayments(now = new Date()): Promise<{
     }
   }
 
+  // Cobros cuya creación se cortó por la red sin saber si Wompi los creó.
+  // No tienen id de la pasarela que consultar, así que se buscan por
+  // referencia (ver `PaymentService.onCreationError`).
+  const uncertain = await Payment.find({
+    status: PaymentStatus.PENDING,
+    method: PaymentMethod.ONLINE,
+    'metadata.creationUncertain': true,
+    updatedAt: { $gt: new Date(now.getTime() - PENDING_SWEEP_MAX_AGE_MS) },
+  })
+    .select('_id')
+    .limit(PENDING_SWEEP_BATCH);
+
+  for (const row of uncertain) {
+    try {
+      await paymentService.resolveUncertainCreation(row._id.toString());
+      checked += 1;
+    } catch (error) {
+      failed += 1;
+      console.error('[PAYMENTS] El barrido no pudo resolver un cobro en duda', {
+        paymentId: row._id.toString(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   return { checked, failed };
+}
+
+/**
+ * Cobros aprobados que quedaron a medias (ver `resumeCapture`).
+ *
+ * El webhook repetido y la consulta de estado ya los retoman, pero Wompi
+ * deja de reintentar en algún momento y la app puede no volver a preguntar.
+ * Se mira hacia atrás una semana: lo bastante para cubrir una caída larga, y
+ * acotado para no recorrer el histórico entero en cada pasada.
+ */
+const UNSETTLED_CAPTURE_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+
+export async function sweepUnsettledCaptures(now = new Date()): Promise<{
+  resumed: number;
+  failed: number;
+}> {
+  const rows = await Payment.find({
+    type: PaymentType.ORDER_PAYMENT,
+    method: PaymentMethod.ONLINE,
+    status: PaymentStatus.PAID,
+    'metadata.captureSettledAt': { $exists: false },
+    'metadata.requiresReview': { $ne: true },
+    processedAt: {
+      $lt: new Date(now.getTime() - PENDING_SWEEP_MIN_AGE_MS),
+      $gt: new Date(now.getTime() - UNSETTLED_CAPTURE_MAX_AGE_MS),
+    },
+  })
+    .select('_id')
+    .sort({ processedAt: 1 })
+    .limit(PENDING_SWEEP_BATCH);
+
+  let resumed = 0;
+  let failed = 0;
+  for (const row of rows) {
+    try {
+      if (await paymentService.resumeCapture(row._id.toString())) resumed += 1;
+    } catch (error) {
+      failed += 1;
+      console.error('[PAYMENTS] No se pudo terminar un cobro aprobado', {
+        paymentId: row._id.toString(),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { resumed, failed };
 }
 
 export function startPendingPaymentSweeper(intervalMs = 5 * 60_000): void {
   if (pendingSweepTimer) return;
   pendingSweepTimer = setInterval(() => {
-    sweepPendingPayments()
+    sweepUnsettledCaptures()
+      .catch((err) => console.error('[PAYMENTS] Falló el barrido de cobros a medias:', err))
+      .then(() => sweepPendingPayments())
       // Primero se le pregunta a la pasarela y solo después se cierra lo que
       // sigue sin pagar: así un cobro que sí entró no se cancela.
       .then(() => import('../order.service'))

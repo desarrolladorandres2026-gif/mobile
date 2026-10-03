@@ -8,6 +8,8 @@ import {
   Address,
   SavedCard,
   ProSubscription,
+  isProActive,
+  type IProSubscription,
   LegalAcceptance,
   DataRequest,
   Refund,
@@ -329,6 +331,8 @@ export async function profile360(userId: string, options: Profile360Options = {}
     pro: proSub
       ? {
           status: proSub.status,
+          // Si hoy tiene beneficios: el estado solo no lo dice (ver `isProActive`).
+          member: isProActive(proSub as Pick<IProSubscription, 'status' | 'currentPeriodEnd'>),
           plan: proSub.planId,
           startedAt: proSub.startedAt,
           currentPeriodEnd: proSub.currentPeriodEnd,

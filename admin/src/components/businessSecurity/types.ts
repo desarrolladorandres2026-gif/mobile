@@ -4,7 +4,7 @@
  * tokens ni hashes; el identificador de dispositivo llega recortado.
  */
 
-export type BusinessRole = 'owner' | 'manager' | 'staff';
+export type BusinessRole = 'owner' | 'manager' | 'operator' | 'cashier';
 export type SessionStatus = 'active' | 'revoked' | 'expired';
 export type EventResult = 'success' | 'failure' | 'info';
 

@@ -1,9 +1,10 @@
-import { useMemo, memo } from 'react';
+import { useCallback, useMemo, memo } from 'react';
 import {
   View, FlatList, Pressable, RefreshControl, StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import Animated, {
   FadeIn, useAnimatedScrollHandler, useAnimatedStyle, useDerivedValue, useSharedValue,
 } from 'react-native-reanimated';
@@ -50,6 +51,15 @@ export default function HomeScreen() {
   // Las primeras colecciones con la pantalla; el resto (hasta veinte, con
   // sus fotos) un instante después, en vez de todas en el mismo fotograma.
   const sectionLimit = useProgressiveLimit(INITIAL_HOME_SECTIONS);
+
+  // Deslizar hacia abajo también trae los banners del carrusel fijo: viven
+  // en su propia consulta (`['banners', 'home']`), y sin esto un banner
+  // recién publicado desde el panel no aparecía al refrescar.
+  const queryClient = useQueryClient();
+  const refreshHome = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['banners', 'home'] });
+    return refetch();
+  }, [queryClient, refetch]);
 
   const defaultAddress = useMemo(
     () => addresses.find((a: any) => a.isDefault) ?? addresses[0],
@@ -177,7 +187,7 @@ export default function HomeScreen() {
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
-            onRefresh={refetch}
+            onRefresh={refreshHome}
             tintColor={c.primary}
             colors={[c.primary]}
           />

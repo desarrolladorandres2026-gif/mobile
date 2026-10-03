@@ -103,6 +103,8 @@ const KIND: Record<string, { label: string; icon: LucideIcon }> = {
  driver_document_expiring: { label: 'Documento de domiciliario por vencer', icon: FileWarning },
  ad_uninvoiced: { label: 'Publicidad sin facturar', icon: Megaphone },
  refund_failed: { label: 'Reembolso fallido', icon: Undo2 },
+ payment_review: { label: 'Cobro en revisión', icon: Banknote },
+ order_unaccepted: { label: 'Pedido sin aceptar', icon: Clock },
 };
 
 /** Un tipo que esta pantalla aún no conoce: se ve, con una etiqueta neutra. */
@@ -193,6 +195,22 @@ export default function Incidents() {
  },
  'sos:updated': () => load(),
  });
+
+ // Cerrar un cobro retenido deja constancia de cómo se resolvió; el dinero
+ // (si hay que devolverlo) se mueve antes, desde finanzas.
+ const resolvePaymentReview = async (paymentId: string) => {
+ const note = window.prompt('¿Cómo se resolvió este cobro? (reembolsado por Wompi, aplicado a mano, etc.)');
+ if (!note || note.trim().length < 10) {
+ if (note !== null) window.alert('Describe la resolución en al menos 10 caracteres.');
+ return;
+ }
+ try {
+ await api.post(`/payments/${paymentId}/review/resolve`, { note: note.trim() });
+ load();
+ } catch (err) {
+ window.alert(apiMessage(err, 'No se pudo marcar el cobro como resuelto.'));
+ }
+ };
 
  const shown = filter === 'all' ? incidents : incidents.filter((i) => i.kind === filter);
 
@@ -327,6 +345,14 @@ export default function Incidents() {
  Atender <ArrowRight className="h-3.5 w-3.5" />
  </button>
  </div>
+ ) : null}
+ {incident.kind === 'payment_review' ? (
+ <button
+ onClick={() => resolvePaymentReview(incident.id)}
+ className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ >
+ Marcar resuelto <ArrowRight className="h-3.5 w-3.5" />
+ </button>
  ) : null}
  {incident.kind === 'clawback_overdue' ? (
  <button

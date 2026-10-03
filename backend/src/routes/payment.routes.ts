@@ -21,6 +21,7 @@ import {
   otpValidateSchema,
   orderPaymentsSchema,
   chargebackSchema,
+  resolvePaymentReviewSchema,
 } from '../validators/payment.validator';
 import { UserRole } from '../types';
 import { Permission } from '../security';
@@ -172,6 +173,16 @@ router.post(
   requirePermission(Permission.REFUNDS_CREATE),
   validate(chargebackSchema),
   (req, res, next) => paymentController.chargeback(req, res, next)
+);
+// Cerrar un cobro retenido para revisión. No mueve dinero, pero decide qué
+// pasa con un cobro real: el mismo permiso que los reembolsos.
+router.post(
+  '/:paymentId/review/resolve',
+  authenticate,
+  authorize(UserRole.ADMIN),
+  requirePermission(Permission.REFUNDS_CREATE),
+  validate(resolvePaymentReviewSchema),
+  (req, res, next) => paymentController.resolveReview(req, res, next)
 );
 router.get(
   '/orders/:orderId/refunds',

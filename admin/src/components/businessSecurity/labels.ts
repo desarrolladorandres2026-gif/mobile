@@ -43,9 +43,10 @@ export const REASON_LABELS: Record<string, string> = {
 };
 
 export const ROLE_LABELS: Record<BusinessRole, string> = {
-  owner: 'Dueño',
-  manager: 'Encargado',
-  staff: 'Mostrador',
+  owner: 'Propietario',
+  manager: 'Administrador',
+  operator: 'Operador',
+  cashier: 'Cajero',
 };
 
 export const STATUS_STYLES: Record<SessionStatus, { label: string; text: string }> = {
