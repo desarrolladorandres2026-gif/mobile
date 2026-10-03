@@ -171,7 +171,7 @@ export default function OrderNotifications() {
   if (!offline && !showUnlock && waiting.length === 0 && notices.length === 0) return null;
 
   return (
-    <section aria-live="assertive" aria-label="Avisos de pedidos" className="fixed right-4 top-20 z-[60] flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-3">
+    <section aria-live="assertive" aria-label="Avisos de pedidos" className="fixed right-4 top-14 z-[60] flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-3">
       {offline && (
         <Toast tone="danger" icon={<WifiOff className="h-5 w-5" />} title="Sin conexión">
           Los pedidos no están llegando. Reintentando…
@@ -182,10 +182,10 @@ export default function OrderNotifications() {
         <button
           type="button"
           onClick={primeNotificationSound}
-          className="flex cursor-pointer items-center gap-3 rounded-2xl border border-[var(--color-warning)]/50 bg-[var(--color-surface)] p-4 text-left shadow-2xl backdrop-blur transition hover:-translate-y-0.5"
+          className="flex cursor-pointer items-center gap-3 rounded-md border border-[var(--color-warning)]/50 bg-[var(--color-surface)] p-4 text-left shadow-md hover:bg-[var(--color-surface-hover)]"
         >
           <Volume2 className="h-5 w-5 shrink-0 text-[var(--color-warning)]" />
-          <span className="text-sm font-bold text-[var(--color-text-main)]">Toca para activar el sonido de pedidos</span>
+          <span className="text-sm font-semibold text-[var(--color-text-main)]">Toca para activar el sonido de pedidos</span>
         </button>
       )}
 
@@ -204,7 +204,7 @@ export default function OrderNotifications() {
             <button
               type="button"
               onClick={() => goToOrder(oldest._id)}
-              className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-[var(--color-primary-dark)]"
+              className="cursor-pointer rounded-md bg-[var(--color-primary)] px-3.5 py-1.5 text-xs font-semibold text-[var(--zipp-obsidian)] transition-colors hover:bg-[var(--color-primary-light)]"
             >
               Ver pedido
             </button>
@@ -224,7 +224,7 @@ export default function OrderNotifications() {
           <button
             type="button"
             onClick={() => { dismiss(notice.id); goToOrder(notice.orderId); }}
-            className="mt-2 cursor-pointer text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)] hover:underline"
+            className="mt-2 cursor-pointer text-[11px] font-semibold text-[var(--color-primary)] hover:underline"
           >
             Ver pedido
           </button>
@@ -254,14 +254,14 @@ function Toast({ tone, icon, title, onClose, children }: {
   children: ReactNode;
 }) {
   return (
-    <div className={`flex items-start gap-3 rounded-2xl border bg-[var(--color-surface)] p-4 shadow-2xl backdrop-blur ${TONE[tone]}`}>
+    <div className={`flex items-start gap-3 rounded-md border bg-[var(--color-surface)] p-4 shadow-md ${TONE[tone]}`}>
       <span className="mt-0.5 shrink-0">{icon}</span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-bold text-[var(--color-text-main)]">{title}</span>
+        <span className="block text-sm font-semibold text-[var(--color-text-main)]">{title}</span>
         <span className="mt-1 block text-xs text-[var(--color-text-secondary)]">{children}</span>
       </span>
       {onClose && (
-        <button type="button" onClick={onClose} aria-label="Cerrar aviso" className="cursor-pointer rounded-lg p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-alt)]">
+        <button type="button" onClick={onClose} aria-label="Cerrar aviso" className="cursor-pointer rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-alt)]">
           <X className="h-4 w-4" />
         </button>
       )}

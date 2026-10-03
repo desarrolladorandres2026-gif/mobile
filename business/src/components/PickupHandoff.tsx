@@ -38,7 +38,7 @@ export default function PickupHandoff({
 
   if (!driver) {
     return (
-      <span className="text-[11px] font-semibold text-[var(--color-text-secondary)] px-2.5 py-1 rounded-md bg-[var(--color-bg-alt)] border border-[var(--color-border)]">
+      <span className="text-xs text-[var(--color-text-secondary)]">
         Esperando domiciliario…
       </span>
     );
@@ -58,7 +58,7 @@ export default function PickupHandoff({
       </span>
 
       {!arrived ? (
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+        <span className="text-[11px] font-semibold text-[var(--color-text-muted)]">
           En camino al local…
         </span>
       ) : (
@@ -82,17 +82,17 @@ export default function PickupHandoff({
             el comercio tiene que saber que no debe entregarle nada.
           */}
           {locked ? (
-            <span className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger)]/40 text-[10px] font-bold text-[var(--color-danger)]">
+            <span className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[var(--color-danger-bg)] border border-[var(--color-danger)]/40 text-[10px] font-semibold text-[var(--color-danger)]">
               <ShieldAlert className="w-3.5 h-3.5" />
               Código bloqueado — no entregues el pedido
             </span>
           ) : code ? (
             <span
-              className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[var(--color-primary-bg)] border border-[var(--color-primary)]/40"
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-[var(--color-primary-bg)] border border-[var(--color-primary)]/40"
               title="Dicta este código al domiciliario antes de entregarle el pedido"
             >
               <Lock className="w-3.5 h-3.5 text-[var(--color-primary-dark)]" />
-              <span className="font-mono font-bold text-sm tracking-[0.2em] text-[var(--color-primary-dark)]">
+              <span className="font-mono font-semibold text-sm tracking-[0.2em] text-[var(--color-primary-dark)]">
                 {code}
               </span>
             </span>

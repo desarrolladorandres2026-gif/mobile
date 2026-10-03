@@ -60,7 +60,7 @@ export default function ProductSummary({
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-bold text-[var(--color-text-main)]">Resumen rápido</h3>
+      <h3 className="text-sm font-semibold text-[var(--color-text-main)]">Resumen rápido</h3>
 
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
         {rows.map(([label, value]) => (

@@ -205,7 +205,7 @@ export default function Login() {
 
             <form onSubmit={handleLogin} className="mt-8 space-y-6">
               <label className="block">
-                <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--color-text-main)]/60">Correo</span>
+                <span className="text-[11px] font-semibold text-[var(--color-text-main)]/60">Correo</span>
                 <input
                   type="email"
                   value={email}
@@ -218,7 +218,7 @@ export default function Login() {
               </label>
 
               <label className="block">
-                <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--color-text-main)]/60">Contraseña</span>
+                <span className="text-[11px] font-semibold text-[var(--color-text-main)]/60">Contraseña</span>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}

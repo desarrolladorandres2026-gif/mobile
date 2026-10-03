@@ -72,7 +72,7 @@ function formatDate(value?: string): string {
 }
 
 const inputClass =
-  'px-3 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]';
+  'px-3 py-2 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]';
 
 export default function TeamTab() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
@@ -219,7 +219,7 @@ export default function TeamTab() {
               <button
                 onClick={invite}
                 disabled={inviting}
-                className="px-4 py-2 rounded-lg bg-[var(--color-primary)] text-white font-bold text-xs uppercase tracking-wider hover:bg-[#8A5D08] transition-all cursor-pointer disabled:opacity-60 disabled:cursor-wait flex items-center justify-center gap-1.5"
+                className="px-4 py-2 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait flex items-center justify-center gap-1.5"
               >
                 <UserPlus className="w-4 h-4" />
                 {inviting ? 'Invitando…' : 'Enviar invitación'}
@@ -247,7 +247,7 @@ export default function TeamTab() {
           ) : staff.length === 0 ? (
             <div className="py-8 text-center space-y-2">
               <Users className="w-8 h-8 text-[var(--color-text-secondary)] mx-auto" />
-              <p className="text-sm font-bold text-[var(--color-text-main)]">Trabajas solo por ahora</p>
+              <p className="text-sm font-semibold text-[var(--color-text-main)]">Trabajas solo por ahora</p>
               <p className="text-xs text-[var(--color-text-secondary)] font-medium">
                 Cuando invites a alguien, aparecerá aquí con su rol y su estado.
               </p>
@@ -275,7 +275,7 @@ export default function TeamTab() {
                     return (
                       <tr key={member._id} className={status === 'suspended' ? 'opacity-70' : ''}>
                         <td className="table-body-cell">
-                          <p className="text-sm font-bold text-[var(--color-text-main)]">{displayName}</p>
+                          <p className="text-sm font-semibold text-[var(--color-text-main)]">{displayName}</p>
                           <p className="text-xs text-[var(--color-text-secondary)]">
                             {[member.userId?.phone, member.userId?.email || member.invitedEmail].filter(Boolean).join(' · ') || 'Sin contacto'}
                           </p>
@@ -287,7 +287,7 @@ export default function TeamTab() {
                               disabled={busy}
                               aria-label={`Rol de ${displayName}`}
                               onChange={(e) => update(member, { role: e.target.value as StaffRole })}
-                              className="px-2 py-1 rounded-md bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)] cursor-pointer"
+                              className="px-2 py-1 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)] cursor-pointer"
                             >
                               {grantable.map((r) => (
                                 <option key={r} value={r}>{ROLE_LABELS[r]}</option>
@@ -299,7 +299,7 @@ export default function TeamTab() {
                             </span>
                           )}
                         </td>
-                        <td className={`table-body-cell text-xs font-bold ${STATUS_INFO[status].className}`}>
+                        <td className={`table-body-cell text-xs font-semibold ${STATUS_INFO[status].className}`}>
                           {STATUS_INFO[status].label}
                         </td>
                         <td className="table-body-cell text-xs text-[var(--color-text-main)] tabular">

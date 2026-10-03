@@ -56,7 +56,7 @@ export default function DesktopTab() {
     <div className="cols3">
       <section className="space-y-3 pb-6">
         <div className="space-y-1.5">
-          <h2 className="flex items-center gap-2 text-sm font-bold text-[var(--color-text-main)]">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-text-main)]">
             <Laptop className="w-4 h-4" strokeWidth={1.8} />
             Este equipo
           </h2>
@@ -82,7 +82,7 @@ export default function DesktopTab() {
 
       <section className="space-y-3 pb-6">
         <div className="space-y-1.5">
-          <h2 className="text-sm font-bold text-[var(--color-text-main)]">Impresora de comandas</h2>
+          <h2 className="text-sm font-semibold text-[var(--color-text-main)]">Impresora de comandas</h2>
           <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">
             La comanda se imprime sola, sin diálogo, en la impresora que elijas aquí.
           </p>
@@ -127,7 +127,7 @@ export default function DesktopTab() {
             type="button"
             onClick={testPrint}
             disabled={!printerName || testStatus === 'printing'}
-            className="text-xs font-bold text-[var(--color-primary)] underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
+            className="text-xs font-semibold text-[var(--color-primary)] underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
           >
             {testStatus === 'printing' ? 'Imprimiendo…' : 'Imprimir una prueba'}
           </button>

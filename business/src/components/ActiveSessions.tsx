@@ -95,7 +95,7 @@ export default function ActiveSessions() {
     <section ref={sectionRef} id="sesiones" className="border-t border-[var(--color-border)] pt-6 space-y-4 scroll-mt-24">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h2 className="text-sm font-bold text-[var(--color-text-main)]">Sesiones activas</h2>
+          <h2 className="text-sm font-semibold text-[var(--color-text-main)]">Sesiones activas</h2>
           <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
             Dónde está abierta tu cuenta. Si no reconoces una, ciérrala y cambia tu contraseña.
           </p>
@@ -105,7 +105,7 @@ export default function ActiveSessions() {
             type="button"
             onClick={() => { setFeedback(null); setConfirm({ kind: 'others' }); }}
             disabled={revoke.isPending}
-            className="self-start sm:self-auto px-4 py-2 rounded-lg border border-[var(--color-border-strong)] text-[var(--color-text-main)] font-bold text-xs uppercase tracking-wider hover:border-[var(--color-danger)] hover:text-[var(--color-danger)] transition-colors"
+            className="self-start sm:self-auto px-4 py-2 rounded-md border border-[var(--color-border-strong)] text-[var(--color-text-main)] font-semibold text-xs hover:border-[var(--color-danger)] hover:text-[var(--color-danger)] transition-colors"
           >
             Cerrar las demás
           </button>
@@ -130,7 +130,7 @@ export default function ActiveSessions() {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-[var(--color-text-main)] truncate">
                   {deviceLabel(s)}
-                  {s.current && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider text-[var(--color-primary)]">Este dispositivo</span>}
+                  {s.current && <span className="ml-2 text-[11px] font-semibold text-[var(--color-primary)]">Este dispositivo</span>}
                 </p>
                 <p className="text-xs text-[var(--color-text-secondary)] flex flex-wrap items-center gap-x-2">
                   <span>IP {s.lastIp || s.ip}</span>
@@ -148,7 +148,7 @@ export default function ActiveSessions() {
                   type="button"
                   onClick={() => { setFeedback(null); setConfirm({ kind: 'one', session: s }); }}
                   disabled={revoke.isPending}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors"
+                  className="px-3 py-1.5 rounded-md text-xs font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] transition-colors"
                 >
                   Cerrar
                 </button>

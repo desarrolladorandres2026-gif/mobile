@@ -119,10 +119,10 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
             }`}
           >
             <header className="flex items-baseline justify-between py-3 border-b border-[var(--color-border)]">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+              <h3 className="text-xs font-semibold text-[var(--color-text-main)]">
                 {ORDER_STATUS[status].label}
               </h3>
-              <span className="text-xs font-bold tabular text-[var(--color-text-secondary)]">{items.length}</span>
+              <span className="text-xs font-semibold tabular text-[var(--color-text-secondary)]">{items.length}</span>
             </header>
 
             {items.length === 0 ? (
@@ -146,7 +146,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                         setDragging(order);
                       }}
                       onDragEnd={() => { setDragging(null); setOverColumn(null); }}
-                      className={`py-4 space-y-3 scroll-mt-28 ${step ? 'cursor-grab active:cursor-grabbing' : ''} ${
+                      className={`py-3 space-y-2.5 scroll-mt-28 ${step ? 'cursor-grab active:cursor-grabbing' : ''} ${
                         dragging?._id === order._id ? 'opacity-40' : ''
                       } ${focusId === order._id ? 'border-l-2 border-[var(--color-primary)] pl-3' : ''}`}
                     >
@@ -157,15 +157,15 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                         className="w-full text-left cursor-pointer group"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5 text-xs font-bold tabular text-[var(--color-primary)]">
+                          <span className="flex items-center gap-1.5 text-xs font-medium tabular text-[var(--color-text-secondary)]">
                             {step && <GripVertical className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" aria-hidden />}
                             {order.orderNumber ?? shortId(order._id)}
                           </span>
-                          <span className={`text-[11px] font-bold tabular ${timerTone(minutes)}`} title={`Llegó a las ${clock(order.createdAt)}`}>
+                          <span className={`text-[11px] font-semibold tabular ${timerTone(minutes)}`} title={`Llegó a las ${clock(order.createdAt)}`}>
                             {elapsedLabel(minutes)}
                           </span>
                         </div>
-                        <p className="mt-1.5 text-sm font-bold text-[var(--color-text-main)] group-hover:text-[var(--color-primary)] transition-colors">
+                        <p className="mt-1 text-sm font-medium text-[var(--color-text-main)] group-hover:underline underline-offset-2">
                           {order.clientId?.name ?? 'Cliente'}
                         </p>
                         <p className="mt-0.5 text-xs font-medium text-[var(--color-text-secondary)] line-clamp-2">
@@ -173,7 +173,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                             .map((item: OrderItem) => `${item.quantity}× ${item.productName}`)
                             .join(' · ')}
                         </p>
-                        <p className="mt-1.5 text-sm font-bold tabular text-[var(--color-text-main)]">{money(order.total)}</p>
+                        <p className="mt-1 text-sm tabular text-[var(--color-text-main)]">{money(order.total)}</p>
                       </button>
 
                       {order.status === 'ready' && <PickupHandoff order={order} refreshKey={handoffTick} />}
@@ -185,7 +185,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                               type="button"
                               onClick={() => onAdvance(order, step.status)}
                               disabled={busy}
-                              className="px-3.5 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider text-white bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)] transition-colors cursor-pointer disabled:opacity-50"
+                              className="h-7 px-3 rounded-md text-xs font-semibold text-[var(--zipp-obsidian)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] transition-colors cursor-pointer disabled:opacity-50"
                             >
                               {busy ? 'Un momento…' : step.label}
                             </button>
@@ -195,7 +195,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                               type="button"
                               onClick={() => onReject(order)}
                               disabled={busy}
-                              className="px-2 py-1.5 text-xs font-bold text-[var(--color-danger)] hover:underline cursor-pointer disabled:opacity-50"
+                              className="h-7 px-2 text-xs font-medium text-[var(--color-danger)] hover:underline cursor-pointer disabled:opacity-50"
                             >
                               Rechazar
                             </button>

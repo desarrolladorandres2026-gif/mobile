@@ -35,14 +35,14 @@ export default function Pagination({ page, totalPages, total, limit, onPageChang
   return (
     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-[var(--color-border-light)]">
       <p className="text-[11px] text-[var(--color-text-muted)] font-medium">
-        Mostrando <span className="font-bold text-[var(--color-text-secondary)]">{from}-{to}</span> de{' '}
-        <span className="font-bold text-[var(--color-text-secondary)]">{total}</span>
+        Mostrando <span className="font-semibold text-[var(--color-text-secondary)]">{from}-{to}</span> de{' '}
+        <span className="font-semibold text-[var(--color-text-secondary)]">{total}</span>
       </p>
       <div className="flex items-center gap-1">
         <button
           onClick={() => onPageChange(page - 1)}
           disabled={page <= 1}
-          className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-alt)] disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+          className="p-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-alt)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
           aria-label="Página anterior"
         >
           <ChevronLeft className="w-3.5 h-3.5" />
@@ -52,9 +52,9 @@ export default function Pagination({ page, totalPages, total, limit, onPageChang
           <button
             key={p}
             onClick={() => onPageChange(p)}
-            className={`min-w-[28px] h-7 px-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+            className={`min-w-[28px] h-7 px-1.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
               p === page
-                ? 'bg-[var(--color-primary)] text-white shadow-xs'
+                ? 'bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] text-[var(--zipp-obsidian)]'
                 : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-alt)]'
             }`}
           >
@@ -65,7 +65,7 @@ export default function Pagination({ page, totalPages, total, limit, onPageChang
         <button
           onClick={() => onPageChange(page + 1)}
           disabled={page >= totalPages}
-          className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-alt)] disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+          className="p-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-alt)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
           aria-label="Página siguiente"
         >
           <ChevronRight className="w-3.5 h-3.5" />

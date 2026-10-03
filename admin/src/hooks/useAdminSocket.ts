@@ -109,8 +109,8 @@ export function useTrailingCallback(fn: () => void, waitMs: number): () => void 
 }
 
 /**
- * Estado de la conexión en vivo, para el indicador del Layout.
- * `null` mientras no hay sesión o aún no se abrió el socket.
+ * Estado de la conexiÃ³n en vivo, para el indicador del Layout.
+ * `null` mientras no hay sesiÃ³n o aÃºn no se abriÃ³ el socket.
  */
 export function useAdminSocketStatus(): 'live' | 'reconnecting' | null {
  const [status, setStatus] = useState<'live' | 'reconnecting' | null>(null);

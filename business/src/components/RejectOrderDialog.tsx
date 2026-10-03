@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Ban, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { REJECTION_REASONS, shortId, type BusinessOrder } from '../lib/orderFlow';
 
 /**
@@ -50,21 +50,18 @@ export default function RejectOrderDialog({ order, onCancel, onConfirm }: Props)
         type="button"
         aria-label="Cancelar"
         onClick={onCancel}
-        className="absolute inset-0 bg-black/50 backdrop-blur-[2px] cursor-default"
+        className="absolute inset-0 bg-black/50 cursor-default"
       />
 
       <div
         role="dialog"
         aria-label="Rechazar pedido"
-        className="relative w-full max-w-md rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-2xl animate-fade-in"
+        className="relative w-full max-w-md zipp-modal"
       >
-        <div className="p-6 space-y-5">
-          <div className="flex items-start gap-3.5">
-            <span className="w-10 h-10 rounded-xl bg-[var(--color-danger-bg)] flex items-center justify-center shrink-0">
-              <Ban className="w-5 h-5 text-[var(--color-danger)]" strokeWidth={1.75} />
-            </span>
+        <div className="p-5 space-y-4">
+          <div className="flex items-start gap-3">
             <div className="flex-1 min-w-0">
-              <h3 className="text-base font-bold text-[var(--color-text-main)]">
+              <h3 className="text-sm font-semibold text-[var(--color-text-main)]">
                 Rechazar el pedido {order.orderNumber ?? shortId(order._id)}
               </h3>
               <p className="text-xs text-[var(--color-text-secondary)] mt-1 leading-relaxed">
@@ -75,21 +72,21 @@ export default function RejectOrderDialog({ order, onCancel, onConfirm }: Props)
             <button
               onClick={onCancel}
               aria-label="Cerrar"
-              className="p-1 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer shrink-0"
+              className="p-1 rounded-md text-[var(--color-text-muted)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer shrink-0"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           <fieldset className="space-y-1.5">
-            <legend className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
+            <legend className="text-[11px] font-semibold text-[var(--color-text-muted)] mb-1.5">
               ¿Qué pasó?
             </legend>
 
             {REJECTION_REASONS.map((item) => (
               <label
                 key={item.value}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-md border cursor-pointer transition-colors ${
                   reason === item.value
                     ? 'border-[var(--color-primary)] bg-[var(--color-primary-bg)]'
                     : 'border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]'
@@ -113,7 +110,7 @@ export default function RejectOrderDialog({ order, onCancel, onConfirm }: Props)
           <div className="space-y-1.5">
             <label
               htmlFor="rejection-note"
-              className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]"
+              className="text-[11px] font-semibold text-[var(--color-text-muted)]"
             >
               Detalle {needsNote ? '(obligatorio)' : '(opcional)'}
             </label>
@@ -123,22 +120,22 @@ export default function RejectOrderDialog({ order, onCancel, onConfirm }: Props)
               onChange={(event) => setNote(event.target.value.slice(0, 160))}
               rows={2}
               placeholder="Ej.: se acabó la carne de la hamburguesa doble"
-              className="w-full rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors resize-none"
+              className="w-full rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] transition-colors resize-none"
             />
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex justify-end gap-2">
             <button
               onClick={onCancel}
               disabled={submitting}
-              className="flex-1 py-2 rounded-lg text-xs font-semibold text-[var(--color-text-secondary)] border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] cursor-pointer disabled:opacity-50"
+              className="h-8 px-4 rounded-md text-xs font-medium text-[var(--color-text-main)] border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] cursor-pointer disabled:opacity-50"
             >
               Volver
             </button>
             <button
               onClick={submit}
               disabled={blocked}
-              className="flex-1 py-2 rounded-lg text-xs font-bold bg-[var(--color-danger)] text-white hover:opacity-90 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="h-8 px-4 rounded-md text-xs font-semibold bg-[var(--color-danger)] text-white hover:opacity-90 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? 'Rechazando…' : 'Rechazar pedido'}
             </button>
