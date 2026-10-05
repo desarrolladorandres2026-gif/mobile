@@ -44,6 +44,14 @@ function assertCatalog(req: Request, businessId: string, permission: BusinessPer
   return assertBusinessCan(req.user!, businessId, permission, `Sin permisos para ${action}.`);
 }
 
+/** Campos que `catalog:availability` puede escribir: la cocina del momento. */
+const AVAILABILITY_FIELDS = new Set(['isAvailable', 'stock']);
+
+function isAvailabilityOnly(body: Record<string, unknown>): boolean {
+  const fields = Object.keys(body).filter((key) => key !== 'businessId' && body[key] !== undefined);
+  return fields.length > 0 && fields.every((key) => AVAILABILITY_FIELDS.has(key));
+}
+
 export class ProductController {
   /** Cuántos pulgares lleva cada plato del negocio. */
   async sentiment(req: Request, res: Response, next: NextFunction) {
@@ -126,7 +134,20 @@ export class ProductController {
 
   async update(req: Request, res: Response, next: NextFunction) {
     try {
-      await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_EDIT, 'modificar productos');
+      // Agotar o reponer lo hace quien está en la cocina (`catalog:availability`)
+      // sin poder tocar la ficha. Solo vale si el cuerpo trae EXACTAMENTE
+      // esos campos: cualquier otro exige `catalog:edit`, y así un operador
+      // no puede colar un nombre o un precio junto a `isAvailable`.
+      if (isAvailabilityOnly(req.body)) {
+        await assertBusinessCan(
+          req.user!,
+          req.body.businessId,
+          BusinessPermission.CATALOG_AVAILABILITY,
+          'Sin permisos para cambiar la disponibilidad de productos.'
+        );
+      } else {
+        await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_EDIT, 'modificar productos');
+      }
       // El precio es dinero: tocarlo (o las opciones, que también cobran) pide
       // su propio permiso, aparte de editar el resto de la ficha.
       if (req.body.price !== undefined || req.body.modifierGroups !== undefined) {

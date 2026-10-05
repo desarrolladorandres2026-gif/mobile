@@ -45,10 +45,12 @@ interface Props {
   handoffTick: number;
   onAdvance: (order: BusinessOrder, status: OrderStatus) => void;
   onReject: (order: BusinessOrder) => void;
+  /** ¿Puede esta persona rechazar este pedido? Si no, el botón ni aparece. */
+  canReject: (order: BusinessOrder) => boolean;
   onOpen: (order: BusinessOrder) => void;
 }
 
-export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, onAdvance, onReject, onOpen }: Props) {
+export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, onAdvance, onReject, canReject, onOpen }: Props) {
   const [dragging, setDragging] = useState<BusinessOrder | null>(null);
   const [overColumn, setOverColumn] = useState<OrderStatus | null>(null);
 
@@ -178,7 +180,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
 
                       {order.status === 'ready' && <PickupHandoff order={order} refreshKey={handoffTick} />}
 
-                      {(step || order.status === 'pending') && (
+                      {(step || (order.status === 'pending' && canReject(order))) && (
                         <div className="flex items-center gap-2">
                           {step && (
                             <button
@@ -190,7 +192,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                               {busy ? 'Un momento…' : step.label}
                             </button>
                           )}
-                          {order.status === 'pending' && (
+                          {order.status === 'pending' && canReject(order) && (
                             <button
                               type="button"
                               onClick={() => onReject(order)}

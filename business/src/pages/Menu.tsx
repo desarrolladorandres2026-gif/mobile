@@ -55,6 +55,7 @@ export default function Menu() {
   const canCreate = can('catalog:create');
   const canEdit = can('catalog:edit');
   const canDelete = can('catalog:delete');
+  const canAvailability = can('catalog:availability');
   const readOnly = !canCreate && !canEdit && !canDelete;
 
   const queryClient = useQueryClient();
@@ -637,9 +638,9 @@ export default function Menu() {
                   )}
                 </div>
 
-                {(canEdit || canDelete) && (
+                {(canEdit || canDelete || canAvailability) && (
                 <div className="flex items-center gap-1 shrink-0">
-                  {canEdit && (<>
+                  {(canEdit || canAvailability) && (
                   <button
                     onClick={() => actions.current.toggle(product)}
                     title={product.isAvailable ? 'Marcar como agotado' : 'Volver a ofrecerlo'}
@@ -652,6 +653,8 @@ export default function Menu() {
                       <ToggleLeft className="w-6 h-6 text-[var(--color-text-secondary)]" />
                     )}
                   </button>
+                  )}
+                  {canEdit && (
                   <button
                     onClick={() => actions.current.edit(product)}
                     aria-label={`Editar ${product.name}`}
@@ -659,7 +662,7 @@ export default function Menu() {
                   >
                     <Edit className="w-4 h-4" />
                   </button>
-                  </>)}
+                  )}
                   {canDelete && (
                   <button
                     onClick={() => actions.current.deleteProduct(product._id)}
@@ -677,7 +680,7 @@ export default function Menu() {
         )}
       </div>
     );
-  }, [categories, products, filterCategory, canEdit, canDelete]);
+  }, [categories, products, filterCategory, canEdit, canDelete, canAvailability]);
 
   if (!selectedBusiness) {
     return (
@@ -731,7 +734,9 @@ export default function Menu() {
           <h1 className="page-title">Menú y productos</h1>
           <p className="page-subtitle">
             {readOnly
-              ? 'Consulta de la carta: precios, disponibilidad y tiempos. Los cambios los hace el propietario o un administrador.'
+              ? canAvailability
+                ? 'Consulta de la carta. Puedes marcar productos como agotados o volver a ofrecerlos; el resto lo cambia el propietario o un administrador.'
+                : 'Consulta de la carta: precios, disponibilidad y tiempos. Los cambios los hace el propietario o un administrador.'
               : 'Platos, disponibilidad, precios y fotos de tu establecimiento'}
           </p>
         </div>

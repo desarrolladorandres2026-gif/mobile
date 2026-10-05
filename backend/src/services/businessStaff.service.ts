@@ -249,6 +249,9 @@ export class BusinessStaffService {
   /** Cambiar el papel de alguien que ya está dentro. */
   async changeRole(businessId: string, staffId: string, role: StaffRole, actorId: string) {
     if (!STAFF_ROLES.includes(role)) throw new AppError('Papel inválido', 400);
+    // Repartir poder es del propietario: el permiso se comprueba aquí y no
+    // solo en el controlador, para que ninguna otra puerta lo salte.
+    await this.assertCan(actorId, businessId, BusinessPermission.TEAM_CHANGE_ROLE, 'Solo el propietario puede cambiar roles.');
     const actor = await this.actorRole(actorId, businessId);
     const staff = await this.loadMember(businessId, staffId);
     this.assertCanGrant(actor, normalizeStaffRole(staff.role));

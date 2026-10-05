@@ -10,12 +10,14 @@ export type BusinessPermission =
   | 'orders:view'
   | 'orders:manage'
   | 'orders:cancel'
+  | 'orders:cancel_paid'
   | 'shift:view'
   | 'catalog:view'
   | 'catalog:create'
   | 'catalog:edit'
   | 'catalog:delete'
   | 'catalog:change_price'
+  | 'catalog:availability'
   | 'promotions:view'
   | 'promotions:manage'
   | 'advertising:manage'
@@ -51,9 +53,9 @@ export const ROLE_LABELS: Record<BusinessRole, string> = {
 };
 
 export const ROLE_DESCRIPTIONS: Record<StaffRole, string> = {
-  manager: 'Pedidos, menú, promociones, publicidad, reseñas y equipo operativo. No ve liquidaciones, documentos ni ajustes.',
-  operator: 'Pedidos del día y el menú en modo consulta. Puede abrir y cerrar el local.',
-  cashier: 'Pedidos del día y las ventas del turno.',
+  manager: 'Pedidos (también cancela los pagados), menú, promociones, publicidad, reseñas y equipo operativo. No ve liquidaciones, documentos ni ajustes, y no cambia roles.',
+  operator: 'Pedidos del día (cancela solo los no pagados), agotar y reponer productos, y abrir y cerrar el local. El resto del menú, solo consulta.',
+  cashier: 'Pedidos del día (cancela solo los no pagados) y las ventas del turno.',
 };
 
 /**

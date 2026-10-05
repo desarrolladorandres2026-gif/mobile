@@ -76,13 +76,15 @@ describe('Empleados del comercio', () => {
     }
   });
 
-  it('el operador trabaja pedidos y solo consulta el catálogo', async () => {
+  it('el operador trabaja pedidos, agota productos y solo consulta el resto del catálogo', async () => {
     await addActive(empleado, BusinessRole.OPERATOR);
 
     expect(await permsOf(empleado)).toEqual([
       BusinessPermission.ORDERS_VIEW,
       BusinessPermission.ORDERS_MANAGE,
+      BusinessPermission.ORDERS_CANCEL,
       BusinessPermission.CATALOG_VIEW,
+      BusinessPermission.CATALOG_AVAILABILITY,
       BusinessPermission.STORE_TOGGLE,
     ]);
   });
@@ -93,6 +95,7 @@ describe('Empleados del comercio', () => {
     expect(await permsOf(empleado)).toEqual([
       BusinessPermission.ORDERS_VIEW,
       BusinessPermission.ORDERS_MANAGE,
+      BusinessPermission.ORDERS_CANCEL,
       BusinessPermission.SHIFT_VIEW,
     ]);
   });
@@ -170,15 +173,13 @@ describe('Empleados del comercio', () => {
       businessStaffService.invite(businessId, { phone: otroAdmin.phone, role: BusinessRole.MANAGER }, adminId)
     ).rejects.toMatchObject({ statusCode: 403 });
 
-    // …pero sí a un cajero, y puede suspenderlo y cambiarle el papel.
+    // …pero sí a un cajero y puede suspenderlo. Cambiarle el papel ya es del
+    // propietario (`team:change_role`): repartir poder no se delega.
     const row = await addActive(cajero, BusinessRole.CASHIER, adminId);
-    await businessStaffService.changeRole(businessId, row._id.toString(), BusinessRole.OPERATOR, adminId);
-    expect((await BusinessStaff.findById(row._id))!.role).toBe(BusinessRole.OPERATOR);
-
-    // Ascender a alguien a administrador sigue siendo del propietario.
     await expect(
-      businessStaffService.changeRole(businessId, row._id.toString(), BusinessRole.MANAGER, adminId)
+      businessStaffService.changeRole(businessId, row._id.toString(), BusinessRole.OPERATOR, adminId)
     ).rejects.toMatchObject({ statusCode: 403 });
+    expect((await BusinessStaff.findById(row._id))!.role).toBe(BusinessRole.CASHIER);
 
     // Y no puede tocar a otro administrador (ni a sí mismo).
     const adminRow = await BusinessStaff.findOne({ businessId: business._id, userId: admin._id });

@@ -43,7 +43,14 @@ export type StaffStatus = 'active' | 'pending' | 'suspended';
 export enum BusinessPermission {
   ORDERS_VIEW = 'orders:view',
   ORDERS_MANAGE = 'orders:manage',
+  /** Cancelar un pedido que aún no se ha cobrado. No mueve dinero. */
   ORDERS_CANCEL = 'orders:cancel',
+  /**
+   * Cancelar un pedido ya pagado. Aparte de `orders:cancel` porque cancelar
+   * uno pagado dispara un reembolso al cliente y descuadra liquidación y
+   * comisión: es una decisión con dinero detrás, no de operación.
+   */
+  ORDERS_CANCEL_PAID = 'orders:cancel_paid',
   /** Ventas del turno: lo que se cobró hoy, sin comisiones ni neto. */
   SHIFT_VIEW = 'shift:view',
 
@@ -52,6 +59,12 @@ export enum BusinessPermission {
   CATALOG_EDIT = 'catalog:edit',
   CATALOG_DELETE = 'catalog:delete',
   CATALOG_CHANGE_PRICE = 'catalog:change_price',
+  /**
+   * Marcar un producto agotado o volver a ofrecerlo (y reponer unidades).
+   * Es lo único del catálogo que reacciona a la cocina del momento; nada de
+   * nombre, precio, foto, categoría ni adicionales.
+   */
+  CATALOG_AVAILABILITY = 'catalog:availability',
 
   PROMOTIONS_VIEW = 'promotions:view',
   PROMOTIONS_MANAGE = 'promotions:manage',
@@ -98,20 +111,30 @@ const P = BusinessPermission;
  * El administrador se queda deliberadamente fuera de liquidaciones, datos
  * financieros, documentos, datos del negocio y seguridad: son los lugares
  * donde se ve y se dirige el dinero, y delegarlos es una decisión distinta a
- * delegar la operación del día.
+ * delegar la operación del día. Tampoco cambia roles (`team:change_role`):
+ * repartir poder es del propietario; el administrador solo invita, suspende
+ * y retira a operadores y cajeros.
+ *
+ * Cancelar es de todos mientras el pedido no esté pagado (`orders:cancel`);
+ * uno pagado exige además `orders:cancel_paid`, que solo tienen el
+ * propietario y el administrador.
  */
 export const BUSINESS_ROLE_PERMISSIONS: Record<BusinessRole, BusinessPermission[]> = {
   [BusinessRole.OWNER]: Object.values(BusinessPermission),
   [BusinessRole.MANAGER]: [
-    P.ORDERS_VIEW, P.ORDERS_MANAGE, P.ORDERS_CANCEL, P.SHIFT_VIEW,
+    P.ORDERS_VIEW, P.ORDERS_MANAGE, P.ORDERS_CANCEL, P.ORDERS_CANCEL_PAID, P.SHIFT_VIEW,
     P.CATALOG_VIEW, P.CATALOG_CREATE, P.CATALOG_EDIT, P.CATALOG_DELETE, P.CATALOG_CHANGE_PRICE,
+    P.CATALOG_AVAILABILITY,
     P.PROMOTIONS_VIEW, P.PROMOTIONS_MANAGE, P.ADVERTISING_MANAGE,
     P.REVIEWS_VIEW, P.REVIEWS_RESPOND,
-    P.TEAM_VIEW, P.TEAM_INVITE, P.TEAM_EDIT, P.TEAM_REMOVE, P.TEAM_CHANGE_ROLE,
+    P.TEAM_VIEW, P.TEAM_INVITE, P.TEAM_EDIT, P.TEAM_REMOVE,
     P.ANALYTICS_VIEW, P.STORE_TOGGLE,
   ],
-  [BusinessRole.OPERATOR]: [P.ORDERS_VIEW, P.ORDERS_MANAGE, P.CATALOG_VIEW, P.STORE_TOGGLE],
-  [BusinessRole.CASHIER]: [P.ORDERS_VIEW, P.ORDERS_MANAGE, P.SHIFT_VIEW],
+  [BusinessRole.OPERATOR]: [
+    P.ORDERS_VIEW, P.ORDERS_MANAGE, P.ORDERS_CANCEL,
+    P.CATALOG_VIEW, P.CATALOG_AVAILABILITY, P.STORE_TOGGLE,
+  ],
+  [BusinessRole.CASHIER]: [P.ORDERS_VIEW, P.ORDERS_MANAGE, P.ORDERS_CANCEL, P.SHIFT_VIEW],
 };
 
 export interface IBusinessStaff extends Document {

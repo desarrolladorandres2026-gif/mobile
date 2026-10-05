@@ -245,11 +245,11 @@ describe('Pedidos para el personal del comercio', () => {
 
     const staff = await employee(BusinessRole.OPERATOR);
     await expect(
-      orderService.updateStatus(id, OrderStatus.CANCELLED, staff._id.toString(), UserRole.BUSINESS, undefined, {}, 'other' as any)
-    ).rejects.toMatchObject({ statusCode: 403, code: 'OWNER_CANCEL_REQUIRED' });
+      orderService.updateStatus(id, OrderStatus.CANCELLED, staff._id.toString(), UserRole.BUSINESS, 'Se acabó el pollo', {}, 'other' as any)
+    ).rejects.toMatchObject({ statusCode: 403, code: 'ORDER_CANCEL_PAID_FORBIDDEN' });
 
     const cancelled = await orderService.updateStatus(
-      id, OrderStatus.CANCELLED, owner._id.toString(), UserRole.BUSINESS, undefined, {}, 'other' as any
+      id, OrderStatus.CANCELLED, owner._id.toString(), UserRole.BUSINESS, 'Se acabó el pollo', {}, 'other' as any
     );
     expect(cancelled.status).toBe(OrderStatus.CANCELLED);
   });

@@ -869,8 +869,13 @@ export class OrderService {
     // El dueño y su personal con `orders:manage` (encargado y mostrador).
     // Antes solo el dueño: el empleado veía el pedido sonar y no podía
     // aceptarlo. El recorte del mostrador ("solo el día") vale también aquí.
-    // El papel se guarda para el candado de abajo: cancelar un pedido ya
-    // pagado no es una decisión que el personal deba poder tomar solo.
+    //
+    // Cancelar tiene sus propios permisos y no cuelga de `orders:manage`:
+    // `orders:cancel` para un pedido sin cobrar y `orders:cancel_paid` para
+    // uno pagado, porque cancelarlo emite un reembolso completo. MEDIO 7
+    // (auditoría 2026-10-01): un empleado podía entregar "por fuera" un
+    // pedido pagado y cancelarlo para que el cliente recuperara el dinero.
+    // El candado vale en cualquier estado, no solo en cocina.
     let businessStaffRole: BusinessRole | undefined;
     if (userRole === UserRole.BUSINESS) {
       const access = order.businessId
@@ -882,6 +887,26 @@ export class OrderService {
         !isInStaffScope(access.role, order, TERMINAL_ORDER_STATUSES)
       ) {
         throw new AppError('No autorizado para modificar este pedido', 403);
+      }
+      if (status === OrderStatus.CANCELLED) {
+        if (!access.permissions.includes(BusinessPermission.ORDERS_CANCEL)) {
+          throw new AppError('Tu rol no puede cancelar pedidos.', 403, 'ORDER_CANCEL_FORBIDDEN');
+        }
+        if (
+          order.paymentStatus === PaymentStatus.PAID &&
+          !access.permissions.includes(BusinessPermission.ORDERS_CANCEL_PAID)
+        ) {
+          throw new AppError(
+            'Este pedido ya está pagado: cancelarlo devuelve el dinero al cliente y solo lo puede hacer el propietario o un administrador.',
+            403,
+            'ORDER_CANCEL_PAID_FORBIDDEN'
+          );
+        }
+        // Sin motivo no hay a quién preguntarle después: queda en el pedido,
+        // en la bitácora y se le muestra al cliente.
+        if (String(cancellationReason ?? '').trim().length < 3) {
+          throw new AppError('Indica el motivo de la cancelación.', 400, 'CANCELLATION_REASON_REQUIRED');
+        }
       }
       businessStaffRole = access.role;
     }
@@ -980,25 +1005,6 @@ export class OrderService {
         'Cancelar este pedido pagado reembolsa al cliente y exige el permiso de reembolsos. Pide a Finanzas que lo cancele.',
         403,
         'REFUND_PERMISSION_REQUIRED'
-      );
-    }
-
-    // MEDIO 7 (auditoría 2026-10-01): un empleado del mostrador podía
-    // entregar un pedido ya pagado "por fuera" y cancelarlo en el panel para
-    // que el cliente recuperara el dinero de algo que sí se entregó — fraude
-    // interno sin que el dueño se enterara. Igual que al admin, cancelar un
-    // pedido pagado desde que entra a cocina ya es decisión del dueño.
-    if (
-      businessStaffRole &&
-      businessStaffRole !== BusinessRole.OWNER &&
-      status === OrderStatus.CANCELLED &&
-      order.paymentStatus === PaymentStatus.PAID &&
-      [OrderStatus.PREPARING, OrderStatus.READY].includes(order.status)
-    ) {
-      throw new AppError(
-        'Este pedido ya está pagado: solo el dueño del negocio puede cancelarlo desde aquí.',
-        403,
-        'OWNER_CANCEL_REQUIRED'
       );
     }
 
@@ -1210,7 +1216,18 @@ export class OrderService {
     orderTimelineService
       .recordStatusChange(claimed._id.toString(), previousStatus, status, { userId, role: userRole }, {
         ...context,
-        newValue: cancellationReason ? { cancellationReason } : undefined,
+        // Lo que soporte pregunta de una cancelación: quién (el actor ya
+        // viaja en el evento, aquí su papel en el negocio), por qué, y si
+        // había dinero de por medio.
+        newValue:
+          status === OrderStatus.CANCELLED
+            ? {
+                cancellationReason: cancellationReason ?? null,
+                wasPaid: order.paymentStatus === PaymentStatus.PAID,
+                paymentMethod: order.paymentMethod,
+                ...(businessStaffRole ? { actorBusinessRole: businessStaffRole } : {}),
+              }
+            : undefined,
       })
       .catch(console.error);
 

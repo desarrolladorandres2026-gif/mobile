@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useBusinessEvent } from '../hooks/realtimeContext';
 import { useActiveOrders } from '../hooks/useActiveOrders';
+import { usePermissions } from '../hooks/usePermissions';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 import { useTrailingCallback } from '../hooks/useTrailingCallback';
@@ -50,6 +51,11 @@ const FILTERS: Array<{ value: OrderStatus | 'all'; label: string }> = [
 export default function Orders() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const businessId = selectedBusiness?._id;
+  const { can } = usePermissions(businessId);
+  // Rechazar es cancelar: un pedido ya pagado devuelve el dinero al cliente y
+  // pide además `orders:cancel_paid` (propietario y administrador).
+  const canReject = (order: BusinessOrder) =>
+    can('orders:cancel') && (order.paymentStatus !== 'paid' || can('orders:cancel_paid'));
 
   const queryClient = useQueryClient();
 
@@ -271,6 +277,7 @@ export default function Orders() {
             handoffTick={handoffTick}
             onAdvance={(order, status) => updateStatus(order._id, status)}
             onReject={setRejecting}
+            canReject={canReject}
             onOpen={setDetailOrder}
           />
         )}
