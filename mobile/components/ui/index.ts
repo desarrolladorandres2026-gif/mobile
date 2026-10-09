@@ -43,7 +43,7 @@ export {
   EmptyState, ErrorState, Notice,
   Skeleton, BusinessCardSkeleton, BusinessResultRowSkeleton,
   CouponCardSkeleton, LoadingScreen,
-  OfflineBanner, SuccessCheck,
+  OfflineBanner, UpdateBanner, SuccessCheck,
 } from './Feedback';
 export type { EmptyStateProps } from './Feedback';
 
