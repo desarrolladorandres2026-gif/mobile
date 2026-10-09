@@ -38,12 +38,13 @@ interface StaffMember {
   isActive: boolean;
   invitedName?: string;
   invitedEmail?: string;
+  invitedPhone?: string;
   acceptedAt?: string;
   createdAt: string;
   userId?: { _id: string; name?: string; phone?: string; email?: string; lastLoginAt?: string };
 }
 
-const STAFF_ROLES: StaffRole[] = ['manager', 'operator', 'cashier'];
+const STAFF_ROLES: StaffRole[] = ['manager', 'employee'];
 
 const STATUS_INFO: Record<Status, { label: string; className: string }> = {
   active: { label: 'Activo', className: 'text-[var(--color-success)]' },
@@ -62,7 +63,7 @@ function statusOf(member: StaffMember): Status {
  */
 function grantableBy(actor: BusinessRole | null | undefined): StaffRole[] {
   if (actor === 'owner') return STAFF_ROLES;
-  if (actor === 'manager') return ['operator', 'cashier'];
+  if (actor === 'manager') return ['employee'];
   return [];
 }
 
@@ -88,7 +89,7 @@ export default function TeamTab() {
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<StaffRole>('operator');
+  const [role, setRole] = useState<StaffRole>('employee');
   const [inviting, setInviting] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toRemove, setToRemove] = useState<StaffMember | null>(null);
@@ -127,8 +128,6 @@ export default function TeamTab() {
       setEmail('');
       await load();
     } catch (err) {
-      // El servidor dice si esa persona no tiene cuenta todavía; su mensaje
-      // explica qué hacer, así que se muestra tal cual.
       setError(apiMessage(err, 'No se pudo enviar la invitación.'));
     } finally {
       setInviting(false);
@@ -234,8 +233,10 @@ export default function TeamTab() {
             )}
 
             <p className="text-xs text-[var(--color-text-secondary)]">
-              La persona necesita una cuenta de ZIPP con ese teléfono. Verá la invitación al
-              entrar al panel y no tendrá acceso hasta aceptarla.
+              La persona necesita una cuenta de comercio de ZIPP con ese teléfono. Verá la
+              invitación al entrar al panel y no tendrá acceso hasta aceptarla. Por privacidad,
+              aquí no se confirma si el teléfono tiene cuenta: si no le llega, pídele que se
+              registre y vuelve a invitarla.
             </p>
           </section>
         )}
@@ -277,7 +278,7 @@ export default function TeamTab() {
                         <td className="table-body-cell">
                           <p className="text-sm font-semibold text-[var(--color-text-main)]">{displayName}</p>
                           <p className="text-xs text-[var(--color-text-secondary)]">
-                            {[member.userId?.phone, member.userId?.email || member.invitedEmail].filter(Boolean).join(' · ') || 'Sin contacto'}
+                            {[member.userId?.phone || member.invitedPhone, member.userId?.email || member.invitedEmail].filter(Boolean).join(' · ') || 'Sin contacto'}
                           </p>
                         </td>
                         <td className="table-body-cell">

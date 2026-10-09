@@ -89,7 +89,11 @@ export async function clearTwoFactor(userId: Types.ObjectId | string, updatedBy?
 }
 
 /** Abre (o reemplaza) el reto pendiente de un usuario y devuelve el token para el cliente. */
-export async function openMfaChallenge(userId: Types.ObjectId | string, method: FirstFactor): Promise<string> {
+export async function openMfaChallenge(
+  userId: Types.ObjectId | string,
+  method: FirstFactor,
+  scope?: 'full' | 'counter'
+): Promise<string> {
   const secret = crypto.randomBytes(32).toString('base64url');
   await User.updateOne(
     { _id: userId },
@@ -99,13 +103,18 @@ export async function openMfaChallenge(userId: Types.ObjectId | string, method: 
         mfaChallengeExpires: new Date(Date.now() + MFA_CHALLENGE_TTL_MS),
         mfaChallengeAttempts: 0,
         mfaChallengeMethod: method,
+        // `scope` viaja con el reto: la sesión de mostrador (decisión
+        // 2026-10-09) también puede tener 2FA, y el segundo paso
+        // (`/auth/2fa/challenge`) no vuelve a mandar `surface`.
+        ...(scope ? { mfaChallengeScope: scope } : {}),
       },
+      ...(scope ? {} : { $unset: { mfaChallengeScope: 1 } }),
     }
   );
   return `${userId.toString()}.${secret}`;
 }
 
-const clearChallenge = { mfaChallengeHash: 1, mfaChallengeExpires: 1, mfaChallengeAttempts: 1, mfaChallengeMethod: 1 } as const;
+const clearChallenge = { mfaChallengeHash: 1, mfaChallengeExpires: 1, mfaChallengeAttempts: 1, mfaChallengeMethod: 1, mfaChallengeScope: 1 } as const;
 
 /**
  * Verifica un segundo factor contra la cuenta: TOTP (sin repetición) o
@@ -148,7 +157,7 @@ export async function verifySecondFactor(userId: Types.ObjectId | string, code: 
  * segundo factor y, si todo cuadra, cierra el reto y devuelve el usuario.
  * Lanza `AppError` con un mensaje apto para el cliente en cualquier otro caso.
  */
-export async function resolveMfaChallenge(challengeToken: string, code: string): Promise<{ user: IUser; method: FirstFactor }> {
+export async function resolveMfaChallenge(challengeToken: string, code: string): Promise<{ user: IUser; method: FirstFactor; scope?: 'full' | 'counter' }> {
   const invalid = new AppError('El reto de verificación no es válido o venció. Inicia sesión de nuevo.', 401, 'MFA_CHALLENGE_INVALID');
 
   const [userId, secret] = typeof challengeToken === 'string' ? challengeToken.split('.') : [];
@@ -167,7 +176,7 @@ export async function resolveMfaChallenge(challengeToken: string, code: string):
     },
     { $inc: { mfaChallengeAttempts: 1 } },
     { new: true }
-  ).select('+mfaChallengeHash +mfaChallengeMethod +mfaChallengeAttempts');
+  ).select('+mfaChallengeHash +mfaChallengeMethod +mfaChallengeAttempts +mfaChallengeScope');
 
   if (!reserved || !sameHex(hmac(secret), reserved.mfaChallengeHash)) {
     if (reserved && (reserved.mfaChallengeAttempts ?? 0) >= MFA_MAX_ATTEMPTS) {
@@ -194,5 +203,9 @@ export async function resolveMfaChallenge(challengeToken: string, code: string):
 
   const user = await User.findById(userId);
   if (!user) throw invalid;
-  return { user, method: (reserved.mfaChallengeMethod as FirstFactor) || 'password' };
+  return {
+    user,
+    method: (reserved.mfaChallengeMethod as FirstFactor) || 'password',
+    scope: reserved.mfaChallengeScope,
+  };
 }

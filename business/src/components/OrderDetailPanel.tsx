@@ -7,6 +7,7 @@ import {
   type BusinessOrder, type FlowState, type OrderFinance, type OrderItem, describeExtras,
 } from '../lib/orderFlow';
 import { SUPPORT_PHONE_DISPLAY, supportWhatsAppUrl } from '../lib/contact';
+import { usePermissions } from '../hooks/usePermissions';
 
 /**
  * Todo lo que el comercio sabe de un pedido, a pantalla completa.
@@ -62,6 +63,15 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
 
   const orderId = order?._id;
 
+  // Comisión, neto y liquidación son la capa financiera: solo quien tiene
+  // `financial:view` (el propietario). Estricto —sin el "mientras carga, sí"
+  // de `can`— porque un instante de $0 de comisión en la pantalla de un
+  // empleado sería una cifra falsa, no una cortesía. El backend ya no manda
+  // esos campos al personal (`merchantStaffOrderView`).
+  const { access } = usePermissions(businessId);
+  const seesMoney = !!access?.permissions.includes('financial:view');
+  const fetchStatement = seesMoney;
+
   useEffect(() => {
     if (!orderId) return;
     let alive = true;
@@ -69,10 +79,13 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
 
     // Las dos lecturas van juntas porque la ficha no está completa sin
     // ninguna de ellas; `allSettled` para que un fallo de una no deje la
-    // otra sin pintar.
+    // otra sin pintar. La liquidación solo se pide a quien puede verla: a
+    // los demás el servidor les respondería 403 en cada pedido que abran.
     Promise.allSettled([
       api.get(`/orders/${orderId}/flow`),
-      api.get(`/businesses/${businessId}/statement/lines`, { params: { orderId } }),
+      fetchStatement
+        ? api.get(`/businesses/${businessId}/statement/lines`, { params: { orderId } })
+        : Promise.reject(new Error('sin permiso')),
     ])
       .then(([flowRes, lineRes]) => {
         if (!alive) return;
@@ -84,7 +97,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
       .finally(() => { if (alive) setLoading(false); });
 
     return () => { alive = false; };
-  }, [orderId, businessId, refreshKey]);
+  }, [orderId, businessId, refreshKey, fetchStatement]);
 
   // `Escape` cierra.
   useEffect(() => {
@@ -106,6 +119,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
   const funded = finance.merchantFundedDiscount ?? 0;
   const net = finance.businessPayout ?? order.businessPayout ?? 0;
   const netShown = line ? line.netAmount : net;
+  const customerTotal = finance.customerTotal ?? order.total ?? 0;
 
   const pickup = flow?.pickup;
   const pickupEvidence = pickup?.evidence ?? null;
@@ -166,8 +180,12 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
             ['Estado', style.label],
             ['Creado', dateTime(order.createdAt)],
             ['Pago', order.paymentMethod === 'online' ? 'Digital' : 'Efectivo al recibir'],
-            ['Liquidación', line ? (PAYOUT_LABELS[line.payoutStatus] ?? line.payoutStatus) : ''],
-            ['Neto para el comercio', money(netShown)],
+            ...(seesMoney
+              ? ([
+                  ['Liquidación', line ? (PAYOUT_LABELS[line.payoutStatus] ?? line.payoutStatus) : ''],
+                  ['Neto para el comercio', money(netShown)],
+                ] as Array<[string, ReactNode]>)
+              : []),
           ]}
         />
 
@@ -240,20 +258,34 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
             ])}
           />
 
-          <Grid
-            title="Detalle financiero"
-            head={['Concepto', 'Importe']}
-            empty="Sin desglose."
-            right={[1]}
-            rows={[
-              ['Venta de productos', money(productSubtotal)],
-              ...(funded > 0 ? [['Descuento que asumes', signedMoney(-funded)]] : []),
-              ['Comisión ZIPP', signedMoney(-commission)],
-              ...(line && line.reversedAmount > 0 ? [['Revertido por reembolso', signedMoney(-line.reversedAmount)]] : []),
-              ['Neto para el comercio', money(netShown)],
-              ...(line?.settledAt ? [['Consignado el', dateTime(line.settledAt)]] : []),
-            ]}
-          />
+          {seesMoney ? (
+            <Grid
+              title="Detalle financiero"
+              head={['Concepto', 'Importe']}
+              empty="Sin desglose."
+              right={[1]}
+              rows={[
+                ['Venta de productos', money(productSubtotal)],
+                ...(funded > 0 ? [['Descuento que asumes', signedMoney(-funded)]] : []),
+                ['Comisión ZIPP', signedMoney(-commission)],
+                ...(line && line.reversedAmount > 0 ? [['Revertido por reembolso', signedMoney(-line.reversedAmount)]] : []),
+                ['Neto para el comercio', money(netShown)],
+                ...(line?.settledAt ? [['Consignado el', dateTime(line.settledAt)]] : []),
+              ]}
+            />
+          ) : (
+            // Lo que el mostrador necesita para cobrar: lo que el cliente pagó.
+            <Grid
+              title="Cobro al cliente"
+              head={['Concepto', 'Importe']}
+              empty="Sin desglose."
+              right={[1]}
+              rows={[
+                ['Venta de productos', money(productSubtotal)],
+                ['Total del pedido', money(customerTotal)],
+              ]}
+            />
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">

@@ -4,7 +4,8 @@
  * tokens ni hashes; el identificador de dispositivo llega recortado.
  */
 
-export type BusinessRole = 'owner' | 'manager' | 'operator' | 'cashier';
+/** `operator` y `cashier` ya no se asignan (2026-10-09): solo quedan en la auditoría antigua. */
+export type BusinessRole = 'owner' | 'manager' | 'employee' | 'operator' | 'cashier';
 export type SessionStatus = 'active' | 'revoked' | 'expired';
 export type EventResult = 'success' | 'failure' | 'info';
 

@@ -249,6 +249,8 @@ export interface OrderFinance {
   merchantCommission: number;
   merchantFundedDiscount: number;
   businessPayout: number;
+  /** Lo que el cliente pagó. Es lo único "financiero" que ve el personal. */
+  customerTotal: number;
 }
 
 export interface BusinessOrder {

@@ -465,14 +465,15 @@ export class CouponService {
   async createForBusiness(
     ownerId: string,
     businessId: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    scope?: import('./businessStaff.service').SessionScope
   ): Promise<ICoupon> {
     const { Business, BusinessPermission } = await import('../models');
     const { businessStaffService } = await import('./businessStaff.service');
     const business = await Business.findById(businessId).select('city');
 
     if (!business) throw new AppError('Negocio no encontrado', 404);
-    await businessStaffService.assertCan(ownerId, businessId, BusinessPermission.PROMOTIONS_MANAGE, 'Sin permisos para gestionar promociones.');
+    await businessStaffService.assertCan(ownerId, businessId, BusinessPermission.PROMOTIONS_MANAGE, 'Sin permisos para gestionar promociones.', scope);
 
     const autoApply = input.autoApply === true;
 
@@ -583,14 +584,15 @@ export class CouponService {
    */
   async listForBusiness(
     ownerId: string,
-    businessId: string
+    businessId: string,
+    scope?: import('./businessStaff.service').SessionScope
   ): Promise<Array<Record<string, unknown> & { availability: CouponAvailability }>> {
     const { Business, BusinessPermission } = await import('../models');
     const { businessStaffService } = await import('./businessStaff.service');
     const business = await Business.findById(businessId).select('_id');
 
     if (!business) throw new AppError('Negocio no encontrado', 404);
-    await businessStaffService.assertCan(ownerId, businessId, BusinessPermission.PROMOTIONS_VIEW, 'Sin permisos para ver promociones.');
+    await businessStaffService.assertCan(ownerId, businessId, BusinessPermission.PROMOTIONS_VIEW, 'Sin permisos para ver promociones.', scope);
 
     const coupons = await Coupon.find({ businessId, fundedBy: CouponFundedBy.BUSINESS }).sort({
       createdAt: -1,
@@ -603,7 +605,7 @@ export class CouponService {
   }
 
   /** Carga una promoción propia verificando dueño, o lanza. Común a editar/desactivar/reactivar/eliminar. */
-  private async loadOwnedBusinessCoupon(ownerId: string, couponId: string): Promise<ICoupon> {
+  private async loadOwnedBusinessCoupon(ownerId: string, couponId: string, scope?: import('./businessStaff.service').SessionScope): Promise<ICoupon> {
     const coupon = await Coupon.findById(couponId);
     if (!coupon || coupon.fundedBy !== CouponFundedBy.BUSINESS || !coupon.businessId) {
       throw new AppError('Promoción no encontrada', 404);
@@ -615,7 +617,8 @@ export class CouponService {
       ownerId,
       coupon.businessId.toString(),
       BusinessPermission.PROMOTIONS_MANAGE,
-      'Sin permisos para gestionar promociones.'
+      'Sin permisos para gestionar promociones.',
+      scope
     );
 
     return coupon;
@@ -628,8 +631,8 @@ export class CouponService {
    * apuntando a él, y borrarlo dejaría esas liquidaciones señalando a un
    * documento que no existe.
    */
-  async deactivateForBusiness(ownerId: string, couponId: string): Promise<ICoupon> {
-    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId);
+  async deactivateForBusiness(ownerId: string, couponId: string, scope?: import('./businessStaff.service').SessionScope): Promise<ICoupon> {
+    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId, scope);
     coupon.isActive = false;
     await coupon.save();
     return coupon;
@@ -641,8 +644,8 @@ export class CouponService {
    * `couponAvailability()` la seguirá mostrando agotada hasta que también
    * se edite la fecha.
    */
-  async reactivateForBusiness(ownerId: string, couponId: string): Promise<ICoupon> {
-    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId);
+  async reactivateForBusiness(ownerId: string, couponId: string, scope?: import('./businessStaff.service').SessionScope): Promise<ICoupon> {
+    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId, scope);
     await this.assertMayBeActive(coupon);
     coupon.isActive = true;
     await coupon.save();
@@ -679,9 +682,10 @@ export class CouponService {
   async updateForBusiness(
     ownerId: string,
     couponId: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    scope?: import('./businessStaff.service').SessionScope
   ): Promise<ICoupon> {
-    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId);
+    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId, scope);
 
     const editable = [
       'title',
@@ -743,8 +747,8 @@ export class CouponService {
    * y las liquidaciones que ya se hicieron con él perderían su rastro — se
    * ofrece desactivar en su lugar.
    */
-  async deleteForBusiness(ownerId: string, couponId: string): Promise<void> {
-    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId);
+  async deleteForBusiness(ownerId: string, couponId: string, scope?: import('./businessStaff.service').SessionScope): Promise<void> {
+    const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId, scope);
     if (coupon.usedCount > 0) {
       throw new AppError('No puedes eliminar una promoción que ya tuvo pedidos; desactívala', 409);
     }

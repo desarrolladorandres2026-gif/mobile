@@ -18,7 +18,7 @@ import type { BusinessAccess } from './businessStaff.service';
  * por el nombre del papel:
  *   - `operations` (con `analytics:view`, el administrador): el día del
  *     negocio sin neto, comisión ni descuentos asumidos.
- *   - `shift` (con `shift:view`, el cajero): lo vendido hoy por medio de
+ *   - `shift` (con `shift:view`, que ya no tiene el empleado): lo vendido hoy por medio de
  *     pago y lo que sigue abierto.
  *   - `kitchen` (solo `orders:view`, el operador): cuántos pedidos hay en
  *     cada estado. Sin dinero.

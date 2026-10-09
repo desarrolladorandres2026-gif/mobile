@@ -5,7 +5,7 @@ import { OrderStatus, UserRole, CancellationReason } from '../types';
 import { Driver, BusinessPermission, BusinessRole } from '../models';
 import { AppError } from '../middlewares';
 import { can } from '../middlewares/auth';
-import { Permission } from '../security';
+import { Permission, logAudit, AuditAction, AuditSeverity } from '../security';
 import { customerFinanceView, merchantStaffOrderView } from '../services/profileMasking';
 import { businessStaffService, staffOrderScope, isInStaffScope, type BusinessAccess } from '../services/businessStaff.service';
 import { TERMINAL_ORDER_STATUSES } from '../services/order.service';
@@ -91,7 +91,7 @@ export class OrderController {
       const isClient = order.clientId._id?.toString?.() === user._id.toString() || order.clientId.toString() === user._id.toString();
       const isDriver = order.driverId && (order.driverId as any).userId?._id?.toString?.() === user._id.toString();
       const businessAccess = user.role === UserRole.BUSINESS && !isClient && !isDriver && order.businessId
-        ? await businessStaffService.accessFor(user._id.toString(), String((order.businessId as any)._id ?? order.businessId))
+        ? await businessStaffService.accessFor(user._id.toString(), String((order.businessId as any)._id ?? order.businessId), req.sessionScope)
         : null;
       const isBusiness = !!businessAccess
         && businessAccess.permissions.includes(BusinessPermission.ORDERS_VIEW)
@@ -167,7 +167,7 @@ export class OrderController {
       // no podía hacer sonar nada.
       let access: BusinessAccess | null = null;
       if (req.user!.role === UserRole.BUSINESS) {
-        access = await businessStaffService.accessFor(req.user!._id.toString(), param(req, 'businessId'));
+        access = await businessStaffService.accessFor(req.user!._id.toString(), param(req, 'businessId'), req.sessionScope);
         if (!access?.permissions.includes(BusinessPermission.ORDERS_VIEW)) {
           return next(new AppError('No autorizado para ver pedidos de este comercio', 403));
         }
@@ -247,8 +247,32 @@ export class OrderController {
         req.body.cancellationReason,
         { ip: clientIp(req), userAgent: userAgent(req) },
         req.body.cancellationCode,
-        { canRefund: req.user!.role === UserRole.ADMIN && can(req, Permission.REFUNDS_CREATE) }
+        { canRefund: req.user!.role === UserRole.ADMIN && can(req, Permission.REFUNDS_CREATE), scope: req.sessionScope }
       );
+
+      // Una cancelación hecha desde el panel del comercio queda en la auditoría
+      // con su autor y su papel (auditoría 2026-10-09, MEDIO 5). El detalle del
+      // pedido ya vive en su bitácora; esto es lo que ve Seguridad. Solo se
+      // llega aquí si la cancelación se hizo de verdad: el servicio lanza antes.
+      if (req.user!.role === UserRole.BUSINESS && order.status === OrderStatus.CANCELLED && order.businessId) {
+        const access = await businessStaffService.accessFor(req.user!._id.toString(), order.businessId.toString(), req.sessionScope);
+        void logAudit(req, {
+          action: AuditAction.ORDER_CANCELLED,
+          entity: 'order',
+          entityId: order._id.toString(),
+          severity: AuditSeverity.MEDIUM,
+          description: `Pedido ${order.orderNumber} cancelado desde el panel del comercio`,
+          metadata: {
+            orderNumber: order.orderNumber,
+            businessId: order.businessId.toString(),
+            actorBusinessRole: access?.role,
+            // El motivo escrito vive en el pedido; aquí solo el código del catálogo (el texto libre suele traer teléfonos).
+            cancellationCode: req.body.cancellationCode,
+            paymentMethod: order.paymentMethod,
+            paymentStatus: order.paymentStatus,
+          },
+        });
+      }
 
       const io = req.app.get('io');
       if (io) {
@@ -283,7 +307,8 @@ export class OrderController {
       } else if (req.user!.role === UserRole.BUSINESS && order.businessId) {
         const access = await businessStaffService.accessFor(
           req.user!._id.toString(),
-          String((order.businessId as any)._id ?? order.businessId)
+          String((order.businessId as any)._id ?? order.businessId),
+          req.sessionScope
         );
         if (access && access.role !== BusinessRole.OWNER) {
           body = merchantStaffOrderView(order, { terminal: TERMINAL_ORDER_STATUSES.includes(order.status) });

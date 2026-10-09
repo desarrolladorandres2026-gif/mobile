@@ -202,7 +202,10 @@ describe('Pedidos — idempotencia y concurrencia', () => {
 
       // El personal no ve el pago al domiciliario ni el margen de ZIPP.
       expect(owner.payload.finance.driverPayout).toBeDefined();
-      expect(staff.payload.finance.businessPayout).toBe(owner.payload.finance.businessPayout);
+      // Desde 2026-10-09 tampoco ven el neto ni la comisión (ver docs/DIVISION.md).
+      expect(owner.payload.finance.businessPayout).toBeDefined();
+      expect(staff.payload.finance.businessPayout).toBeUndefined();
+      expect(staff.payload.finance.platformCommission).toBeUndefined();
       expect(staff.payload.finance.driverPayout).toBeUndefined();
       expect(staff.payload.finance.platformGrossRevenue).toBeUndefined();
       expect(staff.payload.driverPayout).toBeUndefined();

@@ -1647,6 +1647,12 @@ export class PaymentService {
 
     // The money is ours, so what we owe becomes payable.
     await payoutService.release(order._id);
+    // Una cancelación que entró entre el PAID y aquí ya intentó retener cuando
+    // los payouts aún eran ACCRUED (no había nada que retener) y el reembolso
+    // pudo fallar: sin esto, `release` los dejaría liquidables.
+    if (await Order.exists({ _id: order._id, status: OrderStatus.CANCELLED })) {
+      await payoutService.hold(order._id);
+    }
 
     await Payment.updateOne(
       { _id: payment._id },

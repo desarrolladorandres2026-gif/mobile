@@ -107,7 +107,8 @@ describe('Cancelaciones y reasignación', () => {
       OrderStatus.CANCELLED,
       business.ownerId.toString(),
       UserRole.BUSINESS,
-      undefined,
+      // El comercio debe dejar un motivo escrito (desde 2026-10-05).
+      'Se agotó el producto',
       {},
       CancellationReason.BUSINESS_OUT_OF_STOCK
     );

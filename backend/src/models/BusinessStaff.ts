@@ -17,25 +17,34 @@ export enum BusinessRole {
   OWNER = 'owner',
   /** Administrador / encargado: dirige la operación, no el dinero ni los ajustes. */
   MANAGER = 'manager',
-  /** Operador: pedidos, y el catálogo solo para consultarlo. */
-  OPERATOR = 'operator',
-  /** Cajero: pedidos, cobro y ventas del turno. */
-  CASHIER = 'cashier',
+  /** Empleado: ejecuta la operación del día — pedidos, agotar productos y abrir el local. */
+  EMPLOYEE = 'employee',
 }
 
 /** Papeles que se pueden guardar en `BusinessStaff` (el dueño no se guarda). */
-export type StaffRole = BusinessRole.MANAGER | BusinessRole.OPERATOR | BusinessRole.CASHIER;
-export const STAFF_ROLES: StaffRole[] = [BusinessRole.MANAGER, BusinessRole.OPERATOR, BusinessRole.CASHIER];
-
-/** Papeles "de mostrador": ven solo los pedidos del día y nunca el margen de ZIPP. */
-export const COUNTER_ROLES: BusinessRole[] = [BusinessRole.OPERATOR, BusinessRole.CASHIER];
+export type StaffRole = BusinessRole.MANAGER | BusinessRole.EMPLOYEE;
+export const STAFF_ROLES: StaffRole[] = [BusinessRole.MANAGER, BusinessRole.EMPLOYEE];
 
 /**
- * Antes del 2026-10-02 el papel del mostrador se guardaba como `staff`. La
- * migración 025 lo reescribe a `operator`; mientras no corra, se lee igual.
+ * Valores que el mostrador tuvo antes de que existiera `employee`: `staff`
+ * (hasta 2026-10-02), y `operator` y `cashier` (hasta 2026-10-09, cuando se
+ * fundieron en un solo papel). La migración 026 los reescribe; mientras no
+ * corra, y mientras haya paneles viejos en caché mandándolos, se leen igual.
+ */
+export const LEGACY_COUNTER_ROLES = ['staff', 'operator', 'cashier'] as const;
+
+/** Papeles "de mostrador": ven solo los pedidos del día y nunca el margen de ZIPP. */
+export const COUNTER_ROLES: BusinessRole[] = [BusinessRole.EMPLOYEE];
+
+/**
+ * Un valor desconocido se lee como `employee`, el papel con menos poder del
+ * negocio: ante una fila que ya no entendemos, mejor que ceda de más en
+ * restricción que que se quede sin acceso o, peor, con el de un
+ * administrador. Antes se devolvía el texto tal cual y un valor sin mapa
+ * dejaba permisos vacíos sin avisar.
  */
 export function normalizeStaffRole(raw: string): StaffRole {
-  return (raw === 'staff' ? BusinessRole.OPERATOR : raw) as StaffRole;
+  return raw === BusinessRole.MANAGER ? BusinessRole.MANAGER : BusinessRole.EMPLOYEE;
 }
 
 export type StaffStatus = 'active' | 'pending' | 'suspended';
@@ -116,13 +125,15 @@ const P = BusinessPermission;
  * y retira a operadores y cajeros.
  *
  * Cancelar es de todos mientras el pedido no esté pagado (`orders:cancel`);
- * uno pagado exige además `orders:cancel_paid`, que solo tienen el
- * propietario y el administrador.
+ * uno pagado exige además `orders:cancel_paid`, que es solo del propietario
+ * (decisión 2026-10-09: cancelar uno pagado emite un reembolso completo y el
+ * administrador no toca el dinero). Y ningún rol cancela un pedido que ya salió
+ * del local: ver `BUSINESS_CANCELLABLE_STATUSES` en order.service.ts.
  */
 export const BUSINESS_ROLE_PERMISSIONS: Record<BusinessRole, BusinessPermission[]> = {
   [BusinessRole.OWNER]: Object.values(BusinessPermission),
   [BusinessRole.MANAGER]: [
-    P.ORDERS_VIEW, P.ORDERS_MANAGE, P.ORDERS_CANCEL, P.ORDERS_CANCEL_PAID, P.SHIFT_VIEW,
+    P.ORDERS_VIEW, P.ORDERS_MANAGE, P.ORDERS_CANCEL, P.SHIFT_VIEW,
     P.CATALOG_VIEW, P.CATALOG_CREATE, P.CATALOG_EDIT, P.CATALOG_DELETE, P.CATALOG_CHANGE_PRICE,
     P.CATALOG_AVAILABILITY,
     P.PROMOTIONS_VIEW, P.PROMOTIONS_MANAGE, P.ADVERTISING_MANAGE,
@@ -130,11 +141,13 @@ export const BUSINESS_ROLE_PERMISSIONS: Record<BusinessRole, BusinessPermission[
     P.TEAM_VIEW, P.TEAM_INVITE, P.TEAM_EDIT, P.TEAM_REMOVE,
     P.ANALYTICS_VIEW, P.STORE_TOGGLE,
   ],
-  [BusinessRole.OPERATOR]: [
+  // Sin `shift:view` a propósito (decisión 2026-10-09): son cifras de dinero y
+  // el empleado ejecuta, no cuadra caja. Al fundir operador y cajero, quien
+  // era cajero pierde su resumen de turno y gana agotar y abrir/cerrar.
+  [BusinessRole.EMPLOYEE]: [
     P.ORDERS_VIEW, P.ORDERS_MANAGE, P.ORDERS_CANCEL,
     P.CATALOG_VIEW, P.CATALOG_AVAILABILITY, P.STORE_TOGGLE,
   ],
-  [BusinessRole.CASHIER]: [P.ORDERS_VIEW, P.ORDERS_MANAGE, P.ORDERS_CANCEL, P.SHIFT_VIEW],
 };
 
 export interface IBusinessStaff extends Document {
@@ -147,7 +160,16 @@ export interface IBusinessStaff extends Document {
   /** Lo que escribió quien invitó; el nombre real lo manda la cuenta. */
   invitedName?: string;
   invitedEmail?: string;
+  /** El teléfono tal como lo escribió quien invitó; es lo único que ve de una invitación pendiente. */
+  invitedPhone?: string;
   invitedBy?: Types.ObjectId;
+  /**
+   * Quién suspendió y con qué papel. Hace falta para que una suspensión del
+   * propietario no la deshaga un administrador. Filas suspendidas antes de
+   * 2026-10-09 no lo tienen y se tratan como suspensión de un administrador.
+   */
+  suspendedBy?: Types.ObjectId;
+  suspendedByRole?: BusinessRole;
   acceptedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -160,15 +182,18 @@ const businessStaffSchema = new Schema<IBusinessStaff>(
     role: {
       type: String,
       // 'staff' sigue aceptado hasta que corra la migración 025.
-      enum: [...STAFF_ROLES, 'staff'],
+      enum: [...STAFF_ROLES, ...LEGACY_COUNTER_ROLES],
       required: true,
     },
     isActive: { type: Boolean, default: true },
     status: { type: String, enum: ['active', 'pending', 'suspended'], default: 'active' },
     invitedName: { type: String, trim: true, maxlength: 120 },
     invitedEmail: { type: String, trim: true, lowercase: true, maxlength: 160 },
+    invitedPhone: { type: String, trim: true, maxlength: 20 },
     acceptedAt: { type: Date },
     invitedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    suspendedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    suspendedByRole: { type: String, enum: Object.values(BusinessRole) },
   },
   { timestamps: true }
 );

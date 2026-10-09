@@ -40,7 +40,7 @@ export class OrderFlowController {
    */
   async getState(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       const order = access.order;
 
       const [security, evidences, unread, activeCall, participants] = await Promise.all([
@@ -134,7 +134,7 @@ export class OrderFlowController {
     kind: OrderCodeKind
   ) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       const location = readLocation(req.body);
       const accuracy = typeof req.body?.accuracy === 'number' ? req.body.accuracy : undefined;
       const arrivedAt = await orderSecurityService.markArrival(access, kind, location, accuracy);
@@ -225,7 +225,7 @@ export class OrderFlowController {
         }
         if (!req.file) throw new AppError('Adjunta una foto', 400, 'EVIDENCE_INVALID_FILE');
 
-        const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+        const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
         const evidence = await orderEvidenceService.upload({
           access,
           type,
@@ -265,7 +265,7 @@ export class OrderFlowController {
 
   async listEvidence(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       const evidences = await orderEvidenceService.listForOrder(access);
 
       if (access.participant === 'admin') {
@@ -295,7 +295,7 @@ export class OrderFlowController {
    */
   async getTimeline(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       const timeline = await orderTimelineService.forOrder(access);
 
       if (access.participant === 'admin') {
@@ -338,7 +338,7 @@ export class OrderFlowController {
     kind: OrderCodeKind
   ) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       const order = access.order;
       const orderId = order._id.toString();
       const location = readLocation(req.body);
@@ -503,7 +503,7 @@ export class OrderFlowController {
 
   async getChat(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       // MEDIO 5 (auditoría 2026-10-01): el chat es entre cliente y
       // domiciliario; el comercio no es parte de esa conversación (el
       // cliente puede estar contando dónde vive, o diciendo que está sola).
@@ -531,7 +531,7 @@ export class OrderFlowController {
 
   async sendMessage(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       assertParticipant(access, ['client', 'driver'], 'escribir en esta conversación');
       const message = await orderChatService.send(access, req.body.message);
       const participants = await getOrderParticipants(access.order);
@@ -558,7 +558,7 @@ export class OrderFlowController {
 
   async markChatRead(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       const updated = await orderChatService.markRead(access);
 
       const participants = await getOrderParticipants(access.order);
@@ -582,7 +582,7 @@ export class OrderFlowController {
 
   async startCall(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       const call = await orderCallService.start(access);
 
       req.app.get('io')?.to(`user:${call.receiver.userId}`).emit('order:call:incoming', {
@@ -606,7 +606,7 @@ export class OrderFlowController {
 
   async answerCall(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       const call = await orderCallService.answer(param(req, 'callId'), access);
 
       req.app.get('io')?.to(`user:${call.caller.userId}`).emit('order:call:answered', { call });
@@ -617,7 +617,7 @@ export class OrderFlowController {
 
   async endCall(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       const call = await orderCallService.end(
         param(req, 'callId'),
         access,
@@ -651,7 +651,7 @@ export class OrderFlowController {
 
   async listCalls(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       assertParticipant(access, ['client', 'driver', 'admin'], 'ver las llamadas');
       const calls = await orderCallService.listForOrder(access);
       sendResponse(res, 200, 'Llamadas del pedido', calls);
@@ -672,7 +672,7 @@ export class OrderFlowController {
    */
   async confirmCash(req: Request, res: Response, next: NextFunction) {
     try {
-      const access = await resolveOrderAccess(param(req, 'id'), req.user!);
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       assertParticipant(access, ['driver'], 'confirmar el efectivo');
 
       const received = req.body.received === true;

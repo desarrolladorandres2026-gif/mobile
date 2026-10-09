@@ -37,7 +37,7 @@ async function placeOrder() {
   });
 }
 
-async function employee(role: BusinessRole.MANAGER | BusinessRole.OPERATOR, isActive = true) {
+async function employee(role: BusinessRole.MANAGER | BusinessRole.EMPLOYEE, isActive = true) {
   const user = await makeUser({ role: UserRole.BUSINESS });
   await BusinessStaff.create({ businessId: business._id, userId: user._id, role, isActive });
   return user;
@@ -57,27 +57,40 @@ beforeEach(async () => {
 describe('Pedidos para el personal del comercio', () => {
   it('el encargado y el mostrador ven la lista de su negocio', async () => {
     await placeOrder();
-    for (const role of [BusinessRole.MANAGER, BusinessRole.OPERATOR] as const) {
+    for (const role of [BusinessRole.MANAGER, BusinessRole.EMPLOYEE] as const) {
       const res = await list(await employee(role));
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveLength(1);
     }
   });
 
-  it('el personal recibe el pedido sin el margen de ZIPP ni el pago al domiciliario', async () => {
+  it('el personal recibe el pedido sin comisión, neto, margen de ZIPP ni pago al domiciliario', async () => {
     await placeOrder();
-    const res = await list(await employee(BusinessRole.OPERATOR));
+    for (const role of [BusinessRole.MANAGER, BusinessRole.EMPLOYEE] as const) {
+      const res = await list(await employee(role));
+      const order = res.body.data[0];
+      for (const key of ['driverPayout', 'platformCommission', 'businessPayout']) {
+        expect(order[key]).toBeUndefined();
+      }
+      for (const key of ['driverPayout', 'platformGrossRevenue', 'merchantCommission', 'businessPayout']) {
+        expect(order.finance?.[key]).toBeUndefined();
+      }
+      // Lo que el cliente pagó sí: el cajero lo necesita para cobrar.
+      expect(order.finance?.customerTotal).toBeDefined();
+    }
+  });
+
+  it('el propietario sigue viendo comisión y neto', async () => {
+    await placeOrder();
+    const res = await list(owner);
     const order = res.body.data[0];
-    expect(order.driverPayout).toBeUndefined();
-    expect(order.finance?.driverPayout).toBeUndefined();
-    expect(order.finance?.platformGrossRevenue).toBeUndefined();
-    // Lo que el propio comercio cobra sí lo ve (MERCHANT_STAFF_FINANCE_FIELDS).
+    expect(order.finance?.merchantCommission).toBeDefined();
     expect(order.finance?.businessPayout).toBeDefined();
   });
 
   it('un empleado dado de baja o de otro negocio no ve nada', async () => {
     await placeOrder();
-    expect((await list(await employee(BusinessRole.OPERATOR, false))).status).toBe(403);
+    expect((await list(await employee(BusinessRole.EMPLOYEE, false))).status).toBe(403);
 
     const otherOwner = await makeUser({ role: UserRole.BUSINESS });
     const other = await makeBusiness(otherOwner._id);
@@ -88,7 +101,7 @@ describe('Pedidos para el personal del comercio', () => {
 
   it('el mostrador acepta y prepara el pedido', async () => {
     const order = await placeOrder();
-    const staff = await employee(BusinessRole.OPERATOR);
+    const staff = await employee(BusinessRole.EMPLOYEE);
     const id = order._id.toString();
 
     const accepted = await orderService.updateStatus(id, OrderStatus.ACCEPTED, staff._id.toString(), UserRole.BUSINESS);
@@ -100,7 +113,7 @@ describe('Pedidos para el personal del comercio', () => {
     const otherOwner = await makeUser({ role: UserRole.BUSINESS });
     const other = await makeBusiness(otherOwner._id);
     const outsider = await makeUser({ role: UserRole.BUSINESS });
-    await BusinessStaff.create({ businessId: other._id, userId: outsider._id, role: BusinessRole.OPERATOR });
+    await BusinessStaff.create({ businessId: other._id, userId: outsider._id, role: BusinessRole.EMPLOYEE });
 
     await expect(
       orderService.updateStatus(order._id.toString(), OrderStatus.ACCEPTED, outsider._id.toString(), UserRole.BUSINESS)
@@ -117,7 +130,7 @@ describe('Pedidos para el personal del comercio', () => {
     );
     await Order.collection.updateOne({ _id: ongoing._id }, { $set: { createdAt: yesterday } });
 
-    const staffRes = await list(await employee(BusinessRole.OPERATOR));
+    const staffRes = await list(await employee(BusinessRole.EMPLOYEE));
     const staffIds = staffRes.body.data.map((o: any) => o._id);
     expect(staffIds).toContain(ongoing._id.toString());
     expect(staffIds).not.toContain(closed._id.toString());
@@ -127,11 +140,11 @@ describe('Pedidos para el personal del comercio', () => {
     expect(managerIds).toContain(closed._id.toString());
 
     // Y el detalle de un pedido fuera de su día responde igual que uno ajeno.
-    const staff = await employee(BusinessRole.OPERATOR);
+    const staff = await employee(BusinessRole.EMPLOYEE);
     await expect(resolveOrderAccess(closed._id.toString(), staff)).rejects.toMatchObject({ statusCode: 404 });
     const access = await resolveOrderAccess(ongoing._id.toString(), staff);
     expect(access.participant).toBe('business');
-    expect(access.businessRole).toBe(BusinessRole.OPERATOR);
+    expect(access.businessRole).toBe(BusinessRole.EMPLOYEE);
   });
 
   it('la copia local de estados terminales coincide con la máquina de estados', () => {
@@ -143,7 +156,7 @@ describe('Pedidos para el personal del comercio', () => {
     const order = await placeOrder();
     const res = await request(app)
       .patch(`/api/v1/orders/${order._id}/status`)
-      .set(await authHeader(await employee(BusinessRole.OPERATOR)))
+      .set(await authHeader(await employee(BusinessRole.EMPLOYEE)))
       .send({ status: OrderStatus.ACCEPTED });
     expect(res.status).toBe(200);
     expect(res.body.data.driverPayout).toBeUndefined();
@@ -159,7 +172,7 @@ describe('Pedidos para el personal del comercio', () => {
 
     const res = await request(app)
       .get(`/api/v1/orders/${order._id}`)
-      .set(await authHeader(await employee(BusinessRole.OPERATOR)));
+      .set(await authHeader(await employee(BusinessRole.EMPLOYEE)));
     expect(res.status).toBe(200);
     expect(res.body.data.driverId.emergencyContact).toBeUndefined();
     expect(res.body.data.driverId.currentFund).toBeUndefined();
@@ -169,7 +182,7 @@ describe('Pedidos para el personal del comercio', () => {
 
   it('ALTO 3: sin ubicación en vivo del domiciliario tras la entrega, ni para el negocio', async () => {
     const order = await placeOrder();
-    const staff = await employee(BusinessRole.OPERATOR);
+    const staff = await employee(BusinessRole.EMPLOYEE);
     const driverUser = await makeUser({ role: UserRole.DRIVER });
     await makeDriver(driverUser._id);
     const driver = await Driver.findOne({ userId: driverUser._id });
@@ -243,7 +256,7 @@ describe('Pedidos para el personal del comercio', () => {
     await orderService.updateStatus(id, OrderStatus.ACCEPTED, owner._id.toString(), UserRole.BUSINESS);
     await orderService.updateStatus(id, OrderStatus.PREPARING, owner._id.toString(), UserRole.BUSINESS);
 
-    const staff = await employee(BusinessRole.OPERATOR);
+    const staff = await employee(BusinessRole.EMPLOYEE);
     await expect(
       orderService.updateStatus(id, OrderStatus.CANCELLED, staff._id.toString(), UserRole.BUSINESS, 'Se acabó el pollo', {}, 'other' as any)
     ).rejects.toMatchObject({ statusCode: 403, code: 'ORDER_CANCEL_PAID_FORBIDDEN' });
@@ -260,7 +273,7 @@ describe('Abrir y cerrar el negocio', () => {
     request(app).patch(`/api/v1/businesses/${business._id}/open`).set(await authHeader(user)).send({ isActive });
 
   it('el dueño y el personal lo abren y lo cierran', async () => {
-    for (const user of [owner, await employee(BusinessRole.MANAGER), await employee(BusinessRole.OPERATOR)]) {
+    for (const user of [owner, await employee(BusinessRole.MANAGER), await employee(BusinessRole.EMPLOYEE)]) {
       expect((await setOpen(user, false)).status).toBe(200);
       expect((await Business.findById(business._id))!.isActive).toBe(false);
       expect((await setOpen(user, true)).status).toBe(200);
@@ -271,7 +284,7 @@ describe('Abrir y cerrar el negocio', () => {
   it('solo viaja isActive: cualquier otro campo se rechaza', async () => {
     const res = await request(app)
       .patch(`/api/v1/businesses/${business._id}/open`)
-      .set(await authHeader(await employee(BusinessRole.OPERATOR)))
+      .set(await authHeader(await employee(BusinessRole.EMPLOYEE)))
       .send({ isActive: true, name: 'Otro nombre' });
     expect(res.status).toBe(400);
   });
@@ -282,7 +295,7 @@ describe('Abrir y cerrar el negocio', () => {
   });
 
   it('el mostrador que cerró anoche sigue viendo el negocio para abrirlo', async () => {
-    const staff = await employee(BusinessRole.OPERATOR);
+    const staff = await employee(BusinessRole.EMPLOYEE);
     await setOpen(staff, false);
     const res = await request(app).get('/api/v1/businesses/my/businesses').set(await authHeader(staff));
     expect(res.status).toBe(200);

@@ -30,7 +30,8 @@ export class ReviewController {
       const review = await reviewService.replyAsBusiness(
         param(req, 'id'),
         req.user!._id.toString(),
-        req.body.reply
+        req.body.reply,
+        req.sessionScope
       );
       sendResponse(res, 200, 'Respuesta publicada', review);
     } catch (error) { next(error); }
@@ -159,7 +160,7 @@ export class ReviewController {
   async getByOrder(req: Request, res: Response, next: NextFunction) {
     try {
       const orderId = param(req, 'orderId');
-      const access = await resolveOrderAccess(orderId, req.user!);
+      const access = await resolveOrderAccess(orderId, req.user!, req.sessionScope);
 
       const review = await reviewService.getByOrder(orderId);
       if (!review) {

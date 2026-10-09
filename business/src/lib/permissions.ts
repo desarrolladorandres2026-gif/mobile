@@ -41,31 +41,32 @@ export type BusinessPermission =
   | 'security:manage'
   | 'store:toggle';
 
-export type BusinessRole = 'owner' | 'manager' | 'operator' | 'cashier';
+export type BusinessRole = 'owner' | 'manager' | 'employee';
 /** Los papeles que se pueden dar a alguien del equipo (el dueño no se asigna). */
 export type StaffRole = Exclude<BusinessRole, 'owner'>;
 
 export const ROLE_LABELS: Record<BusinessRole, string> = {
   owner: 'Propietario',
   manager: 'Administrador',
-  operator: 'Operador',
-  cashier: 'Cajero',
+  employee: 'Empleado',
 };
 
 export const ROLE_DESCRIPTIONS: Record<StaffRole, string> = {
-  manager: 'Pedidos (también cancela los pagados), menú, promociones, publicidad, reseñas y equipo operativo. No ve liquidaciones, documentos ni ajustes, y no cambia roles.',
-  operator: 'Pedidos del día (cancela solo los no pagados), agotar y reponer productos, y abrir y cerrar el local. El resto del menú, solo consulta.',
-  cashier: 'Pedidos del día (cancela solo los no pagados) y las ventas del turno.',
+  manager: 'Pedidos (cancela solo los no pagados), menú, promociones, publicidad, reseñas y equipo operativo. No ve liquidaciones, documentos ni ajustes, y no cambia roles.',
+  employee: 'Ejecuta el día: pedidos (cancela solo los no pagados), agotar y reponer productos, y abrir y cerrar el local. No ve dinero ni equipo.',
 };
 
 /**
- * Antes del 2026-10-02 el mostrador se guardaba como `staff`; el backend ya
- * lo traduce, pero una respuesta en caché o una fila sin migrar no debe
- * dejar la pantalla sin etiqueta.
+ * El mostrador se guardó como `staff` y luego como `operator` o `cashier`
+ * hasta que el 2026-10-09 se fundió en `employee`; el backend ya lo traduce,
+ * pero una respuesta en caché o una fila sin migrar no debe dejar la pantalla
+ * sin etiqueta.
  */
 export function normalizeRole(raw: string | null | undefined): BusinessRole | null {
   if (!raw) return null;
-  if (raw === 'staff') return 'operator';
+  // `staff`, `operator` y `cashier` son los nombres que tuvo el mostrador
+  // antes de fundirse en `employee`; una respuesta en caché aún puede traerlos.
+  if (raw === 'staff' || raw === 'operator' || raw === 'cashier') return 'employee';
   return raw in ROLE_LABELS ? (raw as BusinessRole) : null;
 }
 

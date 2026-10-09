@@ -316,6 +316,7 @@
     "status": 200,
     "shape": {
       "data": {
+        "appliedAutoPromotions": [],
         "appliedCommissionBps": "number",
         "businessPayout": "number",
         "cashToRemit": "number",
@@ -365,6 +366,7 @@
         "proDeliveryDiscount": "number",
         "proServiceFeeDiscount": "number",
         "productSubtotal": "number",
+        "promotionDiscount": "number",
         "requiresAgeVerification": "boolean",
         "subsidioComercio": "number",
         "subsidioPlataforma": "number",
@@ -432,6 +434,7 @@
     "status": 200,
     "shape": {
       "data": {
+        "appliedAutoPromotions": [],
         "appliedCommissionBps": "number",
         "businessPayout": "number",
         "cashToRemit": "number",
@@ -481,6 +484,7 @@
         "proDeliveryDiscount": "number",
         "proServiceFeeDiscount": "number",
         "productSubtotal": "number",
+        "promotionDiscount": "number",
         "requiresAgeVerification": "boolean",
         "subsidioComercio": "number",
         "subsidioPlataforma": "number",
@@ -552,6 +556,7 @@
       "data": {
         "__v": "number",
         "_id": "string",
+        "appliedPromotionIds": [],
         "businessId": "string",
         "businessPayout": "number",
         "city": "string",
@@ -590,6 +595,8 @@
           "platformNetRevenueBeforeOperatingCosts": "number",
           "platformPromotionExpense": "number",
           "pricingConfigVersion": "number",
+          "proDeliveryDiscount": "number",
+          "proServiceFeeDiscount": "number",
           "productSubtotal": "number",
           "taxPayable": "number",
           "tip": "number"
@@ -673,6 +680,7 @@
         {
           "__v": "number",
           "_id": "string",
+          "appliedPromotionIds": [],
           "businessId": {
             "_id": "string",
             "id": "string",
@@ -716,6 +724,8 @@
             "platformNetRevenueBeforeOperatingCosts": "number",
             "platformPromotionExpense": "number",
             "pricingConfigVersion": "number",
+            "proDeliveryDiscount": "number",
+            "proServiceFeeDiscount": "number",
             "productSubtotal": "number",
             "taxPayable": "number",
             "tip": "number"
@@ -775,6 +785,7 @@
       "data": {
         "__v": "number",
         "_id": "string",
+        "appliedPromotionIds": [],
         "businessId": {
           "_id": "string",
           "address": "string",
@@ -833,6 +844,8 @@
           "platformNetRevenueBeforeOperatingCosts": "number",
           "platformPromotionExpense": "number",
           "pricingConfigVersion": "number",
+          "proDeliveryDiscount": "number",
+          "proServiceFeeDiscount": "number",
           "productSubtotal": "number",
           "taxPayable": "number",
           "tip": "number"
@@ -944,6 +957,7 @@
   "product.update.otherOwnerSpoofedBusiness": {
     "status": 403,
     "shape": {
+      "code": "string",
       "message": "string",
       "success": "boolean"
     }

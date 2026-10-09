@@ -88,6 +88,23 @@ export interface ISession extends Document {
    * camino si el rol de la cuenta cambia después.
    */
   isStaff: boolean;
+  /**
+   * Límite de lo que esta sesión puede hacer, independiente del rol de la
+   * cuenta. `'full'` (todas las anteriores a esto, y el valor por defecto)
+   * es lo que el rol de la cuenta permite. `'counter'` es la sesión del
+   * mostrador (decisión 2026-10-09): el panel de comercio entra con el
+   * correo del negocio directo al panel de Empleado, aunque la cuenta sea
+   * la del propietario — `businessStaffService.accessFor` la topa ahí.
+   * Vive en la sesión y no en el token para que un access token robado no
+   * pueda declararse `full`: `authenticate` lo relee en cada petición.
+   */
+  scope: 'full' | 'counter';
+  /**
+   * `sid` de la sesión de mostrador desde la que esta se elevó (solo en
+   * sesiones `full` creadas por `/auth/counter/elevate`). Sirve para la
+   * auditoría y para que `drop` no revoque la sesión equivocada.
+   */
+  elevatedFrom?: string | null;
 }
 
 const sessionSchema = new Schema<ISession>(
@@ -124,6 +141,8 @@ const sessionSchema = new Schema<ISession>(
     expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } },
     absoluteExpiresAt: { type: Date, default: null },
     isStaff: { type: Boolean, default: false },
+    scope: { type: String, enum: ['full', 'counter'], default: 'full' },
+    elevatedFrom: { type: String, default: null },
   },
   { timestamps: true }
 );
@@ -326,10 +345,27 @@ const STAFF_SLIDING_TTL_MS = 30 * MINUTE_MS;
 /** Staff (S8): 8 h de vida absoluta, por mucho que se refresque. */
 const STAFF_ABSOLUTE_TTL_MS = 8 * HOUR_MS;
 
-const slidingTtlMs = (isStaff: boolean) =>
-  isStaff ? STAFF_SLIDING_TTL_MS : Math.max(1, config.security.session.sessionTTLDays) * DAY_MS;
-const absoluteTtlMs = (isStaff: boolean) =>
-  isStaff ? STAFF_ABSOLUTE_TTL_MS : Math.max(1, config.security.session.absoluteTTLDays) * DAY_MS;
+/**
+ * Sesión elevada desde el mostrador (`/auth/counter/elevate`, decisión
+ * 2026-10-09): más corta incluso que la de staff, porque nace de una
+ * identificación hecha sobre un equipo compartido y no debe sobrevivir el
+ * turno. Manda sobre `isStaff` cuando las dos aplicarían.
+ */
+const ELEVATED_SLIDING_TTL_MS = 15 * MINUTE_MS;
+const ELEVATED_ABSOLUTE_TTL_MS = 2 * HOUR_MS;
+
+const slidingTtlMs = (isStaff: boolean, elevated = false) =>
+  elevated
+    ? ELEVATED_SLIDING_TTL_MS
+    : isStaff
+      ? STAFF_SLIDING_TTL_MS
+      : Math.max(1, config.security.session.sessionTTLDays) * DAY_MS;
+const absoluteTtlMs = (isStaff: boolean, elevated = false) =>
+  elevated
+    ? ELEVATED_ABSOLUTE_TTL_MS
+    : isStaff
+      ? STAFF_ABSOLUTE_TTL_MS
+      : Math.max(1, config.security.session.absoluteTTLDays) * DAY_MS;
 
 /** Filtro de "no ha pasado la caducidad absoluta", tolerante con sesiones anteriores a ese campo. */
 const withinAbsoluteLifetime = (now: Date) => ({
@@ -398,6 +434,13 @@ export class SessionManager {
     authMethod?: string;
     /** La sesión sale de un login que pasó el segundo factor. */
     mfa?: boolean;
+    /** `'counter'` = sesión de mostrador (panel de Empleado). Por defecto `'full'`. */
+    scope?: 'full' | 'counter';
+    /**
+     * `sid` de la sesión de mostrador que esta eleva. Fuerza el TTL corto de
+     * `ELEVATED_*_TTL_MS` por encima del de `isStaff`.
+     */
+    elevatedFrom?: string | null;
   }): Promise<{
     session: ISession;
     /** El par (usuario, dispositivo) no se había visto nunca. */
@@ -407,7 +450,11 @@ export class SessionManager {
     /** Sesiones que se cerraron para respetar `MAX_ACTIVE_SESSIONS`. */
     evictedSessionIds: string[];
   }> {
-    const { userId, sessionId, refreshToken, ip, userAgent, isStaff = false, mfa = false } = params;
+    const {
+      userId, sessionId, refreshToken, ip, userAgent, isStaff = false, mfa = false,
+      scope = 'full', elevatedFrom = null,
+    } = params;
+    const elevated = !!elevatedFrom;
     const clientDeviceId = normalizeClientDeviceId(params.deviceId);
     const identified = clientDeviceId !== null;
     const actualDeviceId = clientDeviceId ?? generateDeviceId(userAgent, ip);
@@ -453,9 +500,11 @@ export class SessionManager {
       mfa,
       isActive: true,
       lastActivity: now,
-      expiresAt: new Date(now.getTime() + slidingTtlMs(isStaff)),
-      absoluteExpiresAt: new Date(now.getTime() + absoluteTtlMs(isStaff)),
+      expiresAt: new Date(now.getTime() + slidingTtlMs(isStaff, elevated)),
+      absoluteExpiresAt: new Date(now.getTime() + absoluteTtlMs(isStaff, elevated)),
       isStaff,
+      scope,
+      elevatedFrom,
     });
 
     const evictedSessionIds = await this.enforceSessionLimit(userId);
@@ -487,12 +536,18 @@ export class SessionManager {
   }
 
   /**
-   * ¿Sigue viva la sesión de un access token? Lo pregunta `authenticate` en
-   * cada petición: revocar una sesión corta también su access token, sin
-   * esperar a que caduque.
+   * ¿Sigue viva la sesión de un access token, y con qué alcance? Lo
+   * pregunta `authenticate` en cada petición: revocar una sesión corta
+   * también su access token, sin esperar a que caduque. El `scope` viaja
+   * aquí y no en el token (ver `ISession.scope`) para que un access token
+   * robado no pueda declararse `full` por su cuenta.
    */
-  async isSessionActive(sessionId: string, userId: string): Promise<boolean> {
-    if (!Types.ObjectId.isValid(sessionId)) return false;
+  async sessionStatus(
+    sessionId: string,
+    userId: string
+  ): Promise<{ active: boolean; scope: 'full' | 'counter' | null }> {
+    const inactive = { active: false, scope: null } as const;
+    if (!Types.ObjectId.isValid(sessionId)) return inactive;
     const now = new Date();
     const session = await Session.findOne({
       _id: sessionId,
@@ -500,8 +555,8 @@ export class SessionManager {
       isActive: true,
       expiresAt: { $gt: now },
       ...withinAbsoluteLifetime(now),
-    }).select('isStaff lastActivity absoluteExpiresAt');
-    if (!session) return false;
+    }).select('isStaff lastActivity absoluteExpiresAt scope');
+    if (!session) return inactive;
 
     // M1(c): la caducidad por inactividad del staff (30 min) solo avanzaba
     // cuando refrescaba el access token — en la práctica, hasta 15 min de
@@ -525,7 +580,12 @@ export class SessionManager {
       }
     }
 
-    return true;
+    return { active: true, scope: session.scope ?? 'full' };
+  }
+
+  /** Atajo booleano de `sessionStatus` para quien no necesita el `scope` (el socket). */
+  async isSessionActive(sessionId: string, userId: string): Promise<boolean> {
+    return (await this.sessionStatus(sessionId, userId)).active;
   }
 
   /** La sesión (viva o no) a la que pertenece un refresh token. */

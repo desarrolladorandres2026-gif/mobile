@@ -9,7 +9,8 @@ import { AppError, cacheHeaders } from '../middlewares';
 import { uploadProductImage } from '../middlewares/upload';
 import { UserRole } from '../types';
 import { BusinessPermission } from '../models';
-import { assertBusinessCan } from '../services/businessStaff.service';
+import { assertBusinessCan, businessStaffService } from '../services/businessStaff.service';
+import { AuditAction, AuditSeverity, logAudit } from '../security';
 
 /**
  * El error de multer, en el idioma y con el código del resto de la API.
@@ -37,11 +38,11 @@ function uploadError(err: unknown): AppError {
 /**
  * Quién puede tocar el catálogo de un negocio lo decide el permiso, no el
  * papel ni la propiedad: el propietario y el administrador entran por
- * `catalog:*`; el operador y el cajero solo consultan, y el 403 sale de aquí
+ * `catalog:*`; el empleado solo consulta, y el 403 sale de aquí
  * aunque llamen al endpoint directamente.
  */
 function assertCatalog(req: Request, businessId: string, permission: BusinessPermission, action: string) {
-  return assertBusinessCan(req.user!, businessId, permission, `Sin permisos para ${action}.`);
+  return assertBusinessCan(req.user!, businessId, permission, `Sin permisos para ${action}.`, req.sessionScope);
 }
 
 /** Campos que `catalog:availability` puede escribir: la cocina del momento. */
@@ -52,7 +53,103 @@ function isAvailabilityOnly(body: Record<string, unknown>): boolean {
   return fields.length > 0 && fields.every((key) => AVAILABILITY_FIELDS.has(key));
 }
 
+/** El papel de quien actúa en este negocio, para dejarlo escrito en la auditoría. */
+async function actorRoleLabel(req: Request, businessId: string): Promise<string | undefined> {
+  if (req.user!.role === UserRole.ADMIN) return 'platform_admin';
+  return (await businessStaffService.accessFor(req.user!._id.toString(), businessId, req.sessionScope))?.role;
+}
+
+type CatalogSnapshot = {
+  name: string;
+  price: number;
+  discountPrice?: number | null;
+  isAvailable: boolean;
+  stock?: number | null;
+  extras: unknown;
+  modifierGroups: unknown;
+};
+
+const snapshotOf = (p: any): CatalogSnapshot => ({
+  name: p.name,
+  price: p.price,
+  discountPrice: p.discountPrice ?? null,
+  isAvailable: p.isAvailable,
+  stock: p.stock ?? null,
+  extras: JSON.parse(JSON.stringify(p.extras ?? [])),
+  modifierGroups: JSON.parse(JSON.stringify(p.modifierGroups ?? [])),
+});
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
 export class ProductController {
+  /**
+   * Deja en la auditoría quién tocó el precio, la disponibilidad o el stock de
+   * un producto. Compara antes y después: reenviar el mismo valor no es un
+   * cambio y no escribe nada, así que un reintento no duplica el registro.
+   * Del precio y del stock se guardan los valores —es lo que se investiga—;
+   * de las opciones solo que cambiaron.
+   */
+  private async auditCatalogChange(
+    req: Request,
+    productId: string,
+    businessId: string,
+    before: CatalogSnapshot,
+    after: CatalogSnapshot,
+    sent: string[]
+  ) {
+    const actorBusinessRole = await actorRoleLabel(req, businessId);
+    const base = { businessId, productName: after.name, actorBusinessRole };
+
+    const priceChanged =
+      before.price !== after.price ||
+      before.discountPrice !== after.discountPrice ||
+      !same(before.extras, after.extras) ||
+      !same(before.modifierGroups, after.modifierGroups);
+    if (priceChanged) {
+      void logAudit(req, {
+        action: AuditAction.PRODUCT_PRICE_CHANGED,
+        entity: 'product',
+        entityId: productId,
+        severity: AuditSeverity.MEDIUM,
+        description: `Precio de "${after.name}" modificado`,
+        metadata: {
+          ...base,
+          price: { from: before.price, to: after.price },
+          discountPrice: { from: before.discountPrice, to: after.discountPrice },
+          extrasChanged: !same(before.extras, after.extras),
+          modifierGroupsChanged: !same(before.modifierGroups, after.modifierGroups),
+        },
+      });
+    }
+
+    if (before.isAvailable !== after.isAvailable || before.stock !== after.stock) {
+      void logAudit(req, {
+        action: AuditAction.PRODUCT_AVAILABILITY_CHANGED,
+        entity: 'product',
+        entityId: productId,
+        description: `Disponibilidad de "${after.name}" modificada`,
+        metadata: {
+          ...base,
+          isAvailable: { from: before.isAvailable, to: after.isAvailable },
+          stock: { from: before.stock, to: after.stock },
+        },
+      });
+    }
+
+    // El resto de la ficha (nombre, descripción, foto, categoría…): quién y qué campos.
+    const handled = new Set(['price', 'discountPrice', 'extras', 'modifierGroups', 'isAvailable', 'stock', 'businessId']);
+    const others = sent.filter((key) => !handled.has(key));
+    if (others.length > 0) {
+      void logAudit(req, {
+        action: AuditAction.PRODUCT_UPDATED,
+        entity: 'product',
+        entityId: productId,
+        description: `Producto "${after.name}" modificado`,
+        metadata: { ...base, changes: others },
+      });
+    }
+  }
+
   /** Cuántos pulgares lleva cada plato del negocio. */
   async sentiment(req: Request, res: Response, next: NextFunction) {
     try {
@@ -143,21 +240,39 @@ export class ProductController {
           req.user!,
           req.body.businessId,
           BusinessPermission.CATALOG_AVAILABILITY,
-          'Sin permisos para cambiar la disponibilidad de productos.'
+          'Sin permisos para cambiar la disponibilidad de productos.',
+          req.sessionScope
         );
       } else {
         await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_EDIT, 'modificar productos');
       }
       // El precio es dinero: tocarlo (o las opciones, que también cobran) pide
       // su propio permiso, aparte de editar el resto de la ficha.
-      if (req.body.price !== undefined || req.body.modifierGroups !== undefined) {
-        const current = await productService.getOwned(param(req, 'id'), req.body.businessId);
-        const priceChanged = req.body.price !== undefined && req.body.price !== current.price;
-        if (priceChanged || req.body.modifierGroups !== undefined) {
-          await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_CHANGE_PRICE, 'modificar precios');
-        }
+      const current = await productService.getOwned(param(req, 'id'), req.body.businessId);
+      // También cobran el precio con descuento y los adicionales: sin esto,
+      // un rol con `catalog:edit` pero sin `catalog:change_price` cambiaba
+      // precios por esos dos campos (auditoría 2026-10-09, BAJO 8).
+      const body = req.body as Record<string, unknown>;
+      const moneyChanged =
+        (body.price !== undefined && body.price !== current.price) ||
+        (body.discountPrice !== undefined && (body.discountPrice ?? null) !== (current.discountPrice ?? null)) ||
+        (body.extras !== undefined && !same(body.extras, JSON.parse(JSON.stringify(current.extras ?? [])))) ||
+        body.modifierGroups !== undefined;
+      if (moneyChanged) {
+        await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_CHANGE_PRICE, 'modificar precios');
       }
+      const before = snapshotOf(current);
       const product = await productService.update(param(req, 'id'), req.body.businessId, req.body);
+      // Sin `await` y con `catch`: el cambio ya está guardado, y un fallo al
+      // auditar no puede devolverle al cliente un 500 de algo que sí pasó.
+      this.auditCatalogChange(
+        req,
+        product._id.toString(),
+        req.body.businessId,
+        before,
+        snapshotOf(product),
+        Object.keys(req.body).filter((key) => req.body[key] !== undefined)
+      ).catch((err) => console.error('[AUDIT] No se pudo auditar el cambio de catálogo:', err));
       sendResponse(res, 200, 'Producto actualizado', product);
     } catch (error) { next(error); }
   }
@@ -165,7 +280,22 @@ export class ProductController {
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
       await assertCatalog(req, req.body.businessId, BusinessPermission.CATALOG_DELETE, 'eliminar productos');
+      const product = await productService.getOwned(param(req, 'id'), req.body.businessId);
+      const snapshot = snapshotOf(product);
       await productService.delete(param(req, 'id'), req.body.businessId);
+      void logAudit(req, {
+        action: AuditAction.PRODUCT_DELETED,
+        entity: 'product',
+        entityId: product._id.toString(),
+        severity: AuditSeverity.MEDIUM,
+        description: `Producto "${snapshot.name}" eliminado`,
+        metadata: {
+          businessId: req.body.businessId,
+          productName: snapshot.name,
+          price: snapshot.price,
+          actorBusinessRole: await actorRoleLabel(req, req.body.businessId).catch(() => undefined),
+        },
+      });
       sendResponse(res, 200, 'Producto eliminado');
     } catch (error) { next(error); }
   }

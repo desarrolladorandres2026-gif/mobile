@@ -170,6 +170,7 @@ export {
   BUSINESS_ROLE_PERMISSIONS,
   STAFF_ROLES,
   COUNTER_ROLES,
+  LEGACY_COUNTER_ROLES,
   normalizeStaffRole,
   StaffRole,
   StaffStatus,

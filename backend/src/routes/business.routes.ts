@@ -7,6 +7,7 @@ import {
   requirePermission,
   businessDocumentUploadRateLimiter,
   businessFiscalRateLimiter,
+  businessStaffInviteRateLimiter,
   payoutAccountRevealRateLimiter,
 } from '../middlewares';
 import { validate } from '../middlewares';
@@ -102,10 +103,16 @@ router.get('/my/businesses', authenticate, authorize(UserRole.BUSINESS, UserRole
 
 // Lo que ZIPP le debe a este comercio. La propiedad se verifica en el
 // controlador: un comercio no puede leer las cifras de otro.
+// El Electron del mostrador queda días con el bundle viejo en caché y sigue
+// mandando `operator` o `cashier`: se aceptan y pasan a `employee`.
+const staffRoleInput = z
+  .enum(['manager', 'employee', 'operator', 'cashier'])
+  .transform((role) => (role === 'manager' ? role : ('employee' as const)));
+
 const staffSchema = z.object({
   body: z.object({
     phone: z.string().trim().min(7).max(20),
-    role: z.enum(['manager', 'operator', 'cashier']),
+    role: staffRoleInput,
     name: z.string().trim().max(120).optional(),
     email: z.string().trim().email().max(160).optional(),
   }),
@@ -114,14 +121,14 @@ const staffSchema = z.object({
 const updateStaffSchema = z.object({
   params: z.object({ id: objectId, staffId: objectId }),
   body: z.object({
-    role: z.enum(['manager', 'operator', 'cashier']).optional(),
+    role: staffRoleInput.optional(),
     suspended: z.boolean().optional(),
   }).strict().refine((b) => b.role !== undefined || b.suspended !== undefined, 'Nada que actualizar'),
 });
 
 
 router.get('/:id/staff', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_VIEW), (req, res, next) => businessController.listStaff(req, res, next));
-router.post('/:id/staff', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(staffSchema), (req, res, next) => businessController.addStaff(req, res, next));
+router.post('/:id/staff', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), businessStaffInviteRateLimiter, validate(staffSchema), (req, res, next) => businessController.addStaff(req, res, next));
 router.patch('/:id/staff/:staffId', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(updateStaffSchema), (req, res, next) => businessController.updateStaff(req, res, next));
 router.delete('/:id/staff/:staffId', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => businessController.removeStaff(req, res, next));
 /**

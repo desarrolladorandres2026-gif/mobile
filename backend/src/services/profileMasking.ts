@@ -67,19 +67,16 @@ export function customerFinanceView(finance: unknown): Record<string, unknown> |
 }
 
 /**
- * Lista blanca de `finance` para el personal de un comercio (encargado y
- * mostrador). Lo que el cliente vio más lo que el propio comercio cobra por
- * el pedido. La comisión se queda porque ya se deduce de `businessPayout`
- * (subtotal − descuento del comercio − comisión): quitarla no escondería nada
- * y el panel la pintaría como $0. Fuera: el pago al domiciliario y todo el
- * margen de ZIPP (ingreso bruto y neto, margen del envío, gasto de promoción,
- * descuentos de Pro).
+ * Lista blanca de `finance` para el personal de un comercio (administrador,
+ * empleado): solo lo que el cliente vio y pagó. Decisión 2026-10-09:
+ * la comisión de ZIPP y el neto del comercio son la capa financiera
+ * (`financial:view`, solo del propietario), igual que en su resumen del día.
+ * Antes se dejaban `merchantCommission` y `businessPayout` para que el panel
+ * no pintara $0; ahora el panel esconde el bloque entero a quien no tiene
+ * `financial:view`. Fuera también el pago al domiciliario y todo el margen
+ * de ZIPP.
  */
-export const MERCHANT_STAFF_FINANCE_FIELDS = [
-  ...CUSTOMER_FINANCE_FIELDS,
-  'merchantCommission',
-  'businessPayout',
-] as const;
+export const MERCHANT_STAFF_FINANCE_FIELDS = CUSTOMER_FINANCE_FIELDS;
 
 /**
  * El pedido tal como lo recibe el personal de un comercio (dueño aparte):
@@ -99,7 +96,11 @@ export function merchantStaffOrderView<T extends object>(order: T, opts: { termi
       ? ((order as { toObject: () => Record<string, unknown> }).toObject())
       : { ...(order as Record<string, unknown>) };
   plain.finance = pick(plain.finance, MERCHANT_STAFF_FINANCE_FIELDS);
+  // Los tres espejos de `finance` en la raíz del pedido: sin borrarlos, la
+  // lista blanca de arriba se saltaría por el costado.
   delete plain.driverPayout;
+  delete plain.platformCommission;
+  delete plain.businessPayout;
 
   if (opts.terminal) {
     const client = plain.clientId;

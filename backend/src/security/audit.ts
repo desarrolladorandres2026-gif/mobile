@@ -102,6 +102,13 @@ export enum AuditAction {
   // Business events
   BUSINESS_CREATED = 'business_created',
   BUSINESS_UPDATED = 'business_updated',
+  // Catálogo del comercio: con varias personas en el mostrador, "¿quién subió
+  // el precio?" y "¿quién agotó el plato?" necesitan un autor (auditoría
+  // 2026-10-09, MEDIO 5).
+  PRODUCT_UPDATED = 'product_updated',
+  PRODUCT_PRICE_CHANGED = 'product_price_changed',
+  PRODUCT_AVAILABILITY_CHANGED = 'product_availability_changed',
+  PRODUCT_DELETED = 'product_deleted',
   BUSINESS_DEACTIVATED = 'business_deactivated',
   BUSINESS_TOGGLED_ACTIVE = 'business_toggled_active',
   BUSINESS_TOGGLED_FEATURED = 'business_toggled_featured',

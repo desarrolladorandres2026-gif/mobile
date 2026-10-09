@@ -382,6 +382,30 @@ export const driverDossierFileRateLimiter = rateLimit({
 });
 
 /**
+ * Invitar personal al comercio (`POST /businesses/:id/staff`).
+ *
+ * Aparte del limitador general: cada invitación consulta una cuenta por
+ * teléfono, así que sin tope propio sirve para recorrer números. Por cuenta de
+ * quien invita y no por IP (va detrás de `authenticate`). Un comercio invita a
+ * su equipo —cinco o diez personas— en toda su vida; 20 por hora no estorba a
+ * nadie y vuelve inviable el barrido.
+ */
+export const createBusinessStaffInviteRateLimiter = (max: number) =>
+  rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max,
+    message: {
+      success: false,
+      message: 'Demasiadas invitaciones seguidas. Intenta de nuevo más tarde.',
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => (req.user ? `user:${req.user._id}` : `anon:${req.ip}`),
+  });
+
+export const businessStaffInviteRateLimiter = createBusinessStaffInviteRateLimiter(limitFor(20));
+
+/**
  * Cambios de datos fiscales y de la cuenta de pago del comercio, y lecturas
  * del número de cuenta completo.
  *

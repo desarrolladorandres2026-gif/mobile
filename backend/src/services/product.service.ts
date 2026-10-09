@@ -159,6 +159,29 @@ export class ProductService {
   }
 
   async update(id: string, businessId: string, data: Partial<CreateProductInput>): Promise<IProduct> {
+    // Agotar o reponer es lo que más veces al día hace el mostrador, y lo hace
+    // más de una persona: un valor absoluto leído→guardado pisaba a la otra
+    // (auditoría 2026-10-09, BAJO 10). Con solo `isAvailable`/`stock` la
+    // escritura es una sola operación atómica, con las mismas reglas de abajo.
+    const sent = Object.keys(data).filter((key) => (data as Record<string, unknown>)[key] !== undefined);
+    if (sent.length > 0 && sent.every((key) => key === 'isAvailable' || key === 'stock')) {
+      const set: Record<string, unknown> = {};
+      if (data.isAvailable !== undefined) set.isAvailable = data.isAvailable;
+      if (data.stock !== undefined) {
+        set.stock = data.stock;
+        // Reponer lo devuelve a la carta; llegar a cero lo agota.
+        if (data.stock !== null && data.stock > 0 && data.isAvailable === undefined) set.isAvailable = true;
+        if (data.stock === 0) set.isAvailable = false;
+      }
+      const updated = await Product.findOneAndUpdate(
+        { _id: id, businessId },
+        { $set: set },
+        { new: true, runValidators: true }
+      );
+      if (!updated) throw new AppError('Producto no encontrado', 404);
+      return updated;
+    }
+
     const product = await this.getOwned(id, businessId);
 
     // Mover un producto de categoría es legítimo, pero solo a una

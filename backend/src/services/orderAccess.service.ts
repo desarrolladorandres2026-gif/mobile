@@ -3,7 +3,7 @@ import { Order, IOrder, Business, Driver, BusinessPermission, BusinessRole } fro
 import { AppError } from '../middlewares';
 import { UserRole } from '../types';
 import { Permission } from '../security/rbac';
-import { businessStaffService, isInStaffScope } from './businessStaff.service';
+import { businessStaffService, isInStaffScope, type SessionScope } from './businessStaff.service';
 import { OrderStatus } from '../types';
 
 /**
@@ -59,7 +59,9 @@ interface Requester {
  */
 export async function resolveOrderAccess(
   orderId: string,
-  user: Requester
+  user: Requester,
+  /** `req.sessionScope` / el del socket. `'counter'` topa al papel Empleado (ver `accessFor`). */
+  scope?: SessionScope
 ): Promise<OrderAccess> {
   const notFound = new AppError('Pedido no encontrado', 404);
 
@@ -102,7 +104,7 @@ export async function resolveOrderAccess(
   // Antes solo el dueño: el empleado del mostrador no podía ver el código de
   // recogida que le pide el domiciliario.
   if (user.role === UserRole.BUSINESS && order.businessId) {
-    const access = await businessStaffService.accessFor(userId, order.businessId.toString());
+    const access = await businessStaffService.accessFor(userId, order.businessId.toString(), scope);
     if (
       access &&
       access.permissions.includes(BusinessPermission.ORDERS_VIEW) &&

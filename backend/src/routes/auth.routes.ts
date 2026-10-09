@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authController } from '../controllers';
 import {
   authenticate, validate, authRateLimiter, otpRateLimiter, sensitiveRateLimiter, refreshRateLimiter, twoFactorSetupRateLimiter,
+  rejectCounterScope,
 } from '../middlewares';
 import {
   phoneStatusSchema, registerSendOtpSchema, registerVerifyOtpSchema, registerCompleteSchema, loginSchema,
@@ -46,34 +47,34 @@ router.post('/verify-email-otp', authRateLimiter, validate(verifyEmailOtpSchema)
 router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), (req, res, next) => authController.resetPassword(req, res, next));
 
 // ── Protected routes ──
-router.patch('/profile', authenticate, validate(updateProfileSchema), (req, res, next) => authController.updateProfile(req, res, next));
+router.patch('/profile', authenticate, rejectCounterScope, validate(updateProfileSchema), (req, res, next) => authController.updateProfile(req, res, next));
 // Celular pendiente: solo se asocia a la cuenta al confirmar el OTP.
-router.post('/phone/send-otp', authenticate, otpRateLimiter, (req, res, next) => authController.resendPhoneOtp(req, res, next));
-router.post('/phone/verify', authenticate, authRateLimiter, validate(verifyPhoneSchema), (req, res, next) => authController.verifyPhone(req, res, next));
-router.post('/profile/avatar', authenticate, (req, res, next) => authController.uploadAvatar(req, res, next));
+router.post('/phone/send-otp', authenticate, rejectCounterScope, otpRateLimiter, (req, res, next) => authController.resendPhoneOtp(req, res, next));
+router.post('/phone/verify', authenticate, rejectCounterScope, authRateLimiter, validate(verifyPhoneSchema), (req, res, next) => authController.verifyPhone(req, res, next));
+router.post('/profile/avatar', authenticate, rejectCounterScope, (req, res, next) => authController.uploadAvatar(req, res, next));
 // Verificar el correo desde Mi cuenta. No confundir con `/send-email-otp`,
 // que es el login por correo y abre una sesión.
-router.post('/email/send-otp', authenticate, otpRateLimiter, (req, res, next) => authController.sendAccountEmailOtp(req, res, next));
-router.post('/email/verify', authenticate, authRateLimiter, validate(verifyPhoneSchema), (req, res, next) => authController.verifyAccountEmail(req, res, next));
+router.post('/email/send-otp', authenticate, rejectCounterScope, otpRateLimiter, (req, res, next) => authController.sendAccountEmailOtp(req, res, next));
+router.post('/email/verify', authenticate, rejectCounterScope, authRateLimiter, validate(verifyPhoneSchema), (req, res, next) => authController.verifyAccountEmail(req, res, next));
 router.post('/logout', authenticate, validate(logoutSchema), (req, res, next) => authController.logout(req, res, next));
 router.get('/me', authenticate, (req, res, next) => authController.getMe(req, res, next));
 router.patch('/marketing-preferences', authenticate, validate(z.object({ body: z.object({ consent: z.boolean(), channels: z.array(z.enum(['sms','email','whatsapp','phone'])).max(4).default([]) }) })), (req, res, next) => authController.updateMarketingPreferences(req, res, next));
 
 // ── Password change ──
-router.post('/change-password', authenticate, sensitiveRateLimiter, validate(changePasswordSchema), (req, res, next) => authController.changePassword(req, res, next));
+router.post('/change-password', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(changePasswordSchema), (req, res, next) => authController.changePassword(req, res, next));
 
 // ── 2FA routes ──
-router.post('/2fa/setup', authenticate, twoFactorSetupRateLimiter, validate(twoFactorSetupSchema), (req, res, next) => authController.setup2FA(req, res, next));
-router.post('/2fa/verify', authenticate, authRateLimiter, validate(twoFactorTokenSchema), (req, res, next) => authController.verify2FA(req, res, next));
-router.post('/2fa/disable', authenticate, sensitiveRateLimiter, validate(twoFactorTokenSchema), (req, res, next) => authController.disable2FA(req, res, next));
+router.post('/2fa/setup', authenticate, rejectCounterScope, twoFactorSetupRateLimiter, validate(twoFactorSetupSchema), (req, res, next) => authController.setup2FA(req, res, next));
+router.post('/2fa/verify', authenticate, rejectCounterScope, authRateLimiter, validate(twoFactorTokenSchema), (req, res, next) => authController.verify2FA(req, res, next));
+router.post('/2fa/disable', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(twoFactorTokenSchema), (req, res, next) => authController.disable2FA(req, res, next));
 
 // ── Session management ──
 router.get('/sessions', authenticate, (req, res, next) => authController.getActiveSessions(req, res, next));
-router.delete('/sessions/:sessionId', authenticate, (req, res, next) => authController.revokeSession(req, res, next));
-router.post('/sessions/revoke-all', authenticate, sensitiveRateLimiter, validate(revokeAllSessionsSchema), (req, res, next) => authController.revokeAllSessions(req, res, next));
+router.delete('/sessions/:sessionId', authenticate, rejectCounterScope, (req, res, next) => authController.revokeSession(req, res, next));
+router.post('/sessions/revoke-all', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(revokeAllSessionsSchema), (req, res, next) => authController.revokeAllSessions(req, res, next));
 
 // ── Eliminación de la propia cuenta (App Store 5.1.1(v), Google Play) ──
-router.post('/account/delete/request-otp', authenticate, otpRateLimiter, (req, res, next) => authController.requestAccountDeletionOtp(req, res, next));
-router.delete('/account', authenticate, sensitiveRateLimiter, validate(deleteAccountSchema), (req, res, next) => authController.deleteAccount(req, res, next));
+router.post('/account/delete/request-otp', authenticate, rejectCounterScope, otpRateLimiter, (req, res, next) => authController.requestAccountDeletionOtp(req, res, next));
+router.delete('/account', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(deleteAccountSchema), (req, res, next) => authController.deleteAccount(req, res, next));
 
 export default router;

@@ -45,8 +45,10 @@ export const REASON_LABELS: Record<string, string> = {
 export const ROLE_LABELS: Record<BusinessRole, string> = {
   owner: 'Propietario',
   manager: 'Administrador',
-  operator: 'Operador',
-  cashier: 'Cajero',
+  employee: 'Empleado',
+  // Antiguos: el registro de auditoría conserva el papel que tenía quien actuó.
+  operator: 'Empleado (antes Operador)',
+  cashier: 'Empleado (antes Cajero)',
 };
 
 export const STATUS_STYLES: Record<SessionStatus, { label: string; text: string }> = {

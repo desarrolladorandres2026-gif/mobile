@@ -24,14 +24,36 @@
 - [businessRoleSummary.service.ts](backend/src/services/businessRoleSummary.service.ts) + GET /businesses/:id/role-summary (solo rol BUSINESS): `operations` (analytics:view, sin neto/comisión/descuentos, lista blanca de campos), `shift` (shift:view: ventas del día por medio de pago, pendientes) y `kitchen` (orders:view: cola por estado). Tests: businessRoleSummary.test.ts.
 - business/: `pages/Home.tsx` elige DailySummary (financial:view) o `pages/RoleSummary.tsx`.
 
+## Hecho (cierre, commit 78f546c, 2026-10-05)
+- Cancelar ya no cuelga de `orders:manage`: `orders:cancel` para un pedido sin cobrar y `orders:cancel_paid` (solo dueño) para uno pagado, porque cancelar emite un reembolso completo (MEDIO 7 de la auditoría del 2026-10-01). Ver order.service.ts.
+- `catalog:availability` permite al operador marcar agotado/repuesto sin `catalog:edit`; solo escribe los campos de disponibilidad (product.controller.ts).
+
+## Hecho (cierre de la interfaz, 2026-10-09)
+- El personal (administrador, operador, cajero) ya no recibe comisión ni neto de un pedido: `MERCHANT_STAFF_FINANCE_FIELDS` pasa a ser solo `CUSTOMER_FINANCE_FIELDS` y `merchantStaffOrderView` borra también `platformCommission` y `businessPayout` de la raíz (antes solo `driverPayout`, así que esos dos llegaban sin enmascarar). Cambia la decisión anterior de dejarlos "para que el panel no pinte $0". Test: businessStaffOrders.test.ts.
+- OrderDetailPanel: "Detalle financiero", "Liquidación" y "Neto" solo con `financial:view`; los demás ven "Cobro al cliente" (venta de productos y total del pedido). Sin `financial:view` tampoco se pide `statement/lines`.
+- Menu: el enlace "En promoción" es texto plano sin `promotions:view` (el operador no puede abrir esa sección).
+
+## Hecho (correcciones de la auditoría de seguridad, 2026-10-09)
+- **Cancelar (ALTO 1):** el rol BUSINESS —propietario incluido— solo cancela en PENDING/ACCEPTED/PREPARING/READY. En ON_WAY responde 409 `BUSINESS_CANCEL_TOO_LATE`: lo resuelve soporte (aún no existe ese procedimiento). `BUSINESS_CANCELLABLE_STATUSES` en order.service.ts.
+- **`orders:cancel_paid` es solo del propietario** (decisión 2026-10-09): se quitó al administrador del modelo, de la UI (Orders.tsx, `ROLE_DESCRIPTIONS`) y de los tests. El administrador global de ZIPP (`UserRole.ADMIN` + `refunds:create`) no cambia.
+- **Invitaciones (ALTO 2):** `invite` solo busca cuentas con rol BUSINESS y responde 201 con cuerpo `null` exista o no la cuenta (ya no hay 404 ni fila en la respuesta). `list()` no trae nombre, correo, último acceso ni `userId` de una invitación pendiente; sale `invitedPhone`, lo que escribió quien invitó. Limitador propio `businessStaffInviteRateLimiter` (20/hora por cuenta) en `POST /:id/staff`.
+- **Suspensiones (MEDIO 3):** `BusinessStaff.suspendedBy/suspendedByRole`. Lo que suspendió el propietario solo lo levanta el propietario: reactivar, reinvitar y retirar devuelven 403 `SUSPENDED_BY_OWNER`. `setSuspended` es atómico y volver a suspender no cambia el autor. Filas suspendidas antes de este cambio no tienen autor y las puede levantar un administrador.
+- **Rastro y avisos (MEDIO 5):** cancelaciones desde el panel → `AuditAction.ORDER_CANCELLED` (actor, papel, motivo); cambios de catálogo → `PRODUCT_PRICE_CHANGED` / `PRODUCT_AVAILABILITY_CHANGED` / `PRODUCT_UPDATED` / `PRODUCT_DELETED` con valores antes/después; si cancela un empleado, el propietario recibe `notifyOwnerOrderCancelledByStaff` (no menciona reembolsos).
+- **Promociones (fase 7):** el tope del 90 % de un descuento porcentual de comercio vive en el `pre('validate')` de `Coupon` (`MAX_MERCHANT_PERCENT_DISCOUNT`), así que rige al crear y al editar, por comercio y por admin. Se puede apagar una promoción heredada que ya pasaba del tope, no subirla ni reactivarla.
+- **Cancelar un pedido cobrado (P0 financiero):** `payoutService.hold` devuelve a ACCRUED los payouts no reclamados antes de pedir el reembolso, para que un void fallido no deje el pedido cancelado y liquidable.
+
 ## Pendiente
-- `orders:cancel` está en el modelo pero ningún endpoint lo consulta: cancelar lo decide `orders:manage` + el candado "pedido pagado → solo dueño" en order.service. Decidir si el administrador debe poder cancelar pagados (hoy no) y si operador/cajero deben poder cancelar no pagados (hoy sí).
-- Disponibilidad (agotado) pide catalog:edit, así que el operador no puede marcar un plato agotado. Confirmar si debe poder.
-- "Turno" = día de Bogotá; no hay modelo de turnos.
+- "Turno" = día de Bogotá; no hay modelo de turnos (abrir/cerrar caja). Decidir si el cajero lo necesita.
+- Migración 025 es manual: correrla en Atlas cuando convenga (el código ya lee 'staff' como operator).
+- Antes de desplegar: `db.coupons.find({fundedBy:'business', type:'percentage', value:{$gt:90}})` para contar promociones heredadas sobre el tope.
+- Fuga residual de 1 bit: un teléfono con cuenta de comercio deja una fila pendiente visible en el equipo; uno sin cuenta, no. Cerrarla exige filas "fantasma" por teléfono (cambia el modelo). Decisión pendiente.
+- Bajos sin tocar: sockets no excluyen negocios archivados; `discountPrice`/`extras` piden `catalog:edit` y no `catalog:change_price`; reponer stock y reinvitar usan leer→guardar; calificar cliente/domiciliario sigue siendo solo del dueño.
+- Soporte: no existe procedimiento para cancelar un pedido ON_WAY. Hasta que exista, lo cancela un admin global con `orders:cancel` (+ `refunds:create` si está pagado).
+- Finanzas, con decisión del dueño del producto (ver informe de fase 4): tarifas de Wompi y quién asume el costo de un reembolso; marcar COMPLETED solo tras confirmar el void con el proveedor; cerrojo PENDING sin salida; alcance del tope del 90 % (fijo, admin, plataforma); parciales por ítem.
 
 ## Notas / desviaciones a confirmar con el usuario
 - Se mantuvo el estilo `catalog:edit` (dos puntos) del código existente, no `catalog.edit`.
 - El administrador SÍ tiene `catalog:delete` y `orders:cancel` (la petición no lo listaba); el operador no tiene store:toggle perdido (lo conserva del viejo Mostrador); el cajero no.
-- Invitar exige cuenta ZIPP existente con rol BUSINESS (restricción previa); sin cuenta → 404. "Eliminar" borra la fila (pedidos apuntan al User).
+- Invitar exige cuenta ZIPP existente con rol BUSINESS; sin cuenta no se crea nada y la respuesta es la misma (ver correcciones del 2026-10-09). "Eliminar" borra la fila (pedidos apuntan al User).
 - PUT/DELETE /businesses/:id siguen solo-dueño en el servicio (ownerId) a propósito.
 - Consultar a zipp-security/zipp-architect/zipp-qa antes de dar por cerrado (hooks lo piden).

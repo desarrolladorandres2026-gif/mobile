@@ -223,6 +223,26 @@ export class PayoutService {
   }
 
   /**
+   * Retira de la corrida de liquidación los payouts de un pedido que se
+   * cancela con el dinero ya cobrado, hasta que el reembolso conste.
+   *
+   * Si la pasarela no puede anular el pago (PSE, Nequi, tarjeta ya liquidada)
+   * el pedido queda CANCELLED y cobrado, y sus payouts seguirían PAYABLE: la
+   * siguiente `settle()` le pagaría al comercio un pedido cancelado y no
+   * devuelto. Vuelven a ACCRUED —el mismo estado en que nacieron—, que
+   * `reverse()` ya sabe revertir cuando el reembolso se registre. Solo toca lo
+   * que ninguna liquidación ha reclamado ni es un arrastre: no cambia importes
+   * ni el reparto, solo cuándo se pueden pagar.
+   */
+  async hold(orderId: string | Types.ObjectId): Promise<number> {
+    const result = await Payout.updateMany(
+      { orderId, status: PayoutStatus.PAYABLE, settlementId: null, isClawback: { $ne: true } },
+      { $set: { status: PayoutStatus.ACCRUED, becamePayableAt: null } }
+    );
+    return result.modifiedCount ?? 0;
+  }
+
+  /**
    * Closes an order's payouts that were discharged in cash at the door.
    *
    * Distinct from `settle`: no transfer batch exists, because ZIPP never

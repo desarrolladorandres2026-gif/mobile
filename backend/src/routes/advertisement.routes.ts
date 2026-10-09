@@ -23,7 +23,7 @@ async function assertOwnsBusinessOrAdmin(req: any, businessId: string): Promise<
     if (can(req, Permission.ADS_VIEW)) return;
     throw new AppError('No tienes permisos suficientes para esta acción', 403);
   }
-  const permissions = await businessStaffService.permissionsFor(req.user!._id.toString(), businessId);
+  const permissions = await businessStaffService.permissionsFor(req.user!._id.toString(), businessId, req.sessionScope);
   if (!permissions.includes(BusinessPermission.ADVERTISING_MANAGE)) {
     throw new AppError('Sin permisos para gestionar publicidad.', 403);
   }
@@ -40,7 +40,7 @@ async function assertCanViewBusinessSettlements(req: any, businessId: string): P
     if (can(req, Permission.ADS_VIEW)) return;
     throw new AppError('No tienes permisos suficientes para esta acción', 403);
   }
-  const permissions = await businessStaffService.permissionsFor(req.user!._id.toString(), businessId);
+  const permissions = await businessStaffService.permissionsFor(req.user!._id.toString(), businessId, req.sessionScope);
   if (!permissions.includes(BusinessPermission.SETTLEMENTS_VIEW)) {
     throw new AppError('No autorizado', 403);
   }
@@ -100,6 +100,7 @@ router.post(
         ownerId: req.user!._id.toString(),
         businessId: param(req, 'businessId'),
         ...req.body,
+        scope: req.sessionScope,
       });
       sendResponse(res, 201, 'Campaña enviada a revisión', ad);
     } catch (error) { next(error); }

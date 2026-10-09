@@ -63,6 +63,13 @@ interface LoginInput {
   password: string;
   deviceId?: string;
   totpToken?: string;
+  /**
+   * `'business-counter'`: el panel de comercio entra con el correo del
+   * negocio directo al panel de Empleado (decisión 2026-10-09). Solo tiene
+   * efecto si la cuenta es de comercio; para cualquier otro rol se ignora,
+   * así que un cliente o un domiciliario no pueden pedir esta sesión.
+   */
+  surface?: 'business-counter';
 }
 
 export interface AuthTokens {
@@ -363,7 +370,7 @@ export class AuthService {
   private async startSession(
     user: IUser,
     req: Request | undefined,
-    options: { method: string; mfa: boolean; deviceId?: string | null }
+    options: { method: string; mfa: boolean; deviceId?: string | null; scope?: 'full' | 'counter'; elevatedFrom?: string | null }
   ) {
     const sessionId = new Types.ObjectId();
     const tokens = this.generateTokens(user, sessionId);
@@ -381,6 +388,8 @@ export class AuthService {
       isStaff: user.role === UserRole.ADMIN,
       authMethod: options.method,
       mfa: options.mfa,
+      scope: options.scope,
+      elevatedFrom: options.elevatedFrom,
     });
 
     await recordSessionStarted({
@@ -415,13 +424,13 @@ export class AuthService {
   private async completeLogin(
     user: IUser,
     req: Request | undefined,
-    options: { method: FirstFactor; totpToken?: string; deviceId?: string }
+    options: { method: FirstFactor; totpToken?: string; deviceId?: string; scope?: 'full' | 'counter'; elevatedFrom?: string | null }
   ): Promise<AuthOutcome> {
     this.assertAccountUsable(user);
 
     if (hasTwoFactor(user)) {
       if (!options.totpToken) {
-        const challengeToken = await openMfaChallenge(user._id, options.method);
+        const challengeToken = await openMfaChallenge(user._id, options.method, options.scope);
         return { requiresTOTP: true, challengeToken, user, method: options.method };
       }
 
@@ -453,6 +462,8 @@ export class AuthService {
       method: options.method,
       mfa: hasTwoFactor(user),
       deviceId: options.deviceId,
+      scope: options.scope,
+      elevatedFrom: options.elevatedFrom,
     });
     return { requiresTOTP: false, user, method: options.method, ...session };
   }
@@ -483,13 +494,13 @@ export class AuthService {
       }
       throw error;
     }
-    const { user, method } = resolved;
+    const { user, method, scope } = resolved;
     this.assertAccountUsable(user);
 
     // Antes este camino abría la sesión sin el identificador del dispositivo
     // y sin pasar por el aviso de nuevo dispositivo ni por el antifraude: con
     // 2FA activo, la detección simplemente no existía.
-    const session = await this.startSession(user, req, { method, mfa: true, deviceId });
+    const session = await this.startSession(user, req, { method, mfa: true, deviceId, scope });
 
     if (req) {
       await this.recordLoginChecks(user, req, session.isNewDevice, deviceId);
@@ -503,6 +514,124 @@ export class AuthService {
     }
 
     return { requiresTOTP: false, user, method, ...session };
+  }
+
+  /**
+   * Pasa de la sesión de mostrador a una sesión personal con alcance
+   * completo (decisión 2026-10-09: "Representante legal" o "Administrador").
+   *
+   * No es `completeLogin` con otro nombre: además de la contraseña (y el
+   * 2FA, exigido siempre si la cuenta se resuelve como propietaria) exige
+   * que la cuenta tenga acceso de verdad a `businessId` — con
+   * `businessStaffService.accessFor` **sin** `scope`, el de alcance
+   * completo, porque una sesión `counter` en `accessFor` siempre devuelve
+   * Empleado — y que ese acceso sea de propietario o administrador: un
+   * empleado que conoce su propia contraseña no tiene nada que elevar. La
+   * sesión que emite es nueva y aparte: la de mostrador sigue viva debajo,
+   * y esta vive 15 min de inactividad / 2 h en total (`ELEVATED_*_TTL_MS`,
+   * `security/sessions.ts`).
+   */
+  async elevateFromCounter(
+    counterSessionId: string,
+    input: { email: string; password: string; totpToken?: string; businessId: string },
+    req?: Request
+  ): Promise<AuthOutcome> {
+    const ip = requestIp(req);
+    const email = input.email.toLowerCase().trim();
+    const identifierMask = maskEmail(email);
+
+    const bruteCheck = await checkBruteForce(ip, email);
+    if (!bruteCheck.allowed) {
+      throw new AppError(bruteCheck.reason || 'Demasiados intentos. Intenta más tarde.', 429);
+    }
+
+    const user = await User.findOne({ email, role: UserRole.BUSINESS })
+      .select('+password +twoFactorEnabled +twoFactorSecret +failedLoginAttempts');
+    const passwordOk = !!user && (await user.comparePassword(input.password));
+
+    // Misma puerta que un login normal: ni la cuenta inexistente ni "no
+    // tienes acceso a este negocio" se distinguen de una contraseña mala,
+    // porque las tres le dirían a quien prueba teléfonos y negocios al azar
+    // cuál combinación sí existe.
+    const deny = async (reason: string) => {
+      const attempt = await recordFailedAttempt(ip, email);
+      if (req) {
+        await logAudit(req, {
+          action: AuditAction.LOGIN_FAILED,
+          entity: 'user',
+          entityId: user?._id?.toString(),
+          severity: AuditSeverity.MEDIUM,
+          description: `Elevación de mostrador fallida para ${identifierMask}: ${reason}`,
+          metadata: { counterSessionId, businessId: input.businessId },
+        });
+      }
+      if (!attempt.allowed) {
+        throw new AppError(attempt.reason || 'Demasiados intentos. Intenta más tarde.', 429);
+      }
+      throw new AppError('Credenciales inválidas', 401);
+    };
+
+    if (!user || !passwordOk) return deny('credenciales');
+    this.assertAccountUsable(user);
+
+    const { businessStaffService } = await import('./businessStaff.service');
+    const { BusinessRole } = await import('../models');
+    const access = await businessStaffService.accessFor(user._id.toString(), input.businessId);
+    if (!access || access.role === BusinessRole.EMPLOYEE) return deny('sin acceso de administrador o propietario a este negocio');
+
+    // El representante legal (propietario) siempre necesita 2FA para
+    // elevar, lo tenga configurado o no: es quien ve liquidaciones, datos
+    // fiscales y la cuenta de pago. Un administrador sigue la regla normal
+    // de `completeLogin` — 2FA solo si ya lo activó.
+    if (access.role === BusinessRole.OWNER && !hasTwoFactor(user)) {
+      throw new AppError(
+        'El representante legal necesita verificación en dos pasos para entrar desde el mostrador. Actívala primero.',
+        403,
+        'TWO_FACTOR_SETUP_REQUIRED'
+      );
+    }
+
+    // El código va en la misma petición, nunca por reto: el segundo paso
+    // (`/auth/2fa/challenge`) abriría una sesión completa normal — 7 días,
+    // sin `elevatedFrom` — y la elevación dejaría de ser corta.
+    if (hasTwoFactor(user) && !input.totpToken) {
+      throw new AppError('Escribe el código de verificación en dos pasos.', 401, 'MFA_REQUIRED');
+    }
+
+    let outcome: AuthOutcome;
+    try {
+      outcome = await this.completeLogin(user, req, {
+        method: 'password',
+        totpToken: input.totpToken,
+        scope: 'full',
+        elevatedFrom: counterSessionId,
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'MFA_CODE_INVALID') {
+        await recordFailedAttempt(ip, email);
+      }
+      throw error;
+    }
+
+    if (!outcome.requiresTOTP) {
+      await clearAttempts(ip, email);
+      if (req) {
+        await logAudit(req, {
+          action: AuditAction.LOGIN_SUCCESS,
+          entity: 'user',
+          entityId: user._id.toString(),
+          description: `Elevación desde mostrador a ${access.role === BusinessRole.OWNER ? 'representante legal' : 'administrador'}`,
+          metadata: { counterSessionId, businessId: input.businessId, role: access.role },
+        });
+      }
+    }
+
+    return outcome;
+  }
+
+  /** Vuelve al mostrador: revoca la sesión elevada. La de mostrador no se toca. */
+  async dropElevatedSession(userId: string, sessionId: string): Promise<void> {
+    await sessionManager.revokeSession(sessionId, userId, 'user_revoked');
   }
 
   /**
@@ -1183,6 +1312,10 @@ export class AuthService {
         method: 'password',
         totpToken: input.totpToken,
         deviceId: input.deviceId,
+        // Solo una cuenta de comercio puede abrir sesión de mostrador: un
+        // cliente o un domiciliario pidiendo `surface: 'business-counter'`
+        // simplemente lo ignoran y abren su sesión normal.
+        scope: input.surface === 'business-counter' && user.role === UserRole.BUSINESS ? 'counter' : undefined,
       });
     } catch (error) {
       // Un TOTP equivocado con la contraseña correcta también es un intento

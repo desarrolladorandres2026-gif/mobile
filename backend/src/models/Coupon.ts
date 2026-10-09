@@ -3,6 +3,9 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
 import { CouponType, CouponFundedBy, CouponScope } from '../types';
 import { cacheInvalidationPlugin, CachePrefix } from '../cache';
 
+/** Máximo descuento porcentual (%) que puede financiar un comercio. */
+export const MAX_MERCHANT_PERCENT_DISCOUNT = 90;
+
 export interface ICoupon extends Document {
   code: string;
   title: string;
@@ -231,6 +234,31 @@ couponSchema.pre('validate', function (next) {
     // le aplicaría un cupón de código que igual descuenta el subtotal
     // entero? Se rechaza en vez de ignorarlo en silencio.
     return next(new Error('Solo una promoción automática puede tener productos asociados'));
+  }
+
+  // Tope del descuento porcentual que financia un comercio. Vive aquí y no solo
+  // en el validador de creación porque este hook ve el documento ya mezclado en
+  // los cuatro caminos que lo escriben (crear y editar, comercio y admin): al
+  // editar solo viaja `value`, y el validador de creación no lo veía (auditoría
+  // 2026-10-09, fase 7). Solo se exige cuando la escritura toca el descuento o
+  // lo enciende: así un comercio puede APAGAR una promoción antigua que ya
+  // pasaba del tope, pero no subirla ni reactivarla.
+  const touchesDiscount =
+    this.isNew ||
+    this.isModified('value') ||
+    this.isModified('type') ||
+    this.isModified('fundedBy') ||
+    (this.isModified('isActive') && this.isActive);
+  if (
+    touchesDiscount &&
+    this.fundedBy === CouponFundedBy.BUSINESS &&
+    this.type === CouponType.PERCENTAGE &&
+    this.value > MAX_MERCHANT_PERCENT_DISCOUNT
+  ) {
+    this.invalidate(
+      'value',
+      `Un descuento porcentual de comercio no puede pasar del ${MAX_MERCHANT_PERCENT_DISCOUNT}%`
+    );
   }
 
   next();

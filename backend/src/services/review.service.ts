@@ -205,7 +205,7 @@ export class ReviewService {
    * indefinidamente convierte la respuesta en algo que se puede cambiar
    * después de que el cliente la haya leído.
    */
-  async replyAsBusiness(reviewId: string, ownerId: string, reply: string) {
+  async replyAsBusiness(reviewId: string, ownerId: string, reply: string, scope?: import('./businessStaff.service').SessionScope) {
     const review = await Review.findById(reviewId);
     if (!review) throw new AppError('Reseña no encontrada', 404);
 
@@ -215,7 +215,8 @@ export class ReviewService {
       ownerId,
       review.businessId.toString(),
       BusinessPermission.REVIEWS_RESPOND,
-      'Sin permisos para responder reseñas.'
+      'Sin permisos para responder reseñas.',
+      scope
     );
 
     if (review.businessReply) {

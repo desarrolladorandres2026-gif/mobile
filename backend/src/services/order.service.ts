@@ -59,6 +59,21 @@ export const TERMINAL_ORDER_STATUSES: OrderStatus[] = (Object.keys(VALID_TRANSIT
 /** Estados en los que el cliente puede cancelar por su cuenta: la cocina aún no empezó. */
 const CLIENT_CANCELLABLE_STATUSES: OrderStatus[] = [OrderStatus.PENDING, OrderStatus.ACCEPTED];
 
+/**
+ * Estados en los que el comercio cancela por su cuenta —cualquier rol, el
+ * propietario incluido—: el pedido todavía no salió del local. Con el pedido en
+ * camino la cancelación reversa el pago del domiciliario y anula los códigos de
+ * entrega de un viaje ya hecho, así que la resuelve soporte, no el mostrador.
+ * `VALID_TRANSITIONS` sí permite `ON_WAY → CANCELLED` (para el admin y el
+ * sistema); este corte es solo del rol BUSINESS.
+ */
+const BUSINESS_CANCELLABLE_STATUSES: OrderStatus[] = [
+  OrderStatus.PENDING,
+  OrderStatus.ACCEPTED,
+  OrderStatus.PREPARING,
+  OrderStatus.READY,
+];
+
 /** Estados en los que aún se puede soltar al domiciliario (nunca tras la recogida). */
 const UNASSIGNABLE_STATUSES: OrderStatus[] = [OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.READY];
 
@@ -671,15 +686,21 @@ export class OrderService {
     if (!business) return false;
     const ownerId = business.ownerId.toString();
 
-    // El dueño recibe el pedido entero; el personal (encargado y
-    // mostrador, que no tienen `settlements:view`), sin el pago al
-    // domiciliario ni el margen de ZIPP. Son dos emisiones para poder
-    // mandar dos formas distintas; `except` saca al dueño de la segunda,
-    // porque su socket también está en la sala del negocio.
+    // El dueño recibe el pedido entero; el personal (encargado y mostrador,
+    // que no tienen `settlements:view`), sin el pago al domiciliario ni el
+    // margen de ZIPP. Son dos emisiones para poder mandar dos formas
+    // distintas; `except` saca de la segunda a quien ya recibió la primera.
+    //
+    // La sala "del dueño" es `user:<ownerId>:full`, no `user:<ownerId>`:
+    // esta última la comparten TODAS las sesiones de esa persona, incluida
+    // su propia sesión de mostrador (decisión 2026-10-09, `scope:
+    // 'counter'`), que entra con el correo del negocio directo al panel de
+    // Empleado. Con `user:<ownerId>` a secas, esa sesión seguía recibiendo
+    // el pedido sin enmascarar por compartir cuenta con el propietario.
     if (io) {
-      const ownerRoom = `user:${ownerId}`;
-      io.to(ownerRoom).emit('order:incoming', order);
-      io.to(`business:${businessId}`).except(ownerRoom).emit('order:incoming', merchantStaffOrderView(order));
+      const ownerFullRoom = `user:${ownerId}:full`;
+      io.to(ownerFullRoom).emit('order:incoming', order);
+      io.to(`business:${businessId}`).except(ownerFullRoom).emit('order:incoming', merchantStaffOrderView(order));
     }
 
     notificationService
@@ -857,7 +878,7 @@ export class OrderService {
     cancellationReason?: string,
     context: TimelineContext = {},
     cancellationCode?: CancellationReason,
-    opts: { canRefund?: boolean } = {}
+    opts: { canRefund?: boolean; scope?: import('./businessStaff.service').SessionScope } = {}
   ): Promise<IOrder> {
     const order = await Order.findById(orderId);
     if (!order) throw new AppError('Pedido no encontrado', 404);
@@ -879,7 +900,7 @@ export class OrderService {
     let businessStaffRole: BusinessRole | undefined;
     if (userRole === UserRole.BUSINESS) {
       const access = order.businessId
-        ? await businessStaffService.accessFor(userId, order.businessId.toString())
+        ? await businessStaffService.accessFor(userId, order.businessId.toString(), opts.scope)
         : null;
       if (
         !access ||
@@ -897,7 +918,7 @@ export class OrderService {
           !access.permissions.includes(BusinessPermission.ORDERS_CANCEL_PAID)
         ) {
           throw new AppError(
-            'Este pedido ya está pagado: cancelarlo devuelve el dinero al cliente y solo lo puede hacer el propietario o un administrador.',
+            'Este pedido ya está pagado: cancelarlo devuelve el dinero al cliente y solo lo puede hacer el propietario.',
             403,
             'ORDER_CANCEL_PAID_FORBIDDEN'
           );
@@ -930,6 +951,21 @@ export class OrderService {
     const allowedNext = VALID_TRANSITIONS[order.status];
     if (!allowedNext.includes(status)) {
       throw new AppError(`Transición inválida: ${order.status} → ${status}`, 400);
+    }
+
+    // El comercio no cancela lo que ya salió del local (ver BUSINESS_CANCELLABLE_STATUSES).
+    // Va después de la máquina de estados: un pedido terminal sigue diciendo
+    // "transición inválida", no "escribe a soporte".
+    if (
+      userRole === UserRole.BUSINESS &&
+      status === OrderStatus.CANCELLED &&
+      !BUSINESS_CANCELLABLE_STATUSES.includes(order.status)
+    ) {
+      throw new AppError(
+        'El pedido ya salió del local y no se puede cancelar desde el panel. Escribe a soporte de ZIPP.',
+        409,
+        'BUSINESS_CANCEL_TOO_LATE'
+      );
     }
 
     const roleAllowed = ROLE_ALLOWED_STATUSES[userRole] ?? [];
@@ -1617,6 +1653,9 @@ export class OrderService {
    * order that never happened.
    */
   private async onCancelled(order: IOrder): Promise<void> {
+    // Lo primero: si cobrado, retener los payouts antes de cualquier paso que
+    // pueda fallar y quedar tragado por el catch de `updateStatus`.
+    if (order.paymentStatus === PaymentStatus.PAID) await payoutService.hold(order._id);
     const finance = order.finance;
 
     // El inventario apartado vuelve a la carta. Sin esto, cada cancelación
@@ -1699,6 +1738,11 @@ export class OrderService {
     }
 
     if (captured) {
+      // Se retienen los payouts ANTES de pedir el reembolso: si la pasarela no
+      // puede anular el pago, `issue` lanza y el pedido queda cancelado y
+      // cobrado; sin esto, la siguiente liquidación lo pagaría. Si el
+      // reembolso sale bien, `applyReversal` los revierte desde ACCRUED igual.
+      await payoutService.hold(order._id);
       // Money was taken, so this is a real refund through the gateway.
       await refundService.issue({
         orderId: order._id.toString(),
@@ -1854,22 +1898,43 @@ export class OrderService {
     // Ni el rechazo del propio local (él lo hizo) ni la cancelación de un
     // pedido que el comercio nunca llegó a ver (en línea sin pagar, o
     // programado sin activar) merecen aviso.
-    const selfCancelled = status === OrderStatus.CANCELLED && order.cancelledBy === CancelledBy.BUSINESS;
+    //
+    // "Él lo hizo" vale para el propietario. Si canceló un empleado, el dueño
+    // sí se entera —quién y por qué— aunque `cancelledBy` también sea BUSINESS
+    // (auditoría 2026-10-09, MEDIO 5).
+    const businessCancelled = status === OrderStatus.CANCELLED && order.cancelledBy === CancelledBy.BUSINESS;
     const neverSeen = status === OrderStatus.CANCELLED && !isMerchantVisible(order);
-    if ((status === OrderStatus.CANCELLED || status === OrderStatus.DELIVERED) && !selfCancelled && !neverSeen) {
+    if ((status === OrderStatus.CANCELLED || status === OrderStatus.DELIVERED) && !neverSeen) {
       const business = await Business.findById(order.businessId).select('ownerId');
       if (business) {
         const ownerId = business.ownerId.toString();
-        notifyTargets.push(
-          status === OrderStatus.CANCELLED
-            ? notificationService.notifyBusinessOrderCancelled(
-                ownerId,
-                order._id.toString(),
-                order.orderNumber,
-                order.cancellationReason
-              )
-            : notificationService.notifyBusinessOrderDelivered(ownerId, order._id.toString(), order.orderNumber)
-        );
+        const actorId = order.cancelledByUserId?.toString();
+        const byStaff = businessCancelled && !!actorId && actorId !== ownerId;
+
+        if (byStaff) {
+          const actor = await User.findById(actorId).select('name');
+          notifyTargets.push(
+            notificationService.notifyOwnerOrderCancelledByStaff(
+              ownerId,
+              order._id.toString(),
+              order.orderNumber,
+              actor?.name || 'Un empleado',
+              actorId,
+              order.cancellationReason
+            )
+          );
+        } else if (!businessCancelled) {
+          notifyTargets.push(
+            status === OrderStatus.CANCELLED
+              ? notificationService.notifyBusinessOrderCancelled(
+                  ownerId,
+                  order._id.toString(),
+                  order.orderNumber,
+                  order.cancellationReason
+                )
+              : notificationService.notifyBusinessOrderDelivered(ownerId, order._id.toString(), order.orderNumber)
+          );
+        }
       }
     }
 

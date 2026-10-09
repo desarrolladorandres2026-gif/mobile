@@ -42,7 +42,8 @@ export class CouponController {
     try {
       const coupons = await couponService.listForBusiness(
         req.user!._id.toString(),
-        param(req, 'businessId')
+        param(req, 'businessId'),
+        req.sessionScope
       );
       sendResponse(res, 200, 'Tus promociones', coupons);
     } catch (error) { next(error); }
@@ -53,7 +54,8 @@ export class CouponController {
       const coupon = await couponService.createForBusiness(
         req.user!._id.toString(),
         param(req, 'businessId'),
-        req.body
+        req.body,
+        req.sessionScope
       );
       void logAudit(req, {
         action: AuditAction.PROMOTION_CREATED,
@@ -72,7 +74,8 @@ export class CouponController {
       const coupon = await couponService.updateForBusiness(
         req.user!._id.toString(),
         param(req, 'id'),
-        req.body
+        req.body,
+        req.sessionScope
       );
       void logAudit(req, {
         action: AuditAction.PROMOTION_UPDATED,
@@ -90,7 +93,8 @@ export class CouponController {
     try {
       const coupon = await couponService.deactivateForBusiness(
         req.user!._id.toString(),
-        param(req, 'id')
+        param(req, 'id'),
+        req.sessionScope
       );
       void logAudit(req, {
         action: AuditAction.PROMOTION_UPDATED,
@@ -107,7 +111,8 @@ export class CouponController {
     try {
       const coupon = await couponService.reactivateForBusiness(
         req.user!._id.toString(),
-        param(req, 'id')
+        param(req, 'id'),
+        req.sessionScope
       );
       void logAudit(req, {
         action: AuditAction.PROMOTION_UPDATED,
@@ -123,7 +128,7 @@ export class CouponController {
   async deleteMine(req: Request, res: Response, next: NextFunction) {
     try {
       const couponId = param(req, 'id');
-      await couponService.deleteForBusiness(req.user!._id.toString(), couponId);
+      await couponService.deleteForBusiness(req.user!._id.toString(), couponId, req.sessionScope);
       void logAudit(req, {
         action: AuditAction.PROMOTION_UPDATED,
         entity: 'coupon',

@@ -38,7 +38,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Tope del CSV: un informe es un archivo que alguien abre, no un volcado. */
 const EXPORT_MAX_ROWS = 5000;
 
-export type MemberRole = 'owner' | 'manager' | 'operator' | 'cashier';
+export type MemberRole = 'owner' | 'manager' | 'employee';
 
 export interface SecurityMember {
   userId: string;

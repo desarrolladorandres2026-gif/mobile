@@ -70,6 +70,11 @@ export const loginSchema = z.object({
     // 2FA nunca recibía el código, y el antifraude nunca veía el dispositivo.
     totpToken: secondFactorSchema.optional(),
     deviceId: z.string().trim().min(1).max(128).optional(),
+    // Panel de comercio (decisión 2026-10-09): el correo del negocio entra
+    // directo al panel de Empleado. Solo tiene efecto si la cuenta es de
+    // comercio (`auth.service.ts::login`); un cliente o un domiciliario
+    // mandando esto no consiguen nada distinto de un login normal.
+    surface: z.literal('business-counter').optional(),
   }).refine((data) => !!data.phone || !!data.email, {
     message: 'Se requiere celular o correo',
     path: ['phone'],

@@ -24,6 +24,15 @@ import {
   PeopleRegular, DocumentRegular, ChatRegular, SettingsRegular,
 } from '@fluentui/react-icons';
 
+/**
+ * En escritorio la barra es una columna de iconos de 64 px y se abre sobre la
+ * página al pasar el cursor o enfocar con teclado, sin empujar el contenido.
+ * Las etiquetas se ocultan con `hidden` (no con opacidad) para que no queden
+ * en el orden de tabulación ni en el lector de pantalla mientras no se ven:
+ * cada enlace conserva su `aria-label`.
+ */
+const railLabel = 'lg:hidden lg:group-hover:inline lg:group-focus-within:inline';
+
 const nav = [
   { path: '/', Icon: CalendarLtrRegular, label: 'Resumen del día' },
   { path: '/orders', Icon: BoxRegular, label: 'Pedidos' },
@@ -54,14 +63,7 @@ export default function Layout() {
   const [pauseError, setPauseError] = useState('');
   const [loadingBusinesses, setLoadingBusinesses] = useState(false);
   const { access, can } = usePermissions(selectedBusiness?._id);
-  const visibleNav = nav
-    .filter((item) => canSee(item.path, access))
-    // Para el cajero la portada son sus ventas del turno, y así se llama.
-    .map((item) =>
-      item.path === '/' && access && !access.permissions.includes('financial:view') && access.permissions.includes('shift:view')
-        ? { ...item, label: 'Ventas del turno' }
-        : item
-    );
+  const visibleNav = nav.filter((item) => canSee(item.path, access));
 
   // Un empleado que cae en una sección del dueño (la portada es el resumen
   // de ventas) se lleva a la primera que sí puede usar, en vez de dejarlo
@@ -169,18 +171,19 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-[var(--color-bg)] text-[var(--color-text-main)] overflow-hidden font-sans">
-      {/* ── Barra lateral: icono y nombre en una fila, como en el software de escritorio ── */}
+      {/* ── Barra lateral: columna de iconos en escritorio, cajón en móvil ── */}
+      <div className="contents lg:block lg:relative lg:w-16 lg:shrink-0 lg:z-50">
       <aside className={`
-        business-sidebar fixed inset-y-0 left-0 z-50 w-52 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col
-        transform transition-transform duration-200 ease-out
-        lg:translate-x-0 lg:static lg:inset-0
+        business-sidebar group fixed inset-y-0 left-0 z-50 w-52 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col
+        transform transition-[transform,width] duration-200 ease-out
+        lg:translate-x-0 lg:absolute lg:inset-y-0 lg:w-16 lg:hover:w-52 lg:focus-within:w-52 lg:overflow-hidden
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         {/* Marca */}
-        <div className="h-12 shrink-0 border-b border-[var(--color-border)] flex items-center gap-2 px-4">
+        <div className="h-12 shrink-0 border-b border-[var(--color-border)] flex items-center gap-2 px-4 lg:pl-[22px]">
           <ZippMark size={20} />
-          <span className="text-sm font-semibold text-[var(--color-text-main)]">ZIPP</span>
-          <span className="text-sm text-[var(--color-text-secondary)]">Negocios</span>
+          <span className={`text-sm font-semibold text-[var(--color-text-main)] ${railLabel}`}>ZIPP</span>
+          <span className={`text-sm text-[var(--color-text-secondary)] ${railLabel}`}>Negocios</span>
           <button
             aria-label="Cerrar menú"
             className="ml-auto p-1 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] lg:hidden cursor-pointer"
@@ -193,7 +196,7 @@ export default function Layout() {
         {/* Local activo y estado: lo que el comercio mira antes de operar. */}
         <div className="px-3 py-3 space-y-2 border-b border-[var(--color-border)]">
           {businesses.length > 0 && (
-            <div className="relative">
+            <div className="relative lg:hidden lg:group-hover:block lg:group-focus-within:block">
               <select
                 value={selectedBusiness?._id || ''}
                 onChange={handleBusinessChange}
@@ -221,16 +224,16 @@ export default function Layout() {
                   ? 'Tu local está recibiendo pedidos. Púlsalo para dejar de recibirlos.'
                   : 'Tu local no recibe pedidos. Púlsalo para volver a abrir.'
               }
-              className={`flex items-center gap-1.5 text-xs font-medium cursor-pointer disabled:opacity-60 disabled:cursor-wait ${
+              className={`flex items-center gap-1.5 text-xs font-medium cursor-pointer disabled:opacity-60 disabled:cursor-wait lg:pl-1 ${
                 isStoreOpen ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'
               }`}
             >
               <span
-                className={`w-2 h-2 rounded-full ${
+                className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                   isStoreOpen ? 'bg-[var(--color-success)]' : 'bg-[var(--color-danger)]'
                 }`}
               />
-              <span>{pausing ? 'Guardando…' : isStoreOpen ? 'Abierto' : 'Cerrado'}</span>
+              <span className={railLabel}>{pausing ? 'Guardando…' : isStoreOpen ? 'Abierto' : 'Cerrado'}</span>
             </button>
           </div>
 
@@ -277,7 +280,9 @@ export default function Layout() {
                   end={item.path === '/'}
                   onClick={() => setSidebarOpen(false)}
                   {...preloadOn(item.path)}
-                  className={`relative flex items-center gap-2.5 h-8 px-2.5 rounded-md text-[13px] ${isActive
+                  title={item.label}
+                  aria-label={item.label}
+                  className={`relative flex items-center gap-2.5 h-10 lg:h-11 px-2.5 rounded-md text-[13px] ${isActive
                       ? 'bg-[var(--color-surface-hover)] text-[var(--color-text-main)] font-semibold'
                       : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)]'
                     }`}
@@ -285,8 +290,8 @@ export default function Layout() {
                   {isActive && (
                     <span aria-hidden className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--color-primary)]" />
                   )}
-                  <item.Icon fontSize={18} className="shrink-0" />
-                  <span className="truncate">{item.label}</span>
+                  <item.Icon fontSize={22} className="shrink-0" />
+                  <span className={`truncate ${railLabel}`}>{item.label}</span>
                 </NavLink>
               );
             })}
@@ -297,13 +302,16 @@ export default function Layout() {
         <div className="px-2 py-2 border-t border-[var(--color-border)]">
           <button
             onClick={() => { setSidebarOpen(false); setShowLogoutModal(true); }}
-            className="flex items-center gap-2.5 w-full h-8 px-2.5 rounded-md text-[13px] text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
+            title="Cerrar sesión"
+            aria-label="Cerrar sesión"
+            className="flex items-center gap-2.5 w-full h-10 lg:h-11 px-2.5 rounded-md text-[13px] text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
           >
-            <LogOut className="w-4 h-4" strokeWidth={1.8} />
-            Cerrar sesión
+            <LogOut className="w-[22px] h-[22px] shrink-0" strokeWidth={1.8} />
+            <span className={railLabel}>Cerrar sesión</span>
           </button>
         </div>
       </aside>
+      </div>
 
       {/* Mobile overlay */}
       {sidebarOpen && (

@@ -101,7 +101,7 @@ describe('OrderService.updateStatus — transiciones', () => {
     await deliverToCustomer(id, driverUser);
 
     await expect(
-      orderService.updateStatus(id, OrderStatus.CANCELLED, ownerId, UserRole.BUSINESS)
+      orderService.updateStatus(id, OrderStatus.CANCELLED, ownerId, UserRole.BUSINESS, 'Pedido ya entregado')
     ).rejects.toThrow(/transición inválida/i);
   });
 

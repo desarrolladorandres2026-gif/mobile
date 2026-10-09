@@ -125,7 +125,7 @@ export async function makePricingConfig(overrides: Record<string, unknown> = {})
  * corta también su access token. Las pruebas necesitan la misma sesión que
  * tendría un login real, no un atajo que la sortee.
  */
-export async function tokenFor(user: { _id: any; role: string }): Promise<string> {
+export async function tokenFor(user: { _id: any; role: string }, scope?: 'full' | 'counter'): Promise<string> {
   const sessionId = new Types.ObjectId();
   const token = generateAccessToken({ id: user._id.toString(), role: user.role as UserRole, sid: sessionId.toString() });
   await sessionManager.createSession({
@@ -134,12 +134,18 @@ export async function tokenFor(user: { _id: any; role: string }): Promise<string
     refreshToken: `test-refresh-${sessionId.toString()}`,
     ip: '127.0.0.1',
     userAgent: 'vitest',
+    scope,
   });
   return token;
 }
 
-export async function authHeader(user: { _id: any; role: string }): Promise<{ Authorization: string }> {
-  return { Authorization: `Bearer ${await tokenFor(user)}` };
+export async function authHeader(user: { _id: any; role: string }, scope?: 'full' | 'counter'): Promise<{ Authorization: string }> {
+  return { Authorization: `Bearer ${await tokenFor(user, scope)}` };
+}
+
+/** La sesión de mostrador (decisión 2026-10-09): el correo del negocio entra directo al panel de Empleado. */
+export async function counterAuthHeader(user: { _id: any; role: string }): Promise<{ Authorization: string }> {
+  return authHeader(user, 'counter');
 }
 
 export async function makeBusiness(ownerId: any, overrides: Partial<{

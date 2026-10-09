@@ -6,6 +6,7 @@ export {
   requireAnyPermission,
   requireRole,
   requireFinanceAdmin,
+  rejectCounterScope,
 } from './auth';
 export { validate } from './validate';
 export { cacheHeaders } from './cacheControl';
@@ -29,6 +30,8 @@ export {
   driverDossierFileRateLimiter,
   driverDossierPdfRateLimiter,
   businessFiscalRateLimiter,
+  businessStaffInviteRateLimiter,
+  createBusinessStaffInviteRateLimiter,
   payoutAccountRevealRateLimiter,
   twoFactorResetRateLimiter,
   twoFactorSetupRateLimiter,

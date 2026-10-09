@@ -53,7 +53,8 @@ export default function Orders() {
   const businessId = selectedBusiness?._id;
   const { can } = usePermissions(businessId);
   // Rechazar es cancelar: un pedido ya pagado devuelve el dinero al cliente y
-  // pide además `orders:cancel_paid` (propietario y administrador).
+  // pide además `orders:cancel_paid` (solo el propietario). El backend corta
+  // además cualquier cancelación una vez el pedido sale del local.
   const canReject = (order: BusinessOrder) =>
     can('orders:cancel') && (order.paymentStatus !== 'paid' || can('orders:cancel_paid'));
 

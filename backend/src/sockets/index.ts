@@ -3,7 +3,10 @@ import { Server as HttpServer } from 'http';
 import { config } from '../config';
 import { sessionManager } from '../security';
 import { verifyAccessToken, isLegacyTokenAcceptable, DecodedToken } from '../utils/token';
-import { Business, BusinessStaff, Driver, Order, OrderCall, User } from '../models';
+import {
+  Business, BusinessStaff, BusinessPermission, BUSINESS_ROLE_PERMISSIONS, normalizeStaffRole,
+  Driver, Order, OrderCall, User,
+} from '../models';
 import { OrderCallStatus, OrderStatus } from '../types';
 import { resolveOrderAccess } from '../services/orderAccess.service';
 import { markPanelSeen } from '../services/businessPresence.service';
@@ -30,6 +33,12 @@ export interface SocketIdentity {
   exp?: number;
   /** Autorización del admin (Fase 1); undefined para el resto de cuentas. */
   authz?: ResolvedAuthorization;
+  /**
+   * Alcance de la sesión (ver `ISession.scope`). `'counter'` topa la sala
+   * `business:<id>` y `resolveOrderAccess` al papel Empleado, igual que en
+   * REST — decisión 2026-10-09.
+   */
+  scope?: 'full' | 'counter';
 }
 
 /**
@@ -84,11 +93,13 @@ export async function authenticateSocket(token: unknown): Promise<SocketIdentity
     throw new Error('Token inválido o expirado');
   }
 
-  // Igual que `authenticate`: la sesión del token tiene que seguir viva.
+  // Igual que `authenticate`: la sesión del token tiene que seguir viva, y
+  // su alcance (`scope`) viaja con la identidad del socket, no con el token.
+  let scope: 'full' | 'counter' | undefined;
   if (decoded.sid) {
-    if (!(await sessionManager.isSessionActive(decoded.sid, decoded.id))) {
-      throw new Error('Sesión cerrada');
-    }
+    const status = await sessionManager.sessionStatus(decoded.sid, decoded.id);
+    if (!status.active) throw new Error('Sesión cerrada');
+    scope = status.scope ?? 'full';
   } else if (!isLegacyTokenAcceptable(decoded)) {
     throw new Error('Token inválido o expirado');
   }
@@ -131,6 +142,7 @@ export async function authenticateSocket(token: unknown): Promise<SocketIdentity
     sessionId: decoded.sid,
     twoFactorSatisfied,
     exp: typeof decoded.exp === 'number' ? decoded.exp : undefined,
+    scope,
   };
 }
 
@@ -160,6 +172,7 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
       (socket as any).userId = identity.userId;
       (socket as any).userRole = identity.role;
       (socket as any).sessionId = identity.sessionId;
+      (socket as any).sessionScope = identity.scope;
       (socket as any).twoFactorSatisfied = identity.twoFactorSatisfied;
       (socket as any).tokenExp = identity.exp;
       (socket as any).authz = identity.authz;
@@ -172,9 +185,16 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
   io.on('connection', async (socket) => {
     const userId = (socket as any).userId as string;
     const userRole = (socket as any).userRole as string;
+    const sessionScope = (socket as any).sessionScope as 'full' | 'counter' | undefined;
 
     // Join personal room (always first)
     socket.join(`user:${userId}`);
+    // Sub-sala de `user:<id>` para quien NO está en sesión de mostrador
+    // (decisión 2026-10-09): `user:<id>` la comparten todas las sesiones de
+    // la persona, así que no sirve para decidir quién ve datos completos.
+    // `announceToBusiness` (order.service.ts) emite aquí el pedido sin
+    // enmascarar; todo lo demás de `business:<id>` lo recibe enmascarado.
+    if (sessionScope !== 'counter') socket.join(`user:${userId}:full`);
 
     // Sala de la sesión: revocarla (logout, "cerrar en otros dispositivos",
     // cambio de contraseña) desconecta este socket al instante.
@@ -291,10 +311,24 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
       try {
         const [owned, staffOf] = await Promise.all([
           Business.find({ ownerId: userId }).select('_id'),
-          BusinessStaff.find({ userId, isActive: true }).select('businessId'),
+          BusinessStaff.find({ userId, isActive: true }).select('businessId role'),
         ]);
         const ids = new Set<string>(owned.map((b) => b._id.toString()));
-        for (const staff of staffOf) ids.add(staff.businessId.toString());
+        // Solo entra a la sala quien puede ver pedidos: el evento lleva el
+        // teléfono y la dirección del cliente. Hoy todos los papeles tienen
+        // `orders:view`; la comprobación evita que un papel futuro, o un
+        // valor sin mapear, siga recibiéndolos sin que nadie lo decida.
+        const staffIds: string[] = [];
+        for (const staff of staffOf) {
+          const permissions = BUSINESS_ROLE_PERMISSIONS[normalizeStaffRole(staff.role)] ?? [];
+          if (permissions.includes(BusinessPermission.ORDERS_VIEW)) staffIds.push(staff.businessId.toString());
+        }
+        // Igual que `accessFor`: el personal de un negocio archivado ya no
+        // recibe sus eventos en vivo (el dueño sí conserva su historial).
+        if (staffIds.length) {
+          const live = await Business.find({ _id: { $in: staffIds }, isArchived: { $ne: true } }).select('_id');
+          for (const b of live) ids.add(b._id.toString());
+        }
         for (const id of ids) socket.join(`business:${id}`);
 
         // "¿Hay un panel escuchando?" para la alerta de Abierto sin app
@@ -324,7 +358,10 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
           Business.find({ ownerId: userId }).select('_id'),
           BusinessStaff.find({ userId, isActive: true }).select('businessId'),
         ]);
-        const businessIds = [...owned.map((b) => b._id), ...staffOf.map((s) => s.businessId)];
+        const liveStaffBusinesses = staffOf.length
+          ? await Business.find({ _id: { $in: staffOf.map((s) => s.businessId) }, isArchived: { $ne: true } }).select('_id')
+          : [];
+        const businessIds = [...owned.map((b) => b._id), ...liveStaffBusinesses.map((b) => b._id)];
         allowed = !!(await Order.exists({ driverId: driver._id, businessId: { $in: businessIds }, status: { $in: activeStatuses } }));
       }
       if (allowed) socket.join(`driver:tracking:${driverId}`);
@@ -344,7 +381,7 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
     // acaban las aplicaciones con una API blindada y un WebSocket abierto.
     socket.on('order:join', async (orderId: string) => {
       try {
-        await resolveOrderAccess(orderId, { _id: userId, role: userRole });
+        await resolveOrderAccess(orderId, { _id: userId, role: userRole }, sessionScope);
         if (userRole === 'admin') {
           assertOrderAdminAccess(socketPermissions((socket as any).authz));
         }
@@ -381,7 +418,7 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
     socket.on('call:join', async (data: { orderId: string; callId: string }) => {
       try {
         if (!data?.orderId || !data?.callId) return;
-        const access = await resolveOrderAccess(data.orderId, { _id: userId, role: userRole });
+        const access = await resolveOrderAccess(data.orderId, { _id: userId, role: userRole }, sessionScope);
         const call = await OrderCall.findOne({
           _id: data.callId,
           orderId: access.order._id,

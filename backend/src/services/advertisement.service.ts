@@ -292,6 +292,7 @@ export class AdvertisementService {
     cpcRate: number;
     budget: number;
     targetCities?: string[];
+    scope?: import('./businessStaff.service').SessionScope;
   }): Promise<IAdvertisement> {
     const business = await Business.findById(input.businessId).select('name city');
     if (!business) throw new AppError('Negocio no encontrado', 404);
@@ -301,7 +302,8 @@ export class AdvertisementService {
       input.ownerId,
       input.businessId,
       BusinessPermission.ADVERTISING_MANAGE,
-      'Sin permisos para gestionar publicidad.'
+      'Sin permisos para gestionar publicidad.',
+      input.scope
     );
 
     if (!input.budget) {

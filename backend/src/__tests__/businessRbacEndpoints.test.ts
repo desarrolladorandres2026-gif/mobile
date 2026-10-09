@@ -32,7 +32,7 @@ beforeEach(async () => {
 
 describe('Catálogo', () => {
   it('el operador no modifica, crea ni elimina productos (403 con mensaje)', async () => {
-    const operator = await member(BusinessRole.OPERATOR);
+    const operator = await member(BusinessRole.EMPLOYEE);
     const h = await authHeader(operator);
 
     const put = await request(app).put(`/api/v1/products/${product._id}`).set(h)
@@ -51,7 +51,7 @@ describe('Catálogo', () => {
   });
 
   it('el cajero tampoco', async () => {
-    const cashier = await member(BusinessRole.CASHIER);
+    const cashier = await member(BusinessRole.EMPLOYEE);
     const res = await request(app).put(`/api/v1/products/${product._id}`).set(await authHeader(cashier))
       .send({ businessId: bid(), price: 1 });
     expect(res.status).toBe(403);
@@ -83,7 +83,7 @@ describe('Catálogo', () => {
 
 describe('Dinero y configuración', () => {
   it('operador y cajero no ven liquidaciones ni el resumen financiero', async () => {
-    for (const role of [BusinessRole.OPERATOR, BusinessRole.CASHIER, BusinessRole.MANAGER]) {
+    for (const role of [BusinessRole.EMPLOYEE, BusinessRole.MANAGER]) {
       const h = await authHeader(await member(role));
       expect((await request(app).get(`/api/v1/businesses/${bid()}/statement`).set(h)).status).toBe(403);
       expect((await request(app).get(`/api/v1/businesses/${bid()}/statement/export`).set(h)).status).toBe(403);
@@ -98,7 +98,7 @@ describe('Dinero y configuración', () => {
   });
 
   it('solo propietario y administrador consultan estadísticas', async () => {
-    const operator = await member(BusinessRole.OPERATOR);
+    const operator = await member(BusinessRole.EMPLOYEE);
     expect((await request(app).get(`/api/v1/businesses/${bid()}/analytics`).set(await authHeader(operator))).status).toBe(403);
     const admin = await member(BusinessRole.MANAGER);
     expect((await request(app).get(`/api/v1/businesses/${bid()}/analytics`).set(await authHeader(admin))).status).toBe(200);
@@ -113,7 +113,7 @@ describe('Dinero y configuración', () => {
 
 describe('Promociones y publicidad', () => {
   it('el operador no lista ni crea promociones; el administrador las lista', async () => {
-    const operator = await member(BusinessRole.OPERATOR);
+    const operator = await member(BusinessRole.EMPLOYEE);
     const list = await request(app).get(`/api/v1/coupons/business/${bid()}`).set(await authHeader(operator));
     expect(list.status).toBe(403);
 
@@ -123,7 +123,7 @@ describe('Promociones y publicidad', () => {
   });
 
   it('el operador no lee la publicidad del negocio', async () => {
-    const operator = await member(BusinessRole.OPERATOR);
+    const operator = await member(BusinessRole.EMPLOYEE);
     const res = await request(app).get(`/api/v1/advertisements/business/${bid()}`).set(await authHeader(operator));
     expect(res.status).toBe(403);
   });
@@ -131,7 +131,7 @@ describe('Promociones y publicidad', () => {
 
 describe('Equipo', () => {
   it('el operador no ve ni invita al equipo', async () => {
-    const operator = await member(BusinessRole.OPERATOR);
+    const operator = await member(BusinessRole.EMPLOYEE);
     const h = await authHeader(operator);
     const list = await request(app).get(`/api/v1/businesses/${bid()}/staff`).set(h);
     expect(list.status).toBe(403);
@@ -154,7 +154,10 @@ describe('Equipo', () => {
     const ok = await request(app).post(`/api/v1/businesses/${bid()}/staff`).set(h)
       .send({ phone: target.phone, role: 'cashier' });
     expect(ok.status).toBe(201);
-    expect(ok.body.data.status).toBe('pending');
+    // La respuesta es neutra (no devuelve la fila); el estado se lee del equipo.
+    expect(ok.body.data).toBeNull();
+    const team = await request(app).get(`/api/v1/businesses/${bid()}/staff`).set(h);
+    expect(team.body.data.filter((r: any) => r.status === 'pending')).toHaveLength(1);
   });
 
   it('el invitado acepta por su propia ruta', async () => {
@@ -167,10 +170,10 @@ describe('Equipo', () => {
     const pending = await request(app).get('/api/v1/businesses/my/invitations').set(h);
     expect(pending.body.data).toHaveLength(1);
 
-    const accept = await request(app).post(`/api/v1/businesses/my/invitations/${invite.body.data._id}`).set(h).send({ accept: true });
+    const accept = await request(app).post(`/api/v1/businesses/my/invitations/${pending.body.data[0]._id}`).set(h).send({ accept: true });
     expect(accept.status).toBe(200);
 
     const perms = await request(app).get(`/api/v1/businesses/${bid()}/my-permissions`).set(h);
-    expect(perms.body.data.role).toBe('operator');
+    expect(perms.body.data.role).toBe('employee');
   });
 });

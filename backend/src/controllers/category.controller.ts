@@ -6,7 +6,7 @@ import { BusinessPermission } from '../models';
 import { assertBusinessCan } from '../services/businessStaff.service';
 
 function assertCatalog(req: Request, businessId: string) {
-  return assertBusinessCan(req.user!, businessId, BusinessPermission.CATALOG_EDIT, 'Sin permisos para modificar categorías.');
+  return assertBusinessCan(req.user!, businessId, BusinessPermission.CATALOG_EDIT, 'Sin permisos para modificar categorías.', req.sessionScope);
 }
 
 export class CategoryController {

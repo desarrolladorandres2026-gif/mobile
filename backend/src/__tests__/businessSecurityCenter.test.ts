@@ -252,7 +252,7 @@ describe('Revocaciones desde el panel admin', () => {
   it('cerrar todas las del negocio exige TOTP y alcanza al dueño y al personal activo', async () => {
     const { owner, business, businessId } = await ownerWithBusiness();
     const cashier = await makeUser({ role: UserRole.BUSINESS, name: 'Cajero' });
-    await BusinessStaff.create({ businessId: business._id, userId: cashier._id, role: BusinessRole.OPERATOR });
+    await BusinessStaff.create({ businessId: business._id, userId: cashier._id, role: BusinessRole.EMPLOYEE });
     await login(owner.email!, { deviceId: randomUUID() });
     await login(cashier.email!, { deviceId: randomUUID() });
 
@@ -290,7 +290,7 @@ describe('Revocaciones desde el panel admin', () => {
   it('una cuenta administrativa que es empleada del comercio no se toca desde aquí', async () => {
     const { business, businessId } = await ownerWithBusiness();
     const adminStaff = await makeUser({ role: UserRole.ADMIN, name: 'Admin empleado' });
-    await BusinessStaff.create({ businessId: business._id, userId: adminStaff._id, role: BusinessRole.OPERATOR });
+    await BusinessStaff.create({ businessId: business._id, userId: adminStaff._id, role: BusinessRole.EMPLOYEE });
     await authHeader(adminStaff);
     const session = await Session.findOne({ userId: String(adminStaff._id) }).lean();
 
@@ -461,7 +461,7 @@ describe('Filtros, paginación y resumen', () => {
   it('valida los filtros y pagina de verdad', async () => {
     const { owner, business, businessId } = await ownerWithBusiness();
     const staff = await makeUser({ role: UserRole.BUSINESS, name: 'Mesero', email: 'mesero@zipp.test' });
-    await BusinessStaff.create({ businessId: business._id, userId: staff._id, role: BusinessRole.OPERATOR });
+    await BusinessStaff.create({ businessId: business._id, userId: staff._id, role: BusinessRole.EMPLOYEE });
     for (let i = 0; i < 3; i += 1) await login(owner.email!, { deviceId: randomUUID() });
     await login(staff.email!, { deviceId: randomUUID() });
     const { header } = await securityAdmin();

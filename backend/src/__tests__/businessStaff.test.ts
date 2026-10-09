@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BusinessStaff, BusinessRole, BusinessPermission, Business } from '../models';
+import { BusinessStaff, BusinessRole, BusinessPermission, BUSINESS_ROLE_PERMISSIONS, Business } from '../models';
+import { migrateBusinessRolesV3 } from '../migrations/026-business-roles-v3';
 import { UserRole } from '../types';
 import { businessStaffService } from '../services/businessStaff.service';
 import { makeUser, makeBusiness, GARZON } from './factories';
@@ -21,7 +22,7 @@ describe('Empleados del comercio', () => {
 
   /** Invita y acepta: el camino completo hasta tener acceso. */
   async function addActive(user: any, role: any, by = ownerId) {
-    const row = await businessStaffService.invite(businessId, { phone: user.phone, role }, by);
+    const row = (await businessStaffService.invite(businessId, { phone: user.phone, role }, by))!;
     await businessStaffService.respondToInvitation(user._id.toString(), row._id.toString(), true);
     return row;
   }
@@ -77,7 +78,7 @@ describe('Empleados del comercio', () => {
   });
 
   it('el operador trabaja pedidos, agota productos y solo consulta el resto del catálogo', async () => {
-    await addActive(empleado, BusinessRole.OPERATOR);
+    await addActive(empleado, BusinessRole.EMPLOYEE);
 
     expect(await permsOf(empleado)).toEqual([
       BusinessPermission.ORDERS_VIEW,
@@ -89,19 +90,58 @@ describe('Empleados del comercio', () => {
     ]);
   });
 
-  it('el cajero ve pedidos y las ventas del turno, nada más', async () => {
-    await addActive(empleado, BusinessRole.CASHIER);
+  it('el empleado ve pedidos, agota productos y abre el local; ni dinero ni equipo', async () => {
+    await addActive(empleado, BusinessRole.EMPLOYEE);
 
     expect(await permsOf(empleado)).toEqual([
       BusinessPermission.ORDERS_VIEW,
       BusinessPermission.ORDERS_MANAGE,
       BusinessPermission.ORDERS_CANCEL,
-      BusinessPermission.SHIFT_VIEW,
+      BusinessPermission.CATALOG_VIEW,
+      BusinessPermission.CATALOG_AVAILABILITY,
+      BusinessPermission.STORE_TOGGLE,
     ]);
   });
 
+  // Hasta que corra la migración 026 hay filas con los nombres viejos, y un
+  // valor sin mapa daría permisos vacíos: la persona quedaría fuera sin aviso.
+  for (const legacy of ['cashier', 'operator', 'staff']) {
+    it(`una fila antigua '${legacy}' recibe exactamente los permisos de empleado`, async () => {
+      await BusinessStaff.collection.insertOne({
+        businessId: business._id, userId: empleado._id, role: legacy,
+        isActive: true, status: 'active', createdAt: new Date(), updatedAt: new Date(),
+      });
+      expect(await permsOf(empleado)).toEqual(BUSINESS_ROLE_PERMISSIONS[BusinessRole.EMPLOYEE]);
+    });
+  }
+
+  it('un valor de rol desconocido se lee como empleado, nunca como administrador', async () => {
+    await BusinessStaff.collection.insertOne({
+      businessId: business._id, userId: empleado._id, role: 'superjefe',
+      isActive: true, status: 'active', createdAt: new Date(), updatedAt: new Date(),
+    });
+    expect(await permsOf(empleado)).toEqual(BUSINESS_ROLE_PERMISSIONS[BusinessRole.EMPLOYEE]);
+  });
+
+  it('la migración 026 reescribe operator, cashier y staff a employee, y es idempotente', async () => {
+    for (const role of ['cashier', 'operator', 'staff', 'manager']) {
+      const user = await makeUser({ role: UserRole.BUSINESS });
+      await BusinessStaff.collection.insertOne({
+        businessId: business._id, userId: user._id, role,
+        isActive: true, status: 'active', createdAt: new Date(), updatedAt: new Date(),
+      });
+    }
+    expect(await migrateBusinessRolesV3({ dryRun: true })).toMatchObject({ toEmployee: 3, formerCashiers: 1, dryRun: true });
+    expect(await BusinessStaff.countDocuments({ role: 'employee' })).toBe(0);
+
+    await migrateBusinessRolesV3();
+    expect(await BusinessStaff.countDocuments({ role: 'employee' })).toBe(3);
+    expect(await BusinessStaff.countDocuments({ role: 'manager' })).toBe(1);
+    expect(await migrateBusinessRolesV3()).toMatchObject({ toEmployee: 0 });
+  });
+
   it('assertCan deja pasar lo permitido y frena lo demás con 403', async () => {
-    await addActive(empleado, BusinessRole.OPERATOR);
+    await addActive(empleado, BusinessRole.EMPLOYEE);
     const id = empleado._id.toString();
 
     await expect(
@@ -114,7 +154,7 @@ describe('Empleados del comercio', () => {
   });
 
   it('una invitación pendiente no da ningún acceso hasta que se acepta', async () => {
-    const row = await businessStaffService.invite(businessId, { phone: empleado.phone, role: BusinessRole.MANAGER }, ownerId);
+    const row = (await businessStaffService.invite(businessId, { phone: empleado.phone, role: BusinessRole.MANAGER }, ownerId))!;
     expect(row.status).toBe('pending');
     expect(await permsOf(empleado)).toEqual([]);
     expect(await businessStaffService.accessibleBusinesses(empleado._id.toString())).toHaveLength(0);
@@ -124,7 +164,7 @@ describe('Empleados del comercio', () => {
   });
 
   it('solo el invitado puede responder su invitación', async () => {
-    const row = await businessStaffService.invite(businessId, { phone: empleado.phone, role: BusinessRole.CASHIER }, ownerId);
+    const row = (await businessStaffService.invite(businessId, { phone: empleado.phone, role: BusinessRole.EMPLOYEE }, ownerId))!;
     const otro = await makeUser({ role: UserRole.BUSINESS });
 
     await expect(
@@ -133,27 +173,30 @@ describe('Empleados del comercio', () => {
   });
 
   it('rechazar la invitación la elimina', async () => {
-    const row = await businessStaffService.invite(businessId, { phone: empleado.phone, role: BusinessRole.CASHIER }, ownerId);
+    const row = (await businessStaffService.invite(businessId, { phone: empleado.phone, role: BusinessRole.EMPLOYEE }, ownerId))!;
     await businessStaffService.respondToInvitation(empleado._id.toString(), row._id.toString(), false);
     expect(await BusinessStaff.countDocuments({ businessId: business._id })).toBe(0);
   });
 
   it('no se puede invitar a alguien sin cuenta en ZIPP', async () => {
     // El empleado entra con su propia cuenta. Crearla desde el panel del
-    // negocio llevaría de vuelta a las credenciales compartidas.
+    // negocio llevaría de vuelta a las credenciales compartidas. No se crea
+    // nada, y tampoco se avisa con un error: ver businessInvitePrivacy.test.ts.
     await expect(
-      businessStaffService.invite(businessId, { phone: '3001112233', role: BusinessRole.OPERATOR }, ownerId)
-    ).rejects.toMatchObject({ statusCode: 404 });
+      businessStaffService.invite(businessId, { phone: '3001112233', role: BusinessRole.EMPLOYEE }, ownerId)
+    ).resolves.toBeNull();
+    expect(await BusinessStaff.countDocuments({ businessId: business._id })).toBe(0);
   });
 
   it('no se puede invitar al propio dueño', async () => {
     await expect(
       businessStaffService.invite(businessId, { phone: owner.phone, role: BusinessRole.MANAGER }, ownerId)
-    ).rejects.toMatchObject({ statusCode: 409 });
+    ).resolves.toBeNull();
+    expect(await BusinessStaff.countDocuments({ businessId: business._id })).toBe(0);
   });
 
   it('reinvitar a alguien cambia su papel y exige aceptar de nuevo', async () => {
-    await addActive(empleado, BusinessRole.OPERATOR);
+    await addActive(empleado, BusinessRole.EMPLOYEE);
     await businessStaffService.invite(businessId, { phone: empleado.phone, role: BusinessRole.MANAGER }, ownerId);
 
     expect(await BusinessStaff.countDocuments({ businessId: business._id })).toBe(1);
@@ -175,11 +218,11 @@ describe('Empleados del comercio', () => {
 
     // …pero sí a un cajero y puede suspenderlo. Cambiarle el papel ya es del
     // propietario (`team:change_role`): repartir poder no se delega.
-    const row = await addActive(cajero, BusinessRole.CASHIER, adminId);
+    const row = await addActive(cajero, BusinessRole.EMPLOYEE, adminId);
     await expect(
-      businessStaffService.changeRole(businessId, row._id.toString(), BusinessRole.OPERATOR, adminId)
+      businessStaffService.changeRole(businessId, row._id.toString(), BusinessRole.EMPLOYEE, adminId)
     ).rejects.toMatchObject({ statusCode: 403 });
-    expect((await BusinessStaff.findById(row._id))!.role).toBe(BusinessRole.CASHIER);
+    expect((await BusinessStaff.findById(row._id))!.role).toBe(BusinessRole.EMPLOYEE);
 
     // Y no puede tocar a otro administrador (ni a sí mismo).
     const adminRow = await BusinessStaff.findOne({ businessId: business._id, userId: admin._id });
@@ -189,7 +232,7 @@ describe('Empleados del comercio', () => {
   });
 
   it('suspender corta el acceso pero conserva el registro; reactivar lo devuelve', async () => {
-    const row = await addActive(empleado, BusinessRole.OPERATOR);
+    const row = await addActive(empleado, BusinessRole.EMPLOYEE);
 
     await businessStaffService.setSuspended(businessId, row._id.toString(), true, ownerId);
     const saved = await BusinessStaff.findById(row._id);
@@ -201,7 +244,7 @@ describe('Empleados del comercio', () => {
   });
 
   it('eliminar quita el acceso', async () => {
-    const row = await addActive(empleado, BusinessRole.OPERATOR);
+    const row = await addActive(empleado, BusinessRole.EMPLOYEE);
     await businessStaffService.remove(businessId, row._id.toString(), ownerId);
 
     expect(await BusinessStaff.findById(row._id)).toBeNull();

@@ -115,6 +115,8 @@ export interface IUser extends Document {
   mfaChallengeExpires?: Date;
   mfaChallengeAttempts?: number;
   mfaChallengeMethod?: string;
+  /** `'counter'` cuando el login viene de `surface: 'business-counter'` (decisión 2026-10-09): la sesión que abra el segundo factor hereda el mismo tope. */
+  mfaChallengeScope?: 'full' | 'counter';
 
   // ── Device tracking ──
   trustedDevices: string[];
@@ -366,6 +368,7 @@ const userSchema = new Schema<IUser>(
     mfaChallengeExpires: { type: Date, select: false },
     mfaChallengeAttempts: { type: Number, select: false },
     mfaChallengeMethod: { type: String, select: false },
+    mfaChallengeScope: { type: String, select: false },
 
     // ── Device tracking ──
     trustedDevices: {
@@ -430,6 +433,7 @@ const userSchema = new Schema<IUser>(
         delete ret.mfaChallengeExpires;
         delete ret.mfaChallengeAttempts;
         delete ret.mfaChallengeMethod;
+        delete ret.mfaChallengeScope;
         // Vestigio de antes de la migración 004: si un documento viejo aún
         // lo trae, no sale nunca por la API.
         delete ret.refreshToken;

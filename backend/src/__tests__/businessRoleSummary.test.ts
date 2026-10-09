@@ -68,29 +68,14 @@ beforeEach(async () => {
 });
 
 describe('Portada por papel', () => {
-  it('el operador ve la cola de pedidos y nada de dinero', async () => {
-    const res = await request(app).get(url()).set(await authHeader(await member(BusinessRole.OPERATOR)));
+  it('el empleado ve la cola de pedidos y nada de dinero', async () => {
+    const res = await request(app).get(url()).set(await authHeader(await member(BusinessRole.EMPLOYEE)));
     expect(res.status).toBe(200);
     expect(res.body.data.kind).toBe('kitchen');
     expect(res.body.data.queue).toEqual({ pending: 1, preparing: 1, ready: 1, onTheWay: 0 });
     expect(res.body.data.ordersDelivered).toBe(2);
     expect(res.body.data.ordersCancelled).toBe(1);
     expect(res.body.data).not.toHaveProperty('sales');
-    expectNoFinance(res.body);
-  });
-
-  it('el cajero ve las ventas del día por medio de pago y lo pendiente', async () => {
-    const res = await request(app).get(url()).set(await authHeader(await member(BusinessRole.CASHIER)));
-    expect(res.status).toBe(200);
-    const data = res.body.data;
-    expect(data.kind).toBe('shift');
-    expect(data.sales).toBe(50000);
-    expect(data.byPaymentMethod).toEqual([
-      { method: PaymentMethod.CASH_ON_DELIVERY, orders: 1, sales: 20000 },
-      { method: PaymentMethod.ONLINE, orders: 1, sales: 30000 },
-    ]);
-    expect(data.pendingOrders).toBe(3);
-    expect(data.pendingSales).toBe(37000);
     expectNoFinance(res.body);
   });
 
@@ -116,7 +101,7 @@ describe('Portada por papel', () => {
     for (const status of ['pending', 'suspended'] as const) {
       const user = await makeUser({ role: UserRole.BUSINESS });
       await BusinessStaff.create({
-        businessId: business._id, userId: user._id, role: BusinessRole.CASHIER, status, isActive: false,
+        businessId: business._id, userId: user._id, role: BusinessRole.EMPLOYEE, status, isActive: false,
       });
       const res = await request(app).get(url()).set(await authHeader(user));
       expect(res.status).toBe(403);

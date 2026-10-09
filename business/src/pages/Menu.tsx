@@ -56,6 +56,7 @@ export default function Menu() {
   const canEdit = can('catalog:edit');
   const canDelete = can('catalog:delete');
   const canAvailability = can('catalog:availability');
+  const canSeePromotions = can('promotions:view');
   const readOnly = !canCreate && !canEdit && !canDelete;
 
   const queryClient = useQueryClient();
@@ -591,7 +592,7 @@ export default function Menu() {
                     </p>
                   )}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-medium empty:hidden">
-                    {product.promotedBy && (
+                    {product.promotedBy && (canSeePromotions ? (
                       <a
                         href={`/promotions?productId=${product._id}`}
                         className="text-[var(--color-info)] flex items-center gap-1"
@@ -599,7 +600,14 @@ export default function Menu() {
                         <Tag className="w-3 h-3" />
                         En promoción
                       </a>
-                    )}
+                    ) : (
+                      // Sin `promotions:view` el enlace llevaría a una sección
+                      // que el panel esconde: se informa, no se enlaza.
+                      <span className="text-[var(--color-info)] flex items-center gap-1">
+                        <Tag className="w-3 h-3" />
+                        En promoción
+                      </span>
+                    ))}
                     {!product.isAvailable && (
                       <span className="text-[var(--color-danger)]">Agotado</span>
                     )}
@@ -680,7 +688,7 @@ export default function Menu() {
         )}
       </div>
     );
-  }, [categories, products, filterCategory, canEdit, canDelete, canAvailability]);
+  }, [categories, products, filterCategory, canEdit, canDelete, canAvailability, canSeePromotions]);
 
   if (!selectedBusiness) {
     return (

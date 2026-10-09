@@ -179,6 +179,30 @@ export class NotificationService {
     });
   }
 
+  /**
+   * Al propietario: un empleado canceló un pedido. Cuenta lo que pasó y nada
+   * más —quién, cuál y por qué—: no promete ningún reembolso, que es otro
+   * proceso con su propio estado.
+   */
+  async notifyOwnerOrderCancelledByStaff(
+    ownerId: string,
+    orderId: string,
+    orderNumber: string,
+    staffName: string,
+    staffUserId: string,
+    reason?: string
+  ) {
+    return this.create({
+      userId: ownerId,
+      type: NotificationType.ORDER,
+      title: 'Un empleado canceló un pedido',
+      body: reason
+        ? `${staffName} canceló el pedido #${orderNumber}. Motivo: ${reason}`
+        : `${staffName} canceló el pedido #${orderNumber}.`,
+      data: { orderId, orderNumber, reason, staffUserId, event: 'order_cancelled_by_staff' },
+    });
+  }
+
   /** Al comercio: la venta se cerró y ya cuenta para la liquidación. */
   async notifyBusinessOrderDelivered(ownerId: string, orderId: string, orderNumber: string) {
     return this.create({

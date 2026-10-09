@@ -531,12 +531,17 @@ describe('Cancelación', () => {
       s.driverUser._id.toString(),
       UserRole.DRIVER
     );
+    // Con el pedido en camino el comercio ya no cancela (BUSINESS_CANCEL_TOO_LATE):
+    // lo cancela un administrador de ZIPP.
+    const admin = await makeUser({ role: UserRole.ADMIN });
     await orderService.updateStatus(
       s.orderId,
       OrderStatus.CANCELLED,
-      s.owner._id.toString(),
-      UserRole.BUSINESS,
-      'Cliente ausente'
+      admin._id.toString(),
+      UserRole.ADMIN,
+      'Cliente ausente',
+      {},
+      'other' as any
     );
 
     const stored = await OrderSecurity.findOne({ orderId: s.orderId });

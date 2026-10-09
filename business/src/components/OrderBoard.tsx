@@ -96,7 +96,13 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
     if (order && column === targetOf(order)) onAdvance(order, column);
   };
 
+  const waiting = orders.length;
+  const oldest = waiting
+    ? Math.max(...orders.map((order) => minutesSince(order.createdAt, now)))
+    : 0;
+
   return (
+    <div className="relative">
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 md:divide-x divide-[var(--color-border)]">
       {columns.map(({ status, items }) => {
         const isTarget = validTarget === status;
@@ -120,15 +126,16 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                   : 'border-transparent'
             }`}
           >
-            <header className="flex items-baseline justify-between py-3 border-b border-[var(--color-border)]">
-              <h3 className="text-xs font-semibold text-[var(--color-text-main)]">
+            <header className="flex items-baseline justify-between py-4 border-b border-[var(--color-border)]">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-text-main)]">
+                <span aria-hidden className={`w-2 h-2 rounded-full ${ORDER_STATUS[status].dot}`} />
                 {ORDER_STATUS[status].label}
               </h3>
-              <span className="text-xs font-semibold tabular text-[var(--color-text-secondary)]">{items.length}</span>
+              <span className="text-lg font-semibold tabular text-[var(--color-text-main)]">{items.length}</span>
             </header>
 
             {items.length === 0 ? (
-              <p className="py-8 text-xs font-medium text-[var(--color-text-secondary)]">
+              <p className="py-10 text-sm font-medium text-[var(--color-text-secondary)]">
                 {isTarget ? 'Suéltalo aquí' : 'Sin pedidos'}
               </p>
             ) : (
@@ -148,10 +155,18 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                         setDragging(order);
                       }}
                       onDragEnd={() => { setDragging(null); setOverColumn(null); }}
-                      className={`py-3 space-y-2.5 scroll-mt-28 ${step ? 'cursor-grab active:cursor-grabbing' : ''} ${
+                      className={`relative pl-4 py-4 space-y-3 scroll-mt-28 transition-opacity ${step ? 'md:cursor-grab md:active:cursor-grabbing' : ''} ${
                         dragging?._id === order._id ? 'opacity-40' : ''
-                      } ${focusId === order._id ? 'border-l-2 border-[var(--color-primary)] pl-3' : ''}`}
+                      }`}
                     >
+                      {/* La franja dice el estado y el retraso; en el pedido
+                          que viene de un aviso se engrosa para encontrarlo. */}
+                      <span
+                        aria-hidden
+                        className={`absolute left-0 top-4 bottom-4 rounded-full ${
+                          focusId === order._id ? 'w-1.5 bg-[var(--color-primary)]' : `w-1 ${ORDER_STATUS[order.status].dot}`
+                        }`}
+                      />
                       <button
                         type="button"
                         onClick={() => onOpen(order)}
@@ -159,35 +174,35 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                         className="w-full text-left cursor-pointer group"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5 text-xs font-medium tabular text-[var(--color-text-secondary)]">
-                            {step && <GripVertical className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" aria-hidden />}
+                          <span className="flex items-center gap-1.5 text-base font-semibold tabular text-[var(--color-text-main)]">
+                            {step && <GripVertical className="hidden md:block w-4 h-4 text-[var(--color-text-secondary)]" aria-hidden />}
                             {order.orderNumber ?? shortId(order._id)}
                           </span>
-                          <span className={`text-[11px] font-semibold tabular ${timerTone(minutes)}`} title={`Llegó a las ${clock(order.createdAt)}`}>
+                          <span className={`text-sm font-semibold tabular ${timerTone(minutes)}`} title={`Llegó a las ${clock(order.createdAt)}`}>
                             {elapsedLabel(minutes)}
                           </span>
                         </div>
                         <p className="mt-1 text-sm font-medium text-[var(--color-text-main)] group-hover:underline underline-offset-2">
                           {order.clientId?.name ?? 'Cliente'}
                         </p>
-                        <p className="mt-0.5 text-xs font-medium text-[var(--color-text-secondary)] line-clamp-2">
+                        <p className="mt-1 text-sm font-medium text-[var(--color-text-secondary)] line-clamp-3">
                           {(order.items ?? [])
                             .map((item: OrderItem) => `${item.quantity}× ${item.productName}`)
                             .join(' · ')}
                         </p>
-                        <p className="mt-1 text-sm tabular text-[var(--color-text-main)]">{money(order.total)}</p>
+                        <p className="mt-1.5 text-base font-semibold tabular text-[var(--color-text-main)]">{money(order.total)}</p>
                       </button>
 
                       {order.status === 'ready' && <PickupHandoff order={order} refreshKey={handoffTick} />}
 
                       {(step || (order.status === 'pending' && canReject(order))) && (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                           {step && (
                             <button
                               type="button"
                               onClick={() => onAdvance(order, step.status)}
                               disabled={busy}
-                              className="h-7 px-3 rounded-md text-xs font-semibold text-[var(--zipp-obsidian)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] transition-colors cursor-pointer disabled:opacity-50"
+                              className="h-11 flex-1 px-4 rounded-lg text-sm font-semibold text-[var(--zipp-obsidian)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] active:scale-[0.98] transition cursor-pointer disabled:opacity-50"
                             >
                               {busy ? 'Un momento…' : step.label}
                             </button>
@@ -197,7 +212,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                               type="button"
                               onClick={() => onReject(order)}
                               disabled={busy}
-                              className="h-7 px-2 text-xs font-medium text-[var(--color-danger)] hover:underline cursor-pointer disabled:opacity-50"
+                              className="h-11 px-4 text-sm font-medium text-[var(--color-danger)] hover:underline cursor-pointer disabled:opacity-50"
                             >
                               Rechazar
                             </button>
@@ -212,6 +227,18 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
           </section>
         );
       })}
+    </div>
+
+      {/* Resumen siempre a la vista, como el contador de la tableta del
+          mostrador: cuántos esperan y cuánto lleva el más antiguo. */}
+      {waiting > 0 && (
+        <p
+          aria-live="polite"
+          className="sticky bottom-4 ml-auto mt-4 w-fit rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold tabular text-[var(--zipp-obsidian)] shadow-lg"
+        >
+          {waiting} {waiting === 1 ? 'pedido' : 'pedidos'} · el más antiguo, {elapsedLabel(oldest)}
+        </p>
+      )}
     </div>
   );
 }

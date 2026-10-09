@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_MERCHANT_PERCENT_DISCOUNT } from '../models/Coupon';
 
 export const validateCouponSchema = z.object({
   body: z.object({
@@ -98,8 +99,8 @@ const businessCouponBody = z
     autoApply: z.boolean().optional(),
     productIds: z.array(objectId).max(50).optional(),
   })
-  .refine((body) => body.type !== 'percentage' || body.value <= 90, {
-    message: 'Un descuento porcentual de comercio no puede pasar del 90%',
+  .refine((body) => body.type !== 'percentage' || body.value <= MAX_MERCHANT_PERCENT_DISCOUNT, {
+    message: `Un descuento porcentual de comercio no puede pasar del ${MAX_MERCHANT_PERCENT_DISCOUNT}%`,
     path: ['value'],
   })
   .refine((body) => !body.autoApply || (body.productIds && body.productIds.length > 0), {

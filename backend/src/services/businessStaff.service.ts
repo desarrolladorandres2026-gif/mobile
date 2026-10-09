@@ -14,6 +14,7 @@ import {
 import { AppError } from '../middlewares/errorHandler';
 import { bogotaDateString, bogotaDayRange } from '../utils/period';
 import { getIO } from '../sockets/emitter';
+import { UserRole } from '../types';
 
 /**
  * El rol de alguien en un negocio decide a qué sala de socket entra
@@ -27,6 +28,9 @@ import { getIO } from '../sockets/emitter';
 function disconnectUserSockets(userId: string): void {
   getIO()?.in(`user:${userId}`).disconnectSockets(true);
 }
+
+/** Espeja `req.sessionScope` (ver `middlewares/auth.ts`) sin importar Express aquí. */
+export type SessionScope = 'full' | 'counter';
 
 /** Quién es alguien en un negocio y qué puede hacer ahí. */
 export interface BusinessAccess {
@@ -49,8 +53,8 @@ export class BusinessStaffService {
    * función que decide accesos, así que cualquier pantalla nueva del panel
    * pasa por aquí en vez de inventarse su propia comprobación.
    */
-  async permissionsFor(userId: string, businessId: string): Promise<BusinessPermission[]> {
-    return (await this.accessFor(userId, businessId))?.permissions ?? [];
+  async permissionsFor(userId: string, businessId: string, scope?: SessionScope): Promise<BusinessPermission[]> {
+    return (await this.accessFor(userId, businessId, scope))?.permissions ?? [];
   }
 
   /**
@@ -58,12 +62,23 @@ export class BusinessStaffService {
    * con "¿puede?": el mostrador ve solo los pedidos del día y el personal
    * recibe el pedido sin el margen de ZIPP ni el pago al domiciliario.
    * `null` si no tiene nada que ver con el negocio.
+   *
+   * `scope` es el de la SESIÓN (`req.sessionScope`), no el rol de la cuenta
+   * (decisión 2026-10-09). Con `scope === 'counter'` el resultado es siempre
+   * el papel Empleado, incluso para el propietario: el PC del mostrador
+   * entra con el correo del negocio directo a ese panel, y solo
+   * `/auth/counter/elevate` abre una sesión aparte con `scope: 'full'`. Es
+   * el único sitio donde se aplica el tope — toda la base de `assertCan` y
+   * de los controladores sigue intacta debajo.
    */
-  async accessFor(userId: string, businessId: string): Promise<BusinessAccess | null> {
+  async accessFor(userId: string, businessId: string, scope?: SessionScope): Promise<BusinessAccess | null> {
     const business = await Business.findById(businessId).select('ownerId isArchived');
     if (!business) return null;
 
     if (business.ownerId.toString() === userId) {
+      if (scope === 'counter') {
+        return { role: BusinessRole.EMPLOYEE, permissions: BUSINESS_ROLE_PERMISSIONS[BusinessRole.EMPLOYEE] };
+      }
       return { role: BusinessRole.OWNER, permissions: BUSINESS_ROLE_PERMISSIONS[BusinessRole.OWNER] };
     }
 
@@ -81,7 +96,9 @@ export class BusinessStaffService {
     });
     if (!staff) return null;
 
-    const role = normalizeStaffRole(staff.role);
+    // Un administrador con sesión de mostrador también se topa a Empleado:
+    // el tope es de la sesión, no de a quién pertenece.
+    const role = scope === 'counter' ? BusinessRole.EMPLOYEE : normalizeStaffRole(staff.role);
     return { role, permissions: BUSINESS_ROLE_PERMISSIONS[role] ?? [] };
   }
 
@@ -90,9 +107,10 @@ export class BusinessStaffService {
     userId: string,
     businessId: string,
     permission: BusinessPermission,
-    message = 'No tienes permiso para hacer esto en este negocio'
+    message = 'No tienes permiso para hacer esto en este negocio',
+    scope?: SessionScope
   ): Promise<BusinessAccess> {
-    const access = await this.accessFor(userId, businessId);
+    const access = await this.accessFor(userId, businessId, scope);
 
     if (!access?.permissions.includes(permission)) {
       throw new AppError(message, 403, 'BUSINESS_PERMISSION_DENIED');
@@ -127,10 +145,30 @@ export class BusinessStaffService {
     return [...owned, ...employed.filter((b) => !seen.has(b._id.toString()))];
   }
 
-  async list(businessId: string) {
-    return BusinessStaff.find({ businessId })
-      .populate('userId', 'name phone email avatar lastLoginAt')
-      .sort({ createdAt: -1 });
+  /**
+   * El equipo del negocio. Quien ya aceptó trae los datos de su cuenta; una
+   * invitación pendiente NO: es una cuenta que todavía no ha dicho que sí, y
+   * mostrar su nombre, correo o último acceso convertía invitar en una forma de
+   * consultar datos personales de cualquier teléfono (auditoría 2026-10-09,
+   * ALTO 2). De una pendiente solo se ve lo que escribió quien invitó, y ni
+   * siquiera el id de la cuenta.
+   */
+  async list(businessId: string): Promise<Array<Record<string, unknown>>> {
+    const rows = await BusinessStaff.find({ businessId }).sort({ createdAt: -1 }).lean();
+
+    const accepted = rows.filter((r) => r.status !== 'pending');
+    const users = await User.find({ _id: { $in: accepted.map((r) => r.userId) } })
+      .select('name phone email avatar lastLoginAt')
+      .lean();
+    const byId = new Map(users.map((u) => [String(u._id), u]));
+
+    return rows.map((row) => {
+      if (row.status === 'pending') {
+        const { userId: _userId, ...rest } = row;
+        return rest;
+      }
+      return { ...row, userId: byId.get(String(row.userId)) ?? null };
+    });
   }
 
   /**
@@ -155,9 +193,18 @@ export class BusinessStaffService {
   }
 
   /**
-   * Invita a alguien que ya tiene cuenta en ZIPP. Queda `pending` y no da
-   * ningún acceso hasta que la persona acepta: el dueño no puede dar acceso
-   * a datos de clientes a un tercero que no lo sabe.
+   * Invita a alguien que ya tiene cuenta de comercio en ZIPP. Queda `pending`
+   * y no da ningún acceso hasta que la persona acepta: el dueño no puede dar
+   * acceso a datos de clientes a un tercero que no lo sabe.
+   *
+   * Solo se puede invitar a una cuenta con rol BUSINESS: es la única que
+   * puede abrir el panel y aceptar. Un cliente, un domiciliario o un admin de
+   * plataforma nunca podrían responder, y buscarlos por teléfono era un
+   * oráculo de cuentas ajenas (auditoría 2026-10-09, ALTO 2).
+   *
+   * Devuelve `null` cuando no hay a quién invitar (no hay cuenta, no es de
+   * comercio o es el propio dueño). El que llama debe responder lo mismo en
+   * los dos casos: que la respuesta no distinga es la defensa.
    *
    * No se crea el usuario aquí a propósito: el empleado entra con su propia
    * cuenta, con su propio teléfono y su propia contraseña. Crear cuentas
@@ -172,25 +219,18 @@ export class BusinessStaffService {
     const actor = await this.actorRole(invitedBy, businessId);
     this.assertCanGrant(actor, input.role);
 
-    const user = await User.findOne({ phone: input.phone });
-    if (!user) {
-      throw new AppError(
-        'No hay ninguna cuenta de ZIPP con ese teléfono. Pídele que se registre primero.',
-        404
-      );
-    }
-
     const business = await Business.findById(businessId).select('ownerId');
     if (!business) throw new AppError('Negocio no encontrado', 404);
 
-    if (business.ownerId.toString() === user._id.toString()) {
-      throw new AppError('El dueño ya tiene acceso completo', 409);
-    }
+    const user = await User.findOne({ phone: input.phone, role: UserRole.BUSINESS }).select('_id');
+    if (!user || business.ownerId.toString() === user._id.toString()) return null;
 
     const existing = await BusinessStaff.findOne({ businessId, userId: user._id });
     if (existing) {
       // Un administrador no puede pisar la fila de otro administrador.
       this.assertCanGrant(actor, normalizeStaffRole(existing.role));
+      // Reinvitar a un suspendido del propietario sería levantarle la suspensión.
+      this.assertNotOwnerSuspended(actor, existing);
       // Reinvitar a quien ya trabajó aquí es el caso normal, no un error. Vuelve
       // a `pending`: debe aceptar otra vez, y mientras tanto no conserva acceso.
       existing.role = input.role;
@@ -198,6 +238,7 @@ export class BusinessStaffService {
       existing.status = 'pending';
       existing.invitedName = input.name;
       existing.invitedEmail = input.email;
+      existing.invitedPhone = input.phone;
       existing.invitedBy = new Types.ObjectId(invitedBy);
       await existing.save();
       disconnectUserSockets(user._id.toString());
@@ -212,6 +253,7 @@ export class BusinessStaffService {
       status: 'pending',
       invitedName: input.name,
       invitedEmail: input.email,
+      invitedPhone: input.phone,
       invitedBy: new Types.ObjectId(invitedBy),
     });
   }
@@ -264,18 +306,71 @@ export class BusinessStaffService {
     return staff;
   }
 
-  /** Suspender conserva la fila (y el historial); reactivar la devuelve a `active`. */
+  /**
+   * Una suspensión del propietario solo la levanta el propietario. Sin esto el
+   * dueño suspendía a un cajero sospechoso y un administrador lo reactivaba al
+   * momento (auditoría 2026-10-09, MEDIO 3). Vale por las tres puertas que
+   * dejarían a la persona otra vez dentro: reactivar, reinvitar y retirar la
+   * fila para invitar de nuevo.
+   */
+  private assertNotOwnerSuspended(
+    actor: BusinessRole,
+    staff: { status?: string; suspendedByRole?: BusinessRole }
+  ): void {
+    if (actor === BusinessRole.OWNER) return;
+    if (staff.status === 'suspended' && staff.suspendedByRole === BusinessRole.OWNER) {
+      throw new AppError(
+        'Esta persona fue suspendida por el propietario y solo él puede reactivarla.',
+        403,
+        'SUSPENDED_BY_OWNER'
+      );
+    }
+  }
+
+  /**
+   * Suspender conserva la fila (y el historial); reactivar la devuelve a
+   * `active`. Ambas escrituras llevan su condición en el filtro: una carrera
+   * con un cambio de rol o con otra suspensión no puede pisar el resultado.
+   */
   async setSuspended(businessId: string, staffId: string, suspended: boolean, actorId: string) {
     const actor = await this.actorRole(actorId, businessId);
     const staff = await this.loadMember(businessId, staffId);
     this.assertCanGrant(actor, normalizeStaffRole(staff.role));
     if (staff.status === 'pending') throw new AppError('Esa invitación aún no fue aceptada', 409);
 
-    staff.status = suspended ? 'suspended' : 'active';
-    staff.isActive = !suspended;
-    await staff.save();
-    if (suspended) disconnectUserSockets(staff.userId.toString());
-    return staff;
+    if (suspended) {
+      // Solo desde `active`: volver a suspender a quien ya lo está no puede
+      // cambiar quién lo suspendió (si no, un administrador "adoptaría" la
+      // suspensión del propietario y luego podría levantarla).
+      const updated = await BusinessStaff.findOneAndUpdate(
+        { _id: staff._id, businessId, status: 'active' },
+        { $set: { status: 'suspended', isActive: false, suspendedBy: actorId, suspendedByRole: actor } },
+        { new: true }
+      );
+      disconnectUserSockets(staff.userId.toString());
+      return updated ?? (await this.loadMember(businessId, staffId));
+    }
+
+    this.assertNotOwnerSuspended(actor, staff);
+    const updated = await BusinessStaff.findOneAndUpdate(
+      {
+        _id: staff._id,
+        businessId,
+        status: 'suspended',
+        // El filtro repite la regla: entre la lectura y la escritura el
+        // propietario pudo suspenderlo.
+        ...(actor === BusinessRole.OWNER ? {} : { suspendedByRole: { $ne: BusinessRole.OWNER } }),
+      },
+      { $set: { status: 'active', isActive: true }, $unset: { suspendedBy: '', suspendedByRole: '' } },
+      { new: true }
+    );
+    if (updated) return updated;
+
+    // Sin coincidencia: o ya estaba activo (nada que hacer) o lo suspendió el
+    // propietario justo ahora.
+    const current = await this.loadMember(businessId, staffId);
+    this.assertNotOwnerSuspended(actor, current);
+    return current;
   }
 
   /**
@@ -289,6 +384,8 @@ export class BusinessStaffService {
     const actor = await this.actorRole(actorId, businessId);
     const staff = await this.loadMember(businessId, staffId);
     this.assertCanGrant(actor, normalizeStaffRole(staff.role));
+    // Retirar la fila de un suspendido del propietario y reinvitarlo la saltaría.
+    this.assertNotOwnerSuspended(actor, staff);
 
     await staff.deleteOne();
     disconnectUserSockets(staff.userId.toString());
@@ -340,8 +437,9 @@ export async function assertBusinessCan(
   user: { _id: { toString(): string }; role: string },
   businessId: string,
   permission: BusinessPermission,
-  message?: string
+  message?: string,
+  scope?: SessionScope
 ): Promise<void> {
   if (user.role === 'admin') return;
-  await businessStaffService.assertCan(user._id.toString(), businessId, permission, message);
+  await businessStaffService.assertCan(user._id.toString(), businessId, permission, message, scope);
 }

@@ -7,6 +7,7 @@ import { PayoutStatus } from '../types';
 import { sendResponse, param, query, toCsv, csvFilename, clampLimit } from '../utils';
 import { UserRole } from '../types';
 import { AuditAction, AuditSeverity, Permission, logAudit } from '../security';
+import { hashForSearch } from '../security/encryption';
 import { businessDocumentBody } from '../validators/business.validator';
 
 export class BusinessController {
@@ -74,7 +75,8 @@ export class BusinessController {
         req.user!._id.toString(),
         param(req, 'id'),
         BusinessPermission.TEAM_VIEW,
-        'Sin permisos para ver al equipo.'
+        'Sin permisos para ver al equipo.',
+        req.sessionScope
       );
 
       sendResponse(res, 200, 'Empleados', await businessStaffService.list(param(req, 'id')));
@@ -89,7 +91,8 @@ export class BusinessController {
         req.user!._id.toString(),
         param(req, 'id'),
         BusinessPermission.TEAM_INVITE,
-        'Sin permisos para invitar empleados.'
+        'Sin permisos para invitar empleados.',
+        req.sessionScope
       );
 
       const staff = await businessStaffService.invite(
@@ -103,10 +106,14 @@ export class BusinessController {
         entity: 'business',
         entityId: param(req, 'id'),
         description: `Empleado invitado con papel ${req.body.role}`,
-        metadata: { staffUserId: staff?.userId?.toString?.(), role: req.body.role },
+        // `matched` y el hash del teléfono (no el teléfono) permiten detectar un barrido de números en la auditoría.
+        metadata: { matched: !!staff, phoneHash: hashForSearch(String(req.body.phone)), role: req.body.role },
       });
 
-      sendResponse(res, 201, 'Invitación enviada', staff);
+      // Misma respuesta haya o no a quién invitar: nada de id, de fila ni de
+      // 404. Distinguirlas convertía este endpoint en un buscador de cuentas
+      // por teléfono (auditoría 2026-10-09, ALTO 2).
+      sendResponse(res, 201, 'Si ese teléfono tiene una cuenta de comercio en ZIPP, recibirá la invitación.', null);
     } catch (error) { next(error); }
   }
 
@@ -120,11 +127,11 @@ export class BusinessController {
 
       let staff;
       if (role) {
-        await businessStaffService.assertCan(actorId, businessId, BusinessPermission.TEAM_CHANGE_ROLE, 'Sin permisos para cambiar roles.');
+        await businessStaffService.assertCan(actorId, businessId, BusinessPermission.TEAM_CHANGE_ROLE, 'Sin permisos para cambiar roles.', req.sessionScope);
         staff = await businessStaffService.changeRole(businessId, param(req, 'staffId'), role, actorId);
       }
       if (suspended !== undefined) {
-        await businessStaffService.assertCan(actorId, businessId, BusinessPermission.TEAM_EDIT, 'Sin permisos para editar empleados.');
+        await businessStaffService.assertCan(actorId, businessId, BusinessPermission.TEAM_EDIT, 'Sin permisos para editar empleados.', req.sessionScope);
         staff = await businessStaffService.setSuspended(businessId, param(req, 'staffId'), suspended, actorId);
       }
 
@@ -144,7 +151,7 @@ export class BusinessController {
     try {
       const { businessStaffService, BusinessPermission } = await this.staffService();
       const actorId = req.user!._id.toString();
-      await businessStaffService.assertCan(actorId, param(req, 'id'), BusinessPermission.TEAM_REMOVE, 'Sin permisos para eliminar empleados.');
+      await businessStaffService.assertCan(actorId, param(req, 'id'), BusinessPermission.TEAM_REMOVE, 'Sin permisos para eliminar empleados.', req.sessionScope);
 
       const staff = await businessStaffService.remove(param(req, 'id'), param(req, 'staffId'), actorId);
 
@@ -184,7 +191,7 @@ export class BusinessController {
       if (req.user!.role !== UserRole.ADMIN) {
         const { businessStaffService } = await import('../services/businessStaff.service');
         const { BusinessPermission } = await import('../models');
-        await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission.STORE_TOGGLE);
+        await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission.STORE_TOGGLE, undefined, req.sessionScope);
       }
 
       const isActive = req.body.isActive as boolean;
@@ -213,7 +220,8 @@ export class BusinessController {
       // declare el permiso (p. ej. el encargado y `menu:manage`).
       const access = await businessStaffService.accessFor(
         req.user!._id.toString(),
-        param(req, 'id')
+        param(req, 'id'),
+        req.sessionScope
       );
       sendResponse(res, 200, 'Permisos', { permissions: access?.permissions ?? [], role: access?.role ?? null });
     } catch (error) { next(error); }
@@ -259,7 +267,7 @@ export class BusinessController {
     try {
       const businessId = param(req, 'id');
       const { businessStaffService } = await import('../services/businessStaff.service');
-      const access = await businessStaffService.accessFor(req.user!._id.toString(), businessId);
+      const access = await businessStaffService.accessFor(req.user!._id.toString(), businessId, req.sessionScope);
       if (!access) throw new AppError('Sin permisos para ver este negocio.', 403, 'BUSINESS_PERMISSION_DENIED');
 
       const { businessRoleSummaryService } = await import('../services/businessRoleSummary.service');
@@ -329,7 +337,7 @@ export class BusinessController {
 
     const { businessStaffService } = await import('../services/businessStaff.service');
     const { BusinessPermission } = await import('../models');
-    await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission[businessPermission]);
+    await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission[businessPermission], undefined, req.sessionScope);
     return { isAdmin: false };
   }
 
@@ -726,7 +734,7 @@ export class BusinessController {
     if (req.user!.role === UserRole.ADMIN) return;
     const { businessStaffService } = await import('../services/businessStaff.service');
     const { BusinessPermission } = await import('../models');
-    await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission[permission], message);
+    await businessStaffService.assertCan(req.user!._id.toString(), businessId, BusinessPermission[permission], message, req.sessionScope);
   }
 
   async getMyBusinesses(req: Request, res: Response, next: NextFunction) {

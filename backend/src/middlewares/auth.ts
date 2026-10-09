@@ -24,6 +24,14 @@ declare global {
       sessionId?: string;
       deviceId?: string;
       /**
+       * Alcance de la sesión del access token (ver `ISession.scope`).
+       * `'counter'` = sesión de mostrador: `businessStaffService.accessFor`
+       * y el handshake del socket la topan al rol Empleado aunque la
+       * cuenta sea la del propietario. `undefined` en tokens legacy sin
+       * `sid`, que se tratan como `'full'`.
+       */
+      sessionScope?: 'full' | 'counter';
+      /**
        * Permisos efectivos del usuario autenticado (legacy por `role` +
        * RBAC dinámico por Cargo/Roles), resueltos una sola vez por request
        * en `authenticate` — ver `services/authorization.service.ts`. Todo
@@ -89,13 +97,16 @@ export const authenticate = async (
     // serie cada petición autenticada pagaba dos viajes a la base antes de
     // llegar al controlador. Los resultados se comprueban en el mismo orden
     // de antes (sesión primero), así que los códigos de error no cambian.
-    const [active, user] = await Promise.all([
-      decoded.sid ? sessionManager.isSessionActive(decoded.sid, decoded.id) : Promise.resolve(true),
+    const [status, user] = await Promise.all([
+      decoded.sid
+        ? sessionManager.sessionStatus(decoded.sid, decoded.id)
+        : Promise.resolve({ active: true, scope: 'full' as const }),
       User.findById(decoded.id).catch(() => null),
     ]);
-    if (!active) {
+    if (!status.active) {
       throw new AppError('Tu sesión se cerró. Inicia sesión nuevamente.', 401, 'SESSION_REVOKED');
     }
+    req.sessionScope = status.scope ?? 'full';
     if (!user) {
       throw new AppError('Usuario no encontrado o desactivado', 401);
     }
@@ -161,6 +172,31 @@ export const authenticate = async (
     if (error instanceof AppError) return next(error);
     next(new AppError('Token inválido o expirado', 401));
   }
+};
+
+/**
+ * Cierra una ruta a la sesión de mostrador (`scope: 'counter'`, decisión
+ * 2026-10-09), aunque no pase por `businessStaffService`.
+ *
+ * El tope de permisos de comercio topa a quien pregunta al rol Empleado,
+ * pero estas rutas no preguntan por un permiso de comercio: cambian la
+ * cuenta PERSONAL de quien esté detrás del token (contraseña, 2FA, correo,
+ * teléfono, sesiones, borrado de cuenta). La sesión de mostrador puede
+ * pertenecer al propietario — el correo del negocio es su cuenta — así que
+ * sin esta guarda, cualquiera frente al PC del mostrador llegaría a esas
+ * rutas con la sesión ya abierta, sin volver a pedir su contraseña.
+ */
+export const rejectCounterScope = (req: Request, _res: Response, next: NextFunction) => {
+  if (req.sessionScope === 'counter') {
+    return next(
+      new AppError(
+        'Esta acción no está disponible desde el mostrador. Identifícate como representante legal o administrador.',
+        403,
+        'COUNTER_SESSION_FORBIDDEN'
+      )
+    );
+  }
+  next();
 };
 
 export const authorize = (...roles: UserRole[]) => {
