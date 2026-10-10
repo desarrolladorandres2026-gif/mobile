@@ -612,7 +612,7 @@ export class SessionManager {
     // ya vive en el documento desde `createSession`, así que una lectura
     // previa (fuera del `findOneAndUpdate` atómico, que sigue siendo la
     // única escritura) basta para saber cuál aplicar.
-    const existing = await Session.findOne(filter).select('isStaff ip lastIp');
+    const existing = await Session.findOne(filter).select('isStaff ip lastIp elevatedFrom');
     if (!existing) {
       const dead = await Session.findOne({ tokenHash: oldHash }).select('userId');
       if (!dead) {
@@ -641,7 +641,7 @@ export class SessionManager {
           previousTokenHash: oldHash,
           rotatedAt: now,
           lastActivity: now,
-          expiresAt: new Date(now.getTime() + slidingTtlMs(existing.isStaff)),
+          expiresAt: new Date(now.getTime() + slidingTtlMs(existing.isStaff, !!existing.elevatedFrom)),
           ...(ip ? { lastIp: ip } : {}),
         },
       },

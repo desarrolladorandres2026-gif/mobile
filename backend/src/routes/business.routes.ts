@@ -10,7 +10,7 @@ import {
   businessStaffInviteRateLimiter,
   payoutAccountRevealRateLimiter,
 } from '../middlewares';
-import { validate } from '../middlewares';
+import { validate, rejectCounterScope } from '../middlewares';
 import { adminRequires } from '../middlewares/auth';
 import {
   createBusinessSchema,
@@ -66,7 +66,7 @@ router.get('/:id', (req, res, next) => businessController.getById(req, res, next
 router.get('/:id/storefront', (req, res, next) => businessController.storefront(req, res, next));
 
 // Protected – owner/admin
-router.post('/', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_CREATE), validate(createBusinessSchema), (req, res, next) => businessController.create(req, res, next));
+router.post('/', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_CREATE), validate(createBusinessSchema), (req, res, next) => businessController.create(req, res, next));
 router.put('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(updateBusinessSchema), (req, res, next) => businessController.update(req, res, next));
 router.delete('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => businessController.delete(req, res, next));
 

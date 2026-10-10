@@ -37,6 +37,7 @@ export class TrackingController {
     try {
       const tracking = await getOrderTracking(param(req, 'orderId'), req.user!, {
         includeTrail: query(req, 'trail') === 'true',
+        scope: req.sessionScope,
       });
       sendResponse(res, 200, 'Seguimiento del pedido', tracking);
     } catch (error) { next(error); }

@@ -401,9 +401,11 @@ export interface OrderTracking {
 export async function getOrderTracking(
   orderId: string,
   user: { _id: Types.ObjectId | string; role: string },
-  options: { includeTrail?: boolean } = {}
+  options: { includeTrail?: boolean; scope?: 'full' | 'counter' } = {}
 ): Promise<OrderTracking> {
-  const { order, participant } = await resolveOrderAccess(orderId, user);
+  // `scope` de la sesión: el mostrador (decisión 2026-10-09) solo sigue los
+  // pedidos del día, como cualquier Empleado, aunque la cuenta sea del dueño.
+  const { order, participant } = await resolveOrderAccess(orderId, user, options.scope);
 
   const [business, driver] = await Promise.all([
     Business.findById(order.businessId).select('name location'),

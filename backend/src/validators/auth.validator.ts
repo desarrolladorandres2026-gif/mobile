@@ -61,6 +61,18 @@ export const registerCompleteSchema = z.object({
 // garantizado (ver el `required` condicional en `models/User.ts`), así que
 // el celular no les sirve como identificador. Un mismo `POST /auth/login`
 // acepta cualquiera de los dos y el servicio decide por cuál buscar.
+/** `POST /auth/counter/elevate`: identidad personal sobre la sesión del mostrador. */
+export const counterElevateSchema = z.object({
+  body: z.object({
+    email: z.string().trim().toLowerCase().email('Email inválido').max(254),
+    password: z.string().min(1, 'La contraseña es requerida').max(128),
+    totpToken: secondFactorSchema.optional(),
+    businessId: z.string().regex(/^[a-f\d]{24}$/i, 'Negocio inválido'),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 export const loginSchema = z.object({
   body: z.object({
     phone: phoneSchema.optional(),

@@ -6,7 +6,7 @@ import { AuditLog, AuditAction } from '../security';
 import { OrderStatus, UserRole } from '../types';
 import { orderService } from '../services/order.service';
 import {
-  GARZON, offsetKm, makeUser, makeBusiness, makeProduct, makePricingConfig, authHeader,
+  GARZON, offsetKm, makeUser, makeBusiness, makeProduct, makePricingConfig, authHeader, counterAuthHeader,
 } from './factories';
 
 /**
@@ -212,5 +212,27 @@ describe('Cambios del catálogo', () => {
     const raw = JSON.stringify(logs);
     expect(raw).not.toMatch(/Bearer|authorization|password|token/i);
     expect(raw).not.toContain(manager.email as string);
+  });
+});
+
+describe('Cancelaciones desde el mostrador (sesión counter, decisión 2026-10-09)', () => {
+  it('la cuenta del dueño en el mostrador cancela y el dueño SÍ recibe el aviso de personal', async () => {
+    const id = await placeOrder();
+    const res = await request(app)
+      .patch(`/api/v1/orders/${id}/status`)
+      .set(await counterAuthHeader(owner))
+      .send({ status: OrderStatus.CANCELLED, cancellationReason: 'El cliente no contesta', cancellationCode: 'other' });
+    expect(res.status).toBe(200);
+
+    const alerts = await eventually(() => ownerAlerts('order_cancelled_by_staff'));
+    expect(alerts).toHaveLength(1);
+    expect((alerts[0] as any).body).toContain('El mostrador');
+  });
+
+  it('el dueño en su sesión completa cancela y NO se avisa a sí mismo', async () => {
+    const id = await placeOrder();
+    expect((await cancelViaApi(id, owner, 'El cliente no contesta')).status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await ownerAlerts('order_cancelled_by_staff')).toHaveLength(0);
   });
 });

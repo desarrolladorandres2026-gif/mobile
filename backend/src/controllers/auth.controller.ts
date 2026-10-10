@@ -238,6 +238,40 @@ export class AuthController {
     } catch (error) { next(error); }
   }
 
+  /**
+   * Del mostrador a Representante legal / Administrador (decisión
+   * 2026-10-09). Solo desde una sesión de mostrador: elevar una sesión que
+   * ya es completa no significa nada, y aceptarla convertiría este
+   * endpoint en un segundo login sin las comprobaciones del primero.
+   */
+  async elevateFromCounter(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (req.sessionScope !== 'counter' || !req.sessionId) {
+        throw new AppError('Solo se puede elevar desde la sesión del mostrador.', 400, 'NOT_COUNTER_SESSION');
+      }
+      const outcome = await authService.elevateFromCounter(
+        req.sessionId,
+        {
+          email: req.body.email,
+          password: req.body.password,
+          totpToken: req.body.totpToken,
+          businessId: req.body.businessId,
+        },
+        req
+      );
+      await sendAuthOutcome(res, 200, 'Identidad confirmada', outcome);
+    } catch (error) { next(error); }
+  }
+
+  /** Vuelve al mostrador: revoca la sesión elevada desde la que se llama. */
+  async dropElevatedSession(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.sessionId) throw new AppError('Sesión no encontrada', 400);
+      await authService.dropElevatedSession(req.user!._id.toString(), req.sessionId);
+      sendResponse(res, 200, 'De vuelta al mostrador', null);
+    } catch (error) { next(error); }
+  }
+
   async logout(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await authService.logout(req.user!._id.toString(), req);

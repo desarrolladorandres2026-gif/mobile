@@ -1267,7 +1267,7 @@ export class OrderService {
       })
       .catch(console.error);
 
-    this.triggerStatusChangeNotifications(claimed, status).catch(console.error);
+    this.triggerStatusChangeNotifications(claimed, status, opts.scope === 'counter').catch(console.error);
 
     return claimed;
   }
@@ -1876,7 +1876,7 @@ export class OrderService {
     }
   }
 
-  private async triggerStatusChangeNotifications(order: IOrder, status: OrderStatus) {
+  private async triggerStatusChangeNotifications(order: IOrder, status: OrderStatus, fromCounter = false) {
     const notifyTargets: Promise<any>[] = [
       notificationService.notifyOrderStatusChanged(order.clientId.toString(), order._id.toString(), order.orderNumber, status),
     ];
@@ -1909,16 +1909,22 @@ export class OrderService {
       if (business) {
         const ownerId = business.ownerId.toString();
         const actorId = order.cancelledByUserId?.toString();
-        const byStaff = businessCancelled && !!actorId && actorId !== ownerId;
+        // Desde la sesión de mostrador (decisión 2026-10-09) el actor ES la
+        // cuenta del dueño, pero quien canceló es quien esté en el
+        // mostrador: también cuenta como "por personal", o la cancelación
+        // de un pedido cobrado en efectivo pasaría sin que el dueño lo sepa.
+        const byStaff = businessCancelled && !!actorId && (actorId !== ownerId || fromCounter);
 
         if (byStaff) {
-          const actor = await User.findById(actorId).select('name');
+          // Desde el mostrador el actor es la cuenta del dueño: su nombre en
+          // el aviso diría "tú cancelaste", que es justo lo que no pasó.
+          const actor = fromCounter ? null : await User.findById(actorId).select('name');
           notifyTargets.push(
             notificationService.notifyOwnerOrderCancelledByStaff(
               ownerId,
               order._id.toString(),
               order.orderNumber,
-              actor?.name || 'Un empleado',
+              fromCounter ? 'El mostrador' : actor?.name || 'Un empleado',
               actorId,
               order.cancellationReason
             )

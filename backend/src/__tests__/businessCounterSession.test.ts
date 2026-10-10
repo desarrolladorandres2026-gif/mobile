@@ -178,6 +178,29 @@ describe('Sesión de mostrador: el evento de pedido llega enmascarado', () => {
   });
 });
 
+describe('Sesión de mostrador: hallazgos de la revisión de seguridad', () => {
+  it('403 al editar el perfil del negocio (envío gratis, pedido mínimo, dirección)', async () => {
+    const res = await request(app)
+      .put(`/api/v1/businesses/${bid()}`)
+      .set(await counterAuthHeader(owner))
+      .send({ freeDeliveryThreshold: 1 });
+    expect(res.status).toBe(403);
+  });
+
+  it('403 al borrar o dar por leídas las notificaciones del dueño y al registrar push', async () => {
+    const header = await counterAuthHeader(owner);
+    expect((await request(app).patch('/api/v1/notifications/read-all').set(header)).status).toBe(403);
+    expect((await request(app).delete('/api/v1/notifications/000000000000000000000000').set(header)).status).toBe(403);
+    expect((await request(app).post('/api/v1/notifications/devices').set(header).send({ token: 'x', platform: 'web' })).status).toBe(403);
+  });
+
+  it('403 al listar las sesiones personales del dueño y al crear otro negocio', async () => {
+    const header = await counterAuthHeader(owner);
+    expect((await request(app).get('/api/v1/auth/sessions').set(header)).status).toBe(403);
+    expect((await request(app).post('/api/v1/businesses').set(header).send({ name: 'Otro' })).status).toBe(403);
+  });
+});
+
 // Limpieza de la promoción creada en el test de "200 al solo verlas", para
 // que no quede un cupón huérfano influyendo en otras suites del archivo.
 afterAll(async () => {

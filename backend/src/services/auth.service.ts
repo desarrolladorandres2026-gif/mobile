@@ -629,8 +629,19 @@ export class AuthService {
     return outcome;
   }
 
-  /** Vuelve al mostrador: revoca la sesión elevada. La de mostrador no se toca. */
+  /**
+   * Vuelve al mostrador: revoca la sesión elevada. La de mostrador no se toca.
+   *
+   * Solo revoca una sesión que de verdad nació de `elevateFromCounter`
+   * (`elevatedFrom` puesto): sin esa condición, `drop` sería un segundo
+   * "cerrar sesión" que el panel podría disparar sobre cualquier sesión.
+   */
   async dropElevatedSession(userId: string, sessionId: string): Promise<void> {
+    const { Session } = await import('../security/sessions');
+    const session = await Session.findOne({ _id: sessionId, userId, isActive: true }).select('elevatedFrom');
+    if (!session?.elevatedFrom) {
+      throw new AppError('Esta sesión no es una elevación desde el mostrador.', 400, 'NOT_ELEVATED_SESSION');
+    }
     await sessionManager.revokeSession(sessionId, userId, 'user_revoked');
   }
 

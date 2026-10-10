@@ -625,6 +625,11 @@ export class BusinessController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const isAdmin = req.user?.role === 'admin';
+      // El servicio compara `ownerId` directamente, y la sesión de mostrador
+      // (decisión 2026-10-09) es la cuenta del dueño: sin esta guarda, el
+      // mostrador cambiaba `freeDeliveryThreshold`, `minOrder` o la
+      // dirección. `assertBusinessPermission` aplica el tope de la sesión.
+      await this.assertBusinessPermission(req, param(req, 'id'), 'BUSINESS_EDIT', 'Sin permisos para modificar la información del negocio.');
       const business = await businessService.update(param(req, 'id'), req.user!._id.toString(), req.body, isAdmin);
       sendResponse(res, 200, 'Negocio actualizado', business);
     } catch (error) { next(error); }
@@ -632,6 +637,7 @@ export class BusinessController {
   async delete(req: Request, res: Response, next: NextFunction) {
     try {
       const isAdmin = req.user?.role === 'admin';
+      await this.assertBusinessPermission(req, param(req, 'id'), 'BUSINESS_EDIT', 'Sin permisos para eliminar el negocio.');
       await businessService.delete(param(req, 'id'), req.user!._id.toString(), isAdmin);
       sendResponse(res, 200, 'Negocio eliminado exitosamente');
     } catch (error) { next(error); }

@@ -10,6 +10,7 @@ import {
   mfaChallengeSchema, googleLoginSchema, appleLoginSchema, facebookLoginSchema, sendOtpSchema, verifyOtpSchema, sendEmailOtpSchema,
   verifyEmailOtpSchema, refreshTokenSchema, logoutSchema, resetPasswordSchema, updateProfileSchema,
   verifyPhoneSchema, changePasswordSchema, twoFactorTokenSchema, twoFactorSetupSchema, revokeAllSessionsSchema, deleteAccountSchema,
+  counterElevateSchema,
 } from '../validators';
 
 const router = Router();
@@ -56,9 +57,13 @@ router.post('/profile/avatar', authenticate, rejectCounterScope, (req, res, next
 // que es el login por correo y abre una sesión.
 router.post('/email/send-otp', authenticate, rejectCounterScope, otpRateLimiter, (req, res, next) => authController.sendAccountEmailOtp(req, res, next));
 router.post('/email/verify', authenticate, rejectCounterScope, authRateLimiter, validate(verifyPhoneSchema), (req, res, next) => authController.verifyAccountEmail(req, res, next));
+// Mostrador → Representante legal / Administrador (decisión 2026-10-09).
+// `authRateLimiter` por IP; la fuerza bruta por cuenta la lleva el servicio.
+router.post('/counter/elevate', authenticate, authRateLimiter, validate(counterElevateSchema), (req, res, next) => authController.elevateFromCounter(req, res, next));
+router.post('/counter/drop', authenticate, (req, res, next) => authController.dropElevatedSession(req, res, next));
 router.post('/logout', authenticate, validate(logoutSchema), (req, res, next) => authController.logout(req, res, next));
 router.get('/me', authenticate, (req, res, next) => authController.getMe(req, res, next));
-router.patch('/marketing-preferences', authenticate, validate(z.object({ body: z.object({ consent: z.boolean(), channels: z.array(z.enum(['sms','email','whatsapp','phone'])).max(4).default([]) }) })), (req, res, next) => authController.updateMarketingPreferences(req, res, next));
+router.patch('/marketing-preferences', authenticate, rejectCounterScope, validate(z.object({ body: z.object({ consent: z.boolean(), channels: z.array(z.enum(['sms','email','whatsapp','phone'])).max(4).default([]) }) })), (req, res, next) => authController.updateMarketingPreferences(req, res, next));
 
 // ── Password change ──
 router.post('/change-password', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(changePasswordSchema), (req, res, next) => authController.changePassword(req, res, next));
@@ -69,7 +74,7 @@ router.post('/2fa/verify', authenticate, rejectCounterScope, authRateLimiter, va
 router.post('/2fa/disable', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(twoFactorTokenSchema), (req, res, next) => authController.disable2FA(req, res, next));
 
 // ── Session management ──
-router.get('/sessions', authenticate, (req, res, next) => authController.getActiveSessions(req, res, next));
+router.get('/sessions', authenticate, rejectCounterScope, (req, res, next) => authController.getActiveSessions(req, res, next));
 router.delete('/sessions/:sessionId', authenticate, rejectCounterScope, (req, res, next) => authController.revokeSession(req, res, next));
 router.post('/sessions/revoke-all', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(revokeAllSessionsSchema), (req, res, next) => authController.revokeAllSessions(req, res, next));
 

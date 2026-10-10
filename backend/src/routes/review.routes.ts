@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { reviewController } from '../controllers/review.controller';
-import { authenticate, authorize, validate, reviewCreateRateLimiter } from '../middlewares';
+import { authenticate, authorize, validate, reviewCreateRateLimiter, rejectCounterScope } from '../middlewares';
 import {
   createReviewSchema, rateBusinessByDriverSchema, rateDriverByBusinessSchema,
   rateClientReasonsSchema,
@@ -47,13 +47,13 @@ router.patch('/:id/moderate', authenticate, authorize(UserRole.ADMIN), requirePe
 // El negocio responde en público; negocio y domiciliario califican al
 // cliente en privado, para el perfil de riesgo.
 router.post('/:id/reply', authenticate, authorize(UserRole.BUSINESS), validate(replySchema), (req, res, next) => reviewController.reply(req, res, next));
-router.post('/order/:orderId/rate-client', authenticate, authorize(UserRole.BUSINESS, UserRole.DRIVER), reviewCreateRateLimiter, validate(rateClientSchema), (req, res, next) => reviewController.rateClient(req, res, next));
+router.post('/order/:orderId/rate-client', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.DRIVER), reviewCreateRateLimiter, validate(rateClientSchema), (req, res, next) => reviewController.rateClient(req, res, next));
 
 // ── Comercio ↔ domiciliario ──
 // Operacional: no sale a ningún perfil público, alimenta el reputationScore
 // interno de cada uno.
 router.post('/order/:orderId/rate-business', authenticate, authorize(UserRole.DRIVER), reviewCreateRateLimiter, validate(rateBusinessByDriverSchema), (req, res, next) => reviewController.rateBusinessByDriver(req, res, next));
-router.post('/order/:orderId/rate-driver', authenticate, authorize(UserRole.BUSINESS), reviewCreateRateLimiter, validate(rateDriverByBusinessSchema), (req, res, next) => reviewController.rateDriverByBusiness(req, res, next));
+router.post('/order/:orderId/rate-driver', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS), reviewCreateRateLimiter, validate(rateDriverByBusinessSchema), (req, res, next) => reviewController.rateDriverByBusiness(req, res, next));
 
 // Qué le falta calificar a cada actor de este pedido.
 router.get('/order/:orderId/status', authenticate, (req, res, next) => reviewController.reviewStatus(req, res, next));
