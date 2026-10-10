@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { Types } from 'mongoose';
 import { OAuth2Client } from 'google-auth-library';
-import { User, IUser, PendingRegistration } from '../models';
+import { User, IUser, PendingRegistration, Business } from '../models';
 import { UsedIdentityToken, AppleAuthCode } from '../models/OAuthReplay';
 import { AppError } from '../middlewares/errorHandler';
 import { UserRole } from '../types';
@@ -370,7 +370,7 @@ export class AuthService {
   private async startSession(
     user: IUser,
     req: Request | undefined,
-    options: { method: string; mfa: boolean; deviceId?: string | null; scope?: 'full' | 'counter'; elevatedFrom?: string | null }
+    options: { method: string; mfa: boolean; deviceId?: string | null; scope?: 'full' | 'counter'; elevatedFrom?: string | null; elevatedBusinessId?: string | null }
   ) {
     const sessionId = new Types.ObjectId();
     const tokens = this.generateTokens(user, sessionId);
@@ -390,6 +390,7 @@ export class AuthService {
       mfa: options.mfa,
       scope: options.scope,
       elevatedFrom: options.elevatedFrom,
+      elevatedBusinessId: options.elevatedBusinessId,
     });
 
     await recordSessionStarted({
@@ -424,7 +425,7 @@ export class AuthService {
   private async completeLogin(
     user: IUser,
     req: Request | undefined,
-    options: { method: FirstFactor; totpToken?: string; deviceId?: string; scope?: 'full' | 'counter'; elevatedFrom?: string | null }
+    options: { method: FirstFactor; totpToken?: string; deviceId?: string; scope?: 'full' | 'counter'; elevatedFrom?: string | null; elevatedBusinessId?: string | null }
   ): Promise<AuthOutcome> {
     this.assertAccountUsable(user);
 
@@ -464,6 +465,7 @@ export class AuthService {
       deviceId: options.deviceId,
       scope: options.scope,
       elevatedFrom: options.elevatedFrom,
+      elevatedBusinessId: options.elevatedBusinessId,
     });
     return { requiresTOTP: false, user, method: options.method, ...session };
   }
@@ -518,115 +520,159 @@ export class AuthService {
 
   /**
    * Pasa de la sesión de mostrador a una sesión personal con alcance
-   * completo (decisión 2026-10-09: "Representante legal" o "Administrador").
+   * completo (decisiones 2026-10-09 y 2026-10-10): el representante legal o
+   * un administrador eligen su nombre en el mostrador y teclean su PIN de 6
+   * dígitos (ver `counterPin.service.ts`).
    *
-   * No es `completeLogin` con otro nombre: además de la contraseña (y el
-   * 2FA, exigido siempre si la cuenta se resuelve como propietaria) exige
-   * que la cuenta tenga acceso de verdad a `businessId` — con
-   * `businessStaffService.accessFor` **sin** `scope`, el de alcance
-   * completo, porque una sesión `counter` en `accessFor` siempre devuelve
-   * Empleado — y que ese acceso sea de propietario o administrador: un
-   * empleado que conoce su propia contraseña no tiene nada que elevar. La
-   * sesión que emite es nueva y aparte: la de mostrador sigue viva debajo,
-   * y esta vive 15 min de inactividad / 2 h en total (`ELEVATED_*_TTL_MS`,
-   * `security/sessions.ts`).
+   * El PIN reemplaza aquí al correo, la contraseña y el 2FA, así que esto
+   * exige lo que ellos exigían: que la sesión de mostrador sea de ESE
+   * negocio, que la persona sea su propietario o un administrador activo
+   * (`accessFor` sin `scope`: con `'counter'` siempre devolvería Empleado),
+   * y un freno de intentos propio. Un fallo — PIN malo, persona sin PIN o
+   * ajena al negocio — responde siempre lo mismo y cuenta igual. La sesión
+   * que emite es nueva y aparte: la de mostrador sigue viva debajo, y esta
+   * vive 15 min de inactividad / 2 h en total (`ELEVATED_*_TTL_MS`).
    */
   async elevateFromCounter(
     counterSessionId: string,
-    input: { email: string; password: string; totpToken?: string; businessId: string },
+    counterUserId: string,
+    input: { businessId: string; userId: string; pin: string },
     req?: Request
   ): Promise<AuthOutcome> {
-    const ip = requestIp(req);
-    const email = input.email.toLowerCase().trim();
-    const identifierMask = maskEmail(email);
+    const { businessStaffService } = await import('./businessStaff.service');
+    const { BusinessRole } = await import('../models');
+    const pins = await import('./counterPin.service');
+    const { Session } = await import('../security/sessions');
 
-    const bruteCheck = await checkBruteForce(ip, email);
-    if (!bruteCheck.allowed) {
-      throw new AppError(bruteCheck.reason || 'Demasiados intentos. Intenta más tarde.', 429);
+    // La sesión de mostrador tiene que ser de este negocio: sin esto, el
+    // mostrador de un local probaría PINs de la gente de otro.
+    const counterAccess = await businessStaffService.accessFor(counterUserId, input.businessId, 'counter');
+    if (!counterAccess) throw new AppError('Este mostrador no pertenece a ese negocio.', 403, 'BUSINESS_PERMISSION_DENIED');
+
+    const counterSession = await Session.findById(counterSessionId).select('deviceId');
+    const deviceId = counterSession?.deviceId ?? counterSessionId;
+    const targetKey = Types.ObjectId.isValid(input.userId) ? input.userId : 'invalid';
+
+    // Se reserva el intento ANTES de verificar (revisión 2026-10-10): una
+    // ráfaga en paralelo ya no prueba más PIN que los que permite el tope.
+    const reservation = await pins.reservePinAttempt(targetKey, input.businessId, deviceId);
+    if (!reservation.ok) {
+      const minutes = Math.ceil(reservation.retryAfterMs / 60_000);
+      throw new AppError(
+        reservation.hard
+          ? 'El acceso con PIN de esta persona está bloqueado. El representante legal puede desbloquearlo desde su cuenta.'
+          : `Demasiados PIN incorrectos. Intenta de nuevo en ${minutes} min.`,
+        429,
+        'PIN_LOCKED'
+      );
     }
 
-    const user = await User.findOne({ email, role: UserRole.BUSINESS })
-      .select('+password +twoFactorEnabled +twoFactorSecret +failedLoginAttempts');
-    const passwordOk = !!user && (await user.comparePassword(input.password));
+    const user = targetKey !== 'invalid'
+      ? await User.findOne({ _id: targetKey, role: UserRole.BUSINESS }).select('+counterPinHash')
+      : null;
+    const access = user ? await businessStaffService.accessFor(user._id.toString(), input.businessId) : null;
+    // Cuenta bloqueada o desactivada entra en "no elegible": un error propio
+    // para ella le diría a quien prueba que acertó el PIN.
+    const eligible = !!user && !!access && user.isActive && !user.isBlocked && !user.anonymizedAt
+      && (access.role === BusinessRole.OWNER || access.role === BusinessRole.MANAGER);
+    // Se verifica siempre, también sin persona válida (contra un hash
+    // señuelo): el tiempo de respuesta no debe decir quién tiene PIN.
+    const pinOk = await pins.verifyPin(eligible ? user!.counterPinHash : undefined, input.pin);
 
-    // Misma puerta que un login normal: ni la cuenta inexistente ni "no
-    // tienes acceso a este negocio" se distinguen de una contraseña mala,
-    // porque las tres le dirían a quien prueba teléfonos y negocios al azar
-    // cuál combinación sí existe.
-    const deny = async (reason: string) => {
-      const attempt = await recordFailedAttempt(ip, email);
+    const business = await Business.findById(input.businessId).select('ownerId name');
+    const notifyOwner = async (title: string, body: string, event: string) => {
+      if (!business) return;
+      const { notificationService } = await import('./notification.service');
+      await notificationService.notifySystem(business.ownerId.toString(), title, body, {
+        event, businessId: input.businessId, targetUserId: input.userId,
+      });
+    };
+
+    if (!eligible || !pinOk) {
+      const outcome = await pins.settlePinFailure(reservation);
       if (req) {
         await logAudit(req, {
           action: AuditAction.LOGIN_FAILED,
           entity: 'user',
-          entityId: user?._id?.toString(),
-          severity: AuditSeverity.MEDIUM,
-          description: `Elevación de mostrador fallida para ${identifierMask}: ${reason}`,
-          metadata: { counterSessionId, businessId: input.businessId },
+          entityId: targetKey !== 'invalid' ? targetKey : undefined,
+          severity: outcome.locked ? AuditSeverity.HIGH : AuditSeverity.MEDIUM,
+          description: outcome.locked ? 'PIN de mostrador bloqueado por intentos fallidos' : 'PIN de mostrador incorrecto',
+          metadata: { counterSessionId, businessId: input.businessId, dayFailures: reservation.dayCount },
         });
       }
-      if (!attempt.allowed) {
-        throw new AppError(attempt.reason || 'Demasiados intentos. Intenta más tarde.', 429);
+      const who = user ? ` para ${user.name}` : '';
+      if (outcome.locked) {
+        // El dueño se entera de cada bloqueo: alguien está probando PINs
+        // en su mostrador, sea el suyo o el de un administrador.
+        await notifyOwner(
+          'PIN del mostrador bloqueado',
+          outcome.hard
+            ? `Demasiados PIN incorrectos hoy en el mostrador de ${business?.name ?? 'tu negocio'}${who}. El acceso con PIN queda bloqueado hasta que lo desbloquees desde Seguridad.`
+            : `Varios PIN incorrectos en el mostrador de ${business?.name ?? 'tu negocio'}${who}. El acceso con PIN quedó bloqueado un rato. Si no fue tu equipo, revisa quién usa ese equipo.`,
+          'counter_pin_locked'
+        );
+        throw new AppError(
+          outcome.hard
+            ? 'El acceso con PIN de esta persona quedó bloqueado. El representante legal puede desbloquearlo desde su cuenta.'
+            : `Demasiados PIN incorrectos. El acceso con PIN quedó bloqueado ${Math.ceil(outcome.lockMs / 60_000)} min.`,
+          429,
+          'PIN_LOCKED'
+        );
       }
-      throw new AppError('Credenciales inválidas', 401);
-    };
+      // Revisión 2026-10-10: el goteo (pocos fallos por hora, todos los días)
+      // nunca llegaba a bloquear. Se avisa desde el 3.er fallo del día.
+      if (reservation.dayCount === pins.PIN_ALERT_AFTER_FAILURES) {
+        await notifyOwner(
+          'PIN incorrectos en el mostrador',
+          `Hoy hubo ${pins.PIN_ALERT_AFTER_FAILURES} PIN incorrectos en el mostrador de ${business?.name ?? 'tu negocio'}${who}.`,
+          'counter_pin_failures'
+        );
+      }
+      throw new AppError('PIN incorrecto.', 401, 'PIN_INVALID');
+    }
 
-    if (!user || !passwordOk) return deny('credenciales');
-    this.assertAccountUsable(user);
+    await pins.settlePinSuccess(reservation);
 
+    // Directo a `startSession`, sin `completeLogin`: el PIN es el factor de
+    // este paso y `completeLogin` abriría un reto 2FA, cuyo segundo paso
+    // emitiría una sesión completa normal de 7 días sin `elevatedFrom`.
+    // `elevatedBusinessId` la ata a este negocio (ver `accessFor`).
+    const session = await this.startSession(user!, req, {
+      method: 'counter_pin',
+      mfa: false,
+      deviceId,
+      scope: 'full',
+      elevatedFrom: counterSessionId,
+      elevatedBusinessId: input.businessId,
+    });
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.LOGIN_SUCCESS,
+        entity: 'user',
+        entityId: user!._id.toString(),
+        description: `Entrada desde mostrador con PIN como ${access!.role === BusinessRole.OWNER ? 'representante legal' : 'administrador'}`,
+        metadata: { counterSessionId, businessId: input.businessId, role: access!.role },
+      });
+    }
+
+    return { requiresTOTP: false, user: user!, method: 'counter_pin', ...session };
+  }
+
+  /**
+   * El dueño levanta los bloqueos de PIN de una persona en su negocio (el
+   * suyo o el de un administrador). Desde su sesión completa propia: la ruta
+   * lleva `rejectCounterScope`, que también rechaza la sesión elevada.
+   */
+  async unlockCounterPin(actorUserId: string, businessId: string, targetUserId: string): Promise<void> {
     const { businessStaffService } = await import('./businessStaff.service');
     const { BusinessRole } = await import('../models');
-    const access = await businessStaffService.accessFor(user._id.toString(), input.businessId);
-    if (!access || access.role === BusinessRole.EMPLOYEE) return deny('sin acceso de administrador o propietario a este negocio');
-
-    // El representante legal (propietario) siempre necesita 2FA para
-    // elevar, lo tenga configurado o no: es quien ve liquidaciones, datos
-    // fiscales y la cuenta de pago. Un administrador sigue la regla normal
-    // de `completeLogin` — 2FA solo si ya lo activó.
-    if (access.role === BusinessRole.OWNER && !hasTwoFactor(user)) {
-      throw new AppError(
-        'El representante legal necesita verificación en dos pasos para entrar desde el mostrador. Actívala primero.',
-        403,
-        'TWO_FACTOR_SETUP_REQUIRED'
-      );
+    const access = await businessStaffService.accessFor(actorUserId, businessId);
+    if (access?.role !== BusinessRole.OWNER) {
+      throw new AppError('Solo el representante legal desbloquea el PIN del mostrador.', 403, 'BUSINESS_PERMISSION_DENIED');
     }
-
-    // El código va en la misma petición, nunca por reto: el segundo paso
-    // (`/auth/2fa/challenge`) abriría una sesión completa normal — 7 días,
-    // sin `elevatedFrom` — y la elevación dejaría de ser corta.
-    if (hasTwoFactor(user) && !input.totpToken) {
-      throw new AppError('Escribe el código de verificación en dos pasos.', 401, 'MFA_REQUIRED');
-    }
-
-    let outcome: AuthOutcome;
-    try {
-      outcome = await this.completeLogin(user, req, {
-        method: 'password',
-        totpToken: input.totpToken,
-        scope: 'full',
-        elevatedFrom: counterSessionId,
-      });
-    } catch (error) {
-      if (error instanceof AppError && error.code === 'MFA_CODE_INVALID') {
-        await recordFailedAttempt(ip, email);
-      }
-      throw error;
-    }
-
-    if (!outcome.requiresTOTP) {
-      await clearAttempts(ip, email);
-      if (req) {
-        await logAudit(req, {
-          action: AuditAction.LOGIN_SUCCESS,
-          entity: 'user',
-          entityId: user._id.toString(),
-          description: `Elevación desde mostrador a ${access.role === BusinessRole.OWNER ? 'representante legal' : 'administrador'}`,
-          metadata: { counterSessionId, businessId: input.businessId, role: access.role },
-        });
-      }
-    }
-
-    return outcome;
+    const { unlockPin } = await import('./counterPin.service');
+    await unlockPin(targetUserId, businessId);
   }
 
   /**

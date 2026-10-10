@@ -401,7 +401,7 @@ export interface OrderTracking {
 export async function getOrderTracking(
   orderId: string,
   user: { _id: Types.ObjectId | string; role: string },
-  options: { includeTrail?: boolean; scope?: 'full' | 'counter' } = {}
+  options: { includeTrail?: boolean; scope?: import('./businessStaff.service').SessionScope } = {}
 ): Promise<OrderTracking> {
   // `scope` de la sesión: el mostrador (decisión 2026-10-09) solo sigue los
   // pedidos del día, como cualquier Empleado, aunque la cuenta sea del dueño.

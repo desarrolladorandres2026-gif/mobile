@@ -10,7 +10,7 @@ import {
   mfaChallengeSchema, googleLoginSchema, appleLoginSchema, facebookLoginSchema, sendOtpSchema, verifyOtpSchema, sendEmailOtpSchema,
   verifyEmailOtpSchema, refreshTokenSchema, logoutSchema, resetPasswordSchema, updateProfileSchema,
   verifyPhoneSchema, changePasswordSchema, twoFactorTokenSchema, twoFactorSetupSchema, revokeAllSessionsSchema, deleteAccountSchema,
-  counterElevateSchema,
+  counterElevateSchema, counterPinSetSchema, counterPeopleSchema, counterPinUnlockSchema,
 } from '../validators';
 
 const router = Router();
@@ -58,9 +58,15 @@ router.post('/profile/avatar', authenticate, rejectCounterScope, (req, res, next
 router.post('/email/send-otp', authenticate, rejectCounterScope, otpRateLimiter, (req, res, next) => authController.sendAccountEmailOtp(req, res, next));
 router.post('/email/verify', authenticate, rejectCounterScope, authRateLimiter, validate(verifyPhoneSchema), (req, res, next) => authController.verifyAccountEmail(req, res, next));
 // Mostrador → Representante legal / Administrador (decisión 2026-10-09).
-// `authRateLimiter` por IP; la fuerza bruta por cuenta la lleva el servicio.
-router.post('/counter/elevate', authenticate, authRateLimiter, validate(counterElevateSchema), (req, res, next) => authController.elevateFromCounter(req, res, next));
+// Sin `authRateLimiter`: es por IP y compartido con el login, y un local entero sale por una IP.
+// El freno por persona, negocio y equipo lo lleva `counterPin.service` (reserva atómica).
+router.post('/counter/elevate', authenticate, validate(counterElevateSchema), (req, res, next) => authController.elevateFromCounter(req, res, next));
 router.post('/counter/drop', authenticate, (req, res, next) => authController.dropElevatedSession(req, res, next));
+router.get('/counter/people', authenticate, validate(counterPeopleSchema), (req, res, next) => authController.counterPeople(req, res, next));
+// El PIN propio se crea desde la cuenta completa, nunca desde el mostrador.
+router.put('/counter/pin', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(counterPinSetSchema), (req, res, next) => authController.setCounterPin(req, res, next));
+router.delete('/counter/pin', authenticate, rejectCounterScope, (req, res, next) => authController.removeCounterPin(req, res, next));
+router.post('/counter/pin/unlock', authenticate, rejectCounterScope, validate(counterPinUnlockSchema), (req, res, next) => authController.unlockCounterPin(req, res, next));
 router.post('/logout', authenticate, validate(logoutSchema), (req, res, next) => authController.logout(req, res, next));
 router.get('/me', authenticate, (req, res, next) => authController.getMe(req, res, next));
 router.patch('/marketing-preferences', authenticate, rejectCounterScope, validate(z.object({ body: z.object({ consent: z.boolean(), channels: z.array(z.enum(['sms','email','whatsapp','phone'])).max(4).default([]) }) })), (req, res, next) => authController.updateMarketingPreferences(req, res, next));

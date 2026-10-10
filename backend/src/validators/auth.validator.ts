@@ -61,15 +61,41 @@ export const registerCompleteSchema = z.object({
 // garantizado (ver el `required` condicional en `models/User.ts`), así que
 // el celular no les sirve como identificador. Un mismo `POST /auth/login`
 // acepta cualquiera de los dos y el servicio decide por cuál buscar.
-/** `POST /auth/counter/elevate`: identidad personal sobre la sesión del mostrador. */
+const objectIdField = z.string().regex(/^[a-f\d]{24}$/i, 'Identificador inválido');
+/** Formato; la fuerza (repetidos, escaleras) la decide `counterPin.service.pinProblem`. */
+const counterPinField = z.string().regex(/^\d{6}$/, 'El PIN son 6 dígitos');
+
+/** `POST /auth/counter/elevate`: persona elegida + su PIN, sobre la sesión del mostrador. */
 export const counterElevateSchema = z.object({
   body: z.object({
-    email: z.string().trim().toLowerCase().email('Email inválido').max(254),
-    password: z.string().min(1, 'La contraseña es requerida').max(128),
-    totpToken: secondFactorSchema.optional(),
-    businessId: z.string().regex(/^[a-f\d]{24}$/i, 'Negocio inválido'),
+    businessId: objectIdField,
+    userId: objectIdField,
+    pin: counterPinField,
   }),
   query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+/** `PUT /auth/counter/pin`: crear o cambiar el PIN propio, con la contraseña actual. */
+export const counterPinSetSchema = z.object({
+  body: z.object({
+    pin: counterPinField,
+    currentPassword: z.string().min(1, 'La contraseña es requerida').max(128),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+/** `POST /auth/counter/pin/unlock`: el representante legal levanta el bloqueo de PIN de alguien. */
+export const counterPinUnlockSchema = z.object({
+  body: z.object({ businessId: objectIdField, userId: objectIdField }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+/** `GET /auth/counter/people?businessId=`: quién puede entrar con PIN en este mostrador. */
+export const counterPeopleSchema = z.object({
+  body: z.object({}).optional(),
+  query: z.object({ businessId: objectIdField }),
   params: z.object({}).optional(),
 });
 

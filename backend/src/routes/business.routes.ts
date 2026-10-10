@@ -68,7 +68,7 @@ router.get('/:id/storefront', (req, res, next) => businessController.storefront(
 // Protected – owner/admin
 router.post('/', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_CREATE), validate(createBusinessSchema), (req, res, next) => businessController.create(req, res, next));
 router.put('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(updateBusinessSchema), (req, res, next) => businessController.update(req, res, next));
-router.delete('/:id', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => businessController.delete(req, res, next));
+router.delete('/:id', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => businessController.delete(req, res, next));
 
 // ── Identidad visual: logo y portada ──
 // Sin `validate`: el cuerpo es multipart y lo lee multer dentro del
@@ -81,7 +81,7 @@ router.delete('/:id/image/:slot', authenticate, authorize(UserRole.BUSINESS, Use
 // La subida es multipart: el archivo y sus campos los lee multer dentro del
 // controlador, después de comprobar el acceso. Nunca `validate(body)` aquí.
 router.get('/:id/documents', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_APPROVE), validate(idParamSchema), (req, res, next) => businessController.listDocuments(req, res, next));
-router.post('/:id/documents', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), businessDocumentUploadRateLimiter, validate(idParamSchema), (req, res, next) => businessController.submitDocument(req, res, next));
+router.post('/:id/documents', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.ADMIN), businessDocumentUploadRateLimiter, validate(idParamSchema), (req, res, next) => businessController.submitDocument(req, res, next));
 router.patch('/documents/:documentId/review', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.BUSINESSES_APPROVE), validate(reviewBusinessDocumentSchema), (req, res, next) => businessController.reviewDocument(req, res, next));
 router.patch('/:id/approve', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.BUSINESSES_APPROVE), validate(idParamSchema), (req, res, next) => businessController.approve(req, res, next));
 
@@ -89,10 +89,10 @@ router.patch('/:id/approve', authenticate, authorize(UserRole.ADMIN), requirePer
 // El dueño edita los suyos; la cuenta queda pendiente hasta que finanzas la
 // verifica, y solo finanzas puede leer el número completo.
 router.get('/:id/legal', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(idParamSchema), (req, res, next) => businessController.getLegal(req, res, next));
-router.put('/:id/legal', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), businessFiscalRateLimiter, validate(businessLegalSchema), (req, res, next) => businessController.putLegal(req, res, next));
+router.put('/:id/legal', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), businessFiscalRateLimiter, validate(businessLegalSchema), (req, res, next) => businessController.putLegal(req, res, next));
 router.get('/:id/payout-account', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), validate(idParamSchema), (req, res, next) => businessController.getPayoutAccount(req, res, next));
-router.put('/:id/payout-account', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminSuperOnly, businessFiscalRateLimiter, validate(businessPayoutAccountSchema), (req, res, next) => businessController.putPayoutAccount(req, res, next));
-router.post('/:id/payout-account/reauth-otp', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminSuperOnly, businessFiscalRateLimiter, validate(idParamSchema), (req, res, next) => businessController.requestPayoutAccountOtp(req, res, next));
+router.put('/:id/payout-account', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminSuperOnly, businessFiscalRateLimiter, validate(businessPayoutAccountSchema), (req, res, next) => businessController.putPayoutAccount(req, res, next));
+router.post('/:id/payout-account/reauth-otp', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminSuperOnly, businessFiscalRateLimiter, validate(idParamSchema), (req, res, next) => businessController.requestPayoutAccountOtp(req, res, next));
 router.patch('/:id/payout-account/verify', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.PAYOUTS_PROCESS), businessFiscalRateLimiter, validate(verifyPayoutAccountSchema), (req, res, next) => businessController.verifyPayoutAccount(req, res, next));
 router.get('/:id/payout-account/reveal', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.PAYOUTS_REVEAL_ACCOUNT), payoutAccountRevealRateLimiter, businessFiscalRateLimiter, validate(idParamSchema), (req, res, next) => businessController.revealPayoutAccount(req, res, next));
 
@@ -128,9 +128,9 @@ const updateStaffSchema = z.object({
 
 
 router.get('/:id/staff', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_VIEW), (req, res, next) => businessController.listStaff(req, res, next));
-router.post('/:id/staff', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), businessStaffInviteRateLimiter, validate(staffSchema), (req, res, next) => businessController.addStaff(req, res, next));
-router.patch('/:id/staff/:staffId', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(updateStaffSchema), (req, res, next) => businessController.updateStaff(req, res, next));
-router.delete('/:id/staff/:staffId', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => businessController.removeStaff(req, res, next));
+router.post('/:id/staff', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), businessStaffInviteRateLimiter, validate(staffSchema), (req, res, next) => businessController.addStaff(req, res, next));
+router.patch('/:id/staff/:staffId', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(updateStaffSchema), (req, res, next) => businessController.updateStaff(req, res, next));
+router.delete('/:id/staff/:staffId', authenticate, rejectCounterScope, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), (req, res, next) => businessController.removeStaff(req, res, next));
 /**
  * Abrir/Cerrar. Endpoint propio para que el personal con `store:toggle` lo
  * haga sin pasar por el PUT genérico del perfil, que es solo del dueño.

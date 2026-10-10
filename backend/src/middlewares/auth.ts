@@ -3,6 +3,7 @@ import { User, IUser } from '../models';
 import { AppError } from './errorHandler';
 import { UserRole } from '../types';
 import { Permission, logAudit, AuditAction, AuditSeverity, sessionManager } from '../security';
+import type { EffectiveScope } from '../security/sessions';
 import { verifyAccessToken, isLegacyTokenAcceptable } from '../utils/token';
 import {
   resolveAuthorization,
@@ -30,7 +31,7 @@ declare global {
        * cuenta sea la del propietario. `undefined` en tokens legacy sin
        * `sid`, que se tratan como `'full'`.
        */
-      sessionScope?: 'full' | 'counter';
+      sessionScope?: EffectiveScope;
       /**
        * Permisos efectivos del usuario autenticado (legacy por `role` +
        * RBAC dinámico por Cargo/Roles), resueltos una sola vez por request
@@ -187,10 +188,14 @@ export const authenticate = async (
  * rutas con la sesión ya abierta, sin volver a pedir su contraseña.
  */
 export const rejectCounterScope = (req: Request, _res: Response, next: NextFunction) => {
-  if (req.sessionScope === 'counter') {
+  // Revisión 2026-10-10: también la sesión elevada con PIN. Es la cuenta de
+  // una persona, pero abierta con 6 dígitos en un equipo compartido: no
+  // cambia credenciales, equipo, datos fiscales ni la cuenta de pago. Para
+  // eso se entra con la contraseña propia, en el equipo propio.
+  if (req.sessionScope && req.sessionScope !== 'full') {
     return next(
       new AppError(
-        'Esta acción no está disponible desde el mostrador. Identifícate como representante legal o administrador.',
+        'Esta acción no está disponible desde el mostrador. Hazla desde tu propia cuenta, con tu contraseña.',
         403,
         'COUNTER_SESSION_FORBIDDEN'
       )

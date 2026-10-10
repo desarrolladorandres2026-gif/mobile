@@ -749,9 +749,15 @@ export class BusinessController {
       // los propios, así que un encargado se autenticaba bien y se
       // encontraba un panel vacío sin ninguna explicación.
       const { businessStaffService } = await import('../services/businessStaff.service');
-      const businesses = await businessStaffService.accessibleBusinesses(
+      const all = await businessStaffService.accessibleBusinesses(
         req.user!._id.toString()
       );
+      // La sesión elevada con PIN solo ve el negocio de su mostrador
+      // (revisión 2026-10-10); `accessFor` ya le niega los demás.
+      const scope = req.sessionScope;
+      const businesses = scope?.startsWith('elevated:')
+        ? all.filter((b: { _id: { toString(): string } }) => b._id.toString() === scope.slice('elevated:'.length))
+        : all;
       sendResponse(res, 200, 'Mis negocios', businesses);
     } catch (error) { next(error); }
   }

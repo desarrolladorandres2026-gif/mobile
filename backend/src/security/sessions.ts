@@ -19,6 +19,13 @@ export type SessionRevokeReason =
   | 'account_deleted'
   | 'migration';
 
+/**
+ * Alcance efectivo de una sesión, como lo leen `authenticate` y el socket:
+ * `'full'`, `'counter'` (mostrador) o `'elevated:<businessId>'` (entrada con
+ * PIN desde el mostrador, atada a ese negocio — revisión 2026-10-10).
+ */
+export type EffectiveScope = 'full' | 'counter' | `elevated:${string}`;
+
 export interface ISession extends Document {
   userId: string;
   /**
@@ -105,6 +112,12 @@ export interface ISession extends Document {
    * auditoría y para que `drop` no revoque la sesión equivocada.
    */
   elevatedFrom?: string | null;
+  /**
+   * Negocio del mostrador desde el que se elevó. La sesión elevada solo vale
+   * en él (`accessFor` devuelve `null` en cualquier otro): nació de un PIN
+   * tecleado en ESE local, no de la contraseña de la cuenta.
+   */
+  elevatedBusinessId?: string | null;
 }
 
 const sessionSchema = new Schema<ISession>(
@@ -143,6 +156,7 @@ const sessionSchema = new Schema<ISession>(
     isStaff: { type: Boolean, default: false },
     scope: { type: String, enum: ['full', 'counter'], default: 'full' },
     elevatedFrom: { type: String, default: null },
+    elevatedBusinessId: { type: String, default: null },
   },
   { timestamps: true }
 );
@@ -441,6 +455,8 @@ export class SessionManager {
      * `ELEVATED_*_TTL_MS` por encima del de `isStaff`.
      */
     elevatedFrom?: string | null;
+    /** Negocio al que queda atada la sesión elevada. */
+    elevatedBusinessId?: string | null;
   }): Promise<{
     session: ISession;
     /** El par (usuario, dispositivo) no se había visto nunca. */
@@ -452,7 +468,7 @@ export class SessionManager {
   }> {
     const {
       userId, sessionId, refreshToken, ip, userAgent, isStaff = false, mfa = false,
-      scope = 'full', elevatedFrom = null,
+      scope = 'full', elevatedFrom = null, elevatedBusinessId = null,
     } = params;
     const elevated = !!elevatedFrom;
     const clientDeviceId = normalizeClientDeviceId(params.deviceId);
@@ -505,6 +521,7 @@ export class SessionManager {
       isStaff,
       scope,
       elevatedFrom,
+      elevatedBusinessId,
     });
 
     const evictedSessionIds = await this.enforceSessionLimit(userId);
@@ -545,7 +562,7 @@ export class SessionManager {
   async sessionStatus(
     sessionId: string,
     userId: string
-  ): Promise<{ active: boolean; scope: 'full' | 'counter' | null }> {
+  ): Promise<{ active: boolean; scope: EffectiveScope | null }> {
     const inactive = { active: false, scope: null } as const;
     if (!Types.ObjectId.isValid(sessionId)) return inactive;
     const now = new Date();
@@ -555,8 +572,21 @@ export class SessionManager {
       isActive: true,
       expiresAt: { $gt: now },
       ...withinAbsoluteLifetime(now),
-    }).select('isStaff lastActivity absoluteExpiresAt scope');
+    }).select('isStaff lastActivity absoluteExpiresAt scope elevatedFrom elevatedBusinessId');
     if (!session) return inactive;
+
+    // Una sesión elevada vive mientras viva el mostrador del que salió:
+    // cerrar el mostrador (o revocarlo desde "mis dispositivos") corta
+    // también las entradas con PIN que se hicieron sobre él.
+    if (session.elevatedFrom) {
+      const parentAlive = await Session.exists({
+        _id: session.elevatedFrom,
+        isActive: true,
+        expiresAt: { $gt: now },
+        ...withinAbsoluteLifetime(now),
+      });
+      if (!parentAlive) return inactive;
+    }
 
     // M1(c): la caducidad por inactividad del staff (30 min) solo avanzaba
     // cuando refrescaba el access token — en la práctica, hasta 15 min de
@@ -580,6 +610,7 @@ export class SessionManager {
       }
     }
 
+    if (session.elevatedBusinessId) return { active: true, scope: `elevated:${session.elevatedBusinessId}` };
     return { active: true, scope: session.scope ?? 'full' };
   }
 

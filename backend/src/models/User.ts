@@ -117,6 +117,13 @@ export interface IUser extends Document {
   mfaChallengeMethod?: string;
   /** `'counter'` cuando el login viene de `surface: 'business-counter'` (decisión 2026-10-09): la sesión que abra el segundo factor hereda el mismo tope. */
   mfaChallengeScope?: 'full' | 'counter';
+  /**
+   * PIN de 6 dígitos para pasar del mostrador a Representante legal o
+   * Administrador (decisión 2026-10-10). Argon2id, como la contraseña; nunca
+   * sale en ninguna respuesta. Lo crea cada persona desde su cuenta completa.
+   */
+  counterPinHash?: string;
+  counterPinSetAt?: Date;
 
   // ── Device tracking ──
   trustedDevices: string[];
@@ -369,6 +376,8 @@ const userSchema = new Schema<IUser>(
     mfaChallengeAttempts: { type: Number, select: false },
     mfaChallengeMethod: { type: String, select: false },
     mfaChallengeScope: { type: String, select: false },
+    counterPinHash: { type: String, select: false },
+    counterPinSetAt: { type: Date, default: null },
 
     // ── Device tracking ──
     trustedDevices: {
@@ -434,6 +443,7 @@ const userSchema = new Schema<IUser>(
         delete ret.mfaChallengeAttempts;
         delete ret.mfaChallengeMethod;
         delete ret.mfaChallengeScope;
+        delete ret.counterPinHash;
         // Vestigio de antes de la migración 004: si un documento viejo aún
         // lo trae, no sale nunca por la API.
         delete ret.refreshToken;

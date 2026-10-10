@@ -239,27 +239,63 @@ export class AuthController {
   }
 
   /**
-   * Del mostrador a Representante legal / Administrador (decisión
-   * 2026-10-09). Solo desde una sesión de mostrador: elevar una sesión que
-   * ya es completa no significa nada, y aceptarla convertiría este
-   * endpoint en un segundo login sin las comprobaciones del primero.
+   * Del mostrador a Representante legal / Administrador con PIN (decisiones
+   * 2026-10-09 y 2026-10-10). Solo desde una sesión de mostrador: elevar una
+   * sesión que ya es completa no significa nada, y aceptarla convertiría el
+   * PIN en una forma de entrar sin contraseña desde cualquier sitio.
    */
   async elevateFromCounter(req: Request, res: Response, next: NextFunction) {
     try {
       if (req.sessionScope !== 'counter' || !req.sessionId) {
-        throw new AppError('Solo se puede elevar desde la sesión del mostrador.', 400, 'NOT_COUNTER_SESSION');
+        throw new AppError('Solo se puede entrar con PIN desde el mostrador.', 400, 'NOT_COUNTER_SESSION');
       }
       const outcome = await authService.elevateFromCounter(
         req.sessionId,
-        {
-          email: req.body.email,
-          password: req.body.password,
-          totpToken: req.body.totpToken,
-          businessId: req.body.businessId,
-        },
+        req.user!._id.toString(),
+        { businessId: req.body.businessId, userId: req.body.userId, pin: req.body.pin },
         req
       );
       await sendAuthOutcome(res, 200, 'Identidad confirmada', outcome);
+    } catch (error) { next(error); }
+  }
+
+  /** Quién puede entrar con PIN en este mostrador: solo nombre y papel. */
+  async counterPeople(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (req.sessionScope !== 'counter') {
+        throw new AppError('Solo disponible desde el mostrador.', 400, 'NOT_COUNTER_SESSION');
+      }
+      const businessId = String(req.query.businessId);
+      const { businessStaffService } = await import('../services/businessStaff.service');
+      if (!(await businessStaffService.accessFor(req.user!._id.toString(), businessId, 'counter'))) {
+        throw new AppError('Este mostrador no pertenece a ese negocio.', 403, 'BUSINESS_PERMISSION_DENIED');
+      }
+      const { counterPeople } = await import('../services/counterPin.service');
+      sendResponse(res, 200, 'Personas con PIN', await counterPeople(businessId));
+    } catch (error) { next(error); }
+  }
+
+  /** Crear o cambiar el PIN propio (desde la cuenta completa, con la contraseña). */
+  async setCounterPin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { setOwnPin } = await import('../services/counterPin.service');
+      await setOwnPin(req.user!._id.toString(), req.body.pin, req.body.currentPassword);
+      sendResponse(res, 200, 'PIN guardado', { hasCounterPin: true });
+    } catch (error) { next(error); }
+  }
+
+  /** El representante legal desbloquea el PIN de alguien de su negocio. */
+  async unlockCounterPin(req: Request, res: Response, next: NextFunction) {
+    try {
+      await authService.unlockCounterPin(req.user!._id.toString(), req.body.businessId, req.body.userId);
+      sendResponse(res, 200, 'PIN desbloqueado', null);
+    } catch (error) { next(error); }
+  }
+  async removeCounterPin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { removeOwnPin } = await import('../services/counterPin.service');
+      await removeOwnPin(req.user!._id.toString());
+      sendResponse(res, 200, 'PIN eliminado', { hasCounterPin: false });
     } catch (error) { next(error); }
   }
 

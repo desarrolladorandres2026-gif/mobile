@@ -29,8 +29,12 @@ function disconnectUserSockets(userId: string): void {
   getIO()?.in(`user:${userId}`).disconnectSockets(true);
 }
 
-/** Espeja `req.sessionScope` (ver `middlewares/auth.ts`) sin importar Express aquí. */
-export type SessionScope = 'full' | 'counter';
+/**
+ * Espeja `req.sessionScope` (ver `middlewares/auth.ts`) sin importar Express
+ * aquí: `'full'`, `'counter'` (mostrador) o `'elevated:<businessId>'`
+ * (entrada con PIN desde el mostrador, válida solo en ese negocio).
+ */
+export type SessionScope = 'full' | 'counter' | `elevated:${string}`;
 
 /** Quién es alguien en un negocio y qué puede hacer ahí. */
 export interface BusinessAccess {
@@ -72,6 +76,11 @@ export class BusinessStaffService {
    * de los controladores sigue intacta debajo.
    */
   async accessFor(userId: string, businessId: string, scope?: SessionScope): Promise<BusinessAccess | null> {
+    // Revisión 2026-10-10: una sesión elevada con PIN nació en el mostrador
+    // de UN negocio. En cualquier otro de la misma persona no es nadie: sin
+    // esto, acertar el PIN del dueño en un local abría todos sus locales.
+    if (scope?.startsWith('elevated:') && scope.slice('elevated:'.length) !== businessId) return null;
+
     const business = await Business.findById(businessId).select('ownerId isArchived');
     if (!business) return null;
 

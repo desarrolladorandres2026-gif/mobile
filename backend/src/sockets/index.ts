@@ -9,6 +9,7 @@ import {
 } from '../models';
 import { OrderCallStatus, OrderStatus } from '../types';
 import { resolveOrderAccess } from '../services/orderAccess.service';
+import type { EffectiveScope } from '../security/sessions';
 import { markPanelSeen } from '../services/businessPresence.service';
 import {
   ingestPing,
@@ -38,7 +39,7 @@ export interface SocketIdentity {
    * `business:<id>` y `resolveOrderAccess` al papel Empleado, igual que en
    * REST — decisión 2026-10-09.
    */
-  scope?: 'full' | 'counter';
+  scope?: EffectiveScope;
 }
 
 /**
@@ -95,7 +96,7 @@ export async function authenticateSocket(token: unknown): Promise<SocketIdentity
 
   // Igual que `authenticate`: la sesión del token tiene que seguir viva, y
   // su alcance (`scope`) viaja con la identidad del socket, no con el token.
-  let scope: 'full' | 'counter' | undefined;
+  let scope: EffectiveScope | undefined;
   if (decoded.sid) {
     const status = await sessionManager.sessionStatus(decoded.sid, decoded.id);
     if (!status.active) throw new Error('Sesión cerrada');
@@ -185,7 +186,7 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
   io.on('connection', async (socket) => {
     const userId = (socket as any).userId as string;
     const userRole = (socket as any).userRole as string;
-    const sessionScope = (socket as any).sessionScope as 'full' | 'counter' | undefined;
+    const sessionScope = (socket as any).sessionScope as EffectiveScope | undefined;
 
     // Join personal room (always first)
     socket.join(`user:${userId}`);
@@ -194,7 +195,10 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
     // la persona, así que no sirve para decidir quién ve datos completos.
     // `announceToBusiness` (order.service.ts) emite aquí el pedido sin
     // enmascarar; todo lo demás de `business:<id>` lo recibe enmascarado.
-    if (sessionScope !== 'counter') socket.join(`user:${userId}:full`);
+    // Ni la sesión de mostrador ni la elevada con PIN: esta sala recibe el
+    // pedido completo de TODOS los negocios del dueño, y la elevada solo vale
+    // en uno (revisión 2026-10-10).
+    if (!sessionScope || sessionScope === 'full') socket.join(`user:${userId}:full`);
 
     // Sala de la sesión: revocarla (logout, "cerrar en otros dispositivos",
     // cambio de contraseña) desconecta este socket al instante.
@@ -329,7 +333,12 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
           const live = await Business.find({ _id: { $in: staffIds }, isArchived: { $ne: true } }).select('_id');
           for (const b of live) ids.add(b._id.toString());
         }
-        for (const id of ids) socket.join(`business:${id}`);
+        // La sesión elevada con PIN solo escucha el negocio de su mostrador.
+        const onlyBusiness = sessionScope?.startsWith('elevated:') ? sessionScope.slice('elevated:'.length) : null;
+        for (const id of ids) {
+          if (onlyBusiness && id !== onlyBusiness) continue;
+          socket.join(`business:${id}`);
+        }
 
         // "¿Hay un panel escuchando?" para la alerta de Abierto sin app
         // conectada (businessPresence.service.ts). No bloquea el join.

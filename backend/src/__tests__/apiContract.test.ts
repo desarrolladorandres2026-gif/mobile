@@ -87,6 +87,12 @@ const ALLOWED_NEW_KEYS = new Set([
   // colecciones de descubrimiento consulten un array indexado en vez de una
   // regex sin ancla sobre el nombre del plato.
   'tags',
+
+  // ── PIN del mostrador (2026-10-10) ──
+  // Fecha en que la persona creó su PIN de mostrador, o `null`. Aditivo: el
+  // panel lo usa para ofrecer "Crear PIN" en Seguridad; la app móvil y un
+  // panel viejo lo ignoran. El hash del PIN nunca sale (`toJSON` lo borra).
+  'counterPinSetAt',
 ]);
 
 type Shape = string | Shape[] | { [key: string]: Shape };
