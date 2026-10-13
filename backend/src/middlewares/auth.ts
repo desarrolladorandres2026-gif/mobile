@@ -33,6 +33,12 @@ declare global {
        */
       sessionScope?: EffectiveScope;
       /**
+       * La sesión nació en el mostrador (PIN o contraseña, `elevatedFrom`).
+       * Con alcance completo igual se abrió en un equipo compartido: las
+       * acciones que dan acceso a otra persona piden la contraseña otra vez.
+       */
+      sessionFromCounter?: boolean;
+      /**
        * Permisos efectivos del usuario autenticado (legacy por `role` +
        * RBAC dinámico por Cargo/Roles), resueltos una sola vez por request
        * en `authenticate` — ver `services/authorization.service.ts`. Todo
@@ -108,6 +114,7 @@ export const authenticate = async (
       throw new AppError('Tu sesión se cerró. Inicia sesión nuevamente.', 401, 'SESSION_REVOKED');
     }
     req.sessionScope = status.scope ?? 'full';
+    req.sessionFromCounter = !!(status as { fromCounter?: boolean }).fromCounter;
     if (!user) {
       throw new AppError('Usuario no encontrado o desactivado', 401);
     }

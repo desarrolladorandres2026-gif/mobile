@@ -1308,7 +1308,11 @@ export class BusinessService {
       business.commissionRateBps = terms.commissionRateBps;
     }
     if (terms.isFeatured !== undefined) business.isFeatured = terms.isFeatured;
-    if (terms.isActive !== undefined) business.isActive = terms.isActive;
+    if (terms.isActive !== undefined) {
+      business.isActive = terms.isActive;
+      // Una decisión de administración manda sobre el cierre temporal del dueño.
+      business.reopenAt = null;
+    }
     if (terms.minOrder !== undefined) business.minOrder = terms.minOrder;
 
     await business.save();
@@ -1665,16 +1669,35 @@ export class BusinessService {
    * (`store:toggle`), que no deben poder tocar nada más del perfil por el
    * PUT genérico. Archivado no se abre (como en `update`); la suspensión de
    * ZIPP es otro campo y esto no la quita.
+   *
+   * `closeMinutes` (solo al cerrar) lo reabre solo pasado ese tiempo. El
+   * servidor calcula la hora: el reloj del navegador no se usa para decidir
+   * cuándo vuelve a recibir pedidos un comercio.
    */
-  async setOpen(id: string, isActive: boolean): Promise<IBusiness> {
+  async setOpen(id: string, isActive: boolean, closeMinutes?: number): Promise<IBusiness> {
     const business = await Business.findById(id);
     if (!business) throw new AppError('Negocio no encontrado', 404);
     if (business.isArchived) {
       throw new AppError('Negocio archivado: contacta a soporte para reactivarlo', 403);
     }
     business.isActive = isActive;
+    business.reopenAt = !isActive && closeMinutes ? new Date(Date.now() + closeMinutes * 60_000) : null;
     await business.save();
     return business;
+  }
+
+  /**
+   * Reabre los negocios cuyo cierre temporal venció. Un solo `updateMany`
+   * atómico: no hay lectura previa que otro proceso pueda invalidar. El
+   * archivado no se reabre solo, y la suspensión de ZIPP sigue frenando los
+   * pedidos aunque `isActive` vuelva a `true`.
+   */
+  async reopenDue(now = new Date()): Promise<number> {
+    const res = await Business.updateMany(
+      { isActive: false, isArchived: { $ne: true }, reopenAt: { $lte: now } },
+      { $set: { isActive: true, reopenAt: null } }
+    );
+    return res.modifiedCount;
   }
 
   /**

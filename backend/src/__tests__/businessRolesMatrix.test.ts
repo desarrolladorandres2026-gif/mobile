@@ -48,7 +48,8 @@ describe('Matriz de permisos por rol', () => {
     [P.SETTLEMENTS_VIEW, true, false, false],
     [P.SETTLEMENTS_MANAGE, true, false, false],
     [P.DOCUMENTS_MANAGE, true, false, false],
-    [P.SHIFT_VIEW, true, true, false],
+    [P.SHIFT_VIEW, true, true, true],
+    [P.SHIFT_CLOSE, true, false, true],
   ];
 
   for (const [permission, ...expected] of matrix) {

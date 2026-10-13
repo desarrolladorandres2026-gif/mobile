@@ -29,6 +29,80 @@ describe('Soporte', () => {
     agente = await makeUser({ role: UserRole.ADMIN });
   });
 
+  it('quien abrió el caso puede replicar y un caso respondido vuelve a revisión', async () => {
+    const id = (await openCase())._id.toString();
+    await supportService.reply(id, agente._id.toString(), 'Revisamos tu caso.');
+    await Pqrs.updateOne({ _id: id }, { status: 'answered' });
+
+    const ticket = await supportService.requesterReply(id, cliente._id.toString(), 'Sigue sin llegar.');
+
+    expect(ticket.status).toBe('in_review');
+    expect(ticket.responses.at(-1)?.from).toBe('requester');
+    // La respuesta del personal conserva su autoría por defecto.
+    expect(ticket.responses[0].from).toBe('staff');
+  });
+
+  it('nadie replica un caso ajeno ni uno cerrado', async () => {
+    const id = (await openCase())._id.toString();
+    const otro = await makeUser({ role: UserRole.CLIENT });
+
+    await expect(supportService.requesterReply(id, otro._id.toString(), 'Hola')).rejects.toThrow();
+
+    await supportService.close(id, agente._id.toString());
+    await expect(supportService.requesterReply(id, cliente._id.toString(), 'Hola')).rejects.toThrow();
+  });
+
+  it('reabrir un caso cerrado conserva el plazo legal y no reabre uno abierto', async () => {
+    const created = await openCase('claim');
+    const id = created._id.toString();
+    await Pqrs.updateOne({ _id: id }, { legalDueAt: new Date('2030-01-01') });
+
+    await expect(supportService.reopen(id, agente._id.toString())).rejects.toThrow();
+
+    await supportService.close(id, agente._id.toString());
+    const reopened = await supportService.reopen(id, agente._id.toString());
+
+    expect(reopened.status).toBe('in_review');
+    expect(reopened.legalDueAt?.toISOString()).toBe(new Date('2030-01-01').toISOString());
+  });
+
+  it('la solicitud de reembolso exige pedido y solo admite una pendiente', async () => {
+    const sinPedido = (await openCase())._id.toString();
+    await expect(supportService.requestRefund(sinPedido, agente._id.toString(), 'Llegó frío')).rejects.toThrow();
+
+    const conPedido = await Pqrs.create({
+      userId: cliente._id, type: 'claim', subject: 'Cobro', detail: 'Me cobraron de más en el pedido.',
+      orderId: agente._id, // cualquier ObjectId: aquí solo importa que exista
+    });
+    const id = conPedido._id.toString();
+    const ticket = await supportService.requestRefund(id, agente._id.toString(), 'Cobro duplicado');
+    expect(ticket.refundRequest?.status).toBe('pending');
+
+    await expect(supportService.requestRefund(id, agente._id.toString(), 'Otra vez')).rejects.toThrow();
+
+    const done = await supportService.resolveRefundRequest(id, agente._id.toString(), 'done', 'Reembolsado');
+    expect(done.refundRequest?.status).toBe('done');
+    await expect(supportService.resolveRefundRequest(id, agente._id.toString(), 'done')).rejects.toThrow();
+  });
+
+  it('la cola filtra sin asignar, por reembolso pendiente y busca por teléfono', async () => {
+    const a = (await openCase())._id.toString();
+    await openCase();
+    await supportService.assign(a, agente._id.toString());
+
+    const sinAsignar = await supportService.queue({ unassigned: true });
+    expect(sinAsignar.every((r: any) => !r.assignedTo)).toBe(true);
+    expect(sinAsignar.some((r: any) => String(r._id) === a)).toBe(false);
+
+    await Pqrs.updateOne({ _id: a }, { refundRequest: { status: 'pending', reason: 'x'.repeat(6), requestedBy: agente._id, requestedAt: new Date() } });
+    const conReembolso = await supportService.queue({ refundRequested: true });
+    expect(conReembolso.map((r: any) => String(r._id))).toEqual([a]);
+
+    await (await import('../models')).User.updateOne({ _id: cliente._id }, { phone: '3151234567' });
+    const porTelefono = await supportService.queue({ q: '3151234567' });
+    expect(porTelefono.length).toBeGreaterThanOrEqual(2);
+  });
+
   it('un reclamo nace con más prioridad que una sugerencia', async () => {
     const reclamo = await supportService.classify((await openCase('claim'))._id.toString());
     const sugerencia = await supportService.classify(

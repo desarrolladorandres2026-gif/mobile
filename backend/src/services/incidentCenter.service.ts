@@ -30,6 +30,7 @@ export const INCIDENT_PERMISSION: Record<string, Permission> = {
   refund_failed: Permission.REFUNDS_VIEW,
   payment_review: Permission.REFUNDS_VIEW,
   order_unaccepted: Permission.ORDERS_VIEW_ALL,
+  refund_requested: Permission.REFUNDS_CREATE,
 };
 
 /** `allows(permiso)`: normalmente `(p) => can(req, p)`. Sin él, se niega todo (falla cerrado): quien quiera todo debe decirlo con `() => true`. */
@@ -51,7 +52,7 @@ export type PermissionCheck = (permission: Permission) => boolean;
 export type IncidentKind =
   | 'sos' | 'fraud' | 'cash' | 'complaint' | 'stalled_order' | 'pqrs_legal' | 'data_request_legal' | 'clawback_overdue'
   | 'unassigned_order' | 'cash_overdue' | 'business_document_expiring' | 'driver_document_expiring' | 'ad_uninvoiced' | 'refund_failed'
-  | 'payment_review' | 'order_unaccepted';
+  | 'payment_review' | 'order_unaccepted' | 'refund_requested';
 export type IncidentSeverity = 'critical' | 'high' | 'medium';
 
 export interface Incident {
@@ -148,7 +149,7 @@ export class IncidentCenterService {
     const [
       sos, fraud, cash, complaints, stalled, legalPqrs, legalDataRequests, overdueClawbacks,
       unassigned, cashOverdue, businessDocs, driverDocs, endedAds, failedRefunds,
-      paymentsOnHold, unaccepted,
+      paymentsOnHold, unaccepted, refundRequests,
     ] = await Promise.all([
       gated('sos', () =>
         SosAlert.find({ status: { $in: [SosStatus.ACTIVE, SosStatus.ACKNOWLEDGED] } })
@@ -345,6 +346,15 @@ export class IncidentCenterService {
           .sort({ updatedAt: 1 })
           .limit(30)
           .select('orderNumber clientId businessId paymentMethod paymentStatus total finance.customerTotal updatedAt')
+          .lean()
+      ),
+
+      // Soporte pidió un reembolso y Finanzas aún no lo atiende.
+      gated('refund_requested', () =>
+        Pqrs.find({ 'refundRequest.status': 'pending' })
+          .sort({ 'refundRequest.requestedAt': 1 })
+          .limit(30)
+          .select('subject orderId userId businessId refundRequest')
           .lean()
       ),
     ]);
@@ -571,6 +581,19 @@ export class IncidentCenterService {
           businessId: o.businessId ? String(o.businessId) : undefined,
         };
       }),
+
+      ...refundRequests.map((p: any) => ({
+        kind: 'refund_requested' as const,
+        severity: 'high' as IncidentSeverity,
+        id: String(p._id),
+        key: makeKey('refund_requested', String(p._id), 'pending'),
+        title: 'Soporte pide un reembolso',
+        detail: `${p.subject}: ${p.refundRequest?.reason ?? 'sin motivo'}`,
+        at: p.refundRequest?.requestedAt ?? new Date(),
+        userId: String(p.userId),
+        orderId: p.orderId ? String(p.orderId) : undefined,
+        businessId: p.businessId ? String(p.businessId) : undefined,
+      })),
     ];
 
     const weight: Record<IncidentSeverity, number> = { critical: 0, high: 1, medium: 2 };

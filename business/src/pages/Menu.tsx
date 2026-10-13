@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
-  Plus, Edit, Trash2, ToggleLeft, ToggleRight, X, Tag, ChevronRight, Clock,
+  Plus, Trash2, ToggleLeft, ToggleRight, X, ChevronRight, Clock,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import api from '../services/api';
@@ -10,7 +10,6 @@ import { qk } from '../lib/queryKeys';
 import { apiMessage } from '../lib/apiError';
 import { money } from '../lib/orderFlow';
 import ConfirmDialog from '../components/ConfirmDialog';
-import SmartImage from '../components/SmartImage';
 import type { Product } from '../lib/catalog';
 import ProductGalleryField from '../components/ProductGalleryField';
 import ProductImageField, {
@@ -28,6 +27,7 @@ import {
 } from '../lib/productForm';
 import { productChecks, type PhotoState } from '../lib/productChecks';
 import { clearDraft, isDraftWorthRestoring, loadDraft, saveDraft } from '../lib/productDraft';
+import ProductCard from '../components/product/ProductCard';
 import ProductPreview from '../components/product/ProductPreview';
 import ProductProgress from '../components/product/ProductProgress';
 import ProductRecommendations from '../components/product/ProductRecommendations';
@@ -511,7 +511,7 @@ export default function Menu() {
     const active = filterCategory && categoryName.has(filterCategory) ? filterCategory : null;
     const sorted = products
       .filter((product) => !active || product.categoryId === active)
-      .sort((x, y) => (order.get(x.categoryId) ?? 0) - (order.get(y.categoryId) ?? 0));
+      .sort((x, y) => (order.get(x.categoryId) ?? categories.length) - (order.get(y.categoryId) ?? categories.length));
     return (
       <div className="space-y-6">
         {categories.length > 0 && (
@@ -562,127 +562,18 @@ export default function Menu() {
             Aún no hay productos.
           </p>
         ) : (
-          <ul className="grid grid-cols-1 lg:grid-cols-2 lg:gap-x-10">
+          <ul className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(14.5rem,1fr))]">
             {sorted.map((product) => (
-              <li
+              <ProductCard
                 key={product._id}
-                className="flex items-center gap-3 py-3 border-b border-[var(--color-border)]"
-              >
-                <SmartImage
-                  images={product.images}
-                  alt={product.name}
-                  base="thumb"
-                  sizes="48px"
-                  className="w-12 h-12 rounded-md shrink-0"
-                />
-
-                <div className="flex-1 min-w-0 space-y-0.5">
-                  <h3 className="text-sm font-semibold text-[var(--color-text-main)] leading-snug">
-                    {product.name}
-                  </h3>
-                  <p className="text-xs text-[var(--color-text-secondary)]">
-                    {categoryName.get(product.categoryId) ?? 'Sin categoría'}
-                    {product.prepTimeMinutes ? ` · ${product.prepTimeMinutes} min` : ''}
-                    {product.requiresAgeVerification ? ' · +18' : ''}
-                    {!product.images ? ' · Sin foto' : ''}
-                  </p>
-                  {product.description && (
-                    <p className="text-xs leading-snug text-[var(--color-text-secondary)] line-clamp-1">
-                      {product.description}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-medium empty:hidden">
-                    {product.promotedBy && (canSeePromotions ? (
-                      <a
-                        href={`/promotions?productId=${product._id}`}
-                        className="text-[var(--color-info)] flex items-center gap-1"
-                      >
-                        <Tag className="w-3 h-3" />
-                        En promoción
-                      </a>
-                    ) : (
-                      // Sin `promotions:view` el enlace llevaría a una sección
-                      // que el panel esconde: se informa, no se enlaza.
-                      <span className="text-[var(--color-info)] flex items-center gap-1">
-                        <Tag className="w-3 h-3" />
-                        En promoción
-                      </span>
-                    ))}
-                    {!product.isAvailable && (
-                      <span className="text-[var(--color-danger)]">Agotado</span>
-                    )}
-                    {/* Solo aparece si el negocio lleva la cuenta.
-                        `null` es "no lo cuento" y no se muestra. */}
-                    {typeof product.stock === 'number' && (
-                      <span
-                        className={
-                          product.stock === 0
-                            ? 'text-[var(--color-danger)]'
-                            : product.stock <= (product.lowStockThreshold || 3)
-                              ? 'text-[var(--color-warning)]'
-                              : 'text-[var(--color-text-main)]'
-                        }
-                      >
-                        {product.stock === 0 ? 'Sin unidades' : `Quedan ${product.stock}`}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="text-right shrink-0">
-                  {product.discountPrice ? (
-                    <>
-                      <p className="text-[11px] text-[var(--color-text-secondary)] line-through tabular">
-                        {money(product.price)}
-                      </p>
-                      <p className="text-sm font-semibold text-[var(--color-primary-dark)] tabular">
-                        {money(product.discountPrice)}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-sm font-semibold text-[var(--color-text-main)] tabular">
-                      {money(product.price)}
-                    </p>
-                  )}
-                </div>
-
-                {(canEdit || canDelete || canAvailability) && (
-                <div className="flex items-center gap-1 shrink-0">
-                  {(canEdit || canAvailability) && (
-                  <button
-                    onClick={() => actions.current.toggle(product)}
-                    title={product.isAvailable ? 'Marcar como agotado' : 'Volver a ofrecerlo'}
-                    aria-label={`Cambiar disponibilidad de ${product.name}`}
-                    className="p-1 cursor-pointer"
-                  >
-                    {product.isAvailable ? (
-                      <ToggleRight className="w-6 h-6 text-[var(--color-primary)]" />
-                    ) : (
-                      <ToggleLeft className="w-6 h-6 text-[var(--color-text-secondary)]" />
-                    )}
-                  </button>
-                  )}
-                  {canEdit && (
-                  <button
-                    onClick={() => actions.current.edit(product)}
-                    aria-label={`Editar ${product.name}`}
-                    className="p-2 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  )}
-                  {canDelete && (
-                  <button
-                    onClick={() => actions.current.deleteProduct(product._id)}
-                    aria-label={`Eliminar ${product.name}`}
-                    className="p-2 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                  )}
-                </div>
-                )}
-              </li>
+                product={product}
+                categoryName={categoryName.get(product.categoryId) ?? 'Sin categoría'}
+                actions={actions}
+                canEdit={canEdit}
+                canDelete={canDelete}
+                canAvailability={canAvailability}
+                canSeePromotions={canSeePromotions}
+              />
             ))}
           </ul>
         )}

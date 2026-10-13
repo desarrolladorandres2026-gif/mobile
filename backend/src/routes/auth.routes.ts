@@ -10,7 +10,7 @@ import {
   mfaChallengeSchema, googleLoginSchema, appleLoginSchema, facebookLoginSchema, sendOtpSchema, verifyOtpSchema, sendEmailOtpSchema,
   verifyEmailOtpSchema, refreshTokenSchema, logoutSchema, resetPasswordSchema, updateProfileSchema,
   verifyPhoneSchema, changePasswordSchema, twoFactorTokenSchema, twoFactorSetupSchema, revokeAllSessionsSchema, deleteAccountSchema,
-  counterElevateSchema, counterPinSetSchema, counterPeopleSchema, counterPinUnlockSchema,
+  counterElevateSchema, counterElevatePasswordSchema, counterElevatePasswordTotpSchema, counterPinSetSchema, counterPeopleSchema, counterPinUnlockSchema,
 } from '../validators';
 
 const router = Router();
@@ -61,6 +61,12 @@ router.post('/email/verify', authenticate, rejectCounterScope, authRateLimiter, 
 // Sin `authRateLimiter`: es por IP y compartido con el login, y un local entero sale por una IP.
 // El freno por persona, negocio y equipo lo lleva `counterPin.service` (reserva atómica).
 router.post('/counter/elevate', authenticate, validate(counterElevateSchema), (req, res, next) => authController.elevateFromCounter(req, res, next));
+// Quien aún no tiene PIN: entra con correo + contraseña (hallazgo ALTO
+// 2026-10-13 — ya no es `/auth/login`, que abría una sesión completa de 7
+// días en el PC del local). `authRateLimiter` por IP, igual que `/login`;
+// el freno por cuenta lo lleva `verifyPassword` vía `security/bruteforce.ts`.
+router.post('/counter/elevate-password', authenticate, authRateLimiter, validate(counterElevatePasswordSchema), (req, res, next) => authController.elevatePasswordFromCounter(req, res, next));
+router.post('/counter/elevate-password/totp', authenticate, authRateLimiter, validate(counterElevatePasswordTotpSchema), (req, res, next) => authController.elevatePasswordTotpFromCounter(req, res, next));
 router.post('/counter/drop', authenticate, (req, res, next) => authController.dropElevatedSession(req, res, next));
 router.get('/counter/people', authenticate, validate(counterPeopleSchema), (req, res, next) => authController.counterPeople(req, res, next));
 // El PIN propio se crea desde la cuenta completa, nunca desde el mostrador.

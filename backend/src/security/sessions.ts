@@ -17,7 +17,9 @@ export type SessionRevokeReason =
   | 'session_limit'
   | 'device_removed'
   | 'account_deleted'
-  | 'migration';
+  | 'migration'
+  /** Contraseña mala al gestionar el Equipo desde una entrada de mostrador. */
+  | 'reauth_failed';
 
 /**
  * Alcance efectivo de una sesión, como lo leen `authenticate` y el socket:
@@ -562,7 +564,7 @@ export class SessionManager {
   async sessionStatus(
     sessionId: string,
     userId: string
-  ): Promise<{ active: boolean; scope: EffectiveScope | null }> {
+  ): Promise<{ active: boolean; scope: EffectiveScope | null; fromCounter?: boolean }> {
     const inactive = { active: false, scope: null } as const;
     if (!Types.ObjectId.isValid(sessionId)) return inactive;
     const now = new Date();
@@ -610,8 +612,11 @@ export class SessionManager {
       }
     }
 
-    if (session.elevatedBusinessId) return { active: true, scope: `elevated:${session.elevatedBusinessId}` };
-    return { active: true, scope: session.scope ?? 'full' };
+    if (session.elevatedBusinessId) return { active: true, scope: `elevated:${session.elevatedBusinessId}`, fromCounter: true };
+    // Entrada con contraseña desde el mostrador (2026-10-13): alcance
+    // completo, pero abierta en un equipo compartido. `fromCounter` deja que
+    // las acciones que dan acceso a otros (Equipo) pidan la contraseña otra vez.
+    return { active: true, scope: session.scope ?? 'full', fromCounter: !!session.elevatedFrom };
   }
 
   /** Atajo booleano de `sessionStatus` para quien no necesita el `scope` (el socket). */

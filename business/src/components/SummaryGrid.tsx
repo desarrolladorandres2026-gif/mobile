@@ -9,6 +9,10 @@ export interface SummaryItem {
   loading?: boolean;
   /** Valor en dorado, para la cifra principal. */
   strong?: boolean;
+  /** Valor en rojo: algo que pide atención ya (solo lo usa `BigStats`). */
+  alert?: boolean;
+  /** Ruta a la que lleva la cifra (solo lo usa `BigStats`). */
+  to?: string;
 }
 
 /**

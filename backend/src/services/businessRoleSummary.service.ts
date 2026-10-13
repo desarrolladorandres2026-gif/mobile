@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { Order, BusinessPermission } from '../models';
+import { Order, Product, BusinessPermission } from '../models';
 import { OrderStatus, PaymentMethod } from '../types';
 import { UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 import { bogotaDateString, bogotaDayRange } from '../utils/period';
@@ -18,7 +18,7 @@ import type { BusinessAccess } from './businessStaff.service';
  * por el nombre del papel:
  *   - `operations` (con `analytics:view`, el administrador): el día del
  *     negocio sin neto, comisión ni descuentos asumidos.
- *   - `shift` (con `shift:view`, que ya no tiene el empleado): lo vendido hoy por medio de
+ *   - `shift` (con `shift:view`: el empleado y el administrador): lo vendido hoy por medio de
  *     pago y lo que sigue abierto.
  *   - `kitchen` (solo `orders:view`, el operador): cuántos pedidos hay en
  *     cada estado. Sin dinero.
@@ -69,10 +69,24 @@ export interface OperationsSummary {
   byHour: Array<{ hour: number; orders: number }>;
 }
 
+/**
+ * Lo que quien está en el mostrador tiene que tener presente además de la cola.
+ * Todo es operativo (conteos, minutos, nombres de producto): ningún dato de dinero.
+ */
+export interface Attention {
+  /** Minutos que lleva esperando el pedido nuevo más antiguo; `null` si no hay ninguno. */
+  oldestPendingMinutes: number | null;
+  /** Programados que aún no le tocan a la cocina: cuántos caen hoy y la hora del próximo (de cualquier día). */
+  scheduled: { today: number; next: string | null };
+  /** Productos apagados o sin stock: lo que hay que avisar al cliente que no hay. */
+  unavailable: { count: number; names: string[] };
+}
+
 export interface ShiftSummary {
   kind: 'shift';
   date: string;
   generatedAt: string;
+  attention: Attention;
   queue: OrderQueue;
   ordersDelivered: number;
   ordersCancelled: number;
@@ -88,6 +102,7 @@ export interface KitchenSummary {
   kind: 'kitchen';
   date: string;
   generatedAt: string;
+  attention: Attention;
   queue: OrderQueue;
   ordersDelivered: number;
   ordersCancelled: number;
@@ -116,11 +131,17 @@ function openMatch(businessId: Types.ObjectId) {
 
 const productSales = { $ifNull: ['$finance.productSubtotal', '$subtotal'] };
 
-async function queueFor(businessId: Types.ObjectId): Promise<OrderQueue & { openSales: number; open: number }> {
-  const rows: Array<{ _id: OrderStatus; count: number; sales: number }> = await Order.aggregate([
+/** Desde cuándo espera un pedido: un programado cuenta desde que se activó, no desde que se creó. */
+const waitingSince = { $ifNull: ['$scheduledActivatedAt', '$createdAt'] };
+
+async function queueFor(
+  businessId: Types.ObjectId
+): Promise<OrderQueue & { openSales: number; open: number; oldestPendingMinutes: number | null }> {
+  const rows: Array<{ _id: OrderStatus; count: number; sales: number; oldest: Date }> = await Order.aggregate([
     { $match: openMatch(businessId) },
-    { $group: { _id: '$status', count: { $sum: 1 }, sales: { $sum: productSales } } },
+    { $group: { _id: '$status', count: { $sum: 1 }, sales: { $sum: productSales }, oldest: { $min: waitingSince } } },
   ]);
+  const oldestPending = rows.find((r) => r._id === OrderStatus.PENDING)?.oldest;
   const count = (...statuses: OrderStatus[]) =>
     rows.filter((r) => statuses.includes(r._id)).reduce((n, r) => n + r.count, 0);
   return {
@@ -130,10 +151,47 @@ async function queueFor(businessId: Types.ObjectId): Promise<OrderQueue & { open
     onTheWay: count(OrderStatus.PICKED_UP, OrderStatus.ON_WAY),
     open: rows.reduce((n, r) => n + r.count, 0),
     openSales: Math.round(rows.reduce((n, r) => n + (r.sales ?? 0), 0)),
+    oldestPendingMinutes: oldestPending ? Math.max(0, Math.floor((Date.now() - oldestPending.getTime()) / 60_000)) : null,
   };
 }
 
-async function closedToday(businessId: Types.ObjectId, date: string) {
+const UNAVAILABLE_NAMES_SHOWN = 5;
+
+async function attentionFor(
+  businessId: Types.ObjectId,
+  date: string,
+  oldestPendingMinutes: number | null
+): Promise<Attention> {
+  const { to } = bogotaDayRange(date);
+  const outOfStock = { businessId, $or: [{ isAvailable: false }, { stock: 0 }] };
+
+  const [scheduled, unavailableCount, unavailable] = await Promise.all([
+    Order.find({
+      businessId,
+      status: OrderStatus.PENDING,
+      scheduledFor: { $ne: null },
+      scheduledActivatedAt: null,
+      $nor: [UNPAID_ONLINE_MATCH],
+    })
+      .select('scheduledFor')
+      .sort({ scheduledFor: 1 })
+      .limit(500)
+      .lean(),
+    Product.countDocuments(outOfStock),
+    Product.find(outOfStock).select('name').sort({ name: 1 }).limit(UNAVAILABLE_NAMES_SHOWN).lean(),
+  ]);
+
+  return {
+    oldestPendingMinutes,
+    scheduled: {
+      today: scheduled.filter((o) => o.scheduledFor && o.scheduledFor <= to).length,
+      next: scheduled[0]?.scheduledFor ? new Date(scheduled[0].scheduledFor).toISOString() : null,
+    },
+    unavailable: { count: unavailableCount, names: unavailable.map((p) => p.name) },
+  };
+}
+
+export async function closedToday(businessId: Types.ObjectId, date: string) {
   const { from, to } = bogotaDayRange(date);
   const rows: Array<{ _id: { status: OrderStatus; method: PaymentMethod | null }; count: number; sales: number }> =
     await Order.aggregate([
@@ -202,6 +260,7 @@ export async function roleSummaryFor(access: BusinessAccess, businessIdRaw: stri
   if (!has(BusinessPermission.ORDERS_VIEW)) return null;
 
   const [queue, closed] = await Promise.all([queueFor(businessId), closedToday(businessId, date)]);
+  const attention = await attentionFor(businessId, date, queue.oldestPendingMinutes);
   const queueOnly = { pending: queue.pending, preparing: queue.preparing, ready: queue.ready, onTheWay: queue.onTheWay };
 
   if (has(BusinessPermission.SHIFT_VIEW)) {
@@ -209,6 +268,7 @@ export async function roleSummaryFor(access: BusinessAccess, businessIdRaw: stri
       kind: 'shift',
       date,
       generatedAt,
+      attention,
       queue: queueOnly,
       ordersDelivered: closed.ordersDelivered,
       ordersCancelled: closed.ordersCancelled,
@@ -223,6 +283,7 @@ export async function roleSummaryFor(access: BusinessAccess, businessIdRaw: stri
     kind: 'kitchen',
     date,
     generatedAt,
+    attention,
     queue: queueOnly,
     ordersDelivered: closed.ordersDelivered,
     ordersCancelled: closed.ordersCancelled,

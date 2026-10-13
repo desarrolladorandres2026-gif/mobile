@@ -115,6 +115,8 @@ const staffSchema = z.object({
     role: staffRoleInput,
     name: z.string().trim().max(120).optional(),
     email: z.string().trim().email().max(160).optional(),
+    // Solo se exige desde una sesión abierta en el mostrador (`req.sessionFromCounter`).
+    currentPassword: z.string().min(1).max(128).optional(),
   }),
 });
 
@@ -123,6 +125,7 @@ const updateStaffSchema = z.object({
   body: z.object({
     role: staffRoleInput.optional(),
     suspended: z.boolean().optional(),
+    currentPassword: z.string().min(1).max(128).optional(),
   }).strict().refine((b) => b.role !== undefined || b.suspended !== undefined, 'Nada que actualizar'),
 });
 
@@ -137,7 +140,14 @@ router.delete('/:id/staff/:staffId', authenticate, rejectCounterScope, authorize
  */
 const setOpenSchema = z.object({
   params: z.object({ id: objectId }),
-  body: z.object({ isActive: z.boolean() }).strict(),
+  body: z.object({
+    isActive: z.boolean(),
+    // Cierre temporal: de 5 minutos a 12 horas. Solo tiene sentido al cerrar.
+    closeMinutes: z.number().int().min(5).max(720).optional(),
+  }).strict().refine((b) => b.closeMinutes === undefined || b.isActive === false, {
+    message: 'closeMinutes solo aplica al cerrar',
+    path: ['closeMinutes'],
+  }),
 });
 router.patch('/:id/open', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_UPDATE_ALL), validate(setOpenSchema), (req, res, next) => businessController.setOpen(req, res, next));
 router.get('/:id/my-permissions', authenticate, (req, res, next) => businessController.myPermissions(req, res, next));
@@ -145,6 +155,20 @@ router.get('/:id/my-permissions', authenticate, (req, res, next) => businessCont
 router.get('/:id/daily-summary', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.FINANCE_VIEW), validate(idParamSchema), (req, res, next) => businessController.dailySummary(req, res, next));
 // Solo personal del negocio: el admin de plataforma ya tiene el cierre completo.
 router.get('/:id/role-summary', authenticate, authorize(UserRole.BUSINESS), validate(idParamSchema), (req, res, next) => businessController.roleSummary(req, res, next));
+const shiftClosingsQuerySchema = z.object({
+  params: z.object({ id: objectId }),
+  query: z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).strict(),
+});
+const closeShiftSchema = z.object({
+  params: z.object({ id: objectId }),
+  // Pesos enteros: nada de decimales en dinero.
+  body: z.object({
+    declaredCash: z.number().int().min(0).max(1_000_000_000).nullable().optional(),
+    note: z.string().trim().max(300).optional(),
+  }).strict(),
+});
+router.get('/:id/shift-closings', authenticate, authorize(UserRole.BUSINESS), validate(shiftClosingsQuerySchema), (req, res, next) => businessController.shiftClosings(req, res, next));
+router.post('/:id/shift-closings', authenticate, authorize(UserRole.BUSINESS), validate(closeShiftSchema), (req, res, next) => businessController.closeShift(req, res, next));
 router.get('/:id/analytics', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.BUSINESSES_VIEW), (req, res, next) => businessController.analytics(req, res, next));
 router.get('/:id/statement/export', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.FINANCE_VIEW), (req, res, next) => businessController.exportSales(req, res, next));
 router.get('/:id/statement', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.FINANCE_VIEW), (req, res, next) => businessController.getStatement(req, res, next));

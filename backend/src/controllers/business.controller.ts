@@ -62,6 +62,40 @@ export class BusinessController {
 
   // ── Empleados del comercio ──
 
+  /**
+   * Invitar, cambiar un papel o reactivar desde una sesión abierta en el
+   * mostrador pide la contraseña otra vez (hallazgo ALTO 2026-10-13): si el
+   * responsable se aleja con su entrada abierta, quien siga en el equipo no
+   * puede darse acceso propio al negocio, que sobreviviría a cualquier
+   * cierre de sesión. Una contraseña mala cierra esa entrada: sin eso, la
+   * sesión abandonada serviría para probar contraseñas sin freno.
+   */
+  private async reauthIfFromCounter(req: Request): Promise<void> {
+    if (!req.sessionFromCounter) return;
+    const { authService } = await import('../services/auth.service');
+    const userId = req.user!._id.toString();
+    try {
+      await authService.assertReauth(userId, { password: req.body?.currentPassword });
+    } catch (error) {
+      if (req.sessionId) {
+        const { sessionManager } = await import('../security/sessions');
+        await sessionManager.revokeSession(req.sessionId, userId, 'reauth_failed');
+      }
+      void logAudit(req, {
+        action: AuditAction.SUSPICIOUS_ACTIVITY,
+        entity: 'user',
+        entityId: userId,
+        severity: AuditSeverity.MEDIUM,
+        description: 'Contraseña incorrecta al gestionar el equipo desde el mostrador; se cerró la entrada',
+      });
+      throw new AppError(
+        'Contraseña incorrecta. Por seguridad se cerró tu entrada; vuelve a entrar desde el mostrador.',
+        401,
+        'REAUTH_FAILED'
+      );
+    }
+  }
+
   private async staffService() {
     const { businessStaffService } = await import('../services/businessStaff.service');
     const { BusinessPermission } = await import('../models');
@@ -94,6 +128,7 @@ export class BusinessController {
         'Sin permisos para invitar empleados.',
         req.sessionScope
       );
+      await this.reauthIfFromCounter(req);
 
       const staff = await businessStaffService.invite(
         param(req, 'id'),
@@ -124,6 +159,8 @@ export class BusinessController {
       const businessId = param(req, 'id');
       const actorId = req.user!._id.toString();
       const { role, suspended } = req.body as { role?: any; suspended?: boolean };
+      // Suspender quita acceso y no la pide; cambiar papel o reactivar lo dan.
+      if (role !== undefined || suspended === false) await this.reauthIfFromCounter(req);
 
       let staff;
       if (role) {
@@ -195,7 +232,8 @@ export class BusinessController {
       }
 
       const isActive = req.body.isActive as boolean;
-      const business = await businessService.setOpen(businessId, isActive);
+      const closeMinutes = req.body.closeMinutes as number | undefined;
+      const business = await businessService.setOpen(businessId, isActive, closeMinutes);
 
       // Quién abrió y quién cerró queda escrito: con varias personas en el
       // mostrador, "¿por qué estábamos cerrados a las 8?" tiene respuesta.
@@ -204,7 +242,7 @@ export class BusinessController {
         entity: 'business',
         entityId: businessId,
         description: isActive ? 'Negocio abierto' : 'Negocio cerrado',
-        metadata: { isActive },
+        metadata: { isActive, ...(closeMinutes ? { closeMinutes } : {}) },
       });
 
       sendResponse(res, 200, isActive ? 'Negocio abierto' : 'Negocio cerrado', business);
@@ -274,6 +312,46 @@ export class BusinessController {
       const data = await businessRoleSummaryService.roleSummaryFor(access, businessId);
       if (!data) throw new AppError('Sin permisos para ver los pedidos del día.', 403, 'BUSINESS_PERMISSION_DENIED');
       sendResponse(res, 200, 'Resumen del día', data);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Cierra la caja del turno. Las cifras salen del servidor; de quien cierra
+   * solo se toma el efectivo contado y una nota.
+   */
+  async closeShift(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      const { businessStaffService } = await import('../services/businessStaff.service');
+      const access = await businessStaffService.assertCan(
+        req.user!._id.toString(), businessId, BusinessPermissionEnum.SHIFT_CLOSE, undefined, req.sessionScope,
+      );
+      const { shiftClosingService } = await import('../services/shiftClosing.service');
+      const closing = await shiftClosingService.close(businessId, req.user!._id.toString(), access, req.body);
+
+      void logAudit(req, {
+        action: AuditAction.BUSINESS_UPDATED,
+        entity: 'business',
+        entityId: businessId,
+        description: 'Caja cerrada',
+        metadata: { sales: closing.sales, declaredCash: closing.declaredCash, difference: closing.difference },
+      });
+      sendResponse(res, 201, 'Caja cerrada', closing);
+    } catch (error) { next(error); }
+  }
+
+  /** Los cierres de caja de un día (hoy por defecto). */
+  async shiftClosings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = param(req, 'id');
+      const { businessStaffService } = await import('../services/businessStaff.service');
+      await businessStaffService.assertCan(
+        req.user!._id.toString(), businessId, BusinessPermissionEnum.SHIFT_VIEW, undefined, req.sessionScope,
+      );
+      const { shiftClosingService } = await import('../services/shiftClosing.service');
+      const { bogotaDateString } = await import('../utils/period');
+      const date = (req.query.date as string | undefined) ?? bogotaDateString();
+      sendResponse(res, 200, 'Cierres de caja', await shiftClosingService.listForDay(businessId, date));
     } catch (error) { next(error); }
   }
 

@@ -22,9 +22,11 @@ export type BusinessEvent =
   | 'order:status:changed'
   | 'order:driver:assigned'
   | 'order:driver:arrived'
-  | 'order:withdrawn';
+  | 'order:withdrawn'
+  | 'support:replied';
 
 export const EVENTS: BusinessEvent[] = [
+  'support:replied',
   'order:incoming',
   'order:status:changed',
   'order:driver:assigned',
@@ -78,7 +80,14 @@ export interface DriverArrivedPayload {
   businessId?: string;
 }
 
+/** Soporte respondió un caso del comercio. */
+export interface SupportRepliedPayload {
+  pqrsId: string;
+  subject: string;
+}
+
 export interface BusinessEventPayloads {
+  'support:replied': SupportRepliedPayload;
   'order:incoming': IncomingOrderPayload;
   'order:status:changed': OrderStatusPayload;
   'order:driver:assigned': OrderStatusPayload;

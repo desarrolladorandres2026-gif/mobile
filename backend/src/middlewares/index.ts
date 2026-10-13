@@ -58,4 +58,5 @@ export {
   uploadAvatarImage,
   uploadEvidenceImage,
   uploadBusinessDocumentFile,
+  uploadPqrsEvidence,
 } from './upload';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { REJECTION_REASONS, shortId, type BusinessOrder } from '../lib/orderFlow';
+import { REJECTION_REASONS, orderTag, type BusinessOrder } from '../lib/orderFlow';
 
 /**
  * Rechazar un pedido, diciendo por qué.
@@ -62,7 +62,7 @@ export default function RejectOrderDialog({ order, onCancel, onConfirm }: Props)
           <div className="flex items-start gap-3">
             <div className="flex-1 min-w-0">
               <h3 className="text-sm font-semibold text-[var(--color-text-main)]">
-                Rechazar el pedido {order.orderNumber ?? shortId(order._id)}
+                Rechazar el pedido {orderTag(order)}
               </h3>
               <p className="text-xs text-[var(--color-text-secondary)] mt-1 leading-relaxed">
                 El cliente verá el motivo y, si ya había pagado, se le

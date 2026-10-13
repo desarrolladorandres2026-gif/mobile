@@ -259,6 +259,38 @@ export class AuthController {
     } catch (error) { next(error); }
   }
 
+  /** Quien aún no tiene PIN: entra como responsable con correo + contraseña. */
+  async elevatePasswordFromCounter(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (req.sessionScope !== 'counter' || !req.sessionId) {
+        throw new AppError('Solo se puede entrar con contraseña desde el mostrador.', 400, 'NOT_COUNTER_SESSION');
+      }
+      const outcome = await authService.elevatePasswordFromCounter(
+        req.sessionId,
+        req.user!._id.toString(),
+        { businessId: req.body.businessId, email: req.body.email, password: req.body.password },
+        req
+      );
+      await sendAuthOutcome(res, 200, 'Identidad confirmada', outcome);
+    } catch (error) { next(error); }
+  }
+
+  /** Segundo paso de `elevatePasswordFromCounter` cuando la cuenta tiene 2FA. */
+  async elevatePasswordTotpFromCounter(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (req.sessionScope !== 'counter' || !req.sessionId) {
+        throw new AppError('Solo se puede entrar con contraseña desde el mostrador.', 400, 'NOT_COUNTER_SESSION');
+      }
+      const outcome = await authService.elevatePasswordTotpFromCounter(
+        req.sessionId,
+        req.user!._id.toString(),
+        { businessId: req.body.businessId, challengeToken: req.body.challengeToken, code: req.body.code },
+        req
+      );
+      await sendAuthOutcome(res, 200, 'Identidad confirmada', outcome);
+    } catch (error) { next(error); }
+  }
+
   /** Quién puede entrar con PIN en este mostrador: solo nombre y papel. */
   async counterPeople(req: Request, res: Response, next: NextFunction) {
     try {

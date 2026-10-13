@@ -188,6 +188,25 @@ export class OrderController {
     } catch (error) { next(error); }
   }
 
+  /** Pedidos programados que esperan su hora. Mismo permiso que la lista de pedidos. */
+  async getScheduledOrders(req: Request, res: Response, next: NextFunction) {
+    try {
+      let access: BusinessAccess | null = null;
+      if (req.user!.role === UserRole.BUSINESS) {
+        access = await businessStaffService.accessFor(req.user!._id.toString(), param(req, 'businessId'), req.sessionScope);
+        if (!access?.permissions.includes(BusinessPermission.ORDERS_VIEW)) {
+          return next(new AppError('No autorizado para ver pedidos de este comercio', 403));
+        }
+      }
+      const orders = await orderService.getScheduledByBusiness(param(req, 'businessId'));
+      // El personal no ve el margen de ZIPP ni el pago al domiciliario.
+      const view = access && access.role !== BusinessRole.OWNER
+        ? orders.map((order) => merchantStaffOrderView(order))
+        : orders;
+      sendResponse(res, 200, 'Pedidos programados', view);
+    } catch (error) { next(error); }
+  }
+
   /**
    * Cambia el método de pago de un pedido que el comercio aún no aceptó.
    *

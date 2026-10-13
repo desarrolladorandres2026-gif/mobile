@@ -278,6 +278,15 @@ export const pqrsCreateRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/** Adjuntos de un caso: suben a Cloudinary, así que cuestan. 20 por hora por IP. */
+export const pqrsEvidenceRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(20),
+  message: { success: false, message: 'Has subido muchos archivos seguidos. Espera un rato antes de adjuntar más.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export const reviewCreateRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: limitFor(20),

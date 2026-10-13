@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import AuthenticatorMark from '../../components/AuthenticatorMark';
 import ActiveSessions from '../../components/ActiveSessions';
+import CounterPin from '../../components/CounterPin';
+import { sessionKind } from '../../lib/counter';
 
 /**
  * Pestaña "Seguridad" del perfil: es de la persona que entró, no del local,
@@ -10,6 +12,25 @@ import ActiveSessions from '../../components/ActiveSessions';
  */
 export default function SecurityTab() {
   const twoFactorEnabled = useAuthStore((s) => !!s.user?.twoFactorEnabled);
+
+  // El backend rechaza desde el mostrador todo lo de esta pestaña (2FA, PIN,
+  // sesiones): es de la cuenta, y el mostrador es un equipo compartido.
+  // La entrada con PIN tampoco (revisión 2026-10-10): son 6 dígitos en un
+  // equipo compartido. Para esto se entra con la contraseña.
+  const kind = sessionKind();
+  if (kind === 'counter' || kind === 'elevated-pin') {
+    return (
+      <p className="text-sm text-[var(--color-text-main)] max-w-prose leading-relaxed">
+        {kind === 'counter'
+          ? <>Estás en el mostrador. Para la verificación en dos pasos, el PIN y las sesiones usa el
+              botón <strong>Administrador o representante legal</strong>, abajo a la derecha, y entra
+              con tu contraseña.</>
+          : <>Entraste con PIN. La verificación en dos pasos, el PIN y las sesiones solo se cambian
+              entrando con tu contraseña: pulsa <strong>Volver al mostrador</strong> y elige
+              «Entrar con contraseña».</>}
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -34,6 +55,8 @@ export default function SecurityTab() {
           </Link>
         )}
       </section>
+
+      <CounterPin />
 
       <div className="pt-2">
         <ActiveSessions />

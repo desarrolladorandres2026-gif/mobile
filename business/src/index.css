@@ -173,6 +173,91 @@
   padding: 14px 16px 6px;
 }
 
+/* Barra lateral: el icono da un saltito al pasar el cursor y al quedar seleccionado.
+   `aria-current` lo pone NavLink en el item activo, así que la animación arranca
+   justo cuando se selecciona. */
+@keyframes sidebar-hop {
+  0%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-8px); }
+  55% { transform: translateY(0); }
+  75% { transform: translateY(-3px); }
+}
+
+.sidebar-item:hover .sidebar-icon,
+.sidebar-item[aria-current='page'] .sidebar-icon {
+  animation: sidebar-hop 0.5s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-item:hover .sidebar-icon,
+  .sidebar-item[aria-current='page'] .sidebar-icon {
+    animation: none;
+  }
+}
+
+/* Tarjeta de pedido nuevo: entra con rebote, late con un halo y la campana suena.
+   `data-urgent` (pedido sin aceptar demasiado tiempo) la pasa a rojo. */
+@keyframes order-pop {
+  0% { opacity: 0; transform: translateX(56px) scale(0.92); }
+  60% { opacity: 1; transform: translateX(-8px) scale(1.02); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes order-glow {
+  0%, 100% { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28), 0 0 0 0 var(--order-glow); }
+  50% { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28), 0 0 34px 8px var(--order-glow); }
+}
+
+@keyframes order-ring {
+  0% { transform: scale(0.7); opacity: 0.55; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+@keyframes order-bell {
+  0%, 60%, 100% { transform: rotate(0); }
+  10%, 30%, 50% { transform: rotate(-18deg); }
+  20%, 40% { transform: rotate(18deg); }
+}
+
+.order-card {
+  --order-glow: color-mix(in srgb, var(--zipp-gold) 50%, transparent);
+  animation: order-pop 0.6s cubic-bezier(0.22, 1.2, 0.36, 1) both, order-glow 1.8s ease-in-out 0.6s infinite;
+}
+
+.order-card[data-urgent] {
+  --order-glow: color-mix(in srgb, var(--color-danger) 60%, transparent);
+  animation: order-pop 0.6s cubic-bezier(0.22, 1.2, 0.36, 1) both, order-glow 0.9s ease-in-out 0.6s infinite;
+}
+
+.order-ring { animation: order-ring 1.8s ease-out infinite; }
+.order-ring-late { animation-delay: 0.9s; }
+.order-bell { transform-origin: 50% 20%; animation: order-bell 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .order-card, .order-card[data-urgent] { animation: none; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28); }
+  .order-ring, .order-bell { animation: none; }
+  .order-ring { display: none; }
+}
+
+/* Filas del tablero de pedidos: entran con un fundido hacia arriba, y la franja
+   del pedido que espera respuesta respira. */
+@keyframes order-row-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes order-stripe-live {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 9px 2px color-mix(in srgb, var(--color-success) 75%, transparent); }
+}
+
+.order-row { animation: order-row-in 0.35s ease-out both; }
+.order-stripe-live { animation: order-stripe-live 1.6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .order-row, .order-stripe-live { animation: none; }
+}
+
 /* Layout Utilities */
 .page-container {
   width: 100%;

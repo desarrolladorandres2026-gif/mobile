@@ -294,6 +294,66 @@ describe('Abrir y cerrar el negocio', () => {
     expect((await setOpen(stranger, false)).status).toBe(403);
   });
 
+  describe('cierre temporal', () => {
+    const close = async (user: any, body: Record<string, unknown>) =>
+      request(app).patch(`/api/v1/businesses/${business._id}/open`).set(await authHeader(user)).send(body);
+
+    it('cerrar por un rato fija la hora de reapertura en el servidor', async () => {
+      const before = Date.now();
+      const res = await close(owner, { isActive: false, closeMinutes: 30 });
+      expect(res.status).toBe(200);
+      const fresh = await Business.findById(business._id);
+      expect(fresh!.isActive).toBe(false);
+      const delta = fresh!.reopenAt!.getTime() - before;
+      expect(delta).toBeGreaterThan(29 * 60_000);
+      expect(delta).toBeLessThan(31 * 60_000);
+    });
+
+    it('abrir a mano borra la reapertura pendiente', async () => {
+      await close(owner, { isActive: false, closeMinutes: 60 });
+      await close(owner, { isActive: true });
+      const fresh = await Business.findById(business._id);
+      expect(fresh!.isActive).toBe(true);
+      expect(fresh!.reopenAt).toBeNull();
+    });
+
+    it('cerrar sin duración deja el cierre indefinido', async () => {
+      await close(owner, { isActive: false, closeMinutes: 60 });
+      await close(owner, { isActive: false });
+      expect((await Business.findById(business._id))!.reopenAt).toBeNull();
+    });
+
+    it('rechaza una duración con el negocio abierto, fuera de rango o no entera', async () => {
+      expect((await close(owner, { isActive: true, closeMinutes: 30 })).status).toBe(400);
+      expect((await close(owner, { isActive: false, closeMinutes: 1 })).status).toBe(400);
+      expect((await close(owner, { isActive: false, closeMinutes: 100_000 })).status).toBe(400);
+      expect((await close(owner, { isActive: false, closeMinutes: 10.5 })).status).toBe(400);
+    });
+
+    it('el barrido reabre solo lo vencido, y no toca archivados ni cierres vigentes', async () => {
+      const [dueOwner, futureOwner, archivedOwner] = await Promise.all(
+        [1, 2, 3].map(() => makeUser({ role: UserRole.BUSINESS }))
+      );
+      const due = await makeBusiness(dueOwner._id);
+      const future = await makeBusiness(futureOwner._id);
+      const archived = await makeBusiness(archivedOwner._id);
+      const past = new Date(Date.now() - 60_000);
+      const later = new Date(Date.now() + 60 * 60_000);
+      await Business.updateOne({ _id: due._id }, { isActive: false, reopenAt: past });
+      await Business.updateOne({ _id: future._id }, { isActive: false, reopenAt: later });
+      await Business.updateOne({ _id: archived._id }, { isActive: false, isArchived: true, reopenAt: past });
+
+      const { businessService } = await import('../services/business.service');
+      expect(await businessService.reopenDue()).toBe(1);
+
+      const reopened = await Business.findById(due._id);
+      expect(reopened!.isActive).toBe(true);
+      expect(reopened!.reopenAt).toBeNull();
+      expect((await Business.findById(future._id))!.isActive).toBe(false);
+      expect((await Business.findById(archived._id))!.isActive).toBe(false);
+    });
+  });
+
   it('el mostrador que cerró anoche sigue viendo el negocio para abrirlo', async () => {
     const staff = await employee(BusinessRole.EMPLOYEE);
     await setOpen(staff, false);

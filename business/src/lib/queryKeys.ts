@@ -9,7 +9,9 @@ export const qk = {
   business: (id: string | undefined) => ['business', id] as const,
   activeOrders: (id: string | undefined) => ['business', id, 'orders', 'active'] as const,
   orders: (id: string | undefined, ...params: unknown[]) => ['business', id, 'orders', ...params] as const,
+  scheduled: (id: string | undefined) => ['business', id, 'orders', 'scheduled'] as const,
   dailySummary: (id: string | undefined, date: string) => ['business', id, 'daily-summary', date] as const,
+  shiftClosings: (id: string | undefined, date: string) => ['business', id, 'shift-closings', date] as const,
   roleSummary: (id: string | undefined) => ['business', id, 'role-summary'] as const,
   statement: (id: string | undefined) => ['business', id, 'statement'] as const,
   documents: (id: string | undefined) => ['business', id, 'documents'] as const,
@@ -21,7 +23,9 @@ export const qk = {
   staff: (id: string | undefined) => ['business', id, 'staff'] as const,
   settings: (id: string | undefined) => ['business', id, 'settings'] as const,
   permissions: (id: string | undefined) => ['business', id, 'permissions'] as const,
+  counterPeople: (id: string | undefined) => ['business', id, 'counter-people'] as const,
   // De la persona y no del local: no cuelgan de `['business', id]`.
   accountSessions: () => ['account', 'sessions'] as const,
+  accountMe: () => ['account', 'me'] as const,
   accountNotifications: () => ['account', 'notifications'] as const,
 };

@@ -1,4 +1,14 @@
 import { create } from 'zustand';
+import { clearCounterState, COUNTER_STORAGE_KEYS, sessionKind } from '../lib/counter';
+
+// Una sesión abierta antes de que el panel arrancara en el mostrador no
+// lleva la marca de tipo: es una sesión completa de dueño y el equipo del
+// local la heredaría tal cual. Se descarta una vez y se vuelve a entrar.
+if (localStorage.getItem('business_token') && !sessionKind()) {
+  for (const key of ['business_user', 'business_token', 'business_refresh_token', 'business_list', 'business_selected']) {
+    localStorage.removeItem(key);
+  }
+}
 
 interface User {
   _id: string;
@@ -26,6 +36,8 @@ interface Business {
   suspensionReason?: string;
   isApproved?: boolean;
   isArchived?: boolean;
+  /** Cierre temporal: hora (ISO) a la que el servidor lo abre solo. */
+  reopenAt?: string | null;
   /** Portada del negocio; también decora el encabezado de cada página. */
   coverImage?: string | null;
 }
@@ -131,6 +143,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.removeItem('business_refresh_token');
     localStorage.removeItem('business_list');
     localStorage.removeItem('business_selected');
+    clearCounterState();
     set({ user: null, token: null, refreshToken: null, businesses: [], selectedBusiness: null, isAuthenticated: false, businessesLoaded: false });
   },
 }));
@@ -143,6 +156,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
  * arrancó y lo presentaba ya rotado (ver `lib/session.ts`).
  */
 window.addEventListener('storage', (event) => {
+  // Otra pestaña subió a responsable o volvió al mostrador: esta tiene en
+  // caché lo de la identidad anterior (dinero incluido). Se recarga entera.
+  if ((COUNTER_STORAGE_KEYS as readonly string[]).includes(event.key ?? '')) {
+    if (localStorage.getItem('business_token')) window.location.reload();
+    return;
+  }
   if (event.key !== 'business_token' && event.key !== 'business_refresh_token') return;
   const state = useAuthStore.getState();
   const token = localStorage.getItem('business_token');

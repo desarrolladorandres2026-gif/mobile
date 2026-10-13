@@ -37,6 +37,7 @@ const KIND_ROUTE: Record<string, string> = {
  refund_failed: '/financials',
  payment_review: '/incidents',
  order_unaccepted: '/orders',
+ refund_requested: '/incidents',
  complaint: '/support',
  pqrs_legal: '/support',
  data_request_legal: '/legal',

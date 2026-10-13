@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/authStore';
 import { getDeviceId } from './deviceId';
 import { createRefresher, decodeJwtPayload, needsRefresh, SessionEndedError } from './sessionCore';
 import { desktopReportStatus } from './desktop';
+import { isElevated, restoreCounter } from './counter';
 
 export { SessionEndedError };
 
@@ -74,12 +75,49 @@ export const ensureFreshToken = createRefresher({
 
 /** Cierra la sesión en esta pestaña y lleva al inicio de sesión. */
 export function endSession() {
+  // Lo que caducó fue la entrada del responsable (15 min sin uso, PIN
+  // cambiado, revocada): el mostrador sigue abierto debajo y se vuelve a él.
+  // Si el mostrador tampoco vive, su primera petición caerá aquí de nuevo ya
+  // sin nada guardado, y entonces sí se cierra todo.
+  if (isElevated() && restoreCounter()) {
+    window.location.href = '/';
+    return;
+  }
   // En Zipp Negocios esto es la señal de "nadie está recibiendo pedidos":
   // el contenedor pasa la ventana al frente y avisa, en vez de quedarse
   // mostrando la pantalla de login en segundo plano sin que nadie lo note.
   desktopReportStatus({ connection: 'offline', session: 'ended', storeOpen: false, quiet: true });
   useAuthStore.getState().logout();
   window.location.href = '/login';
+}
+
+/**
+ * Cierra en el servidor lo que este equipo tiene abierto: la sesión activa
+ * y, si se estaba como responsable, también la del mostrador guardada
+ * (cerrarla corta además cualquier entrada con PIN hecha sobre ella).
+ * Sin esto "Cerrar sesión" solo borraba el navegador y los tokens seguían
+ * vivos 7 días para quien los hubiera copiado. No espera ni falla: la
+ * salida local no depende de que el servidor responda.
+ */
+export function revokeServerSessions(): void {
+  const pairs: Array<[string | null, string | null]> = [
+    [localStorage.getItem('business_token'), localStorage.getItem('business_refresh_token')],
+  ];
+  try {
+    const stash = JSON.parse(localStorage.getItem('business_counter_stash') || 'null');
+    if (stash?.token) pairs.push([stash.token, stash.refreshToken]);
+  } catch {
+    /* sin mostrador guardado */
+  }
+  for (const [access, refresh] of pairs) {
+    if (!access) continue;
+    void axios
+      .post(`${API_BASE}/auth/logout`, { refreshToken: refresh ?? undefined }, {
+        headers: { Authorization: `Bearer ${access}`, 'X-Device-ID': getDeviceId() },
+        timeout: 8_000,
+      })
+      .catch(() => undefined);
+  }
 }
 
 /** Lo más reciente que hay guardado: mejor que la copia en memoria de esta pestaña. */

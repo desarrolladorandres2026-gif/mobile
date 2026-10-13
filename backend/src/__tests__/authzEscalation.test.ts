@@ -232,7 +232,11 @@ describe('Modo del flag rbac_enforce (MEDIO 4)', () => {
 describe('Sockets se recalculan (MEDIO 5)', () => {
   function fakeIO() {
     const disconnectSockets = vi.fn();
-    const io = { in: vi.fn().mockReturnValue({ disconnectSockets }) };
+    const io = {
+      in: vi.fn().mockReturnValue({ disconnectSockets }),
+      // announceChange() emite con timer diferido: sin `to` explota tras terminar el test.
+      to: vi.fn().mockReturnValue({ emit: vi.fn() }),
+    };
     vi.spyOn(emitter, 'getIO').mockReturnValue(io as any);
     return { io, disconnectSockets };
   }

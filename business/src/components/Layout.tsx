@@ -1,7 +1,7 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
-  AlertCircle, LogOut, Menu, X,
-  ChevronDown, ArrowLeft, ArrowRight, Home
+  AlertCircle, LogOut,
+  ChevronDown
 } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
@@ -9,33 +9,34 @@ import { useAuthStore } from '../stores/authStore';
 import ConfirmDialog from './ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
 import OrderNotifications from './OrderNotifications';
-import ConnectionStatus from './ConnectionStatus';
 import DocumentExpiryNotice from './DocumentExpiryNotice';
 import NewDeviceNotice from './NewDeviceNotice';
-import { ZippMark } from './ZippMark';
 import { preloadOn } from '../lib/lazyPage';
 import { onDesktopCloseStoreRequest, takePendingDesktopCrashReport, clearDesktopCrashReport } from '../lib/desktop';
 import { usePermissions } from '../hooks/usePermissions';
-import { canSee, homeFor, ROLE_LABELS } from '../lib/permissions';
+import { canSee, homeFor } from '../lib/permissions';
 import PendingInvitations from './PendingInvitations';
+import CounterSwitch from './CounterSwitch';
+import StoreStatusButton from './StoreStatusButton';
+import ThemeButton from './ThemeButton';
+import { revokeServerSessions } from '../lib/session';
+import { useSupportAttention } from '../hooks/useSupportAttention';
 import {
-  CalendarLtrRegular, BoxRegular, WalletRegular,
+  CalendarLtrRegular, CalendarClockRegular, BoxRegular, WalletRegular,
   FoodRegular, TagRegular, MegaphoneRegular, StarRegular,
   PeopleRegular, DocumentRegular, ChatRegular, SettingsRegular,
 } from '@fluentui/react-icons';
 
 /**
- * En escritorio la barra es una columna de iconos de 64 px y se abre sobre la
- * página al pasar el cursor o enfocar con teclado, sin empujar el contenido.
- * Las etiquetas se ocultan con `hidden` (no con opacidad) para que no queden
- * en el orden de tabulación ni en el lector de pantalla mientras no se ven:
- * cada enlace conserva su `aria-label`.
+ * La barra está siempre en pantalla, sea cual sea el ancho: una columna fija
+ * de icono con su título debajo (80 px en teléfono, 96 px desde `sm`). No hay
+ * cajón ni botón de menú: el panel se opera con ella a la vista.
  */
-const railLabel = 'lg:hidden lg:group-hover:inline lg:group-focus-within:inline';
 
 const nav = [
   { path: '/', Icon: CalendarLtrRegular, label: 'Resumen del día' },
   { path: '/orders', Icon: BoxRegular, label: 'Pedidos' },
+  { path: '/scheduled', Icon: CalendarClockRegular, label: 'Programados' },
   { path: '/settlements', Icon: WalletRegular, label: 'Liquidaciones' },
   { path: '/menu', Icon: FoodRegular, label: 'Menú & Catálogo' },
   { path: '/promotions', Icon: TagRegular, label: 'Promociones' },
@@ -55,14 +56,13 @@ export default function Layout() {
   const setSelectedBusiness = useAuthStore((s) => s.setSelectedBusiness);
   const setBusinesses = useAuthStore((s) => s.setBusinesses);
   const logout = useAuthStore((s) => s.logout);
-  const user = useAuthStore((s) => s.user);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [businessesError, setBusinessesError] = useState('');
   const [pausing, setPausing] = useState(false);
   const [pauseError, setPauseError] = useState('');
   const [loadingBusinesses, setLoadingBusinesses] = useState(false);
   const { access, can } = usePermissions(selectedBusiness?._id);
+  const supportWaiting = useSupportAttention(selectedBusiness?._id);
   const visibleNav = nav.filter((item) => canSee(item.path, access));
 
   // Un empleado que cae en una sección del dueño (la portada es el resumen
@@ -85,17 +85,24 @@ export default function Layout() {
    */
   const isStoreOpen = selectedBusiness?.isActive !== false;
 
-  const setStoreOpen = async (next: boolean) => {
+  const setStoreOpen = async (next: boolean, closeMinutes?: number) => {
     if (!selectedBusiness || pausing) return;
     setPausing(true);
     setPauseError('');
     try {
       // Endpoint propio: lo usan también el encargado y el mostrador, que no
       // pueden pasar por el PUT del perfil.
-      const { data } = await api.patch(`/businesses/${selectedBusiness._id}/open`, { isActive: next });
+      const { data } = await api.patch(`/businesses/${selectedBusiness._id}/open`, {
+        isActive: next,
+        ...(closeMinutes ? { closeMinutes } : {}),
+      });
       // Se refleja lo que respondió el servidor, no lo que se pidió: si la
       // escritura no cuajó, el interruptor no debe mentir.
-      setSelectedBusiness({ ...selectedBusiness, isActive: data.data?.isActive ?? next });
+      setSelectedBusiness({
+        ...selectedBusiness,
+        isActive: data.data?.isActive ?? next,
+        reopenAt: data.data?.reopenAt ?? null,
+      });
     } catch (err) {
       setPauseError(apiMessage(err, 'No pudimos cambiar el estado del local.'));
     } finally {
@@ -103,13 +110,13 @@ export default function Layout() {
     }
   };
 
-  const toggleStore = () => setStoreOpen(!isStoreOpen);
-
   // Zipp Negocios pide cerrar el negocio antes de salir ("Cerrar el negocio
   // y salir" de la bandeja). Si ya estaba cerrado no hay nada que hacer —
   // y sobre todo, no hay que "abrirlo" por error llamando a toggle.
   useEffect(() => onDesktopCloseStoreRequest(() => {
     if (isStoreOpen) return setStoreOpen(false);
+    // setStoreOpen cierra sobre selectedBusiness (ya en deps): no es estable y resuscribiría en cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [isStoreOpen, selectedBusiness]);
 
   // Si Zipp Negocios se cayó o se congeló antes de esta carga, el
@@ -158,12 +165,23 @@ export default function Layout() {
 
   useEffect(() => { loadBusinesses(); }, [loadBusinesses]);
 
+  // El servidor reabre el local solo cuando vence el cierre temporal; este
+  // panel se entera volviendo a pedir la lista justo después de esa hora.
+  const reopenAt = selectedBusiness?.isActive === false ? selectedBusiness.reopenAt : null;
+  useEffect(() => {
+    if (!reopenAt) return;
+    const wait = Math.max(new Date(reopenAt).getTime() - Date.now(), 0) + 65_000;
+    const timer = window.setTimeout(loadBusinesses, wait);
+    return () => window.clearTimeout(timer);
+  }, [reopenAt, loadBusinesses]);
+
   const handleBusinessChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const found = businesses.find((b) => b._id === e.target.value);
     if (found) setSelectedBusiness(found);
   };
 
   const handleLogout = () => {
+    revokeServerSessions();
     logout();
     navigate('/login');
   };
@@ -171,38 +189,26 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-[var(--color-bg)] text-[var(--color-text-main)] overflow-hidden font-sans">
-      {/* ── Barra lateral: columna de iconos en escritorio, cajón en móvil ── */}
-      <div className="contents lg:block lg:relative lg:w-16 lg:shrink-0 lg:z-50">
-      <aside className={`
-        business-sidebar group fixed inset-y-0 left-0 z-50 w-52 bg-[var(--color-surface)] border-r border-[var(--color-border)] flex flex-col
-        transform transition-[transform,width] duration-200 ease-out
-        lg:translate-x-0 lg:absolute lg:inset-y-0 lg:w-16 lg:hover:w-52 lg:focus-within:w-52 lg:overflow-hidden
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
+      {/* ── Barra lateral: columna fija de iconos con su título debajo ── */}
+      <aside className="business-sidebar relative z-50 flex h-full w-20 sm:w-24 shrink-0 flex-col overflow-hidden bg-[var(--zipp-obsidian)] border-r border-white/10 rounded-r-3xl">
         {/* Marca */}
-        <div className="h-12 shrink-0 border-b border-[var(--color-border)] flex items-center gap-2 px-4 lg:pl-[22px]">
-          <ZippMark size={20} />
-          <span className={`text-sm font-semibold text-[var(--color-text-main)] ${railLabel}`}>ZIPP</span>
-          <span className={`text-sm text-[var(--color-text-secondary)] ${railLabel}`}>Negocios</span>
-          <button
-            aria-label="Cerrar menú"
-            className="ml-auto p-1 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] lg:hidden cursor-pointer"
-            onClick={() => setSidebarOpen(false)}
-          >
-            <X className="w-4 h-4" />
-          </button>
+        <div className="h-16 shrink-0 flex items-center px-2">
+          {/* Marca en oro: es el único ancla de color de la barra. */}
+          <span className="grid h-10 w-full place-items-center rounded-xl bg-[var(--zipp-gold)] text-sm sm:text-base font-black tracking-tight text-[var(--zipp-obsidian)]">
+            ZIPP
+          </span>
         </div>
 
-        {/* Local activo y estado: lo que el comercio mira antes de operar. */}
-        <div className="px-3 py-3 space-y-2 border-b border-[var(--color-border)]">
-          {businesses.length > 0 && (
-            <div className="relative lg:hidden lg:group-hover:block lg:group-focus-within:block">
+        {/* Local activo: solo se elige cuando hay más de uno. */}
+        {businesses.length > 1 && (
+          <div className="px-2 py-2">
+            <div className="relative">
               <select
                 value={selectedBusiness?._id || ''}
                 onChange={handleBusinessChange}
                 aria-label="Seleccionar establecimiento"
                 title={selectedBusiness?.name || 'Seleccionar establecimiento'}
-                className="w-full h-8 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md pl-2.5 pr-7 text-xs font-medium text-[var(--color-text-main)] focus:outline-none focus:border-[var(--color-primary)] cursor-pointer appearance-none truncate"
+                className="w-full h-8 bg-[var(--zipp-obsidian)] border border-white/20 rounded-md pl-2 pr-5 text-xs font-medium text-white focus:outline-none focus:border-[var(--color-primary)] cursor-pointer appearance-none truncate"
               >
                 {businesses.map((bus) => (
                   <option key={bus._id} value={bus._id}>
@@ -210,67 +216,14 @@ export default function Layout() {
                   </option>
                 ))}
               </select>
-              <ChevronDown className="w-3.5 h-3.5 text-[var(--color-text-secondary)] absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-white/70 absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
-          )}
-
-          <div className="flex items-center justify-between gap-2">
-            <button
-              onClick={toggleStore}
-              disabled={pausing || !selectedBusiness || !can('store:toggle')}
-              aria-pressed={isStoreOpen}
-              title={
-                isStoreOpen
-                  ? 'Tu local está recibiendo pedidos. Púlsalo para dejar de recibirlos.'
-                  : 'Tu local no recibe pedidos. Púlsalo para volver a abrir.'
-              }
-              className={`flex items-center gap-1.5 text-xs font-medium cursor-pointer disabled:opacity-60 disabled:cursor-wait lg:pl-1 ${
-                isStoreOpen ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'
-              }`}
-            >
-              <span
-                className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                  isStoreOpen ? 'bg-[var(--color-success)]' : 'bg-[var(--color-danger)]'
-                }`}
-              />
-              <span className={railLabel}>{pausing ? 'Guardando…' : isStoreOpen ? 'Abierto' : 'Cerrado'}</span>
-            </button>
           </div>
-
-          {/* Aunque el dueño lo tenga "Abierto", una suspensión de ZIPP o la
-              falta de aprobación dejan el local sin pedidos: hay que decirlo. */}
-          {selectedBusiness?.isSuspended ? (
-            <p className="sr-only">
-              ZIPP suspendió este local
-              {selectedBusiness.suspensionReason ? `: ${selectedBusiness.suspensionReason}` : ''}. No
-              recibe pedidos hasta que soporte levante la suspensión.
-            </p>
-          ) : selectedBusiness && selectedBusiness.isApproved === false ? (
-            <p className="sr-only">
-              Tu local aún no está aprobado: los clientes no lo ven hasta que
-              ZIPP revise tus documentos.
-            </p>
-          ) : null}
-
-          {!isStoreOpen && !pauseError && !selectedBusiness?.isSuspended && (
-            <p className="sr-only">
-              No estás recibiendo pedidos nuevos. Los que ya tienes en cocina
-              siguen su curso.
-            </p>
-          )}
-
-          {/* El error sí se ve: con el aviso oculto, un Abierto/Cerrado que no
-              cuajó no dejaba ninguna señal y el comercio creía haber cerrado. */}
-          {pauseError && (
-            <p role="alert" className="text-xs leading-snug text-[var(--color-danger)]">
-              {pauseError}
-            </p>
-          )}
-        </div>
+        )}
 
         {/* Navegación */}
-        <nav aria-label="Navegación principal" className="flex-1 overflow-y-auto business-sidebar-scroll py-2 px-2">
-          <div className="flex flex-col gap-px">
+        <nav aria-label="Navegación principal" className="flex-1 flex flex-col overflow-y-auto business-sidebar-scroll py-2 px-2">
+          <div className="flex flex-1 flex-col gap-1">
             {visibleNav.map((item) => {
               const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
               return (
@@ -278,20 +231,25 @@ export default function Layout() {
                   key={item.path}
                   to={item.path}
                   end={item.path === '/'}
-                  onClick={() => setSidebarOpen(false)}
                   {...preloadOn(item.path)}
                   title={item.label}
                   aria-label={item.label}
-                  className={`relative flex items-center gap-2.5 h-10 lg:h-11 px-2.5 rounded-md text-[13px] ${isActive
-                      ? 'bg-[var(--color-surface-hover)] text-[var(--color-text-main)] font-semibold'
-                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)]'
+                  className={`sidebar-item relative flex flex-1 items-center min-h-[64px] sm:min-h-[84px] rounded-xl ${isActive
+                      ? 'bg-[color-mix(in_srgb,var(--zipp-gold)_24%,transparent)] text-white font-semibold'
+                      : 'text-white hover:bg-white/10'
                     }`}
                 >
-                  {isActive && (
-                    <span aria-hidden className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--color-primary)]" />
-                  )}
-                  <item.Icon fontSize={22} className="shrink-0" />
-                  <span className={`truncate ${railLabel}`}>{item.label}</span>
+                  <span className="flex w-full min-w-0 flex-col items-center justify-center gap-1 text-center">
+                    <item.Icon className="sidebar-icon shrink-0 text-[26px] sm:text-[30px]" />
+                    {item.path === '/support' && supportWaiting > 0 && (
+                      <span
+                        className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-[var(--color-primary)]"
+                        role="status"
+                        aria-label={supportWaiting === 1 ? 'Una respuesta nueva de Soporte' : `${supportWaiting} respuestas nuevas de Soporte`}
+                      />
+                    )}
+                    <span className="w-full px-0.5 text-[10px] sm:text-xs font-medium leading-tight line-clamp-2 break-words">{item.label}</span>
+                  </span>
                 </NavLink>
               );
             })}
@@ -299,81 +257,42 @@ export default function Layout() {
         </nav>
 
         {/* Pie */}
-        <div className="px-2 py-2 border-t border-[var(--color-border)]">
-          <button
-            onClick={() => { setSidebarOpen(false); setShowLogoutModal(true); }}
-            title="Cerrar sesión"
-            aria-label="Cerrar sesión"
-            className="flex items-center gap-2.5 w-full h-10 lg:h-11 px-2.5 rounded-md text-[13px] text-[var(--color-text-secondary)] hover:text-[var(--color-danger)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
-          >
-            <LogOut className="w-[22px] h-[22px] shrink-0" strokeWidth={1.8} />
-            <span className={railLabel}>Cerrar sesión</span>
-          </button>
+        <div className="px-2 py-2 border-t border-white/10">
+          {/* El error sí se ve: con el aviso oculto, un Abierto/Cerrado que no
+              cuajó no dejaba ninguna señal y el comercio creía haber cerrado. */}
+          {pauseError && (
+            <p role="alert" className="mb-2 text-xs leading-snug text-[var(--color-danger)]">
+              {pauseError}
+            </p>
+          )}
+          {/* Tres partes iguales y discretas: salir, tema y abrir/cerrar el local. */}
+          <div className="flex">
+            <button
+              onClick={() => setShowLogoutModal(true)}
+              title="Cerrar sesión"
+              aria-label="Cerrar sesión"
+              className="grid h-14 flex-1 place-items-center rounded-xl text-white hover:text-[var(--color-danger)] hover:bg-white/10 cursor-pointer"
+            >
+              <LogOut className="w-5 h-5" strokeWidth={1.8} />
+            </button>
+            <ThemeButton />
+            <StoreStatusButton
+              compact
+              business={selectedBusiness}
+              busy={pausing}
+              canToggle={can('store:toggle')}
+              onSetOpen={setStoreOpen}
+            />
+          </div>
         </div>
       </aside>
-      </div>
-
-      {/* Mobile overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
 
       {/* ── Main Content Area ── */}
       <main className="flex-1 overflow-y-auto flex flex-col min-w-0 bg-[var(--color-bg)]">
         <OrderNotifications />
-        {/* Barra superior: navegación del historial (Zipp Negocios no tiene la
-            del navegador), conexión y la cuenta activa. */}
-        <header className="sticky top-0 z-30 h-12 bg-[var(--color-surface)] border-b border-[var(--color-border)] px-3 sm:px-5 flex items-center gap-1">
-          <button
-            aria-label="Abrir menú"
-            className="lg:hidden grid w-8 h-8 place-items-center rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
-            onClick={() => setSidebarOpen(true)}
-          >
-            <Menu className="w-4 h-4" />
-          </button>
-          <button aria-label="Página anterior" title="Atrás" onClick={() => navigate(-1)} className="hidden sm:grid w-8 h-8 place-items-center rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer">
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <button aria-label="Página siguiente" title="Adelante" onClick={() => navigate(1)} className="hidden sm:grid w-8 h-8 place-items-center rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer">
-            <ArrowRight className="w-4 h-4" />
-          </button>
-          <button aria-label="Ir al inicio" title="Inicio" onClick={() => navigate('/')} className="grid w-8 h-8 place-items-center rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer">
-            <Home className="w-4 h-4" />
-          </button>
-
-          {/* Acciones de la cuenta */}
-          <div className="ml-auto flex items-center gap-4 shrink-0">
-            <ConnectionStatus />
-            {/* Quién está conectado y con qué papel: con varias personas en el
-                mismo PC del mostrador, saber en qué cuenta se está evita
-                que alguien opere con la sesión de otro sin darse cuenta. */}
-            <button
-              type="button"
-              onClick={() => navigate(canSee('/settings', access) ? '/settings' : '/security')}
-              title={canSee('/settings', access) ? 'Ver perfil del negocio' : 'Ver la seguridad de tu cuenta'}
-              aria-label={canSee('/settings', access) ? 'Ver perfil del negocio' : 'Ver la seguridad de tu cuenta'}
-              className="flex items-center gap-2 h-8 pl-1 pr-2 rounded-md hover:bg-[var(--color-surface-hover)] cursor-pointer"
-            >
-              <span className="w-6 h-6 rounded-md bg-[var(--color-bg-alt)] border border-[var(--color-border)] grid place-items-center text-xs font-semibold text-[var(--color-text-main)]">
-                {selectedBusiness?.name?.charAt(0) || 'N'}
-              </span>
-              <span className="text-left hidden sm:block max-w-56 leading-tight">
-                <span className="block text-xs font-medium text-[var(--color-text-main)] truncate">{selectedBusiness?.name || 'Comercio'}</span>
-                <span className="block text-[11px] text-[var(--color-text-secondary)] truncate">
-                  {user?.name || 'Tu cuenta'}
-                  {access?.role ? ` · ${ROLE_LABELS[access.role]}` : ''}
-                </span>
-              </span>
-            </button>
-          </div>
-        </header>
-
         {/* Page Outlet */}
-        <div className="px-5 py-5 lg:px-8 lg:py-6 flex-1">
-          <div className="page-container space-y-5">
+        <div className="px-3 py-4 sm:px-5 sm:py-5 lg:px-8 lg:py-6 flex-1 flex flex-col">
+          <div className="page-container flex-1 flex flex-col gap-5">
             {businessesError && (
               <div role="alert" className="border-l-2 border-[var(--color-danger)] pl-3 text-[var(--color-danger)] text-xs flex items-start gap-3">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -420,6 +339,8 @@ export default function Layout() {
           </div>
         </div>
       </main>
+
+      <CounterSwitch />
 
       {showLogoutModal && (
         <ConfirmDialog

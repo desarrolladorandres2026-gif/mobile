@@ -7,6 +7,7 @@ import { useAuthStore } from '../stores/authStore';
 import { apiErrorCode, apiMessage } from '../lib/apiError';
 import AuthenticatorMark from '../components/AuthenticatorMark';
 import { deviceHeaders, getDeviceId } from '../lib/deviceId';
+import { markCounterSession } from '../lib/counter';
 
 const fieldClass =
   'w-full h-12 bg-transparent border-0 border-b border-[var(--color-border-strong)] px-0 text-sm text-[var(--color-text-main)] placeholder:text-[var(--color-text-main)]/45 focus:border-[var(--color-primary)] outline-none transition-colors';
@@ -50,6 +51,7 @@ export default function Login() {
   /** Abre la sesión y carga los locales. Devuelve false si la cuenta no es de comercio. */
   const startSession = async ({ user, accessToken, refreshToken }: SessionPayload): Promise<boolean> => {
     if (user.role !== 'business') return false;
+    markCounterSession();
     setAuth(user, accessToken, refreshToken);
 
     try {
@@ -79,7 +81,10 @@ export default function Login() {
     try {
       const { data } = await axios.post(
         authUrl('/auth/login'),
-        { email: email.trim().toLowerCase(), password, deviceId: getDeviceId() },
+        // Siempre el mostrador (decisión 2026-10-13): el backend topa esta
+        // sesión al papel Empleado. Dinero, equipo y ajustes se abren
+        // después con "Entrar como responsable" (ver CounterSwitch).
+        { email: email.trim().toLowerCase(), password, deviceId: getDeviceId(), surface: 'business-counter' },
         { headers: deviceHeaders() }
       );
 
@@ -149,7 +154,7 @@ export default function Login() {
         <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-main)]/70">
           {challengeToken
             ? `${mfaName ? `${mfaName.split(' ')[0]}, tu` : 'Tu'} cuenta está protegida, por eso te pediremos el código de Google Authenticator.`
-            : 'Ingresa con la cuenta registrada de tu negocio.'}
+            : 'Ingresa con la cuenta de tu negocio. Entrarás al mostrador; el administrador o el representante legal abre lo demás con su PIN.'}
         </p>
         <div className="mt-6 h-px bg-[var(--color-border)]" />
 

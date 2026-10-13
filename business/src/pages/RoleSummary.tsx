@@ -6,7 +6,10 @@ import { qk } from '../lib/queryKeys';
 import { money } from '../lib/orderFlow';
 import { apiMessage } from '../lib/apiError';
 import { useAuthStore } from '../stores/authStore';
-import SummaryGrid, { type SummaryItem } from '../components/SummaryGrid';
+import BigStats from '../components/BigStats';
+import type { SummaryItem } from '../components/SummaryGrid';
+import { usePermissions } from '../hooks/usePermissions';
+import { CloseRegisterButton, ShiftClosingsList } from '../components/ShiftClosings';
 
 /**
  * La portada de quien no es el dueño.
@@ -40,6 +43,13 @@ interface OperationalDay {
   lowRatingsCount: number;
 }
 
+/** Lo que quien está en el mostrador tiene que tener presente. */
+interface Attention {
+  oldestPendingMinutes: number | null;
+  scheduled: { today: number; next: string | null };
+  unavailable: { count: number; names: string[] };
+}
+
 type RoleSummaryData =
   | {
       kind: 'operations';
@@ -55,6 +65,7 @@ type RoleSummaryData =
       kind: 'shift';
       date: string;
       generatedAt: string;
+      attention: Attention;
       queue: Queue;
       ordersDelivered: number;
       ordersCancelled: number;
@@ -67,6 +78,7 @@ type RoleSummaryData =
       kind: 'kitchen';
       date: string;
       generatedAt: string;
+      attention: Attention;
       queue: Queue;
       ordersDelivered: number;
       ordersCancelled: number;
@@ -86,7 +98,7 @@ const TITLES: Record<RoleSummaryData['kind'], { title: string; subtitle: string 
     subtitle: 'Cómo va la operación hoy. Liquidaciones y neto los ve el propietario.',
   },
   shift: {
-    title: 'Ventas del turno',
+    title: 'Resumen del día',
     subtitle: 'Lo vendido hoy en productos, sin domicilio ni propina, y lo que sigue abierto.',
   },
   kitchen: {
@@ -95,12 +107,72 @@ const TITLES: Record<RoleSummaryData['kind'], { title: string; subtitle: string 
   },
 };
 
-function queueItems(queue: Queue): SummaryItem[] {
+/** A partir de cuántos minutos un pedido nuevo sin aceptar ya es una queja en camino. */
+const LATE_PENDING_MINUTES = 5;
+
+function queueItems(queue: Queue, attention?: Attention): SummaryItem[] {
+  const wait = attention?.oldestPendingMinutes;
   return [
-    { label: 'Nuevos', value: num(queue.pending), strong: queue.pending > 0 },
-    { label: 'Preparando', value: num(queue.preparing) },
-    { label: 'Listos', value: num(queue.ready) },
-    { label: 'En camino', value: num(queue.onTheWay) },
+    {
+      label: 'Nuevos',
+      value: num(queue.pending),
+      // Dorado mientras hay nuevos; rojo cuando el más viejo ya espera demasiado.
+      strong: queue.pending > 0,
+      alert: wait != null && wait >= LATE_PENDING_MINUTES,
+      hint: attention ? (wait == null ? 'Nada por aceptar' : `El más antiguo espera ${wait} min`) : undefined,
+      to: '/orders',
+    },
+    { label: 'Preparando', value: num(queue.preparing), to: '/orders' },
+    {
+      label: 'Listos',
+      value: num(queue.ready),
+      hint: attention && queue.ready > 0 ? 'Esperando al domiciliario' : undefined,
+      to: '/orders',
+    },
+    { label: 'En camino', value: num(queue.onTheWay), to: '/orders' },
+  ];
+}
+
+const clockFmt = new Intl.DateTimeFormat('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+/** "3:40 pm", y con el día cuando no es hoy: "mié 3:40 pm". */
+function when(iso: string): string {
+  const at = new Date(iso);
+  const sameDay = at.toDateString() === new Date().toDateString();
+  return sameDay ? clockFmt.format(at) : `${at.toLocaleDateString('es-CO', { weekday: 'short' })} ${clockFmt.format(at)}`;
+}
+
+/** Lo que conviene tener a la vista además de la cola: programados, agotados y si el local recibe pedidos. */
+function presentItems(attention: Attention, store: { isActive?: boolean; isSuspended?: boolean; reopenAt?: string | null } | null): SummaryItem[] {
+  const { scheduled, unavailable } = attention;
+  const shown = unavailable.names.join(', ');
+  const hidden = unavailable.count - unavailable.names.length;
+
+  let local = { value: 'Abierto', hint: 'Recibiendo pedidos', alert: false };
+  if (store?.isSuspended) local = { value: 'Suspendido', hint: 'ZIPP lo suspendió: no recibe pedidos', alert: true };
+  else if (store?.isActive === false) {
+    local = {
+      value: 'Cerrado',
+      hint: store.reopenAt ? `Se abre solo a las ${clockFmt.format(new Date(store.reopenAt))}` : 'No recibe pedidos',
+      alert: true,
+    };
+  }
+
+  return [
+    {
+      label: 'Programados',
+      value: scheduled.today > 0 ? `${num(scheduled.today)} hoy` : 'Ninguno hoy',
+      hint: scheduled.next ? `Próximo: ${when(scheduled.next)}` : 'Nada en espera',
+      to: '/scheduled',
+    },
+    {
+      label: 'Agotados',
+      value: num(unavailable.count),
+      hint: unavailable.count === 0 ? 'Todo disponible' : `${shown}${hidden > 0 ? ` y ${hidden} más` : ''}`,
+      alert: unavailable.count > 0,
+      to: '/menu',
+    },
+    { label: 'Local', value: local.value, hint: local.hint, alert: local.alert },
   ];
 }
 
@@ -109,6 +181,8 @@ const vsLastWeek = (value: string) => `Hace una semana: ${value}`;
 
 export default function RoleSummary() {
   const businessId = useAuthStore((s) => s.selectedBusiness?._id);
+  const { can } = usePermissions(businessId);
+  const store = useAuthStore((s) => s.selectedBusiness);
 
   const query = useQuery({
     queryKey: qk.roleSummary(businessId),
@@ -131,8 +205,8 @@ export default function RoleSummary() {
   const heading = data ? TITLES[data.kind] : { title: 'Resumen del día', subtitle: '' };
 
   return (
-    <div className="space-y-6">
-      <div className="page-header">
+    <div className="flex flex-1 flex-col gap-6">
+      <div className="page-header !mb-0">
         <div>
           <h1 className="page-title">{heading.title}</h1>
           <p className="page-subtitle">
@@ -140,6 +214,9 @@ export default function RoleSummary() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {data?.kind === 'shift' && can('shift:close') && (
+            <CloseRegisterButton businessId={businessId} date={data.date} />
+          )}
           <button
             onClick={() => query.refetch()}
             disabled={query.isFetching}
@@ -166,18 +243,25 @@ export default function RoleSummary() {
       )}
 
       {!data ? (
-        query.isPending && <SummaryGrid items={queueItems({ pending: 0, preparing: 0, ready: 0, onTheWay: 0 }).map((i) => ({ ...i, loading: true }))} />
+        query.isPending && <BigStats items={queueItems({ pending: 0, preparing: 0, ready: 0, onTheWay: 0 }).map((i) => ({ ...i, loading: true }))} />
       ) : (
         <>
-          <section className="space-y-2">
+          <section className="flex flex-1 flex-col">
             <h2 className="col-title">Pedidos abiertos ahora</h2>
-            <SummaryGrid items={queueItems(data.queue)} />
+            <BigStats items={queueItems(data.queue, data.kind === 'operations' ? undefined : data.attention)} />
           </section>
 
+          {data.kind !== 'operations' && (
+            <section className="flex flex-1 flex-col">
+              <h2 className="col-title">Tenlo presente</h2>
+              <BigStats items={presentItems(data.attention, store)} />
+            </section>
+          )}
+
           {data.kind === 'kitchen' && (
-            <section className="space-y-2">
+            <section className="flex flex-1 flex-col">
               <h2 className="col-title">Cerrados hoy</h2>
-              <SummaryGrid
+              <BigStats
                 items={[
                   { label: 'Completados', value: num(data.ordersDelivered) },
                   { label: 'Cancelados', value: num(data.ordersCancelled) },
@@ -187,9 +271,9 @@ export default function RoleSummary() {
           )}
 
           {data.kind === 'shift' && (
-            <section className="space-y-2">
+            <section className="flex flex-1 flex-col">
               <h2 className="col-title">Ventas de hoy</h2>
-              <SummaryGrid
+              <BigStats
                 items={[
                   { label: 'Vendido', value: money(data.sales), hint: plural(data.ordersDelivered, 'pedido entregado', 'pedidos entregados'), strong: true },
                   ...data.byPaymentMethod.map((row) => ({
@@ -201,14 +285,15 @@ export default function RoleSummary() {
                   { label: 'Cancelados', value: num(data.ordersCancelled) },
                 ]}
               />
+              <ShiftClosingsList businessId={businessId} date={data.date} />
             </section>
           )}
 
           {data.kind === 'operations' && (
             <>
-              <section className="space-y-2">
+              <section className="flex flex-1 flex-col">
                 <h2 className="col-title">El día</h2>
-                <SummaryGrid
+                <BigStats
                   items={[
                     { label: 'Recibidos', value: num(data.today.ordersCreated), hint: vsLastWeek(num(data.baseline.ordersCreated)) },
                     { label: 'Entregados', value: num(data.today.ordersDelivered), hint: vsLastWeek(num(data.baseline.ordersDelivered)) },

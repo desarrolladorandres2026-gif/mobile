@@ -141,6 +141,10 @@ export const signedMoney = (value: number | null | undefined): string => {
 
 export const shortId = (id: string): string => `#${id.slice(-8).toUpperCase()}`;
 
+/** Cómo se nombra un pedido en pantalla: siempre con "#" delante, con su número o, si falta, el id corto. */
+export const orderTag = (order: { orderNumber?: string | null; _id: string }): string =>
+  order.orderNumber ? `#${order.orderNumber}` : shortId(order._id);
+
 export const dateTime = (value: string | Date | null | undefined): string => {
   if (!value) return '—';
   return new Date(value).toLocaleString('es-CO', {
@@ -269,6 +273,8 @@ export interface BusinessOrder {
   paymentStatus?: string;
   /** Cuándo pasó a ser del comercio un pedido programado. */
   scheduledActivatedAt?: string | null;
+  /** Hora de entrega pedida por el cliente, si programó el pedido. */
+  scheduledFor?: string | null;
   cancelledBy?: 'client' | 'business' | 'driver' | 'admin' | 'system';
   subtotal: number;
   total: number;

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { GripVertical } from 'lucide-react';
+import { Banknote, Clock3, CreditCard, GripVertical, StickyNote } from 'lucide-react';
 import PickupHandoff from './PickupHandoff';
 import {
-  ACTIVE_STATUSES, ORDER_STATUS, money, shortId, clock, nextBusinessStep,
+  ACTIVE_STATUSES, ORDER_STATUS, money, clock, nextBusinessStep, describeExtras, orderTag,
   type BusinessOrder, type OrderItem, type OrderStatus,
 } from '../lib/orderFlow';
 
@@ -16,13 +16,12 @@ import {
  * en un solo sitio (`nextBusinessStep`): soltar en una columna que el
  * backend rechazaría ni siquiera se ofrece como destino.
  *
- * Sin tarjetas: las columnas se separan con una línea fina y cada pedido es
- * una fila plana. El estado lo dice la columna, no una pastilla.
+ * Cada pedido es una tarjeta redondeada (decisión 2026-10-13: antes eran filas
+ * planas) y las columnas se separan con una línea fina. La presencia la dan la
+ * jerarquía (número y total grandes, en peso normal), el tiempo de espera y
+ * la franja del color del botón de su paso, que respira mientras el pedido espera.
  */
 
-/** Minutos desde que entró el pedido a partir de los cuales pide atención. */
-const WARN_MINUTES = 10;
-const LATE_MINUTES = 20;
 
 const minutesSince = (iso: string, now: number) =>
   Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60_000));
@@ -30,12 +29,28 @@ const minutesSince = (iso: string, now: number) =>
 const elapsedLabel = (minutes: number) =>
   minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 
-const timerTone = (minutes: number) =>
-  minutes >= LATE_MINUTES
-    ? 'text-[var(--color-danger)]'
-    : minutes >= WARN_MINUTES
-      ? 'text-[var(--color-warning)]'
-      : 'text-[var(--color-text-secondary)]';
+/** Color neutro de respaldo: el de los pedidos que no tienen un paso propio (listo para recoger). */
+const INK = 'bg-[var(--color-text-main)]';
+
+/**
+ * El botón de avanzar toma el color del paso que ofrece: aceptar en verde,
+ * empezar cocina en ámbar y marcar listo en coral (`--color-danger`). Tinta
+ * obsidiana sobre verde y ámbar (blanco sobre ellos no llega al contraste).
+ */
+const STEP_BG: Partial<Record<OrderStatus, string>> = {
+  pending: 'bg-[var(--color-success)]',
+  accepted: 'bg-[var(--color-warning)]',
+  preparing: 'bg-[var(--color-danger)]',
+};
+
+const STEP_BUTTON: Partial<Record<OrderStatus, string>> = {
+  pending: `${STEP_BG.pending} text-[var(--zipp-obsidian)]`,
+  accepted: `${STEP_BG.accepted} text-[var(--zipp-obsidian)]`,
+  preparing: `${STEP_BG.preparing} text-white`,
+};
+
+/** Líneas de producto que se enseñan antes del "y N más". */
+const ITEMS_SHOWN = 4;
 
 interface Props {
   orders: BusinessOrder[];
@@ -120,15 +135,15 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
             onDrop={(event) => onDrop(event, status)}
             className={`min-h-[16rem] px-4 pb-4 border-t-2 transition-colors ${
               isOver
-                ? 'border-[var(--color-primary)]'
+                ? 'border-[var(--color-text-main)]'
                 : isTarget
-                  ? 'border-[var(--color-primary)]/40'
+                  ? 'border-[var(--color-text-main)]/40'
                   : 'border-transparent'
             }`}
           >
             <header className="flex items-baseline justify-between py-4 border-b border-[var(--color-border)]">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-text-main)]">
-                <span aria-hidden className={`w-2 h-2 rounded-full ${ORDER_STATUS[status].dot}`} />
+                <span aria-hidden className={`w-2 h-2 rounded-full ${STEP_BG[status] ?? INK}`} />
                 {ORDER_STATUS[status].label}
               </h3>
               <span className="text-lg font-semibold tabular text-[var(--color-text-main)]">{items.length}</span>
@@ -139,7 +154,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                 {isTarget ? 'Suéltalo aquí' : 'Sin pedidos'}
               </p>
             ) : (
-              <ul className="divide-y divide-[var(--color-border)]">
+              <ul className="space-y-3">
                 {items.map((order) => {
                   const step = nextBusinessStep(order.status);
                   const busy = busyOrderId === order._id;
@@ -155,42 +170,78 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                         setDragging(order);
                       }}
                       onDragEnd={() => { setDragging(null); setOverColumn(null); }}
-                      className={`relative pl-4 py-4 space-y-3 scroll-mt-28 transition-opacity ${step ? 'md:cursor-grab md:active:cursor-grabbing' : ''} ${
+                      className={`order-row relative rounded-2xl border bg-[var(--color-surface)] pl-7 pr-4 py-4 space-y-4 scroll-mt-28 transition-opacity border-[var(--color-border)] ${step ? 'md:cursor-grab md:active:cursor-grabbing' : ''} ${
                         dragging?._id === order._id ? 'opacity-40' : ''
                       }`}
                     >
-                      {/* La franja dice el estado y el retraso; en el pedido
-                          que viene de un aviso se engrosa para encontrarlo. */}
+                      {/* La franja dice el estado; respira mientras el pedido espera
+                          respuesta y se engrosa en el que viene de un aviso. */}
                       <span
                         aria-hidden
-                        className={`absolute left-0 top-4 bottom-4 rounded-full ${
-                          focusId === order._id ? 'w-1.5 bg-[var(--color-primary)]' : `w-1 ${ORDER_STATUS[order.status].dot}`
+                        className={`absolute left-3 top-5 bottom-5 rounded-full ${order.status === 'pending' ? 'order-stripe-live' : ''} ${
+                          `w-1 ${STEP_BG[order.status] ?? INK}`
                         }`}
                       />
                       <button
                         type="button"
                         onClick={() => onOpen(order)}
-                        aria-label={`Ver el detalle del pedido ${order.orderNumber ?? ''}`}
-                        className="w-full text-left cursor-pointer group"
+                        aria-label={`Ver el detalle del pedido ${orderTag(order)}`}
+                        className="w-full text-left cursor-pointer group space-y-3"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5 text-base font-semibold tabular text-[var(--color-text-main)]">
-                            {step && <GripVertical className="hidden md:block w-4 h-4 text-[var(--color-text-secondary)]" aria-hidden />}
-                            {order.orderNumber ?? shortId(order._id)}
-                          </span>
-                          <span className={`text-sm font-semibold tabular ${timerTone(minutes)}`} title={`Llegó a las ${clock(order.createdAt)}`}>
-                            {elapsedLabel(minutes)}
-                          </span>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <span className="flex items-center gap-1.5 text-xl font-normal tabular leading-tight text-[var(--color-text-main)]">
+                              {step && <GripVertical className="hidden md:block w-4 h-4 text-[var(--color-text-secondary)]" aria-hidden />}
+                              {orderTag(order)}
+                            </span>
+                            <p className="mt-0.5 truncate text-sm font-normal text-[var(--color-text-main)] group-hover:underline underline-offset-2">
+                              {order.clientId?.name ?? 'Cliente'}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-xl font-normal tabular leading-tight text-[var(--color-text-main)]">{money(order.total)}</p>
+                            <p className="mt-0.5 flex items-center justify-end gap-1 text-xs font-normal text-[var(--color-text-secondary)]">
+                              {order.paymentMethod === 'cash_on_delivery'
+                                ? <><Banknote className="w-3.5 h-3.5" aria-hidden /> Efectivo</>
+                                : <><CreditCard className="w-3.5 h-3.5" aria-hidden /> Pagado</>}
+                            </p>
+                          </div>
                         </div>
-                        <p className="mt-1 text-sm font-medium text-[var(--color-text-main)] group-hover:underline underline-offset-2">
-                          {order.clientId?.name ?? 'Cliente'}
-                        </p>
-                        <p className="mt-1 text-sm font-medium text-[var(--color-text-secondary)] line-clamp-3">
-                          {(order.items ?? [])
-                            .map((item: OrderItem) => `${item.quantity}× ${item.productName}`)
-                            .join(' · ')}
-                        </p>
-                        <p className="mt-1.5 text-base font-semibold tabular text-[var(--color-text-main)]">{money(order.total)}</p>
+
+                        <span className="block space-y-1">
+                          {(order.items ?? []).slice(0, ITEMS_SHOWN).map((item: OrderItem, index) => {
+                            const extras = describeExtras(item.selectedExtras);
+                            return (
+                              <span key={item._id ?? `${item.productName}-${index}`} className="flex gap-2 text-sm text-[var(--color-text-main)]">
+                                <span className="w-7 shrink-0 font-normal tabular text-[var(--color-text-main)]">{item.quantity}×</span>
+                                <span className="min-w-0">
+                                  <span className="font-normal">{item.productName}</span>
+                                  {extras && <span className="block text-xs text-[var(--color-text-secondary)]">{extras}</span>}
+                                </span>
+                              </span>
+                            );
+                          })}
+                          {(order.items?.length ?? 0) > ITEMS_SHOWN && (
+                            <span className="block pl-9 text-xs font-normal text-[var(--color-text-secondary)]">
+                              y {(order.items?.length ?? 0) - ITEMS_SHOWN} más
+                            </span>
+                          )}
+                        </span>
+
+                        {order.notes && (
+                          <p className="flex items-start gap-1.5 text-xs font-normal text-[var(--color-text-secondary)]">
+                            <StickyNote className="mt-px w-3.5 h-3.5 shrink-0" aria-hidden />
+                            <span className="line-clamp-2">{order.notes}</span>
+                          </p>
+                        )}
+
+                        {/* La espera: cuánto lleva el pedido en el local. */}
+                        <div title={`Llegó a las ${clock(order.createdAt)}`}>
+                          <p className="flex items-center gap-1.5 text-sm font-normal tabular text-[var(--color-text-main)]">
+                            <Clock3 className="w-4 h-4" aria-hidden />
+                            {elapsedLabel(minutes)}
+                          </p>
+                        </div>
                       </button>
 
                       {order.status === 'ready' && <PickupHandoff order={order} refreshKey={handoffTick} />}
@@ -202,7 +253,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                               type="button"
                               onClick={() => onAdvance(order, step.status)}
                               disabled={busy}
-                              className="h-11 flex-1 px-4 rounded-lg text-sm font-semibold text-[var(--zipp-obsidian)] bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] active:scale-[0.98] transition cursor-pointer disabled:opacity-50"
+                              className={`h-12 flex-1 px-4 rounded-xl text-sm font-normal hover:brightness-110 active:scale-[0.97] transition cursor-pointer disabled:opacity-50 ${STEP_BUTTON[order.status] ?? 'bg-[var(--color-text-main)] text-[var(--color-surface)]'}`}
                             >
                               {busy ? 'Un momento…' : step.label}
                             </button>
@@ -212,7 +263,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                               type="button"
                               onClick={() => onReject(order)}
                               disabled={busy}
-                              className="h-11 px-4 text-sm font-medium text-[var(--color-danger)] hover:underline cursor-pointer disabled:opacity-50"
+                              className="h-12 px-3 text-sm font-normal text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:underline cursor-pointer disabled:opacity-50"
                             >
                               Rechazar
                             </button>
@@ -234,7 +285,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
       {waiting > 0 && (
         <p
           aria-live="polite"
-          className="sticky bottom-4 ml-auto mt-4 w-fit rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold tabular text-[var(--zipp-obsidian)] shadow-lg"
+          className="sticky bottom-4 ml-auto mt-4 w-fit rounded-full bg-[var(--color-text-main)] px-4 py-2 text-sm font-semibold tabular text-[var(--color-surface)] shadow-lg"
         >
           {waiting} {waiting === 1 ? 'pedido' : 'pedidos'} · el más antiguo, {elapsedLabel(oldest)}
         </p>

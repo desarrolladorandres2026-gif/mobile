@@ -1,4 +1,4 @@
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
@@ -7,6 +7,7 @@ import UpdateBanner from './components/UpdateBanner';
 import PrivateRoute from './components/PrivateRoute';
 import Layout from './components/Layout';
 import { lazyPage } from './lib/lazyPage';
+import { useThemeStore } from './stores/themeStore';
 
 /**
  * Cada página se descarga al abrirla.
@@ -19,6 +20,7 @@ const Login = lazyPage(() => import('./pages/Login'), '/login');
 const TwoFactorSetup = lazyPage(() => import('./pages/TwoFactorSetup'), '/setup-2fa');
 const HomePage = lazyPage(() => import('./pages/Home'), '/');
 const OrdersPage = lazyPage(() => import('./pages/Orders'), '/orders');
+const ScheduledPage = lazyPage(() => import('./pages/Scheduled'), '/scheduled');
 const MenuPage = lazyPage(() => import('./pages/Menu'), '/menu');
 const ReviewsPage = lazyPage(() => import('./pages/Reviews'), '/reviews');
 const SupportPage = lazyPage(() => import('./pages/Support'), '/support');
@@ -56,6 +58,9 @@ function PageLoading() {
 }
 
 function App() {
+  const initTheme = useThemeStore((s) => s.initTheme);
+  useEffect(() => { initTheme(); }, [initTheme]);
+
   return (
     <QueryClientProvider client={queryClient}>
     <BrowserRouter>
@@ -78,6 +83,7 @@ function App() {
             <Route path="/" element={<Layout />}>
               <Route index element={<HomePage />} />
               <Route path="orders" element={<OrdersPage />} />
+              <Route path="scheduled" element={<ScheduledPage />} />
               <Route path="settlements" element={<SettlementsPage />} />
               <Route path="menu" element={<MenuPage />} />
               <Route path="reviews" element={<ReviewsPage />} />

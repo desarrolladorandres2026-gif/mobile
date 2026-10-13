@@ -14,7 +14,7 @@ import Pagination from '../components/Pagination';
 import OrderBoard from '../components/OrderBoard';
 import RejectOrderDialog from '../components/RejectOrderDialog';
 import {
-  ORDER_STATUS, statusStyle, money, shortId, dateTime, isActive,
+  ORDER_STATUS, statusStyle, money, orderTag, dateTime, isActive,
   type OrderStatus,
   type BusinessOrder,
   type OrderItem,
@@ -254,10 +254,7 @@ export default function Orders() {
       {tab === "active" && (
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs text-[var(--color-text-secondary)]">
-            Arrastra un pedido a la columna siguiente o usa su botón.
-          </p>
-          <label className="flex h-8 w-full sm:w-64 items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 text-[var(--color-text-secondary)] focus-within:border-[var(--color-primary)]">
+          <label className="flex h-8 w-full sm:w-64 sm:ml-auto items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 text-[var(--color-text-secondary)] focus-within:border-[var(--color-primary)]">
             <Search className="w-4 h-4 shrink-0" />
             <input
               value={queueSearch}
@@ -374,7 +371,7 @@ export default function Orders() {
                             className="hover:bg-[var(--color-surface-hover)] transition-colors"
                           >
                             <td className="table-body-cell tabular font-medium whitespace-nowrap">
-                              {order.orderNumber ?? shortId(order._id)}
+                              {orderTag(order)}
                             </td>
                             <td className="table-body-cell whitespace-nowrap">
                               {order.clientId?.name ?? 'Cliente'}
@@ -404,7 +401,7 @@ export default function Orders() {
                             <td className="table-body-cell">
                               <button
                                 onClick={() => setDetailOrder(order)}
-                                aria-label={`Ver el detalle del pedido ${order.orderNumber ?? ''}`}
+                                aria-label={`Ver el detalle del pedido ${orderTag(order)}`}
                                 className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
                               >
                                 <Eye className="w-4 h-4" />

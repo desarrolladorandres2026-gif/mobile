@@ -76,6 +76,33 @@ export const counterElevateSchema = z.object({
   params: z.object({}).optional(),
 });
 
+/**
+ * `POST /auth/counter/elevate-password`: para quien aún no tiene PIN, con
+ * correo + contraseña, sobre la sesión del mostrador (hallazgo ALTO
+ * 2026-10-13: ya no pasa por `/auth/login`, que abría una sesión completa
+ * de 7 días).
+ */
+export const counterElevatePasswordSchema = z.object({
+  body: z.object({
+    businessId: objectIdField,
+    email: z.string().trim().toLowerCase().email('Email inválido').max(254),
+    password: z.string().min(1, 'La contraseña es requerida').max(128),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+/** `POST /auth/counter/elevate-password/totp`: segundo paso cuando la cuenta tiene 2FA. */
+export const counterElevatePasswordTotpSchema = z.object({
+  body: z.object({
+    businessId: objectIdField,
+    challengeToken: z.string().trim().min(1).max(256),
+    code: secondFactorSchema,
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 /** `PUT /auth/counter/pin`: crear o cambiar el PIN propio, con la contraseña actual. */
 export const counterPinSetSchema = z.object({
   body: z.object({

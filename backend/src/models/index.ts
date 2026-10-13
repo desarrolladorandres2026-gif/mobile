@@ -101,6 +101,7 @@ export {
   AdPricingModel, AdApprovalStatus, AdPlacement,
 } from './Advertisement';
 export { AdInvoice, IAdInvoice } from './AdInvoice';
+export { ShiftClosing, IShiftClosing } from './ShiftClosing';
 export { FiscalDocument, IFiscalDocument } from './FiscalDocument';
 export { AdEvent, IAdEvent, AdEventType } from './AdEvent';
 export {

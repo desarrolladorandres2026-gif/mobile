@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 import { playNotificationSound } from '../lib/notificationSound';
+import { sessionKind } from '../lib/counter';
 
 /**
  * Una línea arriba de cada página cuando se abrió la cuenta desde un
@@ -14,6 +15,14 @@ import { playNotificationSound } from '../lib/notificationSound';
  *
  * "Fui yo" lo marca como leído. Si no fue la persona, el enlace la lleva a
  * sus sesiones activas para cerrar la que no reconozca.
+ *
+ * Solo administrador o representante legal con su propia contraseña: la
+ * sesión de mostrador siempre topa a Empleado (`lib/counter.ts`), y la
+ * subida por PIN usa `scope: elevated:<businessId>` en vez de `full`
+ * (`backend/src/security/sessions.ts`), así que `rejectCounterScope` en
+ * `/notifications` la rechaza igual que al mostrador (decisión 2026-10-10:
+ * el PIN no gestiona credenciales ni sesiones). El gate de aquí evita el
+ * fetch y el 403 cuando de todos modos no va a poder leerla.
  */
 
 interface NotificationItem {
@@ -26,8 +35,10 @@ interface NotificationItem {
 
 export default function NewDeviceNotice() {
   const queryClient = useQueryClient();
+  const canSeeAccountAlerts = sessionKind() === 'elevated-password';
   const { data: notice } = useQuery({
     queryKey: qk.accountNotifications(),
+    enabled: canSeeAccountAlerts,
     queryFn: async () => (await api.get('/notifications', { params: { limit: 20 } })).data.data as NotificationItem[],
     select: (items) => items.find((n) => !n.isRead && n.data?.kind === 'new_device') ?? null,
     retry: false,

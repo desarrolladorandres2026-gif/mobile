@@ -11,12 +11,12 @@ const router = Router();
 // All routes require authentication
 router.use(authenticate);
 
-router.get('/', (req, res, next) => notificationController.getMyNotifications(req, res, next));
-router.get('/unread-count', (req, res, next) => notificationController.getUnreadCount(req, res, next));
+router.get('/', rejectCounterScope, (req, res, next) => notificationController.getMyNotifications(req, res, next));
+router.get('/unread-count', rejectCounterScope, (req, res, next) => notificationController.getUnreadCount(req, res, next));
 router.post('/devices', rejectCounterScope, (req, res, next) => notificationController.registerDevice(req, res, next));
 router.delete('/devices', rejectCounterScope, (req, res, next) => notificationController.unregisterDevice(req, res, next));
 router.patch('/read-all', rejectCounterScope, (req, res, next) => notificationController.markAllAsRead(req, res, next));
-router.patch('/:id/read', (req, res, next) => notificationController.markAsRead(req, res, next));
+router.patch('/:id/read', rejectCounterScope, (req, res, next) => notificationController.markAsRead(req, res, next));
 router.delete('/:id', rejectCounterScope, (req, res, next) => notificationController.delete(req, res, next));
 
 export default router;

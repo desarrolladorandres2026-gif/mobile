@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { X, Lock, Camera, ImageOff } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { X, Lock, Camera, ImageOff, LifeBuoy } from 'lucide-react';
 import api from '../services/api';
 import OrderTimeline from './OrderTimeline';
 import {
-  statusStyle, money, signedMoney, shortId, dateTime, clock,
+  statusStyle, money, signedMoney, orderTag, dateTime, clock,
   type BusinessOrder, type FlowState, type OrderFinance, type OrderItem, describeExtras,
 } from '../lib/orderFlow';
 import { SUPPORT_PHONE_DISPLAY, supportWhatsAppUrl } from '../lib/contact';
@@ -140,13 +141,13 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
     // Área de contenido: bajo la cabecera (h-12) y junto a la barra lateral (w-52, fija desde lg).
     <div
       role="dialog"
-      aria-label={`Pedido ${order.orderNumber ?? shortId(order._id)}`}
+      aria-label={`Pedido ${orderTag(order)}`}
       className="fixed bottom-0 left-0 right-0 top-12 z-30 overflow-y-auto bg-[var(--color-bg)] px-5 py-5 lg:left-52 lg:px-8 lg:py-6"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="page-title truncate tabular">
-            Pedido {order.orderNumber ?? shortId(order._id)}
+            Pedido {orderTag(order)}
           </h2>
           <div className="mt-1.5 flex flex-wrap items-center gap-3">
             <span
@@ -161,13 +162,22 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
           </div>
         </div>
 
-        <button
-          onClick={onClose}
-          aria-label="Cerrar"
-          className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-xs font-medium text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)]"
-        >
-          <X className="h-4 w-4" /> Volver a pedidos
-        </button>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {/* El caso nace atado a este pedido: Soporte no tiene que preguntar de cuál hablas. */}
+          <Link
+            to={`/support?order=${encodeURIComponent(order._id)}&n=${encodeURIComponent(order.orderNumber ?? '')}`}
+            className="flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold text-[var(--color-primary)] hover:underline"
+          >
+            <LifeBuoy className="h-4 w-4" /> Reportar un problema
+          </Link>
+          <button
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-xs font-medium text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)]"
+          >
+            <X className="h-4 w-4" /> Volver a pedidos
+          </button>
+        </div>
       </div>
 
       <div className="mt-6 space-y-6 pb-8">

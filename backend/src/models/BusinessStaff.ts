@@ -62,6 +62,11 @@ export enum BusinessPermission {
   ORDERS_CANCEL_PAID = 'orders:cancel_paid',
   /** Ventas del turno: lo que se cobró hoy, sin comisiones ni neto. */
   SHIFT_VIEW = 'shift:view',
+  /**
+   * Cerrar la caja del turno: queda un acta con lo vendido y el efectivo
+   * declarado. No mueve dinero; solo deja constancia de quién cerró.
+   */
+  SHIFT_CLOSE = 'shift:close',
 
   CATALOG_VIEW = 'catalog:view',
   CATALOG_CREATE = 'catalog:create',
@@ -109,6 +114,14 @@ export enum BusinessPermission {
    * su propio endpoint, que solo toca ese campo.
    */
   STORE_TOGGLE = 'store:toggle',
+
+  /**
+   * Ver los casos de soporte que abrió cualquier persona del equipo, no solo
+   * los propios. Abrir un caso es de todos (un cajero con el domiciliario sin
+   * llegar no puede esperar a que alguien con permiso lo reporte); leer lo
+   * que reportaron los demás —que puede incluir cobros y liquidaciones— no.
+   */
+  SUPPORT_VIEW_TEAM = 'support:view_team',
 }
 
 const P = BusinessPermission;
@@ -139,13 +152,13 @@ export const BUSINESS_ROLE_PERMISSIONS: Record<BusinessRole, BusinessPermission[
     P.PROMOTIONS_VIEW, P.PROMOTIONS_MANAGE, P.ADVERTISING_MANAGE,
     P.REVIEWS_VIEW, P.REVIEWS_RESPOND,
     P.TEAM_VIEW, P.TEAM_INVITE, P.TEAM_EDIT, P.TEAM_REMOVE,
-    P.ANALYTICS_VIEW, P.STORE_TOGGLE,
+    P.ANALYTICS_VIEW, P.STORE_TOGGLE, P.SUPPORT_VIEW_TEAM,
   ],
-  // Sin `shift:view` a propósito (decisión 2026-10-09): son cifras de dinero y
-  // el empleado ejecuta, no cuadra caja. Al fundir operador y cajero, quien
-  // era cajero pierde su resumen de turno y gana agotar y abrir/cerrar.
+  // `shift:view` y `shift:close` (decisión 2026-10-13, revierte la del 2026-10-09):
+  // el empleado cobra en el mostrador y necesita saber cuánto vendió y cerrar
+  // su caja. Sigue sin ver comisión, neto ni liquidaciones: eso es `financial:view`.
   [BusinessRole.EMPLOYEE]: [
-    P.ORDERS_VIEW, P.ORDERS_MANAGE, P.ORDERS_CANCEL,
+    P.ORDERS_VIEW, P.ORDERS_MANAGE, P.ORDERS_CANCEL, P.SHIFT_VIEW, P.SHIFT_CLOSE,
     P.CATALOG_VIEW, P.CATALOG_AVAILABILITY, P.STORE_TOGGLE,
   ],
 };

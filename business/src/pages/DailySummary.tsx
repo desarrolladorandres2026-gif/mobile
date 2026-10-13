@@ -7,6 +7,7 @@ import { money } from '../lib/orderFlow';
 import { apiMessage } from '../lib/apiError';
 import { useAuthStore } from '../stores/authStore';
 import SummaryGrid from '../components/SummaryGrid';
+import { ShiftClosingsList } from '../components/ShiftClosings';
 
 /**
  * Cierre del día del comercio. Espejo de "Resumen diario" del admin, pero
@@ -221,6 +222,8 @@ export default function DailySummary() {
               </Section>
             </div>
           </div>
+
+          {businessId && <ShiftClosingsList businessId={businessId} date={date} />}
 
           <p className="text-[10px] text-right text-[var(--color-text-secondary)]">
             Generado {new Date(data!.generatedAt).toLocaleString('es-CO')}

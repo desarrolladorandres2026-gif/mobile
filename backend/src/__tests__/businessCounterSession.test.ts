@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
 import request from 'supertest';
 import app from '../app';
-import { BusinessStaff, BusinessRole, Product, Coupon } from '../models';
-import { UserRole } from '../types';
+import { BusinessStaff, BusinessRole, Product, Coupon, Notification } from '../models';
+import { UserRole, NotificationType } from '../types';
 import {
   makeUser, makeBusiness, makeProduct, makePricingConfig,
   authHeader, counterAuthHeader,
@@ -198,6 +198,72 @@ describe('Sesión de mostrador: hallazgos de la revisión de seguridad', () => {
     const header = await counterAuthHeader(owner);
     expect((await request(app).get('/api/v1/auth/sessions').set(header)).status).toBe(403);
     expect((await request(app).post('/api/v1/businesses').set(header).send({ name: 'Otro' })).status).toBe(403);
+  });
+});
+
+describe('Sesión de mostrador: notificaciones personales (GET/unread-count/PATCH read), hallazgo zipp-security', () => {
+  it('403 al leer la bandeja, el contador de no leídas y al marcar una como leída', async () => {
+    const header = await counterAuthHeader(owner);
+    const notif = await Notification.create({
+      userId: owner._id, title: 'Nuevo dispositivo detectado', body: 'x', type: NotificationType.SYSTEM, data: {},
+    });
+
+    const list = await request(app).get('/api/v1/notifications').set(header);
+    expect(list.status).toBe(403);
+    expect(list.body.code ?? list.body.error?.code).toBe('COUNTER_SESSION_FORBIDDEN');
+
+    const unread = await request(app).get('/api/v1/notifications/unread-count').set(header);
+    expect(unread.status).toBe(403);
+    expect(unread.body.code ?? unread.body.error?.code).toBe('COUNTER_SESSION_FORBIDDEN');
+
+    const read = await request(app).patch(`/api/v1/notifications/${notif._id}/read`).set(header);
+    expect(read.status).toBe(403);
+    expect(read.body.code ?? read.body.error?.code).toBe('COUNTER_SESSION_FORBIDDEN');
+  });
+
+  it('una sesión elevada por PIN también recibe 403 en esas tres rutas', async () => {
+    const PIN = '482915';
+    const PASSWORD = 'Clave.Segura123';
+    const speakeasy = (await import('speakeasy')).default;
+
+    const setupHeader = await authHeader(owner);
+    const setup = await request(app).post('/api/v1/auth/2fa/setup').set(setupHeader).send({ currentPassword: PASSWORD }).expect(200);
+    const { secret } = setup.body.data;
+    await request(app).post('/api/v1/auth/2fa/verify').set(setupHeader)
+      .send({ token: speakeasy.totp({ secret, encoding: 'base32' }) }).expect(200);
+    await request(app).put('/api/v1/auth/counter/pin').set(setupHeader).send({ pin: PIN, currentPassword: PASSWORD }).expect(200);
+
+    const elevated = await request(app).post('/api/v1/auth/counter/elevate')
+      .set(await counterAuthHeader(owner))
+      .send({ businessId: bid(), userId: owner._id.toString(), pin: PIN });
+    expect(elevated.status).toBe(200);
+    const header = { Authorization: `Bearer ${elevated.body.data.accessToken}` };
+
+    expect((await request(app).get('/api/v1/notifications').set(header)).status).toBe(403);
+    expect((await request(app).get('/api/v1/notifications/unread-count').set(header)).status).toBe(403);
+    expect((await request(app).patch('/api/v1/notifications/000000000000000000000000/read').set(header)).status).toBe(403);
+  });
+
+  it('una sesión elevada por contraseña (scope full) SÍ puede leerlas y marcarlas como leídas', async () => {
+    const PASSWORD = 'Clave.Segura123';
+    const notif = await Notification.create({
+      userId: owner._id, title: 'Nuevo dispositivo detectado', body: 'x', type: NotificationType.SYSTEM, data: {},
+    });
+
+    const elevated = await request(app).post('/api/v1/auth/counter/elevate-password')
+      .set(await counterAuthHeader(owner))
+      .send({ businessId: bid(), email: owner.email, password: PASSWORD });
+    expect(elevated.status).toBe(200);
+    const header = { Authorization: `Bearer ${elevated.body.data.accessToken}` };
+
+    const list = await request(app).get('/api/v1/notifications').set(header);
+    expect(list.status).toBe(200);
+
+    const unread = await request(app).get('/api/v1/notifications/unread-count').set(header);
+    expect(unread.status).toBe(200);
+
+    const read = await request(app).patch(`/api/v1/notifications/${notif._id}/read`).set(header);
+    expect(read.status).toBe(200);
   });
 });
 

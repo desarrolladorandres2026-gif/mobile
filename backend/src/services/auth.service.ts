@@ -497,6 +497,11 @@ export class AuthService {
       throw error;
     }
     const { user, method, scope } = resolved;
+    // Un reto abierto desde el mostrador no se canjea aquí: saldría una
+    // sesión normal de 7 días, sin `elevatedFrom`, en el equipo compartido.
+    if (method === 'counter_password') {
+      throw new AppError('Este código se confirma desde el mostrador.', 400, 'MFA_CHALLENGE_INVALID');
+    }
     this.assertAccountUsable(user);
 
     // Antes este camino abría la sesión sin el identificador del dispositivo
@@ -657,6 +662,148 @@ export class AuthService {
     }
 
     return { requiresTOTP: false, user: user!, method: 'counter_pin', ...session };
+  }
+
+  /**
+   * ¿Esta cuenta es representante legal o administrador de ESE negocio,
+   * activa y utilizable? Lo comparten los dos pasos de la elevación por
+   * contraseña: sin `scope`, así que una sesión de mostrador no cuenta como
+   * acceso propio (ver `accessFor`).
+   */
+  private async eligibleForCounterElevation(user: IUser, businessId: string): Promise<boolean> {
+    if (user.role !== UserRole.BUSINESS || user.anonymizedAt || user.isBlocked || !user.isActive) return false;
+    const { businessStaffService } = await import('./businessStaff.service');
+    const { BusinessRole } = await import('../models');
+    const access = await businessStaffService.accessFor(user._id.toString(), businessId);
+    return access?.role === BusinessRole.OWNER || access?.role === BusinessRole.MANAGER;
+  }
+
+  /**
+   * Quien todavía no tiene PIN de mostrador (decisión 2026-10-13) entra como
+   * responsable con su contraseña y, si aplica, su 2FA — igual que un login
+   * normal, pero SIN emitir nunca la sesión completa de 7 días que emitía
+   * `login()`: zipp-security encontró que esa sesión sobrevivía a "Volver al
+   * mostrador" y le daba al cajero una ventana para agregarse solo al Equipo
+   * (hallazgo ALTO, 2026-10-13). Por eso esto no delega en `completeLogin`:
+   * siempre llama `startSession` con `elevatedFrom`/`elevatedBusinessId`,
+   * los mismos 15 min de inactividad / 2 h totales que `elevateFromCounter`.
+   *
+   * A diferencia del PIN, NO lleva `elevatedBusinessId`: su alcance es
+   * `full`. Desde que el panel siempre arranca en el mostrador (2026-10-13)
+   * esta es la única puerta a "la contraseña propia" que pide la revisión
+   * del 2026-10-10 para 2FA, PIN, sesiones, Equipo y datos fiscales; atada
+   * al negocio, `rejectCounterScope` la rechazaba y un dueño sin PIN nunca
+   * podía crearlo. Lo que la sigue acotando: muere con el mostrador, vive
+   * 15 min / 2 h, y `req.sessionFromCounter` hace que el Equipo pida la
+   * contraseña otra vez (ver `business.controller`).
+   *
+   * Elegibilidad y credenciales dan siempre el mismo error (`Credenciales
+   * inválidas`): decir "esa cuenta no administra este negocio" distinguiría,
+   * para quien ya acertó la contraseña de otra cuenta, cuáles sí lo son.
+   */
+  async elevatePasswordFromCounter(
+    counterSessionId: string,
+    counterUserId: string,
+    input: { businessId: string; email: string; password: string },
+    req?: Request
+  ): Promise<AuthOutcome> {
+    const { businessStaffService } = await import('./businessStaff.service');
+    const ip = requestIp(req);
+
+    const counterAccess = await businessStaffService.accessFor(counterUserId, input.businessId, 'counter');
+    if (!counterAccess) throw new AppError('Este mostrador no pertenece a ese negocio.', 403, 'BUSINESS_PERMISSION_DENIED');
+
+    const identifierValue = input.email.toLowerCase().trim();
+    const user = await this.verifyPassword(true, identifierValue, input.password, ip, req);
+
+    if (!(await this.eligibleForCounterElevation(user, input.businessId))) {
+      await recordFailedAttempt(ip, identifierValue);
+      throw new AppError('Credenciales inválidas', 401);
+    }
+
+    if (hasTwoFactor(user)) {
+      const challengeToken = await openMfaChallenge(user._id, 'counter_password');
+      return { requiresTOTP: true, challengeToken, user, method: 'counter_password' };
+    }
+
+    await clearAttempts(ip, identifierValue);
+    const session = await this.startSession(user, req, {
+      method: 'counter_password',
+      mfa: false,
+      elevatedFrom: counterSessionId,
+      // Sin `elevatedBusinessId` a propósito: ver la nota de la función.
+      elevatedBusinessId: null,
+    });
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.LOGIN_SUCCESS,
+        entity: 'user',
+        entityId: user._id.toString(),
+        description: 'Entrada desde mostrador con contraseña como representante legal o administrador',
+        metadata: { counterSessionId, businessId: input.businessId },
+      });
+    }
+
+    return { requiresTOTP: false, user, method: 'counter_password', ...session };
+  }
+
+  /** Segundo paso de `elevatePasswordFromCounter` cuando la cuenta tiene 2FA. */
+  async elevatePasswordTotpFromCounter(
+    counterSessionId: string,
+    counterUserId: string,
+    input: { businessId: string; challengeToken: string; code: string },
+    req?: Request
+  ): Promise<AuthOutcome & { requiresTOTP: false }> {
+    const { businessStaffService } = await import('./businessStaff.service');
+
+    const counterAccess = await businessStaffService.accessFor(counterUserId, input.businessId, 'counter');
+    if (!counterAccess) throw new AppError('Este mostrador no pertenece a ese negocio.', 403, 'BUSINESS_PERMISSION_DENIED');
+
+    let resolved: Awaited<ReturnType<typeof resolveMfaChallenge>>;
+    try {
+      resolved = await resolveMfaChallenge(input.challengeToken, input.code);
+    } catch (error) {
+      if (error instanceof AppError && (error.code === 'MFA_CODE_INVALID' || error.code === 'MFA_LOCKED')) {
+        const [userId] = input.challengeToken.split('.');
+        await recordSecurityEvent({
+          userId, req, type: SecurityEventType.TWO_FACTOR_FAILED, result: 'failure',
+          metadata: { locked: error.code === 'MFA_LOCKED' },
+        });
+      }
+      throw error;
+    }
+    const { user, method } = resolved;
+    // Y al revés: un reto de un login normal no se convierte en entrada de mostrador.
+    if (method !== 'counter_password') {
+      throw new AppError('Este código no corresponde a una entrada desde el mostrador.', 400, 'MFA_CHALLENGE_INVALID');
+    }
+    this.assertAccountUsable(user);
+
+    // Vuelve a comprobarse: el reto no ata el negocio, así que una sesión
+    // revocada entre los dos pasos no debe terminar en sesión elevada igual.
+    if (!(await this.eligibleForCounterElevation(user, input.businessId))) {
+      throw new AppError('Credenciales inválidas', 401);
+    }
+
+    const session = await this.startSession(user, req, {
+      method: 'counter_password',
+      mfa: true,
+      elevatedFrom: counterSessionId,
+      elevatedBusinessId: null,
+    });
+
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.LOGIN_SUCCESS,
+        entity: 'user',
+        entityId: user._id.toString(),
+        description: 'Entrada desde mostrador con contraseña y 2FA como representante legal o administrador',
+        metadata: { counterSessionId, businessId: input.businessId },
+      });
+    }
+
+    return { requiresTOTP: false, user, method: 'counter_password', ...session };
   }
 
   /**
@@ -1288,14 +1435,20 @@ export class AuthService {
 
   // ── Contraseña ───────────────────────────────────────────────────────
 
-  async login(input: LoginInput, req?: Request): Promise<AuthOutcome> {
-    const ip = requestIp(req);
-
-    // Cliente y domiciliario entran por celular; admin y business —que ya
-    // no tienen garantizado un `phone` (ver `models/User.ts`)— entran por
-    // correo. El validador exige exactamente uno de los dos.
-    const byEmail = !!input.email;
-    const identifierValue = byEmail ? input.email!.toLowerCase().trim() : (normalizePhone(input.phone) ?? input.phone!);
+  /**
+   * Fuerza bruta + comparación de contraseña + expiración de contraseña
+   * temporal. Único sitio que decide si un email/teléfono + contraseña son
+   * válidos — lo comparten `login()` y la elevación de mostrador por
+   * contraseña (`elevatePasswordFromCounter`), para que un segundo camino no
+   * se quede sin el freno de intentos del primero.
+   */
+  private async verifyPassword(
+    byEmail: boolean,
+    identifierValue: string,
+    password: string,
+    ip: string,
+    req?: Request
+  ): Promise<IUser> {
     const identifierMask = byEmail ? maskEmail(identifierValue) : maskPhone(identifierValue);
     const identifierFilter = byEmail ? { email: identifierValue } : { phone: identifierValue };
 
@@ -1316,7 +1469,7 @@ export class AuthService {
     const user = await User.findOne(identifierFilter)
       .select('+password +twoFactorEnabled +twoFactorSecret +failedLoginAttempts +lastLoginIp +passwordExpiresAt');
 
-    const passwordOk = !!user && (await user.comparePassword(input.password));
+    const passwordOk = !!user && (await user.comparePassword(password));
 
     if (!user || !passwordOk) {
       // Misma respuesta exista o no la cuenta. El bloqueo lo decide el
@@ -1362,6 +1515,21 @@ export class AuthService {
         'TEMPORARY_PASSWORD_EXPIRED'
       );
     }
+
+    return user;
+  }
+
+  async login(input: LoginInput, req?: Request): Promise<AuthOutcome> {
+    const ip = requestIp(req);
+
+    // Cliente y domiciliario entran por celular; admin y business —que ya
+    // no tienen garantizado un `phone` (ver `models/User.ts`)— entran por
+    // correo. El validador exige exactamente uno de los dos.
+    const byEmail = !!input.email;
+    const identifierValue = byEmail ? input.email!.toLowerCase().trim() : (normalizePhone(input.phone) ?? input.phone!);
+    const identifierMask = byEmail ? maskEmail(identifierValue) : maskPhone(identifierValue);
+
+    const user = await this.verifyPassword(byEmail, identifierValue, input.password, ip, req);
 
     let outcome: AuthOutcome;
     try {

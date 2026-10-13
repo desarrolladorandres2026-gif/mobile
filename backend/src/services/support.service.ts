@@ -1,8 +1,10 @@
-import { Pqrs, IPqrs } from '../models';
+import { Pqrs, IPqrs, User, Order } from '../models';
 import { AppError } from '../middlewares/errorHandler';
 import { emitToUser } from '../sockets/emitter';
 import { pushService } from './push.service';
 import { businessDaysUntil } from '../utils';
+import { notifyAlertsChanged } from './alerts.service';
+import { storePrivateFile, signedPrivateUrl } from './privateStorage.service';
 import { LEGAL_DUE_SOON_BUSINESS_DAYS, SLA_HOURS, defaultPriority, PqrsPriority } from './pqrs.service';
 
 /**
@@ -19,15 +21,42 @@ import { LEGAL_DUE_SOON_BUSINESS_DAYS, SLA_HOURS, defaultPriority, PqrsPriority 
 
 export type Priority = PqrsPriority;
 
+/** Mensajes máximos por caso (personal y solicitante juntos). */
+export const MAX_THREAD_MESSAGES = 100;
+
 export interface QueueOptions {
   assignedTo?: string;
   onlyOverdue?: boolean;
   onlyLegalOverdue?: boolean;
   /** `open` (por defecto): sin responder. `answered`: respondidos. `done`: respondidos y cerrados. */
-  view?: 'open' | 'answered' | 'done';
+  view?: 'open' | 'answered' | 'closed' | 'done';
   type?: IPqrs['type'];
   requesterRole?: IPqrs['requesterRole'];
   q?: string;
+  /** Solo los que nadie lleva (gana `assignedTo` si vienen los dos). */
+  unassigned?: boolean;
+  /** Solo los que tienen una solicitud de reembolso pendiente con Finanzas. */
+  refundRequested?: boolean;
+  /** Tope de filas; por defecto 100. */
+  limit?: number;
+}
+
+const MAX_QUEUE_LIMIT = 300;
+
+/** Cuántos días después de cerrado puede el solicitante reabrir su caso. */
+export const REOPEN_WINDOW_DAYS = 7;
+/** Reaperturas por caso. Pasado el tope, el problema se abre como caso nuevo y se mira desde cero. */
+export const MAX_REOPENS = 2;
+/** Adjuntos por caso. */
+export const MAX_PQRS_EVIDENCE = 5;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** ¿Puede el solicitante reabrir este caso ahora? Misma regla que aplica `reopenByRequester` en el filtro. */
+export function canRequesterReopen(ticket: { status: string; closedAt?: Date | string | null; updatedAt?: Date | string; reopenCount?: number }, now = Date.now()): boolean {
+  if (ticket.status !== 'closed' || (ticket.reopenCount ?? 0) >= MAX_REOPENS) return false;
+  const closed = ticket.closedAt ?? ticket.updatedAt;
+  return !!closed && new Date(closed).getTime() >= now - REOPEN_WINDOW_DAYS * DAY_MS;
 }
 
 export class SupportService {
@@ -112,12 +141,185 @@ export class SupportService {
     return ticket;
   }
 
+  /**
+   * Réplica de quien abrió el caso. La condición va dentro del filtro (dueño y
+   * no cerrado) para que dos réplicas concurrentes o una sobre un caso recién
+   * cerrado no pasen por un findById → validar → save. Un caso `answered` vuelve
+   * a `in_review`: si no, la réplica quedaría fuera de la cola de pendientes.
+   */
+  async requesterReply(pqrsId: string, userId: string, message: string): Promise<IPqrs> {
+    const ticket = await Pqrs.findOneAndUpdate(
+      {
+        _id: pqrsId,
+        userId,
+        status: { $ne: 'closed' },
+        // Tope del hilo: sin él una cuenta puede inflar el documento sin límite.
+        [`responses.${MAX_THREAD_MESSAGES - 1}`]: { $exists: false },
+      },
+      { $push: { responses: { message, from: 'requester', userId, createdAt: new Date() } } },
+      { new: true, runValidators: true }
+    );
+    if (!ticket) throw new AppError('Caso no encontrado, cerrado o con demasiados mensajes', 404);
+
+    if (ticket.status === 'answered') {
+      await Pqrs.updateOne({ _id: pqrsId, status: 'answered' }, { $set: { status: 'in_review' } });
+      ticket.status = 'in_review';
+    }
+    void notifyAlertsChanged('pqrs');
+    return ticket;
+  }
+
+  /**
+   * El solicitante confirma que quedó resuelto. Solo vale sobre un caso
+   * respondido: cerrar uno que nadie ha contestado sería esconderlo de la cola.
+   * La condición va en el filtro, no en un findById previo.
+   */
+  async confirmResolved(pqrsId: string, userId: string): Promise<IPqrs> {
+    const ticket = await Pqrs.findOneAndUpdate(
+      { _id: pqrsId, userId, status: 'answered' },
+      { $set: { status: 'closed', closedAt: new Date(), resolvedByRequester: true } },
+      { new: true }
+    );
+    if (!ticket) throw new AppError('Solo puedes confirmar un caso que ya respondimos', 409);
+    void notifyAlertsChanged('pqrs');
+    return ticket;
+  }
+
+  /**
+   * Reapertura por quien abrió el caso: dentro de la ventana, con tope de
+   * veces y con un mensaje que dice qué sigue mal. No toca `legalDueAt` ni
+   * `firstResponseAt` (reabrir no regala días) ni `dueAt`: un caso reabierto
+   * vuelve a la cola ya vencido, que es justo lo que debe pasar con algo que
+   * se dio por resuelto sin estarlo. Todo va en el filtro de un solo update.
+   */
+  async reopenByRequester(pqrsId: string, userId: string, message: string): Promise<IPqrs> {
+    const since = new Date(Date.now() - REOPEN_WINDOW_DAYS * DAY_MS);
+    const ticket = await Pqrs.findOneAndUpdate(
+      {
+        _id: pqrsId,
+        userId,
+        status: 'closed',
+        reopenCount: { $not: { $gte: MAX_REOPENS } },
+        $and: [
+          { $or: [{ closedAt: { $gte: since } }, { closedAt: null, updatedAt: { $gte: since } }] },
+          { [`responses.${MAX_THREAD_MESSAGES - 1}`]: { $exists: false } },
+        ],
+      },
+      {
+        $set: { status: 'in_review', closedAt: null, resolvedByRequester: false },
+        $inc: { reopenCount: 1 },
+        $push: { responses: { message, from: 'requester', userId, createdAt: new Date() } },
+      },
+      { new: true, runValidators: true }
+    );
+    if (!ticket) {
+      throw new AppError(`No se puede reabrir: pasaron más de ${REOPEN_WINDOW_DAYS} días, ya se reabrió ${MAX_REOPENS} veces o el caso no es tuyo`, 409);
+    }
+    void notifyAlertsChanged('pqrs');
+    return ticket;
+  }
+
+  /**
+   * Adjunta un archivo al caso. Los bytes los comprueba `storePrivateFile`
+   * (el `Content-Type` de multer lo escribe el cliente); la llave queda en el
+   * caso y la URL se firma al leer. La condición de dueño, abierto y tope va
+   * dentro del filtro del push. Si dos subidas compiten por el último cupo,
+   * la perdedora deja un archivo huérfano en Cloudinary: se prefiere eso a
+   * leer-contar-escribir.
+   */
+  async addEvidence(pqrsId: string, userId: string, file: { buffer: Buffer; originalname: string }): Promise<IPqrs> {
+    const own = await Pqrs.findOne({ _id: pqrsId, userId, status: { $ne: 'closed' } }).select('evidence').lean();
+    if (!own) throw new AppError('Caso no encontrado o cerrado', 404);
+    if ((own.evidence?.length ?? 0) >= MAX_PQRS_EVIDENCE) throw new AppError(`Un caso admite hasta ${MAX_PQRS_EVIDENCE} adjuntos`, 409);
+
+    const stored = await storePrivateFile(file.buffer, { folder: `zipp/pqrs-evidence/${pqrsId}` });
+    // Solo el nombre, sin ruta ni caracteres de control: se pinta en el panel de soporte.
+    const name = (file.originalname.split(/[/\x5c]/).pop() ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120) || `adjunto.${stored.format}`;
+
+    const ticket = await Pqrs.findOneAndUpdate(
+      { _id: pqrsId, userId, status: { $ne: 'closed' }, [`evidence.${MAX_PQRS_EVIDENCE - 1}`]: { $exists: false } },
+      { $push: { evidence: { name, storageKey: stored.key, resourceType: stored.resourceType, format: stored.format, bytes: stored.bytes, uploadedAt: new Date() } } },
+      { new: true, runValidators: true }
+    );
+    if (!ticket) throw new AppError('El caso se cerró o ya tiene el máximo de adjuntos', 409);
+    return ticket;
+  }
+
+  /**
+   * URL firmada de un adjunto. `viewerId` es el solicitante; con `asStaff` la
+   * ruta ya comprobó el permiso de soporte y no se exige ser el dueño.
+   */
+  async evidenceUrl(pqrsId: string, evidenceId: string, viewerId: string, asStaff: boolean): Promise<{ url: string; name: string }> {
+    const ticket = await Pqrs.findOne({ _id: pqrsId, ...(asStaff ? {} : { userId: viewerId }) }).select('evidence').lean();
+    const item = ticket?.evidence?.find((e) => String(e._id) === evidenceId);
+    const url = item?.storageKey ? signedPrivateUrl({ key: item.storageKey, resourceType: item.resourceType ?? 'image' }) : undefined;
+    // Mismo 404 para "no existe", "no es tuyo" y "archivo antiguo sin llave": no se revela cuál.
+    if (!item || !url) throw new AppError('Adjunto no encontrado', 404);
+    return { url, name: item.name };
+  }
+
+  /**
+   * Reabre un caso cerrado. No toca `legalDueAt` ni `firstResponseAt`: el
+   * plazo legal corre desde que se abrió el caso, y reabrir no puede regalar
+   * días. La condición de estado va en el filtro, no en un findById previo.
+   */
+  async reopen(pqrsId: string, agentId: string): Promise<IPqrs> {
+    const ticket = await Pqrs.findOneAndUpdate(
+      { _id: pqrsId, status: 'closed' },
+      { $set: { status: 'in_review', assignedTo: agentId, assignedAt: new Date(), closedAt: null, resolvedByRequester: false } },
+      { new: true }
+    );
+    if (!ticket) throw new AppError('Solo se reabren casos cerrados', 409);
+    void notifyAlertsChanged('pqrs');
+    return ticket;
+  }
+
+  /**
+   * Soporte pide a Finanzas que reembolse el pedido del caso. No mueve dinero:
+   * deja la petición, y Finanzas decide en la ficha del pedido. Una sola
+   * petición pendiente por caso (la condición va en el filtro).
+   */
+  async requestRefund(pqrsId: string, agentId: string, reason: string): Promise<IPqrs> {
+    const ticket = await Pqrs.findOneAndUpdate(
+      {
+        _id: pqrsId,
+        orderId: { $ne: null },
+        status: { $ne: 'closed' },
+        'refundRequest.status': { $ne: 'pending' },
+      },
+      { $set: { refundRequest: { status: 'pending', reason, requestedBy: agentId, requestedAt: new Date() } } },
+      { new: true }
+    );
+    if (!ticket) throw new AppError('El caso necesita un pedido, estar abierto y no tener otra solicitud pendiente', 409);
+    void notifyAlertsChanged('pqrs');
+    return ticket;
+  }
+
+  /** Finanzas cierra la petición: hecha (reembolsó) o rechazada. */
+  async resolveRefundRequest(pqrsId: string, agentId: string, outcome: 'done' | 'rejected', note?: string): Promise<IPqrs> {
+    const ticket = await Pqrs.findOneAndUpdate(
+      { _id: pqrsId, 'refundRequest.status': 'pending' },
+      {
+        $set: {
+          'refundRequest.status': outcome,
+          'refundRequest.resolvedBy': agentId,
+          'refundRequest.resolvedAt': new Date(),
+          ...(note ? { 'refundRequest.resolutionNote': note } : {}),
+        },
+      },
+      { new: true }
+    );
+    if (!ticket) throw new AppError('No hay una solicitud de reembolso pendiente en este caso', 409);
+    void notifyAlertsChanged('pqrs');
+    return ticket;
+  }
+
   async close(pqrsId: string, agentId: string, message?: string): Promise<IPqrs> {
     if (message) await this.reply(pqrsId, agentId, message);
 
     const ticket = await Pqrs.findByIdAndUpdate(
       pqrsId,
-      { status: 'closed' },
+      { status: 'closed', closedAt: new Date() },
       { new: true }
     );
 
@@ -135,10 +337,12 @@ export class SupportService {
   async queue(options: QueueOptions = {}) {
     const view = options.view ?? 'open';
     const filter: Record<string, unknown> = {
-      status: view === 'open' ? { $in: ['received', 'in_review'] } : view === 'answered' ? 'answered' : { $in: ['answered', 'closed'] },
+      status: view === 'open' ? { $in: ['received', 'in_review'] } : view === 'answered' ? 'answered' : view === 'closed' ? 'closed' : { $in: ['answered', 'closed'] },
     };
 
     if (options.assignedTo) filter.assignedTo = options.assignedTo;
+    else if (options.unassigned) filter.assignedTo = null;
+    if (options.refundRequested) filter['refundRequest.status'] = 'pending';
     if (options.onlyOverdue) filter.dueAt = { $lt: new Date() };
     if (options.onlyLegalOverdue) filter.legalDueAt = { $lt: new Date() };
     if (options.type) filter.type = options.type;
@@ -146,12 +350,22 @@ export class SupportService {
     if (options.q) {
       // El término del usuario nunca entra crudo en una expresión regular.
       const rx = new RegExp(options.q.trim().slice(0, 60).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      filter.$or = [{ subject: rx }, { detail: rx }];
+      // Además del texto del caso: quién lo abrió (nombre o teléfono) y el número de pedido.
+      const [users, orders] = await Promise.all([
+        User.find({ $or: [{ name: rx }, { phone: rx }] }).select('_id').limit(50).lean(),
+        Order.find({ orderNumber: rx }).select('_id').limit(50).lean(),
+      ]);
+      filter.$or = [
+        { subject: rx },
+        { detail: rx },
+        ...(users.length ? [{ userId: { $in: users.map((u) => u._id) } }] : []),
+        ...(orders.length ? [{ orderId: { $in: orders.map((o) => o._id) } }] : []),
+      ];
     }
 
     const rows = await Pqrs.find(filter)
       .sort({ dueAt: 1, createdAt: 1 })
-      .limit(100)
+      .limit(Math.min(Math.max(options.limit ?? 100, 1), MAX_QUEUE_LIMIT))
       .populate('userId', 'name phone email')
       .populate('assignedTo', 'name')
       .populate('orderId', 'orderNumber status')
@@ -191,7 +405,7 @@ export class SupportService {
   async metrics() {
     const now = new Date();
 
-    const [open, overdue, unassigned, legalOverdue, legalDueSoonRows, responseRows] = await Promise.all([
+    const [open, overdue, unassigned, legalOverdue, legalDueSoonRows, responseRows, refundRequests, resolutionRows] = await Promise.all([
       Pqrs.countDocuments({ status: { $in: ['received', 'in_review'] } }),
       Pqrs.countDocuments({
         status: { $in: ['received', 'in_review'] },
@@ -226,8 +440,15 @@ export class SupportService {
           },
         },
       ]),
+      Pqrs.countDocuments({ 'refundRequest.status': 'pending' }),
+      // Aproximado: no hay `closedAt`, así que se usa la última modificación del caso cerrado.
+      Pqrs.aggregate([
+        { $match: { status: 'closed' } },
+        { $group: { _id: null, avgHours: { $avg: { $divide: [{ $subtract: ['$updatedAt', '$createdAt'] }, 3600000] } } } },
+      ]),
     ]);
 
+    const averageResolutionHours = Math.round((resolutionRows[0]?.avgHours ?? 0) * 10) / 10;
     const legalDueSoon = legalDueSoonRows.filter(
       (r: any) => businessDaysUntil(r.legalDueAt, now) <= LEGAL_DUE_SOON_BUSINESS_DAYS
     ).length;
@@ -236,6 +457,8 @@ export class SupportService {
       open,
       overdue,
       unassigned,
+      refundRequests,
+      averageResolutionHours,
       legalOverdue,
       legalDueSoon,
       averageFirstResponseMinutes: Math.round(responseRows[0]?.avgMinutes ?? 0),

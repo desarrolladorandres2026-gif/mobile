@@ -84,6 +84,60 @@ describe('Fase 4 · Soporte y legal', () => {
         .rejects.toMatchObject({ statusCode: 403 });
     });
 
+    describe('Motivos del comercio', () => {
+      const detail = 'Detalle suficientemente largo del problema ocurrido.';
+      const asOwner = (extra: Record<string, unknown>) => ({
+        userId: owner._id.toString(), role: UserRole.BUSINESS, businessId: business._id.toString(),
+        subject: 'Problema en el local', detail, ...extra,
+      });
+
+      it('un problema operativo sobre un pedido en curso nace urgente (SLA de 1 h) y el servidor decide el tipo', async () => {
+        const item = await createPqrs(asOwner({ reason: 'driver_no_show', orderId: order._id.toString() }) as never);
+        expect(item.type).toBe('claim');
+        expect(item.reason).toBe('driver_no_show');
+        expect(item.priority).toBe('urgent');
+        expect((item.dueAt!.getTime() - Date.now()) / 3_600_000).toBeLessThan(1.1);
+      });
+
+      it('si el pedido ya terminó, deja de ser urgente y sigue la regla por tipo', async () => {
+        await Order.updateOne({ _id: order._id }, { $set: { status: 'delivered' } });
+        const item = await createPqrs(asOwner({ reason: 'order_issue', orderId: order._id.toString() }) as never);
+        expect(item.priority).toBe('high');
+      });
+
+      it('exige pedido en los motivos de la calle y no admite motivos fuera del comercio', async () => {
+        await expect(createPqrs(asOwner({ reason: 'customer_unreachable' }) as never)).rejects.toMatchObject({ statusCode: 422 });
+        const account = await createPqrs(asOwner({ reason: 'account' }) as never);
+        expect(account.type).toBe('petition');
+        expect(account.priority).toBe('low');
+
+        await expect(createPqrs({ ...base, type: undefined, reason: 'payment', userId: client._id.toString(), role: UserRole.CLIENT } as never))
+          .rejects.toMatchObject({ statusCode: 422 });
+        await expect(createPqrs({ subject: base.subject, detail, userId: client._id.toString(), role: UserRole.CLIENT } as never))
+          .rejects.toMatchObject({ statusCode: 422 });
+      });
+
+      it('quien abrió el caso ve el plazo y el estado del reembolso, no su motivo ni la prioridad', async () => {
+        const item = await createPqrs(asOwner({ reason: 'payment', orderId: order._id.toString() }) as never);
+        await Pqrs.updateOne({ _id: item._id }, { $set: { refundRequest: {
+          status: 'pending', reason: 'nota interna de soporte', requestedBy: client._id, requestedAt: new Date(),
+        } } });
+
+        const res = await request(app).get(`${API}/pqrs/my`).set(await authHeader(owner)).expect(200);
+        const mine = res.body.data.find((p: any) => p._id === String(item._id));
+        expect(mine.refundStatus).toBe('pending');
+        expect(mine.respondBy).toBeTruthy();
+        expect(mine.dueAt).toBeUndefined();
+        expect(mine.priority).toBeUndefined();
+        expect(mine.refundRequest).toBeUndefined();
+        expect(JSON.stringify(mine)).not.toContain('nota interna');
+
+        await Pqrs.updateOne({ _id: item._id }, { $set: { status: 'answered' } });
+        const after = await request(app).get(`${API}/pqrs/my`).set(await authHeader(owner)).expect(200);
+        expect(after.body.data.find((p: any) => p._id === String(item._id)).respondBy).toBeNull();
+      });
+    });
+
     it('el rol lo decide la cuenta, no el cuerpo de la petición', async () => {
       const res = await request(app).post(`${API}/pqrs`).set(await authHeader(client))
         .send({ ...base, requesterRole: 'business', businessId: business._id.toString() }).expect(201);

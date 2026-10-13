@@ -47,7 +47,7 @@ export default function ProductMultiSelect({
     },
   });
 
-  const products = menuQuery.data?.products ?? [];
+  const products = useMemo(() => menuQuery.data?.products ?? [], [menuQuery.data]);
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return products;

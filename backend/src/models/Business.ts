@@ -147,6 +147,14 @@ export interface IBusiness extends Document {
   commissionRateBps: number;
   isActive: boolean;
   /**
+   * Cierre temporal: si el comercio cerró por un rato, a qué hora vuelve a
+   * abrir solo. `isActive` sigue siendo la única fuente de verdad (búsqueda,
+   * geo y creación de pedidos lo leen); el barrido `businessReopen` lo
+   * devuelve a `true` cuando `reopenAt` vence. `null` = cerrado hasta que
+   * alguien lo abra.
+   */
+  reopenAt?: Date | null;
+  /**
    * Última vez que un panel de este negocio (web o Zipp Negocios) se
    * conectó por socket. `null` si nunca se ha visto ninguno. La usa
    * `businessPresence.service.ts` para avisar cuando el negocio está
@@ -415,6 +423,7 @@ const businessSchema = new Schema<IBusiness>(
       type: Boolean,
       default: true,
     },
+    reopenAt: { type: Date, default: null },
     panelSeenAt: { type: Date, default: null },
     panelDisconnectedNotifiedAt: { type: Date, default: null },
     freeDeliveryThreshold: { type: Number, default: 0, min: 0 },
@@ -530,6 +539,8 @@ businessSchema.index({ location: '2dsphere' });
 businessSchema.index({ category: 1, isActive: 1 });
 businessSchema.index({ city: 1, isActive: 1 });
 businessSchema.index({ isApproved: 1, isActive: 1 });
+// Solo los cierres temporales: el barrido de reapertura no recorre el resto.
+businessSchema.index({ reopenAt: 1 }, { partialFilterExpression: { reopenAt: { $type: 'date' } } });
 businessSchema.index({ isArchived: 1 });
 // Soporta el barrido de "Abierto sin app conectada" (businessPresence.service.ts).
 businessSchema.index({ isActive: 1, panelDisconnectedNotifiedAt: 1 });

@@ -52,7 +52,9 @@ describe('Centro legal, derechos de datos y PQRS', () => {
   it('permite crear, consultar y responder una PQRS sin exponer la de otros usuarios', async () => {
     const client = await makeUser(); const other = await makeUser(); const admin = await makeUser({ role: UserRole.ADMIN });
     const create = await request(app).post('/api/v1/pqrs').set(await authHeader(client)).send({ type: 'claim', subject: 'Pedido incompleto', detail: 'Faltó un producto en la entrega solicitada.' }).expect(201);
-    await request(app).post(`/api/v1/pqrs/${create.body.data._id}/evidence`).set(await authHeader(client)).send({ url: 'https://example.com/evidence.jpg', name: 'foto.jpg' }).expect(201);
+    await request(app).post(`/api/v1/pqrs/${create.body.data._id}/evidence`).set(await authHeader(client)).send({ url: 'https://example.com/evidence.jpg', name: 'foto.jpg' }).expect(400);
+    // Un enlace ya no es evidencia: solo se aceptan archivos subidos (ver supportSelfService.test.ts).
+    expect((await Pqrs.findById(create.body.data._id))?.evidence).toHaveLength(0);
     const mine = await request(app).get('/api/v1/pqrs/my').set(await authHeader(client)).expect(200);
     expect(mine.body.data).toHaveLength(1);
     await request(app).get('/api/v1/pqrs/my').set(await authHeader(other)).expect(200).expect((res) => expect(res.body.data).toHaveLength(0));

@@ -105,6 +105,7 @@ const KIND: Record<string, { label: string; icon: LucideIcon }> = {
  refund_failed: { label: 'Reembolso fallido', icon: Undo2 },
  payment_review: { label: 'Cobro en revisión', icon: Banknote },
  order_unaccepted: { label: 'Pedido sin aceptar', icon: Clock },
+ refund_requested: { label: 'Reembolso pedido por Soporte', icon: Undo2 },
 };
 
 /** Un tipo que esta pantalla aún no conoce: se ve, con una etiqueta neutra. */
@@ -209,6 +210,23 @@ export default function Incidents() {
  load();
  } catch (err) {
  window.alert(apiMessage(err, 'No se pudo marcar el cobro como resuelto.'));
+ }
+ };
+
+ // Soporte pidió el reembolso; el dinero se mueve desde la ficha del pedido
+ // (RefundPanel) y aquí solo se cierra la petición con constancia.
+ const resolveRefundRequest = async (pqrsId: string, outcome: 'done' | 'rejected') => {
+ const note = window.prompt(outcome === 'done' ? 'Nota para Soporte (opcional):' : '¿Por qué se rechaza el reembolso?');
+ if (note === null) return;
+ if (outcome === 'rejected' && note.trim().length < 5) {
+ window.alert('Explica el motivo en al menos 5 caracteres.');
+ return;
+ }
+ try {
+ await api.patch(`/pqrs/${pqrsId}/refund-request/resolve`, { outcome, ...(note.trim() ? { note: note.trim() } : {}) });
+ load();
+ } catch (err) {
+ window.alert(apiMessage(err, 'No se pudo cerrar la solicitud.'));
  }
  };
 
@@ -353,6 +371,22 @@ export default function Incidents() {
  >
  Marcar resuelto <ArrowRight className="h-3.5 w-3.5" />
  </button>
+ ) : null}
+ {incident.kind === 'refund_requested' ? (
+ <div className="flex shrink-0 gap-2">
+ <button
+ onClick={() => resolveRefundRequest(incident.id, 'rejected')}
+ className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ >
+ Rechazar
+ </button>
+ <button
+ onClick={() => resolveRefundRequest(incident.id, 'done')}
+ className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ >
+ Ya reembolsado <ArrowRight className="h-3.5 w-3.5" />
+ </button>
+ </div>
  ) : null}
  {incident.kind === 'clawback_overdue' ? (
  <button

@@ -1273,6 +1273,29 @@ export class OrderService {
   }
 
   /**
+   * Los pedidos programados que aún no le tocan a la cocina, del más próximo
+   * al más lejano.
+   *
+   * Es la cara opuesta de `getByBusiness`, que los esconde hasta
+   * `scheduledActivatedAt`: aquí solo están los que esperan su hora, para
+   * que el comercio planifique stock y turnos. Al activarse salen de esta
+   * lista y entran al tablero. Un programado en línea sin pagar tampoco
+   * cuenta: todavía no es un pedido.
+   */
+  async getScheduledByBusiness(businessId: string, limit = 100) {
+    return Order.find({
+      businessId,
+      status: OrderStatus.PENDING,
+      scheduledFor: { $ne: null },
+      scheduledActivatedAt: null,
+      $nor: [{ ...UNPAID_ONLINE_MATCH }],
+    })
+      .sort({ scheduledFor: 1 })
+      .limit(limit)
+      .populate('clientId', 'name phone');
+  }
+
+  /**
    * Enseña al negocio los pedidos programados cuya hora se acerca.
    *
    * Un pedido programado existe desde que se paga, pero aparecer en la

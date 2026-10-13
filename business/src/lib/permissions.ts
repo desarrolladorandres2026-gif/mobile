@@ -12,6 +12,7 @@ export type BusinessPermission =
   | 'orders:cancel'
   | 'orders:cancel_paid'
   | 'shift:view'
+  | 'shift:close'
   | 'catalog:view'
   | 'catalog:create'
   | 'catalog:edit'
@@ -39,7 +40,8 @@ export type BusinessPermission =
   | 'settings:view'
   | 'settings:manage'
   | 'security:manage'
-  | 'store:toggle';
+  | 'store:toggle'
+  | 'support:view_team';
 
 export type BusinessRole = 'owner' | 'manager' | 'employee';
 /** Los papeles que se pueden dar a alguien del equipo (el dueño no se asigna). */
@@ -85,6 +87,7 @@ export const NAV_REQUIREMENT: Record<string, BusinessPermission> = {
   // cierre con dinero y el resto su resumen por papel (ver `pages/Home`).
   '/': 'orders:view',
   '/orders': 'orders:view',
+  '/scheduled': 'orders:view',
   '/settlements': 'settlements:view',
   '/menu': 'catalog:view',
   '/promotions': 'promotions:view',

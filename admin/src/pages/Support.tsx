@@ -1,7 +1,7 @@
 import { useLiveReload } from '../hooks/useLiveReload';
 import { useCallback, useEffect, useState } from 'react';
 import {
- Inbox, UserCheck, Send, CheckCircle2, AlertTriangle, Timer, Scale,
+ Inbox, UserCheck, Send, CheckCircle2, AlertTriangle, Timer, Scale, Paperclip,
 } from 'lucide-react';
 import api from '../services/api';
 import SupportMacros from './SupportMacros';
@@ -10,6 +10,7 @@ import { Permission } from '../lib/permissions';
 import { useAuthStore } from '../stores/authStore';
 import { PermissionGate } from '../components/PermissionGate';
 import EntityLink from '../components/EntityLink';
+import InternalNotes from '../components/InternalNotes';
 import { apiMessage } from '../lib/apiError';
 
 /**
@@ -41,7 +42,14 @@ interface Ticket {
  businessId?: { _id: string; name?: string } | null;
  driverId?: { _id: string; userId?: { _id: string; name?: string } } | null;
  requesterRole?: 'customer' | 'business' | 'driver';
- responses?: Array<{ message: string; createdAt: string }>;
+ /** Lo que eligió el comercio al abrirlo; el tipo ya viene derivado de esto. */
+ reason?: keyof typeof REASON_LABEL | null;
+ /** Adjuntos del solicitante; se abren con una URL firmada que queda en auditoría. */
+ evidence?: Array<{ _id: string; name: string; uploadedAt: string }>;
+ reopenCount?: number;
+ resolvedByRequester?: boolean;
+ refundRequest?: { status: 'pending' | 'done' | 'rejected'; reason: string; resolutionNote?: string } | null;
+ responses?: Array<{ message: string; from?: 'staff' | 'requester'; createdAt: string }>;
  createdAt: string;
 }
 
@@ -52,6 +60,25 @@ interface Macro {
  appliesTo: Ticket['type'][];
 }
 
+interface Metrics {
+ open: number;
+ overdue: number;
+ unassigned: number;
+ legalOverdue: number;
+ legalDueSoon: number;
+ refundRequests: number;
+ averageFirstResponseMinutes: number;
+ averageResolutionHours: number;
+}
+
+const PAGE = 100;
+
+const REFUND_STATE: Record<'pending' | 'done' | 'rejected', string> = {
+ pending: 'pendiente con Finanzas',
+ done: 'atendido por Finanzas',
+ rejected: 'rechazado por Finanzas',
+};
+
 const shortDate = (iso: string) =>
  new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
 
@@ -61,6 +88,14 @@ const TYPE_LABEL: Record<Ticket['type'], string> = {
  claim: 'Reclamo',
  suggestion: 'Sugerencia',
 };
+
+const REASON_LABEL = {
+ driver_no_show: 'El domiciliario no llegó',
+ order_issue: 'Problema con el pedido',
+ customer_unreachable: 'El cliente no responde',
+ payment: 'Cobro o liquidación',
+ account: 'Cuenta o local',
+} as const;
 
 const REQUESTER_LABEL: Record<NonNullable<Ticket['requesterRole']>, string> = {
  customer: 'Cliente',
@@ -97,6 +132,9 @@ function dueLabel(dueAt?: string | null): { text: string; overdue: boolean } | n
 const userIdOf = (value: Ticket['userId']): string | undefined =>
  value && typeof value === 'object' ? value._id : undefined;
 
+const phoneOf = (value: Ticket['userId']): string | null =>
+ value && typeof value === 'object' && value.phone ? value.phone : null;
+
 const nameOf = (value: Ticket['userId'] | Ticket['assignedTo']): string | null => {
  if (!value || typeof value === 'string') return null;
  return value.name ?? null;
@@ -108,7 +146,12 @@ export default function Support() {
  const [onlyOverdue, setOnlyOverdue] = useState(false);
  const [onlyLegalOverdue, setOnlyLegalOverdue] = useState(false);
  const [selectedId, setSelectedId] = useState<string | null>(null);
- const [view, setView] = useState<'open' | 'answered'>('open');
+ const [view, setView] = useState<'open' | 'answered' | 'closed'>('open');
+ const [scope, setScope] = useState<'all' | 'mine' | 'unassigned' | 'refund'>('all');
+ const [limit, setLimit] = useState(PAGE);
+ const [metrics, setMetrics] = useState<Metrics | null>(null);
+ const [refundReason, setRefundReason] = useState('');
+ const myId = useAuthStore((state) => state.user?._id);
  const [type, setType] = useState('');
  const [requester, setRequester] = useState('');
  const [search, setSearch] = useState('');
@@ -123,22 +166,30 @@ export default function Support() {
  const load = useCallback(async () => {
  try {
  setLoading(true);
- const params: Record<string, string> = {};
+ const params: Record<string, string> = { limit: String(limit) };
  if (onlyOverdue) params.overdue = 'true';
  if (onlyLegalOverdue) params.legalOverdue = 'true';
- if (view === 'answered') params.view = 'answered';
+ if (view !== 'open') params.view = view;
+ if (scope === 'mine' && myId) params.assignedTo = myId;
+ if (scope === 'unassigned') params.unassigned = 'true';
+ if (scope === 'refund') params.refundRequested = 'true';
  if (type) params.type = type;
  if (requester) params.requesterRole = requester;
  if (term) params.q = term;
- const queue = await api.get('/pqrs/support/queue', { params });
+ const [queue, stats] = await Promise.all([
+ api.get('/pqrs/support/queue', { params }),
+ api.get('/pqrs/support/metrics').catch(() => null),
+ ]);
  setTickets(queue.data.data ?? []);
+ if (stats) setMetrics(stats.data.data ?? null);
+ setError('');
  } catch (err) {
  console.error(err);
  setError(apiMessage(err, 'No se pudo cargar la bandeja de soporte.'));
  } finally {
  setLoading(false);
  }
- }, [onlyOverdue, onlyLegalOverdue, view, type, requester, term]);
+ }, [onlyOverdue, onlyLegalOverdue, view, scope, limit, myId, type, requester, term]);
 
  useLiveReload(['support'], load);
  useEffect(() => {
@@ -176,6 +227,20 @@ export default function Support() {
  }
  };
 
+ /** Abre un adjunto: la URL se firma al pedirla y cada consulta queda en auditoría. */
+ const openEvidence = async (ticketId: string, evidenceId: string) => {
+ // La pestaña se abre antes de la espera: tras un `await` el navegador la bloquearía.
+ const tab = window.open('about:blank', '_blank');
+ if (tab) tab.opener = null;
+ try {
+ const { data } = await api.get(`/pqrs/support/${ticketId}/evidence/${evidenceId}/url`);
+ if (tab) tab.location.href = data.data.url;
+ } catch (err) {
+ tab?.close();
+ setError(apiMessage(err, 'No se pudo abrir el adjunto.'));
+ }
+ };
+
  const openTicket = (id: string) => {
  setSelectedId(id === selectedId ? null : id);
  setReply('');
@@ -186,6 +251,15 @@ export default function Support() {
  run(() => api.patch(`/pqrs/${id}/classify`, { priority }));
 
  const assignToMe = (id: string) => run(() => api.patch(`/pqrs/${id}/assign`, {}));
+
+ const reopen = (id: string) => run(() => api.patch(`/pqrs/${id}/reopen`, {}));
+
+ const requestRefund = (id: string) =>
+ run(async () => {
+ if (refundReason.trim().length < 5) throw { response: { data: { message: 'Explica por qué se debe reembolsar (mínimo 5 caracteres).' } } };
+ await api.patch(`/pqrs/${id}/refund-request`, { reason: refundReason.trim() });
+ setRefundReason('');
+ });
 
  const respond = (id: string) =>
  run(async () => {
@@ -240,7 +314,7 @@ export default function Support() {
  </span>
  </div>
  <p className="text-xs uppercase tracking-wider text-[var(--color-text-main)] opacity-70">
- {TYPE_LABEL[selected.type]} · {REQUESTER_LABEL[selected.requesterRole ?? 'customer']} ·{' '}
+ {TYPE_LABEL[selected.type]}{selected.reason ? ` (${REASON_LABEL[selected.reason]})` : ''} · {REQUESTER_LABEL[selected.requesterRole ?? 'customer']} ·{' '}
  <EntityLink type="user" id={userIdOf(selected.userId)}>{nameOf(selected.userId) ?? 'Usuario'}</EntityLink> ·{' '}
  {nameOf(selected.assignedTo) ? `lo lleva ${nameOf(selected.assignedTo)}` : 'sin asignar'}
  </p>
@@ -270,6 +344,20 @@ export default function Support() {
  </span>
  ) : null}
  </div>
+ {selected.resolvedByRequester ? (
+ <p className="text-xs font-semibold text-[var(--color-success)]">El solicitante confirmó que quedó resuelto.</p>
+ ) : null}
+ {selected.reopenCount ? (
+ <p className="text-xs font-semibold text-[var(--color-text-main)]">
+ Reabierto por el solicitante {selected.reopenCount} {selected.reopenCount === 1 ? 'vez' : 'veces'}: el problema siguió.
+ </p>
+ ) : null}
+ {phoneOf(selected.userId) ? (
+ <p className="text-xs text-[var(--color-text-main)]">
+ Teléfono:{' '}
+ <a href={`tel:${phoneOf(selected.userId)}`} className="font-semibold underline">{phoneOf(selected.userId)}</a>
+ </p>
+ ) : null}
  {(selected.orderId || selected.businessId || selected.driverId) && (
  <p className="text-xs text-[var(--color-text-main)]">
  {selected.orderId ? (
@@ -302,14 +390,25 @@ export default function Support() {
  >
  Ver cuenta
  </EntityLink>
- {!nameOf(selected.assignedTo) ? (
+ {typeof selected.assignedTo === 'object' && selected.assignedTo?._id === myId ? null : (
  <PermissionGate permission={Permission.SUPPORT_MANAGE}>
  <button
  onClick={() => assignToMe(selected._id)}
  disabled={busy}
  className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
  >
- <UserCheck className="h-3.5 w-3.5" /> Asignármelo
+ <UserCheck className="h-3.5 w-3.5" /> {nameOf(selected.assignedTo) ? 'Tomarlo yo' : 'Asignármelo'}
+ </button>
+ </PermissionGate>
+ )}
+ {selected.status === 'closed' ? (
+ <PermissionGate permission={Permission.SUPPORT_MANAGE}>
+ <button
+ onClick={() => reopen(selected._id)}
+ disabled={busy}
+ className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ >
+ Reabrir caso
  </button>
  </PermissionGate>
  ) : null}
@@ -332,17 +431,33 @@ export default function Support() {
  {selected.detail}
  </p>
 
+ {selected.evidence?.length ? (
+ <ul className="space-y-1 text-xs">
+ {selected.evidence.map((item) => (
+ <li key={item._id} className="flex items-center gap-1.5 text-[var(--color-text-main)]">
+ <Paperclip className="h-3.5 w-3.5 shrink-0" />
+ <button onClick={() => openEvidence(selected._id, item._id)} className="cursor-pointer truncate underline underline-offset-2">
+ {item.name}
+ </button>
+ </li>
+ ))}
+ </ul>
+ ) : null}
+
  {selected.responses?.length ? (
  <ul className="space-y-2">
  {selected.responses.map((r, index) => (
  <li
  key={index}
- className="border-l-2 border-[var(--color-primary)] pl-3 text-sm text-[var(--color-text-main)]"
+ className={`pl-3 text-sm text-[var(--color-text-main)] ${
+ r.from === 'requester' ? 'border-l-2 border-[var(--color-border)]' : 'border-l-2 border-[var(--color-primary)]'
+ }`}
  >
- {r.message}
- <span className="ml-2 text-[11px] text-[var(--color-text-main)] opacity-70">
+ <span className="block text-[11px] font-semibold opacity-70">
+ {r.from === 'requester' ? (nameOf(selected.userId) ?? 'Solicitante') : 'ZIPP'} ·{' '}
  {new Date(r.createdAt).toLocaleString('es-CO')}
  </span>
+ {r.message}
  </li>
  ))}
  </ul>
@@ -390,6 +505,44 @@ export default function Support() {
  </div>
  </PermissionGate>
  </div>
+
+ {selected.orderId ? (
+ <section className="space-y-2 border-t border-[var(--color-border-light)] pt-4">
+ <h3 className="text-sm font-bold text-[var(--color-text-main)]">Reembolso</h3>
+ {selected.refundRequest ? (
+ <p className="text-xs text-[var(--color-text-main)]">
+ Solicitud {REFUND_STATE[selected.refundRequest.status]}: {selected.refundRequest.reason}
+ {selected.refundRequest.resolutionNote ? ` — ${selected.refundRequest.resolutionNote}` : ''}
+ </p>
+ ) : null}
+ {selected.refundRequest?.status !== 'pending' && selected.status !== 'closed' ? (
+ <PermissionGate permission={Permission.SUPPORT_MANAGE}>
+ <p className="text-xs text-[var(--color-text-main)] opacity-70">
+ Soporte no reembolsa: la solicitud llega a Finanzas, que decide en la ficha del pedido.
+ </p>
+ <input
+ value={refundReason}
+ onChange={(e) => setRefundReason(e.target.value)}
+ maxLength={500}
+ placeholder="Por qué se debe reembolsar"
+ className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
+ />
+ <button
+ onClick={() => requestRefund(selected._id)}
+ disabled={busy}
+ className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ >
+ Solicitar reembolso a Finanzas
+ </button>
+ </PermissionGate>
+ ) : null}
+ </section>
+ ) : null}
+
+ <section className="space-y-2 border-t border-[var(--color-border-light)] pt-4">
+ <h3 className="text-sm font-bold text-[var(--color-text-main)]">Notas internas</h3>
+ <InternalNotes entityType="pqrs" entityId={selected._id} />
+ </section>
  </div>
  </div>
  );
@@ -406,9 +559,28 @@ export default function Support() {
  </div>
  </div>
 
+ {metrics ? (
+ <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-[var(--color-text-main)]">
+ {([
+ ['Abiertos', String(metrics.open), false],
+ ['Sin asignar', String(metrics.unassigned), false],
+ ['SLA vencido', String(metrics.overdue), metrics.overdue > 0],
+ ['Plazo legal vencido', String(metrics.legalOverdue), metrics.legalOverdue > 0],
+ ['Reembolsos pedidos', String(metrics.refundRequests), false],
+ ['1ª respuesta', `${metrics.averageFirstResponseMinutes} min`, false],
+ ['Resolución (aprox.)', `${metrics.averageResolutionHours} h`, false],
+ ] as const).map(([label, value, alert]) => (
+ <div key={label} className="flex items-baseline gap-1.5">
+ <dd className={`text-sm font-bold ${alert ? 'text-[var(--color-danger)]' : ''}`}>{value}</dd>
+ <dt className="opacity-70">{label}</dt>
+ </div>
+ ))}
+ </dl>
+ ) : null}
+
  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-[var(--color-border-light)] pb-3">
  <div className="flex gap-4">
- {([['open', 'Por responder'], ['answered', 'Respondidos']] as const).map(([key, label]) => (
+ {([['open', 'Por responder'], ['answered', 'Respondidos'], ['closed', 'Cerrados']] as const).map(([key, label]) => (
  <button
  key={key}
  onClick={() => setView(key)}
@@ -425,6 +597,17 @@ export default function Support() {
  </button>
  ))}
  </div>
+ <select
+ value={scope}
+ onChange={(e) => { setScope(e.target.value as typeof scope); setLimit(PAGE); }}
+ aria-label="De quién son los casos"
+ className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ >
+ <option value="all">Todos los casos</option>
+ <option value="mine">Mis casos</option>
+ <option value="unassigned">Sin asignar</option>
+ <option value="refund">Reembolso pendiente</option>
+ </select>
  <select
  value={type}
  onChange={(e) => setType(e.target.value)}
@@ -444,7 +627,7 @@ export default function Support() {
  <input
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- placeholder="Buscar en asunto o detalle"
+ placeholder="Asunto, nombre, teléfono o n.º de pedido"
  className="w-56 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
  />
  <button
@@ -537,6 +720,14 @@ export default function Support() {
  </tbody>
  </table>
  </div>
+ {tickets.length >= limit ? (
+ <button
+ onClick={() => setLimit((n) => n + PAGE)}
+ className="w-full cursor-pointer py-3 text-xs font-semibold text-[var(--color-text-main)] underline"
+ >
+ Ver más casos
+ </button>
+ ) : null}
  </div>
  )}
  </div>

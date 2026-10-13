@@ -84,19 +84,23 @@ describe('Empleados del comercio', () => {
       BusinessPermission.ORDERS_VIEW,
       BusinessPermission.ORDERS_MANAGE,
       BusinessPermission.ORDERS_CANCEL,
+      BusinessPermission.SHIFT_VIEW,
+      BusinessPermission.SHIFT_CLOSE,
       BusinessPermission.CATALOG_VIEW,
       BusinessPermission.CATALOG_AVAILABILITY,
       BusinessPermission.STORE_TOGGLE,
     ]);
   });
 
-  it('el empleado ve pedidos, agota productos y abre el local; ni dinero ni equipo', async () => {
+  it('el empleado ve pedidos, agota productos y abre el local; ve sus ventas y cierra caja; ni comisiones ni equipo', async () => {
     await addActive(empleado, BusinessRole.EMPLOYEE);
 
     expect(await permsOf(empleado)).toEqual([
       BusinessPermission.ORDERS_VIEW,
       BusinessPermission.ORDERS_MANAGE,
       BusinessPermission.ORDERS_CANCEL,
+      BusinessPermission.SHIFT_VIEW,
+      BusinessPermission.SHIFT_CLOSE,
       BusinessPermission.CATALOG_VIEW,
       BusinessPermission.CATALOG_AVAILABILITY,
       BusinessPermission.STORE_TOGGLE,

@@ -30,6 +30,7 @@ router.post('/quote', authenticate, authorize(UserRole.CLIENT), validate(quoteOr
 router.post('/', authenticate, authorize(UserRole.CLIENT), validate(createOrderSchema), (req, res, next) => orderController.create(req, res, next));
 router.get('/my', authenticate, (req, res, next) => orderController.getMyOrders(req, res, next));
 router.get('/business/:businessId', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderController.getBusinessOrders(req, res, next));
+router.get('/business/:businessId/scheduled', authenticate, authorize(UserRole.BUSINESS, UserRole.ADMIN), adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderController.getScheduledOrders(req, res, next));
 router.get('/driver/available', authenticate, authorize(UserRole.DRIVER, UserRole.ADMIN), adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderController.getAvailableOrders(req, res, next));
 router.get('/driver/my', authenticate, authorize(UserRole.DRIVER), (req, res, next) => orderController.getDriverOrders(req, res, next));
 router.get('/:id/receipt', authenticate, adminRequires(Permission.ORDERS_VIEW_ALL), (req, res, next) => orderController.receipt(req, res, next));

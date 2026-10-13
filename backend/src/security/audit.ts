@@ -190,6 +190,11 @@ export enum AuditAction {
   SUPPORT_MACRO_DELETED = 'support_macro_deleted',
   PQRS_CLASSIFIED = 'pqrs_classified',
   PQRS_ASSIGNED = 'pqrs_assigned',
+  PQRS_REOPENED = 'pqrs_reopened',
+  PQRS_REFUND_REQUESTED = 'pqrs_refund_requested',
+  PQRS_REFUND_RESOLVED = 'pqrs_refund_resolved',
+  PQRS_EVIDENCE_UPLOADED = 'pqrs_evidence_uploaded',
+  PQRS_EVIDENCE_VIEWED = 'pqrs_evidence_viewed',
   DATA_REQUEST_TAKEN = 'data_request_taken',
   LEGAL_ACCEPTANCES_VIEWED = 'legal_acceptances_viewed',
 

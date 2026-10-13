@@ -27,7 +27,7 @@ import { UserRole } from '../types';
 export const MFA_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 export const MFA_MAX_ATTEMPTS = 5;
 
-export type FirstFactor = 'password' | 'google' | 'apple' | 'facebook' | 'otp' | 'email_otp' | 'password_reset' | 'counter_pin';
+export type FirstFactor = 'password' | 'google' | 'apple' | 'facebook' | 'otp' | 'email_otp' | 'password_reset' | 'counter_pin' | 'counter_password';
 
 export const hasTwoFactor = (user: Pick<IUser, 'twoFactorEnabled' | 'twoFactorSecret'>): boolean =>
   !!user.twoFactorEnabled;

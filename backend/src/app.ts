@@ -25,6 +25,7 @@ import { startProRenewalSweeper, stopProRenewalSweeper } from './services/pro.se
 import { startCashOverdueSweeper } from './services/cashReconciliation.service';
 import { startPanelPresenceSweeper } from './services/businessPresence.service';
 import { startDocumentExpirySweeper, stopDocumentExpirySweeper } from './services/documentExpiry.service';
+import { startBusinessReopenSweeper, stopBusinessReopenSweeper } from './services/businessReopen.service';
 import { startPendingPaymentSweeper, stopPendingPaymentSweeper } from './services/payments';
 import { startBackgroundRemovalSweeper, stopBackgroundRemovalSweeper } from './services/backgroundRemoval.service';
 import { initCache, closeCache } from './cache';
@@ -255,6 +256,7 @@ const start = async () => {
   startCashOverdueSweeper();
   startPanelPresenceSweeper();
   startDocumentExpirySweeper();
+  startBusinessReopenSweeper();
 
   httpServer.listen(config.port, '0.0.0.0', () => {
     console.log(`\n🚀 ZIPP API en puerto ${config.port}`);
@@ -277,6 +279,7 @@ const shutdown = async (signal: string) => {
   stopPendingPaymentSweeper();
   stopBackgroundRemovalSweeper();
   stopDocumentExpirySweeper();
+  stopBusinessReopenSweeper();
   httpServer.close(async () => {
     await closeCache();
     try {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { BellRing, Bike, PackageX, Volume2, WifiOff, X } from 'lucide-react';
+import { Bike, PackageX, Volume2, WifiOff, X } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useBusinessEvent, useRealtime } from '../hooks/realtimeContext';
 import { useActiveOrders, useActiveOrdersLiveSync } from '../hooks/useActiveOrders';
@@ -14,7 +14,8 @@ import { getFirstSeen } from '../lib/firstSeen';
 import { isQuietMoment } from '../lib/quietMoment';
 import { setQuiet } from '../lib/quietState';
 import { desktopAttention, desktopReportStatus, onDesktopNotificationClick } from '../lib/desktop';
-import { money, shortId, type BusinessOrder } from '../lib/orderFlow';
+import type { BusinessOrder } from '../lib/orderFlow';
+import NewOrderCard from './NewOrderCard';
 import { qk } from '../lib/queryKeys';
 import { apiStatus } from '../lib/apiError';
 
@@ -22,6 +23,8 @@ import { apiStatus } from '../lib/apiError';
 const OFFLINE_GRACE_MS = 10_000;
 /** El aviso de "domiciliario en el local" se retira solo: es informativo. */
 const DRIVER_NOTICE_MS = 45_000;
+/** Lo que el aviso se aparta tras "Ver pedido": lo justo para leer la ficha. */
+const SNOOZE_MS = 60_000;
 
 type Notice = { id: string; kind: 'cancelled' | 'driver'; title: string; detail: string; orderId: string };
 
@@ -102,6 +105,16 @@ export default function OrderNotifications() {
   }, [ringKind]);
   useEffect(() => stopRingLoop, []);
 
+  // ── La pausa de "Ver pedido" ──
+  //
+  // El aviso se planta sobre la esquina donde está el tablero: al pulsar "Ver
+  // pedido" tapaba justo la ficha que el comercio acaba de abrir. Se aparta un
+  // minuto para ese pedido y vuelve si nadie lo aceptó. No se guarda en la URL
+  // ni sobrevive a una recarga a propósito: una pausa que no se cura sola deja
+  // un pedido sin aviso. El timbre no se toca: lo calla aceptar o rechazar,
+  // nunca mirar.
+  const [snoozed, setSnoozed] = useState<{ id: string; until: number } | null>(null);
+
   // ── Avisos puntuales ──
   const [notices, setNotices] = useState<Notice[]>([]);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -159,7 +172,10 @@ export default function OrderNotifications() {
     }, DRIVER_NOTICE_MS);
   });
 
-  const oldest = waiting[0];
+  const unseen = snoozed && now < snoozed.until
+    ? waiting.filter((order) => order._id !== snoozed.id)
+    : waiting;
+  const oldest = unseen[0];
   const oldestMinutes = oldest
     ? Math.max(0, Math.floor((now - waitingSince(oldest, getFirstSeen()[oldest._id])) / 60_000))
     : 0;
@@ -168,10 +184,10 @@ export default function OrderNotifications() {
 
   const goToOrder = (orderId: string) => navigate(`/orders?pedido=${orderId}`);
 
-  if (!offline && !showUnlock && waiting.length === 0 && notices.length === 0) return null;
+  if (!offline && !showUnlock && !oldest && notices.length === 0) return null;
 
   return (
-    <section aria-live="assertive" aria-label="Avisos de pedidos" className="fixed right-4 top-14 z-[60] flex w-[calc(100vw-2rem)] max-w-sm flex-col gap-3">
+    <section aria-live="assertive" aria-label="Avisos de pedidos" className="fixed right-4 top-14 z-[60] flex w-[calc(100vw-6rem)] sm:w-[calc(100vw-7rem)] max-w-md flex-col gap-3">
       {offline && (
         <Toast tone="danger" icon={<WifiOff className="h-5 w-5" />} title="Sin conexión">
           Los pedidos no están llegando. Reintentando…
@@ -190,26 +206,18 @@ export default function OrderNotifications() {
       )}
 
       {oldest && (
-        <Toast
-          tone={pattern === 'urgent' ? 'danger' : 'success'}
-          icon={<BellRing className="h-5 w-5" />}
-          title={
-            pattern === 'urgent'
-              ? `Sin aceptar hace ${oldestMinutes} min`
-              : waiting.length > 1 ? `${waiting.length} pedidos nuevos` : '¡Nuevo pedido!'
-          }
-        >
-          <span className="block">{summary(oldest, oldestMinutes)}</span>
-          <span className="mt-3 flex items-center gap-4">
-            <button
-              type="button"
-              onClick={() => goToOrder(oldest._id)}
-              className="cursor-pointer rounded-md bg-[var(--color-primary)] px-3.5 py-1.5 text-xs font-semibold text-[var(--zipp-obsidian)] transition-colors hover:bg-[var(--color-primary-light)]"
-            >
-              Ver pedido
-            </button>
-          </span>
-        </Toast>
+        <NewOrderCard
+          // Una tarjeta nueva por pedido: la entrada con rebote se repite cuando cambia el más antiguo.
+          key={oldest._id}
+          order={oldest}
+          count={unseen.length}
+          minutes={oldestMinutes}
+          urgent={pattern === 'urgent'}
+          onView={() => {
+            setSnoozed({ id: oldest._id, until: Date.now() + SNOOZE_MS });
+            goToOrder(oldest._id);
+          }}
+        />
       )}
 
       {notices.map((notice) => (
@@ -232,12 +240,6 @@ export default function OrderNotifications() {
       ))}
     </section>
   );
-}
-
-function summary(order: BusinessOrder, minutes: number) {
-  const items = (order.items ?? []).map((item) => `${item.quantity}× ${item.productName}`).join(' · ');
-  const head = `#${order.orderNumber ?? shortId(order._id)} · ${money(order.total)} · hace ${minutes} min`;
-  return items ? `${head} · ${items}` : head;
 }
 
 const TONE = {

@@ -27,6 +27,24 @@ export const singleImageUpload = (field: string, maxBytes = MAX_FILE_SIZE_BYTES)
     },
   }).single(field);
 
+/**
+ * Adjunto de un caso de soporte: captura, foto del pedido o PDF (un cobro, un
+ * comprobante). Mismo patrón que el documento del comercio, con tope de 5 MB:
+ * `privateStorage.service` vuelve a comprobar los bytes antes de subirlo.
+ */
+export const PQRS_EVIDENCE_MAX_BYTES = MAX_FILE_SIZE_BYTES;
+export const uploadPqrsEvidence = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: PQRS_EVIDENCE_MAX_BYTES, files: 1, fields: 2, fieldSize: 1024, parts: 3 },
+  fileFilter: (_req, file, cb) => {
+    if (![...ALLOWED_MIME_TYPES, 'application/pdf'].includes(file.mimetype)) {
+      cb(new Error('Formato no permitido. Sube una imagen (JPG, PNG, WEBP) o un PDF.'));
+      return;
+    }
+    cb(null, true);
+  },
+}).single('file');
+
 /** Flyer de una campaña publicitaria. */
 export const uploadImage = singleImageUpload('flyer', config.advertisements.maxBytes);
 

@@ -7,6 +7,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { apiMessage } from '../../lib/apiError';
 import { usePermissions } from '../../hooks/usePermissions';
 import ConfirmDialog from '../../components/ConfirmDialog';
+import { isElevated } from '../../lib/counter';
 import {
   normalizeRole,
   ROLE_DESCRIPTIONS,
@@ -93,6 +94,17 @@ export default function TeamTab() {
   const [inviting, setInviting] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toRemove, setToRemove] = useState<StaffMember | null>(null);
+  // Entrada desde el mostrador: dar acceso a alguien pide la contraseña otra
+  // vez (el backend la exige; ver `reauthIfFromCounter`). Una equivocada
+  // cierra la entrada y el panel vuelve solo al mostrador.
+  const needsPassword = isElevated();
+  const [currentPassword, setCurrentPassword] = useState('');
+  const proof = () => (needsPassword ? { currentPassword } : {});
+  const missingPassword = () => {
+    if (!needsPassword || currentPassword) return false;
+    setError('Escribe tu contraseña arriba para confirmar que eres tú.');
+    return true;
+  };
 
   const staffQuery = useQuery({
     queryKey: qk.staff(businessId),
@@ -113,7 +125,7 @@ export default function TeamTab() {
   const inviteRole = grantable.includes(role) ? role : grantable[0];
 
   const invite = async () => {
-    if (!businessId || !inviteRole) return;
+    if (!businessId || !inviteRole || missingPassword()) return;
     try {
       setError('');
       setInviting(true);
@@ -122,7 +134,9 @@ export default function TeamTab() {
         role: inviteRole,
         ...(name.trim() ? { name: name.trim() } : {}),
         ...(email.trim() ? { email: email.trim() } : {}),
+        ...proof(),
       });
+      setCurrentPassword('');
       setPhone('');
       setName('');
       setEmail('');
@@ -136,10 +150,14 @@ export default function TeamTab() {
 
   const update = async (member: StaffMember, body: { role?: StaffRole; suspended?: boolean }) => {
     if (!businessId) return;
+    // Suspender quita acceso: no pide contraseña. Cambiar papel o reactivar sí.
+    const grants = body.role !== undefined || body.suspended === false;
+    if (grants && missingPassword()) return;
     try {
       setError('');
       setBusyId(member._id);
-      await api.patch(`/businesses/${businessId}/staff/${member._id}`, body);
+      await api.patch(`/businesses/${businessId}/staff/${member._id}`, grants ? { ...body, ...proof() } : body);
+      if (grants) setCurrentPassword('');
       await load();
     } catch (err) {
       setError(apiMessage(err, 'No se pudo actualizar a esta persona.'));
@@ -173,6 +191,22 @@ export default function TeamTab() {
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <p className="flex-1">{error || loadError}</p>
         </div>
+      )}
+
+      {needsPassword && (canInvite || has('team:change_role')) && (
+        <label className="block max-w-sm">
+          <span className="text-xs font-semibold text-[var(--color-text-main)]">Tu contraseña</span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(e) => { setCurrentPassword(e.target.value); setError(''); }}
+            className={`${inputClass} w-full mt-1`}
+          />
+          <span className="block mt-1 text-xs text-[var(--color-text-secondary)]">
+            Entraste desde el mostrador: invitar, cambiar un papel o reactivar te la piden otra vez.
+          </span>
+        </label>
       )}
 
       <div className="cols3">

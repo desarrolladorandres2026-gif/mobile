@@ -435,7 +435,7 @@ export default function Settlements() {
                     return (
                       <tr key={line.orderId} className="hover:bg-[var(--color-surface-hover)] transition-colors">
                         <td className="table-body-cell tabular font-medium whitespace-nowrap">
-                          {line.orderNumber}
+                          #{line.orderNumber}
                         </td>
                         <td className="table-body-cell text-[var(--color-text-muted)] tabular whitespace-nowrap">
                           {dateTime(line.deliveredAt ?? line.createdAt)}
