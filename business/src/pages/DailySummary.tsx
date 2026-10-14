@@ -238,26 +238,26 @@ export default function DailySummary() {
 function Comparison({ rows, baselineDate, isToday }: { rows: ComparisonRow[]; baselineDate: string; isToday: boolean }) {
   const fmt = (metric: string, v: number) => (MONEY_METRICS.has(metric) ? money(v) : num(v));
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
       <table className="w-full text-xs">
         <thead>
-          <tr className="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
-            <th className="pb-1.5 font-semibold">Métrica</th>
-            <th className="pb-1.5 font-semibold text-right">{isToday ? 'Hoy' : 'Este día'}</th>
-            <th className="pb-1.5 font-semibold text-right">{baselineDate.slice(5)}</th>
-            <th className="pb-1.5 font-semibold text-right">Δ%</th>
+          <tr className="text-left">
+            <th className="table-header-cell">Métrica</th>
+            <th className="table-header-cell text-right">{isToday ? 'Hoy' : 'Este día'}</th>
+            <th className="table-header-cell text-right">{baselineDate.slice(5)}</th>
+            <th className="table-header-cell text-right">Δ%</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-[var(--color-border)]">
+        <tbody>
           {rows.map((r) => {
             const improved = r.direction === 'flat' ? null : (r.direction === 'up') === r.goodWhenUp;
             const color = improved == null ? 'text-[var(--color-text-main)]' : improved ? 'text-[#059669]' : 'text-[var(--color-danger)]';
             return (
               <tr key={r.metric}>
-                <td className="py-1 pr-2 text-[var(--color-text-main)]">{r.label}</td>
-                <td className="py-1 text-right tabular font-medium text-[var(--color-text-main)]">{fmt(r.metric, r.today)}</td>
-                <td className="py-1 text-right tabular text-[var(--color-text-secondary)]">{fmt(r.metric, r.baseline)}</td>
-                <td className={`py-1 text-right tabular ${color}`}>
+                <td className="table-body-cell text-[var(--color-text-main)]">{r.label}</td>
+                <td className="table-body-cell text-right tabular font-medium text-[var(--color-text-main)]">{fmt(r.metric, r.today)}</td>
+                <td className="table-body-cell text-right tabular text-[var(--color-text-secondary)]">{fmt(r.metric, r.baseline)}</td>
+                <td className={`table-body-cell text-right tabular ${color}`}>
                   {r.deltaPct == null ? '—' : `${r.deltaPct > 0 ? '+' : ''}${r.deltaPct}%`}
                 </td>
               </tr>

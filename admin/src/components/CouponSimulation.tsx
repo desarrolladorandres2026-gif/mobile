@@ -56,8 +56,8 @@ interface Preview {
 
 const cop = (n: number) => `$${(n || 0).toLocaleString('es-CO')}`;
 
-const th = 'py-1.5 pr-4 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)] whitespace-nowrap';
-const td = 'py-2 pr-4 text-xs tabular-nums text-[var(--color-text-main)] whitespace-nowrap align-top';
+const th = 'px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-surface)] bg-[var(--color-primary-dark)] whitespace-nowrap';
+const td = 'px-3 py-2 text-xs tabular-nums text-[var(--color-text-main)] whitespace-nowrap align-top border-b border-[var(--color-border)]';
 
 export default function CouponSimulation({
   draft,
@@ -169,10 +169,10 @@ export default function CouponSimulation({
 
       {shown?.valid && (
         <>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
             <table className="min-w-full border-collapse">
               <thead>
-                <tr className="border-b border-[var(--color-border)]">
+                <tr>
                   <th className={th}>Pedido</th>
                   <th className={th}>Cliente paga</th>
                   <th className={th}>Subsidia ZIPP</th>

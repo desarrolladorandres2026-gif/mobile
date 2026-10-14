@@ -9,6 +9,7 @@ import {
 } from '../lib/orderFlow';
 import { SUPPORT_PHONE_DISPLAY, supportWhatsAppUrl } from '../lib/contact';
 import { usePermissions } from '../hooks/usePermissions';
+import { useAuthStore } from '../stores/authStore';
 
 /**
  * Todo lo que el comercio sabe de un pedido, a pantalla completa.
@@ -62,6 +63,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
   const [line, setLine] = useState<StatementLine | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
   const orderId = order?._id;
 
   // Comisión, neto y liquidación son la capa financiera: solo quien tiene
@@ -144,24 +146,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
       aria-label={`Pedido ${orderTag(order)}`}
       className="fixed bottom-0 left-0 right-0 top-12 z-30 overflow-y-auto bg-[var(--color-bg)] px-5 py-5 lg:left-52 lg:px-8 lg:py-6"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h2 className="page-title truncate tabular">
-            Pedido {orderTag(order)}
-          </h2>
-          <div className="mt-1.5 flex flex-wrap items-center gap-3">
-            <span
-              className="inline-flex items-center gap-1.5 text-xs text-[var(--color-text-main)] whitespace-nowrap"
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
-              {style.label}
-            </span>
-            <span className="text-[11px] text-[var(--color-text-secondary)]">
-              {dateTime(order.createdAt)}
-            </span>
-          </div>
-        </div>
-
+      <div className="flex items-start justify-end gap-4">
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           {/* El caso nace atado a este pedido: Soporte no tiene que preguntar de cuál hablas. */}
           <Link
@@ -180,47 +165,123 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
         </div>
       </div>
 
-      <div className="mt-6 space-y-6 pb-8">
+      <div className="mt-2 space-y-6 pb-8">
         {/* El código, cuando toca enseñarlo. Solo llega si el servidor lo entrega. */}
         {flow?.pickup.code ? <PickupCode code={flow.pickup.code} /> : null}
 
-        <Facts
-          title="Resumen"
-          items={[
-            ['Estado', style.label],
-            ['Creado', dateTime(order.createdAt)],
-            ['Pago', order.paymentMethod === 'online' ? 'Digital' : 'Efectivo al recibir'],
-            ...(seesMoney
-              ? ([
-                  ['Liquidación', line ? (PAYOUT_LABELS[line.payoutStatus] ?? line.payoutStatus) : ''],
-                  ['Neto para el comercio', money(netShown)],
-                ] as Array<[string, ReactNode]>)
-              : []),
-          ]}
-        />
+        {/* Orden de pedido: misma composición que el documento que el mostrador ya conoce. */}
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 border-b-[3px] border-[var(--color-primary-dark)] pb-4">
+          <p className="pt-2 text-xl font-bold text-[var(--color-primary-dark)]">
+            {selectedBusiness?.name ?? 'Comercio'}
+          </p>
+          <div className="text-right">
+            <p className="text-3xl font-extrabold uppercase tracking-tight text-[var(--color-text-main)]">Orden de pedido</p>
+            <p className="text-lg font-bold text-[var(--color-primary-dark)] tabular">{orderTag(order)}</p>
+            <p className="text-xs text-[var(--color-text-secondary)]">{dateTime(order.createdAt)}</p>
+          </div>
+        </div>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <Grid
-            title="Cliente y entrega"
-            head={['Dato', 'Valor']}
-            empty="Sin datos del cliente."
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <Details
+            title="Cliente"
             rows={[
               ['Nombre', client?.name ?? 'Cliente'],
               ...(client?.phone
-                ? [['Teléfono', <a key="tel" href={`tel:${client.phone}`} className="text-[var(--color-primary)] hover:underline">{client.phone}</a>]]
+                ? [['Teléfono', <a key="tel" href={`tel:${client.phone}`} className="text-[var(--color-primary-dark)] hover:underline">{client.phone}</a>] as [string, ReactNode]]
                 : []),
               ['Dirección', `${order.deliveryAddress ?? ''}${order.deliveryDetails ? ` · ${order.deliveryDetails}` : ''}`],
-              ...(order.notes ? [['Observaciones del cliente', <span key="obs" className="text-[var(--color-warning)]">{order.notes}</span>]] : []),
+              ...(order.notes ? [['Observaciones', <span key="obs" className="text-[var(--color-warning)]">{order.notes}</span>] as [string, ReactNode]] : []),
             ]}
           />
-
-          <Grid
-            title="Domiciliario"
-            head={['Dato', 'Valor']}
-            empty="Todavía no hay domiciliario asignado. Te avisamos en cuanto ZIPP asigne uno."
-            rows={driverRows}
+          <Details
+            title="Detalles del pedido"
+            dot={style.dot}
+            rows={[
+              ['N° pedido', orderTag(order)],
+              ['Fecha', dateTime(order.createdAt)],
+              ['Estado', style.label],
+              ['Forma de pago', order.paymentMethod === 'online' ? 'Digital' : 'Efectivo al recibir'],
+              ...(seesMoney && line
+                ? [['Liquidación', PAYOUT_LABELS[line.payoutStatus] ?? line.payoutStatus] as [string, ReactNode]]
+                : []),
+            ]}
           />
         </div>
+
+        <section className="min-w-0 space-y-4">
+          <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="bg-[var(--color-primary-dark)] text-[var(--color-surface)]">
+                  <th className="w-12 px-4 py-3 text-xs font-bold">#</th>
+                  <th className="px-4 py-3 text-xs font-bold">Producto</th>
+                  <th className="px-4 py-3 text-center text-xs font-bold">Cant.</th>
+                  <th className="px-4 py-3 text-right text-xs font-bold">Precio unit.</th>
+                  <th className="px-4 py-3 text-right text-xs font-bold">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(order.items ?? []).length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-3 text-[var(--color-text-secondary)]">Sin productos.</td>
+                  </tr>
+                ) : (
+                  (order.items ?? []).map((item: OrderItem, i) => (
+                    <tr key={item._id ?? i} className={i % 2 ? 'bg-[var(--color-bg-alt)]' : 'bg-[var(--color-surface)]'}>
+                      <td className="px-4 py-3 align-middle tabular text-[var(--color-text-secondary)]">{i + 1}</td>
+                      <td className="px-4 py-3 align-middle">
+                        {item.productName}
+                        {item.selectedExtras?.length ? (
+                          <span className="block text-xs text-[var(--color-text-secondary)]">
+                            {describeExtras(item.selectedExtras)}
+                          </span>
+                        ) : null}
+                        {item.notes ? (
+                          <span className="block text-xs text-[var(--color-warning)]">Nota: {item.notes}</span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 text-center align-middle tabular">{item.quantity}</td>
+                      <td className="px-4 py-3 text-right align-middle tabular">{money(item.unitPrice)}</td>
+                      {/* `totalPrice` y no `unitPrice * quantity`: ya trae los adicionales. */}
+                      <td className="px-4 py-3 text-right align-middle tabular font-bold">
+                        {money(item.totalPrice ?? item.unitPrice * item.quantity)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <dl className="ml-auto w-full max-w-sm space-y-1.5 text-sm tabular">
+            <Line label="Subtotal" value={money(productSubtotal)} />
+            {!seesMoney && customerTotal > productSubtotal ? (
+              <Line label="Domicilio" value={money(customerTotal - productSubtotal)} />
+            ) : null}
+            {seesMoney ? (
+              <>
+                {funded > 0 ? <Line label="Descuento que asumes" value={signedMoney(-funded)} /> : null}
+                <Line label="Comisión ZIPP" value={signedMoney(-commission)} />
+                {line && line.reversedAmount > 0 ? (
+                  <Line label="Revertido por reembolso" value={signedMoney(-line.reversedAmount)} />
+                ) : null}
+                {line?.settledAt ? <Line label="Consignado el" value={dateTime(line.settledAt)} /> : null}
+              </>
+            ) : null}
+            <div className="flex items-center justify-between gap-6 rounded-lg bg-[var(--color-primary-dark)] px-5 py-3 text-lg font-bold text-[var(--color-surface)]">
+              <dt>{seesMoney ? 'NETO' : 'TOTAL'}</dt>
+              <dd>{money(seesMoney ? netShown : customerTotal)}</dd>
+            </div>
+          </dl>
+        </section>
+
+
+        <Grid
+          title="Domiciliario"
+          head={['Dato', 'Valor']}
+          empty="Todavía no hay domiciliario asignado. Te avisamos en cuanto ZIPP asigne uno."
+          rows={driverRows}
+        />
 
         {pickup?.lockedUntil ? (
           <p className="text-xs font-semibold text-[var(--color-danger)]">
@@ -243,60 +304,6 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
           </p>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <Grid
-            title="Productos"
-            head={['Cant.', 'Producto', 'Total']}
-            empty="Sin productos."
-            right={[2]}
-            rows={(order.items ?? []).map((item: OrderItem) => [
-              item.quantity,
-              <>
-                {item.productName}
-                {item.selectedExtras?.length ? (
-                  <span className="block text-[11px] text-[var(--color-text-secondary)]">
-                    {describeExtras(item.selectedExtras)}
-                  </span>
-                ) : null}
-                {item.notes ? (
-                  <span className="block text-[11px] text-[var(--color-warning)]">Nota: {item.notes}</span>
-                ) : null}
-              </>,
-              // `totalPrice` y no `price * quantity`: el pedido guarda el total
-              // de la línea ya con adicionales incluidos.
-              money(item.totalPrice ?? item.unitPrice * item.quantity),
-            ])}
-          />
-
-          {seesMoney ? (
-            <Grid
-              title="Detalle financiero"
-              head={['Concepto', 'Importe']}
-              empty="Sin desglose."
-              right={[1]}
-              rows={[
-                ['Venta de productos', money(productSubtotal)],
-                ...(funded > 0 ? [['Descuento que asumes', signedMoney(-funded)]] : []),
-                ['Comisión ZIPP', signedMoney(-commission)],
-                ...(line && line.reversedAmount > 0 ? [['Revertido por reembolso', signedMoney(-line.reversedAmount)]] : []),
-                ['Neto para el comercio', money(netShown)],
-                ...(line?.settledAt ? [['Consignado el', dateTime(line.settledAt)]] : []),
-              ]}
-            />
-          ) : (
-            // Lo que el mostrador necesita para cobrar: lo que el cliente pagó.
-            <Grid
-              title="Cobro al cliente"
-              head={['Concepto', 'Importe']}
-              empty="Sin desglose."
-              right={[1]}
-              rows={[
-                ['Venta de productos', money(productSubtotal)],
-                ['Total del pedido', money(customerTotal)],
-              ]}
-            />
-          )}
-        </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <section className="min-w-0 space-y-2">
@@ -329,34 +336,32 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
 
 // ── Piezas ─────────────────────────────────────────────────────────────
 
-/** Fila de encabezados sobre una fila de valores. */
-function Facts({ title, items }: { title: string; items: Array<[string, ReactNode]> }) {
+/** Ficha de datos de la orden: franja de título y filas de etiqueta/valor. */
+function Details({ title, rows, dot }: { title: string; rows: Array<[string, ReactNode]>; dot?: string }) {
   return (
-    <section className="min-w-0 space-y-2">
-      <h3 className="text-[13px] font-semibold text-[var(--color-text-main)]">{title}</h3>
-      <div className="table-container">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr>
-                {items.map(([label]) => (
-                  <th key={label} className="table-header-cell">{label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                {items.map(([label, value]) => (
-                  <td key={label} className="table-body-cell align-top tabular">
-                    {value || '—'}
-                  </td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+    <section className="min-w-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-alt)]">
+      <h3 className="flex items-center justify-between bg-[var(--color-primary-dark)] px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-[var(--color-surface)]">
+        {title}
+        {dot ? <span className={`h-2.5 w-2.5 rounded-full ${dot}`} /> : null}
+      </h3>
+      <dl className="space-y-1.5 px-4 py-3 text-sm">
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[7rem_1fr] gap-3">
+            <dt className="font-semibold text-[var(--color-text-secondary)]">{label}</dt>
+            <dd className="min-w-0 break-words text-[var(--color-text-main)]">{value || '—'}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
+  );
+}
+
+function Line({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-6">
+      <dt className="text-[var(--color-text-secondary)]">{label}</dt>
+      <dd className="text-[var(--color-text-main)]">{value}</dd>
+    </div>
   );
 }
 

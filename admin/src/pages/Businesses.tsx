@@ -215,7 +215,7 @@ export default function Businesses() {
 
  const inputClass = 'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
  const labelClass = 'block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5';
- const headClass = 'px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)] whitespace-nowrap';
+ const headClass = 'px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-surface)] whitespace-nowrap';
  const cellClass = 'px-3 py-3.5 text-xs align-middle border-t border-[var(--color-border-light)] text-[var(--color-text-main)]';
 
  const dialog = pending

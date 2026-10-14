@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { Banknote, Clock3, CreditCard, GripVertical, StickyNote } from 'lucide-react';
+import { Banknote, Clock3, GripVertical, StickyNote } from 'lucide-react';
+import { WompiLogo } from './WompiLogo';
 import PickupHandoff from './PickupHandoff';
 import {
   ACTIVE_STATUSES, ORDER_STATUS, money, clock, nextBusinessStep, describeExtras, orderTag,
@@ -203,7 +204,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                             <p className="mt-0.5 flex items-center justify-end gap-1 text-xs font-normal text-[var(--color-text-secondary)]">
                               {order.paymentMethod === 'cash_on_delivery'
                                 ? <><Banknote className="w-3.5 h-3.5" aria-hidden /> Efectivo</>
-                                : <><CreditCard className="w-3.5 h-3.5" aria-hidden /> Pagado</>}
+                                : <>Pagado · <WompiLogo height={10} /></>}
                             </p>
                           </div>
                         </div>

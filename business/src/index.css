@@ -379,18 +379,19 @@
    encerrar. */
 .table-container {
   border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
+  border-radius: 0.5rem;
   overflow: hidden;
   background-color: var(--color-surface);
 }
 
+/* Cabecera dorada sólida con texto claro: el diseño de la orden de pedido. */
 .table-header-cell {
   padding: 0.55rem 1rem;
   font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  background-color: var(--color-bg-alt);
-  border-bottom: 1px solid var(--color-border);
+  font-weight: 700;
+  color: var(--color-surface);
+  background-color: var(--color-primary-dark);
+  border-bottom: 0;
   white-space: nowrap;
 }
 

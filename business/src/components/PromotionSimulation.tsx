@@ -68,8 +68,8 @@ interface Props {
   ready?: boolean;
 }
 
-const th = 'py-1.5 pr-4 text-left text-[11px] font-semibold text-[var(--color-text-secondary)] whitespace-nowrap';
-const td = 'py-2 pr-4 text-xs tabular text-[var(--color-text-main)] whitespace-nowrap';
+const th = 'px-3 py-2 text-left text-[11px] font-bold text-[var(--color-surface)] bg-[var(--color-primary-dark)] whitespace-nowrap';
+const td = 'px-3 py-2 text-xs tabular text-[var(--color-text-main)] whitespace-nowrap border-b border-[var(--color-border)]';
 
 export default function PromotionSimulation({ businessId, draft, freeDeliveryThreshold, subtotals, ready = true }: Props) {
   const [result, setResult] = useState<Preview | null>(null);
@@ -144,10 +144,10 @@ export default function PromotionSimulation({ businessId, draft, freeDeliveryThr
 
       {shown?.valid && (
         <>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
             <table className="min-w-full border-collapse">
               <thead>
-                <tr className="border-b border-[var(--color-border)]">
+                <tr>
                   <th className={th}>Pedido</th>
                   <th className={th}>Cliente paga</th>
                   <th className={th}>Tú financias</th>

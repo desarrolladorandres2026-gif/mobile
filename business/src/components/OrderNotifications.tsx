@@ -109,11 +109,13 @@ export default function OrderNotifications() {
   //
   // El aviso se planta sobre la esquina donde está el tablero: al pulsar "Ver
   // pedido" tapaba justo la ficha que el comercio acaba de abrir. Se aparta un
-  // minuto para ese pedido y vuelve si nadie lo aceptó. No se guarda en la URL
+  // minuto, junto con todos los que esperaban en ese momento (si solo se
+  // apartara uno, la tarjeta saltaría al siguiente y parecería pegada); un
+  // pedido que llegue después sí la vuelve a abrir. Vuelve si nadie los aceptó. No se guarda en la URL
   // ni sobrevive a una recarga a propósito: una pausa que no se cura sola deja
   // un pedido sin aviso. El timbre no se toca: lo calla aceptar o rechazar,
   // nunca mirar.
-  const [snoozed, setSnoozed] = useState<{ id: string; until: number } | null>(null);
+  const [snoozed, setSnoozed] = useState<{ ids: Set<string>; until: number } | null>(null);
 
   // ── Avisos puntuales ──
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -173,7 +175,7 @@ export default function OrderNotifications() {
   });
 
   const unseen = snoozed && now < snoozed.until
-    ? waiting.filter((order) => order._id !== snoozed.id)
+    ? waiting.filter((order) => !snoozed.ids.has(order._id))
     : waiting;
   const oldest = unseen[0];
   const oldestMinutes = oldest
@@ -214,7 +216,7 @@ export default function OrderNotifications() {
           minutes={oldestMinutes}
           urgent={pattern === 'urgent'}
           onView={() => {
-            setSnoozed({ id: oldest._id, until: Date.now() + SNOOZE_MS });
+            setSnoozed({ ids: new Set(waiting.map((order) => order._id)), until: Date.now() + SNOOZE_MS });
             goToOrder(oldest._id);
           }}
         />

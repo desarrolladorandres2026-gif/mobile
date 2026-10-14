@@ -247,25 +247,26 @@
 }
 
 /* Tablas Zipp */
+/* Diseño "orden de pedido": recuadro redondeado, cabecera dorada sólida con
+   texto claro y filas lisas. Lo heredan todas las tablas del panel. */
 .table-container {
-  border-top: 1px solid var(--color-border);
-  border-bottom: 1px solid var(--color-border);
-  border-radius: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
   overflow: hidden;
-  background-color: transparent;
+  background-color: var(--color-surface);
 }
 
 .table-header-cell {
   padding: 0.5rem 0.75rem;
   font-size: 0.68rem;
-  font-weight: 600;
-  color: var(--color-text-secondary);
+  font-weight: 700;
+  color: var(--color-surface);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   /* `bg-alt` y no `bg`: la cabecera tiene que separarse de la superficie
      de la tabla, y ese es justo el token que existe para eso. */
-  background-color: transparent;
-  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-primary-dark);
+  border-bottom: 0;
 }
 
 .table-body-cell {
@@ -277,7 +278,7 @@
 }
 
 /* Cuadrícula de datos: el diseño de Pedidos, para toda tabla del panel.
-   Celdas con borde, relleno compacto, cabecera en bg-alt y filas alternas. */
+   Celdas con borde, relleno compacto y cabecera dorada; filas lisas. */
 .data-grid {
   width: 100%;
   border-collapse: collapse;
@@ -314,7 +315,10 @@
   background-color: var(--color-bg-alt);
 }
 .data-grid th {
-  background-color: var(--color-bg-alt);
+  background-color: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+  color: var(--color-surface);
+  font-weight: 700;
 }
 /* Los botones dentro de la cuadrícula van sin superficie: solo texto o icono. */
 .data-grid td button {
@@ -347,21 +351,19 @@
   border-bottom-color: var(--color-primary);
   outline: none;
 }
-.data-grid tbody tr:nth-child(even) {
-  background-color: var(--color-bg);
-}
 /* Variante de tinta: todo el texto de la cuadrícula en negro, sin colores de
    estado ni de enlace. En modo oscuro vuelve al color de texto del tema, o
    quedaría negro sobre negro. */
-.data-grid-black th,
 .data-grid-black td,
-.data-grid-black th *,
 .data-grid-black td * {
   color: #000000;
 }
-.dark .data-grid-black th,
+/* La cabecera dorada lleva texto claro también en la variante de tinta. */
+.data-grid-black th,
+.data-grid-black th * {
+  color: var(--color-surface);
+}
 .dark .data-grid-black td,
-.dark .data-grid-black th *,
 .dark .data-grid-black td * {
   color: var(--color-text-main);
 }

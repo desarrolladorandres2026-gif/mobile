@@ -41,7 +41,7 @@ const fieldClass =
  'h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none';
 
 const headClass =
- 'px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)] whitespace-nowrap';
+ 'px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-surface)] whitespace-nowrap';
 const cellClass =
  'px-3 py-3.5 text-xs align-middle border-t border-[var(--color-border-light)] text-[var(--color-text-main)]';
 

@@ -263,28 +263,28 @@ export default function Settlements() {
           </h2>
 
           {statement?.weeks?.length ? (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
               <table className="w-full">
                 <thead>
                   <tr className="text-left">
-                    <th className="py-2 text-[11px] font-semibold text-[var(--color-text-muted)]">
+                    <th className="table-header-cell">
                       Semana del
                     </th>
-                    <th className="py-2 pl-3 text-[11px] font-semibold text-[var(--color-text-muted)] text-right whitespace-nowrap">
+                    <th className="table-header-cell text-right">
                       Ventas
                     </th>
-                    <th className="py-2 pl-3 text-[11px] font-semibold text-[var(--color-text-muted)] text-right whitespace-nowrap">
+                    <th className="table-header-cell text-right">
                       Comisión
                     </th>
-                    <th className="py-2 pl-3 text-[11px] font-semibold text-[var(--color-text-muted)] text-right whitespace-nowrap">
+                    <th className="table-header-cell text-right">
                       Neto
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[var(--color-border-light)]">
+                <tbody>
                   {statement.weeks.map((week) => (
                     <tr key={week.periodStart}>
-                      <td className="py-2.5 text-xs font-medium text-[var(--color-text-main)]">
+                      <td className="table-body-cell text-xs font-medium text-[var(--color-text-main)]">
                         {new Date(week.periodStart).toLocaleDateString('es-CO', {
                           day: 'numeric', month: 'short',
                         })}
@@ -292,13 +292,13 @@ export default function Settlements() {
                           {week.orderCount} pedido(s)
                         </span>
                       </td>
-                      <td className="py-2.5 pl-3 text-xs tabular text-right whitespace-nowrap text-[var(--color-text-secondary)]">
+                      <td className="table-body-cell text-xs tabular text-right whitespace-nowrap text-[var(--color-text-secondary)]">
                         {money(week.productSubtotal)}
                       </td>
-                      <td className="py-2.5 pl-3 text-xs tabular text-right whitespace-nowrap text-[var(--color-text-secondary)]">
+                      <td className="table-body-cell text-xs tabular text-right whitespace-nowrap text-[var(--color-text-secondary)]">
                         {signedMoney(-week.merchantCommission)}
                       </td>
-                      <td className="py-2.5 pl-3 text-xs tabular text-right whitespace-nowrap font-semibold text-[var(--color-text-main)]">
+                      <td className="table-body-cell text-xs tabular text-right whitespace-nowrap font-semibold text-[var(--color-text-main)]">
                         {money(week.netAmount)}
                       </td>
                     </tr>

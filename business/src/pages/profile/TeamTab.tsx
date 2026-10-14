@@ -288,7 +288,7 @@ export default function TeamTab() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
               <table className="w-full text-left">
                 <thead>
                   <tr>

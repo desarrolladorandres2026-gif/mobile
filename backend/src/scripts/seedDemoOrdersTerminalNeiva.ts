@@ -3,6 +3,7 @@ import { config } from '../config';
 import { Business, Order, Product, User, Driver } from '../models';
 import { OrderStatus, PaymentMethod, PaymentStatus, CancellationReason, CancelledBy, UserRole } from '../types';
 import { applyBps } from '../utils/money';
+import { isOpenAt } from '../utils/businessHours';
 
 /**
  * Pedidos de demostración para "Terminal neiva" (solo dev). Sirve para ver el
@@ -25,6 +26,8 @@ interface Seed {
   items: Array<[string, number]>;
   tip?: number;
   notes?: string;
+  /** Programado: minutos desde ahora hasta la hora pedida (se ajusta a horario de atención). */
+  aheadMin?: number;
   cancel?: { code: CancellationReason; by: CancelledBy; reason: string };
 }
 
@@ -51,6 +54,29 @@ const SEEDS: Seed[] = [
   { key: 'd12', minutesAgo: 8 * D + 100, status: OrderStatus.DELIVERED, payment: ON, client: 0, items: [['Alitas BBQ x8', 1], ['Jugo Natural 16 oz', 1]] },
   { key: 'c1', minutesAgo: D + 40, status: OrderStatus.CANCELLED, payment: ON, client: 1, items: [['Pizza Mitad y Mitad', 1]], cancel: { code: CancellationReason.BUSINESS_OUT_OF_STOCK, by: CancelledBy.BUSINESS, reason: 'Se agotó la masa de pizza' } },
   { key: 'c2', minutesAgo: 3 * D + 220, status: OrderStatus.CANCELLED, payment: CASH, client: 2, items: [['Perro Americano', 1]], cancel: { code: CancellationReason.CLIENT_CHANGED_MIND, by: CancelledBy.CLIENT, reason: 'Cambié de opinión' } },
+  // Tanda 2: 15 pedidos nuevos (2026-10-14).
+  { key: 'n1', minutesAgo: 1, status: OrderStatus.PENDING, payment: ON, client: 2, items: [['Alitas BBQ x8', 1], ['Jugo Natural 16 oz', 1]] },
+  { key: 'n2', minutesAgo: 4, status: OrderStatus.PENDING, payment: CASH, client: 3, items: [['Perro Americano', 2]], notes: 'Con poca salsa' },
+  { key: 'n3', minutesAgo: 6, status: OrderStatus.PENDING, payment: ON, client: 0, items: [['Sándwich Cubano', 1], ['Gaseosa 1,5 L', 1]], tip: 1000 },
+  { key: 'n4', minutesAgo: 12, status: OrderStatus.PREPARING, payment: ON, client: 1, items: [['Pizza Mitad y Mitad', 1], ['Gaseosa 1,5 L', 1]] },
+  { key: 'n5', minutesAgo: 14, status: OrderStatus.PREPARING, payment: CASH, client: 2, items: [['Choripapa', 2]] },
+  { key: 'n6', minutesAgo: 20, status: OrderStatus.PREPARING, payment: ON, client: 3, items: [['Mazorcada Mixta', 1], ['Patacón con Todo', 1]], tip: 2000 },
+  { key: 'n7', minutesAgo: 27, status: OrderStatus.READY, payment: ON, client: 0, items: [['Salchipapa Ranchera', 2], ['Gaseosa 1,5 L', 2]] },
+  { key: 'n8', minutesAgo: 36, status: OrderStatus.ON_WAY, payment: ON, client: 1, items: [['Alitas BBQ x8', 2]], tip: 1500 },
+  { key: 'n9', minutesAgo: 70, status: OrderStatus.DELIVERED, payment: ON, client: 2, items: [['Perro Americano', 1], ['Jugo Natural 16 oz', 1]] },
+  { key: 'n10', minutesAgo: 130, status: OrderStatus.DELIVERED, payment: CASH, client: 3, items: [['Pizza Mitad y Mitad', 1]] },
+  { key: 'n11', minutesAgo: 210, status: OrderStatus.DELIVERED, payment: ON, client: 0, items: [['Sándwich Cubano', 2], ['Patacón con Todo', 1]], tip: 2000 },
+  { key: 'n12', minutesAgo: 320, status: OrderStatus.DELIVERED, payment: ON, client: 1, items: [['Mazorcada Mixta', 2]] },
+  { key: 'n13', minutesAgo: D + 200, status: OrderStatus.DELIVERED, payment: CASH, client: 2, items: [['Salchipapa Ranchera', 1], ['Perro Americano', 1]] },
+  { key: 'n14', minutesAgo: 2 * D + 30, status: OrderStatus.DELIVERED, payment: ON, client: 3, items: [['Choripapa', 1], ['Jugo Natural 16 oz', 2]] },
+  { key: 'n15', minutesAgo: 90, status: OrderStatus.CANCELLED, payment: ON, client: 0, items: [['Alitas BBQ x8', 1]], cancel: { code: CancellationReason.BUSINESS_OUT_OF_STOCK, by: CancelledBy.BUSINESS, reason: 'Se agotaron las alitas' } },
+  // Tanda 3: 6 pedidos programados (esperan su hora; no entran al tablero hasta activarse).
+  { key: 'p1', minutesAgo: 25, aheadMin: 4 * 60, status: OrderStatus.PENDING, payment: ON, client: 0, items: [['Pizza Mitad y Mitad', 2], ['Gaseosa 1,5 L', 1]], notes: 'Programado: cumpleaños' },
+  { key: 'p2', minutesAgo: 40, aheadMin: 6 * 60, status: OrderStatus.PENDING, payment: ON, client: 1, items: [['Alitas BBQ x8', 2], ['Jugo Natural 16 oz', 2]] },
+  { key: 'p3', minutesAgo: 90, aheadMin: 24 * 60, status: OrderStatus.PENDING, payment: CASH, client: 2, items: [['Salchipapa Ranchera', 2], ['Choripapa', 1]] },
+  { key: 'p4', minutesAgo: 120, aheadMin: 26 * 60, status: OrderStatus.PENDING, payment: ON, client: 3, items: [['Sándwich Cubano', 3]], tip: 2000 },
+  { key: 'p5', minutesAgo: 200, aheadMin: 2 * D + 120, status: OrderStatus.PENDING, payment: ON, client: 0, items: [['Mazorcada Mixta', 3], ['Jugo Natural 16 oz', 3]] },
+  { key: 'p6', minutesAgo: 300, aheadMin: 3 * D + 60, status: OrderStatus.PENDING, payment: CASH, client: 1, items: [['Perro Americano', 4], ['Gaseosa 1,5 L', 2]], notes: 'Programado: reunión de oficina' },
 ];
 
 const ADDRESSES = ['Carrera 5 # 12-30, Neiva', 'Calle 8 # 14-22, Neiva', 'Carrera 16 # 20-05, Neiva', 'Calle 26 # 7-48, Neiva'];
@@ -86,6 +112,13 @@ async function main(): Promise<void> {
     const businessPayout = subtotal - commission;
     const total = subtotal + DELIVERY_FEE + tip;
     const at = new Date(Date.now() - s.minutesAgo * MIN);
+    let scheduledFor: Date | undefined;
+    if (s.aheadMin) {
+      scheduledFor = new Date(Date.now() + s.aheadMin * MIN);
+      for (let i = 0; i < 48 && !isOpenAt(business.schedule, scheduledFor, config.settlement.timezone); i += 1) {
+        scheduledFor = new Date(scheduledFor.getTime() + 30 * MIN);
+      }
+    }
     const after = (m: number) => new Date(at.getTime() + m * MIN);
     const st = s.status;
     const cash = s.payment === CASH;
@@ -129,6 +162,7 @@ async function main(): Promise<void> {
         customerTotal: total,
         appliedCommissionBps: COMMISSION_BPS,
       },
+      scheduledFor,
       notes: s.notes ?? '',
       city: 'Neiva',
       idempotencyKey: key,

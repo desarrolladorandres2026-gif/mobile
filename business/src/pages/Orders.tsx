@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, RefreshCw, Eye, Store, AlertCircle, Check } from 'lucide-react';
+import { Search, Eye, Store, AlertCircle, Check } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useBusinessEvent } from '../hooks/realtimeContext';
@@ -208,21 +208,7 @@ export default function Orders() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Pedidos</h1>
-          <p className="page-subtitle">Gestiona lo que está en cocina y consulta el historial de tu local</p>
-        </div>
-        <button
-          onClick={load}
-          className="h-8 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-medium text-[var(--color-text-main)] cursor-pointer flex items-center justify-center gap-1.5"
-        >
-          <RefreshCw className="w-3.5 h-3.5 text-[var(--color-text-secondary)]" />
-          Actualizar
-        </button>
-      </div>
-
+    <div className="space-y-0">
       {(actionError || queueError) && (
         <div role="alert" className="flex items-start gap-2 border-l-2 border-[var(--color-danger)] pl-3 py-0.5">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
@@ -231,7 +217,7 @@ export default function Orders() {
       )}
 
       {/* ── Pestañas ── */}
-      <div role="tablist" aria-label="Vista de pedidos" className="flex items-end gap-6 border-b border-[var(--color-border)]">
+      <div role="tablist" aria-label="Vista de pedidos" className="flex items-end gap-6">
         {([["active", "Activas", filteredQueue.length], ["history", "Historial", null]] as const).map(([value, label, count]) => (
           <button
             key={value}
@@ -239,7 +225,7 @@ export default function Orders() {
             role="tab"
             aria-selected={tab === value}
             onClick={() => setTab(value)}
-            className={`-mb-px pb-2 text-[13px] border-b-2 cursor-pointer ${
+            className={`-mb-px pb-1 text-[13px] border-b-2 cursor-pointer ${
               tab === value
                 ? "border-[var(--color-primary)] text-[var(--color-text-main)] font-semibold"
                 : "border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]"
@@ -252,7 +238,8 @@ export default function Orders() {
       </div>
 
       {tab === "active" && (
-      <section className="space-y-4">
+      <section className="space-y-px">
+
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <label className="flex h-8 w-full sm:w-64 sm:ml-auto items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3.5 text-[var(--color-text-secondary)] focus-within:border-[var(--color-primary)]">
             <Search className="w-4 h-4 shrink-0" />

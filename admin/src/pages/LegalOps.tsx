@@ -111,7 +111,7 @@ export default function LegalOps() {
  const closed = requests.filter((r) => r.status === 'resolved' || r.status === 'rejected');
  const overdue = open.filter((r) => r.legalOverdue).length;
 
- const headClass = 'px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)] whitespace-nowrap';
+ const headClass = 'px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-surface)] whitespace-nowrap';
  const cellClass = 'px-3 py-3.5 text-xs align-top border-t border-[var(--color-border-light)] text-[var(--color-text-main)]';
 
  const row = (r: DataRequest) => {

@@ -181,8 +181,8 @@ export default function HelpCenter({ onAsk, tickets, access, onOpenTicket }: {
   if (onHome) {
     const featured = [...articles].sort((a, b) => a.sortOrder - b.sortOrder).slice(0, FEATURED);
     return (
-      <div className="mx-auto max-w-4xl space-y-8">
-        <div className="mx-auto max-w-xl space-y-4 pt-4 text-center">
+      <div className="mx-auto max-w-4xl space-y-4">
+        <div className="mx-auto max-w-xl space-y-3 text-center">
           <h2 className="text-xl font-semibold text-[var(--color-text-main)]">¿Cómo podemos ayudarte?</h2>
           <div className="text-left">{search}</div>
         </div>
@@ -197,9 +197,9 @@ export default function HelpCenter({ onAsk, tickets, access, onOpenTicket }: {
                 <li key={c.key} className="border-b border-[var(--color-border-light)]">
                   <button
                     onClick={() => open({ name: 'category', key: c.key })}
-                    className="group flex w-full cursor-pointer items-center gap-3 px-1 py-4 text-left"
+                    className="group flex w-full cursor-pointer items-center gap-3 px-1 py-2 text-left"
                   >
-                    <Logo size={40} />
+                    <Logo size={32} />
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold text-[var(--color-text-main)] group-hover:text-[var(--color-primary)]">{c.label}</span>
                       <span className="block text-[11px] text-[var(--color-text-secondary)]">{countLabel(count)}</span>
@@ -218,7 +218,7 @@ export default function HelpCenter({ onAsk, tickets, access, onOpenTicket }: {
               Aún no hay artículos publicados. Mientras tanto, cuéntanos tu caso y lo revisamos.
             </p>
           ) : (
-            <ul className="divide-y divide-[var(--color-border-light)] border-t border-[var(--color-border-light)]">
+            <ul className="grid border-t border-[var(--color-border-light)] lg:grid-cols-2 lg:gap-x-8 [&>li]:border-b [&>li]:border-[var(--color-border-light)]">
               {featured.map((a) => articleRow(a, true))}
             </ul>
           )}
