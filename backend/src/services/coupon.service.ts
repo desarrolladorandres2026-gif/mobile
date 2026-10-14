@@ -6,9 +6,84 @@ import { CouponType, CouponFundedBy, CouponScope, OrderStatus } from '../types';
 import { applyBps, assertMoney, couponAvailability } from '../utils';
 import type { CouponAvailability } from '../utils';
 import { config as envConfig } from '../config';
+import { pricingConfigService } from './pricingConfig.service';
 
 /** Techo anti-abuso: evita que un comercio infle su presencia en /offers. */
 const MAX_ACTIVE_AUTO_PROMOTIONS_PER_BUSINESS = 20;
+
+/**
+ * Lo que un comercio puede fijar al CREAR una promoción. Quién la financia,
+ * de qué negocio es, si se aprueba bajo margen, el alcance, a quién va dirigida
+ * y los contadores de uso no están aquí a propósito: son de ZIPP.
+ */
+const BUSINESS_CONFIGURABLE_FIELDS = [
+  'title',
+  'description',
+  'type',
+  'value',
+  'maxDiscount',
+  'maxDiscountAmount',
+  'minOrderAmount',
+  'budgetLimit',
+  'usageLimit',
+  'perUserLimit',
+  'firstOrderOnly',
+  'validFrom',
+  'validUntil',
+  'isPublic',
+  'validDays',
+  'validFromTime',
+  'validUntilTime',
+] as const;
+
+/** Lo que puede cambiar al EDITAR (no el tipo ni el código: eso es otra promoción). */
+const BUSINESS_EDITABLE_FIELDS = [
+  'title',
+  'description',
+  'value',
+  'maxDiscount',
+  'maxDiscountAmount',
+  'minOrderAmount',
+  'budgetLimit',
+  'usageLimit',
+  'perUserLimit',
+  'firstOrderOnly',
+  'validFrom',
+  'validUntil',
+  'validDays',
+  'validFromTime',
+  'validUntilTime',
+  'isPublic',
+  'productIds',
+  'isActive',
+] as const;
+
+function pickFields<K extends string>(source: Record<string, unknown>, keys: readonly K[]): Partial<Record<K, unknown>> {
+  const picked: Partial<Record<K, unknown>> = {};
+  for (const key of keys) if (source[key] !== undefined) picked[key] = source[key];
+  return picked;
+}
+
+/**
+ * La franja horaria de una promoción: o las dos horas, o ninguna, y la de
+ * apertura antes que la de cierre. Una franja que cruza medianoche
+ * (22:00–02:00) no puede evaluarse (ver `couponAvailability`) y quedaría
+ * muerta, y con solo una hora el filtro se ignora en silencio y la promoción
+ * corre todo el día aunque el comercio creyera acotarla.
+ */
+export function assertValidTimeWindow(from?: string, until?: string): void {
+  const hasFrom = !!from;
+  const hasUntil = !!until;
+  if (hasFrom !== hasUntil) {
+    throw new AppError('Indica la hora de inicio y la de fin de la franja, o ninguna de las dos', 400);
+  }
+  if (hasFrom && hasUntil && from! >= until!) {
+    throw new AppError(
+      'La franja horaria no puede cruzar la medianoche: la hora de inicio debe ser anterior a la de fin',
+      400
+    );
+  }
+}
 
 export interface CouponContext {
   userId: string;
@@ -140,14 +215,8 @@ export class CouponService {
       throw new AppError('Este cupón no es tuyo', 403);
     }
 
-    if (coupon.firstOrderOnly) {
-      const previousOrders = await Order.countDocuments({
-        clientId: ctx.userId,
-        status: { $ne: OrderStatus.CANCELLED },
-      });
-      if (previousOrders > 0) {
-        throw new AppError('Este cupón es solo para tu primer pedido', 400);
-      }
+    if (coupon.firstOrderOnly && (await this.hasPreviousOrders(ctx.userId))) {
+      throw new AppError('Este cupón es solo para tu primer pedido', 400);
     }
 
     if (coupon.eligibleRoles.length && !coupon.eligibleRoles.includes(ctx.userRole || 'client')) {
@@ -179,17 +248,53 @@ export class CouponService {
 
     // Campaign budget is checked against the amount this order would spend,
     // so an exhausted campaign stops costing money immediately rather than
-    // at the next reconciliation.
-    if (coupon.budgetLimit > 0 && applied.platformFunded > 0) {
-      const remaining = coupon.budgetLimit - coupon.budgetSpent;
-      if (applied.platformFunded > remaining) {
-        throw new AppError('Esta campaña agotó su presupuesto', 400);
-      }
+    // at the next reconciliation. Lo que gasta el presupuesto es lo que
+    // pone quien financia la promoción (ver `budgetSpendOf`).
+    if (!this.fitsBudget(coupon, this.budgetSpendOf(applied))) {
+      throw new AppError('Esta campaña agotó su presupuesto', 400);
     }
 
     await this.assertWithinGlobalBudget(applied, config);
 
     return applied;
+  }
+
+  /**
+   * Si esta persona ya hizo algún pedido que no se canceló.
+   *
+   * Es la definición de "primer pedido" de ZIPP, y vive en un solo sitio:
+   * el cupón de código la usa al validar, la lista de elegibilidad al
+   * decidir qué enseñar y la promoción automática al decidir si aplica. Un
+   * pedido cancelado no cuenta —el cliente no llegó a recibir nada—; uno en
+   * curso o sin pagar sí, porque ya es un pedido.
+   */
+  async hasPreviousOrders(userId: string): Promise<boolean> {
+    const count = await Order.countDocuments({
+      clientId: userId,
+      status: { $ne: OrderStatus.CANCELLED },
+    });
+    return count > 0;
+  }
+
+  /**
+   * Cuánto gasta del presupuesto de la promoción este descuento.
+   *
+   * `budgetLimit` es "lo que la campaña puede costarle a quien la financia"
+   * (ver el modelo): en una promoción de ZIPP es el subsidio de plataforma;
+   * en la de un comercio, lo que sale de su liquidación. Cada descuento
+   * pertenece a uno de los dos —nunca a los dos—, así que no se cuenta dos
+   * veces.
+   */
+  budgetSpendOf(applied: Pick<AppliedCoupon, 'fundedBy' | 'merchantFunded' | 'platformFunded'>): number {
+    return applied.fundedBy === CouponFundedBy.BUSINESS
+      ? applied.merchantFunded
+      : applied.platformFunded;
+  }
+
+  /** Si `spend` cabe en lo que le queda de presupuesto a la promoción. 0 = sin tope. */
+  fitsBudget(coupon: Pick<ICoupon, 'budgetLimit' | 'budgetSpent'>, spend: number): boolean {
+    if (coupon.budgetLimit <= 0 || spend <= 0) return true;
+    return spend <= coupon.budgetLimit - coupon.budgetSpent;
   }
 
   /**
@@ -349,32 +454,63 @@ export class CouponService {
     userId: string,
     orderId: string,
     discountAmount: number,
-    platformFunded: number,
+    /**
+     * Lo que este canje gasta del presupuesto de la promoción: el subsidio de
+     * plataforma si la paga ZIPP, lo que sale de la liquidación del comercio
+     * si la paga él (`budgetSpendOf`). Se guarda en el canje para que
+     * `release` devuelva exactamente esto.
+     */
+    budgetSpend: number,
     session?: mongoose.ClientSession
   ): Promise<boolean> {
     assertMoney(discountAmount, 'descuento');
-    assertMoney(platformFunded, 'subsidio');
+    assertMoney(budgetSpend, 'presupuesto');
 
     const coupon = await Coupon.findById(couponId).session(session ?? null);
     if (!coupon) return false;
 
-    const filter: Record<string, unknown> = { _id: couponId };
-    if (coupon.usageLimit > 0) filter.usedCount = { $lt: coupon.usageLimit };
-    if (coupon.budgetLimit > 0) {
-      filter.budgetSpent = { $lte: coupon.budgetLimit - platformFunded };
-    }
-
+    // Todos los topes se comprueban DENTRO de la escritura, contra los
+    // valores que el cupón tenga en ese instante —no contra los que se leyeron
+    // arriba—. Así dos checkouts simultáneos no pueden pasarse del tope de
+    // usos ni del presupuesto, y un administrador que cambia un límite o apaga
+    // la promoción en el medio de un canje queda obedecido: el canje ve el
+    // valor nuevo, no una combinación de los dos.
     const claimed = await Coupon.findOneAndUpdate(
-      filter,
-      { $inc: { usedCount: 1, budgetSpent: platformFunded } },
+      {
+        _id: couponId,
+        isActive: true,
+        $expr: {
+          $and: [
+            { $or: [{ $lte: ['$usageLimit', 0] }, { $lt: ['$usedCount', '$usageLimit'] }] },
+            {
+              $or: [
+                { $lte: ['$budgetLimit', 0] },
+                { $lte: [{ $add: ['$budgetSpent', budgetSpend] }, '$budgetLimit'] },
+              ],
+            },
+          ],
+        },
+      },
+      { $inc: { usedCount: 1, budgetSpent: budgetSpend } },
       { new: true, session: session ?? null }
     );
     if (!claimed) return false;
 
     const [redemption] = await CouponRedemption.create(
-      [{ couponId, userId, orderId, discountAmount }],
+      [{ couponId, userId, orderId, discountAmount, budgetConsumed: budgetSpend }],
       session ? { session } : {}
     );
+
+    // Deshace lo escrito, en orden inverso, cuando el canje pierde un
+    // desempate posterior al reclamo.
+    const undo = async () => {
+      await CouponRedemption.deleteOne({ _id: redemption._id }, session ? { session } : {});
+      await Coupon.updateOne(
+        { _id: couponId },
+        { $inc: { usedCount: -1, budgetSpent: -budgetSpend } },
+        session ? { session } : {}
+      );
+    };
 
     if (coupon.perUserLimit > 0) {
       const previos = await CouponRedemption.countDocuments({
@@ -387,17 +523,24 @@ export class CouponService {
       }).session(session ?? null);
 
       if (previos > coupon.perUserLimit) {
-        // Perdió el desempate: se deshace lo escrito, en orden inverso.
-        await CouponRedemption.deleteOne(
-          { _id: redemption._id },
-          session ? { session } : {}
-        );
-        await Coupon.updateOne(
-          { _id: couponId },
-          { $inc: { usedCount: -1, budgetSpent: -platformFunded } },
-          session ? { session } : {}
-        );
+        await undo();
         return false;
+      }
+    }
+
+    // El techo global de campañas de ZIPP suma varios cupones, así que no cabe
+    // en la escritura condicional de uno solo: se reclama primero y se
+    // comprueba después, igual que el tope por usuario. Si dos canjes
+    // simultáneos se pasan juntos, se deshacen los dos: es preferible rechazar
+    // de más que gastar de más.
+    if (budgetSpend > 0 && coupon.fundedBy === CouponFundedBy.PLATFORM) {
+      const pricing = await pricingConfigService.getCurrent();
+      if (pricing.campaignBudgetTotal > 0) {
+        const spent = await this.platformPromotionSpend();
+        if (spent > pricing.campaignBudgetTotal) {
+          await undo();
+          return false;
+        }
       }
     }
 
@@ -423,22 +566,29 @@ export class CouponService {
       );
       if (deleted.deletedCount !== 1) continue;
 
+      // Se devuelve exactamente lo que ese canje gastó del presupuesto
+      // (`budgetConsumed`, que `redeem` guarda), ni más ni menos.
+      //
       // `order.finance.platformFundedDiscount` es el subsidio TOTAL del
       // pedido — incluye lo que puso Zipp Pro, que no tiene nada que ver con
       // este cupón. Devolver eso al presupuesto del cupón inflaba
-      // `couponService.budgetSpent` con dinero que Pro había gastado, no él:
-      // el presupuesto se "recuperaba" de más y parecía tener más margen del
-      // que en verdad quedaba. Lo único que este cupón puso al presupuesto de
-      // la plataforma en el canje fue `redemption.discountAmount` — y solo si
-      // el propio cupón está financiado por ZIPP; si lo financia el comercio
-      // (código o promoción automática), nunca tocó `budgetSpent`.
+      // `couponService.budgetSpent` con dinero que Pro había gastado, no él.
+      //
+      // Los canjes anteriores a `budgetConsumed` no lo traen: para ellos
+      // vale la regla con la que se gastaron —el descuento si lo financiaba
+      // ZIPP, cero si lo financiaba el comercio, que entonces no tocaba el
+      // presupuesto—.
       const coupon = await Coupon.findById(redemption.couponId).session(session ?? null);
-      const platformFunded =
-        coupon?.fundedBy === CouponFundedBy.PLATFORM ? redemption.discountAmount : 0;
+      const budgetConsumed =
+        typeof redemption.budgetConsumed === 'number'
+          ? redemption.budgetConsumed
+          : coupon?.fundedBy === CouponFundedBy.PLATFORM
+            ? redemption.discountAmount
+            : 0;
 
       await Coupon.updateOne(
         { _id: redemption.couponId, usedCount: { $gt: 0 } },
-        { $inc: { usedCount: -1, budgetSpent: -platformFunded } },
+        { $inc: { usedCount: -1, budgetSpent: -budgetConsumed } },
         session ? { session } : {}
       );
       // A campaign whose spend was returned must never go negative.
@@ -504,11 +654,26 @@ export class CouponService {
       await this.assertBelowActivePromotionCap(businessId);
     }
 
+    // Lista blanca, no `...input`: del cuerpo solo pasa lo que un comercio puede
+    // configurar. Antes se esparcía el cuerpo entero y la única defensa era que
+    // el validador descartara lo demás; un campo nuevo en el modelo
+    // (`restrictedToUserId`, `eligibleRoles`, `zoneIds`, `usedCount`…) habría
+    // quedado abierto sin que nadie lo notara.
+    const configurable = pickFields(input, BUSINESS_CONFIGURABLE_FIELDS);
+    assertValidTimeWindow(configurable.validFromTime as string | undefined, configurable.validUntilTime as string | undefined);
+
     return Coupon.create({
-      ...input,
+      ...configurable,
       code,
       productIds,
       autoApply,
+
+      // Siempre sobre productos: ni el domicilio ni la tarifa de servicio son
+      // plata del comercio (el modelo también lo exige).
+      scope: CouponScope.PRODUCT,
+      // «Primer pedido» solo tiene sentido si el cupo por persona es uno: con
+      // más, dos pedidos simultáneos de quien estrena pasarían los dos.
+      ...(configurable.firstOrderOnly === true ? { perUserLimit: 1 } : {}),
 
       // Forzados, no leídos.
       fundedBy: CouponFundedBy.BUSINESS,
@@ -683,25 +848,17 @@ export class CouponService {
     ownerId: string,
     couponId: string,
     input: Record<string, unknown>,
-    scope?: import('./businessStaff.service').SessionScope
+    scope?: import('./businessStaff.service').SessionScope,
+    /**
+     * Recibe, ya aplicado el cambio, qué campos cambiaron con su valor
+     * anterior y el nuevo. Lo usa el controlador para dejar la auditoría de
+     * una modificación financiera con el antes y el después.
+     */
+    onChanged?: (changes: Record<string, { before: unknown; after: unknown }>) => void
   ): Promise<ICoupon> {
     const coupon = await this.loadOwnedBusinessCoupon(ownerId, couponId, scope);
 
-    const editable = [
-      'title',
-      'description',
-      'value',
-      'maxDiscount',
-      'maxDiscountAmount',
-      'minOrderAmount',
-      'budgetLimit',
-      'usageLimit',
-      'perUserLimit',
-      'validFrom',
-      'validUntil',
-      'productIds',
-      'isActive',
-    ] as const;
+    const editable = BUSINESS_EDITABLE_FIELDS;
 
     if (
       typeof input.budgetLimit === 'number' &&
@@ -712,9 +869,24 @@ export class CouponService {
     }
 
     const wasActive = coupon.isActive;
+    const changes: Record<string, { before: unknown; after: unknown }> = {};
     for (const field of editable) {
-      if (input[field] !== undefined) (coupon as any)[field] = input[field];
+      if (input[field] === undefined) continue;
+      const before = (coupon as any)[field];
+      if (JSON.stringify(before) === JSON.stringify(input[field])) continue;
+      changes[field] = { before, after: input[field] };
+      (coupon as any)[field] = input[field];
     }
+
+    // Una promoción de primer pedido solo admite un uso por persona.
+    if (coupon.firstOrderOnly && coupon.perUserLimit !== 1) {
+      if (input.perUserLimit !== undefined && input.perUserLimit !== 1) {
+        throw new AppError('Una promoción de primer pedido solo puede usarse una vez por persona', 400);
+      }
+      if (coupon.perUserLimit !== 1) changes.perUserLimit = { before: coupon.perUserLimit, after: 1 };
+      coupon.perUserLimit = 1;
+    }
+    assertValidTimeWindow(coupon.validFromTime, coupon.validUntilTime);
 
     if (coupon.validUntil <= coupon.validFrom) {
       throw new AppError('La fecha de fin debe ser posterior a la de inicio', 400);
@@ -738,6 +910,7 @@ export class CouponService {
     }
 
     await coupon.save();
+    if (Object.keys(changes).length > 0) onChanged?.(changes);
     return coupon;
   }
 
@@ -768,6 +941,10 @@ export class CouponService {
       const used = await CouponRedemption.countDocuments({ couponId: coupon._id, userId });
       if (used >= coupon.perUserLimit) return false;
     }
+    // La misma definición de "primer pedido" que el cupón de código: una
+    // promoción que el comercio anunció solo para quien estrena la app no se
+    // le da a quien ya pidió, aunque se aplique sola.
+    if (coupon.firstOrderOnly && (await this.hasPreviousOrders(userId))) return false;
     return true;
   }
 
@@ -778,12 +955,24 @@ export class CouponService {
    * cuántos productos traiga el carrito: la llama `pricing.service` una vez
    * por cotización, no una vez por línea.
    */
-  async autoPromotionsFor(businessId: string, now = new Date()): Promise<Map<string, ICoupon>> {
+  async autoPromotionsFor(
+    businessId: string,
+    now = new Date(),
+    /**
+     * Solo la cotización necesita las promociones que dependen de quién
+     * pide (`firstOrderOnly`). La carta, el inicio y las ofertas se sirven
+     * desde caché compartida y enseñan el mismo precio a todos: pintar ahí un
+     * descuento «solo para tu primer pedido» se lo mostraría también a quien
+     * ya pidió, y luego el checkout no se lo daría.
+     */
+    options: { includePersonal?: boolean } = {}
+  ): Promise<Map<string, ICoupon>> {
     const coupons = await Coupon.find({
       businessId,
       autoApply: true,
       isActive: true,
       fundedBy: CouponFundedBy.BUSINESS,
+      ...(options.includePersonal ? {} : { firstOrderOnly: { $ne: true } }),
     });
 
     const byProduct = new Map<string, ICoupon>();
@@ -808,6 +997,9 @@ export class CouponService {
       autoApply: true,
       isActive: true,
       fundedBy: CouponFundedBy.BUSINESS,
+      // Ver `autoPromotionsFor`: es para pintar precios compartidos, y una
+      // promoción de primer pedido depende de quién mira.
+      firstOrderOnly: { $ne: true },
       validFrom: { $lte: now },
       validUntil: { $gte: now },
     });

@@ -1,16 +1,9 @@
 ﻿import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import {
- LogOut, Menu, ArrowLeft, ArrowRight, Home,
- ChevronDown, RefreshCw,
-} from 'lucide-react';
+import { Menu, RefreshCw } from 'lucide-react';
 import { Suspense, useEffect, useState } from 'react';
-import { ThemeToggle } from './ThemeToggle';
 import ConfirmDialog from './ConfirmDialog';
-import GlobalSearch from './GlobalSearch';
-import AlertsTray from './AlertsTray';
 import OrderNotifications from './OrderNotifications';
 import FichaHost from './fichas/FichaHost';
-import { useAdminSocketStatus } from '../hooks/useAdminSocket';
 import { useAuthStore } from '../stores/authStore';
 import { NAV_GROUPS } from '../lib/navigation';
 import { preloadOn } from '../lib/lazyPage';
@@ -45,11 +38,9 @@ const lastActivity = () => {
 };
 
 export default function Layout() {
-  const liveStatus = useAdminSocketStatus();
  const navigate = useNavigate();
  const location = useLocation();
  const [sidebarOpen, setSidebarOpen] = useState(false);
- const [userMenuOpen, setUserMenuOpen] = useState(false);
  const [showLogoutModal, setShowLogoutModal] = useState(false);
  const [idleWarning, setIdleWarning] = useState(false);
  const { user, hasPermission, refresh, clear, logout, authzMode, observedPermissions } = useAuthStore();
@@ -109,13 +100,9 @@ export default function Layout() {
  void refresh();
  };
 
- const positionName =
- user?.positionId && typeof user.positionId === 'object' ? user.positionId.name : null;
-
  const handleLogout = async () => {
  setShowLogoutModal(false);
  setSidebarOpen(false);
- setUserMenuOpen(false);
  await logout();
  navigate('/login');
  };
@@ -138,12 +125,14 @@ export default function Layout() {
  </div>
  {/* Navigation Categories */}
  <nav aria-label="Navegación principal" lang="es" className="flex-1 overflow-y-auto overflow-x-hidden admin-sidebar-scroll py-1">
- {/* Una sola cuadrícula de dos columnas para todos los grupos: así no
- quedan huecos cuando un grupo tiene un número impar de ítems. */}
- <div className="grid grid-cols-2 border-t border-[var(--color-border)]">
- {NAV_GROUPS.flatMap((group) => group.items)
- .filter((item) => !item.hidden && hasPermission(item.permission))
- .map((item) => {
+ {/* Lista de una columna, solo texto, con un encabezado por sección. */}
+ {NAV_GROUPS.map((group) => {
+ const items = group.items.filter((item) => !item.hidden && hasPermission(item.permission));
+ if (items.length === 0) return null;
+ return (
+ <section key={group.category} aria-label={group.category} className="border-b border-[var(--color-border)] pb-1">
+ <h2 className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">{group.category}</h2>
+ {items.map((item) => {
  const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
  return (
  <NavLink
@@ -157,19 +146,19 @@ export default function Layout() {
  {...preloadOn(item.path)}
  title={item.label}
  aria-label={item.label}
- className={`relative flex min-h-16 min-w-0 flex-col items-center justify-center gap-0.5 border-b border-[var(--color-border)] px-0.5 py-1.5 text-[9.5px] font-medium transition-colors duration-150 odd:border-r ${isActive
- ? 'text-[var(--color-text-main)] font-semibold'
- : 'text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)]'
+ aria-current={isActive ? 'page' : undefined}
+ className={`relative flex min-w-0 items-center px-3 py-1.5 text-[12.5px] leading-tight text-[var(--color-text-main)] transition-colors duration-150 hover:bg-[var(--color-surface-hover)] ${isActive
+ ? 'bg-[var(--color-surface-hover)] font-semibold before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[#D69E26]'
+ : 'font-medium'
  }`}
  >
- {/* Con dos columnas una barra lateral quedaría en medio de la
- barra: el activo se marca con el icono en dorado. */}
- <item.Icon fontSize={20} style={{ color: isActive ? 'var(--color-text-main)' : 'currentColor' }} />
- <span className="w-full text-balance hyphens-auto break-words text-center leading-[1.15]">{item.label}</span>
+ <span className="w-full break-words">{item.label}</span>
  </NavLink>
  );
  })}
- </div>
+ </section>
+ );
+ })}
  </nav>
 
  {/* Sidebar Footer */}
@@ -179,8 +168,7 @@ export default function Layout() {
  title="Cerrar sesión"
  className="group flex flex-col items-center gap-1 w-full py-1 text-[var(--color-text-main)] hover:text-[var(--color-danger)] cursor-pointer"
  >
- <LogOut className="w-5 h-5" strokeWidth={1.8} />
- <span className="text-[10px] font-medium">Salir</span>
+ <span className="text-[12.5px] font-medium">Salir</span>
  </button>
  </div>
  </aside>
@@ -196,79 +184,14 @@ export default function Layout() {
  {/* ── Main Content Area ── */}
  <main className="flex-1 overflow-y-auto flex flex-col min-w-0 bg-[var(--color-bg)] dark:bg-[#080B11] transition-colors duration-200">
  <OrderNotifications />
- {/* Barra superior tipo Spotify, con búsqueda global existente. */}
- <header className="sticky top-0 z-30 h-20 bg-[var(--color-bg-alt)] border-b border-[var(--color-border)] px-4 sm:px-6 flex items-center gap-3 sm:gap-4 shadow-[0_1px_3px_rgba(0,0,0,0.08)]">
- <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+ {/* Sin barra superior: en pantallas sin barra lateral fija queda solo el botón del menú. */}
  <button
  aria-label="Abrir menú"
- className="lg:hidden p-2 rounded-full text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
+ className="lg:hidden fixed top-3 left-3 z-30 p-2 rounded-full bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-text-main)] shadow-sm cursor-pointer"
  onClick={() => setSidebarOpen(true)}
  >
  <Menu className="w-5 h-5" />
  </button>
- <button aria-label="Página anterior" onClick={() => navigate(-1)} className="hidden sm:grid w-9 h-9 place-items-center rounded-full text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"><ArrowLeft className="w-5 h-5" strokeWidth={2.4} /></button>
- <button aria-label="Página siguiente" onClick={() => navigate(1)} className="hidden sm:grid w-9 h-9 place-items-center rounded-full text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"><ArrowRight className="w-5 h-5" strokeWidth={2.4} /></button>
- <button aria-label="Ir al resumen diario" onClick={() => navigate('/daily-summary')} className="grid w-12 h-12 place-items-center rounded-full text-[var(--color-text-main)] hover:scale-105 hover:text-[var(--color-text-secondary)] cursor-pointer"><Home className="w-6 h-6 fill-current" strokeWidth={2.2} /></button>
- </div>
-
- {/* Búsqueda global: pedidos, clientes, comercios, domiciliarios, cupones */}
- <div className="hidden md:block flex-1 max-w-2xl"><GlobalSearch /></div>
-
- {/* Right Header Actions */}
- <div className="ml-auto flex items-center gap-2 sm:gap-3 shrink-0">
- {liveStatus && (
- <span
- role="status"
- className={`hidden sm:inline text-[11px] font-semibold ${liveStatus === 'live' ? 'text-[var(--color-success)]' : 'text-[var(--color-text-main)]'}`}
- >
- {liveStatus === 'live' ? 'En vivo' : 'Reconectando…'}
- </span>
- )}
- {/* Theme Toggle (Claro / Oscuro / Automático) */}
- <ThemeToggle />
-
- {/* Bandeja de alertas */}
- <AlertsTray />
-
- {/* User Profile */}
- <div className="relative">
- <button
- onClick={() => setUserMenuOpen(!userMenuOpen)}
- className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
- >
- <div className="w-10 h-10 rounded-full bg-[#D69E26] flex items-center justify-center text-sm font-bold text-white">
- {user?.name?.charAt(0)?.toUpperCase() || 'A'}
- </div>
- <div className="text-left hidden xl:block max-w-36">
- <p className="text-xs font-bold text-[var(--color-text-main)] leading-none truncate">{user?.name || 'Administrador'}</p>
- <p className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-none truncate">{positionName || 'Sin cargo asignado'}</p>
- </div>
- <ChevronDown className="w-3.5 h-3.5 text-[var(--color-text-secondary)] hidden sm:block" />
- </button>
-
- {userMenuOpen && (
- <div className="absolute right-0 mt-2 w-52 rounded-xl zipp-modal py-1.5 z-50 border border-slate-200 dark:border-slate-800 animate-fade-in shadow-xl bg-[var(--color-surface)] dark:bg-[#1B2437]">
- <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800">
- <p className="text-xs font-bold text-slate-800 dark:text-slate-100">{user?.name || 'Administrador'}</p>
- <p className="text-[10px] text-slate-900 dark:text-slate-400 truncate">{user?.email || 'admin@zipp.com'}</p>
- </div>
- <button
- onClick={() => {
- setUserMenuOpen(false);
- setShowLogoutModal(true);
- }}
- className="w-full text-left px-3.5 py-2.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 dark:hover:bg-rose-500/15 transition-colors flex items-center gap-2.5 font-semibold cursor-pointer border-t border-slate-100 dark:border-slate-800"
- >
- <div className="w-6 h-6 rounded-md bg-rose-500/10 flex items-center justify-center shrink-0">
- <LogOut className="w-3.5 h-3.5 text-rose-500" />
- </div>
- <span>Cerrar Sesión</span>
- </button>
- </div>
- )}
- </div>
- </div>
- </header>
 
  {authzMode === 'observe' && observedPermissions.length > 0 && (
  <p className="px-6 lg:px-8 pt-3 text-xs font-semibold text-[var(--color-text-main)]">

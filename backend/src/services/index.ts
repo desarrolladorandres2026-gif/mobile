@@ -44,6 +44,7 @@ export {
 } from './authorization.service';
 export { pricingService, QuoteImbalanceError, Quote } from './pricing.service';
 export { couponService } from './coupon.service';
+export { promotionPreviewService } from './promotionPreview.service';
 export { offersService } from './offers.service';
 export { zoneService } from './zone.service';
 export {

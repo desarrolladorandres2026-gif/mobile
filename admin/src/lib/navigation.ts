@@ -43,64 +43,74 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
   {
-    category: 'MENÚ',
+    category: 'HOY',
     items: [
       { path: '/daily-summary', Icon: CalendarRegular, label: 'Resumen Diario', permission: Permission.REPORTS_VIEW },
+      { path: '/orders', Icon: BoxRegular, label: 'Pedidos', permission: Permission.ORDERS_VIEW_ALL },
+      { path: '/fleet', Icon: LocationRegular, label: 'Flota en Vivo', permission: Permission.DRIVERS_TRACK },
+      { path: '/support', Icon: PeopleRegular, label: 'Soporte', permission: Permission.SUPPORT_VIEW },
     ],
   },
   {
-    category: 'APLICACIONES',
+    category: 'REPARTIDORES',
     items: [
-      { path: '/orders', Icon: BoxRegular, label: 'Pedidos', permission: Permission.ORDERS_VIEW_ALL },
-      { path: '/fleet', Icon: LocationRegular, label: 'Flota en Vivo', permission: Permission.DRIVERS_TRACK },
       { path: '/drivers', Icon: VehicleMotorcycleRegular, label: 'Domiciliarios', permission: Permission.DRIVERS_VIEW },
       { path: '/driver-documents', Icon: DocumentRegular, label: 'Documentos', permission: Permission.DRIVERS_VIEW },
     ],
   },
   {
-    category: 'FINANZAS Y SOPORTE',
+    category: 'DINERO',
     items: [
       { path: '/financials', Icon: WalletRegular, label: 'Finanzas', permission: Permission.FINANCE_VIEW },
       { path: '/settlements', Icon: WalletRegular, label: 'Liquidaciones', permission: Permission.FINANCE_VIEW },
       { path: '/payments', Icon: WalletRegular, label: 'Pagos en línea', permission: Permission.FINANCE_VIEW },
       { path: '/cash', Icon: WalletRegular, label: 'Efectivo', permission: Permission.FINANCE_VIEW },
       { path: '/refunds', Icon: BoxRegular, label: 'Reembolsos', permission: Permission.REFUNDS_VIEW },
-      { path: '/support', Icon: PeopleRegular, label: 'Soporte', permission: Permission.SUPPORT_VIEW },
       { path: '/commissions', Icon: TagRegular, label: 'Comisiones', permission: Permission.COMMISSIONS_VIEW },
       { path: '/documents', Icon: DocumentRegular, label: 'Comprobantes', permission: Permission.FINANCE_VIEW },
       { path: '/ad-invoices', Icon: MegaphoneRegular, label: 'Facturas de publicidad', permission: Permission.FINANCE_VIEW },
       { path: '/exports', Icon: TagRegular, label: 'Exportes', permission: Permission.REPORTS_EXPORT },
-      { path: '/legal', Icon: DocumentRegular, label: 'Legal y datos', permission: Permission.LEGAL_VIEW },
     ],
   },
   {
-    category: 'SEGURIDAD Y ACCESO',
-    items: [
-      { path: '/security', Icon: ShieldRegular, label: 'Seguridad', permission: Permission.SECURITY_VIEW },
-      { path: '/users', Icon: PeopleRegular, label: 'Usuarios', permission: Permission.USERS_VIEW },
-      { path: '/roles', Icon: KeyRegular, label: 'Roles', permission: Permission.ROLES_VIEW },
-      { path: '/positions', Icon: PersonTagRegular, label: 'Cargos', permission: Permission.POSITIONS_VIEW },
-      { path: '/app-health', Icon: GridRegular, label: 'Salud de la app', permission: Permission.REPORTS_VIEW },
-      { path: '/feature-flags', Icon: KeyRegular, label: 'Interruptores', permission: Permission.SETTINGS_VIEW },
-      { path: '/incidents', Icon: CameraRegular, label: 'Incidentes', permission: Permission.ADMIN_PANEL, hidden: true },
-    ],
-  },
-  {
-    category: 'COMERCIOS Y CONTENIDO',
+    category: 'COMERCIOS',
     items: [
       { path: '/business-approvals', Icon: DocumentRegular, label: 'Verificar Comercios', permission: Permission.BUSINESSES_VIEW },
       { path: '/businesses', Icon: BuildingShopRegular, label: 'Negocios', permission: Permission.BUSINESSES_VIEW },
       { path: '/pricing', Icon: TagRegular, label: 'Tarifas y Precios', permission: Permission.FINANCE_VIEW },
-      { path: '/coupons', Icon: TicketDiagonalRegular, label: 'Cupones', permission: Permission.COUPONS_VIEW },
       { path: '/zones', Icon: LocationRegular, label: 'Zonas', permission: Permission.ZONES_VIEW },
       { path: '/reviews', Icon: PeopleRegular, label: 'Reseñas', permission: Permission.REVIEWS_VIEW },
+    ],
+  },
+  {
+    category: 'CRECIMIENTO',
+    items: [
+      { path: '/coupons', Icon: TicketDiagonalRegular, label: 'Cupones', permission: Permission.COUPONS_VIEW },
       { path: '/campaigns', Icon: MegaphoneRegular, label: 'Publicidad', permission: Permission.ADS_VIEW },
       { path: '/pro', Icon: WalletRegular, label: 'Zipp Pro', permission: Permission.FINANCE_VIEW },
       { path: '/referrals', Icon: PeopleRegular, label: 'Referidos', permission: Permission.COUPONS_VIEW },
       { path: '/targeted-sends', Icon: MegaphoneRegular, label: 'Envíos dirigidos', permission: Permission.NOTIFICATIONS_VIEW },
+    ],
+  },
+  {
+    category: 'CONTENIDO',
+    items: [
       { path: '/home-banners', Icon: ImageRegular, label: 'Banners de Inicio', permission: Permission.CONTENT_VIEW },
       { path: '/home-content', Icon: CompassNorthwestRegular, label: 'Inicio y Explorar', permission: Permission.CONTENT_VIEW },
       { path: '/search-insights', Icon: AppsListRegular, label: 'Búsquedas', permission: Permission.CONTENT_VIEW },
+    ],
+  },
+  {
+    category: 'SISTEMA',
+    items: [
+      { path: '/users', Icon: PeopleRegular, label: 'Usuarios', permission: Permission.USERS_VIEW },
+      { path: '/roles', Icon: KeyRegular, label: 'Roles', permission: Permission.ROLES_VIEW },
+      { path: '/positions', Icon: PersonTagRegular, label: 'Cargos', permission: Permission.POSITIONS_VIEW },
+      { path: '/security', Icon: ShieldRegular, label: 'Seguridad', permission: Permission.SECURITY_VIEW },
+      { path: '/app-health', Icon: GridRegular, label: 'Salud de la app', permission: Permission.REPORTS_VIEW },
+      { path: '/feature-flags', Icon: KeyRegular, label: 'Interruptores', permission: Permission.SETTINGS_VIEW },
+      { path: '/legal', Icon: DocumentRegular, label: 'Legal y datos', permission: Permission.LEGAL_VIEW },
+      { path: '/incidents', Icon: CameraRegular, label: 'Incidentes', permission: Permission.ADMIN_PANEL, hidden: true },
     ],
   },
 ];

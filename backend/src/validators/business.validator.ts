@@ -108,7 +108,27 @@ export const updateBusinessSchema = z.object({
         )
         .optional(),
     })
-    .strict(),
+    .strict()
+    // El envío gratis con franja: las dos horas o ninguna (con una sola, la
+    // franja se ignoraba y el domicilio salía gratis todo el día), el inicio
+    // antes que el fin (una franja que cruza medianoche no se puede evaluar y
+    // nunca abriría) y la vigencia con el inicio antes que el fin.
+    .refine(
+      (body) => !!body.freeDeliveryValidFromTime === !!body.freeDeliveryValidUntilTime,
+      { message: 'Indica la hora de inicio y la de fin del envío gratis, o ninguna de las dos', path: ['freeDeliveryValidFromTime'] }
+    )
+    .refine(
+      (body) =>
+        !(body.freeDeliveryValidFromTime && body.freeDeliveryValidUntilTime) ||
+        body.freeDeliveryValidFromTime < body.freeDeliveryValidUntilTime,
+      { message: 'La franja del envío gratis no puede cruzar la medianoche: el inicio debe ser anterior al fin', path: ['freeDeliveryValidUntilTime'] }
+    )
+    .refine(
+      (body) =>
+        !(body.freeDeliveryValidFrom && body.freeDeliveryValidUntil) ||
+        body.freeDeliveryValidFrom < body.freeDeliveryValidUntil,
+      { message: 'La vigencia del envío gratis debe terminar después de empezar', path: ['freeDeliveryValidUntil'] }
+    ),
   query: z.object({}).optional(),
   params: z.object({ id: z.string() }),
 });

@@ -4,6 +4,8 @@ import { BRAND_COLORS } from '../../lib/brandColors';
 import type { LatLng } from '../../components/BusinessLocationField';
 import DateRangeField from '../../components/DateRangeField';
 import NumericInput from '../../components/NumericInput';
+import ScheduleFields from '../../components/ScheduleFields';
+import PromotionSimulation from '../../components/PromotionSimulation';
 
 // Leaflet (el mapa del punto de recogida) solo lo usa esta pestaña y pesa
 // más que el resto del panel junto: se descarga al abrir Información.
@@ -129,13 +131,13 @@ export default function InfoTab({
         title="Tu ficha"
         description="Lo que ve el cliente al entrar a tu tienda. La portada y el logo se cambian arriba, sobre la cabecera."
       >
-        <dl className="grid gap-4 sm:grid-cols-3">
+        <dl>
           <Detail label="Categoría" value={formatCategory(category)} note="No se cambia desde aquí." />
           <Detail label="Ciudad" value={city || '—'} note="No se cambia desde aquí." />
           <Detail label="Calificación" value={formatRating(rating, totalReviews)} />
         </dl>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div>
           <Field label="Nombre del negocio">
             <input
               type="text"
@@ -189,7 +191,7 @@ export default function InfoTab({
           </div>
         </Field>
 
-        <label className="flex items-start gap-3 cursor-pointer">
+        <label className="flex items-start gap-3 cursor-pointer py-3">
           <input
             type="checkbox"
             checked={showPromoBanner}
@@ -233,7 +235,6 @@ export default function InfoTab({
         </Field>
       </Block>
 
-      <div>
       <Block
         title="Horario"
         description="Fuera de este horario tu tienda aparece cerrada y no recibe pedidos."
@@ -243,7 +244,7 @@ export default function InfoTab({
             : undefined
         }
       >
-        <div className="grid gap-x-10 sm:grid-cols-2">
+        <div className="max-w-xl">
           {DAYS.map((day) => {
             const value = schedule[day.key] ?? {};
             const isOpen = !!value.isOpen;
@@ -294,7 +295,7 @@ export default function InfoTab({
         title="Entregas"
         description="Envío gratis, pedido mínimo y cuánto tardas en preparar."
       >
-        <div className="grid gap-5 sm:grid-cols-3">
+        <div>
           <Field
             label="Envío gratis desde"
             hint={
@@ -316,65 +317,38 @@ export default function InfoTab({
           </Field>
 
           {threshold > 0 && (
-            <div className="sm:col-span-3 space-y-3 pt-1">
-              <p className="text-xs font-semibold text-[var(--color-text-main)]">
-                Vigencia del envío gratis <span className="font-normal text-[var(--color-text-muted)]">(opcional)</span>
+            <div className="space-y-5 py-3 border-b border-[var(--color-border-light)]">
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-[var(--color-text-main)]">
+                  Vigencia del envío gratis <span className="font-normal text-[var(--color-text-secondary)]">(opcional)</span>
+                </p>
+                <DateRangeField
+                  from={freeDeliveryWindow.validFrom}
+                  to={freeDeliveryWindow.validUntil}
+                  onChangeFrom={(v) => setFreeDeliveryWindow({ ...freeDeliveryWindow, validFrom: v })}
+                  onChangeTo={(v) => setFreeDeliveryWindow({ ...freeDeliveryWindow, validUntil: v })}
+                  fromLabel="Desde (vacío: siempre)"
+                  toLabel="Hasta (vacío: siempre)"
+                />
+                <ScheduleFields
+                  value={freeDeliveryWindow}
+                  onChange={(next) => setFreeDeliveryWindow({ ...freeDeliveryWindow, ...next })}
+                  what="promoción de envío gratis"
+                />
+              </div>
+
+              <p className="text-xs text-[var(--color-text-secondary)]">
+                El envío gratis se mide sobre lo que el cliente paga por los productos después de los
+                descuentos: con un umbral de {money(threshold)}, un pedido de {money(threshold)} al que una
+                promoción le baja el precio no lo alcanza. Si en un pedido regalar el domicilio te
+                dejara con un pago negativo, ese pedido paga su domicilio.
               </p>
-              <DateRangeField
-                from={freeDeliveryWindow.validFrom}
-                to={freeDeliveryWindow.validUntil}
-                onChangeFrom={(v) => setFreeDeliveryWindow({ ...freeDeliveryWindow, validFrom: v })}
-                onChangeTo={(v) => setFreeDeliveryWindow({ ...freeDeliveryWindow, validUntil: v })}
-                fromLabel="Desde (vacío: siempre)"
-                toLabel="Hasta (vacío: siempre)"
+
+              <PromotionSimulation
+                businessId={businessId}
+                draft={null}
+                freeDeliveryThreshold={threshold}
               />
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex gap-1">
-                  {DAYS.map((day, index) => {
-                    const active = freeDeliveryWindow.validDays.includes(index);
-                    return (
-                      <button
-                        key={day.key}
-                        type="button"
-                        onClick={() =>
-                          setFreeDeliveryWindow({
-                            ...freeDeliveryWindow,
-                            validDays: active
-                              ? freeDeliveryWindow.validDays.filter((d) => d !== index)
-                              : [...freeDeliveryWindow.validDays, index],
-                          })
-                        }
-                        className={`w-7 h-7 rounded-full text-[10px] font-semibold cursor-pointer transition-colors ${
-                          active
-                            ? 'bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] text-[var(--zipp-obsidian)]'
-                            : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)]'
-                        }`}
-                      >
-                        {day.label.slice(0, 1)}
-                      </button>
-                    );
-                  })}
-                </div>
-                <span className="text-xs text-[var(--color-text-muted)]">Sin días marcados: todos</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="time"
-                  value={freeDeliveryWindow.validFromTime}
-                  onChange={(e) => setFreeDeliveryWindow({ ...freeDeliveryWindow, validFromTime: e.target.value })}
-                  className={TIME_INPUT}
-                  aria-label="Envío gratis desde la hora"
-                />
-                <span className="text-xs text-[var(--color-text-muted)]">a</span>
-                <input
-                  type="time"
-                  value={freeDeliveryWindow.validUntilTime}
-                  onChange={(e) => setFreeDeliveryWindow({ ...freeDeliveryWindow, validUntilTime: e.target.value })}
-                  className={TIME_INPUT}
-                  aria-label="Envío gratis hasta la hora"
-                />
-                <span className="text-xs text-[var(--color-text-muted)]">Vacío: todo el día</span>
-              </div>
             </div>
           )}
 
@@ -398,7 +372,6 @@ export default function InfoTab({
           </Field>
         </div>
       </Block>
-      </div>
     </div>
   );
 }
@@ -429,22 +402,20 @@ function InfoView({
   return (
     <div className="cols3">
       <Block title="Tu ficha" description="Lo que ve el cliente al entrar a tu tienda.">
-        <dl className="space-y-4">
+        <dl>
           <Detail
             label="Descripción"
             value={description || 'Aún no tienes descripción. Sin ella, cuesta más que te encuentren al buscar.'}
             muted={!description}
           />
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Detail label="Categoría" value={formatCategory(category)} />
-            <Detail label="Ciudad" value={city || '—'} />
-            <Detail label="Calificación" value={formatRating(rating, totalReviews)} />
-          </div>
+          <Detail label="Categoría" value={formatCategory(category)} />
+          <Detail label="Ciudad" value={city || '—'} />
+          <Detail label="Calificación" value={formatRating(rating, totalReviews)} />
         </dl>
       </Block>
 
       <Block title="Contacto y ubicación" description="Cómo te contacta Zipp y dónde recoge el domiciliario.">
-        <dl className="grid gap-4 sm:grid-cols-3">
+        <dl>
           <Detail label="Teléfono" value={phone || 'Sin teléfono'} muted={!phone} note="Solo lo ve Zipp." />
           <Detail label="Dirección" value={address || 'Sin dirección'} muted={!address} note="El cliente no la ve." />
           {location ? (
@@ -452,14 +423,13 @@ function InfoView({
           ) : (
             <Detail
               label="Punto de recogida"
-              value="Sin poner: el domiciliario no sabe por dónde recoger. Ponlo en Editar perfil."
+              value="Sin poner: el domiciliario no sabe por dónde recoger. Ponlo con Editar."
               warning
             />
           )}
         </dl>
       </Block>
 
-      <div>
       <Block
         title="Horario"
         description="Fuera de este horario tu tienda aparece cerrada y no recibe pedidos."
@@ -469,7 +439,7 @@ function InfoView({
             : undefined
         }
       >
-        <dl className="grid gap-x-6 grid-cols-2">
+        <dl className="max-w-xl">
           {groupSchedule(schedule).map((row) => (
             <div
               key={row.days}
@@ -485,7 +455,7 @@ function InfoView({
       </Block>
 
       <Block title="Entregas" description="Envío gratis, pedido mínimo y cuánto tardas en preparar.">
-        <dl className="grid gap-4 sm:grid-cols-3">
+        <dl>
           <Detail
             label="Envío gratis"
             value={threshold > 0 ? `Desde ${money(threshold)}` : 'No lo ofreces'}
@@ -495,7 +465,6 @@ function InfoView({
           <Detail label="Preparación" value={`${deliveryTime} min`} />
         </dl>
       </Block>
-      </div>
     </div>
   );
 }
@@ -516,10 +485,12 @@ function Detail({
       ? 'text-[var(--color-text-muted)]'
       : 'text-[var(--color-text-main)]';
   return (
-    <div className="min-w-0">
-      <dt className="text-xs text-[var(--color-text-secondary)]">{label}</dt>
-      <dd className={`mt-0.5 text-sm leading-relaxed break-words ${tone}`}>{value}</dd>
-      {note && <dd className="mt-0.5 text-xs text-[var(--color-text-muted)]">{note}</dd>}
+    <div className="min-w-0 py-3 border-b border-[var(--color-border-light)] sm:grid sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-6">
+      <dt className="text-xs font-semibold text-[var(--color-text-secondary)] sm:pt-0.5">{label}</dt>
+      <div className="min-w-0">
+        <dd className={`text-sm leading-relaxed break-words ${tone}`}>{value}</dd>
+        {note && <dd className="mt-0.5 text-xs text-[var(--color-text-muted)]">{note}</dd>}
+      </div>
     </div>
   );
 }
@@ -569,7 +540,7 @@ function Block({
   children: React.ReactNode;
 }) {
   return (
-    <section className="space-y-3 pb-6">
+    <section className="space-y-3 pb-6 xl:grid xl:grid-cols-[13rem_minmax(0,1fr)] xl:gap-8 xl:space-y-0">
       <div className="space-y-1.5">
         <h2 className="text-sm font-semibold text-[var(--color-text-main)]">{title}</h2>
         <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">{description}</p>
@@ -577,7 +548,7 @@ function Block({
           <p className="text-xs font-semibold leading-relaxed text-[var(--color-warning)]">{warning}</p>
         )}
       </div>
-      <div className="min-w-0 space-y-5">{children}</div>
+      <div className="min-w-0">{children}</div>
     </section>
   );
 }
@@ -590,10 +561,12 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-semibold text-[var(--color-text-main)]">{label}</label>
-      {children}
-      {hint && <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">{hint}</p>}
+    <div className="space-y-1.5 py-3 border-b border-[var(--color-border-light)] sm:grid sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-6 sm:space-y-0">
+      <label className="block text-xs font-semibold text-[var(--color-text-secondary)] sm:pt-2">{label}</label>
+      <div className="min-w-0 max-w-xl space-y-1.5">
+        {children}
+        {hint && <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">{hint}</p>}
+      </div>
     </div>
   );
 }

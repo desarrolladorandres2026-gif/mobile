@@ -1,8 +1,8 @@
 import { Types } from 'mongoose';
-import { Business, Product, Zone, IBusiness, ICoupon, IPlatformPricingConfig } from '../models';
+import { Business, Product, Zone, Coupon, IBusiness, ICoupon, IPlatformPricingConfig } from '../models';
 import { resolveModifierSelection } from '../utils/modifierSelection';
 import { AppError } from '../middlewares';
-import { PaymentMethod, CouponFundedBy, SelectedExtra } from '../types';
+import { PaymentMethod, CouponFundedBy, CouponScope, CouponType, SelectedExtra } from '../types';
 import { config as envConfig } from '../config';
 import {
   haversineMeters,
@@ -15,6 +15,7 @@ import {
   effectiveFreeDeliveryThreshold,
   LatLng,
 } from '../utils';
+import { estimateGatewayFee } from '../utils/gatewayFee';
 import { estimateRoute } from './mapbox.service';
 import { couponService, AppliedCoupon } from './coupon.service';
 import { pricingConfigService } from './pricingConfig.service';
@@ -133,6 +134,8 @@ export interface Quote {
   deliveryPayable: number;
   /** El comercio regaló el domicilio por haber alcanzado su compra mínima. */
   freeDeliveryApplied: boolean;
+  /** Lo que costó ese domicilio regalado (dentro de `merchantFundedDiscount`). */
+  freeDeliveryDiscount: number;
   /**
    * Lo que la membresía Zipp Pro le quitó a este pedido. Lo financia ZIPP,
    * así que ya está contado dentro de `platformFundedDiscount`; viaja
@@ -197,6 +200,157 @@ export interface Quote {
   tax: number;
   total: number;
   platformCommission: number;
+}
+
+/**
+ * Lo que `settleDiscounts` entrega: el reparto completo del dinero de un
+ * carrito para un cupón (o ninguno). Es la única fuente de cifras que
+ * comparten la cotización, el sugeridor y la previsualización.
+ */
+export interface SettledDiscounts {
+  freeDeliveryDiscount: number;
+  payableDelivery: number;
+  /** Lo que Zipp Pro le quitó al envío. Sale del bolsillo de ZIPP. */
+  proDeliveryDiscount: number;
+  /** Lo que Zipp Pro le quitó a la tarifa de servicio. Íd. */
+  proServiceFeeDiscount: number;
+  merchantFundedDiscount: number;
+  merchantCommission: number;
+  platformFundedDiscount: number;
+  platformGrossRevenue: number;
+  platformNetRevenueBeforeOperatingCosts: number;
+  /**
+   * Lo que el cliente paga por los productos tras los descuentos que los
+   * afectan (cupón de producto y promociones automáticas). Es la base del
+   * umbral de envío gratis y del mínimo de Zipp Pro: ni el domicilio ni la
+   * tarifa de servicio ni sus descuentos entran.
+   */
+  payableSubtotal: number;
+  payableServiceFee: number;
+  taxPayable: number;
+  customerTotal: number;
+  /**
+   * Lo que le queda al comercio: productos − lo que financia − comisión.
+   * Sin recortar a cero a propósito: un valor negativo es una combinación de
+   * descuentos que el comercio no puede pagar, y `assertBalanced` no lo
+   * detectaría si se escondiera bajo un `Math.max`.
+   */
+  merchantPayout: number;
+  /**
+   * El domicilio ya sale gratis por el umbral del comercio o por Zipp Pro,
+   * con independencia de cualquier cupón de domicilio.
+   */
+  deliveryAlreadyFree: boolean;
+  /** Comisión de pasarela estimada del cobro. 0 en efectivo o sin tarifa configurada. */
+  estimatedGatewayFee: number;
+}
+
+/** Lo que `settleDiscounts` necesita y no depende del cupón ni de las promociones. */
+export interface SettleBase {
+  /** Subtotal BRUTO de productos, antes de cualquier descuento. */
+  productSubtotal: number;
+  deliveryCustomerFee: number;
+  deliveryMargin: number;
+  customerServiceFee: number;
+  appliedCommissionBps: number;
+  cfg: IPlatformPricingConfig;
+  /** El trato de Zipp Pro, si esta persona lo tiene pagado hoy. */
+  pro: ProBenefitsSnapshot | null;
+  /** Propina ya normalizada. */
+  tip: number;
+  /** Pago contra entrega: no genera comisión de pasarela. */
+  isCash: boolean;
+}
+
+export interface SettleParts extends SettleBase {
+  coupon: AppliedCoupon | null;
+  /**
+   * Lo que descontó una promoción automática por producto, ya resuelto
+   * por `applyAutoPromotions`. Siempre financiado por el comercio: el
+   * modelo `Coupon` obliga a que `autoApply` sea `scope: PRODUCT` y
+   * excluye por eso mismo `fundedBy: PLATFORM` para este modo.
+   */
+  autoPromotionMerchantFunded: number;
+  /** Umbral de envío gratis vigente y financiable; 0 = no se regala. */
+  freeDeliveryThreshold: number;
+}
+
+/** Una promoción tal como el comercio (o el administrador) la está armando. */
+export interface PromotionDraft {
+  type: CouponType;
+  scope?: CouponScope;
+  value: number;
+  maxDiscount?: number;
+  maxDiscountAmount?: number;
+  minOrderAmount?: number;
+  autoApply?: boolean;
+  firstOrderOnly?: boolean;
+  budgetLimit?: number;
+  usageLimit?: number;
+  perUserLimit?: number;
+  validFrom?: Date;
+  validUntil?: Date;
+  /** Solo lo respeta la previsualización del administrador. */
+  fundedBy?: CouponFundedBy;
+  minimumContributionMargin?: number;
+  campaignApproved?: boolean;
+}
+
+export interface PromotionPreviewInput {
+  businessId: string;
+  /** La promoción a evaluar; sin ella solo se evalúa el envío gratis. */
+  draft?: PromotionDraft | null;
+  /** Umbral de envío gratis a evaluar en lugar del guardado (borrador). */
+  freeDeliveryThreshold?: number;
+  /** Subtotales de producto a simular, ya enteros en COP. */
+  subtotals: number[];
+  distanceKm?: number;
+  paymentMethod: PaymentMethod;
+  /** El administrador puede simular una campaña financiada por ZIPP; el comercio no. */
+  allowPlatformFunding?: boolean;
+}
+
+export interface PreviewWarning {
+  code: string;
+  message: string;
+}
+
+export interface PreviewScenario {
+  productSubtotal: number;
+  promotionApplied: boolean;
+  freeDeliveryApplied: boolean;
+  productDiscount: number;
+  payableSubtotal: number;
+  deliveryFee: number;
+  deliveryPayable: number;
+  serviceFee: number;
+  tax: number;
+  customerTotal: number;
+  customerSaving: number;
+  merchantFunded: number;
+  platformFunded: number;
+  merchantCommission: number;
+  merchantPayout: number;
+  merchantPayoutWithoutPromotion: number;
+  driverPayout: number;
+  platformGrossRevenue: number;
+  platformNet: number;
+  estimatedGatewayFee: number;
+  platformNetAfterGateway: number;
+  warnings: PreviewWarning[];
+}
+
+export interface PromotionPreview {
+  valid: boolean;
+  errors: string[];
+  assumptions: string[];
+  scenarios: PreviewScenario[];
+}
+
+/** Por qué un cupón no puede combinarse con el resto del pedido. */
+export interface CouponConflict {
+  code: 'COUPON_EXCEEDS_MERCHANT_PAYOUT' | 'DELIVERY_ALREADY_FREE';
+  message: string;
 }
 
 /** Raised when the books do not balance. Never surfaced as a price. */
@@ -406,7 +560,13 @@ export class PricingService {
     pricedItems: PricedItem[],
     autoPromotions: Map<string, ICoupon>,
     input: { userId: string; businessId: string },
-    cfg: IPlatformPricingConfig
+    cfg: IPlatformPricingConfig,
+    /**
+     * Si el comercio puede pagar este total de promociones automáticas sin
+     * quedar con un pago negativo. Lo resuelve `quote()` con la misma
+     * aritmética con la que se cobra: aquí solo se pregunta.
+     */
+    canFund: (totalAutoDiscount: number) => boolean
   ): Promise<{ appliedAutoPromotions: Array<{ couponId: string; discountAmount: number }>; autoPromotionDiscount: number }> {
     const groups = new Map<string, { coupon: ICoupon; base: number }>();
 
@@ -437,6 +597,17 @@ export class PricingService {
         cfg
       );
       if (applied.productDiscount <= 0) continue;
+
+      // Una promoción que ya no cabe en su presupuesto no se ofrece: de lo
+      // contrario la cotización la mostraría y el canje la rechazaría con un
+      // 409 al confirmar el pedido.
+      if (!couponService.fitsBudget(coupon, applied.merchantFunded)) continue;
+
+      // Una promoción automática nunca debe volver inviable el pedido: si el
+      // comercio no puede pagarla junto con las que ya aplican, no se aplica
+      // (y por tanto tampoco aparece en el checkout). El cliente no escribió
+      // nada que pudiera rechazarse con un error.
+      if (!canFund(autoPromotionDiscount + applied.productDiscount)) continue;
 
       appliedAutoPromotions.push({ couponId: coupon._id.toString(), discountAmount: applied.productDiscount });
       autoPromotionDiscount += applied.productDiscount;
@@ -689,21 +860,6 @@ export class PricingService {
       input.items
     );
 
-    // ── Promociones automáticas por producto ──
-    //
-    // Sin código: se resuelven solas contra lo que hay en el carrito, antes
-    // de saber si el cliente trae un cupón. `priceItems()` no sabe nada de
-    // esto a propósito — ver la nota en `applyAutoPromotions`.
-    const autoPromos = await couponService.autoPromotionsFor(input.businessId, new Date());
-    const { appliedAutoPromotions, autoPromotionDiscount } = await this.applyAutoPromotions(
-      pricedItems,
-      autoPromos,
-      input,
-      cfg
-    );
-    // Forzado por el modelo: `autoApply` solo admite `fundedBy: BUSINESS`.
-    const autoPromotionMerchantFunded = autoPromotionDiscount;
-
     const delivery = await this.priceDelivery(business, destination, cfg);
     const eta = this.deliveryWindow(business, destination, maxPrepMinutes);
 
@@ -720,6 +876,67 @@ export class PricingService {
       cfg.serviceFeeFixed + applyBps(productSubtotal, cfg.serviceFeeBps),
       cfg.serviceFeeMin,
       cfg.serviceFeeMax
+    );
+
+    const appliedCommissionBps = this.resolveCommissionBps(business, cfg);
+
+    // ── Tip ──
+    const tip = this.normalizeTip(input.tip, productSubtotal, cfg);
+
+    // ── Zipp Pro ──
+    // Una consulta por cotización, contra un documento por persona. Lo que
+    // devuelve no es "si pagó", es "qué tiene derecho a descontar hoy": la
+    // membresía caducada no llega hasta aquí.
+    const pro = await proService.benefitsFor(input.userId);
+
+    // Todo lo que no depende del cupón ni de las promociones, una sola vez.
+    // `settleDiscounts` es la misma aritmética con la que se cobra y con la
+    // que el sugeridor decide qué ofrecer: no hay una segunda copia que pueda
+    // volverse distinta.
+    const baseParts = {
+      productSubtotal,
+      deliveryCustomerFee: delivery.customerFee,
+      deliveryMargin: delivery.margin,
+      customerServiceFee,
+      appliedCommissionBps,
+      cfg,
+      pro,
+      tip,
+      isCash,
+    };
+
+    // ── Promociones automáticas por producto ──
+    //
+    // Sin código: se resuelven solas contra lo que hay en el carrito, antes
+    // de saber si el cliente trae un cupón. `priceItems()` no sabe nada de
+    // esto a propósito — ver la nota en `applyAutoPromotions`.
+    //
+    // Se aplican solo mientras el comercio pueda pagarlas: sin el envío
+    // gratis a cuestas (que se decide después, con ellas ya puestas), porque
+    // el descuento del producto es la promoción que el comercio eligió.
+    const autoPromos = await couponService.autoPromotionsFor(input.businessId, new Date(), {
+      includePersonal: true,
+    });
+    const { appliedAutoPromotions, autoPromotionDiscount } = await this.applyAutoPromotions(
+      pricedItems,
+      autoPromos,
+      input,
+      cfg,
+      (total) => this.canMerchantFundAutoPromotions(baseParts, total)
+    );
+    // Forzado por el modelo: `autoApply` solo admite `fundedBy: BUSINESS`.
+    const autoPromotionMerchantFunded = autoPromotionDiscount;
+
+    // ── Envío gratis del comercio ──
+    //
+    // Es automático, así que si el comercio no puede pagarlo junto con sus
+    // promociones del pedido, simplemente no se regala: el cliente paga su
+    // domicilio y la cotización sigue siendo válida. Se decide aquí, sin
+    // cupón, y la misma decisión viaja al sugeridor.
+    const freeDeliveryThreshold = this.affordableFreeDeliveryThreshold(
+      baseParts,
+      autoPromotionMerchantFunded,
+      effectiveFreeDeliveryThreshold(business, new Date(), envConfig.settlement.timezone)
     );
 
     // ── Coupon ──
@@ -747,19 +964,20 @@ export class PricingService {
       );
     }
 
-    const productDiscount = coupon?.productDiscount ?? 0;
     const deliveryDiscount = coupon?.deliveryDiscount ?? 0;
-    const serviceFeeDiscount = coupon?.serviceFeeDiscount ?? 0;
 
-    const payableSubtotal = productSubtotal - productDiscount - autoPromotionDiscount;
+    const settled = this.settleDiscounts({
+      ...baseParts,
+      coupon,
+      autoPromotionMerchantFunded,
+      freeDeliveryThreshold,
+    });
 
-    const appliedCommissionBps = this.resolveCommissionBps(business, cfg);
-
-    // ── Zipp Pro ──
-    // Una consulta por cotización, contra un documento por persona. Lo que
-    // devuelve no es "si pagó", es "qué tiene derecho a descontar hoy": la
-    // membresía caducada no llega hasta aquí.
-    const pro = await proService.benefitsFor(input.userId);
+    // El cupón lo eligió el cliente: si no cabe en el pedido se le dice, con
+    // un 422 entendible, en vez de recortar cifras o fallar al cuadrar. Va
+    // antes de cualquier canje, así que no consume nada.
+    const conflict = this.couponConflict(coupon, settled);
+    if (conflict) throw new AppError(conflict.message, 422, conflict.code);
 
     const {
       freeDeliveryDiscount,
@@ -771,40 +989,13 @@ export class PricingService {
       platformFundedDiscount,
       platformGrossRevenue,
       platformNetRevenueBeforeOperatingCosts,
-    } = this.settleDiscounts({
-      coupon,
-      productSubtotal,
-      autoPromotionMerchantFunded,
-      deliveryCustomerFee: delivery.customerFee,
-      deliveryMargin: delivery.margin,
-      customerServiceFee,
-      freeDeliveryThreshold: effectiveFreeDeliveryThreshold(business, new Date(), envConfig.settlement.timezone),
-      appliedCommissionBps,
-      cfg,
-      pro,
-    });
-
-    // Después del reparto: la tarifa de servicio que la membresía perdona
-    // se decide ahí dentro, junto al resto del dinero.
-    const payableServiceFee = customerServiceFee - serviceFeeDiscount - proServiceFeeDiscount;
-
-    // ── Tip ──
-    const tip = this.normalizeTip(input.tip, productSubtotal, cfg);
-
-    // ── Tax ──
-    const taxPayable = applyBps(
-      payableSubtotal + payableDelivery + payableServiceFee,
-      cfg.taxBps
-    );
-
-    const customerTotal =
-      payableSubtotal + payableDelivery + payableServiceFee + taxPayable + tip;
+      taxPayable,
+      customerTotal,
+      merchantPayout: businessPayout,
+      estimatedGatewayFee,
+    } = settled;
 
     // ── Payouts ──
-    const businessPayout = Math.max(
-      0,
-      productSubtotal - merchantFundedDiscount - merchantCommission
-    );
     const driverPayout = delivery.driverPayout + tip;
 
     const platformPromotionExpense = platformFundedDiscount;
@@ -812,7 +1003,9 @@ export class PricingService {
     // ── Contribution-margin guard ──
     // A platform campaign that costs more than the order earns is only
     // allowed when finance explicitly approved that campaign's budget.
-    if (this.breaksMarginFloor(coupon, platformNetRevenueBeforeOperatingCosts)) {
+    // El margen se mide con el cobro de la pasarela ya restado (ver
+    // `breaksMarginFloor`).
+    if (this.breaksMarginFloor(coupon, platformNetRevenueBeforeOperatingCosts, estimatedGatewayFee)) {
       throw new AppError(
         'Este cupón no puede aplicarse a este pedido: el margen resultante ' +
           'queda por debajo del mínimo permitido.',
@@ -847,21 +1040,16 @@ export class PricingService {
     const suggestedCoupon = coupon || input.suggest === false
       ? null
       : await this.suggestCoupon({
+          ...baseParts,
           userId: input.userId,
           businessId: input.businessId,
           city: business.city,
           // Neto de promociones automáticas: lo que sugiere debe ahorrar
           // exactamente lo que ahorraría si de verdad se aplicara.
-          productSubtotal: subtotalAfterAutoPromotions,
+          netProductSubtotal: subtotalAfterAutoPromotions,
           autoPromotionMerchantFunded,
-          deliveryCustomerFee: delivery.customerFee,
-          deliveryMargin: delivery.margin,
-          customerServiceFee,
           zoneId: delivery.zoneId?.toString() ?? null,
-          freeDeliveryThreshold: effectiveFreeDeliveryThreshold(business, new Date(), envConfig.settlement.timezone),
-          appliedCommissionBps,
-          cfg,
-          pro,
+          freeDeliveryThreshold,
         });
 
     return {
@@ -878,6 +1066,7 @@ export class PricingService {
        */
       deliveryPayable: payableDelivery,
       freeDeliveryApplied: freeDeliveryDiscount > 0,
+      freeDeliveryDiscount,
       /**
        * Lo que la membresía le quitó a este pedido, partido en dos porque
        * el checkout los enseña en renglones distintos: uno va junto al
@@ -931,6 +1120,240 @@ export class PricingService {
   }
 
   /**
+   * Cómo quedaría el dinero de un pedido con una promoción que todavía no
+   * existe (o un umbral de envío gratis que todavía no se guardó).
+   *
+   * Es la previsualización que el comercio y el administrador ven ANTES de
+   * activar nada, y por eso no tiene una calculadora propia: reutiliza
+   * `computeDiscount`, `settleDiscounts`, `couponConflict` y
+   * `breaksMarginFloor` — las mismas funciones con las que `quote()` cobra y
+   * con las que el sugeridor decide —, sobre la tarifa de domicilio real del
+   * comercio (`priceRoute`). Si mañana cambia una regla, la previsualización
+   * cambia con ella.
+   *
+   * No escribe nada: la promoción es un documento en memoria que ni siquiera
+   * se guarda, no se canjea ningún cupo, no se crea pedido ni asiento.
+   *
+   * Qué NO modela (y lo dice en `assumptions`): las demás promociones del
+   * comercio, la membresía Zipp Pro del cliente y la propina; y asume que todo
+   * el carrito está cubierto por la promoción cuando es automática.
+   */
+  async previewPromotion(input: PromotionPreviewInput): Promise<PromotionPreview> {
+    const cfg = await pricingConfigService.getCurrent();
+
+    const business = await Business.findById(input.businessId);
+    if (!business) throw new AppError('Negocio no encontrado', 404);
+    const origin = fromGeoPoint(business.location);
+    if (!origin) {
+      throw new AppError('Este negocio no tiene una ubicación válida configurada', 409);
+    }
+
+    const isCash = input.paymentMethod === PaymentMethod.CASH_ON_DELIVERY;
+    const assumptions: string[] = [
+      'Se usa la tarifa de domicilio real de tu zona y la configuración vigente de ZIPP.',
+      'No incluye propina, membresía Zipp Pro ni otras promociones tuyas.',
+      isCash
+        ? 'Pago contra entrega: no genera comisión de pasarela.'
+        : 'Pago en línea: se estima la comisión de la pasarela con la tarifa más alta configurada.',
+    ];
+
+    // ── El borrador, validado con las reglas reales del modelo ──
+    //
+    // Un documento sin guardar corre exactamente las mismas validaciones y
+    // los mismos `pre('validate')` que correrán al crearlo, así que una
+    // combinación imposible se avisa aquí en vez de al pulsar «Crear».
+    let draftDoc: ICoupon | null = null;
+    const errors: string[] = [];
+    if (input.draft) {
+      const fundedBy = input.allowPlatformFunding
+        ? input.draft.fundedBy ?? CouponFundedBy.BUSINESS
+        : CouponFundedBy.BUSINESS;
+      const now = new Date();
+      draftDoc = new Coupon({
+        code: input.draft.autoApply ? undefined : 'VISTAPREVIA',
+        title: 'Vista previa',
+        ...input.draft,
+        fundedBy,
+        scope:
+          input.draft.type === CouponType.FREE_DELIVERY
+            ? CouponScope.DELIVERY
+            : input.draft.scope ?? CouponScope.PRODUCT,
+        businessId: business._id,
+        city: business.city,
+        autoApply: input.draft.autoApply === true,
+        productIds: input.draft.autoApply ? [new Types.ObjectId()] : [],
+        validFrom: input.draft.validFrom ?? now,
+        validUntil: input.draft.validUntil ?? new Date(now.getTime() + 30 * 24 * 3600_000),
+        campaignApproved: input.allowPlatformFunding ? input.draft.campaignApproved === true : false,
+      });
+      try {
+        await draftDoc.validate();
+      } catch (error) {
+        const fields = (error as { errors?: Record<string, { message: string }> }).errors;
+        errors.push(
+          ...(fields
+            ? Object.values(fields).map((e) => e.message)
+            : [error instanceof Error ? error.message : 'La promoción no es válida'])
+        );
+        draftDoc = null;
+      }
+    }
+    if (errors.length > 0) return { valid: false, errors, assumptions, scenarios: [] };
+
+    const km = Math.max(0, Math.min(input.distanceKm ?? 2, cfg.maxRadiusMeters / 1000));
+    const destination: LatLng = { lat: origin.lat + km / 111.32, lng: origin.lng };
+    const delivery = await this.priceRoute(origin, destination, business.city, cfg);
+    const minOrder = Math.max(business.minOrder || 0, delivery.zoneMinOrder);
+    const appliedCommissionBps = this.resolveCommissionBps(business, cfg);
+    const threshold =
+      input.freeDeliveryThreshold ??
+      effectiveFreeDeliveryThreshold(business, new Date(), envConfig.settlement.timezone);
+
+    const scenarios: PreviewScenario[] = [];
+    for (const productSubtotal of input.subtotals) {
+      assertMoney(productSubtotal, 'subtotal');
+      const warnings: PreviewWarning[] = [];
+
+      const customerServiceFee = clampMoney(
+        cfg.serviceFeeFixed + applyBps(productSubtotal, cfg.serviceFeeBps),
+        cfg.serviceFeeMin,
+        cfg.serviceFeeMax
+      );
+      const base: SettleBase = {
+        productSubtotal,
+        deliveryCustomerFee: delivery.customerFee,
+        deliveryMargin: delivery.margin,
+        customerServiceFee,
+        appliedCommissionBps,
+        cfg,
+        pro: null,
+        tip: 0,
+        isCash,
+      };
+
+      if (minOrder && productSubtotal < minOrder) {
+        warnings.push({
+          code: 'BELOW_MIN_ORDER',
+          message: `Este pedido no se podría hacer: el mínimo de tu zona es $${minOrder.toLocaleString('es-CO')}.`,
+        });
+      }
+
+      // Sin promoción: lo que se cobra hoy, para poder enseñar la diferencia.
+      const baselineThreshold = this.affordableFreeDeliveryThreshold(base, 0, threshold);
+      const baseline = this.settleDiscounts({
+        ...base,
+        coupon: null,
+        autoPromotionMerchantFunded: 0,
+        freeDeliveryThreshold: baselineThreshold,
+      });
+
+      let applied: AppliedCoupon | null = null;
+      let autoDiscount = 0;
+      let promotionApplied = false;
+
+      if (draftDoc) {
+        const ctx = {
+          userId: 'preview',
+          businessId: input.businessId,
+          subtotal: productSubtotal,
+          deliveryFee: delivery.customerFee,
+          serviceFee: customerServiceFee,
+        };
+        const computed = couponService.computeDiscount(draftDoc, ctx, cfg);
+
+        if (productSubtotal < draftDoc.minOrderAmount) {
+          warnings.push({
+            code: 'BELOW_PROMOTION_MIN',
+            message: 'Con este pedido la promoción no se aplicaría: no llega a su compra mínima.',
+          });
+        } else if (computed.totalDiscount <= 0) {
+          warnings.push({ code: 'NO_DISCOUNT', message: 'La promoción no descontaría nada en este pedido.' });
+        } else if (draftDoc.autoApply) {
+          if (this.canMerchantFundAutoPromotions(base, computed.productDiscount)) {
+            autoDiscount = computed.productDiscount;
+            promotionApplied = true;
+          } else {
+            warnings.push({
+              code: 'UNAFFORDABLE_AUTO_PROMOTION',
+              message:
+                'En este pedido la promoción no se aplicaría: dejaría tu pago en negativo, así que el sistema la omite.',
+            });
+          }
+        } else {
+          applied = computed;
+          promotionApplied = true;
+        }
+      }
+
+      const effectiveThreshold = this.affordableFreeDeliveryThreshold(base, autoDiscount, threshold);
+      if (threshold > 0 && effectiveThreshold === 0) {
+        warnings.push({
+          code: 'FREE_DELIVERY_UNAFFORDABLE',
+          message:
+            'En este pedido no se regalaría el domicilio: junto con la promoción dejaría tu pago en negativo.',
+        });
+      }
+
+      const outcome = this.settleDiscounts({
+        ...base,
+        coupon: applied,
+        autoPromotionMerchantFunded: autoDiscount,
+        freeDeliveryThreshold: effectiveThreshold,
+      });
+
+      const conflict = this.couponConflict(applied, outcome);
+      if (conflict) {
+        warnings.push({ code: conflict.code, message: conflict.message });
+        promotionApplied = false;
+      }
+      if (
+        applied &&
+        this.breaksMarginFloor(applied, outcome.platformNetRevenueBeforeOperatingCosts, outcome.estimatedGatewayFee)
+      ) {
+        warnings.push({
+          code: 'MARGIN_BELOW_FLOOR',
+          message: 'Esta campaña dejaría el pedido por debajo del margen mínimo permitido.',
+        });
+      }
+      const spend = applied ? couponService.budgetSpendOf(applied) : autoDiscount;
+      if (draftDoc && draftDoc.budgetLimit > 0 && spend > draftDoc.budgetLimit) {
+        warnings.push({
+          code: 'EXCEEDS_BUDGET',
+          message: 'Un solo pedido ya gastaría más que el presupuesto máximo de la promoción.',
+        });
+      }
+
+      scenarios.push({
+        productSubtotal,
+        promotionApplied,
+        freeDeliveryApplied: outcome.freeDeliveryDiscount > 0,
+        productDiscount: (applied?.productDiscount ?? 0) + autoDiscount,
+        payableSubtotal: outcome.payableSubtotal,
+        deliveryFee: delivery.customerFee,
+        deliveryPayable: outcome.payableDelivery,
+        serviceFee: outcome.payableServiceFee,
+        tax: outcome.taxPayable,
+        customerTotal: outcome.customerTotal,
+        customerSaving: baseline.customerTotal - outcome.customerTotal,
+        merchantFunded: outcome.merchantFundedDiscount,
+        platformFunded: outcome.platformFundedDiscount,
+        merchantCommission: outcome.merchantCommission,
+        merchantPayout: outcome.merchantPayout,
+        merchantPayoutWithoutPromotion: baseline.merchantPayout,
+        driverPayout: delivery.driverPayout,
+        platformGrossRevenue: outcome.platformGrossRevenue,
+        platformNet: outcome.platformNetRevenueBeforeOperatingCosts,
+        estimatedGatewayFee: outcome.estimatedGatewayFee,
+        platformNetAfterGateway:
+          outcome.platformNetRevenueBeforeOperatingCosts - outcome.estimatedGatewayFee,
+        warnings,
+      });
+    }
+
+    return { valid: true, errors: [], assumptions, scenarios };
+  }
+
+  /**
    * El cupón que más ahorraría en este carrito.
    *
    * Es la pieza que quita de en medio el paso de memorizar un código: la
@@ -955,29 +1378,31 @@ export class PricingService {
    * simplemente uno que no era, y el siguiente de la lista sigue teniendo
    * su oportunidad.
    */
-  private async suggestCoupon(parts: {
-    userId: string;
-    businessId: string;
-    city?: string;
-    productSubtotal: number;
-    /** Ya neto de promociones automáticas — constante frente a cualquier cupón candidato. */
-    autoPromotionMerchantFunded: number;
-    deliveryCustomerFee: number;
-    deliveryMargin: number;
-    customerServiceFee: number;
-    zoneId: string | null;
-    freeDeliveryThreshold: number;
-    appliedCommissionBps: number;
-    cfg: IPlatformPricingConfig;
-    pro: ProBenefitsSnapshot | null;
-  }): Promise<SuggestedCoupon | null> {
+  private async suggestCoupon(
+    parts: SettleBase & {
+      userId: string;
+      businessId: string;
+      city?: string;
+      /**
+       * Subtotal NETO de promociones automáticas: la base sobre la que se
+       * calculan los cupones candidatos. `productSubtotal` (heredado de
+       * `SettleBase`) es el bruto, que es el que necesita el reparto.
+       */
+      netProductSubtotal: number;
+      /** Constante frente a cualquier cupón candidato. */
+      autoPromotionMerchantFunded: number;
+      zoneId: string | null;
+      /** Ya resuelto por `quote()`: 0 si el comercio no puede pagar el envío gratis. */
+      freeDeliveryThreshold: number;
+    }
+  ): Promise<SuggestedCoupon | null> {
     const { cfg } = parts;
 
     const ctx = {
       userId: parts.userId,
       businessId: parts.businessId,
       city: parts.city,
-      subtotal: parts.productSubtotal,
+      subtotal: parts.netProductSubtotal,
       deliveryFee: parts.deliveryCustomerFee,
       serviceFee: parts.customerServiceFee,
       zoneId: parts.zoneId,
@@ -990,43 +1415,27 @@ export class PricingService {
       parts.businessId
     );
 
+    // El mismo reparto con el que se cobra (`quote()` pasa exactamente los
+    // mismos `parts`), incluido el trato de Zipp Pro y la propina: sin eso,
+    // el sugeridor juzgaría un pedido que no es el que se va a hacer.
     const settle = (coupon: AppliedCoupon | null) =>
       this.settleDiscounts({
+        ...parts,
         coupon,
-        // `parts.productSubtotal` viene neto de la promoción (base de los
-        // cupones candidatos); el reparto necesita el bruto, igual que
-        // `quote()`, o la comisión y el umbral de envío gratis restarían
-        // la promoción dos veces.
-        productSubtotal: parts.productSubtotal + parts.autoPromotionMerchantFunded,
         autoPromotionMerchantFunded: parts.autoPromotionMerchantFunded,
-        deliveryCustomerFee: parts.deliveryCustomerFee,
-        deliveryMargin: parts.deliveryMargin,
-        customerServiceFee: parts.customerServiceFee,
         freeDeliveryThreshold: parts.freeDeliveryThreshold,
-        appliedCommissionBps: parts.appliedCommissionBps,
-        cfg,
-        // El mismo trato que va a aplicarse al cobrar: sin él, el sugeridor
-        // juzgaría el margen de un pedido que no es el que se va a hacer.
-        pro: parts.pro,
       });
 
     // Lo que paga el cliente antes de impuestos y propina —que no dependen
     // del cupón salvo por el redondeo—, con la misma composición que `quote`.
-    const payableBeforeTax = (
-      applied: AppliedCoupon | null,
-      outcome: ReturnType<typeof settle>
-    ) =>
-      parts.productSubtotal - (applied?.productDiscount ?? 0) +
-      outcome.payableDelivery +
-      parts.customerServiceFee - (applied?.serviceFeeDiscount ?? 0) -
-      outcome.proServiceFeeDiscount;
+    const payableBeforeTax = (outcome: SettledDiscounts) =>
+      outcome.payableSubtotal + outcome.payableDelivery + outcome.payableServiceFee;
 
-    const baseline = payableBeforeTax(null, settle(null));
-    const savingOf = (applied: AppliedCoupon) =>
-      baseline - payableBeforeTax(applied, settle(applied));
+    const baseline = payableBeforeTax(settle(null));
+    const savingOf = (applied: AppliedCoupon) => baseline - payableBeforeTax(settle(applied));
 
     const ranked = candidates
-      .filter((coupon) => parts.productSubtotal >= coupon.minOrderAmount)
+      .filter((coupon) => parts.netProductSubtotal >= coupon.minOrderAmount)
       .map((coupon) => {
         const computed = couponService.computeDiscount(coupon, ctx, cfg);
         return { coupon, saving: computed.totalDiscount > 0 ? savingOf(computed) : 0 };
@@ -1046,13 +1455,21 @@ export class PricingService {
 
       const outcome = settle(applied);
 
-      // Nunca se ofrece lo que después se va a rechazar: el mismo suelo de
-      // margen que aplica la cotización decide aquí, con la misma función.
-      if (this.breaksMarginFloor(applied, outcome.platformNetRevenueBeforeOperatingCosts)) {
+      // Nunca se ofrece lo que después se va a rechazar: la misma función
+      // que decide el 422 de la cotización decide aquí, y el mismo suelo de
+      // margen (con la comisión de la pasarela ya restada) también.
+      if (this.couponConflict(applied, outcome)) return null;
+      if (
+        this.breaksMarginFloor(
+          applied,
+          outcome.platformNetRevenueBeforeOperatingCosts,
+          outcome.estimatedGatewayFee
+        )
+      ) {
         return null;
       }
 
-      const saving = baseline - payableBeforeTax(applied, outcome);
+      const saving = baseline - payableBeforeTax(outcome);
       return saving > 0 ? { applied, saving } : null;
     };
 
@@ -1088,50 +1505,35 @@ export class PricingService {
    * Qué queda de la promoción una vez repartida.
    *
    * Vivía suelto dentro de `quote()`. Se sacó para que el sugeridor de
-   * cupones pueda preguntar "¿y si aplicara este?" con exactamente la misma
-   * aritmética con la que después se va a cobrar: si fueran dos copias, el
-   * día que una cambiara la app ofrecería un ahorro que el cobro no da, que
-   * es la clase de diferencia que nadie ve hasta que un cliente la reclama.
+   * cupones —y la previsualización del comercio— puedan preguntar "¿y si
+   * aplicara este?" con exactamente la misma aritmética con la que después
+   * se va a cobrar: si fueran dos copias, el día que una cambiara la app
+   * ofrecería un ahorro que el cobro no da, que es la clase de diferencia
+   * que nadie ve hasta que un cliente la reclama.
    *
    * Es pura: no toca la base ni lanza. Decidir si el resultado es aceptable
-   * es trabajo de `breaksMarginFloor`.
+   * es trabajo de `couponConflict` y `breaksMarginFloor`.
    */
-  private settleDiscounts(parts: {
-    coupon: AppliedCoupon | null;
-    productSubtotal: number;
-    /**
-     * Lo que descontó una promoción automática por producto, ya resuelto
-     * por `applyAutoPromotions`. Siempre financiado por el comercio: el
-     * modelo `Coupon` obliga a que `autoApply` sea `scope: PRODUCT` y
-     * excluye por eso mismo `fundedBy: PLATFORM` para este modo.
-     */
-    autoPromotionMerchantFunded: number;
-    deliveryCustomerFee: number;
-    deliveryMargin: number;
-    customerServiceFee: number;
-    freeDeliveryThreshold: number;
-    appliedCommissionBps: number;
-    cfg: IPlatformPricingConfig;
-    /** El trato de Zipp Pro, si esta persona lo tiene pagado hoy. */
-    pro: ProBenefitsSnapshot | null;
-  }): {
-    freeDeliveryDiscount: number;
-    payableDelivery: number;
-    /** Lo que Zipp Pro le quitó al envío. Sale del bolsillo de ZIPP. */
-    proDeliveryDiscount: number;
-    /** Lo que Zipp Pro le quitó a la tarifa de servicio. Íd. */
-    proServiceFeeDiscount: number;
-    merchantFundedDiscount: number;
-    merchantCommission: number;
-    platformFundedDiscount: number;
-    platformGrossRevenue: number;
-    platformNetRevenueBeforeOperatingCosts: number;
-  } {
+  settleDiscounts(parts: SettleParts): SettledDiscounts {
     const { coupon, productSubtotal, cfg } = parts;
 
     const couponMerchantFunded = coupon?.merchantFunded ?? 0;
     const couponPlatformFunded = coupon?.platformFunded ?? 0;
+    const couponServiceFeeDiscount = coupon?.serviceFeeDiscount ?? 0;
     const deliveryAfterCoupon = parts.deliveryCustomerFee - (coupon?.deliveryDiscount ?? 0);
+
+    // ── Lo que el cliente paga por los productos ──
+    //
+    // Es la base de cualquier umbral por compra: el envío gratis del comercio
+    // y el mínimo de Zipp Pro se miden sobre lo que de verdad sale del bolsillo
+    // del cliente por los productos, después de los descuentos que los
+    // afectan —cupón de producto y promociones automáticas—. Con $30.000 de
+    // umbral, una promoción que deja los productos en $20.000 no alcanza,
+    // aunque la carta sumara más. El domicilio, la tarifa de servicio y sus
+    // descuentos no entran: medir el umbral con ellos sería premiar al cliente
+    // por lo que paga de envío.
+    const payableSubtotal =
+      productSubtotal - (coupon?.productDiscount ?? 0) - parts.autoPromotionMerchantFunded;
 
     // ── Envío gratis por compra mínima ──
     //
@@ -1144,9 +1546,10 @@ export class PricingService {
     //
     // Se aplica sobre lo que quede del envío tras el cupón, nunca sobre el
     // importe original: si el cliente ya trae un cupón de envío gratis, el
-    // negocio no tiene por qué pagar dos veces lo mismo.
+    // negocio no tiene por qué pagar dos veces lo mismo. (Esa combinación ya
+    // ni siquiera llega a cobrarse: `couponConflict` la rechaza antes.)
     const qualifiesForFreeDelivery =
-      parts.freeDeliveryThreshold > 0 && productSubtotal >= parts.freeDeliveryThreshold;
+      parts.freeDeliveryThreshold > 0 && payableSubtotal >= parts.freeDeliveryThreshold;
 
     const freeDeliveryDiscount = qualifiesForFreeDelivery
       ? Math.max(0, deliveryAfterCoupon)
@@ -1170,13 +1573,12 @@ export class PricingService {
     // encima. El domiciliario cobra lo mismo en los dos casos —su parte
     // nunca se toca—, y por eso esto reduce margen y no salario.
     const deliveryAfterFree = deliveryAfterCoupon - freeDeliveryDiscount;
-    const proDeliveryDiscount =
-      parts.pro?.freeDelivery && productSubtotal >= parts.pro.freeDeliveryMinSubtotal
-        ? Math.max(0, deliveryAfterFree)
-        : 0;
+    const qualifiesForPro =
+      !!parts.pro?.freeDelivery && payableSubtotal >= parts.pro.freeDeliveryMinSubtotal;
+    const proDeliveryDiscount = qualifiesForPro ? Math.max(0, deliveryAfterFree) : 0;
 
     const proServiceFeeDiscount = parts.pro?.serviceFeeWaived
-      ? Math.max(0, parts.customerServiceFee - (coupon?.serviceFeeDiscount ?? 0))
+      ? Math.max(0, parts.customerServiceFee - couponServiceFeeDiscount)
       : 0;
 
     const platformFundedDiscount =
@@ -1205,9 +1607,26 @@ export class PricingService {
     const platformGrossRevenue =
       merchantCommission + parts.customerServiceFee + parts.deliveryMargin;
 
+    const payableDelivery = deliveryAfterFree - proDeliveryDiscount;
+    const payableServiceFee = parts.customerServiceFee - couponServiceFeeDiscount - proServiceFeeDiscount;
+
+    // ── Tax and total ──
+    const taxPayable = applyBps(
+      payableSubtotal + payableDelivery + payableServiceFee,
+      cfg.taxBps
+    );
+    const customerTotal =
+      payableSubtotal + payableDelivery + payableServiceFee + taxPayable + parts.tip;
+
+    // ── Lo que le queda al comercio ──
+    // Sin `Math.max(0, …)`: recortar a cero escondería una combinación de
+    // descuentos que el comercio no puede pagar y rompería la identidad de
+    // `assertBalanced` en silencio.
+    const merchantPayout = productSubtotal - merchantFundedDiscount - merchantCommission;
+
     return {
       freeDeliveryDiscount,
-      payableDelivery: deliveryAfterFree - proDeliveryDiscount,
+      payableDelivery,
       proDeliveryDiscount,
       proServiceFeeDiscount,
       merchantFundedDiscount,
@@ -1215,7 +1634,127 @@ export class PricingService {
       platformFundedDiscount,
       platformGrossRevenue,
       platformNetRevenueBeforeOperatingCosts: platformGrossRevenue - platformFundedDiscount,
+      payableSubtotal,
+      payableServiceFee,
+      taxPayable,
+      customerTotal,
+      merchantPayout,
+      deliveryAlreadyFree: qualifiesForFreeDelivery || qualifiesForPro,
+      estimatedGatewayFee: this.estimateGatewayCost(cfg, parts.isCash, customerTotal),
     };
+  }
+
+  /**
+   * Si el comercio puede pagar este total de promociones automáticas sin
+   * quedar con un pago negativo. Se mide sin el envío gratis a cuestas: el
+   * descuento del producto es la promoción que el comercio eligió, y el envío
+   * gratis se decide después con ella ya puesta
+   * (`affordableFreeDeliveryThreshold`).
+   */
+  canMerchantFundAutoPromotions(base: SettleBase, totalAutoDiscount: number): boolean {
+    return (
+      this.settleDiscounts({
+        ...base,
+        coupon: null,
+        autoPromotionMerchantFunded: totalAutoDiscount,
+        freeDeliveryThreshold: 0,
+      }).merchantPayout >= 0
+    );
+  }
+
+  /**
+   * El umbral de envío gratis que el comercio puede pagar en este pedido: el
+   * vigente, o 0 si regalarlo —junto con las promociones automáticas que ya
+   * aplican— lo dejaría con un pago negativo.
+   *
+   * El envío gratis es automático, así que no se rechaza nada: simplemente no
+   * se regala en ese pedido y el cliente paga su domicilio. No es apagar el
+   * envío gratis: solo cae en el pedido que el comercio no puede costear.
+   */
+  affordableFreeDeliveryThreshold(
+    base: SettleBase,
+    autoPromotionMerchantFunded: number,
+    threshold: number
+  ): number {
+    if (threshold <= 0) return 0;
+    const outcome = this.settleDiscounts({
+      ...base,
+      coupon: null,
+      autoPromotionMerchantFunded,
+      freeDeliveryThreshold: threshold,
+    });
+    return outcome.merchantPayout < 0 ? 0 : threshold;
+  }
+
+  /**
+   * Cuánto se llevaría la pasarela de este cobro, para medir el margen.
+   *
+   * Usa `estimateGatewayFee`, la misma función con la que el libro asienta el
+   * gasto al capturar el pago y con la que los informes estiman el resultado
+   * neto: una sola fórmula, las tarifas de la configuración vigente y su IVA.
+   *
+   *  · **Efectivo: 0.** No pasa por Wompi, así que no genera ese coste.
+   *  · **En línea, método desconocido.** La cotización se pide antes de saber
+   *    si el cliente pagará con tarjeta, PSE o Nequi, así que se toma la
+   *    tarifa más alta de las configuradas: la estimación conservadora, que
+   *    puede rechazar una campaña límite pero nunca aprobar una que pierda
+   *    dinero por culpa de la pasarela.
+   *  · **Sin tarifas configuradas: 0**, como en todos los informes. No se
+   *    inventa ninguna: el dueño las llena con su contrato.
+   *
+   * Es una estimación para decidir, no un asiento: el snapshot del pedido
+   * (`platformNetRevenueBeforeOperatingCosts`) sigue sin incluirla, porque el
+   * libro registra el coste real al capturar el pago y sumarlo en dos sitios
+   * lo contaría dos veces.
+   */
+  private estimateGatewayCost(
+    cfg: IPlatformPricingConfig,
+    isCash: boolean,
+    amount: number
+  ): number {
+    if (isCash || amount <= 0) return 0;
+    return Math.max(
+      ...(['CARD', 'PSE', 'NEQUI', 'OTHER'] as const).map((method) =>
+        estimateGatewayFee(cfg, method, amount)
+      )
+    );
+  }
+
+  /**
+   * Si un cupón no puede combinarse con el resto del pedido.
+   *
+   * Una sola función para la cotización (que responde 422) y para el
+   * sugeridor (que descarta el cupón): si cada uno tuviera su regla, el
+   * sugeridor acabaría ofreciendo cupones que el checkout rechaza.
+   */
+  couponConflict(
+    coupon: AppliedCoupon | null,
+    outcome: SettledDiscounts
+  ): CouponConflict | null {
+    if (!coupon) return null;
+
+    // Un cupón de domicilio sobre un pedido que ya sale con envío gratis (por
+    // el umbral del comercio o por Zipp Pro) no aporta nada y, de aceptarse,
+    // gastaría uno de sus usos —o presupuesto de plataforma— a cambio de
+    // cero. La liquidación del domiciliario no se toca: su parte es la misma.
+    if (coupon.deliveryDiscount > 0 && outcome.deliveryAlreadyFree) {
+      return {
+        code: 'DELIVERY_ALREADY_FREE',
+        message:
+          'Este pedido ya tiene envío gratis, así que este cupón no te daría ningún ahorro adicional.',
+      };
+    }
+
+    if (outcome.merchantPayout < 0) {
+      return {
+        code: 'COUPON_EXCEEDS_MERCHANT_PAYOUT',
+        message:
+          'Este cupón no se puede aplicar junto con las promociones de este pedido. ' +
+          'Prueba con otro cupón o quita el que escribiste.',
+      };
+    }
+
+    return null;
   }
 
   /**
@@ -1224,12 +1763,20 @@ export class PricingService {
    *
    * Un cupón del comercio nunca entra: lo paga él, así que no hay margen
    * nuestro que proteger.
+   *
+   * `gatewayFee` es la comisión estimada de Wompi del cobro (0 en efectivo):
+   * el margen que importa es el que queda después de pagarla, igual que el
+   * resultado neto que reporta la plataforma (`netAfterGatewayCosts`).
    */
-  private breaksMarginFloor(coupon: AppliedCoupon | null, netRevenue: number): boolean {
+  breaksMarginFloor(
+    coupon: AppliedCoupon | null,
+    netRevenue: number,
+    gatewayFee = 0
+  ): boolean {
     return (
       !!coupon &&
       coupon.fundedBy === CouponFundedBy.PLATFORM &&
-      netRevenue < coupon.minimumContributionMargin &&
+      netRevenue - gatewayFee < coupon.minimumContributionMargin &&
       !coupon.campaignApproved
     );
   }
@@ -1241,6 +1788,10 @@ export class PricingService {
    * to equal exactly what is owed out: merchant payout, driver payout,
    * platform revenue and tax. A mismatch means a rounding or routing bug,
    * and the only safe response is to refuse to price the order.
+   *
+   * Un pago negativo al comercio también se rechaza aquí, como última
+   * barrera: las guardas de `quote()` deberían haberlo evitado antes, y si
+   * aun así llega es mejor un 422 explicable que una liquidación negativa.
    */
   private assertBalanced(parts: {
     customerTotal: number;
@@ -1250,6 +1801,16 @@ export class PricingService {
     platformGrossRevenue: number;
     taxPayable: number;
   }): void {
+    if (parts.businessPayout < 0) {
+      console.error('[PRICING] Pago al comercio negativo', { ...parts });
+      throw new AppError(
+        'Las promociones de este pedido superan lo que el comercio puede asumir. ' +
+          'Quita un cupón o una promoción e inténtalo de nuevo.',
+        422,
+        'MERCHANT_PAYOUT_NEGATIVE'
+      );
+    }
+
     const inflow = parts.customerTotal + parts.platformFundedDiscount;
     const outflow =
       parts.businessPayout +

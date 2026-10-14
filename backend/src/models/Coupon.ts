@@ -296,6 +296,13 @@ export interface ICouponRedemption extends Document {
   userId: Types.ObjectId;
   orderId: Types.ObjectId;
   discountAmount: number;
+  /**
+   * Cuánto gastó este canje del presupuesto de la promoción (subsidio de
+   * plataforma o lo que paga el comercio, según quién la financie). Es lo que
+   * `release` devuelve, ni más ni menos. Ausente en los canjes anteriores a
+   * este campo: `release` sabe leerlos.
+   */
+  budgetConsumed?: number;
   createdAt: Date;
 }
 
@@ -305,6 +312,7 @@ const couponRedemptionSchema = new Schema<ICouponRedemption>(
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true },
     discountAmount: { type: Number, required: true, min: 0 },
+    budgetConsumed: { type: Number, min: 0 },
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 );

@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   RefreshCw, AlertCircle, ChevronRight, ArrowLeft, Store, Download,
@@ -392,12 +393,21 @@ export default function Settlements() {
           </h2>
 
           {focus.kind === 'settlement' && (
-            <button
-              onClick={() => setFocus({ kind: 'next' })}
-              className="text-[11px] font-semibold text-[var(--color-primary)] hover:underline cursor-pointer flex items-center gap-1 shrink-0"
-            >
-              <ArrowLeft className="w-3 h-3" /> Volver a la próxima
-            </button>
+            <div className="flex shrink-0 items-center gap-4">
+              {/* El caso nace atado a esta liquidación: Soporte no tiene que preguntar de cuál hablas. */}
+              <Link
+                to={`/support?reason=settlement_difference&settlement=${encodeURIComponent(focus.batch._id)}`}
+                className="text-[11px] font-semibold text-[var(--color-primary)] hover:underline"
+              >
+                Reportar una diferencia
+              </Link>
+              <button
+                onClick={() => setFocus({ kind: 'next' })}
+                className="text-[11px] font-semibold text-[var(--color-primary)] hover:underline cursor-pointer flex items-center gap-1 shrink-0"
+              >
+                <ArrowLeft className="w-3 h-3" /> Volver a la próxima
+              </button>
+            </div>
           )}
         </div>
 

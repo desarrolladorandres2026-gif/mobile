@@ -4,10 +4,12 @@ import { X, AlertCircle } from 'lucide-react';
 import ProductMultiSelect from './ProductMultiSelect';
 import DateRangeField from './DateRangeField';
 import NumericInput from './NumericInput';
+import ScheduleFields from './ScheduleFields';
+import PromotionSimulation from './PromotionSimulation';
 import { money } from '../lib/orderFlow';
 import {
-  discountLabel, maxCost,
-  type AutoForm, type CodeForm, type Coupon,
+  discountLabel, maxCost, previewDraft,
+  type AutoForm, type CodeForm,
 } from '../lib/promotions';
 
 /**
@@ -19,10 +21,16 @@ import {
  * `fixed` dentro de un ancestro transformado se ancla a ese ancestro y no
  * a la ventana.
  *
- * Al final del formulario hay una vista previa en texto —lo que verá el
- * cliente y lo máximo que puede costarte— que se recalcula con cada tecla.
- * Es la pieza que faltaba: antes el comercio creaba la promoción a ciegas y
- * el costo aparecía en la liquidación.
+ * Al lado del formulario hay dos cosas distintas. Arriba, cómo lo leerá el
+ * cliente. Debajo, una simulación con las reglas reales del servidor (el mismo
+ * motor que cobra los pedidos): cuánto paga el cliente, cuánto financias tú y
+ * cuánto te queda, con avisos cuando la combinación no se podría pagar. Nada
+ * de eso crea o consume nada.
+ *
+ * Solo se ofrece lo que el servidor acepta. Un cupón de envío gratis no es de
+ * un comercio (su envío gratis se configura en el perfil), el tope de un
+ * descuento solo existe en un porcentaje, y «primer pedido» fija un uso por
+ * cliente: mostrar lo contrario sería prometer algo que el backend rechaza.
  */
 
 export const inputClass =
@@ -75,11 +83,90 @@ export default function PromotionPanel({
     type: form.type,
     value: form.value,
     budgetLimit: form.budgetLimit,
-    usageLimit: isCode ? codeForm.usageLimit : 0,
+    usageLimit: form.usageLimit,
+    maxDiscountAmount: form.maxDiscountAmount,
   });
   const previewValue = discountLabel(form.type, form.value);
   const minOrder = isCode ? codeForm.minOrderAmount : 0;
   const until = form.validUntil ? dateEs(form.validUntil) : null;
+
+  // Lo mínimo para que el servidor pueda simular algo con sentido.
+  const simulationReady = form.value > 0 && !!form.validUntil;
+
+  const patchCode = (patch: Partial<CodeForm>) => onCodeChange({ ...codeForm, ...patch });
+  const patchAuto = (patch: Partial<AutoForm>) => onAutoChange({ ...autoForm, ...patch });
+
+  /** Los mismos controles para las dos formas: topes, primer pedido y horario. */
+  const sharedFields = (value: CodeForm | AutoForm, patch: (p: Partial<CodeForm & AutoForm>) => void) => (
+    <>
+      <DateRangeField
+        from={value.validFrom}
+        to={value.validUntil}
+        onChangeFrom={(v) => patch({ validFrom: v })}
+        onChangeTo={(v) => patch({ validUntil: v })}
+        fromLabel="Empieza"
+        toLabel="Termina"
+      />
+
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-[var(--color-text-main)]">
+          Días y horario <span className="font-normal text-[var(--color-text-secondary)]">(opcional)</span>
+        </p>
+        <ScheduleFields
+          value={value}
+          onChange={(next) => patch(next)}
+        />
+      </div>
+
+      <label className="flex items-start gap-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={value.firstOrderOnly}
+          onChange={(e) => patch({ firstOrderOnly: e.target.checked })}
+          className="accent-[var(--color-primary)] cursor-pointer mt-0.5"
+        />
+        <span className="space-y-0.5">
+          <span className="block text-xs font-semibold text-[var(--color-text-main)]">Solo para el primer pedido</span>
+          <span className="block text-xs text-[var(--color-text-secondary)]">
+            Se le da a quien nunca ha hecho un pedido en Zipp (los cancelados no cuentan) y solo una vez.
+            {!isCode && ' Al ser automática, no aparece en tu carta: se aplica al pagar.'}
+          </span>
+        </span>
+      </label>
+
+      <div className="border-t border-[var(--color-border)] pt-5 space-y-4">
+        <h3 className="text-xs font-semibold text-[var(--color-text-secondary)]">Topes</h3>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <Field
+            label="Presupuesto máximo"
+            hint="Lo máximo que sale de tu liquidación. Cuando el siguiente pedido ya no cabe, la promoción deja de aplicarse. Cero: sin tope."
+          >
+            <NumericInput
+              value={value.budgetLimit}
+              onValueChange={(d) => patch({ budgetLimit: Number(d) })}
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Usos totales" hint="Cero: ilimitado">
+            <NumericInput
+              value={value.usageLimit}
+              onValueChange={(d) => patch({ usageLimit: Number(d) })}
+              className={inputClass}
+            />
+          </Field>
+          {isCode && !value.firstOrderOnly && (
+            <Field label="Usos por cliente" hint="Cero: ilimitado">
+              <NumericInput
+                value={codeForm.perUserLimit}
+                onValueChange={(d) => patchCode({ perUserLimit: Number(d) })}
+                className={inputClass}
+              />
+            </Field>
+          )}
+        </div>
+      </div>
+    </>
+  );
 
   return createPortal(
     <div
@@ -136,7 +223,7 @@ export default function PromotionPanel({
                 <Field label="Código" hint="Lo que el cliente escribe">
                   <input
                     value={codeForm.code}
-                    onChange={(e) => onCodeChange({ ...codeForm, code: e.target.value.toUpperCase() })}
+                    onChange={(e) => patchCode({ code: e.target.value.toUpperCase() })}
                     maxLength={20}
                     placeholder="MARTES20"
                     disabled={editing}
@@ -146,7 +233,7 @@ export default function PromotionPanel({
                 <Field label="Título" hint="Lo que ve en la lista">
                   <input
                     value={codeForm.title}
-                    onChange={(e) => onCodeChange({ ...codeForm, title: e.target.value })}
+                    onChange={(e) => patchCode({ title: e.target.value })}
                     maxLength={80}
                     placeholder="20% los martes"
                     className={inputClass}
@@ -155,20 +242,29 @@ export default function PromotionPanel({
                 <Field label="Tipo">
                   <select
                     value={codeForm.type}
-                    onChange={(e) => onCodeChange({ ...codeForm, type: e.target.value as Coupon['type'] })}
+                    onChange={(e) => patchCode({ type: e.target.value as CodeForm['type'] })}
                     disabled={editing}
                     className={inputClass}
                   >
                     <option value="percentage">Porcentaje</option>
                     <option value="fixed">Monto fijo</option>
-                    <option value="free_delivery">Envío gratis</option>
                   </select>
                 </Field>
-                {codeForm.type !== 'free_delivery' && (
-                  <Field label={codeForm.type === 'percentage' ? 'Porcentaje' : 'Monto'} hint={codeForm.type === 'percentage' ? 'Entre 1 y 100' : 'En pesos'}>
+                <Field
+                  label={codeForm.type === 'percentage' ? 'Porcentaje' : 'Monto'}
+                  hint={codeForm.type === 'percentage' ? 'Entre 1 y 90' : 'En pesos'}
+                >
+                  <NumericInput
+                    value={codeForm.value}
+                    onValueChange={(d) => patchCode({ value: Number(d) })}
+                    className={inputClass}
+                  />
+                </Field>
+                {codeForm.type === 'percentage' && (
+                  <Field label="Tope del descuento" hint="En pesos. Cero: sin tope">
                     <NumericInput
-                      value={codeForm.value}
-                      onValueChange={(d) => onCodeChange({ ...codeForm, value: Number(d) })}
+                      value={codeForm.maxDiscountAmount}
+                      onValueChange={(d) => patchCode({ maxDiscountAmount: Number(d) })}
                       className={inputClass}
                     />
                   </Field>
@@ -176,52 +272,20 @@ export default function PromotionPanel({
                 <Field label="Pedido mínimo" hint="Cero: sin mínimo">
                   <NumericInput
                     value={codeForm.minOrderAmount}
-                    onValueChange={(d) => onCodeChange({ ...codeForm, minOrderAmount: Number(d) })}
-                    className={inputClass}
-                  />
-                </Field>
-                <Field label="Válida hasta">
-                  <input
-                    type="date"
-                    value={codeForm.validUntil}
-                    onChange={(e) => onCodeChange({ ...codeForm, validUntil: e.target.value })}
+                    onValueChange={(d) => patchCode({ minOrderAmount: Number(d) })}
                     className={inputClass}
                   />
                 </Field>
               </div>
 
-              <div className="border-t border-[var(--color-border)] pt-5 space-y-4">
-                <h3 className="text-xs font-semibold text-[var(--color-text-secondary)]">Topes</h3>
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  <Field label="Presupuesto máximo" hint="Cero: sin tope">
-                    <NumericInput
-                      value={codeForm.budgetLimit}
-                      onValueChange={(d) => onCodeChange({ ...codeForm, budgetLimit: Number(d) })}
-                      className={inputClass}
-                    />
-                  </Field>
-                  <Field label="Usos totales" hint="Cero: ilimitado">
-                    <NumericInput
-                      value={codeForm.usageLimit}
-                      onValueChange={(d) => onCodeChange({ ...codeForm, usageLimit: Number(d) })}
-                      className={inputClass}
-                    />
-                  </Field>
-                </div>
-                {codeForm.budgetLimit > 0 && codeForm.usageLimit === 0 && (
-                  <p className="text-xs font-semibold text-[var(--color-warning)]">
-                    El presupuesto máximo solo frena de verdad si además pones un tope de usos: es el
-                    que sí controla cuántas veces se cobra sin código.
-                  </p>
-                )}
-              </div>
+              {sharedFields(codeForm, (p) => patchCode(p))}
             </div>
           ) : (
             <div className="space-y-5">
               <Field label="Título" hint="Lo que verás en tu lista de promociones">
                 <input
                   value={autoForm.title}
-                  onChange={(e) => onAutoChange({ ...autoForm, title: e.target.value })}
+                  onChange={(e) => patchAuto({ title: e.target.value })}
                   maxLength={80}
                   placeholder="20% en hamburguesas"
                   className={inputClass}
@@ -231,17 +295,18 @@ export default function PromotionPanel({
                 <Field label="Tipo">
                   <select
                     value={autoForm.type}
-                    onChange={(e) => onAutoChange({ ...autoForm, type: e.target.value as 'percentage' | 'fixed' })}
+                    onChange={(e) => patchAuto({ type: e.target.value as AutoForm['type'] })}
+                    disabled={editing}
                     className={inputClass}
                   >
                     <option value="percentage">Porcentaje</option>
                     <option value="fixed">Monto fijo</option>
                   </select>
                 </Field>
-                <Field label={autoForm.type === 'percentage' ? 'Porcentaje' : 'Monto'}>
+                <Field label={autoForm.type === 'percentage' ? 'Porcentaje' : 'Monto'} hint={autoForm.type === 'percentage' ? 'Entre 1 y 90' : 'En pesos'}>
                   <NumericInput
                     value={autoForm.value}
-                    onValueChange={(d) => onAutoChange({ ...autoForm, value: Number(d) })}
+                    onValueChange={(d) => patchAuto({ value: Number(d) })}
                     className={inputClass}
                   />
                 </Field>
@@ -249,32 +314,20 @@ export default function PromotionPanel({
                   <Field label="Tope del descuento" hint="En pesos. Cero: sin tope">
                     <NumericInput
                       value={autoForm.maxDiscountAmount}
-                      onValueChange={(d) => onAutoChange({ ...autoForm, maxDiscountAmount: Number(d) })}
+                      onValueChange={(d) => patchAuto({ maxDiscountAmount: Number(d) })}
                       className={inputClass}
                     />
                   </Field>
                 )}
-                <Field label="Presupuesto máximo" hint="Cero: sin tope">
-                  <NumericInput
-                    value={autoForm.budgetLimit}
-                    onValueChange={(d) => onAutoChange({ ...autoForm, budgetLimit: Number(d) })}
-                    className={inputClass}
-                  />
-                </Field>
               </div>
 
-              <DateRangeField
-                from={autoForm.validFrom}
-                to={autoForm.validUntil}
-                onChangeFrom={(v) => onAutoChange({ ...autoForm, validFrom: v })}
-                onChangeTo={(v) => onAutoChange({ ...autoForm, validUntil: v })}
-              />
+              {sharedFields(autoForm, (p) => patchAuto(p))}
 
               <Field label="Productos en promoción" hint="Un producto solo puede estar en una promoción automática a la vez">
                 <ProductMultiSelect
                   businessId={businessId}
                   selected={autoForm.productIds}
-                  onChange={(ids) => onAutoChange({ ...autoForm, productIds: ids })}
+                  onChange={(ids) => patchAuto({ productIds: ids })}
                   coveredByOther={coveredByOther}
                 />
               </Field>
@@ -284,7 +337,6 @@ export default function PromotionPanel({
         </div>
 
         <aside className="xl:sticky xl:top-0 xl:self-start xl:border-l xl:border-[var(--color-border)] xl:pl-10">
-          {/* ── Vista previa ── */}
           <div className="space-y-6">
             <div className="space-y-1.5">
               <h3 className="text-xs font-semibold text-[var(--color-text-secondary)]">
@@ -296,6 +348,7 @@ export default function PromotionPanel({
                 {[
                   isCode ? (codeForm.code.trim() ? `Código ${codeForm.code.trim()}` : 'Sin código todavía') : `${autoForm.productIds.length} producto(s), se aplica sola`,
                   minOrder > 0 ? `Pedido mínimo ${money(minOrder)}` : null,
+                  form.firstOrderOnly ? 'Solo primer pedido' : null,
                   until ? `Hasta el ${until}` : 'Sin fecha de fin todavía',
                 ].filter(Boolean).join(' · ')}
               </p>
@@ -303,7 +356,7 @@ export default function PromotionPanel({
 
             <div className="space-y-1">
               <h3 className="text-xs font-semibold text-[var(--color-text-secondary)]">
-                Lo que te puede costar
+                Lo máximo que te puede costar
               </h3>
               {cost !== null ? (
                 <p className="text-sm font-semibold tabular text-[var(--color-text-main)]">
@@ -312,10 +365,16 @@ export default function PromotionPanel({
               ) : (
                 <p className="text-xs font-semibold text-[var(--color-warning)]">
                   Sin techo: el costo crece con cada pedido que la use. Pon un presupuesto
-                  {isCode ? ' o un tope de usos' : ''} para acotarlo.
+                  {form.type === 'fixed' || form.maxDiscountAmount > 0 ? ' o un tope de usos' : ' o un tope del descuento y de usos'} para acotarlo.
                 </p>
               )}
             </div>
+
+            <PromotionSimulation
+              businessId={businessId}
+              draft={previewDraft(form, !isCode)}
+              ready={simulationReady}
+            />
           </div>
         </aside>
       </div>

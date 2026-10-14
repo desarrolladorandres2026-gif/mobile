@@ -10,6 +10,17 @@ import { AuditAction, AuditSeverity, Permission, logAudit } from '../security';
 import { hashForSearch } from '../security/encryption';
 import { businessDocumentBody } from '../validators/business.validator';
 
+/** Campos del negocio que cambian cuánto cobra o cuánto regala. */
+const FINANCIAL_BUSINESS_FIELDS = [
+  'freeDeliveryThreshold',
+  'freeDeliveryValidFrom',
+  'freeDeliveryValidUntil',
+  'freeDeliveryValidDays',
+  'freeDeliveryValidFromTime',
+  'freeDeliveryValidUntilTime',
+  'minOrder',
+];
+
 export class BusinessController {
   /**
    * Descarga las ventas del comercio en CSV.
@@ -708,7 +719,35 @@ export class BusinessController {
       // mostrador cambiaba `freeDeliveryThreshold`, `minOrder` o la
       // dirección. `assertBusinessPermission` aplica el tope de la sesión.
       await this.assertBusinessPermission(req, param(req, 'id'), 'BUSINESS_EDIT', 'Sin permisos para modificar la información del negocio.');
+
+      // Lo que mueve plata del comercio (envío gratis, pedido mínimo) deja
+      // rastro con el antes y el después: sin él, una liquidación que baja
+      // porque alguien regaló domicilios no tiene explicación.
+      const financial = (Object.keys(req.body) as string[]).filter((key) => FINANCIAL_BUSINESS_FIELDS.includes(key));
+      const before = financial.length
+        ? await Business.findById(param(req, 'id')).select(financial.join(' ')).lean()
+        : null;
+
       const business = await businessService.update(param(req, 'id'), req.user!._id.toString(), req.body, isAdmin);
+
+      if (before) {
+        const after = business.toObject() as unknown as Record<string, unknown>;
+        const changes: Record<string, { before: unknown; after: unknown }> = {};
+        for (const key of financial) {
+          const was = (before as unknown as Record<string, unknown>)[key];
+          if (JSON.stringify(was) !== JSON.stringify(after[key])) changes[key] = { before: was, after: after[key] };
+        }
+        if (Object.keys(changes).length > 0) {
+          void logAudit(req, {
+            action: AuditAction.BUSINESS_UPDATED,
+            entity: 'business',
+            entityId: param(req, 'id'),
+            severity: AuditSeverity.MEDIUM,
+            description: 'Condiciones comerciales del negocio modificadas',
+            metadata: { changes },
+          });
+        }
+      }
       sendResponse(res, 200, 'Negocio actualizado', business);
     } catch (error) { next(error); }
   }

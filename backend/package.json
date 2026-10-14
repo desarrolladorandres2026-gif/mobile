@@ -44,6 +44,7 @@
     "migrate:business-panel-presence": "tsx src/migrations/024-business-panel-presence.ts",
     "migrate:business-roles-v2": "tsx src/migrations/025-business-roles-v2.ts",
     "migrate:business-roles-v3": "tsx src/migrations/026-business-roles-v3.ts",
+    "migrate:support-center": "tsx src/migrations/027-support-center.ts",
     "test": "vitest run",
     "test:load": "vitest run --config vitest.load.config.ts",
     "test:watch": "vitest",

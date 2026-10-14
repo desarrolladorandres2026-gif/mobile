@@ -180,6 +180,10 @@ export enum AuditAction {
   EXPLORE_LAYOUT_RESTORED = 'explore_layout_restored',
   DOCUMENT_REVIEWED = 'document_reviewed',
   PQRS_ANSWERED = 'pqrs_answered',
+  PQRS_CREATED = 'pqrs_created',
+  HELP_ARTICLE_CREATED = 'help_article_created',
+  HELP_ARTICLE_UPDATED = 'help_article_updated',
+  HELP_ARTICLE_DELETED = 'help_article_deleted',
   DATA_REQUEST_RESOLVED = 'data_request_resolved',
 
   // ── Panel admin, Fase 4: soporte y legal ──

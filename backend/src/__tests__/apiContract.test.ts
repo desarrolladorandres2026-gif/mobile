@@ -93,6 +93,14 @@ const ALLOWED_NEW_KEYS = new Set([
   // panel lo usa para ofrecer "Crear PIN" en Seguridad; la app móvil y un
   // panel viejo lo ignoran. El hash del PIN nunca sale (`toJSON` lo borra).
   'counterPinSetAt',
+
+  // ── Envío gratis y promociones del comercio, rastreables (2026-10-14) ──
+  // Aditivos y siempre enteros (0 sin la promoción). El importe ya está dentro
+  // de `merchantFundedDiscount` y de `total`: estos solo explican de dónde
+  // viene, para que el costo del envío gratis de un comercio no quede mezclado
+  // con sus cupones. Un cliente compilado que no los conozca ve lo de antes.
+  'freeDeliveryDiscount',
+  'autoPromotionDiscount',
 ]);
 
 type Shape = string | Shape[] | { [key: string]: Shape };

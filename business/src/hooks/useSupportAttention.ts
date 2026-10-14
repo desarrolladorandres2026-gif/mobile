@@ -21,7 +21,7 @@ export function useSupportAttention(businessId: string | undefined): number {
     queryKey: key,
     enabled: !!businessId,
     staleTime: 60_000,
-    queryFn: async () => (await api.get('/pqrs/my')).data.data as Array<{ status: string; responses?: Array<{ from?: 'staff' | 'requester' }> }>,
+    queryFn: async () => (await api.get('/pqrs/my', { params: { businessId } })).data.data as Array<{ status: string; responses?: Array<{ from?: 'staff' | 'requester' }> }>,
     select: (tickets) => tickets.filter(awaitingYou).length,
   });
 

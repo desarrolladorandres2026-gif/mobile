@@ -1,3 +1,5 @@
+import { featureFlagService } from './featureFlag.service';
+import { PRO_SALES_FLAG } from './pro.service';
 import { Types } from 'mongoose';
 import { User, ProSubscription, ProSubscriptionStatus, isProActive, Payment, Order, type IProSubscription } from '../models';
 import { FraudAlert, FraudAlertType } from '../security';
@@ -240,7 +242,18 @@ export class AdminGrowthService {
     const counts: Record<string, number> = {};
     for (const row of byStatus) counts[row._id as string] = row.count as number;
 
+    // ¿Se puede estrenar la suscripción? Lo decide un interruptor, no este
+    // archivo: mientras el tope de envíos gratis siga sin decidirse, el valor
+    // sano es «cerrada» (ver `PRO_SALES_FLAG`).
+    const salesFlag = (await featureFlagService.list()).find((f) => f.key === PRO_SALES_FLAG) ?? null;
+
     return {
+      sales: {
+        flag: PRO_SALES_FLAG,
+        open: !!salesFlag && salesFlag.audience !== 'off',
+        audience: salesFlag?.audience ?? 'off',
+        percentage: salesFlag?.percentage ?? 0,
+      },
       plan: {
         id: PRO_PLAN.id,
         name: PRO_PLAN.name,

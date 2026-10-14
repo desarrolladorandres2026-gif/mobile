@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import speakeasy from 'speakeasy';
 import request from 'supertest';
 import app from '../app';
-import { BusinessStaff, BusinessRole } from '../models';
+import { BusinessStaff, BusinessRole, User } from '../models';
 import { Session } from '../security/sessions';
 import { UserRole } from '../types';
 import { makeUser, makeBusiness, makePricingConfig, authHeader, counterAuthHeader } from './factories';
@@ -136,6 +136,7 @@ describe('Con 2FA', () => {
     expect(res.status).toBe(400);
     expect(code(res)).toBe('MFA_CHALLENGE_INVALID');
   });
+
 });
 
 describe('Equipo desde una entrada de mostrador', () => {
@@ -167,5 +168,22 @@ describe('Equipo desde una entrada de mostrador', () => {
 
   it('una sesión completa normal sigue invitando sin pedirla', async () => {
     expect((await invite(await authHeader(owner))).status).toBe(201);
+  });
+});
+
+describe('La contraseña es solo el arranque (2026-10-14)', () => {
+  it('con un PIN ya creado en el negocio, la contraseña se rechaza antes de mirarla', async () => {
+    await User.updateOne({ _id: owner._id }, { counterPinSetAt: new Date() });
+    const res = await elevatePassword(owner);
+    expect(res.status).toBe(403);
+    expect(code(res)).toBe('COUNTER_PASSWORD_DISABLED');
+    expect(await Session.countDocuments({ userId: owner._id.toString(), elevatedFrom: { $ne: null } })).toBe(0);
+  });
+
+  it('la contraseña equivocada tampoco gasta intentos del freno una vez cerrada', async () => {
+    await User.updateOne({ _id: owner._id }, { counterPinSetAt: new Date() });
+    const res = await elevatePassword(owner, 'No.Es.Esta999');
+    expect(res.status).toBe(403);
+    expect(code(res)).toBe('COUNTER_PASSWORD_DISABLED');
   });
 });

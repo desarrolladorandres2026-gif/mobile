@@ -77,6 +77,7 @@ export { SavedCard, ISavedCard, toPublicCard } from './SavedCard';
 export { LegalDocument, ILegalDocument, LegalDocumentKind, LegalAcceptance, ILegalAcceptance, DataRequest, IDataRequest } from './Legal';
 export { Pqrs, IPqrs } from './Pqrs';
 export { SupportMacro, ISupportMacro } from './SupportMacro';
+export { HelpArticle, IHelpArticle } from './HelpArticle';
 export { CampaignSend, ICampaignSend, CampaignSendStatus } from './CampaignSend';
 export {
   DriverDocument,

@@ -14,6 +14,7 @@ import Pagination from '../components/Pagination';
 import { apiFieldMessage, apiMessage } from '../lib/apiError';
 import type { CouponHistory } from '../lib/apiTypes';
 import NumericInput from '../components/NumericInput';
+import CouponSimulation from '../components/CouponSimulation';
 
 type CouponType = 'percentage' | 'fixed' | 'free_delivery';
 type FundedBy = 'platform' | 'business';
@@ -187,6 +188,7 @@ export default function Coupons() {
  const queryClient = useQueryClient();
  const [coupons, setCoupons] = useState<Coupon[]>([]);
  const [businesses, setBusinesses] = useState<{ _id: string; name: string }[]>([]);
+ const [simBusinessId, setSimBusinessId] = useState('');
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState('');
  // La búsqueda global lleva aquí con `?search=<código>`.
@@ -909,6 +911,23 @@ export default function Coupons() {
  </label>
  </div>
  </div>
+
+ {/* Simulación con las reglas reales */}
+ <CouponSimulation
+ draft={{
+ type: form.type, scope: form.scope, value: form.value, maxDiscount: form.maxDiscount,
+ maxDiscountAmount: form.maxDiscountAmount, minOrderAmount: form.minOrderAmount,
+ fundedBy: form.fundedBy, minimumContributionMargin: form.minimumContributionMargin,
+ firstOrderOnly: form.firstOrderOnly, budgetLimit: form.budgetLimit,
+ usageLimit: form.usageLimit, perUserLimit: form.perUserLimit,
+ validFrom: form.validFrom, validUntil: form.validUntil,
+ }}
+ businessId={simBusinessId || form.businessId}
+ businesses={businesses}
+ onBusinessChange={setSimBusinessId}
+ selectClass={inputClass + ' cursor-pointer'}
+ labelClass={labelClass}
+ />
 
  {/* Exposición máxima */}
  <div className={`text-xs font-semibold flex items-start gap-2.5 ${exposicion === null

@@ -19,6 +19,20 @@ import {
 } from '../config/pro';
 import { emitToUser } from '../sockets/emitter';
 import { paymentService, type ClientInstrument, type PaymentIntent } from './payments';
+import { isEnabled as isFlagEnabled } from './featureFlag.service';
+
+/**
+ * Interruptor que abre la VENTA de Zipp Pro.
+ *
+ * Apagado por defecto —un interruptor que nadie ha creado es un «no»—: el
+ * plan regala el domicilio y la tarifa de servicio con cargo a ZIPP y todavía
+ * no hay una decisión comercial sobre cuánto puede regalar cada socio (ver
+ * `config/pro.ts`). Hasta que finanzas apruebe el tope, nadie nuevo puede
+ * suscribirse; quien ya pagó conserva lo que pagó, y las renovaciones de
+ * socios existentes siguen su curso. Se enciende desde el panel de
+ * administración (Interruptores), sin redespliegue.
+ */
+export const PRO_SALES_FLAG = 'pro_subscriptions_open';
 
 /**
  * Zipp Pro: la membresía, de la venta al cobro mensual.
@@ -54,6 +68,8 @@ export interface ProStatusView {
   autoRenew: boolean;
   /** Con qué tarjeta se renueva, para poder enseñarla y cambiarla. */
   card: { brand: string; lastFour: string } | null;
+  /** Si hoy se puede estrenar la suscripción (ver `PRO_SALES_FLAG`). */
+  open: boolean;
 }
 
 export interface SubscribeInput {
@@ -74,6 +90,11 @@ export interface SubscribeInput {
 export class ProService {
   plan(): ProPlan {
     return PRO_PLAN;
+  }
+
+  /** Si la venta de la membresía está abierta para esta persona. */
+  async salesOpen(userId: string): Promise<boolean> {
+    return isFlagEnabled(PRO_SALES_FLAG, { userId, role: 'client' });
   }
 
   /** La suscripción de esta persona, exista o no. */
@@ -99,6 +120,7 @@ export class ProService {
       currentPeriodEnd: sub?.currentPeriodEnd ?? null,
       autoRenew: sub?.autoRenew ?? false,
       card,
+      open: await this.salesOpen(userId),
     };
   }
 
@@ -133,6 +155,16 @@ export class ProService {
     paymentId: string;
     reference: string;
   }> {
+    // Antes de tocar nada: ni suscripción pendiente ni cobro en Wompi si la
+    // venta está cerrada.
+    if (!(await this.salesOpen(input.userId))) {
+      throw new AppError(
+        'Zipp Pro todavía no está disponible. Te avisaremos cuando abra.',
+        403,
+        'PRO_NOT_OPEN'
+      );
+    }
+
     const user = await User.findById(input.userId);
     if (!user) throw new AppError('Usuario no encontrado', 404);
 

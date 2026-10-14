@@ -15,10 +15,11 @@ import {
  * Botón de la esquina inferior derecha (decisión 2026-10-13).
  *
  * En el mostrador abre la entrada del administrador o del representante
- * legal: se elige la persona y se escribe su PIN. Quien aún no tiene PIN
- * entra con su contraseña (y su 2FA) para poder crearlo: sin esa salida, un
- * dueño recién llegado quedaría encerrado en el mostrador, porque crear el
- * PIN exige una sesión completa.
+ * legal: se elige la persona y se escribe su PIN. La contraseña (y su 2FA)
+ * es solo el arranque (2026-10-14): se ofrece únicamente mientras nadie del
+ * negocio tenga PIN, para que el primero pueda crearlo — crear el PIN exige
+ * una sesión completa y el login del panel siempre abre el mostrador. Con un
+ * PIN creado el backend la rechaza (`COUNTER_PASSWORD_DISABLED`).
  *
  * Ya dentro como responsable, el mismo sitio dice "Volver al mostrador".
  * Tras 15 min sin tocar teclado ni puntero se vuelve solo: el equipo es
@@ -39,10 +40,10 @@ interface SessionPayload {
 
 const fieldClass =
   'w-full h-11 bg-transparent border-0 border-b border-[var(--color-border-strong)] px-0 text-sm text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none transition-colors';
-const primaryClass =
-  'w-full h-10 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] disabled:opacity-50 disabled:cursor-wait cursor-pointer flex items-center justify-center gap-2';
 const linkClass =
   'text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] cursor-pointer';
+const primaryClass =
+  'w-full h-10 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] disabled:opacity-50 disabled:cursor-wait cursor-pointer flex items-center justify-center gap-2';
 
 /** Cambia de identidad con una recarga: nada en caché ni en el socket sobrevive. */
 function reloadHome() {
@@ -139,6 +140,35 @@ function ElevateButton() {
   );
 }
 
+/** Iniciales de nombre y apellido: "Mauricio Cerón" → "MC". */
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  const last = words.length > 1 ? words[words.length - 1] : '';
+  return (words[0][0] + (last[0] ?? '')).toUpperCase();
+}
+
+/**
+ * Perfil al estilo Netflix: el representante legal en champagne, los
+ * administradores en obsidiana, para que el papel se lea antes que el nombre.
+ * Es un botón del padre (`group`): el anillo responde al hover y al foco.
+ */
+function ProfileAvatar({ person }: { person: CounterPerson }) {
+  const owner = person.role === 'owner';
+  return (
+    <span
+      aria-hidden="true"
+      className={`h-24 w-24 rounded-2xl flex items-center justify-center text-3xl font-semibold tracking-wide ring-2 ring-transparent ring-offset-2 ring-offset-[var(--color-surface)] transition-all duration-150 group-hover:ring-[var(--color-primary)] group-hover:scale-105 group-focus-visible:ring-[var(--color-primary)] group-focus-visible:scale-105 ${
+        owner
+          ? 'bg-[var(--color-primary)] text-[var(--zipp-obsidian)]'
+          : 'bg-[var(--color-text-main)] text-[var(--color-primary)]'
+      }`}
+    >
+      {initials(person.name)}
+    </span>
+  );
+}
+
 function ElevateDialog({ onClose }: { onClose: () => void }) {
   const businessId = useAuthStore((s) => s.selectedBusiness?._id);
   const [step, setStep] = useState<Step>({ name: 'people' });
@@ -232,14 +262,18 @@ function ElevateDialog({ onClose }: { onClose: () => void }) {
 
   const title =
     step.name === 'pin' ? step.person.name
-      : step.name === 'password' ? 'Entrar con contraseña'
+      : step.name === 'password' ? 'Crear tu primer PIN'
         : step.name === 'totp' ? 'Verificación en dos pasos'
           : '¿Quién entra?';
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       <button type="button" aria-label="Cerrar" onClick={onClose} className="absolute inset-0 bg-black/50 cursor-default" />
-      <div role="dialog" aria-label={title} className="relative w-full max-w-sm zipp-modal">
+      <div
+        role="dialog"
+        aria-label={title}
+        className={`relative w-full zipp-modal ${step.name === 'people' ? 'max-w-xl' : 'max-w-sm'}`}
+      >
         <div className="p-5 space-y-5">
           <div className="flex items-start gap-3">
             {step.name !== 'people' && (
@@ -258,7 +292,7 @@ function ElevateDialog({ onClose }: { onClose: () => void }) {
                 {step.name === 'pin'
                   ? `${ROLE_LABELS[step.person.role]}. Escribe tu PIN de 6 dígitos.`
                   : step.name === 'password'
-                    ? 'Para crear tu PIN o cambiar la seguridad de tu cuenta, que con PIN no se puede.'
+                    ? 'Nadie tiene PIN todavía. Entra con tu contraseña, crea el tuyo en Seguridad y desde ahí se entra solo con PIN.'
                     : step.name === 'totp'
                       ? 'Escribe el código de Google Authenticator.'
                       : 'Administrador o representante legal. Lo que hagas queda a tu nombre.'}
@@ -283,28 +317,35 @@ function ElevateDialog({ onClose }: { onClose: () => void }) {
                   {apiMessage(people.error, 'No pudimos cargar quién puede entrar.')}
                 </p>
               ) : people.data && people.data.length > 0 ? (
-                <ul className="divide-y divide-[var(--color-border)]">
+                <ul className="flex flex-wrap justify-center gap-x-8 gap-y-6 py-4">
                   {people.data.map((person) => (
                     <li key={person.userId}>
                       <button
                         type="button"
                         onClick={() => go({ name: 'pin', person })}
-                        className="w-full flex items-center justify-between gap-3 py-3 text-left hover:text-[var(--color-primary)] cursor-pointer"
+                        className="group w-28 flex flex-col items-center gap-3 cursor-pointer outline-none"
                       >
-                        <span className="text-sm font-medium text-[var(--color-text-main)] truncate">{person.name}</span>
-                        <span className="text-xs text-[var(--color-text-secondary)] shrink-0">{ROLE_LABELS[person.role]}</span>
+                        <ProfileAvatar person={person} />
+                        <span className="w-full text-center">
+                          <span className="block text-sm font-semibold text-[var(--color-text-main)] truncate group-hover:text-[var(--color-primary)] group-focus-visible:text-[var(--color-primary)] transition-colors">
+                            {person.name}
+                          </span>
+                          <span className="block text-xs text-[var(--color-text-secondary)] truncate">{ROLE_LABELS[person.role]}</span>
+                        </span>
                       </button>
                     </li>
                   ))}
                 </ul>
               ) : (
                 <p className="text-xs text-[var(--color-text-main)] leading-relaxed">
-                  Nadie de este negocio tiene PIN todavía. Entra con tu contraseña y créalo en Seguridad.
+                  Nadie de este negocio tiene PIN todavía.
                 </p>
               )}
-              <button type="button" onClick={() => go({ name: 'password' })} className={`${linkClass} flex items-center gap-1.5`}>
-                <LogIn className="w-3.5 h-3.5" /> Entrar con contraseña
-              </button>
+              {people.isSuccess && people.data.length === 0 && (
+                <button type="button" onClick={() => go({ name: 'password' })} className={`${linkClass} flex items-center gap-1.5 mx-auto`}>
+                  <LogIn className="w-3.5 h-3.5" /> Entrar con contraseña
+                </button>
+              )}
             </div>
           )}
 
@@ -367,6 +408,7 @@ function ElevateDialog({ onClose }: { onClose: () => void }) {
               </button>
             </form>
           )}
+
         </div>
       </div>
     </div>

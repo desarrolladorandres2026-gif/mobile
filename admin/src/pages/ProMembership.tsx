@@ -4,6 +4,7 @@ import { AlertCircle } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import SummaryGrid from '../components/SummaryGrid';
+import ProSimulation from '../components/ProSimulation';
 
 /**
  * Zipp Pro visto desde el negocio. Solo lectura: el precio y los beneficios
@@ -11,6 +12,7 @@ import SummaryGrid from '../components/SummaryGrid';
  */
 
 interface Data {
+ sales: { flag: string; open: boolean; audience: string; percentage: number };
  plan: {
  name: string; price: number; periodDays: number;
  freeDelivery: { enabled: boolean; minSubtotal: number };
@@ -93,6 +95,14 @@ export default function ProMembership() {
  {data.plan.freeDelivery.enabled && ` · envío gratis desde ${cop(data.plan.freeDelivery.minSubtotal)}`}
  {data.plan.serviceFeeWaived.enabled && ' · sin tarifa de servicio'}.
  Estos valores son una propuesta de arranque: se cambian en <code>config/pro.ts</code>.
+ </p>
+
+ <p className={`text-xs font-semibold ${data.sales.open ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-main)]'}`}>
+ Venta de nuevas suscripciones: {data.sales.open ? 'ABIERTA' : 'cerrada'}.{' '}
+ {data.sales.open
+ ? 'Cada socio nuevo regala el domicilio y la tarifa de servicio con cargo a ZIPP, sin tope mensual.'
+ : 'Nadie nuevo puede suscribirse hasta que finanzas apruebe el tope de envíos gratis.'}{' '}
+ Se abre o se cierra con el interruptor <code>{data.sales.flag}</code> en Interruptores; quien ya pagó conserva lo pagado.
  </p>
 
  <SummaryGrid
@@ -215,6 +225,8 @@ export default function ProMembership() {
  </div>
  )}
  </div>
+
+ <ProSimulation />
  </>
  )}
  </div>

@@ -227,6 +227,42 @@ total = subtotal + envío + impuestos + propina − descuento
 - **Descuento**: si el cupón es de un comercio, lo asume ese comercio; si es
   de plataforma, lo asume la plataforma.
 
+### Envío gratis, promociones y sus límites
+
+- **El umbral se mide en neto.** El envío gratis del comercio —y el mínimo de
+  Zipp Pro— se evalúan sobre lo que el cliente paga **por los productos**
+  después de los descuentos que los afectan (cupón de producto y promociones
+  automáticas). El domicilio, la tarifa de servicio y sus descuentos no
+  cuentan. Decisión del 2026-10-14. Una sola función lo calcula
+  (`settleDiscounts`), la misma para el cobro, el sugeridor y la simulación.
+- **El comercio nunca queda con un pago negativo.** Una promoción automática
+  o el envío gratis que dejarían su pago en negativo simplemente no se aplican
+  en ese pedido; un **cupón que escribe el cliente** que lo provoque se
+  rechaza con `422 COUPON_EXCEEDS_MERCHANT_PAYOUT`. El pago no se recorta a
+  cero: así `assertBalanced` sigue siendo una prueba de verdad.
+- **Un cupón de domicilio no se consume sobre un envío ya gratis** (por el
+  umbral del comercio o por Zipp Pro): `422 DELIVERY_ALREADY_FREE`, antes de
+  canjear nada.
+- **`budgetLimit` es lo que la campaña le cuesta a quien la financia**: el
+  subsidio de plataforma si la paga ZIPP, lo que sale de la liquidación si la
+  paga el comercio. Se gasta y se devuelve (`CouponRedemption.budgetConsumed`)
+  dentro de escrituras condicionales, así que ni dos pedidos simultáneos ni un
+  cambio de límite a mitad de un canje lo superan.
+- **El piso de margen descuenta la pasarela.** Una campaña de plataforma se
+  evalúa con la comisión estimada de Wompi restada (`estimateGatewayFee`, las
+  tarifas de la configuración; en línea con la tarifa más alta si aún no se
+  sabe el método; 0 en efectivo y 0 mientras las tarifas sigan sin configurar).
+- **«Primer pedido»** = ninguna orden previa que no esté cancelada. Es la misma
+  regla para el cupón de código y la promoción automática; esta última no se
+  pinta en la carta (cache compartida) y se aplica al pagar.
+- **Simular antes de activar**: `POST /coupons/business/:businessId/preview`
+  (comercio) y `POST /coupons/preview` (administración) evalúan un borrador con
+  el motor real. No escriben nada.
+- **Zipp Pro está cerrado a nuevas suscripciones** hasta que se encienda el
+  interruptor `pro_subscriptions_open` (Interruptores en administración). El
+  tope mensual de envíos gratis sigue sin decidirse; la simulación está en
+  `GET /admin/growth/pro/simulation`.
+
 ---
 
 ## Imágenes del catálogo

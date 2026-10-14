@@ -49,6 +49,15 @@ export interface IOrderFinance {
    */
   proDeliveryDiscount?: number;
   proServiceFeeDiscount?: number;
+  /**
+   * El domicilio que el comercio regaló al alcanzar su umbral. Ya está DENTRO
+   * de `merchantFundedDiscount` (no se suma otra vez): se guarda aparte para
+   * poder decir cuánto le cuesta su envío gratis, que de otro modo queda
+   * mezclado con sus cupones. Pedidos anteriores a este campo no lo tienen.
+   */
+  freeDeliveryDiscount?: number;
+  /** Lo que descontaron las promociones automáticas del comercio. También dentro de `merchantFundedDiscount`. */
+  autoPromotionDiscount?: number;
   taxPayable: number;
   businessPayout: number;
   driverPayout: number;
@@ -286,6 +295,8 @@ const orderFinanceSchema = new Schema<IOrderFinance>(
     platformFundedDiscount: intMoney,
     proDeliveryDiscount: intMoney,
     proServiceFeeDiscount: intMoney,
+    freeDeliveryDiscount: intMoney,
+    autoPromotionDiscount: intMoney,
     taxPayable: intMoney,
     businessPayout: intMoney,
     driverPayout: intMoney,

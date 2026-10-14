@@ -21,9 +21,10 @@ import { usePermissions } from '../hooks/usePermissions';
 import { canSee } from '../lib/permissions';
 
 /**
- * Perfil del negocio: cabecera tipo Facebook (portada + logo + nombre) y,
- * debajo, las cuatro pestañas que antes eran pantallas sueltas — Información,
- * Documentos y pagos, Equipo y Seguridad. Las cuatro cuelgan de rutas reales
+ * Personalización, con el esquema de Meta Business Suite: menú vertical
+ * agrupado a la izquierda y, a la derecha, la sección elegida — Información,
+ * Documentos y pagos, Equipo, Seguridad y Este equipo (ésta solo en
+ * escritorio). Las secciones cuelgan de rutas reales
  * (`/settings`, `/documents`, `/staff`, `/security`) para que la barra
  * lateral siga resaltando el ítem correcto y la URL se pueda compartir.
  *
@@ -34,14 +35,14 @@ import { canSee } from '../lib/permissions';
  */
 
 const TABS = [
-  { path: '/settings', label: 'Información' },
-  { path: '/documents', label: 'Documentos y pagos' },
-  { path: '/staff', label: 'Equipo' },
-  { path: '/security', label: 'Seguridad' },
+  { path: '/settings', label: 'Información', group: 'Tu negocio' },
+  { path: '/documents', label: 'Documentos y pagos', group: 'Tu negocio' },
+  { path: '/staff', label: 'Equipo', group: 'Personas y acceso' },
+  { path: '/security', label: 'Seguridad', group: 'Personas y acceso' },
   // Solo tiene sentido dentro de Zipp Negocios: `canSee` ya la esconde del
   // menú en el navegador (ver `lib/permissions.ts`), y la propia `DesktopTab`
   // tampoco muestra nada fuera de escritorio.
-  { path: '/desktop', label: 'Este equipo' },
+  { path: '/desktop', label: 'Este equipo', group: 'Dispositivo' },
 ] as const;
 
 /**
@@ -281,78 +282,86 @@ export default function Profile() {
     );
   }
 
+  const activeLabel = TABS.find((t) => t.path === activeTab)?.label ?? 'Información';
+
   return (
-    <div className="space-y-6 [--cols3-offset:19rem]">
-      {/* Perfil de negocio: identidad, imágenes y pestañas, sin ficha ni portada
-          a sangre. La portada se ve como una miniatura más: es un dato del
-          negocio, no un decorado de esta pantalla. */}
-      <section className="border-b border-[var(--color-border)]">
-        <div className="flex flex-col gap-4 pb-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="relative shrink-0">
-              <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-md border border-dashed border-[var(--color-border)]">
-                {logo ? (
-                  <img src={logo} alt={`Logo de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
-                ) : (
-                  <span className="text-lg font-semibold text-[var(--color-text-secondary)]">{selectedBusiness.name.charAt(0)}</span>
+    <div className="space-y-6">
+      <h1 className="page-title">Personalización</h1>
+
+      {/* Esquema de Meta Business Suite: menú vertical a la izquierda, con las
+          secciones agrupadas, y el panel de la sección elegida a la derecha. */}
+      <div className="grid gap-6 lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:gap-10">
+        <ProfileTabs businessId={businessId} activeTab={activeTab} onSelect={goToTab} />
+
+        <div className="settings-pane min-w-0 space-y-6">
+          <header className="space-y-1">
+            <h2 className="text-base font-semibold text-[var(--color-text-main)]">{activeLabel}</h2>
+            {TAB_SUBTITLES[activeTab] && <p className="page-subtitle !mt-0">{TAB_SUBTITLES[activeTab]}</p>}
+          </header>
+
+          {activeTab === '/settings' && (
+            <section className="flex flex-col gap-4 border-y border-[var(--color-border)] py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-4">
+                <div className="relative shrink-0">
+                  <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-md border border-dashed border-[var(--color-border)]">
+                    {logo ? (
+                      <img src={logo} alt={`Logo de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-lg font-semibold text-[var(--color-text-secondary)]">{selectedBusiness.name.charAt(0)}</span>
+                    )}
+                  </div>
+                  {editing && !loading && (
+                    <BusinessImageField
+                      businessId={selectedBusiness._id}
+                      slot="logo"
+                      value={logo}
+                      onChange={setImage('logo')}
+                      onError={setError}
+                      className="absolute -bottom-2 -right-2"
+                    />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[var(--color-text-main)]">{selectedBusiness.name}</p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[13px] text-[var(--color-text-secondary)]">
+                    <span className="capitalize">{selectedBusiness.category?.replace(/_/g, ' ')}</span>
+                    {selectedBusiness.city && <><span>·</span><span>{selectedBusiness.city}</span></>}
+                    {totalReviews > 0 && <><span>·</span><span className="inline-flex items-center gap-1"><Star className="h-3.5 w-3.5 fill-current text-[var(--color-warning)]" />{rating.toFixed(1)} ({totalReviews})</span></>}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="relative h-14 w-32 shrink-0 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]">
+                  {coverImage ? (
+                    <img src={coverImage} alt={`Portada de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="grid h-full place-items-center text-[11px] text-[var(--color-text-secondary)]">Sin portada</span>
+                  )}
+                  {editing && !loading && (
+                    <BusinessImageField
+                      businessId={selectedBusiness._id}
+                      slot="cover"
+                      value={coverImage}
+                      onChange={setImage('coverImage')}
+                      onError={setError}
+                      className="absolute right-1 top-1"
+                    />
+                  )}
+                </div>
+                {!editing && !loading && (
+                  <button
+                    type="button"
+                    onClick={startEditing}
+                    className="flex h-8 items-center gap-1.5 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-medium text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Editar
+                  </button>
                 )}
               </div>
-              {editing && !loading && (
-                <BusinessImageField
-                  businessId={selectedBusiness._id}
-                  slot="logo"
-                  value={logo}
-                  onChange={setImage('logo')}
-                  onError={setError}
-                  className="absolute -bottom-2 -right-2"
-                />
-              )}
-            </div>
-            <div className="min-w-0">
-              <h1 className="page-title truncate">{selectedBusiness.name}</h1>
-              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[13px] text-[var(--color-text-secondary)]">
-                <span className="capitalize">{selectedBusiness.category?.replace(/_/g, ' ')}</span>
-                {selectedBusiness.city && <><span>·</span><span>{selectedBusiness.city}</span></>}
-                {totalReviews > 0 && <><span>·</span><span className="inline-flex items-center gap-1"><Star className="h-3.5 w-3.5 fill-current text-[var(--color-warning)]" />{rating.toFixed(1)} ({totalReviews})</span></>}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="relative h-14 w-32 shrink-0 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]">
-              {coverImage ? (
-                <img src={coverImage} alt={`Portada de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
-              ) : (
-                <span className="grid h-full place-items-center text-[11px] text-[var(--color-text-secondary)]">Sin portada</span>
-              )}
-              {editing && !loading && (
-                <BusinessImageField
-                  businessId={selectedBusiness._id}
-                  slot="cover"
-                  value={coverImage}
-                  onChange={setImage('coverImage')}
-                  onError={setError}
-                  className="absolute right-1 top-1"
-                />
-              )}
-            </div>
-            {!editing && !loading && (
-              <button
-                type="button"
-                onClick={startEditing}
-                className="flex h-8 items-center gap-1.5 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-medium text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Editar perfil
-              </button>
-            )}
-          </div>
-        </div>
-
-        <ProfileTabs businessId={businessId} activeTab={activeTab} onSelect={goToTab} />
-      </section>
-
-      {TAB_SUBTITLES[activeTab] && <p className="page-subtitle">{TAB_SUBTITLES[activeTab]}</p>}
+            </section>
+          )}
 
       {error && (
         <div className="flex items-start gap-3 text-xs font-semibold text-[var(--color-danger)]">
@@ -396,6 +405,8 @@ export default function Profile() {
           {activeTab === '/desktop' && <DesktopTab />}
         </>
       )}
+        </div>
+      </div>
 
       {/* Barra de edición: flota abajo mientras se edita (y un momento
           después de guardar, para confirmarlo). Leyendo, no ocupa sitio. */}
@@ -480,21 +491,35 @@ function ProfileTabs({
 }) {
   const { access } = usePermissions(businessId);
   const visibleTabs = TABS.filter((tab) => (tab.path === '/desktop' ? isDesktop() : true) && canSee(tab.path, access));
+  const groups = [...new Set(visibleTabs.map((tab) => tab.group))];
+  // En pantallas anchas es el menú vertical con los grupos rotulados; en
+  // angostas se aplana a una fila que se desliza.
   return (
-    <nav aria-label="Secciones del perfil" className="flex gap-6 overflow-x-auto">
-      {visibleTabs.map((tab) => (
-        <button
-          key={tab.path}
-          type="button"
-          onClick={() => onSelect(tab.path)}
-          className={`shrink-0 pb-2 -mb-px text-[13px] border-b-2 cursor-pointer ${
-            activeTab === tab.path
-              ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-semibold'
-              : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
-          }`}
-        >
-          {tab.label}
-        </button>
+    <nav
+      aria-label="Secciones de personalización"
+      className="flex gap-5 overflow-x-auto border-b border-[var(--color-border)] lg:sticky lg:top-4 lg:flex-col lg:gap-5 lg:self-start lg:overflow-visible lg:border-b-0"
+    >
+      {groups.map((group) => (
+        <div key={group} className="flex gap-5 lg:flex-col lg:gap-0.5">
+          <p className="hidden px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-secondary)] lg:block">
+            {group}
+          </p>
+          {visibleTabs.filter((tab) => tab.group === group).map((tab) => (
+            <button
+              key={tab.path}
+              type="button"
+              onClick={() => onSelect(tab.path)}
+              aria-current={activeTab === tab.path ? 'page' : undefined}
+              className={`shrink-0 whitespace-nowrap pb-2 -mb-px text-left text-[13px] border-b-2 cursor-pointer lg:mb-0 lg:border-b-0 lg:border-l-2 lg:px-3 lg:py-1.5 ${
+                activeTab === tab.path
+                  ? 'border-[var(--color-primary)] text-[var(--color-text-main)] font-semibold'
+                  : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       ))}
     </nav>
   );

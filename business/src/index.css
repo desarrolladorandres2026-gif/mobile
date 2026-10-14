@@ -34,6 +34,26 @@
   --color-chart-blue: #E5B242;
 }
 
+/**
+ * Soporte va en azul (pedido explícito, 2026-10-14). Se reasignan los tokens de
+ * marca solo dentro de `.support-blue`: todo `var(--color-primary*)` de esa
+ * pantalla se vuelve azul y el resto del panel conserva el dorado. No se toca
+ * colores.css, que comparten admin, web y mobile.
+ */
+.support-blue {
+  --color-primary: #2563EB;
+  --color-primary-light: #3B82F6;
+  --color-primary-dark: #1D4ED8;
+  --color-primary-bg: #EFF6FF;
+}
+
+.dark .support-blue {
+  --color-primary: #60A5FA;
+  --color-primary-light: #93C5FD;
+  --color-primary-dark: #3B82F6;
+  --color-primary-bg: rgba(96, 165, 250, 0.12);
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -310,6 +330,25 @@
   .cols3 > *:first-child { padding-left: 0; border-left: 0; }
   .cols3 > *:last-child { padding-right: 0; }
   .cols3 > .span2 { grid-column: span 2 / span 2; }
+}
+
+/* Dentro de Personalización el panel es una sola columna (el menú vertical ya
+   ocupa el lado): las columnas de cada sección se apilan, separadas por una
+   línea fina, y la página scrollea entera en vez de cada columna por su lado. */
+@media (min-width: 1024px) {
+  .settings-pane .cols3 {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+  }
+  .settings-pane .cols3 > * {
+    overflow: visible;
+    padding: 1.5rem 0;
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+  }
+  .settings-pane .cols3 > *:first-child { padding-top: 0; border-top: 0; }
 }
 
 .col-title {

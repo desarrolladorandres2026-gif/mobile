@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { couponService, pricingConfigService } from '../services';
+import { couponService, pricingConfigService, promotionPreviewService } from '../services';
 import { Coupon, CouponRedemption } from '../models';
 import { sendResponse, param, query, escapeRegex } from '../utils';
 import { AppError } from '../middlewares';
@@ -35,6 +35,25 @@ function assertMayApproveCampaign(req: Request): void {
   );
 }
 
+/**
+ * Qué campos cambiaron entre dos estados de un cupón, con su valor anterior y
+ * el nuevo. Una modificación financiera sin su antes y su después no se puede
+ * auditar: «cambió el descuento» no dice de cuánto a cuánto.
+ */
+function diffFields(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  keys: string[]
+): Record<string, { before: unknown; after: unknown }> {
+  const changes: Record<string, { before: unknown; after: unknown }> = {};
+  for (const key of keys) {
+    if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) {
+      changes[key] = { before: before[key], after: after[key] };
+    }
+  }
+  return changes;
+}
+
 export class CouponController {
   // ── Promociones del propio comercio ──
 
@@ -63,7 +82,15 @@ export class CouponController {
         entityId: coupon._id.toString(),
         severity: AuditSeverity.MEDIUM,
         description: 'Promoción de comercio creada',
-        metadata: { businessId: param(req, 'businessId'), autoApply: coupon.autoApply },
+        metadata: {
+          businessId: param(req, 'businessId'),
+          autoApply: coupon.autoApply,
+          type: coupon.type,
+          value: coupon.value,
+          budgetLimit: coupon.budgetLimit,
+          usageLimit: coupon.usageLimit,
+          firstOrderOnly: coupon.firstOrderOnly,
+        },
       });
       sendResponse(res, 201, 'Promoción creada', coupon);
     } catch (error) { next(error); }
@@ -71,11 +98,13 @@ export class CouponController {
 
   async updateMine(req: Request, res: Response, next: NextFunction) {
     try {
+      let changes: Record<string, { before: unknown; after: unknown }> = {};
       const coupon = await couponService.updateForBusiness(
         req.user!._id.toString(),
         param(req, 'id'),
         req.body,
-        req.sessionScope
+        req.sessionScope,
+        (diff) => { changes = diff; }
       );
       void logAudit(req, {
         action: AuditAction.PROMOTION_UPDATED,
@@ -83,7 +112,9 @@ export class CouponController {
         entityId: coupon._id.toString(),
         severity: AuditSeverity.MEDIUM,
         description: 'Promoción de comercio editada',
-        metadata: { changes: Object.keys(req.body) },
+        // Antes y después de cada campo tocado, no solo cuáles: es lo que
+        // permite reconstruir qué costaba la promoción cuando se canjeó.
+        metadata: { businessId: coupon.businessId?.toString(), changes },
       });
       sendResponse(res, 200, 'Promoción actualizada', coupon);
     } catch (error) { next(error); }
@@ -137,6 +168,28 @@ export class CouponController {
         description: 'Promoción de comercio eliminada',
       });
       sendResponse(res, 200, 'Promoción eliminada', null);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Simula una promoción (o el envío gratis) antes de activarla. Solo lee:
+   * no crea pedidos, no canjea cupones ni asienta nada.
+   */
+  async previewMine(req: Request, res: Response, next: NextFunction) {
+    try {
+      const preview = await promotionPreviewService.forBusiness(
+        req.user!._id.toString(),
+        param(req, 'businessId'),
+        req.body,
+        req.sessionScope
+      );
+      sendResponse(res, 200, 'Simulación de la promoción', preview);
+    } catch (error) { next(error); }
+  }
+
+  async previewAdmin(req: Request, res: Response, next: NextFunction) {
+    try {
+      sendResponse(res, 200, 'Simulación de la promoción', await promotionPreviewService.forAdmin(req.body));
     } catch (error) { next(error); }
   }
 
@@ -253,9 +306,11 @@ export class CouponController {
       const coupon = await Coupon.findById(param(req, 'id'));
       if (!coupon) throw new AppError('Cupón no encontrado', 404);
 
+      const before = coupon.toObject();
       Object.assign(coupon, req.body);
       await coupon.save();
-      void logAudit(req, { action: AuditAction.PROMOTION_UPDATED, entity: 'coupon', entityId: coupon._id.toString(), severity: AuditSeverity.MEDIUM, description: 'Promoción actualizada', metadata: { code: coupon.code, changes: Object.keys(req.body) } });
+      const changes = diffFields(before as unknown as Record<string, unknown>, coupon.toObject() as unknown as Record<string, unknown>, Object.keys(req.body));
+      void logAudit(req, { action: AuditAction.PROMOTION_UPDATED, entity: 'coupon', entityId: coupon._id.toString(), severity: AuditSeverity.MEDIUM, description: 'Promoción actualizada', metadata: { code: coupon.code, changes } });
 
       sendResponse(res, 200, 'Cupón actualizado', coupon);
     } catch (error) { next(error); }

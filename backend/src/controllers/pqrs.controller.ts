@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { Pqrs } from '../models'; import { AppError } from '../middlewares'; import { uploadPqrsEvidence } from '../middlewares/upload'; import { sendResponse, param } from '../utils'; import { AuditAction, logAudit } from '../security'; import { createPqrs } from '../services/pqrs.service'; import { supportService, canRequesterReopen } from '../services/support.service';
+import { Pqrs, Order, Settlement } from '../models'; import { AppError } from '../middlewares'; import { uploadPqrsEvidence } from '../middlewares/upload'; import { sendResponse, param, query } from '../utils'; import { AuditAction, logAudit } from '../security'; import { createPqrs, caseCode, recordStatus, REASON_CATEGORY } from '../services/pqrs.service'; import { supportService, canRequesterReopen } from '../services/support.service';
 /**
  * Lo que ve quien abrió el caso: sin ids del personal ni prioridad. El motivo
  * de la solicitud de reembolso, quién la pidió y la nota de Finanzas son
@@ -20,15 +20,68 @@ function ownView<T extends Record<string, any> | null>(doc: T): T {
   const { dueAt, refundRequest, ...rest } = doc as Record<string, any>;
   return {
     ...rest,
+    code: caseCode(rest as never),
+    displayStatus: displayStatus(rest as never),
     respondBy: dueAt && OPEN_STATUSES.includes(rest.status) ? dueAt : null,
     refundStatus: refundRequest?.status ?? null,
     canReopen: canRequesterReopen(rest as never),
   } as unknown as T;
 }
 
+/**
+ * Los cinco estados que ve el comercio sobre los cuatro que guarda el sistema.
+ * No hay estados nuevos que migrar: `answered` ya significa "ZIPP respondió y la
+ * pelota está del lado del solicitante" (una réplica suya lo devuelve a
+ * `in_review`), y un cierre confirmado por el solicitante es "resuelto".
+ */
+export type DisplayStatus = 'open' | 'in_review' | 'waiting_business' | 'resolved' | 'closed';
+export function displayStatus(ticket: { status: string; resolvedByRequester?: boolean }): DisplayStatus {
+  if (ticket.status === 'received') return 'open';
+  if (ticket.status === 'in_review') return 'in_review';
+  if (ticket.status === 'answered') return 'waiting_business';
+  return ticket.resolvedByRequester ? 'resolved' : 'closed';
+}
+
+/**
+ * Del pedido y de la liquidación citados solo sale lo que sirve para ubicarlos:
+ * número, estado y medio de pago; periodo. Nada de montos ni datos del cliente.
+ */
+async function withOrderSummary<T extends Record<string, any>>(rows: T[]): Promise<T[]> {
+  const unique = (key: string) => [...new Set(rows.map((row) => (row[key] ? String(row[key]) : '')).filter(Boolean))];
+  const orderIds = unique('orderId');
+  const settlementIds = unique('settlementId');
+  if (!orderIds.length && !settlementIds.length) return rows;
+  const [orders, settlements] = await Promise.all([
+    orderIds.length ? Order.find({ _id: { $in: orderIds } }).select('orderNumber status paymentMethod').lean() : [],
+    settlementIds.length ? Settlement.find({ _id: { $in: settlementIds } }).select('periodStart periodEnd').lean() : [],
+  ]);
+  const orderById = new Map(orders.map((o) => [String(o._id), { orderNumber: o.orderNumber, status: o.status, paymentMethod: o.paymentMethod }]));
+  const settlementById = new Map(settlements.map((st) => [String(st._id), { periodStart: st.periodStart, periodEnd: st.periodEnd }]));
+  return rows.map((row) => ({
+    ...row,
+    ...(row.orderId ? { order: orderById.get(String(row.orderId)) ?? null } : {}),
+    ...(row.settlementId ? { settlement: settlementById.get(String(row.settlementId)) ?? null } : {}),
+  }));
+}
+
 export class PqrsController {
-  async create(req: Request, res: Response, next: NextFunction) { try { const item = await createPqrs({ userId: req.user!._id.toString(), type: req.body.type, reason: req.body.reason, subject: req.body.subject, detail: req.body.detail, orderId: req.body.orderId, businessId: req.body.businessId, role: req.user!.role }); sendResponse(res, 201, 'PQRS recibida', ownView(await Pqrs.findById(item._id).select(OWN_FIELDS).lean())); } catch (e) { next(e); } }
-  async mine(req: Request, res: Response, next: NextFunction) { try { const rows = await Pqrs.find({ userId: req.user!._id }).select(OWN_FIELDS).sort({ createdAt: -1 }).lean(); sendResponse(res, 200, 'PQRS', rows.map((row) => ownView(row))); } catch (e) { next(e); } }
+  async create(req: Request, res: Response, next: NextFunction) {
+    try {
+      const item = await createPqrs({ userId: req.user!._id.toString(), type: req.body.type, reason: req.body.reason, subject: req.body.subject, detail: req.body.detail, orderId: req.body.orderId, businessId: req.body.businessId, settlementId: req.body.settlementId, paymentMethod: req.body.paymentMethod, role: req.user!.role });
+      void logAudit(req, { action: AuditAction.PQRS_CREATED, entity: 'pqrs', entityId: item._id.toString(), description: 'Caso de soporte abierto', metadata: { reason: item.reason ?? null, category: item.reason ? REASON_CATEGORY[item.reason] : null, orderId: item.orderId ? String(item.orderId) : null, businessId: item.businessId ? String(item.businessId) : null } });
+      const [row] = await withOrderSummary([await Pqrs.findById(item._id).select(OWN_FIELDS).lean() as Record<string, any>]);
+      sendResponse(res, 201, 'PQRS recibida', ownView(row));
+    } catch (e) { next(e); }
+  }
+  async mine(req: Request, res: Response, next: NextFunction) {
+    try {
+      // Quien tiene varios locales ve los casos del que tiene abierto; sin el parámetro, todos los suyos (la app móvil).
+      const businessId = query(req, 'businessId');
+      if (businessId && !/^[a-f\d]{24}$/i.test(businessId)) throw new AppError('Negocio no válido', 400);
+      const rows = await Pqrs.find({ userId: req.user!._id, ...(businessId ? { businessId } : {}) }).select(OWN_FIELDS).sort({ createdAt: -1 }).lean();
+      sendResponse(res, 200, 'PQRS', (await withOrderSummary(rows)).map((row) => ownView(row)));
+    } catch (e) { next(e); }
+  }
   /**
    * Adjunto del solicitante. multer corre aquí dentro (como en la evidencia de
    * pedidos) para que el dueño y el estado del caso se comprueben antes de
@@ -84,7 +137,7 @@ export class PqrsController {
       const rows = await Pqrs.find({ businessId: param(req, 'businessId'), requesterRole: 'business' })
         .select(OWN_FIELDS).populate('userId', 'name').sort({ createdAt: -1 }).limit(100).lean();
       const me = req.user!._id.toString();
-      sendResponse(res, 200, 'Casos del local', rows.map((row) => {
+      sendResponse(res, 200, 'Casos del local', (await withOrderSummary(rows as Array<Record<string, any>>)).map((row) => {
         const author = row.userId as unknown as { _id: unknown; name?: string };
         return { ...ownView(row), userId: undefined, openedBy: author?.name ?? 'Equipo', mine: String(author?._id) === me };
       }));
@@ -122,6 +175,7 @@ export class PqrsController {
         item = await supportService.close(id, req.user!._id.toString());
       } else if (targetStatus !== item.status) {
         item = await Pqrs.findByIdAndUpdate(id, { $set: { status: targetStatus } }, { new: true, runValidators: true }) as typeof item;
+        await recordStatus(id, targetStatus, 'staff');
       }
 
       void logAudit(req, { action: AuditAction.PQRS_ANSWERED, entity: 'pqrs', entityId: id, description: 'PQRS respondida', metadata: { status: item.status } });

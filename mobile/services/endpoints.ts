@@ -1715,6 +1715,8 @@ export interface ProStatus {
   currentPeriodEnd: string | null;
   autoRenew: boolean;
   card: { brand: string; lastFour: string } | null;
+  /** Si hoy se puede estrenar la suscripción. Cerrada mientras ZIPP no apruebe el plan. */
+  open: boolean;
 }
 
 export const proApi = {

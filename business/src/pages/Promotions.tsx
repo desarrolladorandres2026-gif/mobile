@@ -9,6 +9,7 @@ import { apiMessage } from '../lib/apiError';
 import { money } from '../lib/orderFlow';
 import {
   TYPE_LABELS, toDateInput, emptyCodeForm, emptyAutoForm, discountLabel, groupOf, consumption,
+  codePayload, autoPayload,
   type Coupon, type PromotionGroup,
 } from '../lib/promotions';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -108,31 +109,34 @@ export default function Promotions() {
   const startEdit = (coupon: Coupon) => {
     setError('');
     setEditingId(coupon._id);
+    const common = {
+      title: coupon.title,
+      type: coupon.type === 'free_delivery' ? ('percentage' as const) : coupon.type,
+      value: coupon.value,
+      maxDiscountAmount: coupon.maxDiscountAmount ?? 0,
+      budgetLimit: coupon.budgetLimit ?? 0,
+      usageLimit: coupon.usageLimit ?? 0,
+      firstOrderOnly: coupon.firstOrderOnly ?? false,
+      validFrom: toDateInput(coupon.validFrom),
+      validUntil: toDateInput(coupon.validUntil),
+      validDays: coupon.validDays ?? [],
+      validFromTime: coupon.validFromTime ?? '',
+      validUntilTime: coupon.validUntilTime ?? '',
+    };
     if (coupon.autoApply) {
       setMode('auto');
       setAutoForm({
-        title: coupon.title,
+        ...common,
         description: coupon.description ?? '',
-        type: coupon.type === 'free_delivery' ? 'percentage' : coupon.type,
-        value: coupon.value,
-        maxDiscountAmount: coupon.maxDiscountAmount ?? 0,
-        budgetLimit: coupon.budgetLimit ?? 0,
-        validFrom: toDateInput(coupon.validFrom),
-        validUntil: toDateInput(coupon.validUntil),
         productIds: coupon.productIds ?? [],
       });
     } else {
       setMode('code');
       setCodeForm({
+        ...common,
         code: coupon.code,
-        title: coupon.title,
-        type: coupon.type,
-        value: coupon.value,
         minOrderAmount: coupon.minOrderAmount ?? 0,
-        budgetLimit: coupon.budgetLimit ?? 0,
-        usageLimit: coupon.usageLimit ?? 0,
-        perUserLimit: 1,
-        validUntil: toDateInput(coupon.validUntil),
+        perUserLimit: coupon.perUserLimit ?? 1,
       });
     }
     setPanelOpen(true);
@@ -147,16 +151,9 @@ export default function Promotions() {
     try {
       setError('');
       setSaving(true);
-      const payload = {
-        ...codeForm,
-        code: codeForm.code.trim().toUpperCase(),
-        scope: codeForm.type === 'free_delivery' ? 'delivery' : 'product',
-        validUntil: new Date(codeForm.validUntil).toISOString(),
-      };
+      const payload = codePayload(codeForm, !!editingId);
       if (editingId) {
-        const { code: _code, ...editable } = payload;
-        void _code;
-        await api.patch(`/coupons/business/${editingId}`, editable);
+        await api.patch(`/coupons/business/${editingId}`, payload);
       } else {
         await api.post(`/coupons/business/${businessId}`, payload);
       }
@@ -182,22 +179,9 @@ export default function Promotions() {
     try {
       setError('');
       setSaving(true);
-      const payload = {
-        title: autoForm.title,
-        description: autoForm.description,
-        type: autoForm.type,
-        value: autoForm.value,
-        maxDiscountAmount: autoForm.maxDiscountAmount,
-        budgetLimit: autoForm.budgetLimit,
-        validFrom: new Date(autoForm.validFrom).toISOString(),
-        validUntil: new Date(autoForm.validUntil).toISOString(),
-        productIds: autoForm.productIds,
-        autoApply: true,
-      };
+      const payload = autoPayload(autoForm, !!editingId);
       if (editingId) {
-        const { autoApply: _autoApply, ...editable } = payload;
-        void _autoApply;
-        await api.patch(`/coupons/business/${editingId}`, editable);
+        await api.patch(`/coupons/business/${editingId}`, payload);
       } else {
         await api.post(`/coupons/business/${businessId}`, payload);
       }
@@ -328,6 +312,8 @@ export default function Promotions() {
                                 <>Código <span className="font-mono font-semibold text-[var(--color-text-main)]">{coupon.code}</span></>
                               )}
                               {coupon.minOrderAmount ? ` · Mínimo ${money(coupon.minOrderAmount)}` : ''}
+                              {coupon.firstOrderOnly ? ' · Solo primer pedido' : ''}
+                              {coupon.validFromTime && coupon.validUntilTime ? ` · ${coupon.validFromTime}–${coupon.validUntilTime}` : ''}
                             </p>
                             <p className="text-xs text-[var(--color-text-secondary)]">
                               {coupon.validFrom ? `${new Date(coupon.validFrom).toLocaleDateString('es-CO')} → ` : 'Hasta el '}

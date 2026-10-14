@@ -121,6 +121,14 @@ export default function ProScreen() {
               onCancel={() => { tap('light'); setConfirmCancel(true); }}
               onResume={() => act(() => resume.mutateAsync(), 'No pudimos reactivar la renovación.')}
             />
+          ) : !data.open ? (
+            <View style={styles.cta}>
+              <Text v="titleS" center>Zipp Pro abrirá muy pronto</Text>
+              <Text v="caption" tone="textMuted" center>
+                Todavía no se puede contratar. Cuando abra, aquí mismo vas a ver el precio y cómo
+                suscribirte.
+              </Text>
+            </View>
           ) : (
             <View style={styles.cta}>
               <Button

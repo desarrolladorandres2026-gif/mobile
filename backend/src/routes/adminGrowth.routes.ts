@@ -9,6 +9,7 @@ import { AppError } from '../middlewares';
 import { CampaignSend } from '../models';
 import { campaignService } from '../services/campaign.service';
 import { adminGrowthService } from '../services/adminGrowth.service';
+import { proSimulationService } from '../services/proSimulation.service';
 
 /**
  * /admin/growth: lo que Crecimiento necesita del panel y no tenía pantalla.
@@ -130,5 +131,46 @@ router.get('/pro', requirePermission(Permission.FINANCE_VIEW), async (_req, res,
     sendResponse(res, 200, 'Zipp Pro', await adminGrowthService.proOverview());
   } catch (error) { next(error); }
 });
+
+/**
+ * Simulación de rentabilidad ANTES de abrir la venta: cuánto le cuesta a ZIPP
+ * un socio según cuántos pedidos haga al mes. Solo lectura; usa el motor de
+ * precios real. Todos los parámetros son supuestos del que consulta, y la
+ * respuesta dice qué datos reales faltan.
+ */
+const proSimulationSchema = z.object({
+  query: z.object({
+    averageSubtotal: z.coerce.number().int().min(1000).max(2_000_000).default(40_000),
+    averageDistanceKm: z.coerce.number().min(0).max(50).default(2),
+    eligibleShare: z.coerce.number().min(0).max(1).default(1),
+    // «2,4,8,12,20»
+    orders: z
+      .string()
+      .regex(/^\d{1,3}(,\d{1,3}){0,9}$/, 'Lista de pedidos inválida')
+      .default('2,4,8,12,20'),
+  }),
+});
+
+router.get(
+  '/pro/simulation',
+  requirePermission(Permission.FINANCE_VIEW),
+  validate(proSimulationSchema),
+  async (req, res, next) => {
+    try {
+      const q = req.query as unknown as { averageSubtotal: number; averageDistanceKm: number; eligibleShare: number; orders: string };
+      sendResponse(
+        res,
+        200,
+        'Simulación de Zipp Pro',
+        await proSimulationService.simulate({
+          averageSubtotal: Number(q.averageSubtotal),
+          averageDistanceKm: Number(q.averageDistanceKm),
+          eligibleShare: Number(q.eligibleShare),
+          ordersPerMonth: String(q.orders).split(',').map(Number),
+        })
+      );
+    } catch (error) { next(error); }
+  }
+);
 
 export default router;

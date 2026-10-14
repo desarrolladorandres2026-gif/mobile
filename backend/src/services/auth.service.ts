@@ -679,6 +679,24 @@ export class AuthService {
   }
 
   /**
+   * La contraseña desde el mostrador es solo el arranque (decisión
+   * 2026-10-14): sirve mientras NADIE del negocio tenga PIN, para que el
+   * primero pueda crearlo — crear el PIN exige sesión completa y el login del
+   * panel siempre abre mostrador. En cuanto alguien tiene PIN, la puerta se
+   * cierra aquí, en el servidor; ocultar el botón no basta.
+   */
+  private async assertNoCounterPinYet(businessId: string): Promise<void> {
+    const { counterPeople } = await import('./counterPin.service');
+    if ((await counterPeople(businessId)).length > 0) {
+      throw new AppError(
+        'Este negocio ya entra con PIN desde el mostrador.',
+        403,
+        'COUNTER_PASSWORD_DISABLED'
+      );
+    }
+  }
+
+  /**
    * Quien todavía no tiene PIN de mostrador (decisión 2026-10-13) entra como
    * responsable con su contraseña y, si aplica, su 2FA — igual que un login
    * normal, pero SIN emitir nunca la sesión completa de 7 días que emitía
@@ -712,6 +730,10 @@ export class AuthService {
 
     const counterAccess = await businessStaffService.accessFor(counterUserId, input.businessId, 'counter');
     if (!counterAccess) throw new AppError('Este mostrador no pertenece a ese negocio.', 403, 'BUSINESS_PERMISSION_DENIED');
+
+    // Antes de tocar la contraseña: así esta puerta cerrada tampoco sirve de
+    // oráculo ni gasta intentos del freno.
+    await this.assertNoCounterPinYet(input.businessId);
 
     const identifierValue = input.email.toLowerCase().trim();
     const user = await this.verifyPassword(true, identifierValue, input.password, ip, req);
@@ -759,6 +781,9 @@ export class AuthService {
 
     const counterAccess = await businessStaffService.accessFor(counterUserId, input.businessId, 'counter');
     if (!counterAccess) throw new AppError('Este mostrador no pertenece a ese negocio.', 403, 'BUSINESS_PERMISSION_DENIED');
+
+    // Alguien pudo crear su PIN entre los dos pasos.
+    await this.assertNoCounterPinYet(input.businessId);
 
     let resolved: Awaited<ReturnType<typeof resolveMfaChallenge>>;
     try {

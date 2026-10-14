@@ -137,6 +137,8 @@ function toFinanceSnapshot(quote: Quote): IOrderFinance {
     platformFundedDiscount: quote.platformFundedDiscount,
     proDeliveryDiscount: quote.proDeliveryDiscount,
     proServiceFeeDiscount: quote.proServiceFeeDiscount,
+    freeDeliveryDiscount: quote.freeDeliveryDiscount,
+    autoPromotionDiscount: quote.promotionDiscount,
     taxPayable: quote.taxPayable,
     businessPayout: quote.businessPayout,
     driverPayout: quote.driverPayout,
@@ -290,6 +292,64 @@ export class OrderService {
         { $set: { isAvailable: true } }
       );
     }
+  }
+
+  /**
+   * Deshace un pedido recién creado que no llegó a quedar completo.
+   *
+   * Un pedido sin sus cupos, su libro y sus pagos a terceros no puede
+   * existir, así que cuando algo falla a mitad de `create` se devuelve todo:
+   *
+   *  · **El libro es inmutable**, no se borra: si ya se asentó el pedido
+   *    (`booked`), se asienta su reversión contra la cuenta por cobrar, con la
+   *    misma ruta que una cancelación sin cobro (`applyReversal`). Esa ruta
+   *    ya libera los cupones y anula los pagos pendientes de los
+   *    domiciliarios y comercios; si el pedido no llegó al libro, basta con
+   *    liberar los cupones.
+   *  · Los pagos a terceros y los cobros recién abiertos se borran: nunca
+   *    fueron exigibles.
+   *  · El stock apartado vuelve.
+   *
+   * Cada paso es independiente: si uno falla se anota y los demás se
+   * ejecutan igual, porque dejar a medias la limpieza es peor que no haberla
+   * intentado.
+   */
+  private async rollbackNewOrder(
+    order: IOrder,
+    reservedStock: StockReservation[],
+    booked: boolean
+  ): Promise<void> {
+    const orderId = order._id.toString();
+    const step = async (name: string, action: () => Promise<unknown>) => {
+      try {
+        await action();
+      } catch (error) {
+        console.error(`[ORDERS] Falló deshacer «${name}» del pedido ${orderId}`, error);
+      }
+    };
+
+    if (booked) {
+      await step('libro', async () => {
+        const finance = order.finance;
+        await refundService.applyReversal(
+          order,
+          allocateRefund(finance, finance.customerTotal, RefundKind.FULL),
+          finance.customerTotal,
+          RefundKind.FULL,
+          false,
+          `rollback:${orderId}`
+        );
+      });
+    }
+
+    // Incondicional: `release()` ya resuelve todas las filas de este pedido
+    // —código, automáticas, o ninguna— y es idempotente, así que repetirlo
+    // tras la reversión no devuelve nada dos veces.
+    await step('cupones', () => couponService.release(orderId));
+    await step('pagos a terceros', () => Payout.deleteMany({ orderId: order._id }));
+    await step('cobros', () => Payment.deleteMany({ orderId: order._id }));
+    await step('pedido', () => Order.deleteOne({ _id: order._id }));
+    await step('stock', () => this.undoReservation(reservedStock));
   }
 
   /**
@@ -550,63 +610,65 @@ export class OrderService {
       throw error;
     }
 
-    // Consume the coupon now that a real order exists. If it was exhausted
-    // between quoting and creating, the order is rolled back rather than
-    // silently granting a discount that is no longer available.
-    if (quote.coupon) {
-      const redeemed = await couponService.redeem(
-        quote.coupon.couponId,
-        input.clientId,
-        order._id.toString(),
-        quote.coupon.totalDiscount,
-        quote.coupon.platformFunded
-      );
-
-      if (!redeemed) {
-        await Order.deleteOne({ _id: order._id });
-        await this.undoReservation(reservedStock);
-        throw new AppError('El cupón se agotó mientras confirmabas el pedido', 409);
-      }
-    }
-
-    // Igual que el cupón de código, pero una vez por cada promoción
-    // automática que aplicó — rarísimo que se agote justo entre cotizar y
-    // crear, pero el mismo rollback aplica si pasa: mejor que confirmar un
-    // pedido con un descuento que ya no tiene presupuesto ni cupo.
-    for (const promo of quote.appliedAutoPromotions) {
-      const redeemed = await couponService.redeem(
-        promo.couponId,
-        input.clientId,
-        order._id.toString(),
-        promo.discountAmount,
-        // Siempre financiada por el comercio: forzado por el modelo.
-        0
-      );
-
-      if (!redeemed) {
-        await couponService.release(order._id.toString());
-        await Order.deleteOne({ _id: order._id });
-        await this.undoReservation(reservedStock);
-        throw new AppError('Una promoción se agotó mientras confirmabas el pedido', 409);
-      }
-    }
-
-    if (quote.appliedAutoPromotions.length > 0) {
-      order.appliedPromotionIds = quote.appliedAutoPromotions.map(
-        (p) => new mongoose.Types.ObjectId(p.couponId)
-      );
-      await order.save();
-    }
-
-    // Recognise the order in the books straight away. Revenue and payables
-    // are booked against a receivable, so a later capture only converts the
-    // receivable to cash rather than recognising anything twice.
+    // Desde aquí el pedido existe y empieza a consumir cosas: cupos de
+    // cupones, el libro, los pagos al comercio y al domiciliario. Todo va en
+    // un único bloque porque cualquier fallo —un cupo agotado entre cotizar y
+    // crear, o un error al asentar— deshace TODO lo anterior con el mismo
+    // camino: nunca queda un descuento consumido, una reserva de stock ni un
+    // asiento contable sin un pedido detrás.
+    let booked = false;
     try {
+      // Consume the coupon now that a real order exists. If it was exhausted
+      // between quoting and creating, the order is rolled back rather than
+      // silently granting a discount that is no longer available.
+      if (quote.coupon) {
+        const redeemed = await couponService.redeem(
+          quote.coupon.couponId,
+          input.clientId,
+          order._id.toString(),
+          quote.coupon.totalDiscount,
+          // Lo que gasta del presupuesto quien financia la promoción: el
+          // subsidio de ZIPP, o lo que sale de la liquidación del comercio.
+          couponService.budgetSpendOf(quote.coupon)
+        );
+
+        if (!redeemed) throw new AppError('El cupón se agotó mientras confirmabas el pedido', 409);
+      }
+
+      // Igual que el cupón de código, pero una vez por cada promoción
+      // automática que aplicó — rarísimo que se agote justo entre cotizar y
+      // crear, pero el mismo rollback aplica si pasa: mejor que confirmar un
+      // pedido con un descuento que ya no tiene presupuesto ni cupo.
+      for (const promo of quote.appliedAutoPromotions) {
+        const redeemed = await couponService.redeem(
+          promo.couponId,
+          input.clientId,
+          order._id.toString(),
+          promo.discountAmount,
+          // Siempre financiada por el comercio (forzado por el modelo): todo el
+          // descuento sale de su liquidación y consume su presupuesto.
+          promo.discountAmount
+        );
+
+        if (!redeemed) throw new AppError('Una promoción se agotó mientras confirmabas el pedido', 409);
+      }
+
+      if (quote.appliedAutoPromotions.length > 0) {
+        order.appliedPromotionIds = quote.appliedAutoPromotions.map(
+          (p) => new mongoose.Types.ObjectId(p.couponId)
+        );
+        await order.save();
+      }
+
+      // Recognise the order in the books straight away. Revenue and payables
+      // are booked against a receivable, so a later capture only converts the
+      // receivable to cash rather than recognising anything twice.
       await ledgerService.recordOrderPlaced({
         orderId: order._id,
         finance,
         businessId: order.businessId,
       });
+      booked = true;
       await payoutService.accrueForOrder(order);
 
       // El cobro en efectivo se abre junto con los libros, no al entregar:
@@ -619,15 +681,7 @@ export class OrderService {
         await paymentService.openCashPayment(order);
       }
     } catch (error) {
-      // Never leave an order without its books. Roll back and surface it.
-      // Incondicional: `release()` ya resuelve todas las filas de este
-      // pedido —código, automáticas, o ninguna— así que no hace falta
-      // saber de antemano cuál de ellas se canjeó.
-      await couponService.release(order._id.toString());
-      const { Payment } = await import('../models');
-      await Payment.deleteMany({ orderId: order._id });
-      await Order.deleteOne({ _id: order._id });
-      await this.undoReservation(reservedStock);
+      await this.rollbackNewOrder(order, reservedStock, booked);
       throw error;
     }
 

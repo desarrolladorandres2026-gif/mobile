@@ -7,6 +7,8 @@ import {
   updateCouponSchema,
   businessCouponSchema,
   updateBusinessCouponSchema,
+  previewBusinessPromotionSchema,
+  previewAdminPromotionSchema,
 } from '../validators';
 import { UserRole } from '../types';
 import { Permission } from '../security';
@@ -52,6 +54,14 @@ router.post(
   validate(businessCouponSchema),
   (req, res, next) => couponController.createMine(req, res, next)
 );
+// Simula una promoción o el envío gratis ANTES de activarlos. Solo lectura.
+router.post(
+  '/business/:businessId/preview',
+  authenticate,
+  authorize(UserRole.BUSINESS),
+  validate(previewBusinessPromotionSchema),
+  (req, res, next) => couponController.previewMine(req, res, next)
+);
 router.patch(
   '/business/:id',
   authenticate,
@@ -67,6 +77,16 @@ router.patch('/business/:id/reactivate', authenticate, authorize(UserRole.BUSINE
 );
 router.delete('/business/:id', authenticate, authorize(UserRole.BUSINESS), (req, res, next) =>
   couponController.deleteMine(req, res, next)
+);
+
+// Admin — simulación de una campaña (incluida la financiada por ZIPP). Solo lectura.
+router.post(
+  '/preview',
+  authenticate,
+  authorize(UserRole.ADMIN),
+  requirePermission(Permission.COUPONS_VIEW),
+  validate(previewAdminPromotionSchema),
+  (req, res, next) => couponController.previewAdmin(req, res, next)
 );
 
 // Admin — CRUD

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import SupportMacros from './SupportMacros';
+import HelpArticles from './HelpArticles';
 import Incidents from './Incidents';
 import { Permission } from '../lib/permissions';
 import { useAuthStore } from '../stores/authStore';
@@ -25,6 +26,13 @@ import { apiMessage } from '../lib/apiError';
 
 interface Ticket {
  _id: string;
+ /** SOP-000123: el número que el comercio dice por teléfono. */
+ code?: string;
+ category?: 'operational' | 'technical' | 'financial' | null;
+ paymentMethod?: 'online' | 'cash_on_delivery' | null;
+ /** Solo el periodo y si está pagada: los montos viven en Finanzas, con sus permisos. */
+ settlementId?: { _id: string; periodStart: string; periodEnd: string; paymentStatus?: string } | null;
+ statusHistory?: Array<{ status: 'received' | 'in_review' | 'answered' | 'closed'; at: string; actor: 'requester' | 'staff' | 'system'; resolved?: boolean }>;
  type: 'petition' | 'complaint' | 'claim' | 'suggestion';
  subject: string;
  detail: string;
@@ -91,10 +99,31 @@ const TYPE_LABEL: Record<Ticket['type'], string> = {
 
 const REASON_LABEL = {
  driver_no_show: 'El domiciliario no llegó',
- order_issue: 'Problema con el pedido',
+ driver_issue: 'Problema con el domiciliario',
+ order_issue: 'Inconsistencia en el pedido',
+ preparation_issue: 'Inconveniente en la preparación',
+ order_status_error: 'Error en el estado del pedido',
  customer_unreachable: 'El cliente no responde',
+ order_payment_cancel: 'Pago o cancelación del pedido',
+ settlement_difference: 'Diferencia en liquidación',
+ wrong_commission: 'Comisión incorrecta',
+ unidentified_payment: 'Pago no identificado',
+ cancelled_order_adjustment: 'Ajuste por pedido cancelado',
+ refund_question: 'Duda sobre reembolso',
+ panel_issue: 'Falla técnica',
  payment: 'Cobro o liquidación',
  account: 'Cuenta o local',
+} as const;
+
+const CATEGORY_LABEL = { operational: 'Operativo', technical: 'Técnico y cuenta', financial: 'Financiero' } as const;
+
+const PAYMENT_METHOD_LABEL = { online: 'Pago en línea', cash_on_delivery: 'Pago en efectivo' } as const;
+
+const STATUS_STEP = {
+ received: 'Recibido',
+ in_review: 'En revisión',
+ answered: 'Respondido (espera al solicitante)',
+ closed: 'Cerrado',
 } as const;
 
 const REQUESTER_LABEL: Record<NonNullable<Ticket['requesterRole']>, string> = {
@@ -153,11 +182,12 @@ export default function Support() {
  const [refundReason, setRefundReason] = useState('');
  const myId = useAuthStore((state) => state.user?._id);
  const [type, setType] = useState('');
+ const [category, setCategory] = useState('');
  const [requester, setRequester] = useState('');
  const [search, setSearch] = useState('');
  const [term, setTerm] = useState('');
  const [macros, setMacros] = useState<Macro[]>([]);
- const [panel, setPanel] = useState<'macros' | 'incidents' | null>(null);
+ const [panel, setPanel] = useState<'macros' | 'incidents' | 'help' | null>(null);
  const agentName = useAuthStore((state) => state.user?.name);
  const [reply, setReply] = useState('');
  const [error, setError] = useState('');
@@ -174,6 +204,7 @@ export default function Support() {
  if (scope === 'unassigned') params.unassigned = 'true';
  if (scope === 'refund') params.refundRequested = 'true';
  if (type) params.type = type;
+ if (category) params.category = category;
  if (requester) params.requesterRole = requester;
  if (term) params.q = term;
  const [queue, stats] = await Promise.all([
@@ -189,7 +220,7 @@ export default function Support() {
  } finally {
  setLoading(false);
  }
- }, [onlyOverdue, onlyLegalOverdue, view, scope, limit, myId, type, requester, term]);
+ }, [onlyOverdue, onlyLegalOverdue, view, scope, limit, myId, type, category, requester, term]);
 
  useLiveReload(['support'], load);
  useEffect(() => {
@@ -284,7 +315,7 @@ export default function Support() {
  >
  ← Volver a la bandeja
  </button>
- {panel === 'macros' ? <SupportMacros /> : <Incidents />}
+ {panel === 'macros' ? <SupportMacros /> : panel === 'help' ? <HelpArticles /> : <Incidents />}
  </div>
  );
  }
@@ -308,13 +339,16 @@ export default function Support() {
  <div className="max-w-2xl space-y-4">
  <div className="space-y-1.5">
  <div className="flex flex-wrap items-center gap-2">
- <h2 className="text-lg font-bold text-[var(--color-text-main)]">{selected.subject}</h2>
+ <h2 className="text-lg font-bold text-[var(--color-text-main)]">
+ {selected.code ? <span className="mr-2 text-xs font-semibold tracking-wider opacity-70">{selected.code}</span> : null}
+ {selected.subject}
+ </h2>
  <span className={`text-[11px] font-bold uppercase tracking-wider ${PRIORITY[selected.priority].tone}`}>
  {PRIORITY[selected.priority].label}
  </span>
  </div>
  <p className="text-xs uppercase tracking-wider text-[var(--color-text-main)] opacity-70">
- {TYPE_LABEL[selected.type]}{selected.reason ? ` (${REASON_LABEL[selected.reason]})` : ''} · {REQUESTER_LABEL[selected.requesterRole ?? 'customer']} ·{' '}
+ {selected.category ? `${CATEGORY_LABEL[selected.category]} · ` : ''}{TYPE_LABEL[selected.type]}{selected.reason ? ` (${REASON_LABEL[selected.reason]})` : ''} · {REQUESTER_LABEL[selected.requesterRole ?? 'customer']} ·{' '}
  <EntityLink type="user" id={userIdOf(selected.userId)}>{nameOf(selected.userId) ?? 'Usuario'}</EntityLink> ·{' '}
  {nameOf(selected.assignedTo) ? `lo lleva ${nameOf(selected.assignedTo)}` : 'sin asignar'}
  </p>
@@ -356,6 +390,13 @@ export default function Support() {
  <p className="text-xs text-[var(--color-text-main)]">
  Teléfono:{' '}
  <a href={`tel:${phoneOf(selected.userId)}`} className="font-semibold underline">{phoneOf(selected.userId)}</a>
+ </p>
+ ) : null}
+ {selected.paymentMethod || selected.settlementId ? (
+ <p className="text-xs text-[var(--color-text-main)]">
+ {selected.paymentMethod ? PAYMENT_METHOD_LABEL[selected.paymentMethod] : null}
+ {selected.paymentMethod && selected.settlementId ? ' · ' : null}
+ {selected.settlementId ? `Liquidación del ${shortDate(selected.settlementId.periodStart)} al ${shortDate(selected.settlementId.periodEnd)}${selected.settlementId.paymentStatus === 'paid' ? ' (pagada)' : ''}` : null}
  </p>
  ) : null}
  {(selected.orderId || selected.businessId || selected.driverId) && (
@@ -539,6 +580,21 @@ export default function Support() {
  </section>
  ) : null}
 
+ {selected.statusHistory?.length ? (
+ <details className="border-t border-[var(--color-border-light)] pt-4">
+ <summary className="cursor-pointer text-sm font-bold text-[var(--color-text-main)]">Historial de estados</summary>
+ <ol className="space-y-1 pt-2 text-xs text-[var(--color-text-main)]">
+ {selected.statusHistory.map((entry, index) => (
+ <li key={index}>
+ <span className="font-semibold">{STATUS_STEP[entry.status]}{entry.resolved ? ' (confirmado por el solicitante)' : ''}</span>
+ {' · '}{new Date(entry.at).toLocaleString('es-CO')}
+ {' · '}{entry.actor === 'requester' ? 'Solicitante' : entry.actor === 'staff' ? 'Personal de soporte' : 'Sistema'}
+ </li>
+ ))}
+ </ol>
+ </details>
+ ) : null}
+
  <section className="space-y-2 border-t border-[var(--color-border-light)] pt-4">
  <h3 className="text-sm font-bold text-[var(--color-text-main)]">Notas internas</h3>
  <InternalNotes entityType="pqrs" entityId={selected._id} />
@@ -617,6 +673,15 @@ export default function Support() {
  {Object.entries(TYPE_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
  </select>
  <select
+ value={category}
+ onChange={(e) => setCategory(e.target.value)}
+ aria-label="Categoría"
+ className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ >
+ <option value="">Todas las categorías</option>
+ {Object.entries(CATEGORY_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+ </select>
+ <select
  value={requester}
  onChange={(e) => setRequester(e.target.value)}
  className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
@@ -627,7 +692,7 @@ export default function Support() {
  <input
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- placeholder="Asunto, nombre, teléfono o n.º de pedido"
+ placeholder="Asunto, SOP-000123, nombre, teléfono o pedido"
  className="w-56 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
  />
  <button
@@ -635,6 +700,12 @@ export default function Support() {
  className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)] underline"
  >
  Respuestas predefinidas
+ </button>
+ <button
+ onClick={() => setPanel('help')}
+ className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)] underline"
+ >
+ Centro de ayuda
  </button>
  <PermissionGate permission={Permission.ADMIN_PANEL}>
  <button
@@ -685,7 +756,7 @@ export default function Support() {
  <tr className="text-left">
  <th className="table-header-cell">De</th>
  <th className="table-header-cell">Asunto</th>
- <th className="table-header-cell">Tipo</th>
+ <th className="table-header-cell">Categoría</th>
  <th className="table-header-cell">Prioridad</th>
  <th className="table-header-cell">Plazo</th>
  <th className="table-header-cell">Asignado</th>
@@ -706,8 +777,11 @@ export default function Support() {
  className="cursor-pointer hover:!bg-[var(--color-bg-alt)] transition-colors"
  >
  <td className={`table-body-cell ${unanswered ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}>{from}</td>
- <td className="table-body-cell text-[var(--color-text-main)]">{ticket.subject}</td>
- <td className="table-body-cell text-[var(--color-text-main)]">{TYPE_LABEL[ticket.type]}</td>
+ <td className="table-body-cell text-[var(--color-text-main)]">
+ {ticket.code ? <span className="mr-2 text-[11px] opacity-70">{ticket.code}</span> : null}
+ {ticket.subject}
+ </td>
+ <td className="table-body-cell text-[var(--color-text-main)]">{ticket.category ? CATEGORY_LABEL[ticket.category] : TYPE_LABEL[ticket.type]}</td>
  <td className={`table-body-cell ${PRIORITY[ticket.priority].tone}`}>{PRIORITY[ticket.priority].label}</td>
  <td className={`table-body-cell ${ticket.legalOverdue || due?.overdue ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
  {ticket.legalOverdue ? 'Plazo legal vencido' : due?.overdue ? 'SLA vencido' : due?.text ?? '—'}

@@ -205,7 +205,7 @@ export default function RoleSummary() {
   const heading = data ? TITLES[data.kind] : { title: 'Resumen del día', subtitle: '' };
 
   return (
-    <div className="flex flex-1 flex-col gap-6">
+    <div className="flex flex-1 flex-col gap-8">
       <div className="page-header !mb-0">
         <div>
           <h1 className="page-title">{heading.title}</h1>
@@ -246,52 +246,55 @@ export default function RoleSummary() {
         query.isPending && <BigStats items={queueItems({ pending: 0, preparing: 0, ready: 0, onTheWay: 0 }).map((i) => ({ ...i, loading: true }))} />
       ) : (
         <>
-          <section className="flex flex-1 flex-col">
+          <section>
             <h2 className="col-title">Pedidos abiertos ahora</h2>
             <BigStats items={queueItems(data.queue, data.kind === 'operations' ? undefined : data.attention)} />
           </section>
 
           {data.kind !== 'operations' && (
-            <section className="flex flex-1 flex-col">
-              <h2 className="col-title">Tenlo presente</h2>
-              <BigStats items={presentItems(data.attention, store)} />
-            </section>
+            <div className="grid gap-x-12 gap-y-8 lg:grid-cols-2">
+              <section>
+                <h2 className="col-title">Tenlo presente</h2>
+                <BigStats items={presentItems(data.attention, store)} />
+              </section>
+
+              {data.kind === 'kitchen' && (
+                <section>
+                  <h2 className="col-title">Cerrados hoy</h2>
+                  <BigStats
+                    items={[
+                      { label: 'Completados', value: num(data.ordersDelivered) },
+                      { label: 'Cancelados', value: num(data.ordersCancelled) },
+                    ]}
+                  />
+                </section>
+              )}
+
+              {data.kind === 'shift' && (
+                <section>
+                  <h2 className="col-title">Ventas de hoy</h2>
+                  <BigStats
+                    items={[
+                      { label: 'Vendido', value: money(data.sales), hint: plural(data.ordersDelivered, 'pedido entregado', 'pedidos entregados'), strong: true },
+                      ...data.byPaymentMethod.map((row) => ({
+                        label: row.method === 'cash_on_delivery' ? 'Efectivo' : 'Pago en línea',
+                        value: money(row.sales),
+                        hint: plural(row.orders, 'pedido', 'pedidos'),
+                      })),
+                      { label: 'Pendiente', value: money(data.pendingSales), hint: plural(data.pendingOrders, 'pedido abierto', 'pedidos abiertos') },
+                      { label: 'Cancelados', value: num(data.ordersCancelled) },
+                    ]}
+                  />
+                </section>
+              )}
+            </div>
           )}
 
-          {data.kind === 'kitchen' && (
-            <section className="flex flex-1 flex-col">
-              <h2 className="col-title">Cerrados hoy</h2>
-              <BigStats
-                items={[
-                  { label: 'Completados', value: num(data.ordersDelivered) },
-                  { label: 'Cancelados', value: num(data.ordersCancelled) },
-                ]}
-              />
-            </section>
-          )}
-
-          {data.kind === 'shift' && (
-            <section className="flex flex-1 flex-col">
-              <h2 className="col-title">Ventas de hoy</h2>
-              <BigStats
-                items={[
-                  { label: 'Vendido', value: money(data.sales), hint: plural(data.ordersDelivered, 'pedido entregado', 'pedidos entregados'), strong: true },
-                  ...data.byPaymentMethod.map((row) => ({
-                    label: row.method === 'cash_on_delivery' ? 'Efectivo' : 'Pago en línea',
-                    value: money(row.sales),
-                    hint: plural(row.orders, 'pedido', 'pedidos'),
-                  })),
-                  { label: 'Pendiente', value: money(data.pendingSales), hint: plural(data.pendingOrders, 'pedido abierto', 'pedidos abiertos') },
-                  { label: 'Cancelados', value: num(data.ordersCancelled) },
-                ]}
-              />
-              <ShiftClosingsList businessId={businessId} date={data.date} />
-            </section>
-          )}
+          {data.kind === 'shift' && <ShiftClosingsList businessId={businessId} date={data.date} />}
 
           {data.kind === 'operations' && (
             <>
-              <section className="flex flex-1 flex-col">
+              <section>
                 <h2 className="col-title">El día</h2>
                 <BigStats
                   items={[

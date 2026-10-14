@@ -5,7 +5,7 @@ import { pushService } from './push.service';
 import { businessDaysUntil } from '../utils';
 import { notifyAlertsChanged } from './alerts.service';
 import { storePrivateFile, signedPrivateUrl } from './privateStorage.service';
-import { LEGAL_DUE_SOON_BUSINESS_DAYS, SLA_HOURS, defaultPriority, PqrsPriority } from './pqrs.service';
+import { LEGAL_DUE_SOON_BUSINESS_DAYS, SLA_HOURS, defaultPriority, PqrsPriority, recordStatus, parseCaseCode, caseCode } from './pqrs.service';
 
 /**
  * Centro de soporte.
@@ -37,6 +37,7 @@ export interface QueueOptions {
   unassigned?: boolean;
   /** Solo los que tienen una solicitud de reembolso pendiente con Finanzas. */
   refundRequested?: boolean;
+  category?: 'operational' | 'technical' | 'financial';
   /** Tope de filas; por defecto 100. */
   limit?: number;
 }
@@ -93,6 +94,7 @@ export class SupportService {
     );
 
     if (!ticket) throw new AppError('Caso no encontrado', 404);
+    await recordStatus(ticket._id, 'in_review', 'staff');
     return ticket;
   }
 
@@ -117,6 +119,7 @@ export class SupportService {
     if (ticket.status === 'received') ticket.status = 'in_review';
 
     await ticket.save();
+    await recordStatus(ticket._id, ticket.status, 'staff');
 
     // El cliente se entera en el momento. Un caso respondido que nadie ve
     // es un caso sin responder.
@@ -164,6 +167,7 @@ export class SupportService {
     if (ticket.status === 'answered') {
       await Pqrs.updateOne({ _id: pqrsId, status: 'answered' }, { $set: { status: 'in_review' } });
       ticket.status = 'in_review';
+      await recordStatus(pqrsId, 'in_review', 'requester');
     }
     void notifyAlertsChanged('pqrs');
     return ticket;
@@ -181,6 +185,7 @@ export class SupportService {
       { new: true }
     );
     if (!ticket) throw new AppError('Solo puedes confirmar un caso que ya respondimos', 409);
+    await recordStatus(ticket._id, 'closed', 'requester', true);
     void notifyAlertsChanged('pqrs');
     return ticket;
   }
@@ -215,6 +220,7 @@ export class SupportService {
     if (!ticket) {
       throw new AppError(`No se puede reabrir: pasaron más de ${REOPEN_WINDOW_DAYS} días, ya se reabrió ${MAX_REOPENS} veces o el caso no es tuyo`, 409);
     }
+    await recordStatus(ticket._id, 'in_review', 'requester');
     void notifyAlertsChanged('pqrs');
     return ticket;
   }
@@ -270,6 +276,7 @@ export class SupportService {
       { new: true }
     );
     if (!ticket) throw new AppError('Solo se reabren casos cerrados', 409);
+    await recordStatus(ticket._id, 'in_review', 'staff');
     void notifyAlertsChanged('pqrs');
     return ticket;
   }
@@ -324,6 +331,7 @@ export class SupportService {
     );
 
     if (!ticket) throw new AppError('Caso no encontrado', 404);
+    await recordStatus(ticket._id, 'closed', 'staff');
     return ticket;
   }
 
@@ -346,6 +354,7 @@ export class SupportService {
     if (options.onlyOverdue) filter.dueAt = { $lt: new Date() };
     if (options.onlyLegalOverdue) filter.legalDueAt = { $lt: new Date() };
     if (options.type) filter.type = options.type;
+    if (options.category) filter.category = options.category;
     if (options.requesterRole) filter.requesterRole = options.requesterRole;
     if (options.q) {
       // El término del usuario nunca entra crudo en una expresión regular.
@@ -355,9 +364,11 @@ export class SupportService {
         User.find({ $or: [{ name: rx }, { phone: rx }] }).select('_id').limit(50).lean(),
         Order.find({ orderNumber: rx }).select('_id').limit(50).lean(),
       ]);
+      const code = parseCaseCode(options.q);
       filter.$or = [
         { subject: rx },
         { detail: rx },
+        ...(code ? [{ ticketNumber: code }] : []),
         ...(users.length ? [{ userId: { $in: users.map((u) => u._id) } }] : []),
         ...(orders.length ? [{ orderId: { $in: orders.map((o) => o._id) } }] : []),
       ];
@@ -370,6 +381,8 @@ export class SupportService {
       .populate('assignedTo', 'name')
       .populate('orderId', 'orderNumber status')
       .populate('businessId', 'name')
+      // Solo el periodo y si está pagada: lo que dice cuánto se debe vive en Finanzas, con sus permisos.
+      .populate('settlementId', 'periodStart periodEnd paymentStatus')
       .populate({ path: 'driverId', select: 'userId', populate: { path: 'userId', select: 'name' } })
       .lean();
 
@@ -378,6 +391,7 @@ export class SupportService {
       const daysLeft = row.legalDueAt ? businessDaysUntil(row.legalDueAt, now) : null;
       return {
         ...row,
+        code: caseCode(row),
         legalOverdue: daysLeft != null && daysLeft < 0,
         legalDueSoon: daysLeft != null && daysLeft >= 0 && daysLeft <= LEGAL_DUE_SOON_BUSINESS_DAYS,
       };

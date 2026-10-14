@@ -77,7 +77,13 @@ export class PricingConfigService {
   invalidate(): void {
     this.cached = null;
     this.cachedAt = 0;
+    // Una carga en vuelo empezó antes de este cambio: lo que lea puede ser la
+    // versión anterior y no debe quedarse en la caché.
+    this.generation += 1;
+    this.loading = null;
   }
+
+  private generation = 0;
 
   /**
    * Returns the active config, bootstrapping version 1 from the current
@@ -92,14 +98,44 @@ export class PricingConfigService {
     const fresh = Date.now() - this.cachedAt < PricingConfigService.CACHE_TTL_MS;
     if (this.cached && fresh) return this.cached;
 
-    let current: PricingConfigDoc | null = await PlatformPricingConfig.findOne({
-      isCurrent: true,
-    }).sort({ version: -1 });
+    // Varias lecturas a la vez comparten UNA carga. Con la base vacía, dos
+    // lecturas simultáneas (una oferta que pide la configuración desde dos
+    // sitios en paralelo) intentaban crear las dos la versión 1 y la segunda
+    // chocaba con el índice único: un 409 en la primera petición de la vida.
+    if (!this.loading) {
+      const mine = this.load();
+      this.loading = mine;
+      void mine.then(
+        () => { if (this.loading === mine) this.loading = null; },
+        () => { if (this.loading === mine) this.loading = null; }
+      );
+    }
+    return this.loading;
+  }
 
-    if (!current) current = await this.bootstrap();
+  private loading: Promise<PricingConfigDoc> | null = null;
 
-    this.cached = current;
-    this.cachedAt = Date.now();
+  private async load(): Promise<PricingConfigDoc> {
+    const generation = this.generation;
+    const findCurrent = () => PlatformPricingConfig.findOne({ isCurrent: true }).sort({ version: -1 });
+
+    let current: PricingConfigDoc | null = await findCurrent();
+    if (!current) {
+      try {
+        current = await this.bootstrap();
+      } catch (error) {
+        // Otro proceso creó la versión 1 entre la lectura y la escritura: la
+        // suya es la buena.
+        if ((error as { code?: number }).code !== 11000) throw error;
+        current = await findCurrent();
+        if (!current) throw error;
+      }
+    }
+
+    if (generation === this.generation) {
+      this.cached = current;
+      this.cachedAt = Date.now();
+    }
     return current;
   }
 

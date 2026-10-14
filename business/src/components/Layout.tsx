@@ -45,7 +45,7 @@ const nav = [
   { path: '/staff', Icon: PeopleRegular, label: 'Equipo' },
   { path: '/documents', Icon: DocumentRegular, label: 'Documentos' },
   { path: '/support', Icon: ChatRegular, label: 'Soporte' },
-  { path: '/settings', Icon: SettingsRegular, label: 'Ajustes' },
+  { path: '/settings', Icon: SettingsRegular, label: 'Personalización' },
 ];
 
 export default function Layout() {
