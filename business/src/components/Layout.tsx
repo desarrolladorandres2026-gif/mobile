@@ -1,7 +1,8 @@
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   AlertCircle, LogOut,
-  ChevronDown
+  ChevronDown, CalendarDays, CalendarClock, Package, Wallet, Utensils, Tag,
+  Megaphone, Star, Users, FileText, MessageCircle, Settings,
 } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
@@ -18,14 +19,8 @@ import { canSee, homeFor } from '../lib/permissions';
 import PendingInvitations from './PendingInvitations';
 import CounterSwitch from './CounterSwitch';
 import StoreStatusButton from './StoreStatusButton';
-import ThemeButton from './ThemeButton';
 import { revokeServerSessions } from '../lib/session';
 import { useSupportAttention } from '../hooks/useSupportAttention';
-import {
-  CalendarLtrRegular, CalendarClockRegular, BoxRegular, WalletRegular,
-  FoodRegular, TagRegular, MegaphoneRegular, StarRegular,
-  PeopleRegular, DocumentRegular, ChatRegular, SettingsRegular,
-} from '@fluentui/react-icons';
 
 /**
  * La barra está siempre en pantalla, sea cual sea el ancho: una columna fija
@@ -34,18 +29,18 @@ import {
  */
 
 const nav = [
-  { path: '/', Icon: CalendarLtrRegular, label: 'Resumen del día' },
-  { path: '/orders', Icon: BoxRegular, label: 'Pedidos' },
-  { path: '/scheduled', Icon: CalendarClockRegular, label: 'Programados' },
-  { path: '/settlements', Icon: WalletRegular, label: 'Liquidaciones' },
-  { path: '/menu', Icon: FoodRegular, label: 'Menú & Catálogo' },
-  { path: '/promotions', Icon: TagRegular, label: 'Promociones' },
-  { path: '/advertising', Icon: MegaphoneRegular, label: 'Publicidad' },
-  { path: '/reviews', Icon: StarRegular, label: 'Reseñas' },
-  { path: '/staff', Icon: PeopleRegular, label: 'Equipo' },
-  { path: '/documents', Icon: DocumentRegular, label: 'Documentos' },
-  { path: '/support', Icon: ChatRegular, label: 'Soporte' },
-  { path: '/settings', Icon: SettingsRegular, label: 'Personalización' },
+  { path: '/', Icon: CalendarDays, label: 'Resumen del día' },
+  { path: '/orders', Icon: Package, label: 'Pedidos' },
+  { path: '/scheduled', Icon: CalendarClock, label: 'Programados' },
+  { path: '/settlements', Icon: Wallet, label: 'Liquidaciones' },
+  { path: '/menu', Icon: Utensils, label: 'Menú & Catálogo' },
+  { path: '/promotions', Icon: Tag, label: 'Promociones' },
+  { path: '/advertising', Icon: Megaphone, label: 'Publicidad' },
+  { path: '/reviews', Icon: Star, label: 'Reseñas' },
+  { path: '/staff', Icon: Users, label: 'Equipo' },
+  { path: '/documents', Icon: FileText, label: 'Documentos' },
+  { path: '/support', Icon: MessageCircle, label: 'Soporte' },
+  { path: '/settings', Icon: Settings, label: 'Personalización' },
 ];
 
 export default function Layout() {
@@ -240,7 +235,7 @@ export default function Layout() {
                     }`}
                 >
                   <span className="flex w-full min-w-0 flex-col items-center justify-center gap-1 text-center">
-                    <item.Icon className="sidebar-icon shrink-0 text-[26px] sm:text-[30px]" />
+                    <item.Icon className="sidebar-icon shrink-0 size-[26px] sm:size-[30px]" strokeWidth={1.6} />
                     {item.path === '/support' && supportWaiting > 0 && (
                       <span
                         className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-[var(--color-primary)]"
@@ -265,7 +260,7 @@ export default function Layout() {
               {pauseError}
             </p>
           )}
-          {/* Tres partes iguales y discretas: salir, tema y abrir/cerrar el local. */}
+          {/* Dos partes iguales y discretas: salir y abrir/cerrar el local. */}
           <div className="flex">
             <button
               onClick={() => setShowLogoutModal(true)}
@@ -275,7 +270,6 @@ export default function Layout() {
             >
               <LogOut className="w-5 h-5" strokeWidth={1.8} />
             </button>
-            <ThemeButton />
             <StoreStatusButton
               compact
               business={selectedBusiness}
@@ -334,7 +328,7 @@ export default function Layout() {
                 </div>
               }
             >
-              <Outlet />
+              <Outlet key={selectedBusiness?._id} />
             </Suspense>
           </div>
         </div>

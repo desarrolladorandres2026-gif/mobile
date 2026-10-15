@@ -2663,7 +2663,12 @@ export function startPendingPaymentSweeper(intervalMs = 5 * 60_000): void {
       // Primero se le pregunta a la pasarela y solo después se cierra lo que
       // sigue sin pagar: así un cobro que sí entró no se cancela.
       .then(() => import('../order.service'))
-      .then(({ orderService }) => orderService.cancelAbandonedOnlineOrders())
+      .then(async ({ orderService }) => {
+        // Barridos independientes: que falle uno no deja al otro sin correr.
+        await orderService.cancelAbandonedOnlineOrders()
+          .catch((err) => console.error('[PAYMENTS] Falló el barrido de pedidos abandonados:', err));
+        await orderService.cancelUnacceptedOrders();
+      })
       .catch((err) => console.error('[PAYMENTS] Falló el barrido de cobros pendientes:', err));
   }, intervalMs);
   // Que un temporizador de fondo no impida cerrar el proceso.

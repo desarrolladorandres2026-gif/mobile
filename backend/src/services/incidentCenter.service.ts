@@ -233,7 +233,7 @@ export class IncidentCenterService {
           .sort({ becamePayableAt: 1 })
           .limit(30)
           .populate('businessId', 'name')
-          .select('amount reversedAmount businessId orderId becamePayableAt')
+          .select('amount consumedAmount businessId orderId becamePayableAt')
           .lean()
       ),
 
@@ -455,7 +455,7 @@ export class IncidentCenterService {
         }),
 
       ...overdueClawbacks.map((c: any) => {
-        const net = Math.max(0, (c.amount ?? 0) - (c.reversedAmount ?? 0));
+        const net = Math.max(0, (c.amount ?? 0) - (c.consumedAmount ?? 0));
         const days = Math.floor((Date.now() - new Date(c.becamePayableAt).getTime()) / 86_400_000);
         return {
           kind: 'clawback_overdue' as const,

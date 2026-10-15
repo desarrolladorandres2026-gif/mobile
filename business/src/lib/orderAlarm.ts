@@ -21,19 +21,15 @@ export interface EscalationInput {
 }
 
 /**
- * TODO(usuario): decide cuándo el timbre pasa de normal a urgente.
- *
- * Es una decisión de negocio, no técnica: ¿cuánto es "demasiado" sin que el
- * comercio acepte? Piensa en un pedido que se enfría mientras tanto y en el
- * ruido que tolera una cocina. Como referencia, el tablero ya pinta ámbar a
- * los 10 min y rojo a los 20 (`OrderBoard.tsx`). Puedes usar solo el tiempo,
- * o también cuántos pedidos se acumulan (`ringingCount`).
- *
- * Mientras no la escribas, el timbre nunca escala.
+ * Cuándo el timbre pasa de normal a urgente. Decisión del usuario
+ * (2026-10-15): 3 minutos sin que el comercio atienda el pedido más viejo.
+ * El tablero pinta ámbar a los 10 min y rojo a los 20 (`OrderBoard.tsx`);
+ * el oído avisa antes que el color.
  */
-export function escalationPolicy(input: EscalationInput): RingPattern {
-  void input;
-  return 'normal';
+export const URGENT_AFTER_MINUTES = 3;
+
+export function escalationPolicy({ oldestWaitingMinutes }: EscalationInput): RingPattern {
+  return oldestWaitingMinutes >= URGENT_AFTER_MINUTES ? 'urgent' : 'normal';
 }
 
 /** Pedidos en línea sin pagar no se aceptan: la cocina no los ve todavía. */

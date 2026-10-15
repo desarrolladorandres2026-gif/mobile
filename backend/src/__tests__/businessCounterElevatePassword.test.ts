@@ -5,6 +5,7 @@ import app from '../app';
 import { BusinessStaff, BusinessRole, User } from '../models';
 import { Session } from '../security/sessions';
 import { UserRole } from '../types';
+import { hashPassword } from '../security/password';
 import { makeUser, makeBusiness, makePricingConfig, authHeader, counterAuthHeader } from './factories';
 
 /**
@@ -171,8 +172,10 @@ describe('Equipo desde una entrada de mostrador', () => {
   });
 });
 
-describe('La contraseña es solo el arranque (2026-10-14)', () => {
-  it('con un PIN ya creado en el negocio, la contraseña se rechaza antes de mirarla', async () => {
+describe('Puerta de la contraseña desde el mostrador (A1, 2026-10-14)', () => {
+  const COUNTER_KEY = 'Mostrador.Local456';
+
+  it('con un PIN en el negocio y sin 2FA ni clave de mostrador, se rechaza con la contraseña buena', async () => {
     await User.updateOne({ _id: owner._id }, { counterPinSetAt: new Date() });
     const res = await elevatePassword(owner);
     expect(res.status).toBe(403);
@@ -180,10 +183,47 @@ describe('La contraseña es solo el arranque (2026-10-14)', () => {
     expect(await Session.countDocuments({ userId: owner._id.toString(), elevatedFrom: { $ne: null } })).toBe(0);
   });
 
-  it('la contraseña equivocada tampoco gasta intentos del freno una vez cerrada', async () => {
+  it('la puerta cerrada no sirve de oráculo: contraseña equivocada sigue siendo 401', async () => {
     await User.updateOne({ _id: owner._id }, { counterPinSetAt: new Date() });
     const res = await elevatePassword(owner, 'No.Es.Esta999');
-    expect(res.status).toBe(403);
-    expect(code(res)).toBe('COUNTER_PASSWORD_DISABLED');
+    expect(res.status).toBe(401);
+  });
+
+  it('con PIN y 2FA activo, la contraseña abre la puerta (pide el código)', async () => {
+    const header = await authHeader(owner);
+    const setup = await request(app).post(`${API}/auth/2fa/setup`).set(header).send({ currentPassword: PASSWORD }).expect(200);
+    await request(app).post(`${API}/auth/2fa/verify`).set(header)
+      .send({ token: speakeasy.totp({ secret: setup.body.data.secret, encoding: 'base32' }) }).expect(200);
+    await User.updateOne({ _id: owner._id }, { counterPinSetAt: new Date() });
+
+    const first = await elevatePassword(owner);
+    expect(first.status).toBe(200);
+    expect(first.body.data.requiresTOTP).toBe(true);
+
+    const second = await request(app).post(`${API}/auth/counter/elevate-password/totp`).set(await counterAuthHeader(owner))
+      .send({
+        businessId: bid(),
+        challengeToken: first.body.data.challengeToken,
+        code: speakeasy.totp({ secret: setup.body.data.secret, encoding: 'base32', time: Math.floor(Date.now() / 1000) + 30 }),
+      });
+    expect(second.status).toBe(200);
+  });
+
+  it('con clave de mostrador fijada, la contraseña personal abre la puerta aunque haya PIN y no haya 2FA', async () => {
+    await User.updateOne({ _id: owner._id }, { counterPinSetAt: new Date(), counterPasswordHash: await hashPassword(COUNTER_KEY), counterPasswordSetAt: new Date() });
+    const res = await elevatePassword(owner);
+    expect(res.status).toBe(200);
+    expect(res.body.data.accessToken).toBeTruthy();
+  });
+
+  it('con clave de mostrador fijada, la clave del mostrador NO sube a responsable', async () => {
+    await User.updateOne({ _id: owner._id }, { counterPasswordHash: await hashPassword(COUNTER_KEY), counterPasswordSetAt: new Date() });
+    const res = await elevatePassword(owner, COUNTER_KEY);
+    expect(res.status).toBe(401);
+    expect(await Session.countDocuments({ userId: owner._id.toString(), elevatedFrom: { $ne: null } })).toBe(0);
+  });
+
+  it('sin PIN en el negocio sigue siendo el arranque: entra', async () => {
+    expect((await elevatePassword(owner)).status).toBe(200);
   });
 });

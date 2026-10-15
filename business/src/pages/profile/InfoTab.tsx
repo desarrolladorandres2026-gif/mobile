@@ -1,11 +1,17 @@
-import { lazy, Suspense } from 'react';
-import { Check } from 'lucide-react';
+import { lazy, Suspense, useState, type ComponentType } from 'react';
+import { Check, MapPin, Navigation, Phone } from 'lucide-react';
 import { BRAND_COLORS } from '../../lib/brandColors';
 import type { LatLng } from '../../components/BusinessLocationField';
 import DateRangeField from '../../components/DateRangeField';
 import NumericInput from '../../components/NumericInput';
 import ScheduleFields from '../../components/ScheduleFields';
 import PromotionSimulation from '../../components/PromotionSimulation';
+import Toggle from '../../components/Toggle';
+import { Chip } from '../../components/promotion/ui';
+import {
+  DEFAULT_CLOSE, DEFAULT_OPEN, SCHEDULE_PRESETS, applyPreset, copyHoursToOpenDays, dayProblem, profileChecklist,
+  type ChecklistItem,
+} from '../../lib/businessSchedule';
 
 // Leaflet (el mapa del punto de recogida) solo lo usa esta pestaña y pesa
 // más que el resto del panel junto: se descarga al abrir Información.
@@ -82,6 +88,9 @@ interface Props {
   city: string;
   rating: number;
   totalReviews: number;
+  /** Para el avance de la ficha: el logo y la portada se editan en la cabecera de `Profile`. */
+  hasLogo: boolean;
+  hasCover: boolean;
 }
 
 export default function InfoTab({
@@ -98,10 +107,16 @@ export default function InfoTab({
   phone, setPhone,
   brandColor, setBrandColor,
   showPromoBanner, setShowPromoBanner,
-  editing, category, city, rating, totalReviews,
+  editing, category, city, rating, totalReviews, hasLogo, hasCover,
 }: Props) {
+  const checklist = profileChecklist({
+    description, phone, address, hasLocation: !!location, schedule, hasLogo, hasCover,
+  });
+
   if (!editing) {
     return (
+      <div className="space-y-6">
+      <Completeness items={checklist} />
       <InfoView
         description={description}
         category={category}
@@ -116,6 +131,7 @@ export default function InfoTab({
         minOrder={minOrder}
         deliveryTime={deliveryTime}
       />
+      </div>
     );
   }
 
@@ -126,6 +142,8 @@ export default function InfoTab({
   const openDays = DAYS.filter((d) => schedule[d.key]?.isOpen).length;
 
   return (
+    <div className="space-y-6">
+    <Completeness items={checklist} />
     <div className="cols3">
       <Block
         title="Tu ficha"
@@ -160,7 +178,7 @@ export default function InfoTab({
 
         <Field
           label="Descripción"
-          hint="Va debajo de tu nombre y sirve para que te encuentren: di qué vendes con las palabras de quien te busca."
+          hint={`Va debajo de tu nombre y sirve para que te encuentren: di qué vendes con las palabras de quien te busca. ${description.length} de 500.`}
         >
           <textarea
             value={description}
@@ -189,15 +207,10 @@ export default function InfoTab({
               />
             ))}
           </div>
+          <HeaderPreview color={brandColor} name={name} category={category} hasCover={hasCover} />
         </Field>
 
-        <label className="flex items-start gap-3 cursor-pointer py-3">
-          <input
-            type="checkbox"
-            checked={showPromoBanner}
-            onChange={(e) => setShowPromoBanner(e.target.checked)}
-            className="accent-[var(--color-primary)] cursor-pointer mt-0.5"
-          />
+        <div className="flex items-start justify-between gap-4 py-3">
           <span className="space-y-0.5">
             <span className="block text-xs font-semibold text-[var(--color-text-main)]">
               Mostrar la franja de envío gratis
@@ -206,7 +219,8 @@ export default function InfoTab({
               Zipp arma el texto con tus datos. Si no tienes envío gratis activo, no aparece.
             </span>
           </span>
-        </label>
+          <Toggle checked={showPromoBanner} onChange={setShowPromoBanner} label="Mostrar la franja de envío gratis" />
+        </div>
       </Block>
 
       <Block
@@ -245,45 +259,62 @@ export default function InfoTab({
         }
       >
         <div className="max-w-xl">
+          <div className="flex flex-wrap items-center gap-2 pb-3" role="group" aria-label="Atajos de horario">
+            {SCHEDULE_PRESETS.map((preset) => (
+              <Chip key={preset.id} active={false} onClick={() => setSchedule(applyPreset(schedule, preset.id))}>
+                {preset.label}
+              </Chip>
+            ))}
+            {openDays > 1 && (
+              <button
+                type="button"
+                onClick={() => setSchedule(copyHoursToOpenDays(schedule))}
+                className="cursor-pointer text-xs font-semibold text-[var(--color-primary)] hover:underline"
+              >
+                Mismas horas en todos los días abiertos
+              </button>
+            )}
+          </div>
           {DAYS.map((day) => {
             const value = schedule[day.key] ?? {};
             const isOpen = !!value.isOpen;
+            const problem = dayProblem(value);
 
             return (
               <div
                 key={day.key}
-                className="flex items-center gap-3 min-h-11 border-b border-[var(--color-border-light)]"
+                className="flex flex-wrap items-center gap-3 min-h-11 border-b border-[var(--color-border-light)] py-1"
               >
-                <label className="flex items-center gap-2 w-28 shrink-0 cursor-pointer">
-                  <input
-                    type="checkbox"
+                <div className="flex w-32 shrink-0 items-center gap-3">
+                  <Toggle
                     checked={isOpen}
-                    onChange={(e) => setDay(day.key, { isOpen: e.target.checked })}
-                    className="accent-[var(--color-primary)] cursor-pointer"
+                    onChange={(checked) => setDay(day.key, { isOpen: checked })}
+                    label={`${day.label}: ${isOpen ? 'abierto' : 'cerrado'}`}
                   />
                   <span className="text-xs font-semibold text-[var(--color-text-main)]">{day.label}</span>
-                </label>
+                </div>
 
                 {isOpen ? (
                   <div className="flex items-center gap-2">
                     <input
                       type="time"
-                      value={value.open ?? '08:00'}
+                      value={value.open ?? DEFAULT_OPEN}
                       onChange={(e) => setDay(day.key, { open: e.target.value })}
                       aria-label={`${day.label}: abre`}
                       className={TIME_INPUT}
                     />
-                    <span className="text-xs text-[var(--color-text-muted)]">a</span>
+                    <span className="text-xs text-[var(--color-text-secondary)]">a</span>
                     <input
                       type="time"
-                      value={value.close ?? '20:00'}
+                      value={value.close ?? DEFAULT_CLOSE}
                       onChange={(e) => setDay(day.key, { close: e.target.value })}
                       aria-label={`${day.label}: cierra`}
                       className={TIME_INPUT}
                     />
+                    {problem && <span className="text-xs font-semibold text-[var(--color-warning)]">{problem}</span>}
                   </div>
                 ) : (
-                  <span className="text-xs text-[var(--color-text-muted)] font-medium">Cerrado</span>
+                  <span className="text-xs text-[var(--color-text-secondary)] font-medium">Cerrado</span>
                 )}
               </div>
             );
@@ -309,11 +340,7 @@ export default function InfoTab({
               )
             }
           >
-            <NumericInput
-              value={threshold}
-              onValueChange={(d) => setThreshold(Number(d))}
-              className={INPUT}
-            />
+            <QuickNumber value={threshold} onChange={setThreshold} presets={[20000, 30000, 50000]} zeroLabel="No ofrecer" />
           </Field>
 
           {threshold > 0 && (
@@ -353,32 +380,131 @@ export default function InfoTab({
           )}
 
           <Field label="Pedido mínimo" hint="Por debajo de este monto no se puede pedir.">
-            <NumericInput
-              value={minOrder}
-              onValueChange={(d) => setMinOrder(Number(d))}
-              className={INPUT}
-            />
+            <QuickNumber value={minOrder} onChange={setMinOrder} presets={[5000, 10000, 15000]} zeroLabel="Sin mínimo" />
           </Field>
 
           <Field label="Preparación (minutos)" hint="El estimado que ve el cliente. Prometer de menos genera reclamos.">
-            <input
-              type="number"
-              min={5}
-              max={120}
-              value={deliveryTime}
-              onChange={(e) => setDeliveryTime(Number(e.target.value))}
-              className={INPUT}
-            />
+            <div className="space-y-3">
+              <p className="text-3xl font-semibold leading-none tabular text-[var(--color-text-main)]" aria-live="polite">
+                {deliveryTime} <span className="text-sm font-medium text-[var(--color-text-secondary)]">min</span>
+              </p>
+              <input
+                type="range"
+                min={5}
+                max={120}
+                step={5}
+                value={Math.min(120, Math.max(5, deliveryTime))}
+                onChange={(e) => setDeliveryTime(Number(e.target.value))}
+                aria-label="Minutos de preparación"
+                className="w-full cursor-pointer accent-[var(--color-primary)]"
+              />
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Tiempos habituales">
+                {[15, 20, 30, 45, 60].map((m) => (
+                  <Chip key={m} active={deliveryTime === m} onClick={() => setDeliveryTime(m)}>{m} min</Chip>
+                ))}
+              </div>
+            </div>
           </Field>
         </div>
       </Block>
+    </div>
     </div>
   );
 }
 
 /**
- * El perfil en modo lectura: los mismos bloques que el formulario, pero
- * como datos. El nombre ya está en la cabecera, así que aquí no se repite.
+ * Qué tan completa está la ficha: una barra y, debajo, lo que falta. Convierte
+ * «llena tu perfil» en una meta que se ve avanzar; cada cosa que falta es algo
+ * que le cuesta al comercio, no un adorno.
+ */
+function Completeness({ items }: { items: ChecklistItem[] }) {
+  const done = items.filter((i) => i.done).length;
+  const pct = Math.round((done / items.length) * 100);
+  const missing = items.filter((i) => !i.done);
+  return (
+    <section aria-label="Qué tan completa está tu ficha" className="space-y-2">
+      <div className="flex items-baseline justify-between gap-4">
+        <p className="text-sm font-semibold text-[var(--color-text-main)]">
+          {missing.length === 0 ? 'Tu ficha está completa' : `Tu ficha está al ${pct}%`}
+        </p>
+        <p className="text-xs tabular text-[var(--color-text-secondary)]">{done} de {items.length}</p>
+      </div>
+      <div
+        className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-border)]"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
+        <div className="h-full rounded-full bg-[var(--color-primary)] transition-all duration-500" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-xs text-[var(--color-text-secondary)]">
+        {missing.length === 0
+          ? 'Tienes todo lo que un cliente y un domiciliario necesitan.'
+          : `Te falta: ${missing.map((m) => m.label.toLowerCase()).join(', ')}.`}
+      </p>
+    </section>
+  );
+}
+
+/** Cómo se ve el encabezado sin portada con el color elegido, antes de guardar. */
+function HeaderPreview({
+  color, name, category, hasCover,
+}: {
+  color: string | null;
+  name: string;
+  category: string;
+  hasCover: boolean;
+}) {
+  return (
+    <div className="space-y-1.5 pt-2">
+      <div
+        className={`flex h-16 items-center gap-3 rounded-md px-4 transition-colors ${color ? '' : 'border border-dashed border-[var(--color-border-strong)] bg-[var(--color-bg-alt)]'}`}
+        style={color ? { backgroundColor: color } : undefined}
+      >
+        <div className="min-w-0">
+          <p className={`truncate text-sm font-semibold ${color ? 'text-white' : 'text-[var(--color-text-main)]'}`}>
+            {name.trim() || 'Tu negocio'}
+          </p>
+          <p className={`truncate text-xs ${color ? 'text-white/75' : 'text-[var(--color-text-secondary)]'}`}>
+            {color ? formatCategory(category) : 'Automático: Zipp elige el color'}
+          </p>
+        </div>
+      </div>
+      {hasCover && (
+        <p className="text-xs text-[var(--color-text-secondary)]">Con tu portada puesta, este color no se ve.</p>
+      )}
+    </div>
+  );
+}
+
+/** Un monto con atajos: fichas con las cifras habituales y el campo para cualquier otra. */
+function QuickNumber({
+  value, onChange, presets, zeroLabel,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  presets: number[];
+  zeroLabel: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <Chip active={value === 0} onClick={() => onChange(0)}>{zeroLabel}</Chip>
+        {presets.map((preset) => (
+          <Chip key={preset} active={value === preset} onClick={() => onChange(preset)}>{money(preset)}</Chip>
+        ))}
+      </div>
+      <NumericInput value={value} onValueChange={(d) => onChange(Number(d))} className={INPUT} />
+    </div>
+  );
+}
+
+/**
+ * El perfil en modo lectura: los mismos bloques que el formulario, pero como
+ * tarjetas con los datos a la vista. El nombre ya está en la cabecera, así que
+ * aquí no se repite. Son de solo lectura, así que no se levantan al pasar el
+ * cursor (`data-static`).
  */
 function InfoView({
   description, category, city, rating, totalReviews,
@@ -397,74 +523,140 @@ function InfoView({
   minOrder: number;
   deliveryTime: number;
 }) {
+  // El día de hoy se fija al montar: leer el reloj en el render no es puro.
+  const [today] = useState(() => DAYS[(new Date().getDay() + 6) % 7].key);
   const openDays = DAYS.filter((d) => schedule[d.key]?.isOpen).length;
+  const lacksPickup = !location;
 
   return (
-    <div className="cols3">
-      <Block title="Tu ficha" description="Lo que ve el cliente al entrar a tu tienda.">
-        <dl>
-          <Detail
-            label="Descripción"
-            value={description || 'Aún no tienes descripción. Sin ella, cuesta más que te encuentren al buscar.'}
-            muted={!description}
-          />
-          <Detail label="Categoría" value={formatCategory(category)} />
-          <Detail label="Ciudad" value={city || '—'} />
-          <Detail label="Calificación" value={formatRating(rating, totalReviews)} />
-        </dl>
-      </Block>
+    <div className="grid gap-4 lg:grid-cols-2">
+      <ViewCard title="Tu ficha" hint="Lo que ve el cliente al entrar a tu tienda." tone={description ? undefined : 'warning'}>
+        <p className={`text-sm leading-relaxed ${description ? 'text-[var(--color-text-main)]' : 'text-[var(--color-warning)] font-semibold'}`}>
+          {description || 'Aún no tienes descripción. Sin ella, cuesta más que te encuentren al buscar.'}
+        </p>
+        <p className="flex flex-wrap items-center gap-x-2 text-xs text-[var(--color-text-secondary)]">
+          <span>{formatCategory(category)}</span>
+          {city && <><span>·</span><span>{city}</span></>}
+          <span>·</span>
+          <span>{formatRating(rating, totalReviews)}</span>
+        </p>
+      </ViewCard>
 
-      <Block title="Contacto y ubicación" description="Cómo te contacta Zipp y dónde recoge el domiciliario.">
-        <dl>
-          <Detail label="Teléfono" value={phone || 'Sin teléfono'} muted={!phone} note="Solo lo ve Zipp." />
-          <Detail label="Dirección" value={address || 'Sin dirección'} muted={!address} note="El cliente no la ve." />
-          {location ? (
-            <Detail label="Punto de recogida" value="Puesto en el mapa" />
-          ) : (
-            <Detail
-              label="Punto de recogida"
-              value="Sin poner: el domiciliario no sabe por dónde recoger. Ponlo con Editar."
-              warning
-            />
-          )}
-        </dl>
-      </Block>
+      <ViewCard title="Contacto y ubicación" hint="Cómo te contacta Zipp y dónde recoge el domiciliario." tone={lacksPickup ? 'warning' : undefined}>
+        <ul className="space-y-2.5">
+          <ViewRow Icon={Phone} muted={!phone} note="Solo lo ve Zipp.">{phone || 'Sin teléfono'}</ViewRow>
+          <ViewRow Icon={MapPin} muted={!address} note="El cliente no la ve.">{address || 'Sin dirección'}</ViewRow>
+          <ViewRow Icon={Navigation} warning={lacksPickup}>
+            {lacksPickup
+              ? 'Punto de recogida sin poner: el domiciliario no sabe por dónde recoger. Ponlo con Editar.'
+              : 'Punto de recogida puesto en el mapa'}
+          </ViewRow>
+        </ul>
+      </ViewCard>
 
-      <Block
+      <ViewCard
         title="Horario"
-        description="Fuera de este horario tu tienda aparece cerrada y no recibe pedidos."
-        warning={
-          openDays === 0
-            ? 'No tienes ningún día abierto: tu tienda aparece cerrada y nadie puede pedirte.'
-            : undefined
-        }
+        hint="Fuera de este horario tu tienda aparece cerrada y no recibe pedidos."
+        tone={openDays === 0 ? 'danger' : undefined}
+        wide
       >
-        <dl className="max-w-xl">
-          {groupSchedule(schedule).map((row) => (
-            <div
-              key={row.days}
-              className="flex items-center justify-between gap-4 min-h-10 border-b border-[var(--color-border-light)]"
-            >
-              <dt className="text-xs font-semibold text-[var(--color-text-main)]">{row.days}</dt>
-              <dd className={`text-xs ${row.hours ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-muted)]'}`}>
-                {row.hours ?? 'Cerrado'}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </Block>
+        {openDays === 0 && (
+          <p className="text-xs font-semibold text-[var(--color-warning)]">
+            No tienes ningún día abierto: tu tienda aparece cerrada y nadie puede pedirte.
+          </p>
+        )}
+        <ol className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7" aria-label="Horario de la semana">
+          {DAYS.map((day) => {
+            const value = schedule[day.key];
+            const isOpen = !!value?.isOpen;
+            const isToday = day.key === today;
+            return (
+              <li
+                key={day.key}
+                aria-current={isToday ? 'date' : undefined}
+                className={`rounded-lg border px-3 py-2 ${
+                  isToday ? 'border-[var(--color-primary)] bg-[var(--color-primary-bg)]' : 'border-[var(--color-border)]'
+                }`}
+              >
+                <p className="text-[11px] font-semibold text-[var(--color-text-secondary)]">
+                  {day.label}{isToday ? ' · hoy' : ''}
+                </p>
+                {isOpen ? (
+                  <p className="text-xs font-semibold tabular text-[var(--color-text-main)]">
+                    {value?.open ?? '08:00'} – {value?.close ?? '20:00'}
+                  </p>
+                ) : (
+                  <p className="text-xs text-[var(--color-text-secondary)]">Cerrado</p>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      </ViewCard>
 
-      <Block title="Entregas" description="Envío gratis, pedido mínimo y cuánto tardas en preparar.">
-        <dl>
-          <Detail
-            label="Envío gratis"
-            value={threshold > 0 ? `Desde ${money(threshold)}` : 'No lo ofreces'}
-            note={threshold > 0 ? 'Se descuenta de tu liquidación.' : undefined}
-          />
-          <Detail label="Pedido mínimo" value={minOrder > 0 ? money(minOrder) : 'Sin mínimo'} />
-          <Detail label="Preparación" value={`${deliveryTime} min`} />
+      <ViewCard title="Entregas" hint="Envío gratis, pedido mínimo y cuánto tardas en preparar." wide>
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <Stat label="Envío gratis" value={threshold > 0 ? `Desde ${money(threshold)}` : 'No lo ofreces'} note={threshold > 0 ? 'Se descuenta de tu liquidación.' : undefined} />
+          <Stat label="Pedido mínimo" value={minOrder > 0 ? money(minOrder) : 'Sin mínimo'} />
+          <Stat label="Preparación" value={`${deliveryTime} min`} />
         </dl>
-      </Block>
+      </ViewCard>
+    </div>
+  );
+}
+
+/** Una tarjeta del perfil en lectura. Es la superficie `.promo-card`, sin levantarse. */
+function ViewCard({
+  title, hint, tone, wide, children,
+}: {
+  title: string;
+  hint: string;
+  tone?: 'warning' | 'danger';
+  wide?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={`promo-card ${wide ? 'lg:col-span-2' : ''}`} data-static data-tone={tone}>
+      <div className="space-y-0.5">
+        <h2 className="text-sm font-semibold text-[var(--color-text-main)]">{title}</h2>
+        <p className="text-xs text-[var(--color-text-secondary)]">{hint}</p>
+      </div>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function ViewRow({
+  Icon, muted, warning, note, children,
+}: {
+  Icon: ComponentType<{ className?: string }>;
+  muted?: boolean;
+  warning?: boolean;
+  note?: string;
+  children: React.ReactNode;
+}) {
+  const tone = warning
+    ? 'text-[var(--color-warning)] font-semibold'
+    : muted
+      ? 'text-[var(--color-text-secondary)]'
+      : 'text-[var(--color-text-main)]';
+  return (
+    <li className="flex items-start gap-3">
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-secondary)]" />
+      <div className="min-w-0">
+        <p className={`break-words text-sm leading-relaxed ${tone}`}>{children}</p>
+        {note && <p className="text-xs text-[var(--color-text-secondary)]">{note}</p>}
+      </div>
+    </li>
+  );
+}
+
+function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] font-semibold text-[var(--color-text-secondary)]">{label}</dt>
+      <dd className="text-xl font-semibold tabular text-[var(--color-text-main)]">{value}</dd>
+      {note && <dd className="text-xs text-[var(--color-text-secondary)]">{note}</dd>}
     </div>
   );
 }
@@ -504,28 +696,6 @@ const formatRating = (rating: number, totalReviews: number) =>
   totalReviews > 0
     ? `${rating.toFixed(1)} de 5 · ${totalReviews} ${totalReviews === 1 ? 'reseña' : 'reseñas'}`
     : 'Sin reseñas todavía';
-
-/**
- * Junta los días seguidos con el mismo horario: "Lunes – Viernes" en una
- * línea en vez de cinco iguales. `hours` es null cuando están cerrados.
- */
-function groupSchedule(schedule: Schedule): Array<{ days: string; hours: string | null }> {
-  const hoursOf = (key: string) => {
-    const day = schedule[key];
-    return day?.isOpen ? `${day.open ?? '08:00'} – ${day.close ?? '20:00'}` : null;
-  };
-
-  const rows: Array<{ days: string; hours: string | null }> = [];
-  let start = 0;
-  for (let i = 1; i <= DAYS.length; i++) {
-    if (i < DAYS.length && hoursOf(DAYS[i].key) === hoursOf(DAYS[start].key)) continue;
-    const first = DAYS[start].label;
-    const last = DAYS[i - 1].label;
-    rows.push({ days: first === last ? first : `${first} – ${last}`, hours: hoursOf(DAYS[start].key) });
-    start = i;
-  }
-  return rows;
-}
 
 /**
  * Un bloque del formulario: título y para qué sirve a la izquierda, campos a

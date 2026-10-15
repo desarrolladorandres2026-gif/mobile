@@ -177,7 +177,11 @@ describe('2 · carrera settle/reverse (escenario A)', () => {
     // La liquidación usa la foto del reclamo (reversedAtClaim = 0)…
     expect(first.netAmount).toBe(100_000);
     const after = await Payout.findById(p._id);
-    expect(after!.reversedAmount).toBe(30_000);
+    // La reversión llegó con el payout ya reclamado: va a `reversedAfterCommit`
+    // y NO a `reversedAmount` (lo recupera el arrastre; restarla también aquí
+    // era la doble resta del extracto).
+    expect(after!.reversedAmount).toBe(0);
+    expect(after!.reversedAfterCommit).toBe(30_000);
     expect(after!.reversedAtClaim).toBe(0);
     // …y la reversión tardía queda como arrastre, no se pierde.
     const claws = await Payout.find({ isClawback: true, businessId });

@@ -7,7 +7,7 @@ import { User } from '../models';
 import { AuditLog, AuditAction } from '../security';
 import { UserRole } from '../types';
 import { twoFactorSetupPending } from '../services/mfa.service';
-import { makeUser, makeStaff, authHeader } from './factories';
+import { makeUser, makeBusiness, makeStaff, authHeader, counterAuthHeader } from './factories';
 
 /**
  * 2FA del panel de comercios: el mismo guardia que el de admin, detrás de
@@ -50,6 +50,47 @@ describe('Comercios sin 2FA cuando TOTP_REQUIRED_BUSINESS está activo', () => {
     await enroll(header);
 
     await request(app).get(`${API}/businesses/my/businesses`).set(header).expect(200);
+  });
+
+  it('la sesión de mostrador opera con el flag encendido y sin 2FA (A2), pero no toca lo de la cuenta', async () => {
+    config.security.twoFactor.requiredForBusiness = true;
+    const owner = await makeUser({ role: UserRole.BUSINESS });
+    const business = await makeBusiness(owner._id);
+    const header = await counterAuthHeader(owner);
+
+    // Operar el local: el mostrador no queda encerrado detrás del 2FA del dueño.
+    await request(app).get(`${API}/businesses/my/businesses`).set(header).expect(200);
+    await request(app).get(`${API}/businesses/${business._id}/my-permissions`).set(header).expect(200);
+    await request(app).get(`${API}/auth/me`).set(header).expect(200);
+
+    // Lo de la cuenta sigue cerrado al mostrador (rejectCounterScope).
+    const setup = await request(app).post(`${API}/auth/2fa/setup`).set(header).send({ currentPassword: PASSWORD });
+    expect(setup.status).toBe(403);
+    expect(setup.body.code).toBe('COUNTER_SESSION_FORBIDDEN');
+
+    // La sesión completa del mismo dueño sigue bloqueada hasta activar el 2FA.
+    const full = await request(app).get(`${API}/businesses/my/businesses`).set(await authHeader(owner));
+    expect(full.status).toBe(403);
+    expect(full.body.code).toBe('TWO_FACTOR_SETUP_REQUIRED');
+  });
+
+  it('el owner sin 2FA elevado desde el mostrador puede volver al mostrador (drop) con el flag encendido', async () => {
+    config.security.twoFactor.requiredForBusiness = true;
+    const owner = await makeUser({ role: UserRole.BUSINESS });
+    const business = await makeBusiness(owner._id);
+    const counterHeader = await counterAuthHeader(owner);
+    const elevated = await request(app)
+      .post(`${API}/auth/counter/elevate-password`)
+      .set(counterHeader)
+      .send({ businessId: business._id.toString(), email: owner.email, password: PASSWORD })
+      .expect(200);
+    const header = { Authorization: `Bearer ${elevated.body.data.accessToken}` };
+
+    // Elevada y sin 2FA: solo alcanza las rutas para activarlo y para volver.
+    const blocked = await request(app).get(`${API}/businesses/my/businesses`).set(header);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.code).toBe('TWO_FACTOR_SETUP_REQUIRED');
+    await request(app).post(`${API}/auth/counter/drop`).set(header).expect(200);
   });
 
   it('no toca a clientes ni a admins', async () => {

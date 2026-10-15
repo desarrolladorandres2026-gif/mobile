@@ -18,7 +18,7 @@ import {
   OrderEvidence,
 } from '../models';
 import { AppError } from '../middlewares';
-import { OrderStatus, OrderKind, PaymentStatus, PaymentMethod, PaymentType, LedgerAccount, LedgerDirection, UserRole } from '../types';
+import { OrderStatus, PayoutStatus, OrderKind, PaymentStatus, PaymentMethod, PaymentType, LedgerAccount, LedgerDirection, UserRole } from '../types';
 import { pricingConfigService } from './pricingConfig.service';
 import { platformResultService } from './platformResult.service';
 import { gatewayFeeBreakdown, gatewayFeeMethod } from '../utils/gatewayFee';
@@ -134,7 +134,7 @@ export async function profile360(input: Profile360Input) {
     canEvidences ? OrderEvidence.countDocuments({ orderId: oid }) : Promise.resolve(0),
     canFinance ? Payment.find({ orderId: oid, type: PaymentType.ORDER_PAYMENT }).sort({ createdAt: -1 }).limit(20).select('amount status method paymentMethodType createdAt').lean() : empty,
     canFinance && canRefundsView ? Refund.find({ orderId: oid }).sort({ createdAt: -1 }).limit(20).select('amount status kind reason createdAt').lean() : empty,
-    canFinance ? Payout.find({ orderId: oid }).limit(10).select('beneficiary amount reversedAmount status createdAt').lean() : empty,
+    canFinance ? Payout.find({ orderId: oid }).limit(10).select('beneficiary amount reversedAmount reversedAfterCommit consumedAmount isClawback status createdAt').lean() : empty,
     Review.findOne({ orderId: oid }).select('businessRating driverRating comment createdAt').lean(),
     canSupport ? Pqrs.find({ orderId: oid }).sort({ createdAt: -1 }).limit(10).select('subject status createdAt').lean() : empty,
     canFinance ? CashPaymentIncident.find({ orderId: oid }).limit(10).select('status amount createdAt').lean() : empty,
@@ -368,7 +368,15 @@ export async function profile360(input: Profile360Input) {
             _id: String(p._id),
             beneficiary: p.beneficiary,
             amount: p.amount,
-            netAmount: Math.max(0, p.amount - (p.reversedAmount ?? 0)),
+            // `reversedAmount` es solo lo revertido antes de comprometerse el
+            // pago; el reembolso tardío va aparte (`lateReversedAmount`) porque
+            // lo recupera la fila de arrastre. Restarlo aquí además sería la
+            // doble resta. El arrastre es una deuda del beneficiario: en negativo.
+            netAmount: p.isClawback
+              ? -(p.status === PayoutStatus.WRITTEN_OFF ? p.consumedAmount ?? 0 : p.amount)
+              : Math.max(0, p.amount - (p.reversedAmount ?? 0)),
+            isClawback: Boolean(p.isClawback),
+            lateReversedAmount: p.isClawback ? 0 : p.reversedAfterCommit ?? 0,
             status: p.status,
             createdAt: iso(p.createdAt),
           })),

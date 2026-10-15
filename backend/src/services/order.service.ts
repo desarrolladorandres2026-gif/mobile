@@ -192,6 +192,13 @@ const MAX_PREP_LOOKAHEAD_MS = 2 * 60 * 60 * 1000;
  */
 export const ABANDONED_ONLINE_ORDER_MS = 30 * 60_000;
 
+/**
+ * Cuánto espera un pedido que el comercio podía aceptar antes de cancelarse
+ * solo. Mayor que `UNACCEPTED_AFTER_MS` (10 min) de `incidentCenter.service.ts`:
+ * primero se avisa, después se actúa.
+ */
+export const UNACCEPTED_ORDER_MS = 15 * 60_000;
+
 export class OrderService {
   /**
    * Prices a cart without creating anything. Checkout calls this to render
@@ -932,10 +939,18 @@ export class OrderService {
     cancellationReason?: string,
     context: TimelineContext = {},
     cancellationCode?: CancellationReason,
-    opts: { canRefund?: boolean; scope?: import('./businessStaff.service').SessionScope } = {}
+    opts: {
+      canRefund?: boolean;
+      scope?: import('./businessStaff.service').SessionScope;
+      /** Un barrido decidió sobre el estado que leyó: si ya cambió, 409 y no se toca. */
+      onlyIfStatus?: OrderStatus;
+    } = {}
   ): Promise<IOrder> {
     const order = await Order.findById(orderId);
     if (!order) throw new AppError('Pedido no encontrado', 404);
+    if (opts.onlyIfStatus && order.status !== opts.onlyIfStatus) {
+      throw new AppError('El pedido cambió de estado', 409);
+    }
 
     // Validate ownership based on role
     if (userRole === UserRole.CLIENT && order.clientId.toString() !== userId) {
@@ -1925,6 +1940,63 @@ export class OrderService {
         // Un 409 es que el pedido cambió (p. ej. se pagó): no es un fallo.
         if (!(err instanceof AppError && err.statusCode === 409)) {
           console.error('[Order] No se pudo cancelar un pedido en línea abandonado:', _id.toString(), err);
+        }
+      }
+    }
+    return cancelled;
+  }
+
+  /**
+   * Cierra los pedidos que el comercio podía aceptar y nunca aceptó.
+   *
+   * `cancelAbandonedOnlineOrders` solo barre los que nadie pagó. Uno pagado
+   * en línea, en efectivo o programado ya activado se queda en PENDING para
+   * siempre si el local no responde, con el dinero del cliente dentro y el
+   * stock reservado. La alerta `order_unaccepted` avisa a los 10 minutos; este
+   * barrido actúa a los 15, para que Operaciones tenga una ventana antes.
+   *
+   * Cancela por el mismo camino que cualquier cancelación (`updateStatus`),
+   * que devuelve stock y cupón y, si el cobro entró, pide el reembolso
+   * completo con clave idempotente `cancel:<orderId>`. La transición se
+   * reclama con `status: PENDING` en el filtro: si el comercio acepta en el
+   * último segundo, la cancelación falla con 409 y no se hace nada.
+   */
+  async cancelUnacceptedOrders(now = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - UNACCEPTED_ORDER_MS);
+    const candidates = await Order.find({
+      status: OrderStatus.PENDING,
+      kind: { $ne: OrderKind.ERRAND },
+      businessId: { $ne: null },
+      updatedAt: { $lt: cutoff },
+      $or: [
+        { scheduledFor: null },
+        { scheduledFor: { $exists: false } },
+        { scheduledActivatedAt: { $ne: null, $lt: cutoff } },
+      ],
+      $nor: [{ ...UNPAID_ONLINE_MATCH }],
+    })
+      .select('_id')
+      .sort({ updatedAt: 1 })
+      .limit(50);
+
+    let cancelled = 0;
+    for (const { _id } of candidates) {
+      try {
+        await this.updateStatus(
+          _id.toString(),
+          OrderStatus.CANCELLED,
+          'system',
+          'system',
+          'El comercio no aceptó el pedido a tiempo: cancelado automáticamente',
+          {},
+          CancellationReason.OTHER,
+          { onlyIfStatus: OrderStatus.PENDING }
+        );
+        cancelled++;
+      } catch (err) {
+        // Un 409 es que el pedido cambió (p. ej. lo aceptaron): no es un fallo.
+        if (!(err instanceof AppError && err.statusCode === 409)) {
+          console.error('[Order] No se pudo cancelar un pedido sin aceptar:', _id.toString(), err);
         }
       }
     }

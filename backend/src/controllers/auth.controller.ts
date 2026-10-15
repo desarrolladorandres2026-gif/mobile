@@ -316,6 +316,28 @@ export class AuthController {
     } catch (error) { next(error); }
   }
 
+  /**
+   * El dueño fija o rota la clave del mostrador (ver `authService.setCounterPassword`).
+   * Si rota también su contraseña personal, todas sus sesiones mueren: el
+   * panel debe llevarlo a iniciar sesión otra vez.
+   */
+  async setCounterPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { currentPassword, counterPassword, newPassword } = req.body;
+      const result = await authService.setCounterPassword(
+        req.user!._id.toString(),
+        { currentPassword, counterPassword, newPassword },
+        req
+      );
+      sendResponse(res, 200, 'Clave del mostrador guardada', {
+        hasCounterPassword: true,
+        counterPasswordSetAt: result.counterPasswordSetAt,
+        personalPasswordChanged: result.personalPasswordChanged,
+        sessionsRevoked: result.sessionsRevoked,
+      });
+    } catch (error) { next(error); }
+  }
+
   /** El representante legal desbloquea el PIN de alguien de su negocio. */
   async unlockCounterPin(req: Request, res: Response, next: NextFunction) {
     try {

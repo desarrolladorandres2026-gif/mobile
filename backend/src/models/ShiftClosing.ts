@@ -27,13 +27,36 @@ export interface IShiftClosing extends Document {
   sales: number;
   ordersDelivered: number;
   ordersCancelled: number;
-  /** De `sales`, lo cobrado contra entrega: lo que debería haber en efectivo. */
+  /**
+   * De `sales`, lo vendido contra entrega (valor de producto). Es un dato
+   * informativo: NO es lo que debe haber en la caja, porque el domiciliario
+   * paga al comercio su neto (sin comisión ni descuento asumido), no el
+   * valor del producto.
+   */
   cashSales: number;
   onlineSales: number;
 
+  /**
+   * Lo que debe haber en efectivo en este corte: la suma de lo que los
+   * domiciliarios pagaron al comercio por pedidos contra entrega recogidos
+   * desde el cierre anterior del día (o desde que empezó) hasta este cierre.
+   * `null` en los cierres anteriores a este campo: eran actas firmadas contra
+   * `cashSales` y no se reescriben; se distinguen por `expectedCash === null`.
+   */
+  expectedCash: number | null;
+  /** Contra entrega ya recogidos y aún sin entregar al cliente; ya están dentro de `expectedCash`. */
+  inTransit: { count: number; amount: number } | null;
+  /** Cancelados tras recoger: el sistema repone al domiciliario, no suman a `expectedCash`. */
+  cancelledAfterPickup: { count: number; amount: number } | null;
+  /** Inicio del corte que cubre `expectedCash`. `null` en los cierres viejos. */
+  coversFrom: Date | null;
+
   /** Lo que el empleado dice tener en efectivo. `null` si no lo contó. */
   declaredCash: number | null;
-  /** `declaredCash - cashSales`; negativo es faltante. `null` sin conteo. */
+  /**
+   * `declaredCash - expectedCash`; negativo es faltante. `null` sin conteo.
+   * En cierres con `expectedCash === null` se calculó contra `cashSales`.
+   */
   difference: number | null;
   note: string;
   createdAt: Date;
@@ -51,6 +74,10 @@ const shiftClosingSchema = new Schema<IShiftClosing>(
     ordersCancelled: { type: Number, required: true, min: 0 },
     cashSales: { type: Number, required: true, min: 0 },
     onlineSales: { type: Number, required: true, min: 0 },
+    expectedCash: { type: Number, default: null, min: 0, validate: Number.isInteger },
+    inTransit: { type: new Schema({ count: Number, amount: Number }, { _id: false }), default: null },
+    cancelledAfterPickup: { type: new Schema({ count: Number, amount: Number }, { _id: false }), default: null },
+    coversFrom: { type: Date, default: null },
     declaredCash: { type: Number, default: null, min: 0 },
     difference: { type: Number, default: null },
     note: { type: String, default: '', trim: true, maxlength: 300 },

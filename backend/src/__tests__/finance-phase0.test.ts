@@ -103,7 +103,9 @@ describe('D2 · reverse() sobre un payout ya SETTLED crea un arrastre', () => {
     // El payout original nunca cambia de estado por un arrastre.
     const original = await Payout.findById(settledPayout._id);
     expect(original!.status).toBe(PayoutStatus.SETTLED);
-    expect(original!.reversedAmount).toBe(4_000);
+    // Lo revertido tras comprometerse no resta del payout original: lo recupera el arrastre.
+    expect(original!.reversedAmount).toBe(0);
+    expect(original!.reversedAfterCommit).toBe(4_000);
 
     // Un payout nuevo, PAYABLE, de solo 3.000: no alcanza para cubrir el
     // arrastre completo. La liquidación nunca debe quedar negativa.
@@ -120,7 +122,8 @@ describe('D2 · reverse() sobre un payout ya SETTLED crea un arrastre', () => {
     expect(result.settlement!.clawbackAmount).toBe(3_000);
 
     const remainingClawback = await Payout.findById(clawback!._id);
-    expect(remainingClawback!.amount).toBe(1_000); // 4.000 - 3.000 consumidos
+    expect(remainingClawback!.amount).toBe(4_000); // el importe original no se toca…
+    expect(remainingClawback!.consumedAmount).toBe(3_000); // …lo cobrado se suma aparte
     expect(remainingClawback!.status).toBe(PayoutStatus.PAYABLE);
     expect(remainingClawback!.settlementId).toBeNull();
   });

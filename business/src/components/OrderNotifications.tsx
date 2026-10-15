@@ -5,6 +5,7 @@ import { Bike, PackageX, Volume2, WifiOff, X } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useBusinessEvent, useRealtime } from '../hooks/realtimeContext';
 import { useActiveOrders, useActiveOrdersLiveSync } from '../hooks/useActiveOrders';
+import { usePermissions } from '../hooks/usePermissions';
 import { useAudioState, useAudioUnlock, useRingLeadership } from '../hooks/useRingLeadership';
 import { playNotificationSound, primeNotificationSound, startRingLoop, stopRingLoop } from '../lib/notificationSound';
 import {
@@ -44,6 +45,7 @@ export default function OrderNotifications() {
   const businessId = useAuthStore((s) => s.selectedBusiness?._id);
   const storeOpen = useAuthStore((s) => s.selectedBusiness?.isActive !== false);
   const { status: connection, downSince } = useRealtime();
+  const role = usePermissions(businessId).access?.role;
 
   // Reloj de la alarma: mueve el tiempo de espera y el aviso de conexión caída.
   const [now, setNow] = useState(() => Date.now());
@@ -89,7 +91,7 @@ export default function OrderNotifications() {
 
   useEffect(() => onDesktopNotificationClick((orderNumber) => {
     const order = (queue.data ?? []).find((o) => o.orderNumber === orderNumber);
-    if (order) navigate(`/orders/${order._id}`);
+    if (order) navigate(`/orders?pedido=${order._id}`);
   }), [queue.data, navigate]);
 
   // ── El sonido ──
@@ -186,7 +188,13 @@ export default function OrderNotifications() {
 
   const goToOrder = (orderId: string) => navigate(`/orders?pedido=${orderId}`);
 
-  if (!offline && !showUnlock && !oldest && notices.length === 0) return null;
+  // La tarjeta es para quien despacha en el mostrador. El propietario y el
+  // administrador ya tienen el tablero de pedidos y el timbre: la tarjeta les
+  // estorba. Mientras no se sabe el papel se enseña, porque un empleado que no
+  // ve el aviso pierde un pedido, y a un administrador le sobra un instante.
+  const showCard = !!oldest && role !== 'owner' && role !== 'manager';
+
+  if (!offline && !showUnlock && !showCard && notices.length === 0) return null;
 
   return (
     <section aria-live="assertive" aria-label="Avisos de pedidos" className="fixed right-4 top-14 z-[60] flex w-[calc(100vw-6rem)] sm:w-[calc(100vw-7rem)] max-w-md flex-col gap-3">
@@ -207,7 +215,7 @@ export default function OrderNotifications() {
         </button>
       )}
 
-      {oldest && (
+      {showCard && oldest && (
         <NewOrderCard
           // Una tarjeta nueva por pedido: la entrada con rebote se repite cuando cambia el más antiguo.
           key={oldest._id}

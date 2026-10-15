@@ -63,7 +63,7 @@ const REQUIRED: DocumentType[] = ['rut', 'chamber_of_commerce', 'legal_rep_id', 
 const FOOD_CATEGORIES = ['restaurant', 'fast_food', 'cafe', 'bakery', 'supermarket'];
 
 const STATUS: Record<DocView['status'], { label: string; className: string }> = {
-  approved: { label: 'Aprobado', className: 'text-[#047857]' },
+  approved: { label: 'Aprobado', className: 'text-[var(--color-success)]' },
   pending: { label: 'En revisión', className: 'text-[var(--color-warning)]' },
   rejected: { label: 'Rechazado', className: 'text-[var(--color-danger)]' },
   expired: { label: 'Vencido', className: 'text-[var(--color-danger)]' },
@@ -350,7 +350,7 @@ export default function DocumentsTab() {
         </p>
       )}
       {notice && (
-        <p className="flex items-center gap-2 text-xs font-semibold text-[#047857]">
+        <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-success)]">
           <CheckCircle2 className="h-4 w-4" /> {notice}
         </p>
       )}
@@ -421,7 +421,7 @@ export default function DocumentsTab() {
                 <p className="text-xs text-[var(--color-text-secondary)]">
                   Registrada: <strong className="text-[var(--color-text-main)]">{payout.method === 'bank' ? payout.bankName : payout.method}</strong>{' '}
                   <span className="font-mono">{payout.accountMasked}</span> · titular {payout.holderName} ·{' '}
-                  <span className={payout.verificationStatus === 'verified' ? 'font-semibold text-[#047857]' : 'font-semibold text-[var(--color-warning)]'}>
+                  <span className={payout.verificationStatus === 'verified' ? 'font-semibold text-[var(--color-success)]' : 'font-semibold text-[var(--color-warning)]'}>
                     {payout.verificationStatus === 'verified' ? 'verificada' : 'pendiente de verificación'}
                   </span>
                   . Si la cambias, ZIPP debe verificarla de nuevo antes de girarte dinero.

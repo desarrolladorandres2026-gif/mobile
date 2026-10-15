@@ -124,7 +124,7 @@ export default function TwoFactorSetup() {
         <div className="mt-6 h-px bg-[var(--color-border)]" />
 
         {loadError && (
-          <p className="mt-6 flex items-start gap-2 text-xs font-medium leading-relaxed text-rose-600">
+          <p className="mt-6 flex items-start gap-2 text-xs font-medium leading-relaxed text-[var(--color-danger)]">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {loadError}
           </p>
         )}
@@ -220,7 +220,7 @@ export default function TwoFactorSetup() {
               </label>
 
               {verifyError && (
-                <p className="flex items-start gap-2 text-xs font-medium leading-relaxed text-rose-600">
+                <p className="flex items-start gap-2 text-xs font-medium leading-relaxed text-[var(--color-danger)]">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {verifyError}
                 </p>
               )}
@@ -246,7 +246,7 @@ export default function TwoFactorSetup() {
         <button
           type="button"
           onClick={handleLogout}
-          className="mt-10 flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)]/70 hover:text-rose-600 transition-colors cursor-pointer"
+          className="mt-10 flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)]/70 hover:text-[var(--color-danger)] transition-colors cursor-pointer"
         >
           <LogOut className="w-3.5 h-3.5" />
           Cerrar sesión

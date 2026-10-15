@@ -1,13 +1,12 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { AlertCircle, ArrowRight, Eye, EyeOff, Activity } from 'lucide-react';
 import api from '../services/api';
-import { useAuthStore } from '../stores/authStore';
-import { apiErrorCode, apiMessage } from '../lib/apiError';
+import { apiMessage } from '../lib/apiError';
 import AuthenticatorMark from '../components/AuthenticatorMark';
 import { deviceHeaders, getDeviceId } from '../lib/deviceId';
-import { markCounterSession } from '../lib/counter';
+import { useStartSession } from '../hooks/useStartSession';
 
 const fieldClass =
   'w-full h-12 bg-transparent border-0 border-b border-[var(--color-border-strong)] px-0 text-sm text-[var(--color-text-main)] placeholder:text-[var(--color-text-main)]/45 focus:border-[var(--color-primary)] outline-none transition-colors';
@@ -16,16 +15,8 @@ const buttonClass =
 
 const NOT_A_BUSINESS = 'Acceso denegado: Esta cuenta no está registrada como dueño de comercio o negocio.';
 
-interface SessionPayload {
-  user: { _id: string; name: string; phone: string; role: string; twoFactorEnabled?: boolean };
-  accessToken: string;
-  refreshToken: string;
-}
-
 export default function Login() {
-  const navigate = useNavigate();
-  const setAuth = useAuthStore((s) => s.setAuth);
-  const setBusinesses = useAuthStore((s) => s.setBusinesses);
+  const startSession = useStartSession();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -47,26 +38,6 @@ export default function Login() {
   // lo trataba como tal — intentaba refrescar, fallaba y recargaba /login,
   // borrando el mensaje de error (y aquí, el reto a medio contestar).
   const authUrl = (path: string) => `${api.defaults.baseURL}${path}`;
-
-  /** Abre la sesión y carga los locales. Devuelve false si la cuenta no es de comercio. */
-  const startSession = async ({ user, accessToken, refreshToken }: SessionPayload): Promise<boolean> => {
-    if (user.role !== 'business') return false;
-    markCounterSession();
-    setAuth(user, accessToken, refreshToken);
-
-    try {
-      const resBus = await api.get('/businesses/my/businesses');
-      setBusinesses(resBus.data.data);
-    } catch (busErr) {
-      // Sin 2FA y con `TOTP_REQUIRED_BUSINESS` encendido: el interceptor ya
-      // está llevando a /setup-2fa; navegar a / aquí pelearía con él.
-      if (apiErrorCode(busErr) === 'TWO_FACTOR_SETUP_REQUIRED') return true;
-      console.error('No se pudieron cargar los establecimientos:', busErr);
-    }
-
-    navigate('/');
-    return true;
-  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,7 +147,7 @@ export default function Login() {
             </div>
 
             {mfaError && (
-              <p className="flex items-start gap-2 text-xs font-medium leading-relaxed text-rose-600">
+              <p className="flex items-start gap-2 text-xs font-medium leading-relaxed text-[var(--color-danger)]">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {mfaError}
               </p>
             )}
@@ -203,7 +174,7 @@ export default function Login() {
         ) : (
           <>
             {error && (
-              <p className="mt-6 flex items-start gap-2 text-xs font-medium leading-relaxed text-rose-600">
+              <p className="mt-6 flex items-start gap-2 text-xs font-medium leading-relaxed text-[var(--color-danger)]">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
               </p>
             )}
@@ -258,6 +229,13 @@ export default function Login() {
                   </>
                 )}
               </button>
+
+              <Link
+                to="/forgot-password"
+                className="inline-block text-xs font-semibold text-[var(--color-text-main)]/70 hover:text-[var(--color-primary)] transition-colors cursor-pointer"
+              >
+                Olvidé mi contraseña
+              </Link>
             </form>
           </>
         )}

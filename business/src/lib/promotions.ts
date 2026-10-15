@@ -207,6 +207,84 @@ export function previewDraft(form: CodeForm | AutoForm, auto: boolean): PreviewD
   };
 }
 
+const DAY_PLURAL: Record<number, string> = {
+  1: 'lunes', 2: 'martes', 3: 'miércoles', 4: 'jueves', 5: 'viernes', 6: 'sábados', 0: 'domingos',
+};
+
+const joinList = (items: string[]) =>
+  items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} y ${items[items.length - 1]}`;
+
+const longDate = (day: string) =>
+  new Date(`${day}T00:00:00`).toLocaleDateString('es-CO', { day: 'numeric', month: 'long' });
+
+/**
+ * La promoción contada en una frase, tal como la entendería el comercio:
+ * «20% de descuento con el código MARTES20, los martes, de 14:00 a 17:00,
+ * hasta el 30 de octubre. Como máximo te cuesta $100.000.»
+ */
+export function promotionSummary(form: CodeForm | AutoForm, auto: boolean): string {
+  const head = `${discountLabel(form.type, form.value)} de descuento`;
+  const cap = form.type === 'percentage' && form.maxDiscountAmount > 0 ? ` (hasta ${money(form.maxDiscountAmount)} por pedido)` : '';
+  const target = auto
+    ? `en ${(form as AutoForm).productIds.length} producto(s), sin código`
+    : (form as CodeForm).code.trim() ? `con el código ${(form as CodeForm).code.trim().toUpperCase()}` : 'con un código por definir';
+
+  const parts = [`${head}${cap} ${target}`];
+  const min = auto ? 0 : (form as CodeForm).minOrderAmount;
+  if (min > 0) parts.push(`en pedidos desde ${money(min)}`);
+  if (form.firstOrderOnly) parts.push('solo en el primer pedido de cada cliente');
+  if (form.validDays.length > 0) {
+    // Lunes primero, como se lee; el número es el del servidor (0 = domingo).
+    const names = [...form.validDays].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => DAY_PLURAL[d]);
+    parts.push(`los ${joinList(names)}`);
+  }
+  if (form.validFromTime && form.validUntilTime) parts.push(`de ${form.validFromTime} a ${form.validUntilTime}`);
+  parts.push(form.validUntil ? `hasta el ${longDate(form.validUntil)}` : 'sin fecha de fin todavía');
+
+  const cost = maxCost(form);
+  const tail = cost === null ? 'No tiene techo de costo.' : `Como máximo te cuesta ${money(cost)}.`;
+  return `${parts.join(', ')}. ${tail}`;
+}
+
+/**
+ * Estado de una promoción, resuelto igual que lo hace el cobro.
+ *
+ * El backend ya manda `availability` (`couponAvailability()`, la misma función
+ * que decide si un cupón aplica al cobrar); esto solo lo traduce a las cuatro
+ * etiquetas que el comercio entiende: Activa, Programada, Finalizada, Agotada.
+ * `isActive` desactivado manda sobre cualquier otra cosa.
+ */
+export interface PromotionLike {
+  isActive: boolean;
+  validUntil: string | Date;
+  budgetLimit?: number;
+  budgetSpent?: number;
+  usageLimit?: number;
+  usedCount?: number;
+  availability?: { state: 'active' | 'scheduled' | 'exhausted' };
+}
+
+export type Tone = 'success' | 'info' | 'warning' | 'muted';
+
+export function resolveStatus(promotion: PromotionLike): { label: string; tone: Tone } {
+  if (!promotion.isActive) return { label: 'Desactivada', tone: 'muted' };
+
+  const state = promotion.availability?.state;
+  if (state === 'scheduled') return { label: 'Programada', tone: 'info' };
+  if (state === 'active') return { label: 'Activa', tone: 'success' };
+
+  // `exhausted` con isActive:true — hay que distinguir por qué: ¿ya pasó
+  // la fecha, o se acabó el cupo?
+  const ended = new Date(promotion.validUntil).getTime() < Date.now();
+  if (ended) return { label: 'Finalizada', tone: 'muted' };
+
+  const budgetGone = (promotion.budgetLimit ?? 0) > 0 && (promotion.budgetSpent ?? 0) >= (promotion.budgetLimit ?? 0);
+  const usesGone = (promotion.usageLimit ?? 0) > 0 && (promotion.usedCount ?? 0) >= (promotion.usageLimit ?? 0);
+  if (budgetGone || usesGone) return { label: 'Agotada', tone: 'warning' };
+
+  return { label: 'Finalizada', tone: 'muted' };
+}
+
 export type PromotionGroup = 'active' | 'scheduled' | 'ended';
 
 export function groupOf(coupon: Coupon): PromotionGroup {

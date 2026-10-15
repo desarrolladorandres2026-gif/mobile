@@ -133,6 +133,19 @@ export async function issueTemporaryPassword(user: IUser, updatedBy?: Types.Obje
   if (updatedBy) user.updatedBy = updatedBy;
   await user.save();
 
+  // La clave del mostrador (decisión 2026-10-15) es la única contraseña que
+  // abre `/auth/login` en una cuenta de comercio que la tenga. Si sobreviviera
+  // a un restablecimiento de soporte, la temporal que ve el administrador no
+  // serviría para entrar y el dueño que olvidó la clave quedaría sin ninguna
+  // puerta. Se borra: la cuenta vuelve al modo de contraseña única y el panel
+  // vuelve a pedirle crear la clave.
+  if (user.role === UserRole.BUSINESS) {
+    await User.updateOne(
+      { _id: user._id },
+      { $unset: { counterPasswordHash: 1 }, $set: { counterPasswordSetAt: null } }
+    );
+  }
+
   const sessionsRevoked = await sessionManager.revokeAllSessions(user._id.toString(), {
     reason: 'admin',
     revokedBy: updatedBy ? String(updatedBy) : null,

@@ -45,6 +45,7 @@ import {
   otpSetFields,
 } from '../security';
 import { hashToken, normalizeClientDeviceId } from '../security/sessions';
+import { hashPassword, verifyPassword as verifyHash } from '../security/password';
 import {
   FirstFactor,
   hasTwoFactor,
@@ -63,13 +64,6 @@ interface LoginInput {
   password: string;
   deviceId?: string;
   totpToken?: string;
-  /**
-   * `'business-counter'`: el panel de comercio entra con el correo del
-   * negocio directo al panel de Empleado (decisión 2026-10-09). Solo tiene
-   * efecto si la cuenta es de comercio; para cualquier otro rol se ignora,
-   * así que un cliente o un domiciliario no pueden pedir esta sesión.
-   */
-  surface?: 'business-counter';
 }
 
 export interface AuthTokens {
@@ -377,6 +371,15 @@ export class AuthService {
     const ip = requestIp(req);
     const ua = requestUa(req);
 
+    // El servidor decide el alcance, no el cliente (hallazgo C1, 2026-10-14):
+    // toda sesión de una cuenta de comercio que no sea una elevación desde el
+    // mostrador nace como mostrador. Antes bastaba omitir `surface` en el
+    // login para obtener una sesión completa de 7 días con la contraseña
+    // compartida del local. Este es el único punto que emite sesiones, así
+    // que cubre contraseña, OTP de celular y de correo, Google, Apple,
+    // Facebook, reto 2FA y restablecimiento.
+    const scope = user.role === UserRole.BUSINESS && !options.elevatedFrom ? 'counter' : options.scope;
+
     const { session, isNewDevice, identified, evictedSessionIds } = await sessionManager.createSession({
       userId: user._id.toString(),
       sessionId,
@@ -388,7 +391,7 @@ export class AuthService {
       isStaff: user.role === UserRole.ADMIN,
       authMethod: options.method,
       mfa: options.mfa,
-      scope: options.scope,
+      scope,
       elevatedFrom: options.elevatedFrom,
       elevatedBusinessId: options.elevatedBusinessId,
     });
@@ -679,21 +682,38 @@ export class AuthService {
   }
 
   /**
-   * La contraseña desde el mostrador es solo el arranque (decisión
-   * 2026-10-14): sirve mientras NADIE del negocio tenga PIN, para que el
-   * primero pueda crearlo — crear el PIN exige sesión completa y el login del
-   * panel siempre abre mostrador. En cuanto alguien tiene PIN, la puerta se
-   * cierra aquí, en el servidor; ocultar el botón no basta.
+   * ¿Está abierta la puerta "entrar como responsable con contraseña" desde el
+   * mostrador de este negocio? (hallazgo A1, 2026-10-14; reemplaza al antiguo
+   * `assertNoCounterPinYet`, que la cerraba para siempre en cuanto alguien
+   * creaba un PIN y dejaba sin sesión completa a quien tenía PIN pero no podía
+   * usarlo). Se llama DESPUÉS de verificar la contraseña: así la puerta
+   * cerrada no sirve de oráculo a quien no la conoce.
+   *
+   * Abierta si se cumple alguna:
+   *  - el dueño ya fijó la clave del mostrador: la contraseña personal ya no
+   *    abre el panel del local, así que quien la teclea aquí es de verdad la
+   *    persona;
+   *  - nadie del negocio tiene PIN: es el arranque para crear el primero
+   *    (crear el PIN exige sesión completa);
+   *  - la cuenta que entra tiene 2FA: la contraseña sola no basta, con el
+   *    código de su autenticador sí es ella.
+   * Si no, `COUNTER_PASSWORD_DISABLED`: con PIN y sin 2FA, la contraseña
+   * compartida del local no puede subir de mostrador a responsable.
    */
-  private async assertNoCounterPinYet(businessId: string): Promise<void> {
+  private async assertPasswordDoorOpen(businessId: string, user: IUser): Promise<void> {
+    if (hasTwoFactor(user)) return;
+
+    const business = await Business.findById(businessId).select('ownerId');
+    if (business && (await User.exists({ _id: business.ownerId, counterPasswordHash: { $exists: true, $nin: [null, ''] } }))) return;
+
     const { counterPeople } = await import('./counterPin.service');
-    if ((await counterPeople(businessId)).length > 0) {
-      throw new AppError(
-        'Este negocio ya entra con PIN desde el mostrador.',
-        403,
-        'COUNTER_PASSWORD_DISABLED'
-      );
-    }
+    if ((await counterPeople(businessId)).length === 0) return;
+
+    throw new AppError(
+      'Este negocio entra con PIN desde el mostrador. Entra con tu PIN o activa la verificación en dos pasos.',
+      403,
+      'COUNTER_PASSWORD_DISABLED'
+    );
   }
 
   /**
@@ -731,17 +751,17 @@ export class AuthService {
     const counterAccess = await businessStaffService.accessFor(counterUserId, input.businessId, 'counter');
     if (!counterAccess) throw new AppError('Este mostrador no pertenece a ese negocio.', 403, 'BUSINESS_PERMISSION_DENIED');
 
-    // Antes de tocar la contraseña: así esta puerta cerrada tampoco sirve de
-    // oráculo ni gasta intentos del freno.
-    await this.assertNoCounterPinYet(input.businessId);
-
     const identifierValue = input.email.toLowerCase().trim();
-    const user = await this.verifyPassword(true, identifierValue, input.password, ip, req);
+    // `door: 'account'`: aquí siempre cuenta la contraseña PERSONAL. La clave
+    // del mostrador no sube a responsable: es la que conoce todo el local.
+    const { user } = await this.verifyPassword(true, identifierValue, input.password, ip, req, { door: 'account' });
 
     if (!(await this.eligibleForCounterElevation(user, input.businessId))) {
       await recordFailedAttempt(ip, identifierValue);
       throw new AppError('Credenciales inválidas', 401);
     }
+
+    await this.assertPasswordDoorOpen(input.businessId, user);
 
     if (hasTwoFactor(user)) {
       const challengeToken = await openMfaChallenge(user._id, 'counter_password');
@@ -782,8 +802,8 @@ export class AuthService {
     const counterAccess = await businessStaffService.accessFor(counterUserId, input.businessId, 'counter');
     if (!counterAccess) throw new AppError('Este mostrador no pertenece a ese negocio.', 403, 'BUSINESS_PERMISSION_DENIED');
 
-    // Alguien pudo crear su PIN entre los dos pasos.
-    await this.assertNoCounterPinYet(input.businessId);
+    // Sin comprobar la puerta aquí: si hay reto, la cuenta tiene 2FA y
+    // `assertPasswordDoorOpen` ya la dejó pasar en el primer paso.
 
     let resolved: Awaited<ReturnType<typeof resolveMfaChallenge>>;
     try {
@@ -845,6 +865,131 @@ export class AuthService {
     }
     const { unlockPin } = await import('./counterPin.service');
     await unlockPin(targetUserId, businessId);
+  }
+
+  /**
+   * El dueño fija o rota la CLAVE DEL MOSTRADOR (decisión 2026-10-15): una
+   * credencial aparte de su contraseña personal, con la que el local abre el
+   * panel (`POST /auth/login`). Mientras no exista, el local entra con la
+   * contraseña personal del dueño, que es justo lo que se quiere dejar de
+   * compartir.
+   *
+   *  - Solo el propietario de algún negocio: es su cuenta la que se comparte.
+   *  - Pide la contraseña actual (re-autenticación).
+   *  - La PRIMERA vez exige `newPassword`: la personal ya la conoce todo el
+   *    local, así que hay que rotarla; si no, fijar la clave de mostrador
+   *    solo añadiría una puerta. Rotar la personal corta TODAS las sesiones
+   *    (`passwordChangedAt`), incluida la de quien llama.
+   *  - Las rotaciones siguientes solo cambian la clave y cierran las sesiones
+   *    de mostrador; las elevadas mueren con su sesión madre
+   *    (`sessionManager.sessionStatus`). La sesión completa del dueño sigue.
+   *  - La clave no puede ser igual a la contraseña actual ni a la nueva, y la
+   *    personal tampoco puede igualarla (`changePassword`, `resetPassword`).
+   *
+   * Escribe con la contraseña verificada dentro del filtro: dos peticiones
+   * simultáneas no pisan un cambio de contraseña ya hecho.
+   */
+  async setCounterPassword(
+    userId: string,
+    input: { currentPassword: string; counterPassword: string; newPassword?: string },
+    req?: Request
+  ): Promise<{ counterPasswordSetAt: Date; personalPasswordChanged: boolean; sessionsRevoked: number }> {
+    const user = await User.findById(userId).select('+password +counterPasswordHash');
+    if (!user) throw new AppError('Usuario no encontrado', 404);
+
+    if (user.role !== UserRole.BUSINESS || !(await Business.exists({ ownerId: user._id }))) {
+      throw new AppError('Solo el representante legal fija la clave del mostrador.', 403, 'BUSINESS_PERMISSION_DENIED');
+    }
+
+    if (!user.password || !(await user.comparePassword(input.currentPassword))) {
+      throw new AppError('Contraseña incorrecta', 401, 'REAUTH_FAILED');
+    }
+
+    const firstTime = !user.counterPasswordHash;
+    if (firstTime && !input.newPassword) {
+      throw new AppError(
+        'Para crear la clave del mostrador, cambia también tu contraseña personal: la actual ya la conoce el equipo del local.',
+        400,
+        'NEW_PASSWORD_REQUIRED'
+      );
+    }
+
+    for (const [label, value] of [['La clave del mostrador', input.counterPassword], ['Tu contraseña nueva', input.newPassword]] as const) {
+      if (value === undefined) continue;
+      const check = validatePasswordComplexity(value);
+      if (!check.valid) {
+        throw new AppError(`${label}: ${check.errors.join('. ')}`, 400, label === 'Tu contraseña nueva' ? 'PASSWORD_WEAK' : 'COUNTER_PASSWORD_WEAK');
+      }
+    }
+    if (input.newPassword !== undefined && input.newPassword === input.currentPassword) {
+      throw new AppError('Tu contraseña nueva tiene que ser distinta de la actual.', 400, 'PASSWORD_UNCHANGED');
+    }
+    if (input.counterPassword === input.currentPassword || input.counterPassword === input.newPassword) {
+      throw new AppError(
+        'La clave del mostrador tiene que ser distinta de tu contraseña personal.',
+        400,
+        'COUNTER_PASSWORD_SAME_AS_PERSONAL'
+      );
+    }
+
+    const now = new Date();
+    const personalPasswordChanged = input.newPassword !== undefined;
+    const set: Record<string, unknown> = {
+      counterPasswordHash: await hashPassword(input.counterPassword),
+      counterPasswordSetAt: now,
+    };
+    const update: Record<string, unknown> = { $set: set };
+    if (personalPasswordChanged) {
+      set.password = await hashPassword(input.newPassword!);
+      set.passwordChangedAt = now;
+      set.mustChangePassword = false;
+      update.$unset = { passwordExpiresAt: 1 };
+    }
+
+    const written = await User.updateOne({ _id: user._id, password: user.password }, update);
+    if (written.matchedCount !== 1) {
+      throw new AppError('Tu contraseña cambió mientras guardabas. Vuelve a intentarlo.', 409, 'CONCURRENT_UPDATE');
+    }
+
+    let sessionsRevoked = 0;
+    if (personalPasswordChanged) {
+      sessionsRevoked = await sessionManager.revokeAllSessions(userId, { reason: 'password_changed' });
+    } else {
+      // Solo las de mostrador. Las elevadas (`elevatedFrom`) caen con ellas.
+      const open = await Session.find({ userId, isActive: true, scope: 'counter', elevatedFrom: null }).select('_id');
+      for (const session of open) {
+        if (await sessionManager.revokeSession(session._id.toString(), userId, 'user_revoked')) sessionsRevoked += 1;
+      }
+    }
+
+    await recordSecurityEvent({
+      userId,
+      role: user.role,
+      req,
+      type: SecurityEventType.PASSWORD_CHANGED,
+      reason: 'counter_password_set',
+      sessionId: req?.sessionId ?? null,
+      metadata: { how: 'counter_password', firstTime, personalPasswordChanged, sessionsRevoked },
+    });
+    if (req) {
+      await logAudit(req, {
+        action: AuditAction.PASSWORD_CHANGE,
+        entity: 'user',
+        entityId: userId,
+        severity: AuditSeverity.HIGH,
+        description: firstTime ? 'Clave del mostrador creada' : 'Clave del mostrador cambiada',
+        metadata: { firstTime, personalPasswordChanged, sessionsRevoked },
+      });
+    }
+    const { notificationService } = await import('./notification.service');
+    await notificationService.notifySystem(
+      userId,
+      firstTime ? 'Clave del mostrador creada' : 'Clave del mostrador cambiada',
+      'Los mostradores abiertos se cerraron y deberán entrar con la clave nueva. Si no fuiste tú, cambia tu contraseña y revisa tus dispositivos.',
+      { event: 'counter_password_changed', firstTime, personalPasswordChanged }
+    ).catch(() => undefined);
+
+    return { counterPasswordSetAt: now, personalPasswordChanged, sessionsRevoked };
   }
 
   /**
@@ -1466,14 +1611,27 @@ export class AuthService {
    * válidos — lo comparten `login()` y la elevación de mostrador por
    * contraseña (`elevatePasswordFromCounter`), para que un segundo camino no
    * se quede sin el freno de intentos del primero.
+   *
+   * `door` dice por cuál puerta se entra (decisión 2026-10-15):
+   *  - `'login'`: `POST /auth/login`, el panel del local. Si la cuenta es de
+   *    comercio y su dueño fijó la clave del mostrador, ESA es la única
+   *    contraseña que abre esta puerta: la personal da el mismo 401 que una
+   *    equivocada. Se compara contra un solo hash para que el tiempo de
+   *    respuesta no diga cuál de las dos existe.
+   *  - `'account'`: cualquier otra comprobación de identidad (subir del
+   *    mostrador a responsable). Siempre la contraseña personal.
+   *
+   * `viaCounterCredential` avisa de que entró con la clave del mostrador: no
+   * se le pide TOTP y `passwordExpiresAt` (que es de la personal) no aplica.
    */
   private async verifyPassword(
     byEmail: boolean,
     identifierValue: string,
     password: string,
     ip: string,
-    req?: Request
-  ): Promise<IUser> {
+    req: Request | undefined,
+    { door }: { door: 'login' | 'account' }
+  ): Promise<{ user: IUser; viaCounterCredential: boolean }> {
     const identifierMask = byEmail ? maskEmail(identifierValue) : maskPhone(identifierValue);
     const identifierFilter = byEmail ? { email: identifierValue } : { phone: identifierValue };
 
@@ -1492,9 +1650,13 @@ export class AuthService {
     }
 
     const user = await User.findOne(identifierFilter)
-      .select('+password +twoFactorEnabled +twoFactorSecret +failedLoginAttempts +lastLoginIp +passwordExpiresAt');
+      .select('+password +counterPasswordHash +twoFactorEnabled +twoFactorSecret +failedLoginAttempts +lastLoginIp +passwordExpiresAt');
 
-    const passwordOk = !!user && (await user.comparePassword(password));
+    const viaCounterCredential =
+      door === 'login' && !!user && user.role === UserRole.BUSINESS && !!user.counterPasswordHash;
+    const passwordOk = !!user && (viaCounterCredential
+      ? await verifyHash(user.counterPasswordHash!, password)
+      : await user.comparePassword(password));
 
     if (!user || !passwordOk) {
       // Misma respuesta exista o no la cuenta. El bloqueo lo decide el
@@ -1532,8 +1694,9 @@ export class AuthService {
     // S10: una contraseña temporal generada por un admin caduca sola a las
     // 24h (ver `admin.service.ts::resetUserPassword`). Vencida, ni siquiera
     // sirve para entrar — evita que quede funcionando indefinidamente como
-    // una contraseña más si nadie la cambia.
-    if (user.passwordExpiresAt && user.passwordExpiresAt.getTime() < Date.now()) {
+    // una contraseña más si nadie la cambia. Es de la contraseña personal:
+    // la clave del mostrador no caduca por esto.
+    if (!viaCounterCredential && user.passwordExpiresAt && user.passwordExpiresAt.getTime() < Date.now()) {
       throw new AppError(
         'Esta contraseña temporal venció. Pide a un administrador que te restablezca el acceso.',
         403,
@@ -1541,7 +1704,7 @@ export class AuthService {
       );
     }
 
-    return user;
+    return { user, viaCounterCredential };
   }
 
   async login(input: LoginInput, req?: Request): Promise<AuthOutcome> {
@@ -1554,19 +1717,32 @@ export class AuthService {
     const identifierValue = byEmail ? input.email!.toLowerCase().trim() : (normalizePhone(input.phone) ?? input.phone!);
     const identifierMask = byEmail ? maskEmail(identifierValue) : maskPhone(identifierValue);
 
-    const user = await this.verifyPassword(byEmail, identifierValue, input.password, ip, req);
+    const { user, viaCounterCredential } = await this.verifyPassword(
+      byEmail, identifierValue, input.password, ip, req, { door: 'login' }
+    );
 
     let outcome: AuthOutcome;
     try {
-      outcome = await this.completeLogin(user, req, {
-        method: 'password',
-        totpToken: input.totpToken,
-        deviceId: input.deviceId,
-        // Solo una cuenta de comercio puede abrir sesión de mostrador: un
-        // cliente o un domiciliario pidiendo `surface: 'business-counter'`
-        // simplemente lo ignoran y abren su sesión normal.
-        scope: input.surface === 'business-counter' && user.role === UserRole.BUSINESS ? 'counter' : undefined,
-      });
+      if (viaCounterCredential) {
+        // Clave del mostrador: sin TOTP (es la credencial del equipo del
+        // local, no la del dueño) y siempre sesión de mostrador. No pasa por
+        // `completeLogin`, que abriría un reto 2FA que el equipo no puede
+        // resolver; el 2FA protege la contraseña personal y la elevación.
+        this.assertAccountUsable(user);
+        const session = await this.startSession(user, req, {
+          method: 'counter_credential',
+          mfa: false,
+          deviceId: input.deviceId,
+          scope: 'counter',
+        });
+        outcome = { requiresTOTP: false, user, method: 'counter_credential', ...session };
+      } else {
+        outcome = await this.completeLogin(user, req, {
+          method: 'password',
+          totpToken: input.totpToken,
+          deviceId: input.deviceId,
+        });
+      }
     } catch (error) {
       // Un TOTP equivocado con la contraseña correcta también es un intento
       // fallido: si no contara, el TOTP se podía probar sin límite.
@@ -1881,12 +2057,18 @@ export class AuthService {
       throw new AppError(passwordCheck.errors.join('. '), 400);
     }
 
-    const user = await User.findOne({ phone }).select('+password');
+    const user = await User.findOne({ phone }).select('+password +counterPasswordHash');
     if (!user) throw otpError('invalid');
 
     const twoFactor = hasTwoFactor(user);
     const firstCheck = await checkOtp(User, { _id: user._id }, OTP_SLOTS.phone, otpCode, { consume: !twoFactor });
     if (firstCheck !== 'ok') throw otpError(firstCheck, 'No hay OTP pendiente');
+
+    // La contraseña personal no puede ser la clave del mostrador: esa la
+    // conoce todo el local, y con ella igual la personal abriría el panel.
+    // Se comprueba DESPUÉS del OTP, no antes: antes, esta ruta (sin sesión)
+    // serviría de oráculo para adivinar la clave del mostrador de un dueño.
+    await this.assertNotCounterPassword(user, newPassword);
 
     if (twoFactor) {
       if (!totpToken) {
@@ -1969,12 +2151,32 @@ export class AuthService {
       documentType?: DocumentType | null;
       documentNumber?: string | null;
       birthDate?: string;
+      currentPassword?: string;
     },
     req?: Request
   ): Promise<{ user: IUser; phoneVerificationSent: boolean }> {
-    const user = await User.findById(userId).select('+pendingPhoneOtpExpires');
+    const user = await User.findById(userId).select('+pendingPhoneOtpExpires +password');
     if (!user) {
       throw new AppError('Usuario no encontrado', 404);
+    }
+
+    // Cambiar el correo o el celular es cambiar a dónde llegan los códigos de
+    // recuperación: quien tuviera una sesión abierta (un PC del local) podía
+    // quedarse con la cuenta (hallazgo C1, 2026-10-14). Comercio y
+    // administración confirman con la contraseña actual.
+    // TODO(seguridad): exigirlo también a CLIENT y DRIVER cuando la app móvil
+    // envíe `currentPassword` al editar el perfil; hoy no lo manda y
+    // romperíamos esa edición.
+    const changesEmail = data.email !== undefined && data.email.trim().toLowerCase() !== (user.email || '');
+    const changesPhone = data.phone !== undefined && data.phone !== user.phone;
+    if (
+      (changesEmail || changesPhone) &&
+      (user.role === UserRole.BUSINESS || user.role === UserRole.ADMIN)
+    ) {
+      const proof = data.currentPassword;
+      if (!proof || !user.password || !(await user.comparePassword(proof))) {
+        throw new AppError('Contraseña incorrecta', 401, 'REAUTH_FAILED');
+      }
     }
 
     let phoneVerificationSent = false;
@@ -2074,7 +2276,7 @@ export class AuthService {
         entity: 'user',
         entityId: userId,
         description: `Perfil actualizado`,
-        metadata: { updatedFields: Object.keys(data), phoneVerificationSent },
+        metadata: { updatedFields: Object.keys(data).filter((key) => key !== 'currentPassword'), phoneVerificationSent },
       });
     }
 
@@ -2487,8 +2689,23 @@ export class AuthService {
     return count;
   }
 
+  /**
+   * La contraseña personal nunca puede ser igual a la clave del mostrador
+   * (decisión 2026-10-15): si lo fuera, la separación de las dos credenciales
+   * sería de mentira. `user` debe traer `+counterPasswordHash`.
+   */
+  private async assertNotCounterPassword(user: IUser, candidate: string): Promise<void> {
+    if (user.counterPasswordHash && (await verifyHash(user.counterPasswordHash, candidate))) {
+      throw new AppError(
+        'Esa contraseña es la clave del mostrador. Elige una distinta para tu cuenta.',
+        400,
+        'PASSWORD_SAME_AS_COUNTER'
+      );
+    }
+  }
+
   async changePassword(userId: string, currentPassword: string, newPassword: string, req?: Request): Promise<void> {
-    const user = await User.findById(userId).select('+password');
+    const user = await User.findById(userId).select('+password +counterPasswordHash');
     if (!user) throw new AppError('Usuario no encontrado', 404);
 
     const isMatch = typeof currentPassword === 'string' && (await user.comparePassword(currentPassword));
@@ -2500,6 +2717,8 @@ export class AuthService {
     if (!passwordCheck.valid) {
       throw new AppError(passwordCheck.errors.join('. '), 400);
     }
+
+    await this.assertNotCounterPassword(user, newPassword);
 
     user.password = newPassword;
     // Sale del estado "contraseña temporal de admin" (S10) en cuanto la

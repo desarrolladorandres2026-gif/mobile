@@ -383,16 +383,19 @@ describe('Historial: eventos, inmutabilidad, IP y reuso de tokens', () => {
     expect(bad.status).toBe(401);
     expect(await events(owner._id, SecurityEventType.LOGIN_FAILED)).toHaveLength(1);
 
-    const a = await login(owner.email!, { deviceId: randomUUID() });
+    // El login de un comercio abre mostrador (C1) y gestionar sesiones o la
+    // contraseña exige sesión completa: esa sale de la fábrica.
+    await login(owner.email!, { deviceId: randomUUID() });
     const b = await login(owner.email!, { deviceId: randomUUID() });
     const sessionOfB = await Session.findOne({ userId: String(owner._id) }).sort({ createdAt: -1 }).lean();
-    await request(app).delete(`${API}/auth/sessions/${sessionOfB!._id}`).set(bearer(a.accessToken)).expect(200);
+    const fullHeader = await authHeader(owner);
+    await request(app).delete(`${API}/auth/sessions/${sessionOfB!._id}`).set(fullHeader).expect(200);
     expect(await events(owner._id, SecurityEventType.REMOTE_LOGOUT)).toHaveLength(1);
     expect((await request(app).get(`${API}/auth/me`).set(bearer(b.accessToken))).status).toBe(401);
 
     await request(app)
       .post(`${API}/auth/change-password`)
-      .set(bearer(a.accessToken))
+      .set(fullHeader)
       .send({ currentPassword: PASSWORD, newPassword: 'Nueva.Clave456' })
       .expect(200);
     const [changed] = await events(owner._id, SecurityEventType.PASSWORD_CHANGED);
@@ -513,9 +516,9 @@ describe('Hallazgos de la revisión de seguridad', () => {
   it('el identificador completo no sale por /auth/sessions ni se puede reconstruir con prefijos largos', async () => {
     const { owner, businessId } = await ownerWithBusiness();
     const deviceId = randomUUID();
-    const { accessToken } = await login(owner.email!, { deviceId });
+    await login(owner.email!, { deviceId });
 
-    const mine = await request(app).get(`${API}/auth/sessions`).set(bearer(accessToken)).expect(200);
+    const mine = await request(app).get(`${API}/auth/sessions`).set(await authHeader(owner)).expect(200);
     expect(JSON.stringify(mine.body)).not.toContain(deviceId);
 
     const { header } = await securityAdmin();

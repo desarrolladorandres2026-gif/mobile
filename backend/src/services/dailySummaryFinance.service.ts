@@ -80,7 +80,8 @@ async function payableSide(
             $sum: {
               $cond: [
                 '$isClawback',
-                { $subtract: ['$reversedAmount', '$amount'] },
+                // Arrastre: lo que sigue abierto (original − ya cobrado), en negativo.
+                { $subtract: [{ $ifNull: ['$consumedAmount', 0] }, '$amount'] },
                 { $subtract: ['$amount', '$reversedAmount'] },
               ],
             },

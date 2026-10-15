@@ -84,7 +84,7 @@ export default function DesktopTab() {
         <div className="space-y-1.5">
           <h2 className="text-sm font-semibold text-[var(--color-text-main)]">Impresora de comandas</h2>
           <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">
-            La comanda se imprime sola, sin diálogo, en la impresora que elijas aquí.
+            Elige la impresora y el ancho del papel. Por ahora solo se imprime la comanda de prueba; la impresión automática al aceptar un pedido aún no está activa.
           </p>
         </div>
         <div className="min-w-0 space-y-4">

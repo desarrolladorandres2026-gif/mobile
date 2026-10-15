@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from 'react';
+import { Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
@@ -7,7 +7,6 @@ import UpdateBanner from './components/UpdateBanner';
 import PrivateRoute from './components/PrivateRoute';
 import Layout from './components/Layout';
 import { lazyPage } from './lib/lazyPage';
-import { useThemeStore } from './stores/themeStore';
 
 /**
  * Cada página se descarga al abrirla.
@@ -17,6 +16,7 @@ import { useThemeStore } from './stores/themeStore';
  * cocina. Ahora el primer pintado solo lleva el Layout y la página abierta.
  */
 const Login = lazyPage(() => import('./pages/Login'), '/login');
+const ForgotPassword = lazyPage(() => import('./pages/ForgotPassword'), '/forgot-password');
 const TwoFactorSetup = lazyPage(() => import('./pages/TwoFactorSetup'), '/setup-2fa');
 const HomePage = lazyPage(() => import('./pages/Home'), '/');
 const OrdersPage = lazyPage(() => import('./pages/Orders'), '/orders');
@@ -58,9 +58,6 @@ function PageLoading() {
 }
 
 function App() {
-  const initTheme = useThemeStore((s) => s.initTheme);
-  useEffect(() => { initTheme(); }, [initTheme]);
-
   return (
     <QueryClientProvider client={queryClient}>
     <BrowserRouter>
@@ -75,6 +72,7 @@ function App() {
         <Routes>
           {/* Ruta pública */}
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
 
           {/* Rutas protegidas — requieren sesión activa */}
           <Route element={<PrivateRoute />}>

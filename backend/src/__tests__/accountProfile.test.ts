@@ -8,7 +8,7 @@ import { config } from '../config';
 import { adminService } from '../services/admin.service';
 import { anonymizeAccount } from '../services/accountDeletion.service';
 import { ageOn, parseBirthDate, birthDateProblem } from '../utils/age';
-import { makeUser, authHeader } from './factories';
+import { makeUser, authHeader, counterAuthHeader } from './factories';
 
 /**
  * Mi cuenta (2026-09-19): nombre y apellido por separado, documento de
@@ -139,6 +139,65 @@ describe('PATCH /auth/profile — datos de Mi cuenta', () => {
 
     const stored = await User.findById(user._id);
     expect(stored!.birthDate!.toISOString().slice(0, 10)).toBe('1995-05-16');
+  });
+});
+
+describe('PATCH /auth/profile — cambiar correo o celular exige la contraseña (comercio y administración)', () => {
+  const PASSWORD = 'Clave.Segura123'; // la de `makeUser` por defecto
+  const code = (res: request.Response) => res.body.code ?? res.body.error?.code;
+
+  it.each([UserRole.BUSINESS, UserRole.ADMIN])('%s: cambiar el correo sin contraseña da 401 REAUTH_FAILED y no lo cambia', async (role) => {
+    const user = await makeUser({ role });
+    const res = await patchProfile(user, { email: 'otro.correo@zipp.test' });
+    expect(res.status).toBe(401);
+    expect(code(res)).toBe('REAUTH_FAILED');
+    expect((await User.findById(user._id))!.email).toBe(user.email);
+  });
+
+  it('con una contraseña equivocada también da 401', async () => {
+    const user = await makeUser({ role: UserRole.BUSINESS });
+    const res = await patchProfile(user, { email: 'otro.correo@zipp.test', currentPassword: 'Equivocada.123' });
+    expect(res.status).toBe(401);
+    expect(code(res)).toBe('REAUTH_FAILED');
+    expect((await User.findById(user._id))!.email).toBe(user.email);
+  });
+
+  it('con la contraseña correcta cambia el correo', async () => {
+    const user = await makeUser({ role: UserRole.BUSINESS });
+    const res = await patchProfile(user, { email: 'otro.correo@zipp.test', currentPassword: PASSWORD });
+    expect(res.status).toBe(200);
+    expect((await User.findById(user._id))!.email).toBe('otro.correo@zipp.test');
+  });
+
+  it('cambiar el celular sin contraseña da 401 y no deja un celular pendiente', async () => {
+    const user = await makeUser({ role: UserRole.BUSINESS });
+    const res = await patchProfile(user, { phone: '3119998877' });
+    expect(res.status).toBe(401);
+    expect(code(res)).toBe('REAUTH_FAILED');
+    expect((await User.findById(user._id))!.pendingPhone).toBeFalsy();
+  });
+
+  it('mandar el mismo correo o los datos que no son de contacto no pide contraseña', async () => {
+    const user = await makeUser({ role: UserRole.BUSINESS });
+    const same = await patchProfile(user, { email: user.email, firstName: 'Dora', lastName: 'Mejía' });
+    expect(same.status).toBe(200);
+    expect(same.body.data.user.name).toBe('Dora Mejía');
+  });
+
+  it('el cliente (la app móvil aún no la manda) sigue editando su correo sin contraseña', async () => {
+    const user = await makeUser({ role: UserRole.CLIENT });
+    const res = await patchProfile(user, { email: 'cliente.nuevo@zipp.test' });
+    expect(res.status).toBe(200);
+  });
+
+  it('desde el mostrador la ruta sigue cerrada (COUNTER_SESSION_FORBIDDEN)', async () => {
+    const user = await makeUser({ role: UserRole.BUSINESS });
+    const res = await request(app)
+      .patch('/api/v1/auth/profile')
+      .set(await counterAuthHeader(user))
+      .send({ email: 'otro.correo@zipp.test', currentPassword: PASSWORD });
+    expect(res.status).toBe(403);
+    expect(code(res)).toBe('COUNTER_SESSION_FORBIDDEN');
   });
 });
 

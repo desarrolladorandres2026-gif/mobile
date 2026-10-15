@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Eye, Store, AlertCircle, Check } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
@@ -91,8 +91,6 @@ export default function Orders() {
   const [detailOrder, setDetailOrder] = useState<BusinessOrder | null>(null);
   const [liveTick, setLiveTick] = useState(0);
 
-  useEffect(() => { setPage(1); }, [filter]);
-
   const activeFilterLabel = FILTERS.find((option) => option.value === filter)?.label;
 
   // La misma consulta que lee la alarma global (hooks/useActiveOrders): el
@@ -141,24 +139,30 @@ export default function Orders() {
   // La llegada de pedidos nuevos al tablero ya no se maneja aquí: la
   // alarma global (`useActiveOrdersLiveSync`, montada en el Layout) mantiene
   // el caché al día en todas las pantallas, no solo en esta.
-  useBusinessEvent('order:status:changed', () => {
+  const openOrderId = detailOrder?._id;
+  useBusinessEvent('order:status:changed', (event) => {
     loadSoon();
-    setLiveTick((tick) => tick + 1);
+    // El detalle abierto solo se recarga si el evento es de ese pedido.
+    if (event.orderId === openOrderId) setLiveTick((tick) => tick + 1);
   });
   useBusinessEvent('order:driver:assigned', loadSoon);
   useBusinessEvent('order:driver:arrived', () => setHandoffTick((tick) => tick + 1));
 
-  const updateStatus = async (orderId: string, status: string, cancellationReason?: string) => {
+  const updateStatus = async (orderId: string, status: string, cancellationReason?: string): Promise<boolean> => {
     try {
       setActionError('');
       setBusyOrderId(orderId);
       await api.patch(`/orders/${orderId}/status`, { status, cancellationReason });
       load();
+      return true;
     } catch (err) {
       // El mensaje del servidor es el que explica de verdad qué pasó
       // ("este pedido es de pago en línea y aún no está pagado"), así que
       // se muestra tal cual en vez de un error genérico.
       setActionError(apiMessage(err, 'No pudimos actualizar el pedido.'));
+      // Otro dispositivo pudo mover el pedido antes: se vuelve a leer el estado real.
+      load();
+      return false;
     } finally {
       setBusyOrderId(null);
     }
@@ -209,10 +213,16 @@ export default function Orders() {
 
   return (
     <div className="space-y-0">
+      <h1 className="sr-only">Pedidos</h1>
       {(actionError || queueError) && (
         <div role="alert" className="flex items-start gap-2 border-l-2 border-[var(--color-danger)] pl-3 py-0.5">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="text-xs font-semibold text-[var(--color-danger)]">{actionError || queueError}</p>
+          {queueError && !actionError ? (
+            <button type="button" onClick={() => void queueQuery.refetch()} className="ml-2 text-xs font-bold underline cursor-pointer text-[var(--color-danger)]">
+              Reintentar
+            </button>
+          ) : null}
         </div>
       )}
 
@@ -277,6 +287,9 @@ export default function Orders() {
           <div role="alert" className="flex items-start gap-2 border-l-2 border-[var(--color-danger)] pl-3 py-0.5">
             <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
             <p className="text-xs font-semibold text-[var(--color-danger)]">{error}</p>
+            <button type="button" onClick={() => void ordersQuery.refetch()} className="ml-2 text-xs font-bold underline cursor-pointer text-[var(--color-danger)]">
+              Reintentar
+            </button>
           </div>
         )}
 
@@ -302,7 +315,7 @@ export default function Orders() {
                     type="button"
                     role="radio"
                     aria-checked={filter === option.value}
-                    onClick={() => setFilter(option.value)}
+                    onClick={() => { setFilter(option.value); setPage(1); }}
                     className={`w-full flex items-center justify-between py-2 text-xs font-semibold cursor-pointer transition-colors hover:text-[var(--color-primary)] ${
                       filter === option.value ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-main)]'
                     }`}
@@ -422,8 +435,8 @@ export default function Orders() {
           order={rejecting}
           onCancel={() => setRejecting(null)}
           onConfirm={async (reason) => {
-            await updateStatus(rejecting._id, 'cancelled', reason);
-            setRejecting(null);
+            // Si falla, el diálogo se queda: el error se ve y se puede reintentar.
+            if (await updateStatus(rejecting._id, 'cancelled', reason)) setRejecting(null);
           }}
         />
       )}

@@ -207,6 +207,16 @@ sudo sed -i 's/REEMPLAZAR_DOMINIO/tudominio.com/' \
         /etc/nginx/sites-available/descargas.tudominio.com
 sudo ln -s /etc/nginx/sites-available/descargas.tudominio.com /etc/nginx/sites-enabled/
 
+# Cabeceras de seguridad: la plantilla las incluye, y `nginx -t` falla si el
+# archivo no existe. Copiarlo ANTES de generar los tres SPA.
+sudo mkdir -p /etc/nginx/snippets
+sudo cp /var/www/zipp/deploy/nginx/security-headers.conf \
+        /etc/nginx/snippets/zipp-security-headers.conf
+# Solo comercios: su CSP (en modo solo-informe; instrucciones dentro del archivo).
+sudo cp /var/www/zipp/deploy/nginx/csp-business.conf \
+        /etc/nginx/snippets/zipp-csp-business.conf
+sudo sed -i 's/REEMPLAZAR_DOMINIO/tudominio.com/g' /etc/nginx/snippets/zipp-csp-business.conf
+
 # Los tres SPA, a partir de la plantilla (ver la tabla dentro del archivo)
 for pair in "panel.tudominio.com:/var/www/zipp-admin" \
             "comercios.tudominio.com:/var/www/zipp-business" \
@@ -217,6 +227,10 @@ for pair in "panel.tudominio.com:/var/www/zipp-admin" \
     | sudo tee /etc/nginx/sites-available/$sub >/dev/null
   sudo ln -s /etc/nginx/sites-available/$sub /etc/nginx/sites-enabled/
 done
+
+# El CSP de comercios va debajo de cada include de seguridad (server y locations).
+sudo sed -i 's#^\(\s*\)include /etc/nginx/snippets/zipp-security-headers.conf;#&\n\1include /etc/nginx/snippets/zipp-csp-business.conf;#' \
+  /etc/nginx/sites-available/comercios.tudominio.com
 
 sudo nginx -t && sudo systemctl reload nginx
 
@@ -348,6 +362,23 @@ subió. Se puede repetir sin riesgo.
 Después, pon `PHOTOROOM_API_KEY` (la de producción, no una `sandbox_`) en
 el `.env` y reinicia. Sin clave, el recorte queda apagado y todo lo demás
 sigue igual.
+
+El reembolso tardío separado (corrección 1.2, migración 029) toca dinero:
+reconstruye `Payout.amount`/`consumedAmount` de los arrastres y mueve lo
+revertido después de pagar de `reversedAmount` a `reversedAfterCommit`.
+Es una ejecución **en seco por defecto**; hay que correrla **antes de
+procesar el primer reembolso o la primera liquidación con el código nuevo**
+(la marca de "ya migrado" es que el campo exista, y el código nuevo lo crea
+al tocar la fila):
+
+```bash
+sudo -u zipp -E npm run migrate:payout-late-refund                # solo informe
+sudo -u zipp -E npm run migrate:payout-late-refund -- --apply     # escribe
+```
+
+El informe lista los arrastres con una liquidación en curso (no se tocan) y
+los payouts reclamados cuyo `reversedAmount` nuevo no iguala su
+`reversedAtClaim`: revísalos a mano antes de liquidar. Es idempotente.
 
 > **Nunca** ejecutes `npm run seed` en producción: reinicializa datos.
 

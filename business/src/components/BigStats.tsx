@@ -3,7 +3,7 @@ import type { SummaryItem } from './SummaryGrid';
 
 /**
  * Cifras del resumen del día en el diseño de la orden de pedido: cabecera
- * dorada con las etiquetas y, debajo, una fila con las cifras. Se mira de pie
+ * blanca con las etiquetas y, debajo, una fila con las cifras. Se mira de pie
  * en el mostrador, así que la cifra va grande. Una cifra con `to` es un enlace
  * a la pantalla donde se actúa sobre ella.
  */
@@ -12,7 +12,7 @@ export default function BigStats({ items }: { items: SummaryItem[] }) {
     <div className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
       <table className="w-full text-left">
         <thead>
-          <tr className="bg-[var(--color-primary-dark)] text-[var(--color-surface)]">
+          <tr className="border-b border-[var(--color-border)] text-[var(--color-text-main)]">
             {items.map((item) => (
               <th key={item.label} className="whitespace-nowrap px-4 py-2.5 text-xs font-bold uppercase tracking-wide">
                 {item.label}
@@ -23,11 +23,7 @@ export default function BigStats({ items }: { items: SummaryItem[] }) {
         <tbody>
           <tr>
             {items.map((item) => {
-              const tone = item.alert
-                ? 'text-[var(--color-danger)]'
-                : item.strong
-                  ? 'text-[var(--color-primary-dark)]'
-                  : 'text-[var(--color-text-main)]';
+              const tone = item.alert ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]';
               const content = (
                 <>
                   {item.loading ? (

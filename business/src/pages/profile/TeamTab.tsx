@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Ban, RotateCcw, Trash2, UserPlus, Users } from 'lucide-react';
+import { AlertCircle, Ban, RotateCcw, Trash2, UserPlus, Users, X } from 'lucide-react';
 import api from '../../services/api';
 import { qk } from '../../lib/queryKeys';
 import { useAuthStore } from '../../stores/authStore';
@@ -92,6 +92,7 @@ export default function TeamTab() {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<StaffRole>('employee');
   const [inviting, setInviting] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toRemove, setToRemove] = useState<StaffMember | null>(null);
   // Entrada desde el mostrador: dar acceso a alguien pide la contraseña otra
@@ -126,6 +127,7 @@ export default function TeamTab() {
 
   const invite = async () => {
     if (!businessId || !inviteRole || missingPassword()) return;
+    if (!phone.trim()) { setError('Escribe el teléfono de la cuenta ZIPP de esa persona.'); return; }
     try {
       setError('');
       setInviting(true);
@@ -140,6 +142,7 @@ export default function TeamTab() {
       setPhone('');
       setName('');
       setEmail('');
+      setInviteOpen(false);
       await load();
     } catch (err) {
       setError(apiMessage(err, 'No se pudo enviar la invitación.'));
@@ -184,6 +187,15 @@ export default function TeamTab() {
 
   const canInvite = has('team:invite') && grantable.length > 0;
 
+  const groups: Array<{ key: Status; title: string; list: StaffMember[] }> = [
+    { key: 'pending', title: 'Invitaciones pendientes', list: staff.filter((m) => statusOf(m) === 'pending') },
+    { key: 'active', title: 'Con acceso', list: staff.filter((m) => statusOf(m) === 'active') },
+    { key: 'suspended', title: 'Suspendidos', list: staff.filter((m) => statusOf(m) === 'suspended') },
+  ];
+
+  const actionButton =
+    'inline-flex items-center gap-1 text-xs font-semibold cursor-pointer hover:underline disabled:opacity-60 disabled:cursor-wait';
+
   return (
     <div className="space-y-6">
       {(error || loadError) && (
@@ -209,174 +221,205 @@ export default function TeamTab() {
         </label>
       )}
 
-      <div className="cols3">
-        {canInvite && (
-          <section className="space-y-4">
-            <h2 className="col-title">Invitar a alguien</h2>
-
-            <div className="grid gap-3">
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Nombre (opcional)"
-                aria-label="Nombre"
-                className={inputClass}
-              />
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                type="email"
-                placeholder="Correo (opcional)"
-                aria-label="Correo"
-                className={inputClass}
-              />
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                inputMode="tel"
-                placeholder="Teléfono de su cuenta ZIPP"
-                aria-label="Teléfono"
-                className={inputClass}
-              />
-              <select
-                value={inviteRole}
-                onChange={(e) => setRole(e.target.value as StaffRole)}
-                aria-label="Rol"
-                className={inputClass}
-              >
-                {grantable.map((r) => (
-                  <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                ))}
-              </select>
-
-              <button
-                onClick={invite}
-                disabled={inviting}
-                className="px-4 py-2 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait flex items-center justify-center gap-1.5"
-              >
-                <UserPlus className="w-4 h-4" />
-                {inviting ? 'Invitando…' : 'Enviar invitación'}
-              </button>
-            </div>
-
-            {inviteRole && (
-              <p className="text-xs text-[var(--color-text-secondary)]">
-                <strong className="text-[var(--color-text-main)]">{ROLE_LABELS[inviteRole]}:</strong>{' '}
-                {ROLE_DESCRIPTIONS[inviteRole]}
-              </p>
-            )}
-
-            <p className="text-xs text-[var(--color-text-secondary)]">
-              La persona necesita una cuenta de comercio de ZIPP con ese teléfono. Verá la
-              invitación al entrar al panel y no tendrá acceso hasta aceptarla. Por privacidad,
-              aquí no se confirma si el teléfono tiene cuenta: si no le llega, pídele que se
-              registre y vuelve a invitarla.
-            </p>
-          </section>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-[var(--color-text-secondary)]">
+          Cada persona entra con su propia cuenta y ve solo lo que su rol permite.
+        </p>
+        {canInvite && !inviteOpen && (
+          <button
+            type="button"
+            onClick={() => setInviteOpen(true)}
+            className="h-8 px-3 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] cursor-pointer flex items-center gap-1.5"
+          >
+            <UserPlus className="w-4 h-4" />
+            Invitar a alguien
+          </button>
         )}
-
-        <section className="span2">
-          <h2 className="col-title">Equipo · {staff.length}</h2>
-          {loading ? (
-            <p className="py-2 text-xs font-semibold text-[var(--color-text-secondary)]">Cargando equipo…</p>
-          ) : staff.length === 0 ? (
-            <div className="py-8 text-center space-y-2">
-              <Users className="w-8 h-8 text-[var(--color-text-secondary)] mx-auto" />
-              <p className="text-sm font-semibold text-[var(--color-text-main)]">Trabajas solo por ahora</p>
-              <p className="text-xs text-[var(--color-text-secondary)] font-medium">
-                Cuando invites a alguien, aparecerá aquí con su rol y su estado.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
-              <table className="w-full text-left">
-                <thead>
-                  <tr>
-                    <th className="table-header-cell">Nombre</th>
-                    <th className="table-header-cell">Rol</th>
-                    <th className="table-header-cell">Estado</th>
-                    <th className="table-header-cell">Último acceso</th>
-                    <th className="table-header-cell text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {staff.map((member) => {
-                    const memberRole = normalizeRole(member.role) as StaffRole | null;
-                    const status = statusOf(member);
-                    // Un administrador ve a los otros administradores pero no los toca.
-                    const manageable = !!memberRole && grantable.includes(memberRole);
-                    const busy = busyId === member._id;
-                    const displayName = member.userId?.name || member.invitedName || 'Sin nombre';
-                    return (
-                      <tr key={member._id} className={status === 'suspended' ? 'opacity-70' : ''}>
-                        <td className="table-body-cell">
-                          <p className="text-sm font-semibold text-[var(--color-text-main)]">{displayName}</p>
-                          <p className="text-xs text-[var(--color-text-secondary)]">
-                            {[member.userId?.phone || member.invitedPhone, member.userId?.email || member.invitedEmail].filter(Boolean).join(' · ') || 'Sin contacto'}
-                          </p>
-                        </td>
-                        <td className="table-body-cell">
-                          {manageable && has('team:change_role') ? (
-                            <select
-                              value={memberRole ?? ''}
-                              disabled={busy}
-                              aria-label={`Rol de ${displayName}`}
-                              onChange={(e) => update(member, { role: e.target.value as StaffRole })}
-                              className="px-2 py-1 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)] cursor-pointer"
-                            >
-                              {grantable.map((r) => (
-                                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span className="text-xs font-semibold text-[var(--color-text-main)]">
-                              {memberRole ? ROLE_LABELS[memberRole] : member.role}
-                            </span>
-                          )}
-                        </td>
-                        <td className={`table-body-cell text-xs font-semibold ${STATUS_INFO[status].className}`}>
-                          {STATUS_INFO[status].label}
-                        </td>
-                        <td className="table-body-cell text-xs text-[var(--color-text-main)] tabular">
-                          {status === 'pending' ? 'Aún no acepta' : formatDate(member.userId?.lastLoginAt)}
-                        </td>
-                        <td className="table-body-cell">
-                          {manageable && (
-                            <div className="flex items-center justify-end gap-1">
-                              {status !== 'pending' && has('team:edit') && (
-                                <button
-                                  onClick={() => update(member, { suspended: status !== 'suspended' })}
-                                  disabled={busy}
-                                  title={status === 'suspended' ? 'Reactivar acceso' : 'Suspender acceso'}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer disabled:opacity-60 disabled:cursor-wait"
-                                >
-                                  {status === 'suspended' ? <RotateCcw className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
-                                  {status === 'suspended' ? 'Reactivar' : 'Suspender'}
-                                </button>
-                              )}
-                              {has('team:remove') && (
-                                <button
-                                  onClick={() => setToRemove(member)}
-                                  disabled={busy}
-                                  title={status === 'pending' ? 'Cancelar invitación' : 'Eliminar del equipo'}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] cursor-pointer disabled:opacity-60 disabled:cursor-wait"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  {status === 'pending' ? 'Cancelar' : 'Eliminar'}
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
       </div>
+
+      {canInvite && inviteOpen && (
+        <section className="space-y-4 max-w-2xl border-b border-[var(--color-border)] pb-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[13px] font-semibold text-[var(--color-text-main)]">Invitar a alguien</h2>
+            <button
+              type="button"
+              onClick={() => setInviteOpen(false)}
+              aria-label="Cerrar"
+              className="cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              inputMode="tel"
+              placeholder="Teléfono de su cuenta ZIPP"
+              aria-label="Teléfono"
+              className={inputClass}
+            />
+            <select
+              value={inviteRole}
+              onChange={(e) => setRole(e.target.value as StaffRole)}
+              aria-label="Rol"
+              className={inputClass}
+            >
+              {grantable.map((r) => (
+                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+              ))}
+            </select>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Nombre (opcional)"
+              aria-label="Nombre"
+              className={inputClass}
+            />
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              type="email"
+              placeholder="Correo (opcional)"
+              aria-label="Correo"
+              className={inputClass}
+            />
+          </div>
+
+          {inviteRole && (
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              <strong className="text-[var(--color-text-main)]">{ROLE_LABELS[inviteRole]}:</strong>{' '}
+              {ROLE_DESCRIPTIONS[inviteRole]}
+            </p>
+          )}
+
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            La persona necesita una cuenta de comercio de ZIPP con ese teléfono. Verá la
+            invitación al entrar al panel y no tendrá acceso hasta aceptarla. Por privacidad,
+            aquí no se confirma si el teléfono tiene cuenta: si no le llega, pídele que se
+            registre y vuelve a invitarla.
+          </p>
+
+          <button
+            onClick={invite}
+            disabled={inviting}
+            className="h-9 px-4 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-wait flex items-center justify-center gap-1.5"
+          >
+            <UserPlus className="w-4 h-4" />
+            {inviting ? 'Invitando…' : 'Enviar invitación'}
+          </button>
+        </section>
+      )}
+
+      {loading ? (
+        <p className="py-2 text-xs font-semibold text-[var(--color-text-secondary)]">Cargando equipo…</p>
+      ) : staff.length === 0 ? (
+        <div className="py-12 space-y-2 max-w-md">
+          <Users className="w-6 h-6 text-[var(--color-text-secondary)]" />
+          <p className="text-sm font-semibold text-[var(--color-text-main)]">Trabajas solo por ahora</p>
+          <p className="text-xs text-[var(--color-text-secondary)] font-medium">
+            Cuando invites a alguien, aparecerá aquí con su rol y su estado.
+          </p>
+          {canInvite && (
+            <button type="button" onClick={() => setInviteOpen(true)} className="text-xs font-semibold text-[var(--color-primary)] hover:underline cursor-pointer">
+              Invitar a la primera persona
+            </button>
+          )}
+        </div>
+      ) : (
+        groups.map(({ key, title, list }) =>
+          list.length === 0 ? null : (
+            <section key={key} className="space-y-1">
+              <h2 className="text-[13px] font-semibold text-[var(--color-text-main)] border-b border-[var(--color-border)] pb-1.5">
+                {title} · {list.length}
+              </h2>
+              <ul className="divide-y divide-[var(--color-border-light)]">
+                {list.map((member) => {
+                  const memberRole = normalizeRole(member.role) as StaffRole | null;
+                  const status = statusOf(member);
+                  // Un administrador ve a los otros administradores pero no los toca.
+                  const manageable = !!memberRole && grantable.includes(memberRole);
+                  const busy = busyId === member._id;
+                  const displayName = member.userId?.name || member.invitedName || 'Sin nombre';
+                  const contact =
+                    [member.userId?.phone || member.invitedPhone, member.userId?.email || member.invitedEmail]
+                      .filter(Boolean)
+                      .join(' · ') || 'Sin contacto';
+                  return (
+                    <li
+                      key={member._id}
+                      className={`py-3 grid gap-3 md:gap-4 md:grid-cols-[auto_minmax(0,2fr)_9rem_minmax(0,1fr)_auto] md:items-center ${status === 'suspended' ? 'opacity-70' : ''}`}
+                    >
+                      <span
+                        aria-hidden
+                        className="hidden md:flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-surface-hover)] text-sm font-semibold text-[var(--color-text-secondary)]"
+                      >
+                        {(displayName.trim()[0] ?? '?').toUpperCase()}
+                      </span>
+
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-[var(--color-text-main)] truncate">{displayName}</p>
+                        <p className="text-xs text-[var(--color-text-secondary)] truncate">{contact}</p>
+                      </div>
+
+                      <div>
+                        {manageable && has('team:change_role') ? (
+                          <select
+                            value={memberRole ?? ''}
+                            disabled={busy}
+                            aria-label={`Rol de ${displayName}`}
+                            onChange={(e) => update(member, { role: e.target.value as StaffRole })}
+                            className="px-2 py-1 rounded-md bg-[var(--color-surface)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)] cursor-pointer"
+                          >
+                            {grantable.map((r) => (
+                              <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-xs font-semibold text-[var(--color-text-main)]">
+                            {memberRole ? ROLE_LABELS[memberRole] : member.role}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className={`text-xs font-semibold ${STATUS_INFO[status].className}`}>{STATUS_INFO[status].label}</p>
+                        <p className="text-xs text-[var(--color-text-secondary)] tabular">
+                          {status === 'pending' ? 'Aún no acepta' : formatDate(member.userId?.lastLoginAt)}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:justify-end">
+                        {manageable && status !== 'pending' && has('team:edit') && (
+                          <button
+                            onClick={() => update(member, { suspended: status !== 'suspended' })}
+                            disabled={busy}
+                            className={`${actionButton} ${status === 'suspended' ? 'text-[var(--color-success)]' : 'text-[var(--color-text-secondary)]'}`}
+                          >
+                            {status === 'suspended' ? <RotateCcw className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
+                            {status === 'suspended' ? 'Reactivar' : 'Suspender'}
+                          </button>
+                        )}
+                        {manageable && has('team:remove') && (
+                          <button
+                            onClick={() => setToRemove(member)}
+                            disabled={busy}
+                            className={`${actionButton} text-[var(--color-danger)]`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            {status === 'pending' ? 'Cancelar' : 'Eliminar'}
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )
+        )
+      )}
 
       {toRemove && (
         <ConfirmDialog

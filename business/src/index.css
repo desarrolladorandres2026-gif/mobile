@@ -395,6 +395,14 @@
   white-space: nowrap;
 }
 
+/* El Resumen del día va sin dorado: sus cabeceras son blancas, separadas
+   del cuerpo por el borde fino. */
+.summary-plain .table-header-cell {
+  color: var(--color-text-main);
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
 .table-body-cell {
   padding: 0.65rem 1rem;
   font-size: 0.8125rem;
@@ -425,4 +433,149 @@
   border: 1px solid var(--color-border);
   border-radius: 0.5rem;
   box-shadow: 0 8px 24px rgba(8, 11, 17, 0.16);
+}
+
+/* ── Promociones ──────────────────────────────────────────────────────────
+   Excepción decidida el 2026-10-15: el panel es plano a propósito (`.zipp-card`
+   no lleva sombra y el contenido va sobre el lienzo), pero crear una promoción
+   tiene que sentirse como elegir, no como llenar un formulario; lo mismo
+   vale para pedir una campaña en Publicidad (2026-10-15). Estas
+   superficies —tarjeta de la lista, tarjeta elegible del asistente, ticket de
+   vista previa— viven SOLO en Promociones, Publicidad y Programados (2026-10-15). En
+   Personalización: tarjetas de lectura y `.promo-chip` en el formulario. No las uses en otra pantalla. */
+@keyframes promo-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes promo-pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+.promo-step { animation: promo-in 0.28s ease-out both; }
+
+.promo-card {
+  --promo-accent: var(--color-border-strong);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.75rem;
+  overflow: hidden;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  animation: promo-in 0.32s ease-out both;
+}
+.promo-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--promo-accent);
+}
+.promo-card[data-tone='success'] { --promo-accent: var(--color-success); }
+.promo-card[data-tone='info'] { --promo-accent: var(--color-primary); }
+.promo-card[data-tone='warning'] { --promo-accent: var(--color-warning); }
+.promo-card[data-tone='danger'] { --promo-accent: var(--color-danger); }
+.promo-card:hover,
+.promo-card:focus-within {
+  transform: translateY(-2px);
+  border-color: var(--promo-accent);
+  box-shadow: 0 12px 24px -16px rgba(0, 0, 0, 0.4);
+}
+.promo-card[data-static]:hover {
+  transform: none;
+  border-color: var(--color-border);
+  box-shadow: none;
+}
+.promo-card__actions { opacity: 0; transition: opacity 0.15s ease; }
+.promo-card:hover .promo-card__actions,
+.promo-card:focus-within .promo-card__actions { opacity: 1; }
+@media (hover: none) {
+  .promo-card__actions { opacity: 1; }
+}
+
+/* Tarjeta elegible del asistente: una idea, un tipo de descuento, un interruptor. */
+.promo-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 1rem;
+  text-align: left;
+  cursor: pointer;
+  color: var(--color-text-main);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  transition: transform 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+.promo-choice:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--color-primary);
+}
+.promo-choice[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-bg);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+.promo-choice:disabled { cursor: not-allowed; opacity: 0.55; }
+
+/* Ficha pequeña de valor rápido: 15 %, $3.000, Almuerzo… */
+.promo-chip {
+  height: 2rem;
+  padding: 0 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--color-text-main);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.promo-chip:hover { border-color: var(--color-primary); }
+.promo-chip[aria-pressed='true'] {
+  color: var(--zipp-obsidian);
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+  animation: promo-pop 0.22s ease-out;
+}
+
+/* Cupón de vista previa: dos muescas laterales en la línea de corte. */
+.promo-ticket {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0.875rem;
+}
+.promo-ticket__rip {
+  position: relative;
+  height: 0;
+  border-top: 2px dashed var(--color-border);
+}
+.promo-ticket__rip::before,
+.promo-ticket__rip::after {
+  content: '';
+  position: absolute;
+  top: -11px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+.promo-ticket__rip::before { left: -11px; }
+.promo-ticket__rip::after { right: -11px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .promo-step, .promo-card, .promo-chip[aria-pressed='true'] { animation: none; }
+  .promo-card, .promo-choice { transition: none; }
+  .promo-card:hover, .promo-card:focus-within, .promo-choice:hover:not(:disabled) { transform: none; }
 }

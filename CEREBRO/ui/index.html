@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CEREBRO · ZIPP</title>
+<link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+<div id="app">
+  <aside id="rail">
+    <div class="brand"><span class="brand-mark">CEREBRO</span><span class="brand-sub">ZIPP · mapa técnico vivo</span></div>
+    <nav id="nav"></nav>
+    <div id="railStatus" class="rail-status"></div>
+  </aside>
+  <div id="main">
+    <header id="top">
+      <button id="searchBtn" class="search-btn" type="button"><span class="search-ph">Buscar símbolo, endpoint, botón, modelo, archivo…</span><kbd>Ctrl K</kbd></button>
+      <div id="topRight">
+        <span id="freshness" class="fresh"></span>
+        <button id="rebuildBtn" class="btn" type="button" title="Actualiza lo que cambió desde la última construcción">Actualizar ahora</button>
+      </div>
+    </header>
+    <main id="view" tabindex="-1"></main>
+  </div>
+  <aside id="drawer" hidden></aside>
+</div>
+<div id="palette" class="palette" hidden>
+  <div class="palette-box">
+    <input id="paletteInput" type="text" autocomplete="off" spellcheck="false" placeholder="Buscar…">
+    <div id="paletteResults"></div>
+  </div>
+</div>
+<div id="toast" class="toast" hidden></div>
+<script type="module" src="/ui/app.js"></script>
+</body>
+</html>

@@ -72,10 +72,22 @@ export interface StatementLine {
   merchantCommission: number;
   /** AJUSTE: promoción que asumió el propio comercio. */
   merchantFundedDiscount: number;
-  /** AJUSTE: reembolsos y contracargos que revirtieron el pago. */
+  /** AJUSTE: reembolsos y contracargos que revirtieron el pago ANTES de comprometerse (liquidarse o descargarse en la puerta). */
   reversedAmount: number;
-  /** NETO COMERCIO = venta − comisión − descuento propio − reversiones. */
+  /**
+   * Reembolso que llegó cuando el pago ya estaba comprometido. No resta del
+   * neto de esta fila —lo pagado fue lo pagado—: lo recupera la fila de
+   * arrastre y se descuenta de la siguiente liquidación.
+   */
+  lateReversedAmount: number;
+  /**
+   * NETO COMERCIO. Venta: venta − comisión − descuento propio − reversiones
+   * previas. Arrastre: lo que el comercio le devuelve a ZIPP, en negativo.
+   * La suma de todas las filas es lo que el comercio ganó de verdad.
+   */
   netAmount: number;
+  /** Lo que de este neto todavía no se ha liquidado (neto si está ACCRUED/PAYABLE; resto abierto de un arrastre, en negativo). */
+  pendingAmount: number;
   /** Fila de arrastre (deuda por un reembolso tardío sobre un payout ya pagado), no una venta nueva. */
   isClawback: boolean;
   payoutStatus: PayoutStatus;
@@ -90,7 +102,11 @@ export interface StatementTotals {
   merchantCommission: number;
   merchantFundedDiscount: number;
   reversedAmount: number;
+  lateReversedAmount: number;
   netAmount: number;
+  pendingAmount: number;
+  /** De `pendingAmount`, la parte que son arrastres abiertos (cero o negativa): lo que se descuenta en la próxima liquidación. */
+  clawbackPendingAmount: number;
 }
 
 export interface StatementPeriod extends StatementTotals {
@@ -104,7 +120,10 @@ const ZERO_TOTALS: StatementTotals = {
   merchantCommission: 0,
   merchantFundedDiscount: 0,
   reversedAmount: 0,
+  lateReversedAmount: 0,
   netAmount: 0,
+  pendingAmount: 0,
+  clawbackPendingAmount: 0,
 };
 
 /**
@@ -294,19 +313,58 @@ export class PayoutService {
       // what lets us know — without a second, racy read — how much of the
       // requested amount this call actually consumed.
       //
-      // El estado solo pasa a REVERSED si el payout **no** está ya
-      // reclamado por una liquidación (`settlementId` nulo). Uno ya
-      // reclamado —aunque todavía no esté marcado SETTLED— ya tiene su
-      // `reversedAtClaim` congelado y su neto ya fue leído por `settle()`;
-      // tocar aquí su `status`/`reversedAmount` como si nada hubiera pasado
-      // dejaría esa liquidación con un neto que nunca reflejó la reversión.
+      // Un payout "comprometido" es uno SETTLED o ya reclamado por una
+      // liquidación (`settlementId != null`, aunque todavía no esté marcado
+      // SETTLED): su `reversedAtClaim` está congelado y su neto ya fue leído
+      // por `settle()`, o el dinero ya salió. Esa condición se evalúa DENTRO
+      // del mismo update (`__c`), no en una lectura previa, porque si no una
+      // liquidación que reclama entre la lectura y la escritura colaría la
+      // reversión en un payout ya comprometido.
+      //
+      //  · No comprometido: la reversión suma a `reversedAmount` y, si lo
+      //    cubre todo, el payout pasa a REVERSED.
+      //  · Comprometido: suma a `reversedAfterCommit` y NO toca
+      //    `reversedAmount` ni `status`. Lo recupera el arrastre que se abre
+      //    abajo; restarlo también de `reversedAmount` era la doble resta del
+      //    extracto (y, si la liquidación en curso fallaba, pagaba de menos).
+      //
+      // `__a` es lo que de verdad cabe: nunca más de lo que queda sin revertir
+      // entre las dos columnas. Los dos `$set` finales ya ven `__c`/`__a`.
       const before = await Payout.findOneAndUpdate(
         { orderId, beneficiary, isClawback: { $ne: true } },
         [
           {
             $set: {
-              reversedAmount: {
-                $min: ['$amount', { $add: ['$reversedAmount', amount] }],
+              __c: {
+                // `$ifNull`: un payout viejo sin el campo no cuenta como reclamado.
+                $or: [
+                  { $eq: ['$status', PayoutStatus.SETTLED] },
+                  { $ne: [{ $ifNull: ['$settlementId', null] }, null] },
+                ],
+              },
+              __a: {
+                $min: [
+                  amount,
+                  {
+                    $max: [
+                      0,
+                      {
+                        $subtract: [
+                          '$amount',
+                          { $add: ['$reversedAmount', { $ifNull: ['$reversedAfterCommit', 0] }] },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          {
+            $set: {
+              reversedAmount: { $cond: ['$__c', '$reversedAmount', { $add: ['$reversedAmount', '$__a'] }] },
+              reversedAfterCommit: {
+                $add: [{ $ifNull: ['$reversedAfterCommit', 0] }, { $cond: ['$__c', '$__a', 0] }],
               },
             },
           },
@@ -314,38 +372,31 @@ export class PayoutService {
             $set: {
               status: {
                 $cond: [
-                  {
-                    $or: [
-                      { $eq: ['$status', PayoutStatus.SETTLED] },
-                      { $ne: ['$settlementId', null] },
-                    ],
-                  },
+                  { $and: [{ $not: ['$__c'] }, { $gte: ['$reversedAmount', '$amount'] }] },
+                  PayoutStatus.REVERSED,
                   '$status',
-                  {
-                    $cond: [
-                      { $gte: ['$reversedAmount', '$amount'] },
-                      PayoutStatus.REVERSED,
-                      '$status',
-                    ],
-                  },
                 ],
               },
             },
           },
+          { $unset: ['__c', '__a'] },
         ],
         { new: false }
       );
 
       if (!before) continue;
 
-      // Ya reclamado por una liquidación (en curso o ya pagada): el dinero
-      // ya salió, o el neto de esa liquidación ya se calculó y no se puede
+      // Ya comprometido (liquidación en curso o ya pagada): el dinero ya
+      // salió, o el neto de esa liquidación ya se calculó y no se puede
       // reabrir. La única forma correcta de reflejar la reversión es no
       // tocar esa liquidación y arreglar la cuenta aparte.
       const alreadyCommitted = before.status === PayoutStatus.SETTLED || before.settlementId != null;
       if (!alreadyCommitted) continue;
 
-      const delta = Math.min(amount, before.amount - before.reversedAmount);
+      const delta = Math.min(
+        amount,
+        Math.max(0, before.amount - before.reversedAmount - (before.reversedAfterCommit ?? 0))
+      );
       if (delta <= 0) continue;
 
       if (beneficiary === PayoutBeneficiary.BUSINESS) {
@@ -413,39 +464,89 @@ export class PayoutService {
     // Se agrupa también por `isClawback`: una fila de arrastre no es una
     // venta nueva, es una deuda del beneficiario con ZIPP. Sumarla igual que
     // un payout normal inflaba "lo que se le debe" con dinero que en
-    // realidad hay que restarle.
+    // realidad hay que restarle. Y por `viaSettlement` para separar lo que
+    // se cobró en la puerta (SETTLED sin liquidación) de lo liquidado.
     const rows = await Payout.aggregate([
       { $match: match },
       {
         $group: {
-          _id: { status: '$status', isClawback: '$isClawback' },
+          _id: {
+            status: '$status',
+            isClawback: '$isClawback',
+            viaSettlement: { $ne: [{ $ifNull: ['$settlementId', null] }, null] },
+          },
           gross: { $sum: '$amount' },
           reversed: { $sum: '$reversedAmount' },
+          consumed: { $sum: { $ifNull: ['$consumedAmount', 0] } },
           count: { $sum: 1 },
         },
       },
     ]);
 
     const byStatus: Record<string, { gross: number; reversed: number; net: number; count: number }> = {};
+    const bucketOf = (status: string) =>
+      (byStatus[status] ??= { gross: 0, reversed: 0, net: 0, count: 0 });
+    let paidAtDoor = 0;
     for (const row of rows) {
       const status = row._id.status as string;
       const isClawback = Boolean(row._id.isClawback);
-      const rowNet = row.gross - row.reversed;
-      const bucket = byStatus[status] ?? { gross: 0, reversed: 0, net: 0, count: 0 };
+      const bucket = bucketOf(status);
       bucket.gross += row.gross;
       bucket.reversed += row.reversed;
-      bucket.net += isClawback ? -rowNet : rowNet;
       bucket.count += row.count;
-      byStatus[status] = bucket;
+
+      if (!isClawback) {
+        // `reversedAmount` es solo lo revertido antes de comprometerse: lo
+        // tardío vive en el arrastre y no se resta aquí otra vez.
+        const net = row.gross - row.reversed;
+        bucket.net += net;
+        if (status === PayoutStatus.SETTLED && !row._id.viaSettlement) paidAtDoor += net;
+        continue;
+      }
+
+      // Arrastre: `gross` es el importe original; `consumed`, lo ya cobrado
+      // contra liquidaciones (eso ya salió del "liquidado" del comercio).
+      // · PAYABLE: lo cobrado resta de lo liquidado, el resto sigue abierto.
+      // · SETTLED: se cobró entero (liquidación y/o consignación directa).
+      // · WRITTEN_OFF: solo cuenta lo que se alcanzó a cobrar; el resto lo
+      //   asumió ZIPP y deja de ser deuda del comercio.
+      if (status === PayoutStatus.PAYABLE) {
+        bucketOf(PayoutStatus.SETTLED).net -= row.consumed;
+        bucket.net -= row.gross - row.consumed;
+      } else if (status === PayoutStatus.WRITTEN_OFF) {
+        bucketOf(PayoutStatus.SETTLED).net -= row.consumed;
+        bucket.net -= row.gross - row.consumed;
+      } else {
+        bucket.net -= row.gross;
+      }
     }
 
     const pick = (status: PayoutStatus) => byStatus[status]?.net ?? 0;
+
+    // "Transferencias ya realizadas": lo que de verdad salió por consignación,
+    // neto de publicidad y de arrastres. Cifra aparte de `settled`, que
+    // incluye también el efectivo cobrado en la puerta.
+    const settlementMatch: Record<string, unknown> = {
+      beneficiary: params.beneficiary,
+      paymentStatus: SettlementPaymentStatus.PAID,
+    };
+    if (match.businessId) settlementMatch.businessId = match.businessId;
+    if (match.driverId) settlementMatch.driverId = match.driverId;
+    const transferredRows = await Settlement.aggregate([
+      { $match: settlementMatch },
+      { $group: { _id: null, net: { $sum: '$netAmount' } } },
+    ]);
+    const settled = pick(PayoutStatus.SETTLED);
 
     return {
       byStatus,
       accrued: pick(PayoutStatus.ACCRUED),
       payable: pick(PayoutStatus.PAYABLE),
-      settled: pick(PayoutStatus.SETTLED),
+      /** Ganado y ya cobrado: liquidaciones (netas de publicidad, arrastres) + efectivo en la puerta. */
+      settled,
+      paidAtDoor,
+      settledBySettlement: settled - paidAtDoor,
+      transferred: (transferredRows[0]?.net as number | undefined) ?? 0,
       /** What we still owe: accrued + payable. */
       outstanding: pick(PayoutStatus.ACCRUED) + pick(PayoutStatus.PAYABLE),
     };
@@ -609,11 +710,20 @@ export class PayoutService {
       }> = [];
 
       for (const cb of clawbacks) {
+        // `amount` del arrastre es el importe original e inmutable; lo que
+        // queda por cobrar es lo que no se ha consumido ya en liquidaciones
+        // anteriores.
+        const remaining = Math.max(0, cb.amount - (cb.consumedAmount ?? 0));
+        if (remaining === 0) {
+          // Defensivo: un arrastre ya cobrado entero no debería seguir PAYABLE.
+          settledClawbackIds.push(cb._id as Types.ObjectId);
+          continue;
+        }
         if (affordable <= 0) {
           releasedClawbackIds.push(cb._id as Types.ObjectId);
           continue;
         }
-        const consume = Math.min(cb.amount, affordable);
+        const consume = Math.min(remaining, affordable);
         clawbackAmount += consume;
         affordable -= consume;
         clawbackDetail.push({
@@ -622,7 +732,7 @@ export class PayoutService {
           amount: consume,
           pricingConfigVersion: cb.pricingConfigVersion,
         });
-        if (consume === cb.amount) {
+        if (consume === remaining) {
           settledClawbackIds.push(cb._id as Types.ObjectId);
         } else {
           partialClawbackUpdates.push({ id: cb._id as Types.ObjectId, consume });
@@ -681,18 +791,28 @@ export class PayoutService {
           { $set: { settlementId: null } }
         );
       }
+      // Cobro parcial: el importe consumido se SUMA a `consumedAmount` y el
+      // `amount` original no se toca (antes se restaba de `amount` y lo
+      // cobrado solo sobrevivía en `Settlement.clawbacks`). El filtro por
+      // `settlementId: claimId` evita sumar dos veces si esto se reintenta.
       for (const update of partialClawbackUpdates) {
         await Payout.updateOne(
-          { _id: update.id },
-          { $inc: { amount: -update.consume }, $set: { settlementId: null } }
+          { _id: update.id, settlementId: claimId },
+          { $inc: { consumedAmount: update.consume }, $set: { settlementId: null } }
         );
       }
 
-      const settledIds = [...payouts.map((p) => p._id), ...settledClawbackIds];
       await Payout.updateMany(
-        { _id: { $in: settledIds } },
+        { _id: { $in: payouts.map((p) => p._id) } },
         { $set: { status: PayoutStatus.SETTLED, settledAt: new Date() } }
       );
+      // Arrastres cobrados enteros: `consumedAmount` iguala a `amount`
+      // (pipeline, para leer el `amount` de cada fila).
+      if (settledClawbackIds.length) {
+        await Payout.updateMany({ _id: { $in: settledClawbackIds } }, [
+          { $set: { status: PayoutStatus.SETTLED, settledAt: new Date(), consumedAmount: '$amount' } },
+        ]);
+      }
 
       return { settlement: settlementCreated, count: payouts.length, netAmount };
     } catch (error) {
@@ -1157,12 +1277,44 @@ export class PayoutService {
           merchantFundedDiscount: {
             $cond: ['$isClawback', 0, { $ifNull: ['$order.finance.merchantFundedDiscount', 0] }],
           },
-          reversedAmount: '$reversedAmount',
+          // En un arrastre todo es negativo y `reversedAmount` no aplica: la
+          // reversión tardía que lo originó ya está en su monto.
+          reversedAmount: { $cond: ['$isClawback', 0, { $ifNull: ['$reversedAmount', 0] }] },
+          lateReversedAmount: { $cond: ['$isClawback', 0, { $ifNull: ['$reversedAfterCommit', 0] }] },
+          // Regla del extracto (neto = liquidado + pendiente):
+          //  · Venta: amount − reversiones previas a comprometerse.
+          //  · Arrastre SETTLED o PAYABLE: −amount. WRITTEN_OFF: solo lo que
+          //    se alcanzó a cobrar (−consumido); el resto lo asumió ZIPP.
           netAmount: {
             $cond: [
               '$isClawback',
-              { $multiply: [-1, { $subtract: ['$amount', '$reversedAmount'] }] },
-              { $subtract: ['$amount', '$reversedAmount'] },
+              {
+                $cond: [
+                  { $eq: ['$status', PayoutStatus.WRITTEN_OFF] },
+                  { $multiply: [-1, { $ifNull: ['$consumedAmount', 0] }] },
+                  { $multiply: [-1, '$amount'] },
+                ],
+              },
+              { $subtract: ['$amount', { $ifNull: ['$reversedAmount', 0] }] },
+            ],
+          },
+          pendingAmount: {
+            $cond: [
+              '$isClawback',
+              {
+                $cond: [
+                  { $eq: ['$status', PayoutStatus.PAYABLE] },
+                  { $multiply: [-1, { $subtract: ['$amount', { $ifNull: ['$consumedAmount', 0] }] }] },
+                  0,
+                ],
+              },
+              {
+                $cond: [
+                  { $in: ['$status', [PayoutStatus.ACCRUED, PayoutStatus.PAYABLE]] },
+                  { $subtract: ['$amount', { $ifNull: ['$reversedAmount', 0] }] },
+                  0,
+                ],
+              },
             ],
           },
           isClawback: { $ifNull: ['$isClawback', false] },
@@ -1185,7 +1337,10 @@ export class PayoutService {
         merchantCommission: { $sum: '$merchantCommission' },
         merchantFundedDiscount: { $sum: '$merchantFundedDiscount' },
         reversedAmount: { $sum: '$reversedAmount' },
+        lateReversedAmount: { $sum: '$lateReversedAmount' },
         netAmount: { $sum: '$netAmount' },
+        pendingAmount: { $sum: '$pendingAmount' },
+        clawbackPendingAmount: { $sum: { $cond: ['$isClawback', '$pendingAmount', 0] } },
       },
     };
   }
@@ -1226,7 +1381,10 @@ export class PayoutService {
             merchantCommission: { $sum: '$merchantCommission' },
             merchantFundedDiscount: { $sum: '$merchantFundedDiscount' },
             reversedAmount: { $sum: '$reversedAmount' },
+            lateReversedAmount: { $sum: '$lateReversedAmount' },
             netAmount: { $sum: '$netAmount' },
+            pendingAmount: { $sum: '$pendingAmount' },
+            clawbackPendingAmount: { $sum: { $cond: ['$isClawback', '$pendingAmount', 0] } },
           },
         },
         { $sort: { _id: -1 } },
@@ -1256,11 +1414,17 @@ export class PayoutService {
       merchantCommission: row.merchantCommission,
       merchantFundedDiscount: row.merchantFundedDiscount,
       reversedAmount: row.reversedAmount,
+      lateReversedAmount: row.lateReversedAmount,
       netAmount: row.netAmount,
+      pendingAmount: row.pendingAmount,
+      clawbackPendingAmount: row.clawbackPendingAmount,
     });
 
     const currentTotals = { ...ZERO_TOTALS, ...(currentRows[0] ?? {}) } as any;
     delete currentTotals._id;
+    // La próxima consignación es lo pendiente, no el neto de las filas: un
+    // arrastre cobrado a medias aparece aquí solo por lo que le queda.
+    currentTotals.netAmount = currentTotals.pendingAmount;
 
     return {
       /** Deuda viva total, sin importar de qué semana venga. */
@@ -1268,6 +1432,12 @@ export class PayoutService {
       accrued: summary.accrued,
       payable: summary.payable,
       settled: summary.settled,
+      /** De `settled`, lo cobrado en la puerta en efectivo (sin liquidación). */
+      paidAtDoor: summary.paidAtDoor,
+      /** De `settled`, lo pagado mediante liquidaciones (neto + publicidad compensada, menos arrastres cobrados). */
+      settledBySettlement: summary.settledBySettlement,
+      /** Transferencias ya realizadas: suma del neto de las liquidaciones PAGADAS. Es otra cifra, no `settled`. */
+      transferred: summary.transferred,
       /** Lo que entrará en la próxima liquidación. */
       nextSettlement: currentTotals as StatementTotals,
       weeks: weekRows.map(toPeriod),
@@ -1403,7 +1573,8 @@ export class PayoutService {
             $sum: {
               $cond: [
                 '$isClawback',
-                { $subtract: [0, { $subtract: ['$amount', '$reversedAmount'] }] },
+                // Arrastre: lo que sigue abierto (importe original − ya cobrado).
+                { $subtract: [0, { $subtract: ['$amount', { $ifNull: ['$consumedAmount', 0] }] }] },
                 { $subtract: ['$amount', '$reversedAmount'] },
               ],
             },
@@ -1502,7 +1673,9 @@ export class PayoutService {
       businessId: r.businessId ? String(r.businessId._id ?? r.businessId) : null,
       businessName: r.businessId?.name ?? null,
       amount: r.amount,
-      netAmount: Math.max(0, r.amount - r.reversedAmount),
+      /** Lo que sigue abierto: importe original menos lo ya cobrado contra liquidaciones. */
+      netAmount: Math.max(0, r.amount - (r.consumedAmount ?? 0)),
+      consumedAmount: r.consumedAmount ?? 0,
       status: r.status,
       settlementId: r.settlementId ? String(r.settlementId) : null,
       daysOpen: Math.max(
@@ -1553,7 +1726,9 @@ export class PayoutService {
       throw new AppError('Arrastre no encontrado o ya no está pendiente de cobro', 409);
     }
 
-    const netAmount = Math.max(0, payout.amount - payout.reversedAmount);
+    // Solo lo que seguía abierto: lo consumido en liquidaciones anteriores ya
+    // se cerró con el asiento de esa liquidación (`clawback:<settlement>:<payout>`).
+    const netAmount = Math.max(0, payout.amount - (payout.consumedAmount ?? 0));
     if (netAmount > 0) {
       const payableAccount =
         payout.beneficiary === PayoutBeneficiary.BUSINESS
@@ -1617,7 +1792,8 @@ export class PayoutService {
       throw new AppError('Arrastre no encontrado o ya no está pendiente', 409);
     }
 
-    const netAmount = Math.max(0, payout.amount - payout.reversedAmount);
+    // Solo el resto abierto (ver `collectClawback`).
+    const netAmount = Math.max(0, payout.amount - (payout.consumedAmount ?? 0));
     if (netAmount > 0) {
       const payableAccount =
         payout.beneficiary === PayoutBeneficiary.BUSINESS

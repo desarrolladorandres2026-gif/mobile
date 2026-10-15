@@ -130,7 +130,10 @@ export async function authenticateSocket(token: unknown): Promise<SocketIdentity
   // tenía el mismo requisito: un admin sin TOTP entraba igual a la sala
   // `admin` y recibía ubicación de flota, SOS y pedidos en vivo. El comercio
   // con `TOTP_REQUIRED_BUSINESS` sigue la misma regla.
-  const twoFactorSatisfied = !twoFactorSetupPending(user);
+  //
+  // La sesión de mostrador queda fuera (igual que en `authenticate`): es el
+  // equipo compartido del local y no puede activar el 2FA del dueño.
+  const twoFactorSatisfied = !twoFactorSetupPending(user) || scope === 'counter';
 
   // Las salas de admin se calculan aquí, al conectar: un cambio de roles
   // desconecta sus sockets (admin.service) y el reconectar las recalcula.

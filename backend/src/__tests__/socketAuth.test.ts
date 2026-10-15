@@ -21,7 +21,7 @@ import { makeUser } from './factories';
  * auditoría), así que estos tokens de prueba también necesitan una sesión
  * real detrás — no solo una firma válida.
  */
-const signFor = async (id: string, role: string, issuedAt?: number) => {
+const signFor = async (id: string, role: string, issuedAt?: number, scope?: 'full' | 'counter') => {
   const sessionId = new Types.ObjectId();
   await sessionManager.createSession({
     userId: id,
@@ -29,6 +29,7 @@ const signFor = async (id: string, role: string, issuedAt?: number) => {
     refreshToken: `test-refresh-${sessionId.toString()}`,
     ip: '127.0.0.1',
     userAgent: 'vitest',
+    scope,
   });
   return jwt.sign(
     { id, role, sid: sessionId.toString(), ...(issuedAt ? { iat: issuedAt } : {}) },
@@ -91,6 +92,19 @@ describe('authenticateSocket: el handshake del socket', () => {
 
       expect((await authenticateSocket(await signFor(owner._id.toString(), 'business'))).twoFactorSatisfied).toBe(false);
       expect((await authenticateSocket(await signFor(client._id.toString(), 'client'))).twoFactorSatisfied).toBe(true);
+    });
+
+    it('la sesión de mostrador de un comercio sin TOTP sí conecta con el flag encendido (A2)', async () => {
+      config.security.twoFactor.requiredForBusiness = true;
+      const owner = await makeUser({ role: UserRole.BUSINESS });
+
+      const counter = await authenticateSocket(await signFor(owner._id.toString(), 'business', undefined, 'counter'));
+      expect(counter.twoFactorSatisfied).toBe(true);
+      expect(counter.scope).toBe('counter');
+
+      // La sesión completa del mismo dueño sigue sin satisfacerlo.
+      const full = await authenticateSocket(await signFor(owner._id.toString(), 'business'));
+      expect(full.twoFactorSatisfied).toBe(false);
     });
 
     it('antes de la fecha de corte, el comercio sin TOTP todavía lo satisface', async () => {

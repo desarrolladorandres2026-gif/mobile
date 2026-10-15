@@ -186,8 +186,9 @@ describe('Cierre de caja', () => {
       .send({ declaredCash: 18000, note: 'Faltó un billete' });
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({
-      sales: 50000, cashSales: 20000, onlineSales: 30000,
-      declaredCash: 18000, difference: -2000, closedByRole: BusinessRole.EMPLOYEE,
+      // El domiciliario pagó 18000 al comercio (20000 menos 2000 de comisión): contar 18000 cuadra.
+      sales: 50000, cashSales: 20000, onlineSales: 30000, expectedCash: 18000,
+      declaredCash: 18000, difference: 0, closedByRole: BusinessRole.EMPLOYEE,
     });
     expectNoFinance(res.body);
 
@@ -201,6 +202,8 @@ describe('Cierre de caja', () => {
     expect(res.status).toBe(201);
     expect(res.body.data.declaredCash).toBeNull();
     expect(res.body.data.difference).toBeNull();
+    // Sin declarar, el empleado tampoco conoce la cifra esperada.
+    expect(res.body.data.expectedCash).toBeNull();
   });
 
   it('no acepta ventas del cliente, decimales ni montos negativos', async () => {

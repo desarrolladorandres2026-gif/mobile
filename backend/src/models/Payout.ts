@@ -23,8 +23,22 @@ export interface IPayout extends Document {
   driverId?: Types.ObjectId | null;
   /** Gross owed before reversals. Always >= 0. */
   amount: number;
-  /** Reversed by refunds/chargebacks. Never exceeds `amount`. */
+  /**
+   * Reversed by refunds/chargebacks **antes** de que el payout se
+   * comprometiera (SETTLED o reclamado por una liquidación). Lo que se
+   * revierte después ya no entra aquí: va a `reversedAfterCommit` y lo
+   * representa la fila de arrastre. Así `amount - reversedAmount` es siempre
+   * lo que se pagó (o se va a pagar) y la reversión tardía no se resta dos
+   * veces. `reversedAmount + reversedAfterCommit` nunca supera `amount`.
+   */
   reversedAmount: number;
+  /**
+   * Reversión que llegó con el payout ya comprometido. Es informativa en la
+   * fila original (el extracto la muestra como "reembolso tardío"); el dinero
+   * lo recupera la fila de arrastre (`isClawback`) que `reverse()` abre por
+   * este mismo importe, o el asiento de absorción si es del domiciliario.
+   */
+  reversedAfterCommit: number;
   status: PayoutStatus;
   currency: string;
   pricingConfigVersion: number;
@@ -49,9 +63,17 @@ export interface IPayout extends Document {
    * para la siguiente ronda.
    */
   reversedAtClaim: number;
+  /**
+   * Solo en filas de arrastre: cuánto de `amount` ya se cobró contra una
+   * liquidación. `amount` es el importe original e inmutable del arrastre;
+   * lo que sigue abierto es `amount - consumedAmount`. Antes el cobro parcial
+   * restaba de `amount` y el importe cobrado solo sobrevivía en
+   * `Settlement.clawbacks`, así que el extracto no podía reconstruirlo.
+   */
+  consumedAmount: number;
   createdAt: Date;
   updatedAt: Date;
-  /** Net still owed. */
+  /** Net still owed (arrastre: lo que sigue sin cobrarse). */
   readonly netAmount: number;
 }
 
@@ -68,6 +90,12 @@ const payoutSchema = new Schema<IPayout>(
       validate: { validator: Number.isInteger, message: 'El payout debe ser un entero en COP' },
     },
     reversedAmount: { type: Number, default: 0, min: 0 },
+    reversedAfterCommit: {
+      type: Number,
+      default: 0,
+      min: 0,
+      validate: { validator: Number.isInteger, message: 'La reversión tardía debe ser un entero en COP' },
+    },
     status: { type: String, enum: Object.values(PayoutStatus), default: PayoutStatus.ACCRUED },
     currency: { type: String, default: 'COP' },
     pricingConfigVersion: { type: Number, required: true },
@@ -76,11 +104,18 @@ const payoutSchema = new Schema<IPayout>(
     settledAt: { type: Date, default: null },
     isClawback: { type: Boolean, default: false },
     reversedAtClaim: { type: Number, default: 0, min: 0 },
+    consumedAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+      validate: { validator: Number.isInteger, message: 'El importe cobrado debe ser un entero en COP' },
+    },
   },
   { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );
 
 payoutSchema.virtual('netAmount').get(function (this: IPayout) {
+  if (this.isClawback) return Math.max(0, this.amount - (this.consumedAmount ?? 0));
   return Math.max(0, this.amount - this.reversedAmount);
 });
 
@@ -110,8 +145,11 @@ payoutSchema.index({ driverId: 1, status: 1 });
 payoutSchema.index({ status: 1, becamePayableAt: 1 });
 
 payoutSchema.pre('validate', function (next) {
-  if (this.reversedAmount > this.amount) {
+  if (this.reversedAmount + (this.reversedAfterCommit ?? 0) > this.amount) {
     return next(new Error('La reversión no puede superar el payout original'));
+  }
+  if ((this.consumedAmount ?? 0) > this.amount) {
+    return next(new Error('Lo cobrado de un arrastre no puede superar su importe'));
   }
   next();
 });

@@ -124,6 +124,15 @@ export interface IUser extends Document {
    */
   counterPinHash?: string;
   counterPinSetAt?: Date;
+  /**
+   * Clave del mostrador (decisión 2026-10-15): credencial del dueño, SEPARADA
+   * de su contraseña personal, con la que el local abre `/auth/login`. Con
+   * ella fijada, la contraseña personal ya no sirve en esa puerta. Argon2id;
+   * nunca sale en ninguna respuesta. `counterPasswordSetAt` sí se expone
+   * (`/auth/me`) para que el panel avise mientras siga en `null`.
+   */
+  counterPasswordHash?: string;
+  counterPasswordSetAt?: Date | null;
 
   // ── Device tracking ──
   trustedDevices: string[];
@@ -378,6 +387,8 @@ const userSchema = new Schema<IUser>(
     mfaChallengeScope: { type: String, select: false },
     counterPinHash: { type: String, select: false },
     counterPinSetAt: { type: Date, default: null },
+    counterPasswordHash: { type: String, select: false },
+    counterPasswordSetAt: { type: Date, default: null },
 
     // ── Device tracking ──
     trustedDevices: {
@@ -444,6 +455,7 @@ const userSchema = new Schema<IUser>(
         delete ret.mfaChallengeMethod;
         delete ret.mfaChallengeScope;
         delete ret.counterPinHash;
+        delete ret.counterPasswordHash;
         // Vestigio de antes de la migración 004: si un documento viejo aún
         // lo trae, no sale nunca por la API.
         delete ret.refreshToken;

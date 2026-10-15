@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "nombre": "ZIPP",
+  "servidor": { "puerto": 3900, "host": "127.0.0.1" },
+  "editor": { "esquema": "vscode" },
+  "vigilante": {
+    "debounceMs": 900,
+    "reconstruccionCompletaCadaMin": 30,
+    "latidoSeg": 5
+  },
+  "paquetes": [
+    { "id": "backend",  "ruta": "backend",  "tipo": "api",          "tsconfig": "backend/tsconfig.json",       "ts": "backend",  "descripcion": "API REST + Socket.IO (Express 4, Mongoose 8)" },
+    { "id": "mobile",   "ruta": "mobile",   "tipo": "app-movil",    "tsconfig": "mobile/tsconfig.json",        "ts": "mobile",   "descripcion": "App de clientes y de domiciliarios (Expo Router)",
+      "variantes": { "client": "mobile/app/(client)", "driver": "mobile/app/(driver)" } },
+    { "id": "admin",    "ruta": "admin",    "tipo": "panel-web",    "tsconfig": "admin/tsconfig.app.json",     "ts": "admin",    "descripcion": "Panel de administración (Vite + React)", "actor": "ADMIN" },
+    { "id": "business", "ruta": "business", "tipo": "panel-web",    "tsconfig": "business/tsconfig.app.json",  "ts": "business", "descripcion": "Panel de comercios (Vite + React)", "actor": "BUSINESS" },
+    { "id": "web",      "ruta": "web",      "tipo": "sitio-web",    "tsconfig": "web/tsconfig.app.json",       "ts": "admin",    "descripcion": "Sitio público (Vite + React)", "actor": "PUBLICO" },
+    { "id": "desktop",  "ruta": "desktop",  "tipo": "escritorio",   "tsconfig": "desktop/tsconfig.json",       "ts": "backend",  "descripcion": "Zipp Negocios (Electron que carga business/)" },
+    { "id": "deploy",   "ruta": "deploy",   "tipo": "infra",        "descripcion": "Despliegue: nginx, PM2, systemd, scripts de servidor" },
+    { "id": "scripts",  "ruta": "scripts",  "tipo": "herramientas", "descripcion": "Generación de logos" },
+    { "id": "docs",     "ruta": "docs",     "tipo": "docs",         "descripcion": "Documentación humana del repo" },
+    { "id": "claude",   "ruta": ".claude",  "tipo": "herramientas", "descripcion": "Agentes, hook y ajustes de Claude Code" },
+    { "id": "colores",  "ruta": "variables de color", "tipo": "recursos", "descripcion": "Tokens de color compartidos y marca" },
+    { "id": "raiz",     "ruta": ".",        "tipo": "raiz",         "descripcion": "Archivos sueltos de la raíz del monorepo", "soloRaiz": true }
+  ],
+  "excluirDelAnalisis": {
+    "directorios": [
+      { "patron": "CEREBRO/", "motivo": "Es el propio sistema de análisis; se excluye para evitar bucles de vigilancia y autoanálisis" },
+      { "patron": "node_modules/", "motivo": "Dependencias de terceros, no código de ZIPP (ignoradas por .gitignore)" },
+      { "patron": "dist/", "motivo": "Salida de compilación generada (ignorada por .gitignore)" },
+      { "patron": "build/", "motivo": "Salida de compilación generada (ignorada por .gitignore)" },
+      { "patron": ".expo/", "motivo": "Caché generada de Expo (ignorada por .gitignore)" },
+      { "patron": ".git/", "motivo": "Metadatos de control de versiones" },
+      { "patron": "coverage/", "motivo": "Informes de cobertura generados" },
+      { "patron": "__pycache__/", "motivo": "Bytecode de Python generado" }
+    ],
+    "generado": [
+      { "patron": "^mobile/android/", "motivo": "Proyecto nativo generado por `expo prebuild`; la lógica de ZIPP vive en app.config.ts y plugins/. Se inventaría, no se analiza." }
+    ]
+  },
+  "ignorarEnVigilancia": ["CEREBRO", "node_modules", ".git", "dist", "build", ".expo", "coverage", "__pycache__", "release", ".tmp"]
+}

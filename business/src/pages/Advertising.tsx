@@ -1,12 +1,18 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { AlertCircle, Plus } from 'lucide-react';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../stores/authStore';
-import { apiMessage } from '../lib/apiError';
-import NumericInput from '../components/NumericInput';
+import { money } from '../lib/orderFlow';
+import AdCampaignPanel from '../components/AdCampaignPanel';
+import AdCampaignCard from '../components/AdCampaignCard';
+import { Choice, TemplateLogo } from '../components/promotion/ui';
+import {
+  AD_TEMPLATES, applyAdTemplate, emptyDraft, isCpmOf, phaseOf, spentOf,
+  type AdDraft, type AdStep, type Campaign, type Invoice, type Phase,
+} from '../lib/advertising';
 
 /**
  * Publicidad que compra el propio comercio.
@@ -20,68 +26,20 @@ import NumericInput from '../components/NumericInput';
  * producen sorpresas: **el tope es el gasto máximo real** —se convierte en
  * un número de impresiones o de clics y ahí se corta solo— y **se descuenta
  * de la liquidación**, no se cobra con tarjeta.
+ *
+ * La página es una sola lista agrupada por lo que el comercio tiene que
+ * hacer con cada campaña (corregir, esperar, mirar, archivar) y no por tipo
+ * de dato: la factura de una campaña cerrada vive en su propia tarjeta. Las
+ * tarjetas son la misma excepción al estilo plano que las de promociones: ver
+ * el comentario de `.promo-card` en `index.css`.
  */
 
-type PricingModel = 'cpm' | 'cpc';
-
-interface Campaign {
-  _id: string;
-  campaignName: string;
-  flyerUrl: string;
-  startDate: string;
-  endDate: string;
-  pricingModel: string;
-  cpmRate: number;
-  cpcRate: number;
-  budget: number;
-  maxImpressions: number;
-  maxClicks: number;
-  impressionCount: number;
-  clickCount: number;
-  approvalStatus: 'pending' | 'approved' | 'rejected';
-  rejectionReason?: string;
-}
-
-interface Invoice {
-  _id: string;
-  campaignName: string;
-  impressions: number;
-  clicks: number;
-  amount: number;
-  settledAt?: string | null;
-  createdAt: string;
-}
-
-const money = (value: number) => `$${(value ?? 0).toLocaleString('es-CO')}`;
-
-const STATUS: Record<Campaign['approvalStatus'], { label: string; icon: typeof Clock; cls: string }> = {
-  pending: {
-    label: 'En revisión',
-    icon: Clock,
-    cls: 'text-[var(--color-warning)]',
-  },
-  approved: {
-    label: 'Aprobada',
-    icon: CheckCircle2,
-    cls: 'text-[var(--color-success)]',
-  },
-  rejected: {
-    label: 'Rechazada',
-    icon: XCircle,
-    cls: 'text-[var(--color-danger)]',
-  },
-};
-
-const emptyForm = {
-  campaignName: '',
-  flyerUrl: '',
-  startDate: '',
-  endDate: '',
-  pricingModel: 'cpm' as PricingModel,
-  cpmRate: 2000,
-  cpcRate: 500,
-  budget: 100000,
-};
+const GROUPS: Array<{ key: Phase; title: string }> = [
+  { key: 'attention', title: 'Necesitan atención' },
+  { key: 'review', title: 'En revisión' },
+  { key: 'active', title: 'Activas y programadas' },
+  { key: 'closed', title: 'Cerradas' },
+];
 
 export default function Advertising() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
@@ -92,9 +50,10 @@ export default function Advertising() {
   const seesBilling = !access || access.permissions.includes('settlements:view');
 
   const queryClient = useQueryClient();
-  const [form, setForm] = useState(emptyForm);
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState<AdDraft | null>(null);
+  const [correcting, setCorrecting] = useState(false);
+  const [initialStep, setInitialStep] = useState<AdStep>('idea');
+  const [showClosed, setShowClosed] = useState(false);
 
   const adsQuery = useQuery({
     queryKey: [...qk.advertising(businessId), seesBilling],
@@ -118,55 +77,50 @@ export default function Advertising() {
   const outstanding = adsQuery.data?.outstanding ?? 0;
   const loading = !!businessId && adsQuery.isPending;
 
+  const invoiceOf = useMemo(() => new Map(invoices.map((i) => [i.campaignId, i])), [invoices]);
+
+  // «Ahora» es el momento de la última lectura: derivarlo de ahí mantiene el
+  // render puro y las fases coherentes con los datos que se están pintando.
+  const now = adsQuery.dataUpdatedAt;
+
+  const { grouped, activeSpent, activeServed } = useMemo(() => {
+    const g: Record<Phase, Campaign[]> = { attention: [], review: [], active: [], closed: [] };
+    for (const c of campaigns) g[phaseOf(c, now)].push(c);
+    const running = g.active.filter((c) => c.isActive !== false);
+    return {
+      grouped: g,
+      activeSpent: running.reduce((n, c) => n + spentOf(c), 0),
+      activeServed: running.reduce((n, c) => n + c.impressionCount, 0),
+    };
+  }, [campaigns, now]);
+
   const load = useCallback(
     () => queryClient.invalidateQueries({ queryKey: qk.advertising(businessId) }),
     [queryClient, businessId]
   );
 
-  /**
-   * Cuánto alcance compra ese dinero.
-   *
-   * Se calcula mientras escribe y no al enviar, porque es la única cifra que
-   * convierte "cien mil pesos" en una decisión: cincuenta mil impresiones
-   * suena a mucho y doscientos clics suena a poco, y el mismo presupuesto
-   * compra las dos cosas según la tarifa.
-   */
-  const reach = useMemo(() => {
-    if (!form.budget) return null;
-    if (form.pricingModel === 'cpm' && form.cpmRate > 0) {
-      return `${Math.floor((form.budget * 1000) / form.cpmRate).toLocaleString('es-CO')} impresiones`;
-    }
-    if (form.pricingModel === 'cpc' && form.cpcRate > 0) {
-      return `${Math.floor(form.budget / form.cpcRate).toLocaleString('es-CO')} clics`;
-    }
-    return null;
-  }, [form]);
-
-  const submit = async () => {
-    setError('');
-    setSaving(true);
-    try {
-      await api.post(`/advertisements/business/${businessId}`, {
-        campaignName: form.campaignName.trim(),
-        flyerUrl: form.flyerUrl.trim(),
-        startDate: form.startDate,
-        endDate: form.endDate,
-        pricingModel: form.pricingModel,
-        cpmRate: form.pricingModel === 'cpm' ? Number(form.cpmRate) : 0,
-        cpcRate: form.pricingModel === 'cpc' ? Number(form.cpcRate) : 0,
-        budget: Number(form.budget),
-      });
-      setForm(emptyForm);
-      await load();
-    } catch (err) {
-      setError(apiMessage(err, 'No pudimos enviar la campaña.'));
-    } finally {
-      setSaving(false);
-    }
+  const startCreate = (templateId?: string) => {
+    const template = AD_TEMPLATES.find((t) => t.id === templateId);
+    setCorrecting(false);
+    setDraft(template ? applyAdTemplate(template) : emptyDraft());
+    // Con la idea ya elegida desde el estado vacío, el asistente salta al anuncio.
+    setInitialStep(template ? 'ad' : 'idea');
+  };
+  const startCorrect = (c: Campaign) => {
+    setCorrecting(true);
+    setInitialStep('ad');
+    setDraft({
+      ...emptyDraft(),
+      campaignName: c.campaignName,
+      flyerUrl: c.flyerUrl,
+      pricingModel: isCpmOf(c) ? 'cpm' : 'cpc',
+      cpmRate: c.cpmRate || 2000,
+      cpcRate: c.cpcRate || 500,
+      budget: c.budget || 100000,
+    });
   };
 
-  const field = 'w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-main)]';
-  const label = 'block text-xs font-medium text-[var(--color-text-main)] mb-1';
+  const rowButton = 'text-xs font-semibold text-[var(--color-primary)] hover:underline cursor-pointer';
 
   return (
     <div className="space-y-6">
@@ -177,237 +131,129 @@ export default function Advertising() {
             Tu anuncio en la app de Zipp. Lo pagas tú y se descuenta de tu liquidación
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => startCreate()}
+          className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 text-xs font-semibold text-[var(--zipp-obsidian)] hover:bg-[var(--color-primary-light)]"
+        >
+          <Plus className="h-4 w-4" />
+          Nueva campaña
+        </button>
       </div>
 
-      <div className="cols3">
-        <section className="space-y-3">
-          <h2 className="col-title">Nueva campaña</h2>
+      {adsQuery.isError ? (
+        <div role="alert" className="flex items-start gap-2 border-l-2 border-[var(--color-danger)] py-0.5 pl-3">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-danger)]" />
+          <p className="text-xs font-semibold text-[var(--color-danger)]">No pudimos cargar tus campañas.</p>
+          <button
+            type="button"
+            onClick={() => void adsQuery.refetch()}
+            className="ml-2 cursor-pointer text-xs font-bold text-[var(--color-danger)] underline"
+          >
+            Reintentar
+          </button>
+        </div>
+      ) : null}
+
+      {!loading && campaigns.length > 0 ? (
+        <dl className="flex flex-wrap gap-x-10 gap-y-3">
+          <div>
+            <dt className="text-[11px] text-[var(--color-text-secondary)]">Gastado en campañas en curso</dt>
+            <dd className="text-lg font-semibold tabular text-[var(--color-text-main)]">{money(activeSpent)}</dd>
+          </div>
+          <div>
+            <dt className="text-[11px] text-[var(--color-text-secondary)]">Veces que te vieron</dt>
+            <dd className="text-lg font-semibold tabular text-[var(--color-text-main)]">
+              {activeServed.toLocaleString('es-CO')}
+            </dd>
+          </div>
+          {seesBilling ? (
             <div>
-          <label className={label}>Nombre de la campaña</label>
-          <input
-            className={field}
-            value={form.campaignName}
-            onChange={(e) => setForm({ ...form, campaignName: e.target.value })}
-            placeholder="Promo de apertura"
-          />
-        </div>
+              <dt className="text-[11px] text-[var(--color-text-secondary)]">Por descontar de tu liquidación</dt>
+              <dd className={`text-lg font-semibold tabular ${outstanding > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-main)]'}`}>
+                {money(outstanding)}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : null}
 
-        <div>
-          <label className={label}>Enlace del flyer</label>
-          <input
-            className={field}
-            value={form.flyerUrl}
-            onChange={(e) => setForm({ ...form, flyerUrl: e.target.value })}
-            placeholder="https://…"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={label}>Empieza</label>
-            <input
-              type="date"
-              className={field}
-              value={form.startDate}
-              onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className={label}>Termina</label>
-            <input
-              type="date"
-              className={field}
-              value={form.endDate}
-              onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={label}>Cómo se cobra</label>
-            <select
-              className={field}
-              value={form.pricingModel}
-              onChange={(e) =>
-                setForm({ ...form, pricingModel: e.target.value as PricingModel })
-              }
-            >
-              <option value="cpm">Por impresiones (CPM)</option>
-              <option value="cpc">Por clics (CPC)</option>
-            </select>
-          </div>
-          <div>
-            <label className={label}>
-              {form.pricingModel === 'cpm' ? 'Por mil impresiones' : 'Por clic'}
-            </label>
-            <NumericInput
-              className={field}
-              value={form.pricingModel === 'cpm' ? form.cpmRate : form.cpcRate}
-              onValueChange={(d) =>
-                setForm(
-                  form.pricingModel === 'cpm'
-                    ? { ...form, cpmRate: Number(d) }
-                    : { ...form, cpcRate: Number(d) }
-                )
-              }
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className={label}>Tope de gasto</label>
-          <NumericInput
-            className={field}
-            value={form.budget}
-            onValueChange={(d) => setForm({ ...form, budget: Number(d) })}
-          />
-          {/* Lo que de verdad se está comprando. Sin esto, el tope es un
-              número sin unidades y la decisión se toma a ciegas. */}
-          <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-            {reach
-              ? `Con ${money(form.budget)} compras unas ${reach}. No se gasta un peso más.`
-              : 'Pon una tarifa y un tope para ver cuánto alcance compras.'}
-          </p>
-        </div>
-
-        {error ? (
-          <p className="flex items-start gap-1.5 text-xs text-[var(--color-danger)]">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}
-          </p>
-        ) : null}
-
-        <p className="text-xs text-[var(--color-text-muted)]">
-          La campaña la revisa Zipp antes de salir. Al cerrarse, el gasto se descuenta de tu
-          liquidación.
-        </p>
-
-        <button
-          onClick={submit}
-          disabled={saving}
-          className="w-full h-9 cursor-pointer rounded-md bg-[var(--color-primary)] hover:bg-[var(--color-primary-light)] text-xs font-semibold text-[var(--zipp-obsidian)] disabled:opacity-50"
-        >
-          {saving ? 'Enviando…' : 'Enviar a revisión'}
-        </button>
-        </section>
-
-        <section>
-          <h2 className="col-title">Tus campañas</h2>
       {loading ? (
-        <p className="text-sm text-[var(--color-text-muted)]">Cargando…</p>
-      ) : campaigns.length === 0 ? (
-        <div className="space-y-1 py-4">
-          <p className="text-sm font-medium text-[var(--color-text-main)]">Todavía no te has anunciado</p>
-          <p className="max-w-sm text-xs text-[var(--color-text-secondary)]">
-            Tu anuncio aparece a pantalla completa cuando alguien abre la app. Pones un tope y no
-            se gasta un peso más.
-          </p>
+        <p className="py-2 text-xs text-[var(--color-text-secondary)]">Cargando campañas…</p>
+      ) : adsQuery.isError && campaigns.length === 0 ? null : campaigns.length === 0 ? (
+        <div className="space-y-5 py-8">
+          <div className="space-y-1">
+            <p className="text-lg font-semibold text-[var(--color-text-main)]">Todavía no te has anunciado</p>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Tu anuncio aparece a pantalla completa cuando alguien abre la app. Pones un tope y no se
+              gasta un peso más. Elige una idea para empezar.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {AD_TEMPLATES.map((template) => (
+              <Choice key={template.id} selected={false} onClick={() => startCreate(template.id)}>
+                <TemplateLogo name={template.logo} size={48} />
+                <span className="text-sm font-semibold">{template.title}</span>
+                <span className="text-xs text-[var(--color-text-secondary)]">{template.blurb}</span>
+              </Choice>
+            ))}
+          </div>
         </div>
       ) : (
-        <ul className="divide-y divide-[var(--color-border-light)]">
-          {campaigns.map((c) => {
-            const state = STATUS[c.approvalStatus];
-            const Icon = state.icon;
-            const isCpm = c.pricingModel === 'cpm';
-            const served = isCpm ? c.impressionCount : c.clickCount;
-            const cap = isCpm ? c.maxImpressions : c.maxClicks;
-            const spent = isCpm
-              ? Math.round((c.impressionCount * c.cpmRate) / 1000)
-              : c.clickCount * c.cpcRate;
-
-            return (
-              <li
-                key={c._id}
-                className="py-4"
-              >
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-medium text-[var(--color-text-main)]">{c.campaignName}</p>
-                      <span
-                        className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)]"
-                      >
-                        <Icon className={`h-3.5 w-3.5 ${state.cls}`} /> {state.label}
-                      </span>
-                    </div>
-                    <p className="text-xs text-[var(--color-text-secondary)]">
-                      {isCpm ? `${money(c.cpmRate)} por mil impresiones` : `${money(c.cpcRate)} por clic`}{' '}
-                      · tope {money(c.budget)}
-                    </p>
-                    {c.approvalStatus === 'rejected' && c.rejectionReason ? (
-                      <p className="mt-1 text-xs text-[var(--color-danger)]">{c.rejectionReason}</p>
-                    ) : null}
-                  </div>
-
-                  <div className="text-right">
-                    <p className="text-sm font-medium tabular text-[var(--color-text-main)]">{money(spent)}</p>
-                    <p className="text-[11px] text-[var(--color-text-muted)]">
-                      {served.toLocaleString('es-CO')}
-                      {cap ? ` de ${cap.toLocaleString('es-CO')}` : ''}{' '}
-                      {isCpm ? 'impresiones' : 'clics'}
-                    </p>
-                  </div>
-                </div>
-
-                {cap ? (
-                  <div className="mt-2 h-1 overflow-hidden bg-[var(--color-border)]">
-                    <div
-                      className="h-full bg-[var(--color-primary)]"
-                      style={{ width: `${Math.min(100, (served / cap) * 100)}%` }}
-                    />
-                  </div>
+        GROUPS.map(({ key, title }) => {
+          const list = grouped[key];
+          if (list.length === 0) return null;
+          const collapsed = key === 'closed' && !showClosed;
+          return (
+            <section key={key} className="space-y-3">
+              <div className="flex items-baseline justify-between border-b border-[var(--color-border)] pb-1.5">
+                <h2 className="text-[13px] font-semibold text-[var(--color-text-main)]">
+                  {title} · {list.length}
+                </h2>
+                {key === 'closed' ? (
+                  <button type="button" onClick={() => setShowClosed((v) => !v)} className={rowButton}>
+                    {showClosed ? 'Ocultar' : 'Mostrar'}
+                  </button>
                 ) : null}
-              </li>
-            );
-          })}
-        </ul>
+              </div>
+
+              {collapsed ? null : (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {list.map((c, i) => (
+                    <AdCampaignCard
+                      key={c._id}
+                      campaign={c}
+                      phase={key}
+                      now={now}
+                      index={i}
+                      invoice={invoiceOf.get(c._id)}
+                      seesBilling={seesBilling}
+                      onCorrect={() => startCorrect(c)}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })
       )}
 
-        </section>
-
-        <section>
-      {outstanding > 0 ? (
-        <div className="flex items-start gap-2 pb-4">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
-          <p className="text-sm text-[var(--color-text-main)]">
-            Llevas <strong>{money(outstanding)}</strong> en publicidad pendiente de descontar. Se
-            resta de tu próxima liquidación.
-          </p>
-        </div>
+      {!seesBilling && campaigns.length > 0 ? (
+        <p className="text-xs text-[var(--color-text-secondary)]">
+          Lo facturado por publicidad lo ve el propietario junto a sus liquidaciones.
+        </p>
       ) : null}
 
-      {invoices.length > 0 ? (
-        <div className="space-y-2">
-          <h2 className="col-title">Campañas cerradas</h2>
-          <ul className="divide-y divide-[var(--color-border-light)]">
-            {invoices.map((i) => (
-              <li
-                key={i._id}
-                className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs"
-              >
-                <span className="text-[var(--color-text-main)]">{i.campaignName}</span>
-                <span className="text-[var(--color-text-secondary)]">
-                  {i.impressions.toLocaleString('es-CO')} impresiones ·{' '}
-                  {i.clicks.toLocaleString('es-CO')} clics
-                </span>
-                <span className="font-semibold text-[var(--color-text-main)]">
-                  {money(i.amount)} {i.settledAt ? '· descontado' : '· pendiente'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {draft && businessId ? (
+        <AdCampaignPanel
+          businessId={businessId}
+          initial={draft}
+          correcting={correcting}
+          initialStep={initialStep}
+          onClose={() => setDraft(null)}
+          onCreated={() => { setDraft(null); void load(); }}
+        />
       ) : null}
-
-          {!seesBilling ? (
-            <p className="text-xs text-[var(--color-text-secondary)]">
-              Lo facturado por publicidad lo ve el propietario junto a sus liquidaciones.
-            </p>
-          ) : invoices.length === 0 && outstanding <= 0 ? (
-            <p className="text-xs text-[var(--color-text-secondary)]">Aún no hay campañas cerradas.</p>
-          ) : null}
-        </section>
-      </div>
     </div>
   );
 }

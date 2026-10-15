@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { Banknote, Clock3, GripVertical, StickyNote } from 'lucide-react';
 import { WompiLogo } from './WompiLogo';
 import PickupHandoff from './PickupHandoff';
+import { waitingSince } from '../lib/orderAlarm';
 import {
   ACTIVE_STATUSES, ORDER_STATUS, money, clock, nextBusinessStep, describeExtras, orderTag,
   type BusinessOrder, type OrderItem, type OrderStatus,
@@ -24,8 +25,11 @@ import {
  */
 
 
-const minutesSince = (iso: string, now: number) =>
-  Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60_000));
+const minutesSince = (since: number, now: number) =>
+  Math.max(0, Math.floor((now - since) / 60_000));
+
+/** El comercio puede rechazar hasta que sale del local (`BUSINESS_CANCELLABLE_STATUSES` en el backend). */
+const REJECTABLE: ReadonlySet<string> = new Set(['pending', 'accepted', 'preparing', 'ready']);
 
 const elapsedLabel = (minutes: number) =>
   minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
@@ -51,7 +55,7 @@ const STEP_BUTTON: Partial<Record<OrderStatus, string>> = {
 };
 
 /** Líneas de producto que se enseñan antes del "y N más". */
-const ITEMS_SHOWN = 4;
+const ITEMS_SHOWN = 8;
 
 interface Props {
   orders: BusinessOrder[];
@@ -114,7 +118,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
 
   const waiting = orders.length;
   const oldest = waiting
-    ? Math.max(...orders.map((order) => minutesSince(order.createdAt, now)))
+    ? Math.max(...orders.map((order) => minutesSince(waitingSince(order), now)))
     : 0;
 
   return (
@@ -159,7 +163,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                 {items.map((order) => {
                   const step = nextBusinessStep(order.status);
                   const busy = busyOrderId === order._id;
-                  const minutes = minutesSince(order.createdAt, now);
+                  const minutes = minutesSince(waitingSince(order), now);
                   return (
                     <li
                       key={order._id}
@@ -218,6 +222,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                                 <span className="min-w-0">
                                   <span className="font-normal">{item.productName}</span>
                                   {extras && <span className="block text-xs text-[var(--color-text-secondary)]">{extras}</span>}
+                                  {item.notes && <span className="block text-xs italic text-[var(--color-text-main)]">“{item.notes}”</span>}
                                 </span>
                               </span>
                             );
@@ -237,7 +242,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                         )}
 
                         {/* La espera: cuánto lleva el pedido en el local. */}
-                        <div title={`Llegó a las ${clock(order.createdAt)}`}>
+                        <div title={order.scheduledFor ? `Programado para las ${clock(order.scheduledFor)}` : `Llegó a las ${clock(order.createdAt)}`}>
                           <p className="flex items-center gap-1.5 text-sm font-normal tabular text-[var(--color-text-main)]">
                             <Clock3 className="w-4 h-4" aria-hidden />
                             {elapsedLabel(minutes)}
@@ -247,7 +252,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
 
                       {order.status === 'ready' && <PickupHandoff order={order} refreshKey={handoffTick} />}
 
-                      {(step || (order.status === 'pending' && canReject(order))) && (
+                      {(step || (REJECTABLE.has(order.status) && canReject(order))) && (
                         <div className="flex items-center gap-3">
                           {step && (
                             <button
@@ -259,7 +264,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                               {busy ? 'Un momento…' : step.label}
                             </button>
                           )}
-                          {order.status === 'pending' && canReject(order) && (
+                          {REJECTABLE.has(order.status) && canReject(order) && (
                             <button
                               type="button"
                               onClick={() => onReject(order)}

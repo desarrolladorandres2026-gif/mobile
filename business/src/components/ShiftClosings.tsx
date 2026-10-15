@@ -22,8 +22,17 @@ export interface ShiftClosing {
   sales: number;
   ordersDelivered: number;
   ordersCancelled: number;
+  /** Vendido contra entrega (valor de producto). No es lo que debe haber en caja. */
   cashSales: number;
   onlineSales: number;
+  /**
+   * Lo que debe haber en caja. `null` en cierres anteriores a esta cifra (su
+   * diferencia se calculó contra `cashSales`) y, para quien no tiene permiso
+   * financiero, mientras no haya declarado el efectivo contado.
+   */
+  expectedCash: number | null;
+  inTransit: { count: number; amount: number } | null;
+  cancelledAfterPickup: { count: number; amount: number } | null;
   declaredCash: number | null;
   difference: number | null;
   note: string;
@@ -71,7 +80,7 @@ export function CloseRegisterButton({ businessId, date }: { businessId: string; 
     <>
       <button
         onClick={() => setOpen(true)}
-        className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 text-xs font-semibold text-[var(--zipp-obsidian)] hover:bg-[var(--color-primary-light)] cursor-pointer"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-xs font-semibold text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
       >
         <Lock className="h-4 w-4" aria-hidden />
         Cerrar caja
@@ -97,9 +106,10 @@ export function CloseRegisterButton({ businessId, date }: { businessId: string; 
               <div className="space-y-3">
                 <dl className="space-y-1.5 text-sm">
                   <Row label="Vendido hoy" value={money(closing.sales)} strong />
-                  <Row label="En efectivo" value={money(closing.cashSales)} />
+                  <Row label="Vendido en efectivo" value={money(closing.cashSales)} />
                   <Row label="Pago en línea" value={money(closing.onlineSales)} />
                   <Row label="Pedidos entregados" value={String(closing.ordersDelivered)} />
+                  {closing.expectedCash !== null && <Row label="Efectivo esperado" value={money(closing.expectedCash)} strong />}
                   {closing.declaredCash !== null && <Row label="Efectivo contado" value={money(closing.declaredCash)} />}
                 </dl>
                 {closing.difference !== null && (
@@ -107,12 +117,25 @@ export function CloseRegisterButton({ businessId, date }: { businessId: string; 
                     {differenceLabel(closing.difference)}
                   </p>
                 )}
+                {closing.expectedCash !== null && closing.cancelledAfterPickup && closing.cancelledAfterPickup.count > 0 && (
+                  <p className="text-xs text-[var(--color-text-secondary)]">
+                    {closing.cancelledAfterPickup.count === 1
+                      ? 'Un pedido se canceló después de que lo recogieron'
+                      : `${closing.cancelledAfterPickup.count} pedidos se cancelaron después de que los recogieron`}
+                    ; no suma al efectivo esperado.
+                  </p>
+                )}
+                {closing.declaredCash === null && (
+                  <p className="text-xs text-[var(--color-text-secondary)]">
+                    No contaste el efectivo, así que no hay diferencia que mostrar.
+                  </p>
+                )}
                 <p className="text-xs text-[var(--color-text-secondary)]">
                   Quedó registrado a nombre de {closing.closedByName} a las {hour(closing.createdAt)}.
                 </p>
                 <button
                   onClick={dismiss}
-                  className="h-9 w-full rounded-md bg-[var(--color-primary)] text-xs font-semibold text-[var(--zipp-obsidian)] hover:bg-[var(--color-primary-light)] cursor-pointer"
+                  className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-semibold text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
                 >
                   Listo
                 </button>
@@ -126,7 +149,7 @@ export function CloseRegisterButton({ businessId, date }: { businessId: string; 
                 className="space-y-4"
               >
                 <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">
-                  Cuenta el efectivo que tienes y escríbelo. Las ventas las calcula ZIPP; al cerrar verás si la caja cuadra.
+                  Cuenta el efectivo que tienes y escríbelo. Al cerrar verás cuánto debía haber y si la caja cuadra.
                 </p>
                 <div>
                   <label htmlFor="close-cash" className="mb-1.5 block text-xs font-semibold text-[var(--color-text-main)]">
@@ -139,7 +162,7 @@ export function CloseRegisterButton({ businessId, date }: { businessId: string; 
                     onValueChange={setCash}
                     maxDigits={10}
                     placeholder="150.000"
-                    className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm font-semibold tabular text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
+                    className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm font-semibold tabular text-[var(--color-text-main)] outline-none focus:border-[var(--color-text-main)]"
                   />
                 </div>
                 <div>
@@ -152,7 +175,7 @@ export function CloseRegisterButton({ businessId, date }: { businessId: string; 
                     maxLength={300}
                     value={note}
                     onChange={(event) => setNote(event.target.value)}
-                    className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
+                    className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-text-main)] outline-none focus:border-[var(--color-text-main)]"
                   />
                 </div>
                 {mutation.isError && (
@@ -163,7 +186,7 @@ export function CloseRegisterButton({ businessId, date }: { businessId: string; 
                 <button
                   type="submit"
                   aria-busy={mutation.isPending}
-                  className="h-9 w-full rounded-md bg-[var(--color-primary)] text-xs font-semibold text-[var(--zipp-obsidian)] hover:bg-[var(--color-primary-light)] cursor-pointer aria-busy:cursor-wait aria-busy:opacity-60"
+                  className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-semibold text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer aria-busy:cursor-wait aria-busy:opacity-60"
                 >
                   {mutation.isPending ? 'Cerrando…' : 'Cerrar caja'}
                 </button>
@@ -208,8 +231,14 @@ export function ShiftClosingsList({ businessId, date }: { businessId: string; da
             </span>
             <span className="tabular text-xs font-semibold text-[var(--color-text-main)]">
               {money(closing.sales)}
+              {closing.expectedCash !== null && (
+                <span className="ml-3 font-normal text-[var(--color-text-secondary)]">Esperado {money(closing.expectedCash)}</span>
+              )}
               {closing.difference !== null && (
                 <span className={`ml-3 ${differenceTone(closing.difference)}`}>{differenceLabel(closing.difference)}</span>
+              )}
+              {closing.expectedCash === null && closing.difference !== null && (
+                <span className="ml-2 font-normal text-[var(--color-text-secondary)]">(contra la cifra anterior)</span>
               )}
             </span>
           </li>

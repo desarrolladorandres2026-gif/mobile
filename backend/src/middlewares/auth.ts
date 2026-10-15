@@ -72,6 +72,9 @@ const TWO_FACTOR_SETUP_PATHS = new Set([
   '/api/v1/auth/logout',
   '/api/v1/auth/2fa/setup',
   '/api/v1/auth/2fa/verify',
+  // "Volver al mostrador" no puede quedar bloqueado: la sesión elevada
+  // (`scope: 'full'`) de un comercio sin 2FA solo tiene esta salida.
+  '/api/v1/auth/counter/drop',
 ]);
 
 const requestPath = (req: Request) => (req.originalUrl || req.url || '').split('?')[0].replace(/\/+$/, '');
@@ -151,7 +154,12 @@ export const authenticate = async (
     // un administrador con permisos sobre dinero y usuarios entraba solo con
     // contraseña. Ahora, sin 2FA, solo alcanza las rutas para configurarlo.
     // Lo mismo para comercios con `TOTP_REQUIRED_BUSINESS`.
-    if (twoFactorSetupPending(user)) {
+    // La sesión de mostrador (`scope: 'counter'`) queda fuera de la regla: es
+    // la sesión del equipo compartido, con permisos de Empleado, y no puede
+    // activar un 2FA que es de la cuenta del dueño. Sin esta excepción,
+    // `TOTP_REQUIRED_BUSINESS=true` dejaba el local sin poder operar pedidos.
+    // Lo sensible (2FA, PIN, equipo) ya exige `rejectCounterScope`.
+    if (twoFactorSetupPending(user) && req.sessionScope !== 'counter') {
       req.twoFactorSetupRequired = true;
       if (!TWO_FACTOR_SETUP_PATHS.has(requestPath(req))) {
         throw new AppError(

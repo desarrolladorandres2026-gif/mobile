@@ -101,6 +101,12 @@ const ALLOWED_NEW_KEYS = new Set([
   // con sus cupones. Un cliente compilado que no los conozca ve lo de antes.
   'freeDeliveryDiscount',
   'autoPromotionDiscount',
+
+  // ── Clave del mostrador (2026-10-15) ──
+  // Aditivo, `null` hasta que el dueño la fija. Cuelga de `user` (login,
+  // `/auth/me`, perfil) igual que `counterPinSetAt`, y es lo que deja al panel
+  // avisar al dueño mientras siga en `null`. El hash nunca sale (`toJSON`).
+  'counterPasswordSetAt',
 ]);
 
 type Shape = string | Shape[] | { [key: string]: Shape };

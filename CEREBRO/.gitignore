@@ -1,0 +1,6 @@
+# Datos regenerables: se reconstruyen con `node CEREBRO/scripts/cerebro.mjs construir`
+data/snapshots/
+data/cache/
+data/runtime/
+data/actual.json
+# Se versionan: manual/ (lecturas, hallazgos, flujos curados), data/historial.jsonl y data/verificacion.json

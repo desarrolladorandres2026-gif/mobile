@@ -411,50 +411,34 @@ describe('Volver al mostrador', () => {
   });
 });
 
-describe('Login con surface business-counter', () => {
+describe('Login de comercio: el servidor decide el alcance (C1)', () => {
   const login = (body: Record<string, unknown>) => request(app).post(`${API}/auth/login`).send(body);
+  const roleOf = async (accessToken: string) =>
+    (await request(app).get(`${API}/businesses/${bid()}/my-permissions`).set({ Authorization: `Bearer ${accessToken}` })).body.data.role;
 
-  it('una cuenta de comercio abre sesión de mostrador: my-permissions dice employee', async () => {
-    const res = await login({ email: owner.email, password: PASSWORD, surface: 'business-counter' });
+  it('sin surface, una cuenta de comercio abre sesión de mostrador', async () => {
+    const res = await login({ email: owner.email, password: PASSWORD });
     expect(res.status).toBe(200);
-    const perms = await request(app)
-      .get(`${API}/businesses/${bid()}/my-permissions`)
-      .set({ Authorization: `Bearer ${res.body.data.accessToken}` });
-    expect(perms.body.data.role).toBe('employee');
+    expect(await roleOf(res.body.data.accessToken)).toBe('employee');
   });
 
-  it('sin surface, el mismo login sigue siendo de propietario', async () => {
-    const res = await login({ email: owner.email, password: PASSWORD });
-    const perms = await request(app)
-      .get(`${API}/businesses/${bid()}/my-permissions`)
-      .set({ Authorization: `Bearer ${res.body.data.accessToken}` });
-    expect(perms.body.data.role).toBe('owner');
+  it('mandar surface no cambia nada: el campo se descarta', async () => {
+    const res = await login({ email: owner.email, password: PASSWORD, surface: 'business-counter' });
+    expect(res.status).toBe(200);
+    expect(await roleOf(res.body.data.accessToken)).toBe('employee');
+    const other = await login({ email: owner.email, password: PASSWORD, surface: 'full' });
+    expect(other.status).toBe(200);
+    expect(await roleOf(other.body.data.accessToken)).toBe('employee');
   });
 
   it('con 2FA, el reto conserva el alcance de mostrador', async () => {
     const secret = await enroll2fa(owner);
-    const first = await login({ email: owner.email, password: PASSWORD, surface: 'business-counter' });
+    const first = await login({ email: owner.email, password: PASSWORD });
     expect(first.body.data.requiresTOTP).toBe(true);
     const second = await request(app)
       .post(`${API}/auth/2fa/challenge`)
       .send({ challengeToken: first.body.data.challengeToken, code: nextCode(secret) });
     expect(second.status).toBe(200);
-    const perms = await request(app)
-      .get(`${API}/businesses/${bid()}/my-permissions`)
-      .set({ Authorization: `Bearer ${second.body.data.accessToken}` });
-    expect(perms.body.data.role).toBe('employee');
-  });
-
-  it('un reto abierto sin surface no hereda el alcance de uno anterior con surface', async () => {
-    const secret = await enroll2fa(owner);
-    await login({ email: owner.email, password: PASSWORD, surface: 'business-counter' });
-    const plain = await login({ email: owner.email, password: PASSWORD });
-    const second = await request(app)
-      .post(`${API}/auth/2fa/challenge`)
-      .send({ challengeToken: plain.body.data.challengeToken, code: nextCode(secret) });
-    const perms = await request(app)
-      .get(`${API}/businesses/${bid()}/my-permissions`)
-      .set({ Authorization: `Bearer ${second.body.data.accessToken}` });
-    expect(perms.body.data.role).toBe('owner');
+    expect(await roleOf(second.body.data.accessToken)).toBe('employee');
   });
 });

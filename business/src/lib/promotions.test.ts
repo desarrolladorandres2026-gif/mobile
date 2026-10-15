@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  autoPayload, codePayload, emptyAutoForm, emptyCodeForm, maxCost, previewDraft,
+  autoPayload, codePayload, emptyAutoForm, emptyCodeForm, maxCost, previewDraft, promotionSummary,
 } from './promotions';
+import {
+  QUICK_RANGES, TEMPLATES, applyTemplate, localDay, rangeDates, suggestCode,
+} from './promotionTemplates';
 import { scheduleError } from './schedule';
 
 /**
@@ -99,5 +102,105 @@ describe('scheduleError', () => {
   it('rechaza una sola hora y la franja que cruza la medianoche', () => {
     expect(scheduleError({ validFromTime: '11:00', validUntilTime: '' })).not.toBe('');
     expect(scheduleError({ validFromTime: '22:00', validUntilTime: '02:00' })).not.toBe('');
+  });
+});
+
+describe('plantillas de promoción', () => {
+  const keep = { productIds: ['p1'] };
+
+  it('toda plantilla produce un cuerpo que el servidor acepta', () => {
+    for (const template of TEMPLATES.filter((t) => t.days !== null)) {
+      const applied = applyTemplate(template, keep);
+      const form = applied.mode === 'code' ? applied.codeForm : applied.autoForm;
+      const payload = (applied.mode === 'code'
+        ? codePayload(applied.codeForm, false)
+        : autoPayload(applied.autoForm, false)) as Record<string, unknown>;
+
+      expect(form.title.trim().length, template.id).toBeGreaterThanOrEqual(3);
+      if (form.type === 'percentage') expect(form.value, template.id).toBeLessThanOrEqual(90);
+      else expect(Number.isInteger(form.value), template.id).toBe(true);
+      expect(scheduleError(form), template.id).toBe('');
+      expect(new Date(form.validUntil) > new Date(form.validFrom), template.id).toBe(true);
+      for (const forbidden of ['fundedBy', 'scope', 'campaignApproved', 'businessId']) {
+        expect(payload, template.id).not.toHaveProperty(forbidden);
+      }
+      if (applied.mode === 'code') {
+        const code = applied.codeForm.code;
+        expect(code.length, template.id).toBeGreaterThanOrEqual(3);
+        expect(code.length, template.id).toBeLessThanOrEqual(20);
+      }
+    }
+  });
+
+  it('ninguna plantilla nace sin techo de gasto', () => {
+    for (const template of TEMPLATES.filter((t) => t.days !== null)) {
+      const applied = applyTemplate(template, keep);
+      const form = applied.mode === 'code' ? applied.codeForm : applied.autoForm;
+      expect(maxCost(form), template.id).not.toBeNull();
+    }
+  });
+
+  it('«desde cero» deja la fecha de fin para que la elija el comercio', () => {
+    const scratch = TEMPLATES.find((t) => t.id === 'scratch')!;
+    expect(applyTemplate(scratch, keep).codeForm.validUntil).toBe('');
+  });
+
+  it('conserva los productos ya elegidos', () => {
+    const star = TEMPLATES.find((t) => t.id === 'star')!;
+    expect(applyTemplate(star, keep).autoForm.productIds).toEqual(['p1']);
+  });
+
+  it('los atajos de vigencia terminan después de empezar', () => {
+    for (const { days } of QUICK_RANGES) {
+      const { validFrom, validUntil } = rangeDates(days);
+      expect(new Date(validUntil) > new Date(validFrom)).toBe(true);
+    }
+  });
+
+  it('localDay respeta la fecha local, no la UTC', () => {
+    // 11 p. m. del 31 de enero en Colombia ya es 1 de febrero en UTC.
+    expect(localDay(0, new Date(2030, 0, 31, 23, 0))).toBe('2030-01-31');
+    expect(localDay(1, new Date(2030, 0, 31, 23, 0))).toBe('2030-02-01');
+  });
+});
+
+describe('suggestCode', () => {
+  it('usa la palabra más larga y el porcentaje', () => {
+    expect(suggestCode('20% los martes', 'percentage', 20)).toBe('MARTES20');
+    expect(suggestCode('Hora feliz', 'percentage', 15)).toBe('FELIZ15');
+  });
+
+  it('quita tildes y respeta el largo del servidor (3 a 20)', () => {
+    expect(suggestCode('Promoción', 'fixed', 3000)).toBe('PROMOCION');
+    const code = suggestCode('Superhamburguesaextraordinariamente grande', 'percentage', 20);
+    expect(code.length).toBeLessThanOrEqual(20);
+    expect(code.endsWith('20')).toBe(true);
+  });
+
+  it('sin palabras utilizables cae a ZIPP', () => {
+    expect(suggestCode('', 'fixed', 0)).toBe('ZIPP');
+    expect(suggestCode('20%', 'percentage', 20)).toBe('ZIPP20');
+  });
+});
+
+describe('promotionSummary', () => {
+  it('cuenta la promoción en una frase con su costo máximo', () => {
+    const text = promotionSummary(
+      { ...emptyCodeForm, code: 'martes20', title: 'x', value: 20, validDays: [2], budgetLimit: 100000, validUntil: '2030-01-30' },
+      false,
+    );
+    expect(text).toContain('20% de descuento con el código MARTES20');
+    expect(text).toContain('los martes');
+    expect(text).toContain('hasta el 30 de enero');
+    expect(text).toMatch(/Como máximo te cuesta \$\s?100\.000/);
+  });
+
+  it('avisa cuando no hay techo y ordena los días empezando por el lunes', () => {
+    const text = promotionSummary(
+      { ...emptyCodeForm, code: 'abc', title: 'x', validDays: [0, 5, 1], validUntil: '2030-01-30' },
+      false,
+    );
+    expect(text).toContain('los lunes, viernes y domingos');
+    expect(text).toContain('No tiene techo de costo');
   });
 });

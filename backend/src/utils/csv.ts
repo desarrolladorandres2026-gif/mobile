@@ -26,6 +26,11 @@ function cell(value: unknown): string {
 
   if (value instanceof Date) return `"${value.toISOString()}"`;
 
+  // Un número de verdad (no un texto que lo parezca) no puede ser una
+  // fórmula: se escribe tal cual. Sin esto un importe negativo —un arrastre
+  // por reembolso tardío— salía como texto `'-30000` y Excel no lo sumaba.
+  if (typeof value === 'number' && Number.isFinite(value)) return `"${value}"`;
+
   const text = String(value);
 
   // ── Inyección de fórmulas ──

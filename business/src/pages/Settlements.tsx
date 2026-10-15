@@ -31,8 +31,15 @@ interface Totals {
   productSubtotal: number;
   merchantCommission: number;
   merchantFundedDiscount: number;
+  /** Revertido antes de pagarse. */
   reversedAmount: number;
+  /** Reembolsos que llegaron con el pago ya hecho: no restan del neto de la venta, los recupera un arrastre. */
+  lateReversedAmount: number;
   netAmount: number;
+  /** Lo no liquidado todavía. En la próxima liquidación, `netAmount` es esto. */
+  pendingAmount: number;
+  /** De lo pendiente, lo que son arrastres por reembolsos tardíos (cero o negativo). */
+  clawbackPendingAmount: number;
 }
 
 interface Period extends Totals {
@@ -58,6 +65,8 @@ interface Statement {
   accrued: number;
   payable: number;
   settled: number;
+  /** Transferencias ya realizadas: suma de las consignaciones pagadas. */
+  transferred: number;
   nextSettlement: Totals;
   weeks: Period[];
   settlements: SettlementBatch[];
@@ -74,6 +83,10 @@ interface Line {
   merchantFundedDiscount: number;
   reversedAmount: number;
   netAmount: number;
+  /** Lo no liquidado de la fila; en un arrastre, lo que sigue sin descontarse (negativo). */
+  pendingAmount: number;
+  /** Fila de arrastre: descuento por un reembolso tardío, no una venta. */
+  isClawback?: boolean;
   payoutStatus: string;
   settlementId: string | null;
 }
@@ -131,12 +144,10 @@ export default function Settlements() {
           ? { settlementId: focus.batch._id, limit: 200 }
           : // Lo que aún no se ha consignado: acumulado + liquidable.
             { status: 'accrued,payable', limit: 200 };
-      try {
-        const { data } = await api.get(`/businesses/${businessId}/statement/lines`, { params });
-        return { lines: data.data as Line[], totals: (data.meta?.totals ?? null) as Totals | null };
-      } catch {
-        return { lines: [] as Line[], totals: null };
-      }
+      // Sin try/catch: un fallo (o un 429) debe verse como error con "Reintentar",
+      // no como "No hay ventas pendientes de liquidar".
+      const { data } = await api.get(`/businesses/${businessId}/statement/lines`, { params });
+      return { lines: data.data as Line[], totals: (data.meta?.totals ?? null) as Totals | null };
     },
   });
   // `null` mientras carga: la tabla lo distingue de "no hay líneas".
@@ -213,6 +224,11 @@ export default function Settlements() {
         <div role="alert" className="flex items-start gap-2 border-l-2 border-[var(--color-danger)] pl-3 py-0.5">
           <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
           <p className="text-xs font-semibold text-[var(--color-danger)]">{error || loadError}</p>
+          {loadError && !error ? (
+            <button type="button" onClick={() => void statementQuery.refetch()} className="ml-2 text-xs font-bold underline cursor-pointer text-[var(--color-danger)]">
+              Reintentar
+            </button>
+          ) : null}
         </div>
       )}
 
@@ -221,7 +237,7 @@ export default function Settlements() {
         items={[
           { label: 'Próxima liquidación', value: money(next?.netAmount), hint: `${next?.orderCount ?? 0} venta(s) acumuladas`, loading, strong: true },
           { label: 'Pendiente por consignar', value: money(statement?.outstanding), hint: 'Incluye lo aún no cobrado por ZIPP', loading },
-          { label: 'Histórico consignado', value: money(statement?.settled), hint: 'Transferencias ya realizadas', loading },
+          { label: 'Transferencias ya realizadas', value: money(statement?.transferred), hint: 'Consignaciones que ZIPP ya pagó a tu cuenta', loading },
         ]}
       />
 
@@ -250,6 +266,13 @@ export default function Settlements() {
               <FormulaRow
                 label="Reembolsos y contracargos"
                 value={signedMoney(-(next?.reversedAmount ?? 0))}
+                tone="danger"
+              />
+            )}
+            {(next?.clawbackPendingAmount ?? 0) < 0 && (
+              <FormulaRow
+                label="Reembolsos tardíos por descontar"
+                value={signedMoney(next?.clawbackPendingAmount ?? 0)}
                 tone="danger"
               />
             )}
@@ -307,7 +330,7 @@ export default function Settlements() {
               </table>
             </div>
           ) : (
-            <p className="text-xs text-[var(--color-text-muted)] py-4">
+            <p className="text-xs text-[var(--color-text-secondary)] py-4">
               {loading ? 'Cargando…' : 'Todavía no hay semanas con ventas registradas.'}
             </p>
           )}
@@ -335,7 +358,7 @@ export default function Settlements() {
                       <p className="text-xs font-semibold text-[var(--color-text-main)]">
                         {dateTime(batch.createdAt)}
                         {batch.reference ? (
-                          <span className="font-normal text-[var(--color-text-muted)]">
+                          <span className="font-normal text-[var(--color-text-secondary)]">
                             {' '}· ref. {batch.reference}
                           </span>
                         ) : null}
@@ -347,7 +370,7 @@ export default function Settlements() {
                           Incluye {money(batch.adSpendAmount ?? 0)} descontados por publicidad
                         </p>
                       ) : null}
-                      <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
+                      <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">
                         {batch.payoutCount} pedido(s) ·{' '}
                         {new Date(batch.periodStart).toLocaleDateString('es-CO', {
                           day: 'numeric', month: 'short',
@@ -363,7 +386,7 @@ export default function Settlements() {
                         {money(batch.netAmount)}
                       </span>
                       <ChevronRight
-                        className={`w-4 h-4 text-[var(--color-text-muted)] transition-transform ${
+                        className={`w-4 h-4 text-[var(--color-text-secondary)] transition-transform ${
                           open ? 'rotate-90' : ''
                         }`}
                       />
@@ -374,7 +397,7 @@ export default function Settlements() {
             })}
           </ul>
         ) : (
-          <p className="text-xs text-[var(--color-text-muted)] py-4">
+          <p className="text-xs text-[var(--color-text-secondary)] py-4">
             {loading
               ? 'Cargando…'
               : 'Aún no se ha hecho ninguna consignación a tu cuenta.'}
@@ -427,27 +450,41 @@ export default function Settlements() {
               <tbody>
                 {lines === null ? (
                   <tr>
-                    <td colSpan={6} className="table-body-cell text-center text-[var(--color-text-muted)]">
+                    <td colSpan={6} className="table-body-cell text-center text-[var(--color-text-secondary)]">
                       Cargando ventas…
+                    </td>
+                  </tr>
+                ) : linesQuery.isError ? (
+                  <tr>
+                    <td colSpan={6} className="table-body-cell text-center text-[var(--color-danger)]">
+                      No pudimos cargar las ventas.{' '}
+                      <button type="button" onClick={() => void linesQuery.refetch()} className="font-bold underline cursor-pointer">
+                        Reintentar
+                      </button>
                     </td>
                   </tr>
                 ) : lines.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="table-body-cell text-center text-[var(--color-text-muted)]">
+                    <td colSpan={6} className="table-body-cell text-center text-[var(--color-text-secondary)]">
                       {focus.kind === 'settlement'
                         ? 'Esta consignación no tiene ventas asociadas.'
                         : 'No hay ventas pendientes de liquidar.'}
                     </td>
                   </tr>
                 ) : (
-                  lines.map((line) => {
+                  lines.map((line, index) => {
                     const style = statusStyle(line.orderStatus);
                     return (
-                      <tr key={line.orderId} className="hover:bg-[var(--color-surface-hover)] transition-colors">
+                      <tr key={`${line.orderId}:${line.isClawback ? 'a' : 'v'}:${index}`} className="hover:bg-[var(--color-surface-hover)] transition-colors">
                         <td className="table-body-cell tabular font-medium whitespace-nowrap">
                           #{line.orderNumber}
+                          {line.isClawback ? (
+                            <span className="block text-[11px] font-normal text-[var(--color-danger)]">
+                              Reembolso tardío
+                            </span>
+                          ) : null}
                         </td>
-                        <td className="table-body-cell text-[var(--color-text-muted)] tabular whitespace-nowrap">
+                        <td className="table-body-cell text-[var(--color-text-secondary)] tabular whitespace-nowrap">
                           {dateTime(line.deliveredAt ?? line.createdAt)}
                         </td>
                         <td className="table-body-cell">
@@ -465,7 +502,8 @@ export default function Settlements() {
                           {signedMoney(-line.merchantCommission)}
                         </td>
                         <td className="table-body-cell text-right tabular whitespace-nowrap font-semibold text-[var(--color-text-main)]">
-                          {money(line.netAmount)}
+                          {/* En "la próxima" cuenta lo pendiente: un arrastre cobrado a medias aparece solo por lo que le queda. */}
+                          {money(focus.kind === 'next' ? line.pendingAmount : line.netAmount)}
                         </td>
                       </tr>
                     );
@@ -486,7 +524,7 @@ export default function Settlements() {
                       {signedMoney(-lineTotals.merchantCommission)}
                     </td>
                     <td className="table-body-cell text-right tabular whitespace-nowrap font-semibold">
-                      {money(lineTotals.netAmount)}
+                      {money(focus.kind === 'next' ? lineTotals.pendingAmount : lineTotals.netAmount)}
                     </td>
                   </tr>
                 </tfoot>

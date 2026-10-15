@@ -1,10 +1,15 @@
 import { Types } from 'mongoose';
-import { Order, Product, BusinessPermission } from '../models';
+import { Order, Product, BusinessPermission, ShiftClosing } from '../models';
 import { OrderStatus, PaymentMethod } from '../types';
 import { UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 import { bogotaDateString, bogotaDayRange } from '../utils/period';
 import { businessDailySummaryService, type BusinessDaySnapshot } from './businessDailySummary.service';
 import type { BusinessAccess } from './businessStaff.service';
+import { cashHandover } from './cashHandover.service';
+
+// Vive en su propio archivo porque `businessDailySummary` también la usa y este
+// importa a aquel; así no hay ciclo. Se reexporta para tenerla junto a `closedToday`.
+export { cashHandover, type CashHandover } from './cashHandover.service';
 
 /**
  * La portada del panel para quien no es el dueño.
@@ -96,6 +101,12 @@ export interface ShiftSummary {
   /** Pedidos abiertos: todavía no son venta. */
   pendingOrders: number;
   pendingSales: number;
+  /**
+   * Efectivo que debe haber en caja en el corte actual. Solo para quien tiene
+   * `financial:view`: el empleado lo conoce hasta que declara lo que contó
+   * (ver `shiftClosing.service`), para que no cuadre el conteo contra la cifra.
+   */
+  expectedCash?: number;
 }
 
 export interface KitchenSummary {
@@ -230,6 +241,26 @@ export async function closedToday(businessId: Types.ObjectId, date: string) {
 }
 
 /**
+ * Desde cuándo cuenta el cierre de caja que se hace ahora: desde el último
+ * cierre del mismo día, o desde que empezó el día si no hay ninguno. Así dos
+ * cierres el mismo día no cuentan dos veces el mismo efectivo.
+ *
+ * El instante del cierre ES `createdAt` (el servicio lo fija igual a `to`),
+ * y el siguiente corte arranca un milisegundo después: el borde no se pierde
+ * ni se cuenta dos veces. Lo que pase entre el último cierre y la medianoche
+ * sin otro cierre no entra en ningún corte; sigue en el resumen del día.
+ */
+export async function currentShiftWindow(businessId: Types.ObjectId, now: Date = new Date()) {
+  const { from: dayStart, to: dayEnd } = bogotaDayRange(bogotaDateString(now));
+  const last = await ShiftClosing.findOne({ businessId, createdAt: { $gte: dayStart, $lte: dayEnd } })
+    .sort({ createdAt: -1 })
+    .select('createdAt')
+    .lean();
+  const from = last ? new Date(last.createdAt.getTime() + 1) : dayStart;
+  return { from, to: now };
+}
+
+/**
  * La portada que le toca a esta persona. `null` si no tiene ni
  * `orders:view`: no hay nada del día que pueda ver.
  */
@@ -264,7 +295,7 @@ export async function roleSummaryFor(access: BusinessAccess, businessIdRaw: stri
   const queueOnly = { pending: queue.pending, preparing: queue.preparing, ready: queue.ready, onTheWay: queue.onTheWay };
 
   if (has(BusinessPermission.SHIFT_VIEW)) {
-    return {
+    const shift: ShiftSummary = {
       kind: 'shift',
       date,
       generatedAt,
@@ -277,6 +308,12 @@ export async function roleSummaryFor(access: BusinessAccess, businessIdRaw: stri
       pendingOrders: queue.open,
       pendingSales: queue.openSales,
     };
+    // Decidido en el servidor: sin `financial:view` la clave ni existe.
+    if (has(BusinessPermission.FINANCIAL_VIEW)) {
+      const { from, to } = await currentShiftWindow(businessId);
+      shift.expectedCash = (await cashHandover(businessId, from, to)).expectedCash;
+    }
+    return shift;
   }
 
   return {

@@ -32,6 +32,7 @@ interface DaySnapshot {
   payDigitalAmount: number;
   payCashCount: number;
   payCashAmount: number;
+  cashHandedOver: number;
   reviewsCount: number;
   avgRating: number;
   lowRatingsCount: number;
@@ -109,7 +110,7 @@ export default function DailySummary() {
   const t = data?.today;
 
   return (
-    <div className="space-y-6">
+    <div className="summary-plain space-y-6">
       <style>{`@media print { aside, header.sticky, .no-print { display: none !important; } @page { size: A4; margin: 12mm; } html, body, #root, main { height: auto !important; overflow: visible !important; background: #fff !important; } }`}</style>
 
       <div className="page-header">
@@ -124,7 +125,7 @@ export default function DailySummary() {
           </button>
           <input type="date" value={date} max={todayStr()}
             onChange={(e) => e.target.value && setDate(e.target.value)}
-            className="h-8 px-2 rounded-md text-xs text-[var(--color-text-main)] bg-[var(--color-surface)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-primary)] cursor-pointer" />
+            className="h-8 px-2 rounded-md text-xs text-[var(--color-text-main)] bg-[var(--color-surface)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-text-main)] cursor-pointer" />
           {!isToday && (
             <button onClick={() => setDate((d) => shift(d, 1))} title="Día siguiente"
               className="p-1.5 rounded-md text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer">
@@ -176,9 +177,10 @@ export default function DailySummary() {
             <div className="space-y-6 min-w-0">
               <Section title="Cómo pagaron">
                 <Line label="Pago digital" value={`${num(t.payDigitalCount)} · ${money(t.payDigitalAmount)}`} />
-                <Line label="Efectivo contra entrega" value={`${num(t.payCashCount)} · ${money(t.payCashAmount)}`} />
+                <Line label="Cobrado al cliente, incluido domicilio" value={`${num(t.payCashCount)} · ${money(t.payCashAmount)}`} />
+                <Line label="Efectivo que debe haber en caja" value={money(t.cashHandedOver)} strong />
                 <p className="pt-1 text-[10px] text-[var(--color-text-secondary)]">
-                  Montos cobrados al cliente, incluido domicilio.
+                  Lo de caja es lo que el domiciliario te pagó al recoger: el producto menos la comisión y los descuentos que pusiste tú. No incluye domicilio ni propina.
                 </p>
               </Section>
               <Section title="Operación y calidad">
@@ -303,7 +305,7 @@ function ByHour({ rows }: { rows: Array<{ hour: number; orders: number }> }) {
           const n = byHour.get(h) ?? 0;
           return (
             <span key={h} title={`${String(h).padStart(2, '0')}:00 · ${n} pedidos`}
-              className={`flex-1 ${n ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-border)]'}`}
+              className={`flex-1 ${n ? 'bg-[var(--color-text-main)]' : 'bg-[var(--color-border)]'}`}
               style={{ height: n ? `${Math.max((n / max) * 100, 4)}%` : '1px' }} />
           );
         })}

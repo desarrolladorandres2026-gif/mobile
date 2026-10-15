@@ -86,8 +86,10 @@ describe('ringPatternFor', () => {
     expect(seen).toEqual([{ oldestWaitingMinutes: 25, ringingCount: 2 }]);
   });
 
-  it('mientras el usuario no escriba su política, el timbre es normal', () => {
-    expect(ringPatternFor([order('a', { createdAt: minutesAgo(99) })], NOW)).toBe('normal');
+  it('la política por defecto: normal antes de 3 min, urgente desde los 3', () => {
+    expect(ringPatternFor([order('a', { createdAt: minutesAgo(2) })], NOW)).toBe('normal');
+    expect(ringPatternFor([order('a', { createdAt: minutesAgo(3) })], NOW)).toBe('urgent');
+    expect(ringPatternFor([order('a', { createdAt: minutesAgo(99) })], NOW)).toBe('urgent');
   });
 });
 

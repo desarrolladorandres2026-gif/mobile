@@ -3,6 +3,7 @@ import { UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 import { Order, Review } from '../models';
 import { OrderStatus, PaymentMethod } from '../types';
 import { bogotaDayRange, bogotaDateString, shiftDateString } from '../utils/period';
+import { cashHandover } from './cashHandover.service';
 
 /**
  * Cierre del día de UN comercio.
@@ -32,7 +33,10 @@ export interface BusinessDaySnapshot {
   payDigitalCount: number;
   payDigitalAmount: number;
   payCashCount: number;
+  /** Lo cobrado al cliente en efectivo, domicilio incluido. NO es lo que queda en caja. */
   payCashAmount: number;
+  /** Lo que los domiciliarios pagaron al comercio en efectivo ese día: lo que debe haber en caja. */
+  cashHandedOver: number;
   reviewsCount: number;
   avgRating: number;
   lowRatingsCount: number;
@@ -76,7 +80,7 @@ async function snapshot(businessId: Types.ObjectId, date: string): Promise<Busin
   const whenDelivered = (expr: unknown) => ({ $cond: [delivered, expr, 0] });
   const isCash = { $eq: ['$paymentMethod', PaymentMethod.CASH_ON_DELIVERY] };
 
-  const [[orders], [reviews]] = await Promise.all([
+  const [[orders], [reviews], handover] = await Promise.all([
     Order.aggregate([
       { $match: { businessId, $nor: [UNPAID_ONLINE_MATCH], createdAt: { $gte: from, $lte: to } } },
       {
@@ -116,6 +120,7 @@ async function snapshot(businessId: Types.ObjectId, date: string): Promise<Busin
         },
       },
     ]),
+    cashHandover(businessId, from, to),
   ]);
 
   const deliveredCount = orders?.delivered ?? 0;
@@ -135,6 +140,7 @@ async function snapshot(businessId: Types.ObjectId, date: string): Promise<Busin
     payDigitalAmount: round(orders?.digitalAmount),
     payCashCount: orders?.cashCount ?? 0,
     payCashAmount: round(orders?.cashAmount),
+    cashHandedOver: handover.expectedCash,
     reviewsCount: reviews?.count ?? 0,
     avgRating: reviews?.avg ? Math.round(reviews.avg * 10) / 10 : 0,
     lowRatingsCount: reviews?.low ?? 0,

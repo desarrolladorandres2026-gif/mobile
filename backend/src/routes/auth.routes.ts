@@ -10,7 +10,7 @@ import {
   mfaChallengeSchema, googleLoginSchema, appleLoginSchema, facebookLoginSchema, sendOtpSchema, verifyOtpSchema, sendEmailOtpSchema,
   verifyEmailOtpSchema, refreshTokenSchema, logoutSchema, resetPasswordSchema, updateProfileSchema,
   verifyPhoneSchema, changePasswordSchema, twoFactorTokenSchema, twoFactorSetupSchema, revokeAllSessionsSchema, deleteAccountSchema,
-  counterElevateSchema, counterElevatePasswordSchema, counterElevatePasswordTotpSchema, counterPinSetSchema, counterPeopleSchema, counterPinUnlockSchema,
+  counterElevateSchema, counterElevatePasswordSchema, counterElevatePasswordTotpSchema, counterPinSetSchema, counterPeopleSchema, counterPinUnlockSchema, counterPasswordSetSchema,
 } from '../validators';
 
 const router = Router();
@@ -48,7 +48,7 @@ router.post('/verify-email-otp', authRateLimiter, validate(verifyEmailOtpSchema)
 router.post('/reset-password', authRateLimiter, validate(resetPasswordSchema), (req, res, next) => authController.resetPassword(req, res, next));
 
 // ── Protected routes ──
-router.patch('/profile', authenticate, rejectCounterScope, validate(updateProfileSchema), (req, res, next) => authController.updateProfile(req, res, next));
+router.patch('/profile', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(updateProfileSchema), (req, res, next) => authController.updateProfile(req, res, next));
 // Celular pendiente: solo se asocia a la cuenta al confirmar el OTP.
 router.post('/phone/send-otp', authenticate, rejectCounterScope, otpRateLimiter, (req, res, next) => authController.resendPhoneOtp(req, res, next));
 router.post('/phone/verify', authenticate, rejectCounterScope, authRateLimiter, validate(verifyPhoneSchema), (req, res, next) => authController.verifyPhone(req, res, next));
@@ -71,6 +71,9 @@ router.post('/counter/drop', authenticate, (req, res, next) => authController.dr
 router.get('/counter/people', authenticate, validate(counterPeopleSchema), (req, res, next) => authController.counterPeople(req, res, next));
 // El PIN propio se crea desde la cuenta completa, nunca desde el mostrador.
 router.put('/counter/pin', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(counterPinSetSchema), (req, res, next) => authController.setCounterPin(req, res, next));
+// Clave del mostrador: credencial del local distinta de la contraseña personal
+// del dueño. Solo el propietario, solo desde su cuenta completa.
+router.put('/counter/password', authenticate, rejectCounterScope, sensitiveRateLimiter, validate(counterPasswordSetSchema), (req, res, next) => authController.setCounterPassword(req, res, next));
 router.delete('/counter/pin', authenticate, rejectCounterScope, (req, res, next) => authController.removeCounterPin(req, res, next));
 router.post('/counter/pin/unlock', authenticate, rejectCounterScope, validate(counterPinUnlockSchema), (req, res, next) => authController.unlockCounterPin(req, res, next));
 router.post('/logout', authenticate, validate(logoutSchema), (req, res, next) => authController.logout(req, res, next));

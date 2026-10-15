@@ -54,15 +54,22 @@ export class BusinessController {
 
       const body = toCsv(lines, [
         { header: 'Pedido', value: (l: any) => l.orderNumber },
+        { header: 'Tipo', value: (l: any) => (l.isClawback ? 'Arrastre por reembolso tardío' : 'Venta') },
         { header: 'Fecha', value: (l: any) => l.createdAt },
         { header: 'Entregado', value: (l: any) => l.deliveredAt },
-        { header: 'Estado', value: (l: any) => l.orderStatus },
+        { header: 'Estado del pedido', value: (l: any) => l.orderStatus },
         { header: 'Pago', value: (l: any) => l.paymentMethod },
         { header: 'Venta', value: (l: any) => l.productSubtotal },
         { header: 'Comisión ZIPP', value: (l: any) => l.merchantCommission },
         { header: 'Descuento asumido', value: (l: any) => l.merchantFundedDiscount },
+        // Lo revertido antes de pagarse; el reembolso tardío va aparte porque
+        // ya está representado en la fila de arrastre y no resta del neto.
         { header: 'Reversado', value: (l: any) => l.reversedAmount },
-        { header: 'Neto a recibir', value: (l: any) => l.netAmount },
+        { header: 'Reembolso tardío', value: (l: any) => l.lateReversedAmount },
+        { header: 'Neto', value: (l: any) => l.netAmount },
+        { header: 'Pendiente', value: (l: any) => l.pendingAmount },
+        { header: 'Estado', value: (l: any) => l.payoutStatus },
+        { header: 'Liquidación', value: (l: any) => l.settlementId },
       ]);
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -356,13 +363,13 @@ export class BusinessController {
     try {
       const businessId = param(req, 'id');
       const { businessStaffService } = await import('../services/businessStaff.service');
-      await businessStaffService.assertCan(
+      const access = await businessStaffService.assertCan(
         req.user!._id.toString(), businessId, BusinessPermissionEnum.SHIFT_VIEW, undefined, req.sessionScope,
       );
       const { shiftClosingService } = await import('../services/shiftClosing.service');
       const { bogotaDateString } = await import('../utils/period');
       const date = (req.query.date as string | undefined) ?? bogotaDateString();
-      sendResponse(res, 200, 'Cierres de caja', await shiftClosingService.listForDay(businessId, date));
+      sendResponse(res, 200, 'Cierres de caja', await shiftClosingService.listForDay(businessId, date, access));
     } catch (error) { next(error); }
   }
 

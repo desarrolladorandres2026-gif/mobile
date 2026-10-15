@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import app from '../app';
-import { BusinessStaff, BusinessRole, Product, Coupon, Notification } from '../models';
+import { BusinessStaff, BusinessRole, Product, Coupon, Notification, User } from '../models';
+import { Session, OTP_SLOTS, otpSetFields } from '../security';
+import { emailService } from '../services/email.service';
 import { UserRole, NotificationType } from '../types';
 import {
   makeUser, makeBusiness, makeProduct, makePricingConfig,
@@ -264,6 +266,81 @@ describe('Sesión de mostrador: notificaciones personales (GET/unread-count/PATC
 
     const read = await request(app).patch(`/api/v1/notifications/${notif._id}/read`).set(header);
     expect(read.status).toBe(200);
+  });
+});
+
+/**
+ * C1 (2026-10-14): el servidor decide el alcance de la sesión, no el cliente.
+ * Toda sesión de una cuenta de comercio que no sea una elevación nace como
+ * mostrador, entre por donde entre. Cliente y domiciliario no cambian.
+ */
+describe('El servidor decide el alcance: toda entrada de comercio abre mostrador (C1)', () => {
+  const API = '/api/v1';
+  const PASSWORD = 'Clave.Segura123';
+  const CODE = '123456';
+  const roleOf = async (accessToken: string) =>
+    (await request(app).get(`${API}/businesses/${bid()}/my-permissions`).set({ Authorization: `Bearer ${accessToken}` })).body.data.role;
+  const scopeOf = async (userId: string) => (await Session.findOne({ userId }).sort({ createdAt: -1 }))!.scope;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('POST /auth/login sin `surface` abre mostrador (antes: sesión completa de 7 días)', async () => {
+    const res = await request(app).post(`${API}/auth/login`).send({ email: owner.email, password: PASSWORD });
+    expect(res.status).toBe(200);
+    expect(await roleOf(res.body.data.accessToken)).toBe('employee');
+    expect(await scopeOf(owner._id.toString())).toBe('counter');
+  });
+
+  it('el OTP de celular en una cuenta de comercio abre mostrador', async () => {
+    await User.updateOne({ _id: owner._id }, { $set: otpSetFields(OTP_SLOTS.phone, CODE) });
+    const res = await request(app).post(`${API}/auth/verify-otp`).send({ phone: owner.phone, otpCode: CODE });
+    expect(res.status).toBe(200);
+    expect(await roleOf(res.body.data.accessToken)).toBe('employee');
+    expect(await scopeOf(owner._id.toString())).toBe('counter');
+  });
+
+  it('el OTP de correo en una cuenta de comercio abre mostrador', async () => {
+    vi.spyOn(emailService, 'isEnabled', 'get').mockReturnValue(true);
+    await User.updateOne({ _id: owner._id }, { $set: otpSetFields(OTP_SLOTS.email, CODE) });
+    const res = await request(app).post(`${API}/auth/verify-email-otp`).send({ email: owner.email, otpCode: CODE });
+    expect(res.status).toBe(200);
+    expect(await roleOf(res.body.data.accessToken)).toBe('employee');
+    expect(await scopeOf(owner._id.toString())).toBe('counter');
+  });
+
+  it('restablecer la contraseña en una cuenta de comercio abre mostrador', async () => {
+    await User.updateOne({ _id: owner._id }, { $set: otpSetFields(OTP_SLOTS.phone, CODE) });
+    const res = await request(app)
+      .post(`${API}/auth/reset-password`)
+      .send({ phone: owner.phone, otpCode: CODE, password: 'Nueva.Clave456' });
+    expect(res.status).toBe(200);
+    expect(await roleOf(res.body.data.accessToken)).toBe('employee');
+    expect(await scopeOf(owner._id.toString())).toBe('counter');
+  });
+
+  it('cliente y domiciliario siguen con sesión completa por los mismos caminos', async () => {
+    for (const role of [UserRole.CLIENT, UserRole.DRIVER]) {
+      const person = await makeUser({ role });
+      await User.updateOne({ _id: person._id }, { $set: otpSetFields(OTP_SLOTS.phone, CODE) });
+      const viaOtp = await request(app).post(`${API}/auth/verify-otp`).send({ phone: person.phone, otpCode: CODE });
+      expect(viaOtp.status).toBe(200);
+      expect(await scopeOf(person._id.toString())).toBe('full');
+
+      const viaPassword = await request(app).post(`${API}/auth/login`).send({ phone: person.phone, password: PASSWORD });
+      expect(viaPassword.status).toBe(200);
+      expect(await scopeOf(person._id.toString())).toBe('full');
+    }
+  });
+
+  it('un cliente o domiciliario que mande `surface` tampoco cambia: sigue completo', async () => {
+    const client = await makeUser({ role: UserRole.CLIENT });
+    const res = await request(app)
+      .post(`${API}/auth/login`)
+      .send({ phone: client.phone, password: PASSWORD, surface: 'business-counter' });
+    expect(res.status).toBe(200);
+    expect(await scopeOf(client._id.toString())).toBe('full');
   });
 });
 

@@ -39,10 +39,16 @@ interface StatementLine {
   productSubtotal: number;
   merchantCommission: number;
   merchantFundedDiscount: number;
+  /** Lo revertido antes de pagarse: sí resta del neto de este pedido. */
   reversedAmount: number;
+  /** Reembolso que llegó con el pedido ya pagado: no resta de este neto, se descuenta en la próxima liquidación. */
+  lateReversedAmount?: number;
+  /** Lo que de la fila todavía no se ha liquidado (en un arrastre, negativo). */
+  pendingAmount?: number;
   payoutStatus: string;
   settlementId: string | null;
   settledAt: string | null;
+  isClawback?: boolean;
 }
 
 const PAYOUT_LABELS: Record<string, string> = {
@@ -61,6 +67,8 @@ const DRIVER_STATUSES: Record<string, string> = {
 export default function OrderDetailPanel({ order, businessId, onClose, refreshKey = 0 }: Props) {
   const [flow, setFlow] = useState<FlowState | null>(null);
   const [line, setLine] = useState<StatementLine | null>(null);
+  // Lo que del reembolso tardío todavía no se ha descontado (suma de los arrastres abiertos de este pedido).
+  const [lateOpen, setLateOpen] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
@@ -93,8 +101,12 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
       .then(([flowRes, lineRes]) => {
         if (!alive) return;
         setFlow(flowRes.status === 'fulfilled' ? flowRes.value.data.data : null);
-        setLine(
-          lineRes.status === 'fulfilled' ? (lineRes.value.data.data?.[0] ?? null) : null
+        const statementLines =
+          lineRes.status === 'fulfilled' ? ((lineRes.value.data.data as StatementLine[] | undefined) ?? []) : [];
+        // Una fila de arrastre (reembolso tardío) no es la venta de este pedido.
+        setLine(statementLines.find((l) => !l.isClawback) ?? null);
+        setLateOpen(
+          -statementLines.reduce((sum, l) => sum + (l.isClawback ? Math.min(0, l.pendingAmount ?? 0) : 0), 0),
         );
       })
       .finally(() => { if (alive) setLoading(false); });
@@ -255,15 +267,27 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
 
           <dl className="ml-auto w-full max-w-sm space-y-1.5 text-sm tabular">
             <Line label="Subtotal" value={money(productSubtotal)} />
-            {!seesMoney && customerTotal > productSubtotal ? (
-              <Line label="Domicilio" value={money(customerTotal - productSubtotal)} />
-            ) : null}
             {seesMoney ? (
               <>
                 {funded > 0 ? <Line label="Descuento que asumes" value={signedMoney(-funded)} /> : null}
                 <Line label="Comisión ZIPP" value={signedMoney(-commission)} />
                 {line && line.reversedAmount > 0 ? (
                   <Line label="Revertido por reembolso" value={signedMoney(-line.reversedAmount)} />
+                ) : null}
+                {line && (line.lateReversedAmount ?? 0) > 0 ? (
+                  <Line
+                    label="Reembolso tardío"
+                    value={
+                      <>
+                        {signedMoney(-(line.lateReversedAmount ?? 0))}
+                        <span className="block text-right text-xs text-[var(--color-text-secondary)]">
+                          {lateOpen > 0
+                            ? `Se descuenta en tu próxima liquidación (${money(lateOpen)} por descontar).`
+                            : 'Ya se descontó de una liquidación.'}
+                        </span>
+                      </>
+                    }
+                  />
                 ) : null}
                 {line?.settledAt ? <Line label="Consignado el" value={dateTime(line.settledAt)} /> : null}
               </>

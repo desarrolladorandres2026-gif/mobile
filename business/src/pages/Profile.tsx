@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, Check, Pencil, Star, Store } from 'lucide-react';
+import { AlertCircle, Check, FileText, Monitor, Pencil, ShieldCheck, Star, Store, Users, type LucideIcon } from 'lucide-react';
 import api from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
@@ -33,6 +33,14 @@ import { canSee } from '../lib/permissions';
  * pantalla es la única dueña del fetch completo (`qk.settings`) y se lo
  * pasa a InfoTab por props en vez de que cada pestaña cargue lo suyo.
  */
+
+const TAB_ICONS: Record<string, LucideIcon> = {
+  '/settings': Store,
+  '/documents': FileText,
+  '/staff': Users,
+  '/security': ShieldCheck,
+  '/desktop': Monitor,
+};
 
 const TABS = [
   { path: '/settings', label: 'Información', group: 'Tu negocio' },
@@ -300,63 +308,69 @@ export default function Profile() {
           </header>
 
           {activeTab === '/settings' && (
-            <section className="flex flex-col gap-4 border-y border-[var(--color-border)] py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 items-center gap-4">
-                <div className="relative shrink-0">
-                  <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-md border border-dashed border-[var(--color-border)]">
-                    {logo ? (
-                      <img src={logo} alt={`Logo de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="text-lg font-semibold text-[var(--color-text-secondary)]">{selectedBusiness.name.charAt(0)}</span>
-                    )}
-                  </div>
-                  {editing && !loading && (
-                    <BusinessImageField
-                      businessId={selectedBusiness._id}
-                      slot="logo"
-                      value={logo}
-                      onChange={setImage('logo')}
-                      onError={setError}
-                      className="absolute -bottom-2 -right-2"
-                    />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-[var(--color-text-main)]">{selectedBusiness.name}</p>
-                  <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[13px] text-[var(--color-text-secondary)]">
-                    <span className="capitalize">{selectedBusiness.category?.replace(/_/g, ' ')}</span>
-                    {selectedBusiness.city && <><span>·</span><span>{selectedBusiness.city}</span></>}
-                    {totalReviews > 0 && <><span>·</span><span className="inline-flex items-center gap-1"><Star className="h-3.5 w-3.5 fill-current text-[var(--color-warning)]" />{rating.toFixed(1)} ({totalReviews})</span></>}
-                  </p>
-                </div>
+            <section className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+              <div
+                className="relative h-36 bg-[var(--color-bg-alt)] sm:h-44"
+                style={!coverImage && brandColor ? { backgroundColor: brandColor } : undefined}
+              >
+                {coverImage ? (
+                  <img src={coverImage} alt={`Portada de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
+                ) : (
+                  <span className={`absolute bottom-3 left-5 text-xs font-medium ${brandColor ? 'text-white/70' : 'text-[var(--color-text-secondary)]'}`}>
+                    Sin portada
+                  </span>
+                )}
+                {editing && !loading && (
+                  <BusinessImageField
+                    businessId={selectedBusiness._id}
+                    slot="cover"
+                    value={coverImage}
+                    onChange={setImage('coverImage')}
+                    onError={setError}
+                    className="absolute right-3 top-3"
+                  />
+                )}
               </div>
 
-              <div className="flex items-center gap-3">
-                <div className="relative h-14 w-32 shrink-0 overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]">
-                  {coverImage ? (
-                    <img src={coverImage} alt={`Portada de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="grid h-full place-items-center text-[11px] text-[var(--color-text-secondary)]">Sin portada</span>
-                  )}
-                  {editing && !loading && (
-                    <BusinessImageField
-                      businessId={selectedBusiness._id}
-                      slot="cover"
-                      value={coverImage}
-                      onChange={setImage('coverImage')}
-                      onError={setError}
-                      className="absolute right-1 top-1"
-                    />
-                  )}
+              <div className="flex flex-wrap items-end justify-between gap-4 px-5 pb-4">
+                <div className="flex min-w-0 items-end gap-4">
+                  <div className="relative -mt-10 shrink-0">
+                    <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-xl border-4 border-[var(--color-surface)] bg-[var(--color-bg-alt)]">
+                      {logo ? (
+                        <img src={logo} alt={`Logo de ${selectedBusiness.name}`} className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="text-2xl font-semibold text-[var(--color-text-secondary)]">{selectedBusiness.name.charAt(0)}</span>
+                      )}
+                    </div>
+                    {editing && !loading && (
+                      <BusinessImageField
+                        businessId={selectedBusiness._id}
+                        slot="logo"
+                        value={logo}
+                        onChange={setImage('logo')}
+                        onError={setError}
+                        className="absolute -bottom-2 -right-2"
+                      />
+                    )}
+                  </div>
+                  <div className="min-w-0 pt-3">
+                    <p className="truncate text-lg font-semibold text-[var(--color-text-main)]">{selectedBusiness.name}</p>
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[13px] text-[var(--color-text-secondary)]">
+                      <span className="capitalize">{selectedBusiness.category?.replace(/_/g, ' ')}</span>
+                      {selectedBusiness.city && <><span>·</span><span>{selectedBusiness.city}</span></>}
+                      {totalReviews > 0 && <><span>·</span><span className="inline-flex items-center gap-1"><Star className="h-3.5 w-3.5 fill-current text-[var(--color-warning)]" />{rating.toFixed(1)} ({totalReviews})</span></>}
+                    </p>
+                  </div>
                 </div>
+
                 {!editing && !loading && (
                   <button
                     type="button"
                     onClick={startEditing}
-                    className="flex h-8 items-center gap-1.5 px-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-xs font-medium text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] cursor-pointer"
+                    className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 text-xs font-semibold text-[var(--zipp-obsidian)] hover:bg-[var(--color-primary-light)]"
                   >
                     <Pencil className="h-3.5 w-3.5" />
-                    Editar
+                    Editar perfil
                   </button>
                 )}
               </div>
@@ -397,6 +411,8 @@ export default function Profile() {
               city={selectedBusiness.city ?? ''}
               rating={rating}
               totalReviews={totalReviews}
+              hasLogo={!!logo}
+              hasCover={!!coverImage}
             />
           )}
           {activeTab === '/documents' && <DocumentsTab />}
@@ -516,11 +532,20 @@ function ProfileTabs({
                   : 'border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'
               }`}
             >
-              {tab.label}
+              <span className="flex items-center gap-2">
+                <TabIcon path={tab.path} />
+                {tab.label}
+              </span>
             </button>
           ))}
         </div>
       ))}
     </nav>
   );
+}
+
+/** El icono de una pestaña del menú; sin icono registrado, nada. */
+function TabIcon({ path }: { path: string }) {
+  const Icon = TAB_ICONS[path];
+  return Icon ? <Icon className="h-4 w-4 shrink-0" /> : null;
 }

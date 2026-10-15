@@ -113,6 +113,21 @@ export const counterPinSetSchema = z.object({
   params: z.object({}).optional(),
 });
 
+/**
+ * `PUT /auth/counter/password`: el dueño fija (o rota) la clave del mostrador,
+ * distinta de su contraseña personal. La primera vez exige `newPassword`: la
+ * contraseña personal ya la conoce el equipo del local y hay que rotarla.
+ */
+export const counterPasswordSetSchema = z.object({
+  body: z.object({
+    currentPassword: z.string().min(1, 'La contraseña actual es requerida').max(128),
+    counterPassword: z.string().min(1, 'La clave del mostrador es requerida').max(128),
+    newPassword: z.string().min(1, 'La contraseña nueva es requerida').max(128).optional(),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 /** `POST /auth/counter/pin/unlock`: el representante legal levanta el bloqueo de PIN de alguien. */
 export const counterPinUnlockSchema = z.object({
   body: z.object({ businessId: objectIdField, userId: objectIdField }),
@@ -135,11 +150,12 @@ export const loginSchema = z.object({
     // 2FA nunca recibía el código, y el antifraude nunca veía el dispositivo.
     totpToken: secondFactorSchema.optional(),
     deviceId: z.string().trim().min(1).max(128).optional(),
-    // Panel de comercio (decisión 2026-10-09): el correo del negocio entra
-    // directo al panel de Empleado. Solo tiene efecto si la cuenta es de
-    // comercio (`auth.service.ts::login`); un cliente o un domiciliario
-    // mandando esto no consiguen nada distinto de un login normal.
-    surface: z.literal('business-counter').optional(),
+    // Sin `surface` a propósito: el alcance de la sesión lo decide el
+    // servidor (`startSession`: toda cuenta de comercio abre mostrador). Un
+    // campo así en el cuerpo dejaba que quien tuviera la contraseña del
+    // mostrador pidiera una sesión completa omitiéndolo. Zod descarta el
+    // campo desconocido, así que un cliente viejo que aún lo mande sigue
+    // funcionando.
   }).refine((data) => !!data.phone || !!data.email, {
     message: 'Se requiere celular o correo',
     path: ['phone'],
@@ -281,6 +297,10 @@ export const updateProfileSchema = z.object({
       lastName: personNameSchema.optional(),
       phone: phoneSchema.optional(),
       email: z.string().email('Email inválido').max(254).optional().or(z.literal('')),
+      // Contraseña actual: obligatoria para cambiar `email` o `phone` en
+      // comercio y administración (lo decide `updateProfile`). Opcional aquí
+      // porque la app móvil (cliente y domiciliario) aún no la manda.
+      currentPassword: z.string().min(1).max(128).optional(),
       // Correo del comprobante de pago (solo cuentas sin `email`). Sin OTP:
       // se guarda y se cambia libremente desde Mi cuenta.
       receiptEmail: z.string().email('Email inválido').max(254).optional().or(z.literal('')),

@@ -1,20 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, Plus, Power, Pencil, RotateCcw, Trash2, Info } from 'lucide-react';
+import { AlertCircle, Plus, Info } from 'lucide-react';
 import api from '../services/api';
 import { qk } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
-import { money } from '../lib/orderFlow';
 import {
-  TYPE_LABELS, toDateInput, emptyCodeForm, emptyAutoForm, discountLabel, groupOf, consumption,
+  toDateInput, emptyCodeForm, emptyAutoForm, groupOf,
   codePayload, autoPayload,
   type Coupon, type PromotionGroup,
 } from '../lib/promotions';
+import { TEMPLATES, applyTemplate, type PromotionTemplate } from '../lib/promotionTemplates';
 import ConfirmDialog from '../components/ConfirmDialog';
-import PromotionStatusBadge from '../components/PromotionStatusBadge';
-import PromotionPanel from '../components/PromotionPanel';
+import PromotionCard from '../components/PromotionCard';
+import PromotionPanel, { type WizardStep } from '../components/PromotionPanel';
+import { Choice, TemplateLogo } from '../components/promotion/ui';
 
 /**
  * Promociones que crea el propio comercio.
@@ -29,8 +30,10 @@ import PromotionPanel from '../components/PromotionPanel';
  *    carrito trae alguno de los productos elegidos. Es el mismo motor de
  *    cupones —presupuesto, auditoría, reparto— con un modo (`autoApply`).
  *
- * La pantalla es solo la lista, agrupada por estado; crear y editar viven
- * en un panel lateral (`PromotionPanel`) con vista previa del costo.
+ * La pantalla es la lista, agrupada por estado y en tarjetas; crear y editar
+ * viven en un asistente de pantalla completa (`PromotionPanel`) con vista
+ * previa del costo. Las tarjetas son una excepción deliberada al resto del
+ * panel, que es plano: ver el comentario de `.promo-card` en `index.css`.
  */
 
 const GROUPS: Array<{ key: PromotionGroup; title: string }> = [
@@ -49,6 +52,8 @@ export default function Promotions() {
   const [error, setError] = useState('');
   const [panelOpen, setPanelOpen] = useState(!!preselectProductId);
   const [mode, setMode] = useState<'code' | 'auto'>(preselectProductId ? 'auto' : 'code');
+  // Con un producto preseleccionado (viene de la carta) no hay nada que elegir en el paso de ideas.
+  const [initialStep, setInitialStep] = useState<WizardStep>(preselectProductId ? 'amount' : 'idea');
   const [codeForm, setCodeForm] = useState(emptyCodeForm);
   const [autoForm, setAutoForm] = useState(emptyAutoForm);
   const [saving, setSaving] = useState(false);
@@ -98,17 +103,28 @@ export default function Promotions() {
     setError('');
   }, []);
 
-  const startCreate = () => {
+  const startCreate = (template?: PromotionTemplate) => {
     setError('');
     setEditingId(null);
-    setCodeForm(emptyCodeForm);
-    setAutoForm(emptyAutoForm);
+    if (template) {
+      const applied = applyTemplate(template, { productIds: [] });
+      setMode(applied.mode);
+      setCodeForm(applied.codeForm);
+      setAutoForm(applied.autoForm);
+      setInitialStep('amount');
+    } else {
+      setMode('code');
+      setCodeForm(emptyCodeForm);
+      setAutoForm(emptyAutoForm);
+      setInitialStep('idea');
+    }
     setPanelOpen(true);
   };
 
   const startEdit = (coupon: Coupon) => {
     setError('');
     setEditingId(coupon._id);
+    setInitialStep('review');
     const common = {
       title: coupon.title,
       type: coupon.type === 'free_delivery' ? ('percentage' as const) : coupon.type,
@@ -223,8 +239,6 @@ export default function Promotions() {
     return map;
   }, [coupons]);
 
-  const rowButton = 'flex items-center gap-1.5 text-xs font-medium cursor-pointer hover:underline';
-
   return (
     <div className="space-y-6">
       <div className="page-header">
@@ -236,7 +250,7 @@ export default function Promotions() {
         </div>
         <button
           type="button"
-          onClick={startCreate}
+          onClick={() => startCreate()}
           className="h-8 px-3 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)] cursor-pointer flex items-center gap-1.5"
         >
           <Plus className="w-4 h-4" />
@@ -263,14 +277,22 @@ export default function Promotions() {
       {loading ? (
         <p className="py-2 text-xs text-[var(--color-text-secondary)]">Cargando promociones…</p>
       ) : coupons.length === 0 ? (
-        <div className="py-16 space-y-3 max-w-md">
-          <p className="text-sm font-semibold text-[var(--color-text-main)]">Todavía no tienes promociones</p>
-          <p className="text-xs text-[var(--color-text-secondary)]">
-            Un cupón bien puesto llena las horas flojas. Empieza por un día concreto.
-          </p>
-          <button type="button" onClick={startCreate} className="text-xs font-semibold text-[var(--color-primary)] hover:underline cursor-pointer">
-            Crear la primera
-          </button>
+        <div className="py-8 space-y-5">
+          <div className="space-y-1">
+            <p className="text-lg font-semibold text-[var(--color-text-main)]">Todavía no tienes promociones</p>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Un cupón bien puesto llena las horas flojas. Elige una idea y la ajustas en un minuto.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {TEMPLATES.map((template) => (
+              <Choice key={template.id} selected={false} onClick={() => startCreate(template)}>
+                <TemplateLogo name={template.logo} size={48} />
+                <span className="text-sm font-semibold">{template.title}</span>
+                <span className="text-xs text-[var(--color-text-secondary)]">{template.blurb}</span>
+              </Choice>
+            ))}
+          </div>
         </div>
       ) : (
         GROUPS.map(({ key, title }) => {
@@ -291,84 +313,18 @@ export default function Promotions() {
               {list.length === 0 ? (
                 <p className="py-6 text-xs text-[var(--color-text-secondary)]">Nada activo ahora mismo.</p>
               ) : collapsed ? null : (
-                <ul className="divide-y divide-[var(--color-border)]">
-                  {list.map((coupon) => {
-                    const used = consumption(coupon);
-                    return (
-                      <li
-                        key={coupon._id}
-                        className={`py-3 grid gap-4 md:grid-cols-[minmax(0,2fr)_8rem_minmax(0,1.2fr)_auto] md:items-center ${coupon.isActive ? '' : 'opacity-70'}`}
-                      >
-                        <div className="min-w-0">
-                          <div className="min-w-0 space-y-0.5">
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                              <h3 className="text-sm font-medium text-[var(--color-text-main)]">{coupon.title}</h3>
-                              <PromotionStatusBadge promotion={coupon} />
-                            </div>
-                            <p className="text-xs text-[var(--color-text-secondary)]">
-                              {coupon.autoApply ? (
-                                <>Automática · {coupon.productIds?.length ?? 0} producto(s)</>
-                              ) : (
-                                <>Código <span className="font-mono font-semibold text-[var(--color-text-main)]">{coupon.code}</span></>
-                              )}
-                              {coupon.minOrderAmount ? ` · Mínimo ${money(coupon.minOrderAmount)}` : ''}
-                              {coupon.firstOrderOnly ? ' · Solo primer pedido' : ''}
-                              {coupon.validFromTime && coupon.validUntilTime ? ` · ${coupon.validFromTime}–${coupon.validUntilTime}` : ''}
-                            </p>
-                            <p className="text-xs text-[var(--color-text-secondary)]">
-                              {coupon.validFrom ? `${new Date(coupon.validFrom).toLocaleDateString('es-CO')} → ` : 'Hasta el '}
-                              {new Date(coupon.validUntil).toLocaleDateString('es-CO')}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div>
-                          <p className="text-sm font-semibold tabular text-[var(--color-text-main)]">{discountLabel(coupon.type, coupon.value)}</p>
-                          <p className="text-[11px] text-[var(--color-text-secondary)]">{TYPE_LABELS[coupon.type]}</p>
-                        </div>
-
-                        <div className="space-y-1.5 min-w-0">
-                          <p className="text-xs text-[var(--color-text-secondary)] tabular">
-                            {coupon.usedCount ?? 0} {(coupon.usedCount ?? 0) === 1 ? 'uso' : 'usos'}
-                            {used ? ` · ${used.label}` : ' · sin tope'}
-                          </p>
-                          {used && (
-                            <div className="h-0.5 w-full bg-[var(--color-border)]" role="progressbar" aria-valuenow={Math.round(used.ratio * 100)} aria-valuemin={0} aria-valuemax={100}>
-                              <div
-                                className={`h-full ${used.ratio >= 0.9 ? 'bg-[var(--color-danger)]' : 'bg-[var(--color-primary)]'}`}
-                                style={{ width: `${used.ratio * 100}%` }}
-                              />
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:justify-end">
-                          <button onClick={() => startEdit(coupon)} className={`${rowButton} text-[var(--color-text-main)]`}>
-                            <Pencil className="w-3.5 h-3.5" />
-                            Editar
-                          </button>
-                          {coupon.isActive ? (
-                            <button onClick={() => toggle(coupon._id, 'deactivate')} className={`${rowButton} text-[var(--color-text-secondary)]`}>
-                              <Power className="w-3.5 h-3.5" />
-                              Desactivar
-                            </button>
-                          ) : (
-                            <button onClick={() => toggle(coupon._id, 'reactivate')} className={`${rowButton} text-[var(--color-success)]`}>
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              Reactivar
-                            </button>
-                          )}
-                          {(coupon.usedCount ?? 0) === 0 && (
-                            <button onClick={() => setConfirmDeleteId(coupon._id)} className={`${rowButton} text-[var(--color-danger)]`}>
-                              <Trash2 className="w-3.5 h-3.5" />
-                              Eliminar
-                            </button>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {list.map((coupon, i) => (
+                    <PromotionCard
+                      key={coupon._id}
+                      coupon={coupon}
+                      index={i}
+                      onEdit={() => startEdit(coupon)}
+                      onToggle={() => toggle(coupon._id, coupon.isActive ? 'deactivate' : 'reactivate')}
+                      onDelete={() => setConfirmDeleteId(coupon._id)}
+                    />
+                  ))}
+                </div>
               )}
 
               {key === 'ended' && showEnded && list.length > 0 && (
@@ -386,6 +342,7 @@ export default function Promotions() {
         <PromotionPanel
           mode={mode}
           editing={!!editingId}
+          initialStep={initialStep}
           onModeChange={setMode}
           codeForm={codeForm}
           onCodeChange={setCodeForm}
