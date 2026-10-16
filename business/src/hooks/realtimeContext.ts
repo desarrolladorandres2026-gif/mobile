@@ -23,6 +23,9 @@ export type BusinessEvent =
   | 'order:driver:assigned'
   | 'order:driver:arrived'
   | 'order:withdrawn'
+  | 'order:chat:message'
+  | 'order:chat:read'
+  | 'order:shortage'
   | 'support:replied';
 
 export const EVENTS: BusinessEvent[] = [
@@ -32,6 +35,9 @@ export const EVENTS: BusinessEvent[] = [
   'order:driver:assigned',
   'order:driver:arrived',
   'order:withdrawn',
+  'order:chat:message',
+  'order:chat:read',
+  'order:shortage',
 ];
 
 /**
@@ -80,6 +86,35 @@ export interface DriverArrivedPayload {
   businessId?: string;
 }
 
+/** Un mensaje del hilo comercio ↔ domiciliario (el del cliente no llega a este panel). */
+export interface ChatMessage {
+  id: string;
+  orderId: string;
+  channel: 'client_driver' | 'business_driver';
+  senderRole: 'client' | 'driver' | 'business';
+  message: string;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface ChatMessagePayload {
+  orderId: string;
+  message: ChatMessage;
+}
+
+export interface ChatReadPayload {
+  orderId: string;
+  channel: 'client_driver' | 'business_driver';
+}
+
+/** La consulta al cliente por un producto que falta cambió de estado (la respondió o venció). */
+export interface ShortagePayload {
+  orderId: string;
+  orderNumber: string;
+  businessId?: string;
+  status: 'pending_client' | 'accepted' | 'rejected' | 'expired' | 'superseded';
+}
+
 /** Soporte respondió un caso del comercio. */
 export interface SupportRepliedPayload {
   pqrsId: string;
@@ -93,6 +128,9 @@ export interface BusinessEventPayloads {
   'order:driver:assigned': OrderStatusPayload;
   'order:driver:arrived': DriverArrivedPayload;
   'order:withdrawn': OrderWithdrawnPayload;
+  'order:chat:message': ChatMessagePayload;
+  'order:chat:read': ChatReadPayload;
+  'order:shortage': ShortagePayload;
 }
 
 export type AnyPayload = BusinessEventPayloads[BusinessEvent];

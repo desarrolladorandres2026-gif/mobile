@@ -1,5 +1,6 @@
 import api, { UPLOAD_TIMEOUT_MS } from './api';
 import type { ProductImages } from '../lib/productImage';
+import { channelParam, type ChatChannel } from '../lib/orderChat';
 import type { User, MarketingChannel, DocumentType } from '../stores/authStore';
 
 export interface ProfileUpdate {
@@ -476,16 +477,21 @@ export interface OrderFlowState {
   participant: 'client' | 'driver' | 'business' | 'admin';
   pickup: OrderStageState;
   delivery: OrderStageState;
-  chat: { available: boolean; unread: number };
+  /** `unread`: hilo del cliente; `unreadBusiness`: hilo del comercio (solo el domiciliario lo recibe distinto de 0). */
+  chat: { available: boolean; unread: number; unreadBusiness?: number };
   call: { available: boolean; active: OrderCallView | null };
   counterpart: { userId: string; name: string; avatar: string | null; role: string } | null;
 }
+
+export type { ChatChannel };
 
 export interface OrderChatMessage {
   id: string;
   orderId: string;
   senderId: string;
-  senderRole: 'client' | 'driver';
+  senderRole: 'client' | 'driver' | 'business';
+  /** Hilo al que pertenece. Un servidor viejo no lo manda: es `client_driver`. */
+  channel?: ChatChannel;
   message: string;
   mine: boolean;
   readAt: string | null;
@@ -598,14 +604,31 @@ export const orderFlowApi = {
       .then((r) => r.data.data),
 
   // ── Chat ──
-  messages: (orderId: string, page = 1, limit = 50): Promise<OrderChatMessage[]> =>
-    api.get(`/orders/${orderId}/chat`, { params: { page, limit } }).then((r) => r.data.data),
+  // `channel` solo viaja para el hilo del comercio: sin él el servidor asume
+  // `client_driver`, así la app del cliente pide exactamente lo de siempre.
+  messages: (
+    orderId: string,
+    channel: ChatChannel = 'client_driver',
+    page = 1,
+    limit = 50,
+  ): Promise<OrderChatMessage[]> =>
+    api
+      .get(`/orders/${orderId}/chat`, { params: { page, limit, ...channelParam(channel) } })
+      .then((r) => r.data.data),
 
-  sendMessage: (orderId: string, message: string): Promise<OrderChatMessage> =>
-    api.post(`/orders/${orderId}/chat/messages`, { message }).then((r) => r.data.data),
+  sendMessage: (
+    orderId: string,
+    message: string,
+    channel: ChatChannel = 'client_driver',
+  ): Promise<OrderChatMessage> =>
+    api
+      .post(`/orders/${orderId}/chat/messages`, { message, ...channelParam(channel) })
+      .then((r) => r.data.data),
 
-  markRead: (orderId: string) =>
-    api.post(`/orders/${orderId}/chat/read`).then((r) => r.data.data),
+  markRead: (orderId: string, channel: ChatChannel = 'client_driver') =>
+    api
+      .post(`/orders/${orderId}/chat/read`, channel === 'business_driver' ? channelParam(channel) : undefined)
+      .then((r) => r.data.data),
 
   // ── Llamadas ──
   startCall: (orderId: string): Promise<OrderCallView> =>

@@ -12,7 +12,7 @@ import { extractUi } from './extract/ui-actions.mjs';
 import { extractMisc } from './extract/misc.mjs';
 import { extractTables } from './extract/tables.mjs';
 
-export const EXTRACTOR_VERSION = 14; // súbelo si cambia la forma de los hechos: invalida la caché
+export const EXTRACTOR_VERSION = 17; // súbelo si cambia la forma de los hechos: invalida la caché
 
 const FRONT_PKGS = new Set(['mobile', 'admin', 'business', 'web', 'desktop']);
 const CACHE_FILE = path.join(CACHE_DIR, 'facts.json.gz');

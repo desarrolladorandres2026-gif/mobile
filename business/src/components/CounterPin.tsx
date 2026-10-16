@@ -17,9 +17,11 @@ import ConfirmDialog from './ConfirmDialog';
  * se le ofrece. Las reglas de fuerza (repetidos, escaleras, celular, fecha
  * de nacimiento) las decide el servidor y su mensaje se muestra tal cual.
  *
- * Si el propietario no tiene 2FA, el servidor rechaza con
- * `TWO_FACTOR_SETUP_REQUIRED`: aquí se convierte en un enlace a activarla en
- * vez de un callejón sin salida.
+ * Todo PIN exige 2FA activo (propietario o administrador): quitar el 2FA borra
+ * el PIN. Sin 2FA, la acción principal no se deshabilita: "Crear PIN" pasa a
+ * ser el paso que falta, activar la verificación en dos pasos. Si aun así el
+ * servidor rechaza con `TWO_FACTOR_SETUP_REQUIRED` (sesión desactualizada), el
+ * mensaje lleva el mismo enlace en vez de un callejón sin salida.
  */
 
 const fieldClass =
@@ -29,6 +31,7 @@ export default function CounterPin() {
   const queryClient = useQueryClient();
   const businessId = useAuthStore((s) => s.selectedBusiness?._id);
   const { access } = usePermissions(businessId);
+  const twoFactorEnabled = useAuthStore((s) => !!s.user?.twoFactorEnabled);
 
   const [editing, setEditing] = useState(false);
   const [pin, setPin] = useState('');
@@ -103,18 +106,29 @@ export default function CounterPin() {
               ? 'Cargando…'
               : setAt
                 ? `Creado el ${new Date(setAt).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}. Con él entras a tu panel desde el mostrador, sin escribir tu contraseña.`
-                : 'Sin crear. Con un PIN de 6 dígitos entras a tu panel desde el mostrador sin escribir tu contraseña.'}
+                : twoFactorEnabled
+                  ? 'Sin crear. Con un PIN de 6 dígitos entras a tu panel desde el mostrador sin escribir tu contraseña.'
+                  : 'Sin crear. Para crear tu PIN primero activa la verificación en dos pasos: el PIN reemplaza tu contraseña en el mostrador y necesita ese respaldo.'}
           </p>
         </div>
         {!editing && !isLoading && (
           <div className="flex items-center gap-2 self-start">
-            <button
-              type="button"
-              onClick={() => { setFeedback(null); setEditing(true); }}
-              className="inline-flex items-center h-8 px-4 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)]"
-            >
-              {setAt ? 'Cambiar PIN' : 'Crear PIN'}
-            </button>
+            {twoFactorEnabled ? (
+              <button
+                type="button"
+                onClick={() => { setFeedback(null); setEditing(true); }}
+                className="inline-flex items-center h-8 px-4 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)]"
+              >
+                {setAt ? 'Cambiar PIN' : 'Crear PIN'}
+              </button>
+            ) : (
+              <Link
+                to="/setup-2fa"
+                className="inline-flex items-center h-8 px-4 rounded-md bg-[var(--color-primary)] text-[var(--zipp-obsidian)] font-semibold text-xs hover:bg-[var(--color-primary-light)]"
+              >
+                Activar 2FA para crear el PIN
+              </Link>
+            )}
             {setAt && (
               <button
                 type="button"

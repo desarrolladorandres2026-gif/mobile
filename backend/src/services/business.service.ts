@@ -31,6 +31,8 @@ import {
 import { computeNitDv, isValidNitDv, lastDigits, maskAccount } from '../utils/nit';
 import { storePrivateFile, signedPrivateUrl, PrivateResourceType } from './privateStorage.service';
 import { notificationService } from './notification.service';
+import { config } from '../config';
+import { isOpenAt } from '../utils/businessHours';
 
 /**
  * Contexto de cifrado (AAD) de los datos sensibles de un comercio: el texto
@@ -1716,16 +1718,16 @@ export class BusinessService {
     return Business.find({ ownerId }).sort({ createdAt: -1 });
   }
 
-  // Check if business is currently open based on schedule
+  /**
+   * Si el horario del negocio lo da por abierto ahora mismo.
+   *
+   * Usa la zona horaria configurada y no la del servidor, y entiende el cierre
+   * pasada la medianoche: la misma regla que aplica `order.service.create`.
+   * Un negocio sin horario guardado sigue contando como cerrado aquí.
+   */
   isCurrentlyOpen(business: IBusiness): boolean {
-    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
-    const now = new Date();
-    const dayName = days[now.getDay()];
-    const schedule = business.schedule?.[dayName];
-    if (!schedule || !schedule.isOpen) return false;
-
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    return currentTime >= schedule.open && currentTime <= schedule.close;
+    if (!business.schedule) return false;
+    return isOpenAt(business.schedule, new Date(), config.settlement.timezone);
   }
 }
 

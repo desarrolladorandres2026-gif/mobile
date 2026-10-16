@@ -38,7 +38,20 @@ export class CashReconciliationService {
     const existing = await CashReconciliation.findOne({ orderId: order._id });
     if (existing) return existing;
 
-    const f = order.finance;
+    // NETO de reembolsos parciales previos: un parcial ya devolvió su tajada
+    // de comisión, fee y margen, y ZIPP no puede cobrarle al domiciliario
+    // efectivo que nunca recibió. Import perezoso: refund.service importa
+    // este servicio (ciclo).
+    const { refundService } = await import('./refund.service');
+    const net = await refundService.netOf(order);
+    const f = {
+      merchantCommission: net.merchantCommission,
+      customerServiceFee: net.customerServiceFee,
+      deliveryMargin: net.deliveryMargin,
+      taxPayable: net.taxPayable,
+      platformPromotionExpense: net.platformPromotionExpense,
+      currency: order.finance.currency,
+    };
     const amount =
       f.merchantCommission +
       f.customerServiceFee +

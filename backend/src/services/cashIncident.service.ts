@@ -86,7 +86,7 @@ export class CashIncidentService {
         driverId: input.driverId,
         reconciliationId: reconciliation?._id ?? null,
         // Del pedido, nunca de la petición del domiciliario.
-        amount: order.finance?.customerTotal ?? order.total,
+        amount: await this.netCashAmount(order),
         currency: order.finance?.currency ?? payment.currency,
         type: CashIncidentType.CASH_NOT_RECEIVED,
         status: CashIncidentStatus.OPEN,
@@ -110,6 +110,17 @@ export class CashIncidentService {
     void notifyAlertsChanged('cash');
 
     return incident;
+  }
+
+  /**
+   * Lo que se debía cobrar: el total NETO de reembolsos parciales previos
+   * (`refundService.netOf`), que es lo que `confirmCashCollection` exige en
+   * el cobro. Con el bruto el faltante se abría por dinero que nunca se pidió.
+   */
+  private async netCashAmount(order: IOrder): Promise<number> {
+    if (!order.finance?.customerTotal) return order.total;
+    const { refundService } = await import('./refund.service');
+    return (await refundService.netOf(order)).customerTotal;
   }
 
   /** Avisa a los administradores de finanzas de un faltante nuevo. */

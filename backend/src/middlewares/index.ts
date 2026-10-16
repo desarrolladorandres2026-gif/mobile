@@ -22,6 +22,7 @@ export {
   paymentWebhookRateLimiter,
   paymentOtpRateLimiter,
   cashConfirmRateLimiter,
+  itemShortageRateLimiter,
   orderCodeRateLimiter,
   orderChatRateLimiter,
   orderEvidenceRateLimiter,

@@ -15,12 +15,14 @@ import {
   PaymentMethod,
   LedgerEventType,
   OrderKind,
+  OrderStatus,
+  ItemShortageStatus,
 } from '../types';
 import { ledgerService } from './ledger.service';
 import { payoutService } from './payout.service';
 import { couponService } from './coupon.service';
 import { cashReconciliationService } from './cashReconciliation.service';
-import { getPaymentProvider } from './payments';
+import { getPaymentProvider, paymentService } from './payments';
 import { assertMoney } from '../utils';
 import { notifyAlertsChanged } from './alerts.service';
 
@@ -171,7 +173,69 @@ export function allocateRefund(
   return allocation;
 }
 
+/**
+ * Cifras de un pedido DESPUÉS de los reembolsos ya completados.
+ *
+ * `order.finance` es un snapshot inmutable: es el techo contra el que se
+ * reparte cada reembolso, así que nunca se reescribe. Lo que de verdad queda
+ * vivo en cada cuenta es `finance − Σ allocation` de los `Refund` completados,
+ * y eso es lo que tienen que usar todos los caminos del efectivo (cobro en la
+ * puerta, asiento de entrega, efectivo por rendir): leer `finance` en bruto
+ * después de un reembolso parcial cobra, asienta y concilia de más.
+ */
+export interface NetFinance {
+  customerTotal: number;
+  businessPayout: number;
+  driverPayout: number;
+  merchantCommission: number;
+  customerServiceFee: number;
+  /** Con signo: negativo = ZIPP subsidió el envío. */
+  deliveryMargin: number;
+  taxPayable: number;
+  platformPromotionExpense: number;
+  /** `customerTotal − businessPayout − driverPayout`: lo que queda en CASH_IN_TRANSIT. */
+  cashToRemit: number;
+  /** Ingreso bruto de ZIPP: comisión + fee de servicio + margen. */
+  platformGrossRevenue: number;
+}
+
+/** Pura: sin acceso a base de datos, para poder probarla con cifras sueltas. */
+export function netFinance(
+  finance: IOrderFinance,
+  prior: PriorAllocation,
+  refundedTotal: number
+): NetFinance {
+  const nonNeg = (n: number) => Math.max(0, n);
+  const customerTotal = nonNeg(finance.customerTotal - refundedTotal);
+  const businessPayout = nonNeg(finance.businessPayout - prior.fromMerchantPayout);
+  const driverPayout = nonNeg(finance.driverPayout - prior.fromDriverPayout);
+  const merchantCommission = nonNeg(finance.merchantCommission - prior.fromCommission);
+  const customerServiceFee = nonNeg(finance.customerServiceFee - prior.fromServiceFee);
+  const deliveryMargin = finance.deliveryMargin - prior.fromDeliveryMargin;
+  return {
+    customerTotal,
+    businessPayout,
+    driverPayout,
+    merchantCommission,
+    customerServiceFee,
+    deliveryMargin,
+    taxPayable: nonNeg(finance.taxPayable - prior.fromTax),
+    platformPromotionExpense: nonNeg(finance.platformPromotionExpense - prior.fromPlatform),
+    cashToRemit: customerTotal - businessPayout - driverPayout,
+    platformGrossRevenue: merchantCommission + customerServiceFee + deliveryMargin,
+  };
+}
+
 export class RefundService {
+  /** Cifras netas del pedido: `finance` menos lo ya reembolsado. Ver `NetFinance`. */
+  async netOf(order: IOrder): Promise<NetFinance> {
+    const [prior, refunded] = await Promise.all([
+      this.allocatedSoFar(order._id),
+      this.refundedTotal(order._id),
+    ]);
+    return netFinance(order.finance, prior, refunded);
+  }
+
   /**
    * Issues a refund and reverses every financial consequence of the order.
    *
@@ -323,6 +387,145 @@ export class RefundService {
     return refund;
   }
 
+  /**
+   * Ejecuta el descuento de un producto que falta, ya aceptado por el cliente.
+   *
+   * No lo llama el comercio ni el administrador: lo dispara el servidor
+   * cuando el CLIENTE acepta (`orderService.respondShortage`) o el barrido
+   * reintenta una aceptación a medio ejecutar. Por eso el permiso de
+   * reembolsos (`refunds:create`) no se abre a nadie nuevo.
+   *
+   * Ni el monto ni el reparto vienen del llamador: se leen de
+   * `order.itemShortage`, que `repriceShortage` fijó al avisar y que solo
+   * cambia con una escritura condicionada. Es un `Refund` PARTIAL como
+   * cualquier otro —reutiliza el cerrojo PENDING y `applyReversal`—, pero con
+   * ese reparto en vez de `allocateRefund`, que cobraría margen de domicilio.
+   *
+   * Solo efectivo sin cobrar: `captured = false`, así que se revierte contra la
+   * cuenta por cobrar y `applyReversal` re-fija el cobro a la puerta al neto.
+   * Idempotente por `shortage:<pedido>:<consulta>`.
+   */
+  async issueItemShortage(params: {
+    orderId: string;
+    shortageId: string;
+    acceptedBy?: string;
+  }): Promise<IRefund> {
+    const idempotencyKey = `shortage:${params.orderId}:${params.shortageId}`;
+
+    const existing = await Refund.findOne({ idempotencyKey });
+    if (existing) {
+      if (existing.status === RefundStatus.PENDING) {
+        throw new AppError(
+          'El descuento por el producto que falta sigue en curso. Espera a que termine antes de reintentar.',
+          409,
+          'REFUND_IN_FLIGHT'
+        );
+      }
+      return existing;
+    }
+
+    const order = await Order.findById(params.orderId);
+    if (!order) throw new AppError('Pedido no encontrado', 404);
+
+    const shortage = order.itemShortage;
+    if (
+      !shortage ||
+      String(shortage._id) !== params.shortageId ||
+      shortage.status !== ItemShortageStatus.ACCEPTED
+    ) {
+      throw new AppError('Este pedido no tiene un descuento por producto faltante aceptado', 409, 'SHORTAGE_NOT_ACCEPTED');
+    }
+    // Un pedido cancelado entretanto ya se reversó entero: aplicar ahora el
+    // parcial devolvería dos veces la misma tajada.
+    if (![OrderStatus.ACCEPTED, OrderStatus.PREPARING].includes(order.status)) {
+      throw new AppError('El pedido ya no admite el descuento por el producto que falta', 409, 'SHORTAGE_ORDER_MOVED');
+    }
+    if (order.paymentMethod !== PaymentMethod.CASH_ON_DELIVERY) {
+      throw new AppError('El descuento por producto faltante es solo para pedidos en efectivo', 409);
+    }
+    if (await Payment.exists({ orderId: order._id, status: PaymentStatus.PAID })) {
+      throw new AppError('El pedido ya tiene un cobro registrado', 409);
+    }
+
+    const finance = order.finance;
+    const amount = shortage.refundAmount;
+    assertMoney(amount, 'reembolso');
+    if (finance.customerTotal - amount !== shortage.after.customerTotal) {
+      throw new AppError('El descuento guardado ya no corresponde al pedido', 409, 'SHORTAGE_STALE');
+    }
+
+    // Lo guardado se calculó sobre un pedido íntegro: con un reembolso previo
+    // el reparto ya no es válido (`repriceShortage` lo vuelve a rechazar al
+    // avisar; aquí cubre el que entró entre el aviso y la aceptación).
+    const prior = await this.allocatedSoFar(order._id);
+    if (Object.values(prior).some((v) => v !== 0)) {
+      throw new AppError(
+        'El pedido recibió un reembolso después del aviso: el descuento por faltante ya no aplica.',
+        409,
+        'ITEM_SHORTAGE_PRIOR_REFUND'
+      );
+    }
+
+    const allocation: RefundAllocation = {
+      fromMerchantPayout: shortage.allocation.fromMerchantPayout,
+      fromDriverPayout: shortage.allocation.fromDriverPayout,
+      fromCommission: shortage.allocation.fromCommission,
+      fromDeliveryMargin: shortage.allocation.fromDeliveryMargin,
+      fromServiceFee: shortage.allocation.fromServiceFee,
+      fromTax: shortage.allocation.fromTax,
+      fromPlatform: shortage.allocation.fromPlatform,
+    };
+
+    let refund: IRefund;
+    try {
+      refund = await Refund.create({
+        orderId: order._id,
+        paymentId: null,
+        kind: RefundKind.PARTIAL,
+        status: RefundStatus.PENDING,
+        amount,
+        currency: finance.currency,
+        reason: 'Producto faltante aceptado por el cliente',
+        allocation,
+        idempotencyKey,
+        requestedBy: params.acceptedBy ?? null,
+      });
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        const twin = await Refund.findOne({ idempotencyKey });
+        if (twin) {
+          if (twin.status === RefundStatus.PENDING) {
+            throw new AppError(
+              'El descuento por el producto que falta sigue en curso.',
+              409,
+              'REFUND_IN_FLIGHT'
+            );
+          }
+          return twin;
+        }
+        throw new AppError(
+          'Ya hay un reembolso en curso para este pedido. Espera a que termine antes de emitir otro.',
+          409,
+          'REFUND_IN_FLIGHT'
+        );
+      }
+      throw error;
+    }
+
+    await this.applyReversal(order, allocation, amount, RefundKind.PARTIAL, false, String(refund._id));
+
+    refund.status = RefundStatus.COMPLETED;
+    refund.processedAt = new Date();
+    await refund.save();
+
+    return refund;
+  }
+
+  /** ¿Hay un reembolso a medias en este pedido? (el cerrojo PENDING). */
+  async hasInFlight(orderId: string | Types.ObjectId): Promise<boolean> {
+    return Boolean(await Refund.exists({ orderId, status: RefundStatus.PENDING }));
+  }
+
   /** Records an involuntary reversal forced by the gateway. */
   async recordChargeback(params: {
     orderId: string;
@@ -407,6 +610,17 @@ export class RefundService {
     // `customerAmount` da exactamente el acumulado tras este reembolso.
     const priorRefunded = await this.refundedTotal(order._id);
     const isFull = priorRefunded + customerAmount >= finance.customerTotal;
+
+    // En efectivo sin cobrar, la puerta tiene que cobrar el NETO: el cobro
+    // se abrió al crear el pedido con el total completo. Condicionado a
+    // PENDING_CASH dentro del filtro (un cobro cerrado o anulado no se toca),
+    // así que en la cancelación —que anula el cobro antes— no hace nada.
+    if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY && !captured) {
+      await paymentService.repriceCashPayment(
+        order._id.toString(),
+        Math.max(0, finance.customerTotal - priorRefunded - customerAmount)
+      );
+    }
 
     if (isFull) {
       // The promotion was never consumed, so give the use and budget back.

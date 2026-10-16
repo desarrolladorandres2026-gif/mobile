@@ -77,6 +77,8 @@ export enum CancellationReason {
   BUSINESS_OUT_OF_STOCK = 'business_out_of_stock',
   BUSINESS_CLOSED = 'business_closed',
   BUSINESS_TOO_BUSY = 'business_too_busy',
+  /** Lo pone el barrido del sistema: el pedido venció sin que el comercio lo aceptara. */
+  BUSINESS_NO_RESPONSE = 'business_no_response',
 
   // Operación
   NO_DRIVER_AVAILABLE = 'no_driver_available',
@@ -725,4 +727,31 @@ export enum OrderTimelineAction {
   CASH_CONFIRMED = 'cash_confirmed',
   /** El domiciliario declaró que no lo recibió: queda como incidencia. */
   CASH_NOT_RECEIVED = 'cash_not_received',
+  /** El comercio avisó que falta un producto y consultó al cliente. */
+  ITEM_SHORTAGE_REPORTED = 'item_shortage_reported',
+  /** El cliente aceptó seguir sin el producto: se le descontó. */
+  ITEM_SHORTAGE_ACCEPTED = 'item_shortage_accepted',
+  /** El cliente no aceptó: el pedido se cancela. */
+  ITEM_SHORTAGE_REJECTED = 'item_shortage_rejected',
+  /** El cliente no respondió a tiempo: el pedido se cancela. */
+  ITEM_SHORTAGE_EXPIRED = 'item_shortage_expired',
+}
+
+/**
+ * Estado de la consulta al cliente por un producto que falta (solo efectivo).
+ * Una sola ronda por pedido: `superseded` es el pedido que se cancelo por otra
+ * via antes de que hubiera respuesta.
+ */
+export enum ItemShortageStatus {
+  PENDING_CLIENT = 'pending_client',
+  ACCEPTED = 'accepted',
+  REJECTED = 'rejected',
+  EXPIRED = 'expired',
+  SUPERSEDED = 'superseded',
+}
+
+export enum ItemShortageReason {
+  OUT_OF_STOCK = 'out_of_stock',
+  DAMAGED = 'damaged',
+  OTHER = 'other',
 }

@@ -213,6 +213,8 @@ export enum AuditAction {
   ORDER_DRIVER_UNASSIGNED = 'order_driver_unassigned',
   BUSINESS_DOCUMENTS_REQUESTED = 'business_documents_requested',
   BUSINESS_SUSPENSION_SET = 'business_suspension_set',
+  ORDER_ITEM_SHORTAGE_REPORTED = 'order_item_shortage_reported',
+  ORDER_ITEM_SHORTAGE_RESPONDED = 'order_item_shortage_responded',
 }
 
 export enum AuditSeverity {

@@ -6,6 +6,7 @@ import { qk } from '../lib/queryKeys';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 import { dateTime } from '../lib/orderFlow';
+import Pagination from '../components/Pagination';
 
 /**
  * Reseñas del comercio, con derecho a réplica.
@@ -35,6 +36,15 @@ interface Review {
 }
 
 type Filter = 'all' | 'pending' | 1 | 2 | 3 | 4 | 5;
+
+const PAGE_SIZE = 20;
+
+interface ReviewsMeta {
+  total: number;
+  totalPages: number;
+  limit: number;
+  stats?: { rated: number; average: number; unanswered: number; byRating: Record<string, number> };
+}
 
 const initialOf = (name?: string) => (name?.trim()[0] ?? '?').toUpperCase();
 
@@ -112,6 +122,15 @@ function Comment({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  // La respuesta es pública y no se edita: Enter o la flecha piden confirmar,
+  // no publican. Una tecla de más no puede dejar escrito un borrador a medias.
+  const [confirming, setConfirming] = useState(false);
+
+  const close = () => {
+    setOpen(false);
+    setDraft('');
+    setConfirming(false);
+  };
 
   const send = async () => {
     const reply = draft.trim();
@@ -119,8 +138,10 @@ function Comment({
     setSending(true);
     try {
       await onReply(review._id, reply);
-      setDraft('');
-      setOpen(false);
+      close();
+    } catch {
+      // `onReply` ya muestra el error arriba; el borrador se conserva.
+      setConfirming(false);
     } finally {
       setSending(false);
     }
@@ -182,10 +203,10 @@ function Comment({
                 <input
                   autoFocus
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => { setDraft(e.target.value); setConfirming(false); }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') void send();
-                    if (e.key === 'Escape') { setOpen(false); setDraft(''); }
+                    if (e.key === 'Enter' && draft.trim()) setConfirming(true);
+                    if (e.key === 'Escape') close();
                   }}
                   maxLength={500}
                   placeholder={`Responde a ${name}…`}
@@ -194,9 +215,9 @@ function Comment({
                 />
                 <button
                   type="button"
-                  onClick={() => void send()}
+                  onClick={() => setConfirming(true)}
                   disabled={!draft.trim() || sending}
-                  aria-label="Publicar respuesta"
+                  aria-label="Revisar y publicar respuesta"
                   className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[var(--color-primary)] text-[var(--zipp-obsidian)] disabled:cursor-default disabled:opacity-30"
                 >
                   <ArrowUp className="h-4 w-4" />
@@ -204,16 +225,37 @@ function Comment({
               </div>
             </div>
             {/* Solo se puede responder una vez: se avisa antes, no después. */}
-            <p className="pl-[38px] text-xs text-[var(--color-text-secondary)]">
-              Es pública y no se puede editar después.{' '}
-              <button
-                type="button"
-                onClick={() => { setOpen(false); setDraft(''); }}
-                className="cursor-pointer font-semibold hover:text-[var(--color-text-main)]"
-              >
-                Cancelar
-              </button>
-            </p>
+            {confirming ? (
+              <p className="pl-[38px] text-xs text-[var(--color-text-main)]">
+                ¿Publicar? Es pública y no se puede editar después.{' '}
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  disabled={sending}
+                  className="cursor-pointer font-semibold text-[var(--color-primary)] hover:underline disabled:opacity-60"
+                >
+                  {sending ? 'Publicando…' : 'Publicar'}
+                </button>{' '}
+                <button
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  className="cursor-pointer font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]"
+                >
+                  Seguir editando
+                </button>
+              </p>
+            ) : (
+              <p className="pl-[38px] text-xs text-[var(--color-text-secondary)]">
+                Es pública y no se puede editar después.{' '}
+                <button
+                  type="button"
+                  onClick={close}
+                  className="cursor-pointer font-semibold hover:text-[var(--color-text-main)]"
+                >
+                  Cancelar
+                </button>
+              </p>
+            )}
           </div>
         ) : null}
       </div>
@@ -229,16 +271,30 @@ export default function Reviews() {
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [page, setPage] = useState(1);
 
   const reviewsQuery = useQuery({
-    queryKey: qk.reviews(businessId),
+    queryKey: qk.reviews(businessId, page, filter),
     enabled: !!businessId,
+    placeholderData: (previous) => previous,
     queryFn: async () => {
-      const { data } = await api.get(`/reviews/business/${businessId}`);
-      return (data.data.reviews ?? data.data) as Review[];
+      const { data } = await api.get(`/reviews/business/${businessId}`, {
+        params: {
+          page,
+          limit: PAGE_SIZE,
+          ...(typeof filter === 'number' ? { rating: filter } : {}),
+          ...(filter === 'pending' ? { unanswered: true } : {}),
+        },
+      });
+      return {
+        reviews: (data.data.reviews ?? data.data) as Review[],
+        meta: (data.meta ?? { total: 0, totalPages: 1, limit: PAGE_SIZE }) as ReviewsMeta,
+      };
     },
   });
-  const reviews = useMemo(() => reviewsQuery.data ?? [], [reviewsQuery.data]);
+  const reviews = useMemo(() => reviewsQuery.data?.reviews ?? [], [reviewsQuery.data]);
+  const meta = reviewsQuery.data?.meta ?? { total: 0, totalPages: 1, limit: PAGE_SIZE };
+  const stats = meta.stats ?? { rated: 0, average: 0, unanswered: 0, byRating: {} as Record<string, number> };
   const loading = !!businessId && reviewsQuery.isPending;
   const loadError = reviewsQuery.isError ? apiMessage(reviewsQuery.error, 'No se pudieron cargar las reseñas.') : '';
 
@@ -258,30 +314,24 @@ export default function Reviews() {
     }
   };
 
+  // El promedio y los conteos son de todas las reseñas del local (los calcula
+  // el servidor), no de la página que se está viendo.
   const rated = useMemo(() => reviews.filter((r) => typeof r.businessRating === 'number'), [reviews]);
-  const average = rated.length
-    ? rated.reduce((sum, r) => sum + (r.businessRating ?? 0), 0) / rated.length
-    : 0;
-  const unanswered = rated.filter((r) => !r.businessReply).length;
+  const average = stats.average;
+  const unanswered = stats.unanswered;
 
-  const countOf = (n: number) => rated.filter((r) => Math.round(r.businessRating ?? 0) === n).length;
+  const countOf = (n: number) => stats.byRating[String(n)] ?? 0;
   const visible = useMemo(() => {
-    const list =
-      filter === 'all'
-        ? rated
-        : filter === 'pending'
-          ? rated.filter((r) => !r.businessReply)
-          : rated.filter((r) => Math.round(r.businessRating ?? 0) === filter);
-    // Lo que espera respuesta primero; dentro de cada grupo, lo más reciente.
-    return [...list].sort(
+    // Lo que espera respuesta primero dentro de la página; luego, lo más reciente.
+    return [...rated].sort(
       (a, b) =>
         Number(!!a.businessReply) - Number(!!b.businessReply) ||
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-  }, [rated, filter]);
+  }, [rated]);
 
   const tabs: Array<{ key: Filter; label: string }> = [
-    { key: 'all', label: `Todas ${rated.length}` },
+    { key: 'all', label: `Todas ${stats.rated}` },
     { key: 'pending', label: `Sin responder ${unanswered}` },
     ...([5, 4, 3, 2, 1] as const).map((n) => ({ key: n as Filter, label: `${n}★ ${countOf(n)}` })),
   ];
@@ -317,7 +367,7 @@ export default function Reviews() {
         <p className="py-16 text-center text-xs font-semibold text-[var(--color-text-secondary)]">
           Cargando reseñas...
         </p>
-      ) : rated.length === 0 ? (
+      ) : stats.rated === 0 ? (
         <div className="space-y-2 py-16 text-center">
           <Star className="mx-auto h-8 w-8 text-[var(--color-text-secondary)]" />
           <p className="text-sm font-semibold text-[var(--color-text-main)]">Todavía no hay reseñas</p>
@@ -333,7 +383,7 @@ export default function Reviews() {
             </p>
             <Stars value={Math.round(average)} />
             <p className="text-xs text-[var(--color-text-secondary)]">
-              {rated.length} {rated.length === 1 ? 'reseña' : 'reseñas'}
+              {stats.rated} {stats.rated === 1 ? 'reseña' : 'reseñas'}
             </p>
           </div>
 
@@ -344,7 +394,7 @@ export default function Reviews() {
                 type="button"
                 role="tab"
                 aria-selected={filter === t.key}
-                onClick={() => setFilter(t.key)}
+                onClick={() => { setFilter(t.key); setPage(1); }}
                 className={`-mb-px shrink-0 cursor-pointer border-b-2 px-3 pb-2.5 text-xs font-semibold tabular transition-colors ${
                   filter === t.key
                     ? 'border-[var(--color-primary)] text-[var(--color-primary)]'
@@ -367,6 +417,14 @@ export default function Reviews() {
               ))}
             </ul>
           )}
+
+          <Pagination
+            page={page}
+            totalPages={meta.totalPages}
+            total={meta.total}
+            limit={meta.limit}
+            onPageChange={setPage}
+          />
 
           <p className="pt-2 text-xs text-[var(--color-text-secondary)]">
             Contestar, sobre todo a las malas, es lo que ven los siguientes clientes.

@@ -9,6 +9,7 @@ import { useAuthStore } from '../stores/authStore';
 import BigStats from '../components/BigStats';
 import type { SummaryItem } from '../components/SummaryGrid';
 import { usePermissions } from '../hooks/usePermissions';
+import { useFlowProfile } from '../hooks/useFlowProfile';
 import { CloseRegisterButton, ShiftClosingsList } from '../components/ShiftClosings';
 
 /**
@@ -209,6 +210,7 @@ export default function RoleSummary() {
   const businessId = useAuthStore((s) => s.selectedBusiness?._id);
   const { can } = usePermissions(businessId);
   const store = useAuthStore((s) => s.selectedBusiness);
+  const profile = useFlowProfile();
 
   const query = useQuery({
     queryKey: qk.roleSummary(businessId),
@@ -229,6 +231,7 @@ export default function RoleSummary() {
   }
 
   const heading = data ? TITLES[data.kind] : { title: 'Resumen del día', subtitle: '' };
+  const headingTitle = data?.kind === 'kitchen' && profile === 'picking' ? 'Hoy en alistamiento' : heading.title;
 
   return (
     <div className="flex flex-1 flex-col gap-8">
@@ -258,7 +261,7 @@ export default function RoleSummary() {
           </div>
         </div>
         <div className="text-right">
-          <h1 className="text-3xl font-extrabold uppercase tracking-tight text-[var(--color-text-main)]">{heading.title}</h1>
+          <h1 className="text-3xl font-extrabold uppercase tracking-tight text-[var(--color-text-main)]">{headingTitle}</h1>
           <p className="mt-1 text-sm font-semibold capitalize text-[var(--color-text-main)]">{data ? longDate(data.date) : 'Cargando…'}</p>
           <p className="text-xs text-[var(--color-text-secondary)]">{heading.subtitle}</p>
         </div>

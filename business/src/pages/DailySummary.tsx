@@ -89,6 +89,7 @@ const CANCEL_LABEL: Record<string, string> = {
   business_out_of_stock: 'Sin existencias',
   business_closed: 'Negocio cerrado',
   business_too_busy: 'Negocio saturado',
+  business_no_response: 'Sin respuesta del negocio',
   no_driver_available: 'Sin domiciliario',
   driver_incident: 'Incidente del domiciliario',
   payment_failed: 'Pago fallido',

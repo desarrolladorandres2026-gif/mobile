@@ -150,7 +150,8 @@ describe('Analíticas del comercio', () => {
     const analytics = await businessAnalyticsService.analyticsFor(business._id.toString());
 
     expect(analytics.byHour).toHaveLength(1);
-    expect(analytics.byHour[0].hour).toBe(13);
+    // 13:00 UTC son las 8 de la mañana en Colombia: las horas pico son del comercio.
+    expect(analytics.byHour[0].hour).toBe(8);
   });
 
   it('no mezcla las ventas de otro negocio', async () => {
@@ -161,6 +162,92 @@ describe('Analíticas del comercio', () => {
 
     const analytics = await businessAnalyticsService.analyticsFor(other._id.toString());
     expect(analytics.totals.orders).toBe(0);
+  });
+
+  it('los días se agrupan con la fecha de Colombia, no la de UTC', async () => {
+    // 02:00 UTC del día 15 son las 21:00 del día 14 en Colombia.
+    const at = new Date('2026-10-15T02:00:00Z');
+    await orderAt(at);
+    const analytics = await businessAnalyticsService.analyticsFor(business._id.toString(), { days: 365 });
+    expect(analytics.byDay.map((d) => d.date)).toEqual(['2026-10-14']);
+  });
+
+  it('lo más vendido sale por unidades', async () => {
+    const other = await makeProduct(business._id, { price: 5000 });
+    await orderAt(daysAgo(1));
+    await orderAt(daysAgo(2));
+    const third = await orderService.create({
+      clientId: client._id.toString(),
+      businessId: business._id.toString(),
+      items: [{ productId: other._id.toString(), quantity: 1 }],
+      paymentMethod: PaymentMethod.ONLINE,
+      deliveryAddress: 'Cra 1 #2-3',
+      deliveryLongitude: GARZON.lng,
+      deliveryLatitude: GARZON.lat,
+    });
+    await Order.collection.updateOne(
+      { _id: third._id },
+      { $set: { status: OrderStatus.DELIVERED, paymentStatus: PaymentStatus.PAID, createdAt: daysAgo(1) } }
+    );
+
+    const analytics = await businessAnalyticsService.analyticsFor(business._id.toString());
+
+    expect(analytics.topProducts[0]).toMatchObject({ productId: product._id.toString(), quantity: 2, sales: 20000 });
+    expect(analytics.topProducts[1]).toMatchObject({ productId: other._id.toString(), quantity: 1 });
+  });
+
+  it('el tiempo de preparación va de aceptar a dejar listo', async () => {
+    const a = await orderAt(daysAgo(1));
+    const b = await orderAt(daysAgo(1));
+    const base = daysAgo(1).getTime();
+    await Order.collection.updateOne({ _id: a._id }, { $set: { acceptedAt: new Date(base), preparedAt: new Date(base + 10 * 60_000) } });
+    await Order.collection.updateOne({ _id: b._id }, { $set: { acceptedAt: new Date(base), preparedAt: new Date(base + 20 * 60_000) } });
+
+    const analytics = await businessAnalyticsService.analyticsFor(business._id.toString());
+    expect(analytics.avgPrepMinutes).toBe(15);
+  });
+
+  it('sin datos de preparación devuelve null, no cero', async () => {
+    await orderAt(daysAgo(1));
+    expect((await businessAnalyticsService.analyticsFor(business._id.toString())).avgPrepMinutes).toBeNull();
+  });
+
+  it('separa clientes nuevos de recurrentes', async () => {
+    const returning = await makeUser({ role: UserRole.CLIENT });
+    const fresh = await makeUser({ role: UserRole.CLIENT });
+    const buy = async (who: any, when: Date) => {
+      const order = await orderService.create({
+        clientId: who._id.toString(),
+        businessId: business._id.toString(),
+        items: [{ productId: product._id.toString(), quantity: 1 }],
+        paymentMethod: PaymentMethod.ONLINE,
+        deliveryAddress: 'Cra 1 #2-3',
+        deliveryLongitude: GARZON.lng,
+        deliveryLatitude: GARZON.lat,
+      });
+      await Order.collection.updateOne(
+        { _id: order._id },
+        { $set: { status: OrderStatus.DELIVERED, paymentStatus: PaymentStatus.PAID, createdAt: when } }
+      );
+    };
+    await buy(returning, daysAgo(60)); // antes del periodo de 30 días
+    await buy(returning, daysAgo(2));
+    await buy(fresh, daysAgo(3));
+
+    const analytics = await businessAnalyticsService.analyticsFor(business._id.toString());
+    expect(analytics.customers).toEqual({ total: 2, new: 1, returning: 1 });
+  });
+
+  it('cuenta los pedidos que el comercio rechazó o dejó vencer', async () => {
+    const mine = await orderAt(daysAgo(1), OrderStatus.CANCELLED);
+    const expired = await orderAt(daysAgo(1), OrderStatus.CANCELLED);
+    const byClient = await orderAt(daysAgo(1), OrderStatus.CANCELLED);
+    await Order.collection.updateOne({ _id: mine._id }, { $set: { cancelledBy: 'business' } });
+    await Order.collection.updateOne({ _id: expired._id }, { $set: { cancelledBy: 'system', cancellationCode: 'business_no_response' } });
+    await Order.collection.updateOne({ _id: byClient._id }, { $set: { cancelledBy: 'client' } });
+
+    const analytics = await businessAnalyticsService.analyticsFor(business._id.toString());
+    expect(analytics.lostByBusiness).toEqual({ orders: 2, rate: 67 });
   });
 
   it('un negocio sin ventas devuelve ceros, no se rompe', async () => {

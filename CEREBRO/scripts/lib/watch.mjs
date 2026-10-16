@@ -7,12 +7,27 @@
 //   · CEREBRO/ se ignora salvo CEREBRO/manual/, así que escribir sus propios datos no provoca un bucle.
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, RUNTIME_DIR, DATA_DIR, ensureDir, loadConfig, writeJsonAtomic, readJson, log, nowIso, fmtMs } from './util.mjs';
+import { spawn } from 'node:child_process';
+import { ROOT, CEREBRO_DIR, RUNTIME_DIR, DATA_DIR, ensureDir, loadConfig, writeJsonAtomic, readJson, log, nowIso, fmtMs } from './util.mjs';
 import { build } from './build.mjs';
 
 const LOCK = path.join(RUNTIME_DIR, 'vigilante.lock');
 const STATE = path.join(RUNTIME_DIR, 'estado.json');
 const RELEVANT = /\.(ts|tsx|js|jsx|mjs|cjs|json|css|html|sh|conf|yml|yaml|md|py|kt|gradle|xml|nsh|example|env)$/i;
+
+/** Firma de los scripts de CEREBRO: si cambian, el vigilante en memoria ya no corresponde al código en disco. */
+function scriptsSignature() {
+  let sig = '';
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.mjs$/.test(e.name)) { const st = fs.statSync(p); sig += `${p}:${st.size}:${Math.round(st.mtimeMs)};`; }
+    }
+  };
+  try { walk(path.join(CEREBRO_DIR, 'scripts')); } catch { /* en medio de una escritura */ }
+  return sig;
+}
 
 function alive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
@@ -49,7 +64,11 @@ export async function watch({ serve = true } = {}) {
   const relevant = (rel) => {
     if (!rel) return false;
     const parts = rel.split(/[\\/]/);
-    if (parts[0] === 'CEREBRO') return parts[1] === 'manual' && /\.json$/.test(parts[parts.length - 1]);
+    // Entradas legítimas dentro de CEREBRO: el conocimiento manual y la evidencia de ejecución.
+    // `data/verificacion.json` solo la escribe `verificar`, nunca el propio build, así que no hay bucle.
+    if (parts[0] === 'CEREBRO') {
+      return (parts[1] === 'manual' && /\.json$/.test(parts[parts.length - 1])) || (parts[1] === 'data' && parts[2] === 'verificacion.json');
+    }
     if (parts.some((p) => ignoreDirs.has(p))) return false;
     if (parts[0] === '.git') return false;
     return RELEVANT.test(parts[parts.length - 1]) || !/\./.test(parts[parts.length - 1]);
@@ -120,12 +139,37 @@ export async function watch({ serve = true } = {}) {
   }, 30000);
   const beat = setInterval(save, (vig.latidoSeg ?? 5) * 1000);
 
+  // Si alguien edita los scripts de CEREBRO, este proceso (con el código viejo en memoria) se relanza solo:
+  // de lo contrario escribiría instantáneas con analizadores obsoletos.
+  const bootSig = scriptsSignature();
+  let restarting = false;
+  const selfCheck = setInterval(() => {
+    if (running || restarting) return;
+    if (scriptsSignature() === bootSig) return;
+    restarting = true;
+    log('Los scripts de CEREBRO cambiaron: reiniciando el vigilante…');
+    try { fs.rmSync(LOCK, { force: true }); } catch { /* ignorar */ }
+    const out = fs.openSync(path.join(RUNTIME_DIR, 'vigilante.log'), 'a');
+    const child = spawn(process.execPath, ['--max-old-space-size=6144', path.join(CEREBRO_DIR, 'scripts', 'cerebro.mjs'), 'vigilar'], { cwd: ROOT, detached: true, stdio: ['ignore', out, out], windowsHide: true });
+    child.unref();
+    shutdown(0);
+  }, 8000);
+
   let srv = null;
   if (serve) {
     const { serve: startServer } = await import('./server.mjs');
-    srv = await startServer({
-      onReconstruir: (modo) => { wantFull = modo === 'construir'; pending.add('(solicitud manual)'); schedule(); },
-    });
+    for (let intento = 0; ; intento++) {
+      try {
+        srv = await startServer({
+          onReconstruir: (modo) => { wantFull = modo === 'construir'; pending.add('(solicitud manual)'); schedule(); },
+        });
+        break;
+      } catch (e) {
+        // El proceso anterior (reinicio automático) puede tardar un instante en soltar el puerto.
+        if (e.code !== 'EADDRINUSE' || intento >= 12) throw e;
+        await new Promise((r) => setTimeout(r, 700));
+      }
+    }
     estado.puerto = srv.port;
   }
 
@@ -136,12 +180,18 @@ export async function watch({ serve = true } = {}) {
   schedule();
 
   const shutdown = (code = 0) => {
-    clearInterval(sweep); clearInterval(beat);
+    clearInterval(sweep); clearInterval(beat); clearInterval(selfCheck);
     try { watcher.close(); } catch { /* ya cerrado */ }
     try { srv?.close(); } catch { /* ya cerrado */ }
-    estado.fase = 'detenido';
-    save();
-    try { fs.rmSync(LOCK, { force: true }); } catch { /* ignorar */ }
+    if (!restarting) {
+      estado.fase = 'detenido';
+      save();
+    }
+    // Con un reinicio automático el lock ya es del proceso nuevo: solo se borra si sigue siendo nuestro.
+    try {
+      const l = readJson(LOCK, null);
+      if (!l || l.pid === process.pid) fs.rmSync(LOCK, { force: true });
+    } catch { /* ignorar */ }
     process.exit(code);
   };
   process.on('SIGINT', () => shutdown(0));

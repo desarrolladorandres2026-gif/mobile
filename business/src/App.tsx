@@ -21,6 +21,7 @@ const TwoFactorSetup = lazyPage(() => import('./pages/TwoFactorSetup'), '/setup-
 const HomePage = lazyPage(() => import('./pages/Home'), '/');
 const OrdersPage = lazyPage(() => import('./pages/Orders'), '/orders');
 const ScheduledPage = lazyPage(() => import('./pages/Scheduled'), '/scheduled');
+const AnalyticsPage = lazyPage(() => import('./pages/Analytics'), '/analytics');
 const MenuPage = lazyPage(() => import('./pages/Menu'), '/menu');
 const ReviewsPage = lazyPage(() => import('./pages/Reviews'), '/reviews');
 const SupportPage = lazyPage(() => import('./pages/Support'), '/support');
@@ -82,6 +83,7 @@ function App() {
               <Route index element={<HomePage />} />
               <Route path="orders" element={<OrdersPage />} />
               <Route path="scheduled" element={<ScheduledPage />} />
+              <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="settlements" element={<SettlementsPage />} />
               <Route path="menu" element={<MenuPage />} />
               <Route path="reviews" element={<ReviewsPage />} />

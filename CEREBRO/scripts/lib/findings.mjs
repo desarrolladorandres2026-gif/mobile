@@ -90,7 +90,7 @@ export function buildAutoFindings(ctx) {
   for (const ep of endpointData.endpoints) {
     const g = ep.guardas;
     const mut = ep.metodo !== 'GET' && ep.metodo !== 'HEAD' && ep.metodo !== 'OPTIONS';
-    if (g.publica && mut && !authFreeOk.test(ep.id) && !/\/api\/v1\/auth\//.test(ep.id) && ep.montada && !ep.publicaDeclarada) {
+    if (g.publica && mut && !authFreeOk.test(ep.id) && !/\/api\/v1\/auth\//.test(ep.id) && ep.montada && !ep.publicaDeclarada && !g.otros.includes('identifyIfPossible')) {
       F.push(mk('mutacion-publica', ep.id, {
         titulo: `${ep.id} modifica datos sin exigir sesión`,
         severidad: g.limites.length ? 'MEDIO' : 'ALTO', confianza: g.limites.length ? 'hipotesis' : 'probable', area: 'seguridad', alcance: 'modulo', probabilidad: 'media', impacto: 'alto',

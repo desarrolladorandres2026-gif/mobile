@@ -107,6 +107,13 @@ const ALLOWED_NEW_KEYS = new Set([
   // `/auth/me`, perfil) igual que `counterPinSetAt`, y es lo que deja al panel
   // avisar al dueño mientras siga en `null`. El hash nunca sale (`toJSON`).
   'counterPasswordSetAt',
+
+  // ── Agotado por un tiempo (2026-10-15) ──
+  // Aditivo y `null` mientras nadie agote el producto por un plazo. Lo lee el
+  // panel para mostrar «vuelve a las 3:30 p. m.»; la app móvil ya decide por
+  // `isAvailable`, que el barrido del servidor devuelve a `true` al vencer, así
+  // que un cliente compilado que lo ignore pinta la carta igual que antes.
+  'unavailableUntil',
 ]);
 
 type Shape = string | Shape[] | { [key: string]: Shape };

@@ -167,7 +167,15 @@ export async function makeBusiness(ownerId: any, overrides: Partial<{
    * liquida. Pasa `false` para probar el negocio sin cuenta.
    */
   withPayoutAccount: boolean;
+  /**
+   * Horario del negocio. Por defecto abierto las 24 horas, todos los días:
+   * `order.service.create` ya aplica el horario a los pedidos inmediatos, y
+   * con el horario por defecto del modelo (8 a 22) la suite fallaría según
+   * la hora a la que se corra.
+   */
+  schedule: Record<string, { open: string; close: string; isOpen: boolean }>;
 }> = {}) {
+  const allDay = { open: '00:00', close: '24:00', isOpen: true };
   const bps =
     overrides.commissionRateBps ??
     (overrides.commissionRate !== undefined
@@ -220,6 +228,10 @@ export async function makeBusiness(ownerId: any, overrides: Partial<{
     isActive: overrides.isActive ?? true,
     isApproved,
     city: overrides.city ?? 'Garzón',
+    schedule: overrides.schedule ?? {
+      monday: allDay, tuesday: allDay, wednesday: allDay, thursday: allDay,
+      friday: allDay, saturday: allDay, sunday: allDay,
+    },
   });
 }
 

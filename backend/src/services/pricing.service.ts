@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
-import { Business, Product, Zone, Coupon, IBusiness, ICoupon, IPlatformPricingConfig } from '../models';
+import { Business, Product, Zone, Coupon, IBusiness, ICoupon, IPlatformPricingConfig, IOrderFinance } from '../models';
+import type { RefundAllocation, PriorAllocation } from './refund.service';
 import { resolveModifierSelection } from '../utils/modifierSelection';
 import { AppError } from '../middlewares';
 import { PaymentMethod, CouponFundedBy, CouponScope, CouponType, SelectedExtra } from '../types';
@@ -1855,3 +1856,287 @@ export class PricingService {
 }
 
 export const pricingService = new PricingService();
+
+// ── Producto que falta con aprobación del cliente (solo efectivo) ──────
+
+/** Una línea del pedido tal como quedó al crearlo: `totalPrice = (unit + extras) × quantity`. */
+export interface ShortageLineInput {
+  totalPrice: number;
+  quantity: number;
+}
+
+export interface RepriceShortageInput {
+  /** El snapshot INMUTABLE del pedido (`order.finance`). Nunca se reescribe. */
+  finance: IOrderFinance;
+  /** `order.items`, en el mismo orden que `missing[].index`. */
+  items: ShortageLineInput[];
+  /** Qué falta: índice de la línea en `items` y cuántas unidades. */
+  missing: Array<{ index: number; missingQty: number }>;
+  /** La configuración de precios de LA VERSIÓN del pedido, nunca la vigente. */
+  cfg: Pick<
+    IPlatformPricingConfig,
+    'serviceFeeFixed' | 'serviceFeeBps' | 'serviceFeeMin' | 'serviceFeeMax' | 'taxBps' | 'commissionAfterMerchantDiscount'
+  >;
+  /**
+   * Cuánto descontó la promoción automática en CADA línea (mismo orden que
+   * `items`). Hoy el pedido no lo guarda: sin esto, un pedido con
+   * `autoPromotionDiscount > 0` no admite parcial (ver nota en la función).
+   */
+  lineProductDiscount?: number[];
+  /**
+   * Sobre qué línea de la cotización descontaba el cupón de PLATAFORMA del
+   * pedido, si lo hubo. `finance` solo guarda el total financiado por ZIPP y
+   * no distingue producto / domicilio / tarifa de servicio.
+   */
+  platformCouponScope?: CouponScope | null;
+  /** Lo ya reembolsado: un faltante solo se calcula sobre un pedido íntegro. */
+  prior?: PriorAllocation;
+}
+
+export interface ShortageRepricing {
+  /** Valor bruto de lo que falta: Σ (totalPrice / quantity × missingQty). */
+  removedGross: number;
+  /** Cifras netas del pedido DESPUÉS del faltante. */
+  after: {
+    productSubtotal: number;
+    customerTotal: number;
+    businessPayout: number;
+    merchantCommission: number;
+    customerServiceFee: number;
+    taxPayable: number;
+    merchantFundedDiscount: number;
+    platformFundedDiscount: number;
+    platformGrossRevenue: number;
+    cashToRemit: number;
+  };
+  /** Lo que cada cuenta devuelve: es el `allocation` del `Refund` PARCIAL. */
+  allocation: RefundAllocation;
+  /** Lo que el cliente deja de pagar. Entero COP, > 0. */
+  refundAmount: number;
+  /** Lo que el domiciliario deberá rendir tras entregar. */
+  cashToRemitAfter: number;
+}
+
+/**
+ * Recalcula un pedido en efectivo al que le falta parte de un producto.
+ *
+ * Es PURA: sin base de datos ni reloj. Recibe el snapshot del pedido y la
+ * configuración de SU versión de precios, y devuelve cuánto se le descuenta al
+ * cliente y qué cuenta paga cuánto. Si algo no cuadra lanza `AppError` 422 y la
+ * única salida es cancelar el pedido: es preferible que el comercio cancele a
+ * que una cifra a medias entre al libro.
+ *
+ * Por qué no usa `allocateRefund(PARTIAL)`: ese reparto es a prorrata de TODO
+ * lo que ZIPP y el comercio tenían, y por eso cobraría margen de domicilio y
+ * dejaría a ZIPP con más ingreso del que le corresponde por un producto que no
+ * se entregó. Aquí el faltante es del producto: se mueve lo que dependía del
+ * producto (su valor, la comisión sobre él, la tarifa de servicio si es
+ * porcentual, el impuesto sobre la base) y nada más. Ejemplo: productos
+ * 32.000, comisión 10 %, tarifa de servicio fija 1.000, domicilio 4.500,
+ * faltan 12.000 → 10.800 salen del comercio y 1.200 de la comisión.
+ *
+ * Qué cambia y qué queda CONGELADO:
+ *  · Cambia: subtotal, tarifa de servicio (fórmula de la versión, sin subir
+ *    nunca), comisión, impuesto, el descuento de PRODUCTO (cupón de comercio,
+ *    de plataforma o promoción automática, a prorrata del valor que sale) y,
+ *    por tanto, el pago al comercio y el total del cliente.
+ *  · Congelado: domicilio, envío gratis, descuento de Zipp Pro, cupón de
+ *    domicilio, propina, margen de domicilio, pago al repartidor y los
+ *    umbrales/mínimos (pedido mínimo, envío gratis, mínimo de Pro). Perder un
+ *    umbral por el faltante no le cobra domicilio al cliente: lo absorbe quien
+ *    ya lo financiaba. El repartidor no se toca (`fromDriverPayout = 0`).
+ *
+ * Promoción automática: la promoción automática descuenta solo las líneas que
+ * cubre, y el pedido no guarda cuánto descontó en cada una (`items[]` no tiene
+ * `productDiscount`). Repartir a prorrata sobre todo el subtotal descontaría
+ * de más cuando lo que falta es una línea SIN promoción. Se decidió no
+ * persistir ese dato por línea en esta versión (tocaría `quote()` y su
+ * contrato HTTP): si `autoPromotionDiscount > 0` y no llega `lineProductDiscount`,
+ * no se permite el parcial. La función ya sabe usarlo el día que se guarde.
+ *
+ * Todo es entero: el único reparto proporcional es el del descuento de
+ * producto, con `Math.floor(a × b / c)` sobre enteros exactos.
+ */
+export function repriceShortage(input: RepriceShortageInput): ShortageRepricing {
+  const { finance, items, missing, cfg, lineProductDiscount, platformCouponScope, prior } = input;
+
+  const CANCEL = 'Cancela el pedido.';
+  const fail = (why: string, code = 'ITEM_SHORTAGE_NOT_ALLOWED') =>
+    new AppError(`No se puede descontar este faltante automáticamente: ${why} ${CANCEL}`, 422, code);
+
+  if (prior && Object.values(prior).some((v) => v !== 0)) {
+    throw new AppError(
+      'Este pedido ya tiene un reembolso aplicado: el faltante no se puede calcular encima.',
+      409,
+      'ITEM_SHORTAGE_PRIOR_REFUND'
+    );
+  }
+
+  const n = (value: number | undefined, label: string): number => {
+    const v = value ?? 0;
+    if (!Number.isSafeInteger(v) || v < 0) throw fail(`${label} no es un entero válido.`, 'ITEM_SHORTAGE_BAD_SNAPSHOT');
+    return v;
+  };
+
+  const S = n(finance.productSubtotal, 'el subtotal');
+  const tip = n(finance.tip, 'la propina');
+  const deliveryFee = n(finance.deliveryCustomerFee, 'el domicilio');
+  const F = n(finance.freeDeliveryDiscount, 'el envío gratis');
+  const PD = n(finance.proDeliveryDiscount, 'el descuento de Pro al domicilio');
+  const PS = n(finance.proServiceFeeDiscount, 'el descuento de Pro a la tarifa');
+  const A = n(finance.autoPromotionDiscount, 'la promoción automática');
+  const merchantFunded = n(finance.merchantFundedDiscount, 'lo que financia el comercio');
+  const platformFunded = n(finance.platformFundedDiscount, 'lo que financia ZIPP');
+  const feeBefore = n(finance.customerServiceFee, 'la tarifa de servicio');
+  const driverPayout = n(finance.driverPayout, 'el pago al repartidor');
+
+  // ── Lo que sale: valor bruto, y de la promoción automática si hay snapshot ──
+  if (missing.length === 0) throw fail('no indicaste ningún producto.');
+
+  if (A > 0) {
+    if (!lineProductDiscount || lineProductDiscount.length !== items.length) {
+      throw fail('el pedido tiene una promoción automática que no se puede repartir por producto.', 'ITEM_SHORTAGE_PROMO_UNSUPPORTED');
+    }
+    if (lineProductDiscount.reduce((sum, v) => sum + v, 0) !== A) {
+      throw fail('el descuento por producto no coincide con el del pedido.', 'ITEM_SHORTAGE_BAD_SNAPSHOT');
+    }
+  }
+
+  let removedGross = 0;
+  let removedAuto = 0;
+  let missingUnits = 0;
+  const seen = new Set<number>();
+  for (const m of missing) {
+    const line = items[m.index];
+    if (!line || seen.has(m.index)) throw fail('las líneas indicadas no son válidas.');
+    seen.add(m.index);
+    if (!Number.isInteger(m.missingQty) || m.missingQty < 1 || m.missingQty > line.quantity) {
+      throw fail('la cantidad que falta no es válida.');
+    }
+    if (!Number.isInteger(line.totalPrice) || line.quantity < 1 || line.totalPrice % line.quantity !== 0) {
+      throw fail('el precio de una línea no es divisible por sus unidades.', 'ITEM_SHORTAGE_BAD_SNAPSHOT');
+    }
+    removedGross += (line.totalPrice / line.quantity) * m.missingQty;
+    removedAuto += Math.floor(((lineProductDiscount?.[m.index] ?? 0) * m.missingQty) / line.quantity);
+    missingUnits += m.missingQty;
+  }
+  const totalUnits = items.reduce((sum, line) => sum + line.quantity, 0);
+  if (missingUnits >= totalUnits) {
+    throw new AppError(
+      'Falta todo el pedido: no queda nada que entregar. Rechaza el pedido.',
+      422,
+      'ITEM_SHORTAGE_ALL_MISSING'
+    );
+  }
+  if (removedGross <= 0 || removedGross > S) throw fail('el valor de lo que falta no es válido.', 'ITEM_SHORTAGE_BAD_SNAPSHOT');
+
+  // ── Descuentos: cuánto es de producto y cuánto queda congelado ──
+  const D_m = merchantFunded - F - A; // cupón de código del comercio (solo producto)
+  if (D_m < 0) throw fail('los descuentos del pedido no cuadran.', 'ITEM_SHORTAGE_BAD_SNAPSHOT');
+  const couponPlatform = platformFunded - PD - PS;
+  if (couponPlatform < 0) throw fail('los descuentos del pedido no cuadran.', 'ITEM_SHORTAGE_BAD_SNAPSHOT');
+
+  let D_p = 0; // cupón de plataforma sobre producto
+  let platformDelivery = 0; // sobre domicilio: congelado
+  let platformService = 0; // sobre tarifa de servicio: sigue a la tarifa
+  if (couponPlatform > 0) {
+    if (platformCouponScope === CouponScope.PRODUCT) D_p = couponPlatform;
+    else if (platformCouponScope === CouponScope.DELIVERY) platformDelivery = couponPlatform;
+    else if (platformCouponScope === CouponScope.SERVICE_FEE) platformService = couponPlatform;
+    else throw fail('no se pudo determinar a qué línea descontaba el cupón de plataforma.', 'ITEM_SHORTAGE_COUPON_UNKNOWN');
+  }
+
+  // El cupón se calculó sobre el subtotal ya neto de promociones automáticas.
+  const netBase = S - A;
+  const removedNet = removedGross - removedAuto;
+  const share = (discount: number) =>
+    discount > 0 && netBase > 0 ? Math.floor((discount * removedNet) / netBase) : 0;
+  const D_m2 = D_m - share(D_m);
+  const D_p2 = D_p - share(D_p);
+  const A2 = A - removedAuto;
+
+  // ── Cifras posteriores ──
+  const S2 = S - removedGross;
+
+  const feeFormula = clampMoney(
+    cfg.serviceFeeFixed + applyBps(S2, cfg.serviceFeeBps),
+    cfg.serviceFeeMin,
+    cfg.serviceFeeMax
+  );
+  // Nunca sube: si la fórmula diera más (cambio de redondeo), se queda la original.
+  const fee2 = Math.min(feeBefore, feeFormula);
+  const couponService2 = Math.min(platformService, fee2);
+  const proService2 = Math.min(PS, fee2 - couponService2);
+
+  const payableSub2 = S2 - D_m2 - D_p2 - A2;
+  const payableDelivery = deliveryFee - platformDelivery - F - PD;
+  const payableService2 = fee2 - couponService2 - proService2;
+  if (payableSub2 < 0 || payableDelivery < 0 || payableService2 < 0) {
+    throw fail('los descuentos superarían lo que queda por pagar.');
+  }
+
+  const tax2 = applyBps(payableSub2 + payableDelivery + payableService2, cfg.taxBps);
+  const customerTotal2 = payableSub2 + payableDelivery + payableService2 + tax2 + tip;
+
+  const merchantFunded2 = D_m2 + F + A2;
+  const platformFunded2 = D_p2 + platformDelivery + couponService2 + PD + proService2;
+
+  const commissionBase2 = cfg.commissionAfterMerchantDiscount ? S2 - D_m2 - A2 : S2;
+  // Tope en la comisión original: el faltante nunca puede subirla.
+  const commission2 = Math.min(
+    n(finance.merchantCommission, 'la comisión'),
+    applyBps(Math.max(0, commissionBase2), finance.appliedCommissionBps)
+  );
+
+  const businessPayout2 = S2 - merchantFunded2 - commission2;
+  const platformGross2 = commission2 + fee2 + finance.deliveryMargin;
+  const cashToRemitAfter = customerTotal2 - businessPayout2 - driverPayout;
+
+  const allocation: RefundAllocation = {
+    fromMerchantPayout: finance.businessPayout - businessPayout2,
+    fromDriverPayout: 0,
+    fromCommission: finance.merchantCommission - commission2,
+    fromDeliveryMargin: 0,
+    fromServiceFee: feeBefore - fee2,
+    fromTax: finance.taxPayable - tax2,
+    fromPlatform: finance.platformPromotionExpense - platformFunded2,
+  };
+  const refundAmount = finance.customerTotal - customerTotal2;
+
+  // ── Invariantes: cualquiera que falle deja solo «cancelar» ──
+  const values = [...Object.values(allocation), refundAmount, businessPayout2, cashToRemitAfter, customerTotal2];
+  if (values.some((v) => !Number.isSafeInteger(v))) throw fail('una cifra no es entera.', 'ITEM_SHORTAGE_INVARIANT');
+  if (Object.values(allocation).some((v) => v < 0)) throw fail('el recálculo subiría una cuenta.', 'ITEM_SHORTAGE_INVARIANT');
+  if (refundAmount <= 0) throw fail('el faltante no cambia lo que paga el cliente.', 'ITEM_SHORTAGE_INVARIANT');
+  if (customerTotal2 > finance.customerTotal) throw fail('el total del cliente subiría.', 'ITEM_SHORTAGE_INVARIANT');
+  if (businessPayout2 < 0) throw fail('el comercio quedaría con un pago negativo.', 'ITEM_SHORTAGE_INVARIANT');
+  if (cashToRemitAfter < 0) throw fail('el efectivo por rendir quedaría negativo.', 'ITEM_SHORTAGE_INVARIANT');
+  if (customerTotal2 + platformFunded2 !== businessPayout2 + driverPayout + platformGross2 + tax2) {
+    throw fail('las cifras posteriores no cuadran.', 'ITEM_SHORTAGE_INVARIANT');
+  }
+  if (
+    allocation.fromMerchantPayout + allocation.fromCommission + allocation.fromServiceFee + allocation.fromTax !==
+    refundAmount + allocation.fromPlatform
+  ) {
+    throw fail('el reparto del reembolso no cuadra.', 'ITEM_SHORTAGE_INVARIANT');
+  }
+
+  return {
+    removedGross,
+    after: {
+      productSubtotal: S2,
+      customerTotal: customerTotal2,
+      businessPayout: businessPayout2,
+      merchantCommission: commission2,
+      customerServiceFee: fee2,
+      taxPayable: tax2,
+      merchantFundedDiscount: merchantFunded2,
+      platformFundedDiscount: platformFunded2,
+      platformGrossRevenue: platformGross2,
+      cashToRemit: cashToRemitAfter,
+    },
+    allocation,
+    refundAmount,
+    cashToRemitAfter,
+  };
+}

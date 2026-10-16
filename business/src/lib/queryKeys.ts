@@ -10,6 +10,7 @@ export const qk = {
   activeOrders: (id: string | undefined) => ['business', id, 'orders', 'active'] as const,
   orders: (id: string | undefined, ...params: unknown[]) => ['business', id, 'orders', ...params] as const,
   scheduled: (id: string | undefined) => ['business', id, 'orders', 'scheduled'] as const,
+  analytics: (id: string | undefined, days: number) => ['business', id, 'analytics', days] as const,
   dailySummary: (id: string | undefined, date: string) => ['business', id, 'daily-summary', date] as const,
   shiftClosings: (id: string | undefined, date: string) => ['business', id, 'shift-closings', date] as const,
   roleSummary: (id: string | undefined) => ['business', id, 'role-summary'] as const,

@@ -88,6 +88,7 @@ export const NAV_REQUIREMENT: Record<string, BusinessPermission> = {
   '/': 'orders:view',
   '/orders': 'orders:view',
   '/scheduled': 'orders:view',
+  '/analytics': 'analytics:view',
   '/settlements': 'settlements:view',
   '/menu': 'catalog:view',
   '/promotions': 'promotions:view',

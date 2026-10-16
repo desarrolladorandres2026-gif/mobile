@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import { paymentPollInterval } from '../lib/paymentPolling';
 import { pollInterval } from '../stores/realtimeStore';
+import { chatThreadKey, DEFAULT_CHAT_CHANNEL, type ChatChannel } from '../lib/orderChat';
 import { businessesApi, productsApi, ordersApi, driverApi, addressApi, couponsApi, zonesApi, categoriesApi, paymentsApi, bannersApi, homeCategoriesApi, orderFlowApi, searchApi, reviewsApi, topSellersApi, productSentimentApi, errandsApi, offersApi, referralsApi, homeSectionsApi, exploreApi, authApi, proApi } from '../services/endpoints';
 import type {
   PromoBanner, HomeCategory, SearchSort, CancellationCode,
@@ -517,19 +518,27 @@ export const useDeclareErrandCost = () => {
   });
 };
 
-export const useOrderChat = (orderId: string | undefined) =>
+/**
+ * Un hilo del chat del pedido. La clave lleva el canal: los dos hilos del
+ * domiciliario (cliente y comercio) nunca comparten caché.
+ */
+export const useOrderChat = (
+  orderId: string | undefined,
+  channel: ChatChannel = DEFAULT_CHAT_CHANNEL,
+) =>
   useQuery({
-    queryKey: ['orderChat', orderId],
-    queryFn: () => orderFlowApi.messages(orderId!),
+    queryKey: chatThreadKey(orderId, channel),
+    queryFn: () => orderFlowApi.messages(orderId!, channel),
     enabled: !!orderId,
   });
 
 export const useSendOrderMessage = (orderId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (message: string) => orderFlowApi.sendMessage(orderId, message),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['orderChat', orderId] });
+    mutationFn: ({ message, channel = DEFAULT_CHAT_CHANNEL }: { message: string; channel?: ChatChannel }) =>
+      orderFlowApi.sendMessage(orderId, message, channel),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: chatThreadKey(orderId, vars.channel ?? DEFAULT_CHAT_CHANNEL) });
       queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] });
     },
   });
@@ -538,9 +547,9 @@ export const useSendOrderMessage = (orderId: string) => {
 export const useMarkOrderChatRead = (orderId: string) => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => orderFlowApi.markRead(orderId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['orderChat', orderId] });
+    mutationFn: (channel: ChatChannel = DEFAULT_CHAT_CHANNEL) => orderFlowApi.markRead(orderId, channel),
+    onSuccess: (_data, channel) => {
+      queryClient.invalidateQueries({ queryKey: chatThreadKey(orderId, channel ?? DEFAULT_CHAT_CHANNEL) });
       queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] });
     },
   });

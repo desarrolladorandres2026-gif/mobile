@@ -3,8 +3,10 @@ import { Banknote, Clock3, GripVertical, StickyNote } from 'lucide-react';
 import { WompiLogo } from './WompiLogo';
 import PickupHandoff from './PickupHandoff';
 import { waitingSince } from '../lib/orderAlarm';
+import { useFlowProfile } from '../hooks/useFlowProfile';
+import { SHORTAGE_RESULT_LABEL, isShortagePending, shortageCountdown, type OrderWithShortage } from '../lib/shortage';
 import {
-  ACTIVE_STATUSES, ORDER_STATUS, money, clock, nextBusinessStep, describeExtras, orderTag,
+  ACTIVE_STATUSES, statusLabel, money, clock, nextBusinessStep, describeExtras, orderTag,
   type BusinessOrder, type OrderItem, type OrderStatus,
 } from '../lib/orderFlow';
 
@@ -67,10 +69,29 @@ interface Props {
   onReject: (order: BusinessOrder) => void;
   /** ¿Puede esta persona rechazar este pedido? Si no, el botón ni aparece. */
   canReject: (order: BusinessOrder) => boolean;
+  /** Abrir «me falta un producto». Sin él, el botón ni aparece (sin permiso de operar). */
+  onShortage?: (order: BusinessOrder) => void;
   onOpen: (order: BusinessOrder) => void;
 }
 
-export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, onAdvance, onReject, canReject, onOpen }: Props) {
+/** Pasa a cero cada segundo mientras el cliente decide; fuera de ahí no gasta un temporizador. */
+function ShortageCountdown({ order }: { order: OrderWithShortage }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return <span className="tabular">{order.itemShortage ? shortageCountdown(order.itemShortage, now) : ''}</span>;
+}
+
+/** Cuántas unidades de esta línea no se pueden entregar, según la consulta al cliente. */
+const missingOf = (order: OrderWithShortage, itemId?: string) =>
+  itemId && order.itemShortage && ['pending_client', 'accepted'].includes(order.itemShortage.status)
+    ? order.itemShortage.items.find((entry) => entry.itemId === itemId)?.missingQty ?? 0
+    : 0;
+
+export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, onAdvance, onReject, canReject, onShortage, onOpen }: Props) {
+  const profile = useFlowProfile();
   const [dragging, setDragging] = useState<BusinessOrder | null>(null);
   const [overColumn, setOverColumn] = useState<OrderStatus | null>(null);
 
@@ -105,7 +126,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
     [orders],
   );
 
-  const targetOf = (order: BusinessOrder | null) => (order ? nextBusinessStep(order.status)?.status ?? null : null);
+  const targetOf = (order: BusinessOrder | null) => (order ? nextBusinessStep(order.status, profile)?.status ?? null : null);
   const validTarget = targetOf(dragging);
 
   const onDrop = (event: DragEvent, column: OrderStatus) => {
@@ -130,7 +151,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
         return (
           <section
             key={status}
-            aria-label={ORDER_STATUS[status].label}
+            aria-label={statusLabel(status, profile)}
             onDragOver={(event) => {
               if (!isTarget) return;
               event.preventDefault();
@@ -149,7 +170,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
             <header className="flex items-baseline justify-between py-4 border-b border-[var(--color-border)]">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-[var(--color-text-main)]">
                 <span aria-hidden className={`w-2 h-2 rounded-full ${STEP_BG[status] ?? INK}`} />
-                {ORDER_STATUS[status].label}
+                {statusLabel(status, profile)}
               </h3>
               <span className="text-lg font-semibold tabular text-[var(--color-text-main)]">{items.length}</span>
             </header>
@@ -161,7 +182,7 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
             ) : (
               <ul className="space-y-3">
                 {items.map((order) => {
-                  const step = nextBusinessStep(order.status);
+                  const step = nextBusinessStep(order.status, profile);
                   const busy = busyOrderId === order._id;
                   const minutes = minutesSince(waitingSince(order), now);
                   return (
@@ -216,11 +237,17 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                         <span className="block space-y-1">
                           {(order.items ?? []).slice(0, ITEMS_SHOWN).map((item: OrderItem, index) => {
                             const extras = describeExtras(item.selectedExtras);
+                            const missing = missingOf(order as OrderWithShortage, item._id);
                             return (
                               <span key={item._id ?? `${item.productName}-${index}`} className="flex gap-2 text-sm text-[var(--color-text-main)]">
                                 <span className="w-7 shrink-0 font-normal tabular text-[var(--color-text-main)]">{item.quantity}×</span>
                                 <span className="min-w-0">
-                                  <span className="font-normal">{item.productName}</span>
+                                  <span className={`font-normal ${missing >= item.quantity ? 'line-through' : ''}`}>{item.productName}</span>
+                                  {missing > 0 && (
+                                    <span className="block text-xs font-semibold text-[var(--color-warning)]">
+                                      {missing >= item.quantity ? 'No se entrega' : `Faltan ${missing}`}
+                                    </span>
+                                  )}
                                   {extras && <span className="block text-xs text-[var(--color-text-secondary)]">{extras}</span>}
                                   {item.notes && <span className="block text-xs italic text-[var(--color-text-main)]">“{item.notes}”</span>}
                                 </span>
@@ -252,9 +279,20 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
 
                       {order.status === 'ready' && <PickupHandoff order={order} refreshKey={handoffTick} />}
 
+                      {/* La consulta al cliente: mientras decide no se marca listo; cuando acaba, se dice qué pasó. */}
+                      {(order as OrderWithShortage).itemShortage ? (
+                        <p className="text-xs font-semibold text-[var(--color-text-main)]" aria-live="polite">
+                          {isShortagePending(order as OrderWithShortage) ? (
+                            <>Esperando al cliente · <ShortageCountdown order={order as OrderWithShortage} /></>
+                          ) : (
+                            SHORTAGE_RESULT_LABEL[(order as OrderWithShortage).itemShortage!.status]
+                          )}
+                        </p>
+                      ) : null}
+
                       {(step || (REJECTABLE.has(order.status) && canReject(order))) && (
                         <div className="flex items-center gap-3">
-                          {step && (
+                          {step && !(order.status === 'preparing' && isShortagePending(order as OrderWithShortage)) && (
                             <button
                               type="button"
                               onClick={() => onAdvance(order, step.status)}
@@ -264,6 +302,19 @@ export default function OrderBoard({ orders, focusId, busyOrderId, handoffTick, 
                               {busy ? 'Un momento…' : step.label}
                             </button>
                           )}
+                          {onShortage &&
+                            (order.status === 'accepted' || order.status === 'preparing') &&
+                            order.paymentMethod === 'cash_on_delivery' &&
+                            !(order as OrderWithShortage).itemShortage && (
+                              <button
+                                type="button"
+                                onClick={() => onShortage(order)}
+                                disabled={busy}
+                                className="h-12 px-3 text-sm font-normal text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] hover:underline cursor-pointer disabled:opacity-50"
+                              >
+                                Falta un producto
+                              </button>
+                            )}
                           {REJECTABLE.has(order.status) && canReject(order) && (
                             <button
                               type="button"

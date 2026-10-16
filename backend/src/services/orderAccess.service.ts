@@ -37,6 +37,8 @@ export interface OrderAccess {
    * se recorta mirando esto.
    */
   businessRole?: BusinessRole;
+  /** Permisos que ese papel tiene en el comercio, para decidir si además puede escribir. */
+  businessPermissions?: BusinessPermission[];
 }
 
 interface Requester {
@@ -117,6 +119,7 @@ export async function resolveOrderAccess(
         driverId: null,
         assignedDriverId,
         businessRole: access.role,
+        businessPermissions: access.permissions,
       };
     }
   }

@@ -75,8 +75,40 @@ const UNKNOWN_STATUS: StatusStyle = {
   dot: 'bg-[var(--color-text-muted)]',
 };
 
-export const statusStyle = (status: string): StatusStyle =>
-  ORDER_STATUS[status as OrderStatus] ?? UNKNOWN_STATUS;
+/**
+ * Cómo trabaja el local entre «aceptado» y «listo».
+ *
+ * `cooking`: se cocina (restaurantes, comida rápida, cafeterías).
+ * `picking`: se alista, no se cocina (droguerías, mercados).
+ *
+ * La máquina de estados es la misma para todos —`VALID_TRANSITIONS` en
+ * `order.service.ts`—; lo único que cambia es cómo se llama el paso del
+ * medio. Se deriva de la categoría: no hay campo propio que mantener.
+ */
+export type FlowProfile = 'cooking' | 'picking';
+
+const PICKING_CATEGORIES = ['pharmacy', 'supermarket'];
+
+export const flowProfileOf = (category: string | null | undefined): FlowProfile =>
+  category && PICKING_CATEGORIES.includes(category) ? 'picking' : 'cooking';
+
+/** Lo que cambia de nombre en un local que alista. */
+const PICKING_STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
+  preparing: 'Alistando',
+};
+
+export const statusLabel = (status: string, profile: FlowProfile = 'cooking'): string => {
+  if (profile === 'picking') {
+    const label = PICKING_STATUS_LABELS[status as OrderStatus];
+    if (label) return label;
+  }
+  return (ORDER_STATUS[status as OrderStatus] ?? UNKNOWN_STATUS).label;
+};
+
+export const statusStyle = (status: string, profile: FlowProfile = 'cooking'): StatusStyle => {
+  const base = ORDER_STATUS[status as OrderStatus] ?? UNKNOWN_STATUS;
+  return { ...base, label: statusLabel(status, profile) };
+};
 
 /** Estados en los que el comercio todavía tiene algo que hacer. */
 export const ACTIVE_STATUSES: OrderStatus[] = ['pending', 'accepted', 'preparing', 'ready'];
@@ -95,13 +127,17 @@ export const isInTransit = (status: string) => IN_TRANSIT_STATUSES.includes(stat
  * solo se refleja la parte que corresponde a este rol.
  */
 export function nextBusinessStep(
-  status: string
+  status: string,
+  profile: FlowProfile = 'cooking'
 ): { status: OrderStatus; label: string } | null {
   switch (status) {
     case 'pending':
       return { status: 'accepted', label: 'Aceptar' };
     case 'accepted':
-      return { status: 'preparing', label: 'Empezar cocina' };
+      return {
+        status: 'preparing',
+        label: profile === 'picking' ? 'Empezar a alistar' : 'Empezar cocina',
+      };
     case 'preparing':
       return { status: 'ready', label: 'Marcar listo' };
     default:
@@ -123,7 +159,7 @@ export function nextBusinessStep(
 export const REJECTION_REASONS = [
   { value: 'out_of_stock', label: 'Producto agotado' },
   { value: 'store_closed', label: 'El local está cerrado' },
-  { value: 'too_busy', label: 'Cocina saturada, no alcanzamos' },
+  { value: 'too_busy', label: 'Local saturado, no alcanzamos' },
   { value: 'address_out_of_range', label: 'Dirección fuera de cobertura' },
   { value: 'customer_request', label: 'El cliente pidió cancelarlo' },
   { value: 'other', label: 'Otro motivo' },
@@ -281,6 +317,8 @@ export interface BusinessOrder {
   platformCommission?: number;
   businessPayout?: number;
   finance?: OrderFinance;
+  /** La consulta al cliente por un producto que falta (ver `lib/shortage.ts`). */
+  itemShortage?: import('./shortage').ItemShortage | null;
 }
 
 // ── El estado del traspaso físico ───────────────────────────────────
@@ -312,4 +350,6 @@ export interface FlowState {
     verifiedAt: string | null;
     evidence: HandoffEvidence | null;
   };
+  /** Si el hilo con el domiciliario está abierto y cuántos mensajes suyos no se han leído. */
+  chat?: { available: boolean; unread: number };
 }

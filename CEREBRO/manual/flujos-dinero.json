@@ -1,0 +1,836 @@
+{
+  "version": 1,
+  "nota": "Flujos de dinero reconstruidos leyendo el código. «certeza»: leida = el código dice esto; verificada-en-prueba = además lo demostró una ejecución; inferida = se deduce de comentarios o convenciones y no se leyó la implementación. Todas las cifras son COP enteros y las tasas, puntos básicos.",
+  "flujos": [
+    {
+      "id": "cotizacion",
+      "titulo": "De los precios del carrito al total que paga el cliente",
+      "descripcion": "Única fuente de verdad del importe: `pricingService.quote` lo calcula para el checkout y vuelve a calcularlo al crear el pedido. El cliente nunca aporta importes; la identidad contable se comprueba antes de devolver el precio.",
+      "estadoVerificacion": "leida; cubierta por pricing.test.ts, pricingFinancialGuards.test.ts, monetisation.test.ts",
+      "pasos": [
+        {
+          "orden": 1,
+          "actor": "Servidor",
+          "titulo": "Precio de cada línea desde la base de datos",
+          "descripcion": "Precio unitario = descuento de producto si existe, si no el precio de lista; los adicionales también salen del producto. El cliente solo elige cuáles y cuántos.",
+          "formula": "unitPrice = round(discountPrice ?? price);  línea = (unitPrice + Σ extra·cantidad) · cantidad;  productSubtotal = Σ líneas",
+          "entradas": [
+            "productId",
+            "cantidad",
+            "adicionales elegidos"
+          ],
+          "salidas": [
+            "productSubtotal"
+          ],
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 477,
+              "ancla": "const unitPrice = Math.round(product.discountPrice ?? product.price);",
+              "simbolo": "backend/src/services/pricing.service.ts#PricingService.priceItems"
+            }
+          ]
+        },
+        {
+          "orden": 2,
+          "actor": "Servidor",
+          "titulo": "Tarifa al domiciliario (piso garantizado)",
+          "descripcion": "Distancia en línea recta; se descuenta el radio gratis; la zona puede sustituir base, tarifa por km y añadir recargo; nunca baja del mínimo del domiciliario; se redondea al escalón configurado.",
+          "formula": "driverPayout = roundToStep(max(base + round(max(0, dist − radioGratis)·perKm/1000) + recargo, driverMinFee), paso)",
+          "entradas": [
+            "ubicación del comercio y del destino",
+            "zona",
+            "configuración vigente"
+          ],
+          "salidas": [
+            "driverDeliveryPayout"
+          ],
+          "certeza": "leida",
+          "riesgo": "Distancia recta, no por ruta (M-017).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 747,
+              "ancla": "const driverPayout = roundToStep(",
+              "simbolo": "backend/src/services/pricing.service.ts#PricingService.priceRoute"
+            }
+          ]
+        },
+        {
+          "orden": 3,
+          "actor": "Servidor",
+          "titulo": "Tarifa de domicilio al cliente y margen de ZIPP",
+          "descripcion": "El cliente paga lo del domiciliario más un margen (fijo + bps), acotado a mínimo y máximo y redondeado. Si el tope se activa, el margen absorbe la diferencia incluso siendo negativo (subsidio).",
+          "formula": "customerFee = roundToStep(clamp(driverPayout + fijo + bps(driverPayout), deliveryMinFee, deliveryMaxFee), paso);  margen = customerFee − driverPayout",
+          "salidas": [
+            "deliveryCustomerFee",
+            "deliveryMargin"
+          ],
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 754,
+              "ancla": "const customerFee = roundToStep("
+            }
+          ]
+        },
+        {
+          "orden": 4,
+          "actor": "Servidor",
+          "titulo": "Tarifa de servicio al cliente",
+          "formula": "customerServiceFee = clamp(serviceFeeFixed + bps(productSubtotal, serviceFeeBps), serviceFeeMin, serviceFeeMax)",
+          "salidas": [
+            "customerServiceFee"
+          ],
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 875,
+              "ancla": "const customerServiceFee = clampMoney("
+            }
+          ]
+        },
+        {
+          "orden": 5,
+          "actor": "Servidor",
+          "titulo": "Tasa de comisión del comercio",
+          "descripcion": "Prioridad: tasa propia del negocio → tasa de su categoría → tasa global. Se guarda en el pedido (`appliedCommissionBps`).",
+          "formula": "bps = business.commissionRateBps ?? categoryCommissionBps[categoría] ?? merchantCommissionBps",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 820,
+              "ancla": "private resolveCommissionBps(business: IBusiness, cfg: IPlatformPricingConfig): number {"
+            }
+          ]
+        },
+        {
+          "orden": 6,
+          "actor": "Servidor",
+          "titulo": "Descuentos y quién los paga",
+          "descripcion": "Cupón de producto, de domicilio y de tarifa se reparten entre comercio y plataforma según `fundedBy`. El envío gratis por compra mínima y las promociones automáticas por producto son SIEMPRE del comercio; los beneficios de Zipp Pro (envío y tarifa de servicio) son de ZIPP. El envío gratis se mide sobre lo que el cliente paga por productos tras descuentos.",
+          "formula": "merchantFunded = cuponComercio + envíoGratis + promoAuto;  platformFunded = cuponPlataforma + proEnvío + proTarifa",
+          "salidas": [
+            "merchantFundedDiscount",
+            "platformFundedDiscount"
+          ],
+          "certeza": "verificada-en-prueba",
+          "riesgo": "Pro puede dejar el neto negativo sin guarda de margen (M-012).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 1554,
+              "ancla": "const freeDeliveryDiscount = qualifiesForFreeDelivery"
+            },
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 1584,
+              "ancla": "const platformFundedDiscount ="
+            }
+          ]
+        },
+        {
+          "orden": 7,
+          "actor": "Servidor",
+          "titulo": "Comisión de ZIPP al comercio",
+          "descripcion": "Un descuento de la plataforma nunca reduce la base de la comisión; uno del comercio sí (solo sobre producto) si `commissionAfterMerchantDiscount` está activo.",
+          "formula": "comisión = bps(max(0, productSubtotal − [cuponComercioProducto + promoAuto]), appliedCommissionBps)",
+          "salidas": [
+            "merchantCommission"
+          ],
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 1605,
+              "ancla": "const merchantCommission = applyBps(Math.max(0, commissionBase), parts.appliedCommissionBps);"
+            }
+          ]
+        },
+        {
+          "orden": 8,
+          "actor": "Servidor",
+          "titulo": "Impuesto y total del cliente",
+          "descripcion": "Una única tasa sobre lo que el cliente paga por productos, domicilio y tarifa de servicio; la propina queda fuera de la base.",
+          "formula": "taxPayable = bps(payableSubtotal + payableDelivery + payableServiceFee, taxBps);  customerTotal = payableSubtotal + payableDelivery + payableServiceFee + taxPayable + propina",
+          "salidas": [
+            "taxPayable",
+            "customerTotal"
+          ],
+          "certeza": "leida",
+          "riesgo": "Una sola tasa para tres conceptos; tasa por defecto 0 (M-014).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 1614,
+              "ancla": "const taxPayable = applyBps("
+            },
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 1618,
+              "ancla": "const customerTotal ="
+            }
+          ]
+        },
+        {
+          "orden": 9,
+          "actor": "Servidor",
+          "titulo": "Lo que recibe cada parte",
+          "descripcion": "El pago al comercio no se recorta a cero a propósito: un valor negativo es una combinación de descuentos que el comercio no puede pagar y se rechaza con 422.",
+          "formula": "merchantPayout = productSubtotal − merchantFunded − comisión;  driverPayout = tarifa + propina;  ingresoBrutoZIPP = comisión + tarifaServicio + margenDomicilio;  netoAntesDeCostos = ingresoBruto − platformFunded",
+          "salidas": [
+            "businessPayout",
+            "driverPayout",
+            "platformGrossRevenue",
+            "platformNetRevenueBeforeOperatingCosts"
+          ],
+          "certeza": "verificada-en-prueba",
+          "riesgo": "El neto NO resta el coste real de Wompi ni el de transferencias (M-006).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 1625,
+              "ancla": "const merchantPayout = productSubtotal - merchantFundedDiscount - merchantCommission;"
+            },
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 999,
+              "ancla": "const driverPayout = delivery.driverPayout + tip;"
+            }
+          ]
+        },
+        {
+          "orden": 10,
+          "actor": "Servidor",
+          "titulo": "Identidad de cuadre",
+          "descripcion": "Antes de devolver el precio: cliente + subsidio de plataforma = comercio + domiciliario + ingreso de ZIPP + impuesto. Si no cuadra se rechaza la cotización. (Comprobado algebraicamente para esta lectura: se cumple porque el margen es exactamente customerFee − driverPayout.)",
+          "formula": "customerTotal + platformFunded = businessPayout + driverPayout + platformGrossRevenue + taxPayable",
+          "certeza": "verificada-en-prueba",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 1814,
+              "ancla": "const inflow = parts.customerTotal + parts.platformFundedDiscount;",
+              "simbolo": "backend/src/services/pricing.service.ts#PricingService.assertBalanced"
+            }
+          ]
+        },
+        {
+          "orden": 11,
+          "actor": "Servidor",
+          "titulo": "Efectivo a rendir (solo contra entrega)",
+          "descripcion": "Lo que el domiciliario debe a ZIPP. Negativo = una promoción se comió el ingreso de la plataforma: el pedido no admite efectivo.",
+          "formula": "cashToRemit = customerTotal − businessPayout − driverPayout",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 1020,
+              "ancla": "const cashToRemit = isCash ? customerTotal - businessPayout - driverPayout : 0;"
+            }
+          ]
+        }
+      ],
+      "movimientos": [
+        {
+          "de": "Cliente",
+          "a": "ZIPP (pasarela)",
+          "concepto": "Total del pedido",
+          "formula": "customerTotal",
+          "certeza": "leida"
+        },
+        {
+          "de": "ZIPP (pasarela)",
+          "a": "Comercio",
+          "concepto": "Pago al comercio",
+          "formula": "productSubtotal − merchantFunded − comisión",
+          "certeza": "leida"
+        },
+        {
+          "de": "ZIPP (pasarela)",
+          "a": "Domiciliario",
+          "concepto": "Tarifa + propina",
+          "formula": "driverPayout",
+          "certeza": "leida"
+        },
+        {
+          "de": "ZIPP (pasarela)",
+          "a": "Estado (impuestos)",
+          "concepto": "Impuesto recaudado",
+          "formula": "taxPayable",
+          "certeza": "leida"
+        },
+        {
+          "de": "Comercio",
+          "a": "ZIPP (pasarela)",
+          "concepto": "Comisión (retenida del pago)",
+          "formula": "bps(base, appliedCommissionBps)",
+          "certeza": "leida"
+        },
+        {
+          "de": "Cliente",
+          "a": "ZIPP (pasarela)",
+          "concepto": "Tarifa de servicio y margen de domicilio",
+          "formula": "customerServiceFee + deliveryMargin",
+          "certeza": "leida"
+        }
+      ],
+      "importes": [
+        {
+          "nombre": "productSubtotal",
+          "formula": "Σ (unitPrice + extras)·cantidad",
+          "origen": "Product en BD",
+          "destino": "base de comisión, impuesto y pago al comercio",
+          "simbolo": "backend/src/services/pricing.service.ts#PricingService.priceItems"
+        },
+        {
+          "nombre": "deliveryCustomerFee",
+          "formula": "clamp(driverPayout + margen, min, max)",
+          "origen": "Zone / PlatformPricingConfig",
+          "destino": "cliente (domicilio); margen a ZIPP",
+          "simbolo": "backend/src/services/pricing.service.ts#PricingService.priceRoute"
+        },
+        {
+          "nombre": "merchantCommission",
+          "formula": "bps(base, appliedCommissionBps)",
+          "origen": "Business.commissionRateBps / categoría / global",
+          "destino": "COMMISSION_REVENUE",
+          "simbolo": "backend/src/services/pricing.service.ts#PricingService.settleDiscounts"
+        },
+        {
+          "nombre": "taxPayable",
+          "formula": "bps(payable·, taxBps)",
+          "origen": "PlatformPricingConfig.taxBps",
+          "destino": "TAX_PAYABLE",
+          "simbolo": "backend/src/services/pricing.service.ts#PricingService.settleDiscounts"
+        },
+        {
+          "nombre": "customerTotal",
+          "formula": "suma de lo que el cliente paga + impuesto + propina",
+          "origen": "settleDiscounts",
+          "destino": "cobro en Wompi / efectivo en puerta",
+          "simbolo": "backend/src/services/pricing.service.ts#PricingService.quote"
+        }
+      ]
+    },
+    {
+      "id": "cobro-en-linea",
+      "titulo": "Cobro en línea con Wompi, de la creación del pedido a la liberación de pagos",
+      "descripcion": "El dinero solo se considera cobrado cuando Wompi lo confirma. Todas las rutas (webhook, consulta de estado, barrido) pasan por `applyGatewayStatus`, que reclama la transición de forma atómica.",
+      "estadoVerificacion": "leida; cubierta por payments.test.ts, payment-hardening.test.ts, wompi.test.ts (proveedor sandbox, no Wompi real)",
+      "pasos": [
+        {
+          "orden": 1,
+          "actor": "Cliente / Servidor",
+          "titulo": "El pedido nace sin pagar y ya queda asentado",
+          "descripcion": "`Order.create` con `paymentStatus: PENDING`; después se consumen cupones, se asienta ORDER_PLACED contra una cuenta por cobrar y se devengan los pagos (ACCRUED). El comercio no lo ve hasta que se cobre.",
+          "certeza": "leida",
+          "riesgo": "Secuencia sin transacción (M-010).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 549,
+              "ancla": "order = await Order.create({"
+            },
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 673,
+              "ancla": "await ledgerService.recordOrderPlaced({"
+            }
+          ]
+        },
+        {
+          "orden": 2,
+          "actor": "Wompi → Servidor",
+          "titulo": "Webhook: firma, confirmación y deduplicación",
+          "descripcion": "Firma válida → se pregunta a Wompi por la transacción (se aplica SU versión) → se reclama una clave anti-duplicado derivada de `idTransacción:estado` con índice único → si aplicar falla, se libera la clave para que Wompi reintente.",
+          "certeza": "verificada-en-prueba",
+          "refs": [
+            {
+              "archivo": "backend/src/services/payments/index.ts",
+              "linea": 1907,
+              "ancla": "if (provider.confirmEvent) {"
+            },
+            {
+              "archivo": "backend/src/services/payments/index.ts",
+              "linea": 1933,
+              "ancla": "await ProcessedWebhook.create({"
+            }
+          ]
+        },
+        {
+          "orden": 3,
+          "actor": "Servidor",
+          "titulo": "Reclamo atómico del estado del pago",
+          "descripcion": "Se validan monto y moneda exactos y la tabla de transiciones; `findOneAndUpdate` con el estado de partida en el filtro hace que solo una de dos entregas simultáneas aplique los efectos.",
+          "certeza": "verificada-en-prueba",
+          "refs": [
+            {
+              "archivo": "backend/src/services/payments/index.ts",
+              "linea": 1370,
+              "ancla": "if (amount !== undefined && amount !== payment.amount) {"
+            },
+            {
+              "archivo": "backend/src/services/payments/index.ts",
+              "linea": 1409,
+              "ancla": "const claimed = await Payment.findOneAndUpdate("
+            }
+          ]
+        },
+        {
+          "orden": 4,
+          "actor": "Servidor",
+          "titulo": "¿Se da el pedido por cobrado?",
+          "descripcion": "Se retiene para revisión humana si el monto no coincide, el pedido ya está cancelado o reembolsado, hay otro cobro aprobado del mismo pedido o el cliente cambió a efectivo. El pago queda PAID (el dinero entró) pero el pedido no avanza.",
+          "certeza": "verificada-en-prueba",
+          "riesgo": "El dinero retenido no se asienta (M-004) y su reembolso puede revertir el libro dos veces (M-001).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/payments/index.ts",
+              "linea": 1556,
+              "ancla": "if (shortPaid || orderClosed || alreadyPaid || methodChanged) {"
+            }
+          ]
+        },
+        {
+          "orden": 5,
+          "actor": "Servidor",
+          "titulo": "Se asienta el cobro, se liberan los pagos y se avisa al comercio",
+          "descripcion": "`PAYMENT_CAPTURED`: débito CUSTOMER_PAYMENT / crédito RECEIVABLE por el monto, más una comisión de pasarela ESTIMADA (gasto de procesamiento / retenido por la pasarela). Los pagos pasan de ACCRUED a PAYABLE. Es reanudable: un barrido retoma cobros aprobados que quedaron a medias.",
+          "formula": "comisiónPasarela ≈ bps(monto, tarifaMétodo) + fijo + IVA de la comisión",
+          "certeza": "leida",
+          "riesgo": "Comisión estimada, tarifas por defecto 0 (M-006).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/payments/index.ts",
+              "linea": 1633,
+              "ancla": "const processingFee = estimateGatewayFee("
+            },
+            {
+              "archivo": "backend/src/services/payments/index.ts",
+              "linea": 1649,
+              "ancla": "await payoutService.release(order._id);"
+            },
+            {
+              "archivo": "backend/src/services/payments/index.ts",
+              "linea": 2675,
+              "ancla": "export async function sweepUnsettledCaptures"
+            }
+          ]
+        }
+      ],
+      "movimientos": [
+        {
+          "de": "Cliente",
+          "a": "Wompi",
+          "concepto": "Cobro del pedido",
+          "formula": "customerTotal",
+          "certeza": "leida"
+        },
+        {
+          "de": "Wompi",
+          "a": "ZIPP",
+          "concepto": "Desembolso neto de comisión",
+          "formula": "customerTotal − comisión real de Wompi",
+          "certeza": "inferida"
+        },
+        {
+          "de": "ZIPP",
+          "a": "Wompi",
+          "concepto": "Comisión de pasarela (estimada en libro)",
+          "formula": "estimateGatewayFee(config, método, monto)",
+          "certeza": "leida"
+        }
+      ],
+      "importes": [
+        {
+          "nombre": "Payment.amount",
+          "formula": "debe ser igual a finance.customerTotal",
+          "origen": "Wompi (confirmado)",
+          "destino": "CUSTOMER_PAYMENT",
+          "simbolo": "backend/src/services/payments/index.ts#PaymentService.applyGatewayStatus"
+        },
+        {
+          "nombre": "processingFee",
+          "formula": "bps + fijo + IVA",
+          "origen": "PlatformPricingConfig.gateway*",
+          "destino": "PAYMENT_PROCESSING_EXPENSE / GATEWAY_WITHHELD",
+          "simbolo": "backend/src/utils/gatewayFee.ts#estimateGatewayFee"
+        }
+      ]
+    },
+    {
+      "id": "cobro-en-efectivo",
+      "titulo": "Pedido contra entrega: del fondo del domiciliario a la rendición",
+      "descripcion": "ZIPP no toca el dinero: el domiciliario paga al comercio de su fondo rotatorio, se queda su tarifa y propina y rinde el resto. Está apagado por defecto (`cashOnDeliveryEnabled: false`).",
+      "estadoVerificacion": "parcialmente leida (asignación y rendición no leídas línea a línea); cubierta por cashPayments.test.ts, cashIncidents.test.ts",
+      "pasos": [
+        {
+          "orden": 1,
+          "actor": "Servidor",
+          "titulo": "Elegibilidad",
+          "descripcion": "El método debe estar habilitado, el efectivo a rendir no puede ser negativo y el total no puede superar el tope (150.000 por defecto).",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/pricing.service.ts",
+              "linea": 399,
+              "ancla": "async assertCashEligible(params: {"
+            }
+          ]
+        },
+        {
+          "orden": 2,
+          "actor": "Servidor",
+          "titulo": "Se abre la fila de cobro y el pedido nace PENDING_CASH",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/payments/index.ts",
+              "linea": 2165,
+              "ancla": "async openCashPayment(order: IOrder): Promise<IPayment> {"
+            }
+          ]
+        },
+        {
+          "orden": 3,
+          "actor": "Servidor",
+          "titulo": "Al asignar domiciliario se retiene del fondo el pago al comercio",
+          "descripcion": "Se deduce de lo que el comentario de `unassignDriver` y `onCancelled` describen: `businessPayout` en efectivo. No se leyó `assignDriver` línea a línea.",
+          "certeza": "inferida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1456,
+              "ancla": "const hold ="
+            }
+          ]
+        },
+        {
+          "orden": 4,
+          "actor": "Servidor",
+          "titulo": "Entrega: se asienta el efectivo y se abre la conciliación",
+          "descripcion": "El libro debita MERCHANT_PAYABLE (pagó el domiciliario), DRIVER_PAYABLE (retuvo tarifa y propina) y CASH_IN_TRANSIT (parte de ZIPP) contra la cuenta por cobrar. Los pagos se descargan como liquidados; el fondo del domiciliario recupera lo adelantado.",
+          "formula": "CASH_IN_TRANSIT = customerTotal − businessPayout − driverPayout",
+          "certeza": "verificada-en-prueba",
+          "riesgo": "Si un paso falla a mitad, el pedido queda entregado con efectivo sin conciliación (M-003).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1676,
+              "ancla": "await ledgerService.recordCashCollected({"
+            },
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1688,
+              "ancla": "await cashReconciliationService.open(order);"
+            },
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1757,
+              "ancla": "{ $inc: increments, $set: { status: DriverStatus.AVAILABLE } }"
+            }
+          ]
+        },
+        {
+          "orden": 5,
+          "actor": "Finanzas",
+          "titulo": "Rendición, verificación y faltantes",
+          "descripcion": "`confirmCashCollection`, la conciliación (PENDING → REPORTED → VERIFIED / OVERDUE) y los incidentes de faltante (`recordCashShortage`) cierran CASH_IN_TRANSIT. Un barrido marca vencidas las rendiciones tardías.",
+          "certeza": "inferida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/ledger.service.ts",
+              "linea": 266,
+              "ancla": "async recordCashCollected(params: {"
+            },
+            {
+              "archivo": "backend/src/services/payments/index.ts",
+              "linea": 2262,
+              "ancla": "async confirmCashCollection(input: {"
+            }
+          ]
+        }
+      ],
+      "movimientos": [
+        {
+          "de": "Cliente",
+          "a": "Domiciliario",
+          "concepto": "Total en efectivo en la puerta",
+          "formula": "customerTotal",
+          "certeza": "leida"
+        },
+        {
+          "de": "Domiciliario",
+          "a": "Comercio",
+          "concepto": "Pago del pedido (de su fondo)",
+          "formula": "businessPayout",
+          "certeza": "leida"
+        },
+        {
+          "de": "Domiciliario",
+          "a": "Domiciliario",
+          "concepto": "Retiene su tarifa y propina",
+          "formula": "driverPayout",
+          "certeza": "leida"
+        },
+        {
+          "de": "Domiciliario",
+          "a": "ZIPP",
+          "concepto": "Rinde el resto",
+          "formula": "customerTotal − businessPayout − driverPayout",
+          "certeza": "leida"
+        }
+      ],
+      "importes": [
+        {
+          "nombre": "cashToRemit",
+          "formula": "customerTotal − businessPayout − driverPayout",
+          "origen": "snapshot del pedido",
+          "destino": "CASH_IN_TRANSIT → CUSTOMER_PAYMENT al verificar",
+          "simbolo": "backend/src/services/ledger.service.ts#LedgerService.recordCashCollected"
+        }
+      ]
+    },
+    {
+      "id": "cancelacion-y-reembolso",
+      "titulo": "Cancelaciones y reembolsos: qué se devuelve, a quién se le quita y qué costo queda",
+      "descripcion": "Un solo camino contable (`applyReversal`) sirve para reembolsos, contracargos, cancelaciones sin cobro y la reversión por fallo al crear un pedido.",
+      "estadoVerificacion": "leida y sondeada por ejecución (H1, H2); cubierta por cancelHoldsPayouts.test.ts, cancellationAndReassign.test.ts, financePhase3*.test.ts",
+      "pasos": [
+        {
+          "orden": 1,
+          "actor": "Servidor",
+          "titulo": "Quién puede cancelar y hasta cuándo",
+          "descripcion": "Cliente: PENDING/ACCEPTED (mandado también READY). Comercio: hasta READY, con permiso `orders:cancel` y, si está pagado, `orders:cancel_paid`. Admin: cualquier estado con transición válida, pero desde PREPARING con pago exige permiso de reembolsos. Un mandado ya comprado no se cancela.",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1056,
+              "ancla": "const clientCancellable ="
+            },
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1031,
+              "ancla": "!BUSINESS_CANCELLABLE_STATUSES.includes(order.status)"
+            }
+          ]
+        },
+        {
+          "orden": 2,
+          "actor": "Servidor",
+          "titulo": "Efectos de la cancelación",
+          "descripcion": "Si estaba cobrado se retienen los pagos; se devuelve el stock; los intentos de cobro abiertos se anulan; el fondo del domiciliario se repone; el cupón se libera. Un fallo aquí no revierte la cancelación: se audita como actividad sospechosa.",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1769,
+              "ancla": "private async onCancelled(order: IOrder): Promise<void> {"
+            },
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1301,
+              "ancla": "await this.onCancelled(claimed);"
+            }
+          ]
+        },
+        {
+          "orden": 3,
+          "actor": "Servidor",
+          "titulo": "Sin cobro: se anula la cuenta por cobrar",
+          "descripcion": "`applyReversal` contra RECEIVABLE y el pago pasa a FAILED. No se crea fila Refund.",
+          "certeza": "leida",
+          "riesgo": "Origen de M-001.",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1885,
+              "ancla": "const allocation = allocateRefund(finance, remaining, RefundKind.FULL, prior);"
+            }
+          ]
+        },
+        {
+          "orden": 4,
+          "actor": "Servidor",
+          "titulo": "Con cobro: reembolso por la pasarela y luego libro",
+          "descripcion": "Fila Refund PENDING (cerrojo) → anulación en Wompi → `applyReversal` → COMPLETED. Reparto: total = deshace todo exactamente; parcial = pro rata entre comercio, comisión, tarifa de servicio, margen e impuesto, sin tocar al domiciliario.",
+          "formula": "parcial: reparto por mayor resto sobre la bolsa {pagoComercio, comisión, tarifaServicio, margen⁺, impuesto}; tope = bolsa",
+          "certeza": "verificada-en-prueba",
+          "riesgo": "Fallo posterior a la pasarela (M-002); parcial por API siempre falla (M-007).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/refund.service.ts",
+              "linea": 365,
+              "ancla": "const intent = await provider.refund(payment.transactionId, amount);"
+            },
+            {
+              "archivo": "backend/src/services/refund.service.ts",
+              "linea": 70,
+              "ancla": "export function allocateRefund("
+            }
+          ]
+        },
+        {
+          "orden": 5,
+          "actor": "Servidor",
+          "titulo": "Reversión de pagos y arrastres",
+          "descripcion": "Si el pago al comercio ya estaba reclamado por una liquidación, la reversión abre un arrastre (clawback) que la siguiente liquidación descuenta hasta donde alcance. Al domiciliario no se le arrastra: ZIPP absorbe su tarifa.",
+          "certeza": "leida",
+          "riesgo": "Trato distinto según momento (M-013).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/payout.service.ts",
+              "linea": 297,
+              "ancla": "async reverse("
+            }
+          ]
+        },
+        {
+          "orden": 6,
+          "actor": "Servidor",
+          "titulo": "Qué costo permanece",
+          "descripcion": "La comisión de pasarela asentada al capturar no se reversa en el libro y `gatewayFeeRefundBps` no se usa. El coste de transferencia no existe en el modelo.",
+          "certeza": "leida",
+          "riesgo": "M-005, M-006.",
+          "refs": [
+            {
+              "archivo": "backend/src/services/ledger.service.ts",
+              "linea": 588,
+              "ancla": "async recordReversal(params: {"
+            }
+          ]
+        }
+      ],
+      "movimientos": [
+        {
+          "de": "ZIPP",
+          "a": "Cliente",
+          "concepto": "Devolución",
+          "formula": "monto del reembolso (REFUND contra CUSTOMER_PAYMENT)",
+          "certeza": "leida"
+        },
+        {
+          "de": "Comercio",
+          "a": "ZIPP",
+          "concepto": "Reintegro de su parte (arrastre si ya se liquidó)",
+          "formula": "fromMerchantPayout",
+          "certeza": "leida"
+        },
+        {
+          "de": "ZIPP",
+          "a": "Domiciliario",
+          "concepto": "Tarifa absorbida si ya se pagó",
+          "formula": "delta del payout",
+          "certeza": "leida"
+        }
+      ],
+      "importes": []
+    },
+    {
+      "id": "liquidacion",
+      "titulo": "Liquidación a comercios y domiciliarios",
+      "descripcion": "La obligación vive en `Payout` (ACCRUED → PAYABLE → SETTLED / REVERSED), separada del pedido. `settle()` reclama atómicamente lo pagable; el pago real es una transferencia hecha fuera y registrada con comprobante.",
+      "estadoVerificacion": "leida (settle y registerPayment); asientos de liquidación (`postSettlementLedgerEntries`) no leídos",
+      "pasos": [
+        {
+          "orden": 1,
+          "actor": "Servidor",
+          "titulo": "Devengo idempotente",
+          "descripcion": "Un pago por beneficiario y pedido (índice único). Nace PAYABLE si el cobro ya entró, si no ACCRUED. El del domiciliario aparece al asignarlo.",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/payout.service.ts",
+              "linea": 154,
+              "ancla": "async accrueForOrder(order: IOrder): Promise<IPayout[]> {"
+            }
+          ]
+        },
+        {
+          "orden": 2,
+          "actor": "Servidor",
+          "titulo": "Liberación al capturar",
+          "descripcion": "Solo cuando el dinero es de ZIPP (cobro confirmado o efectivo verificado) los pagos pasan a PAYABLE. Una cancelación con cobro los retiene hasta el reembolso.",
+          "certeza": "verificada-en-prueba",
+          "refs": [
+            {
+              "archivo": "backend/src/services/payout.service.ts",
+              "linea": 236,
+              "ancla": "async release(orderId: string | Types.ObjectId): Promise<number> {"
+            },
+            {
+              "archivo": "backend/src/services/payout.service.ts",
+              "linea": 256,
+              "ancla": "async hold(orderId: string | Types.ObjectId): Promise<number> {"
+            }
+          ]
+        },
+        {
+          "orden": 3,
+          "actor": "Finanzas",
+          "titulo": "Reclamo atómico y neto de la liquidación",
+          "descripcion": "Se exige cuenta de pago verificada y se guarda su foto. Reclamo con `updateMany` sobre `settlementId: null` (solo una corrida gana) y foto de lo revertido. Se descuenta publicidad adeudada y arrastres solo hasta donde alcance: nunca queda neto negativo.",
+          "formula": "neto = bruto − revertido − publicidad − arrastres",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/payout.service.ts",
+              "linea": 613,
+              "ancla": "const claim = await Payout.updateMany(match, ["
+            },
+            {
+              "archivo": "backend/src/services/payout.service.ts",
+              "linea": 742,
+              "ancla": "const netAmount = grossAmount - reversedAmount - adSpendAmount - clawbackAmount;"
+            }
+          ]
+        },
+        {
+          "orden": 4,
+          "actor": "Finanzas",
+          "titulo": "Pago manual con comprobante",
+          "descripcion": "`registerPayment` pasa la liquidación a PAID de forma atómica (un doble clic no paga dos veces), exige referencia y comprobante, y comprueba que la cuenta no cambió desde que se liquidó. ZIPP no ejecuta la transferencia.",
+          "certeza": "leida",
+          "riesgo": "El coste bancario de la transferencia no está modelado (M-006).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/payout.service.ts",
+              "linea": 845,
+              "ancla": "async registerPayment(params: {"
+            }
+          ]
+        }
+      ],
+      "movimientos": [
+        {
+          "de": "ZIPP",
+          "a": "Comercio",
+          "concepto": "Liquidación semanal neta",
+          "formula": "bruto − reversos − publicidad − arrastres",
+          "certeza": "leida"
+        },
+        {
+          "de": "Comercio",
+          "a": "ZIPP",
+          "concepto": "Publicidad comprada (descuento sobre la liquidación)",
+          "formula": "AdInvoice.amount mientras quepa",
+          "certeza": "leida"
+        },
+        {
+          "de": "ZIPP",
+          "a": "Domiciliario",
+          "concepto": "Tarifa y propinas",
+          "formula": "driverPayout",
+          "certeza": "inferida"
+        }
+      ],
+      "importes": []
+    }
+  ]
+}

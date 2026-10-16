@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   EMPTY_PRODUCT_FORM, discountPercent, hasDraftContent, productChecklist, productProgress,
-  rawDiscountPercent, readPricing, type ProductFormState,
+  rawDiscountPercent, readPricing, readStock, type ProductFormState,
 } from './productForm';
 
 const form = (patch: Partial<ProductFormState> = {}): ProductFormState => ({
@@ -96,5 +96,30 @@ describe('hasDraftContent', () => {
     expect(hasDraftContent({ ...EMPTY_PRODUCT_FORM, price: '1000' })).toBe(true);
     expect(hasDraftContent({ ...EMPTY_PRODUCT_FORM, requiresAgeVerification: true })).toBe(true);
     expect(hasDraftContent({ ...EMPTY_PRODUCT_FORM, extras: [{ name: 'Queso', price: 2000 }] })).toBe(true);
+  });
+});
+
+describe('readStock', () => {
+  it('vacío es «no llevo la cuenta», no cero', () => {
+    expect(readStock(form({ stock: '' }))).toEqual({ ok: true, stock: null });
+    expect(readStock(form({ stock: '   ' }))).toEqual({ ok: true, stock: null });
+  });
+
+  it('cero es agotado y es un valor válido', () => {
+    expect(readStock(form({ stock: '0' }))).toEqual({ ok: true, stock: 0 });
+  });
+
+  it('acepta enteros positivos', () => {
+    expect(readStock(form({ stock: '12' }))).toEqual({ ok: true, stock: 12 });
+  });
+
+  it('rechaza decimales, negativos y texto', () => {
+    for (const stock of ['2.5', '-1', 'abc']) {
+      expect(readStock(form({ stock })).ok).toBe(false);
+    }
+  });
+
+  it('un stock escrito cuenta como contenido de borrador', () => {
+    expect(hasDraftContent({ ...EMPTY_PRODUCT_FORM, stock: '5' })).toBe(true);
   });
 });

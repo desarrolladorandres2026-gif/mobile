@@ -187,6 +187,20 @@ export const paymentWebhookRateLimiter = rateLimit({
 });
 
 /**
+ * Producto que falta (aviso del comercio y respuesta del cliente) — 60 por 15
+ * minutos por IP. Una consulta por pedido y una respuesta por consulta: ni un
+ * local muy ocupado ni una IP compartida se acercan; frena a quien prueba
+ * identificadores de pedidos ajenos o repite la respuesta a ver si cuela.
+ */
+export const itemShortageRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: limitFor(60),
+  message: { success: false, message: 'Demasiadas solicitudes sobre el producto que falta. Espera un momento.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
  * Confirmación de efectivo — 300 por 15 minutos por IP (CASH_CONFIRM_RATE_LIMIT_MAX).
  *
  * Es una acción rara y cara: un domiciliario la ejecuta una vez por

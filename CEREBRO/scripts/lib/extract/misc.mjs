@@ -32,7 +32,8 @@ export function extractMisc(ctx, sf, namer, kindOfFile) {
           const ev = n.arguments[0].text;
           const recv = callee.expression.getText().replace(/\s+/g, '').slice(0, 80);
           const rootName = recv.split(/[.(]/)[0];
-          if (!SKIP_RECV.test(rootName) && (SOCKET_RECV.test(recv) || EVENT_NAME.test(ev))) {
+          const viaIo = /\.(to|in)\(|get\('io'\)|getIO\(\)/.test(recv);
+          if (!isTest && (viaIo || !SKIP_RECV.test(rootName)) && (SOCKET_RECV.test(recv) || EVENT_NAME.test(ev))) {
             const dir = m === 'emit' ? 'emite' : m === 'off' || m === 'removeListener' ? 'deja-de-escuchar' : 'escucha';
             out.eventos.push({ evento: ev, direccion: dir, receptor: recv, de: cur(), archivo: file, linea: lineAt(n) });
           }
@@ -41,9 +42,9 @@ export function extractMisc(ctx, sf, namer, kindOfFile) {
           const recv = callee.expression.getText();
           if (/socket/i.test(recv) && n.arguments[0]) out.salas.push({ accion: m, sala: n.arguments[0].getText().slice(0, 80), de: cur(), archivo: file, linea: lineAt(n) });
         }
-      } else if (ts.isIdentifier(callee) && /(Event|Socket|Realtime|subscribe|listen)/i.test(callee.text) && !/^emit/.test(callee.text) && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0]) && /^[a-z][A-Za-z0-9_-]*(:[A-Za-z0-9_-]+)+$/.test(n.arguments[0].text)) {
+      } else if (!isTest && ts.isIdentifier(callee) && /(Event|Socket|Realtime|subscribe|listen)/i.test(callee.text) && !/^emit/.test(callee.text) && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0]) && /^[a-z][A-Za-z0-9_-]*(:[A-Za-z0-9_-]+)+$/.test(n.arguments[0].text)) {
         out.eventos.push({ evento: n.arguments[0].text, direccion: 'escucha', receptor: callee.text + '()', de: cur(), archivo: file, linea: lineAt(n) });
-      } else if (ts.isIdentifier(callee) && /^emit(To\w*|Event|Realtime\w*)$/.test(callee.text)) {
+      } else if (!isTest && ts.isIdentifier(callee) && /^emit(To\w*|Event|Realtime\w*)$/.test(callee.text)) {
         const lits = n.arguments.slice(0, 4).filter((a) => ts.isStringLiteralLike(a)).map((a) => a.text);
         const ev = lits.reverse().find((s) => EVENT_NAME.test(s) || /^[a-z]/.test(s));
         if (ev) out.eventos.push({ evento: ev, direccion: 'emite', receptor: callee.text, de: cur(), archivo: file, linea: lineAt(n) });
@@ -81,8 +82,12 @@ export function extractMisc(ctx, sf, namer, kindOfFile) {
       }
     }
     // — listas de nombres de evento (registro dinámico por bucle) —
-    if (ts.isArrayLiteralExpression(n) && n.elements.length >= 3 && n.elements.every((e) => ts.isStringLiteralLike(e) && /^[a-z][A-Za-z0-9_-]*(:[A-Za-z0-9_-]+)+$/.test(e.text)) && /socket|realtime|Realtime|event/i.test(file + ' ' + cur())) {
+    if (!isTest && ts.isArrayLiteralExpression(n) && n.elements.length >= 3 && n.elements.every((e) => ts.isStringLiteralLike(e) && /^[a-z][A-Za-z0-9_-]*(:[A-Za-z0-9_-]+)+$/.test(e.text)) && /socket|realtime|Realtime|event/i.test(file + ' ' + cur())) {
       for (const e of n.elements) out.eventos.push({ evento: e.text, direccion: 'escucha', receptor: 'lista de eventos suscritos', de: cur(), archivo: file, linea: lineAt(e) });
+    }
+    // — mapas de manejadores por evento: { 'order:new': (payload) => … } —
+    if (!isTest && ts.isPropertyAssignment(n) && (ts.isStringLiteral(n.name) || ts.isIdentifier(n.name)) && /^[a-z][A-Za-z0-9_-]*(:[A-Za-z0-9_-]+)+$/.test(n.name.text) && namer.unwrapFn(n.initializer)) {
+      out.eventos.push({ evento: n.name.text, direccion: 'escucha', receptor: 'mapa de manejadores', de: cur(), archivo: file, linea: lineAt(n) });
     }
     // — variables de entorno —
     if (ts.isPropertyAccessExpression(n)) {

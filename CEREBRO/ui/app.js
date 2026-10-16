@@ -195,11 +195,11 @@ function connectEvents() {
 }
 
 window.addEventListener('hashchange', () => { show(); });
-setInterval(() => { loadState().then(renderRailStatus).catch(() => {}); }, 15000);
+if (!location.search.includes("estatico")) setInterval(() => { loadState().then(renderRailStatus).catch(() => {}); }, 15000);
 
 (async function init() {
   try { await loadState(); } catch (e) { console.error(e); }
   renderRailStatus();
   await show();
-  connectEvents();
+  if (!location.search.includes("estatico")) connectEvents();
 })();

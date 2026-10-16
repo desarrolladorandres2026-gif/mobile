@@ -153,7 +153,7 @@ export default function StoreStatusButton({ business, busy, canToggle, compact =
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-semibold text-[var(--color-text-main)]">Dejar de recibir pedidos</h3>
                   <p className="text-xs text-[var(--color-text-secondary)] mt-1 leading-relaxed">
-                    ¿Por cuánto tiempo? Los pedidos que ya tienes en cocina siguen su curso.
+                    ¿Por cuánto tiempo? Los pedidos que ya tienes en marcha siguen su curso.
                   </p>
                 </div>
                 <button

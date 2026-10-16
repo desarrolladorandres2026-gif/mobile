@@ -65,8 +65,12 @@ function sameHex(a: string, b: string | undefined | null): boolean {
  * Quita el 2FA de una cuenta: secreto, códigos de recuperación, último paso
  * y cualquier reto de login pendiente. Condicionado a que siga activo, así
  * dos restablecimientos simultáneos no se cuentan dos veces: devuelve false
- * si ya no lo estaba. No toca sesiones ni contraseña; eso es de quien llama
- * (reset desde el panel y `scripts/emergencyReset2fa.ts`).
+ * si ya no lo estaba. No toca la contraseña ni las demás sesiones; eso es de
+ * quien llama (reset desde el panel y `scripts/emergencyReset2fa.ts`).
+ *
+ * Sí borra el PIN de mostrador (y cierra sus sesiones elevadas): el PIN exige
+ * 2FA, y un PIN sin 2FA ni clave del mostrador cierra la puerta de la
+ * contraseña sin dejar otra salida.
  */
 export async function clearTwoFactor(userId: Types.ObjectId | string, updatedBy?: Types.ObjectId): Promise<boolean> {
   const result = await User.updateOne(
@@ -85,7 +89,11 @@ export async function clearTwoFactor(userId: Types.ObjectId | string, updatedBy?
       },
     }
   );
-  return result.modifiedCount === 1;
+  if (result.modifiedCount !== 1) return false;
+  // Import dinámico: `counterPin.service` importa `hasTwoFactor` de este archivo.
+  const { removeOwnPin } = await import('./counterPin.service');
+  await removeOwnPin(String(userId));
+  return true;
 }
 
 /** Abre (o reemplaza) el reto pendiente de un usuario y devuelve el token para el cliente. */

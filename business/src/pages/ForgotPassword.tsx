@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { AlertCircle, Activity, Eye, EyeOff } from 'lucide-react';
 import api from '../services/api';
-import { apiMessage } from '../lib/apiError';
+import { apiErrorCode, apiMessage } from '../lib/apiError';
 import { deviceHeaders, getDeviceId } from '../lib/deviceId';
 import { useStartSession } from '../hooks/useStartSession';
 
@@ -90,10 +90,29 @@ export default function ForgotPassword() {
         return;
       }
       if (!(await startSession(data.data))) {
-        setError('Esta cuenta no está registrada como comercio.');
+        // El servidor ya cambió la contraseña y abrió una sesión que este
+        // panel no usa: se cierra para no dejarla viva.
+        await axios
+          .post(
+            authUrl('/auth/logout'),
+            { refreshToken: data.data.refreshToken },
+            { headers: { ...deviceHeaders(), Authorization: `Bearer ${data.data.accessToken}` } }
+          )
+          .catch(() => undefined);
+        setError('Tu contraseña se cambió, pero esta cuenta no es de comercio. Ingresa desde la app de ZIPP.');
       }
     } catch (err) {
-      setError(apiMessage(err, 'No pudimos restablecer la contraseña. Revisa el código.'));
+      const code = apiErrorCode(err);
+      if (step === 'totp' && (code === 'OTP_EXPIRED' || code === 'OTP_LOCKED' || code === 'OTP_INVALID')) {
+        // El código de WhatsApp vive pocos minutos: si venció mientras la
+        // persona buscaba su autenticador, se vuelve a pedir uno nuevo.
+        setStep('phone');
+        setOtpCode('');
+        setTotp('');
+        setError('El código de WhatsApp venció. Pide uno nuevo.');
+      } else {
+        setError(apiMessage(err, 'No pudimos restablecer la contraseña. Revisa el código.'));
+      }
     } finally {
       setBusy(false);
     }
@@ -112,7 +131,7 @@ export default function ForgotPassword() {
           {step === 'phone'
             ? 'Escribe el celular de tu cuenta. Si tiene cuenta, te enviamos un código por WhatsApp.'
             : step === 'reset'
-              ? 'Escribe el código que te llegó por WhatsApp y elige una contraseña nueva.'
+              ? 'Escribe el código que te llegó por WhatsApp y elige una contraseña nueva. Se cerrarán las sesiones abiertas de tu cuenta, también la del mostrador.'
               : 'Tu cuenta está protegida: escribe también el código de Google Authenticator.'}
         </p>
         <div className="mt-6 h-px bg-[var(--color-border)]" />

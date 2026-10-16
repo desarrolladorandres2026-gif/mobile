@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "nota": "Procesos de negocio reconstruidos del código. Las tablas de estados se leen automáticamente del AST (pestaña Pedidos y estados); aquí van las reglas que acompañan a cada transición.",
+  "flujos": [
+    {
+      "id": "ciclo-de-vida-del-pedido",
+      "titulo": "Ciclo de vida del pedido: estados, quién los mueve y qué exige cada transición",
+      "descripcion": "Estados reales: PENDING → ACCEPTED → PREPARING → READY → PICKED_UP → ON_WAY → DELIVERED, con CANCELLED alcanzable desde PENDING, ACCEPTED, PREPARING, READY y ON_WAY (no desde PICKED_UP). La única función que cambia el estado es `OrderService.updateStatus`; las demás rutas (reparto, barridos) llaman a ella.",
+      "estadoVerificacion": "leida; cubierta por orderStatus.test.ts, orderFlow.test.ts, orderFlowE2E.integration.test.ts, orderIdempotencyConcurrency.test.ts",
+      "pasos": [
+        {
+          "orden": 1,
+          "actor": "Cliente",
+          "titulo": "PENDING — creación",
+          "descripcion": "Cotiza de nuevo en el servidor, valida horario (si es programado), mayoría de edad para productos +18, reserva stock y aplica la clave de idempotencia por cliente. Un pedido en efectivo nace con pago PENDING_CASH; uno en línea con PENDING.",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 429,
+              "ancla": "const quote = await pricingService.quote({",
+              "simbolo": "backend/src/services/order.service.ts#OrderService.create"
+            }
+          ]
+        },
+        {
+          "orden": 2,
+          "actor": "Comercio (propietario o personal con `orders:manage`)",
+          "titulo": "ACCEPTED — aceptar",
+          "descripcion": "Un pedido en línea NO puede aceptarse hasta estar PAID (409). Al aceptar se emiten los códigos de recogida y entrega.",
+          "certeza": "verificada-en-prueba",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1132,
+              "ancla": "'Este pedido es de pago en línea y aún no está pagado. ' +"
+            },
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1257,
+              "ancla": "await orderSecurityService.ensureIssued(claimed._id.toString());"
+            }
+          ]
+        },
+        {
+          "orden": 3,
+          "actor": "Comercio",
+          "titulo": "PREPARING y READY",
+          "descripcion": "Marcar READY sin domiciliario arranca el reparto automático (dispatch) en segundo plano.",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1040,
+              "ancla": "const roleAllowed = ROLE_ALLOWED_STATUSES[userRole] ?? [];"
+            }
+          ]
+        },
+        {
+          "orden": 4,
+          "actor": "Domiciliario asignado",
+          "titulo": "PICKED_UP — recogida",
+          "descripcion": "Exige que el código de recogida ya se haya consumido (en un mandado, el gasto declarado con foto del recibo). Solo el domiciliario asignado a ESE pedido puede moverlo. Un admin puede saltar el código, pero queda como actividad sospechosa de severidad alta.",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1020,
+              "ancla": "const allowedNext = VALID_TRANSITIONS[order.status];"
+            }
+          ]
+        },
+        {
+          "orden": 5,
+          "actor": "Domiciliario",
+          "titulo": "ON_WAY → DELIVERED — entrega",
+          "descripcion": "DELIVERED exige el código de entrega consumido. Efectos: comisión, devengo, asiento de efectivo si aplica, conciliación, fondo del domiciliario y disponibilidad.",
+          "certeza": "verificada-en-prueba",
+          "riesgo": "`onDelivered` no tiene recuperación ante fallos parciales (M-003).",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1174,
+              "ancla": "await this.assertCodeConsumed(order._id.toString(), OrderCodeKind.DELIVERY);"
+            },
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1281,
+              "ancla": "await this.onDelivered(claimed);"
+            }
+          ]
+        },
+        {
+          "orden": 6,
+          "actor": "Cliente / Comercio / Admin / Sistema",
+          "titulo": "CANCELLED",
+          "descripcion": "Reglas por actor: ver el flujo «Cancelaciones y reembolsos» en Finanzas. El estado, la hora y quién canceló se guardan en el pedido; el reembolso nace de `onCancelled` y no hay otra vía automática.",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1769,
+              "ancla": "private async onCancelled(order: IOrder): Promise<void> {"
+            }
+          ]
+        },
+        {
+          "orden": 7,
+          "actor": "Servidor",
+          "titulo": "Concurrencia y repetición",
+          "descripcion": "La transición se reclama con `findOneAndUpdate` cuyo filtro incluye el estado anterior y el estado de pago: dos peticiones simultáneas → solo una aplica, la otra recibe 409. Repetir DELIVERED→DELIVERED responde «Transición inválida». Los eventos duplicados de la pasarela se absorben en `applyGatewayStatus` y la clave anti-duplicado del webhook.",
+          "certeza": "verificada-en-prueba",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1238,
+              "ancla": "const claimed = await Order.findOneAndUpdate("
+            }
+          ]
+        },
+        {
+          "orden": 8,
+          "actor": "Sistema",
+          "titulo": "Barridos",
+          "descripcion": "Pedidos en línea abandonados (sin cobro en vuelo) se cancelan solos; también los no aceptados a tiempo; los programados se activan cuando les toca.",
+          "certeza": "leida",
+          "refs": [
+            {
+              "archivo": "backend/src/services/order.service.ts",
+              "linea": 1923,
+              "ancla": "async cancelAbandonedOnlineOrders(now = new Date()): Promise<number> {"
+            }
+          ]
+        }
+      ],
+      "movimientos": [],
+      "importes": []
+    }
+  ]
+}

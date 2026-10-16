@@ -52,9 +52,14 @@ const elevate = async (person: any, pin = PIN, counterOf: any = owner) =>
     .set(await counterAuthHeader(counterOf))
     .send({ businessId: bid(), userId: person._id.toString(), pin });
 
-async function manager() {
+/**
+ * Un administrador. Por defecto con 2FA activo, porque desde 2026-10-15 un PIN
+ * lo exige a toda persona; `{ twoFactor: false }` es el que aún no lo activó.
+ */
+async function manager({ twoFactor = true }: { twoFactor?: boolean } = {}) {
   const user = await makeUser({ role: UserRole.BUSINESS, name: 'Administradora Ana' });
   await BusinessStaff.create({ businessId: business._id, userId: user._id, role: BusinessRole.MANAGER, status: 'active', isActive: true });
+  if (twoFactor) await User.updateOne({ _id: user._id }, { $set: { twoFactorEnabled: true } });
   return user;
 }
 
@@ -82,6 +87,21 @@ describe('Crear el PIN propio', () => {
 
     const me = await request(app).get(`${API}/auth/me`).set(await authHeader(ana));
     expect(JSON.stringify(me.body)).not.toContain('counterPinHash');
+  });
+
+  it('un administrador sin 2FA no puede crear su PIN: TWO_FACTOR_SETUP_REQUIRED y no se guarda nada', async () => {
+    const ana = await manager({ twoFactor: false });
+    const res = await setPin(ana);
+    expect(res.status).toBe(403);
+    expect(res.body.code ?? res.body.error?.code).toBe('TWO_FACTOR_SETUP_REQUIRED');
+    const stored = await User.findById(ana._id).select('+counterPinHash counterPinSetAt');
+    expect(stored!.counterPinHash).toBeUndefined();
+    expect(stored!.counterPinSetAt ?? null).toBeNull();
+
+    // Y como nadie del local tiene PIN, la puerta de la contraseña sigue abierta
+    // para el dueño: el PIN fallido no la cerró.
+    const people = await request(app).get(`${API}/auth/counter/people`).query({ businessId: bid() }).set(await counterAuthHeader(owner));
+    expect(people.body.data).toEqual([]);
   });
 
   it('con la contraseña equivocada no se crea', async () => {
@@ -118,7 +138,8 @@ describe('Quién aparece en el mostrador', () => {
     await manager(); // administrador sin PIN: no aparece
     const employee = await makeUser({ role: UserRole.BUSINESS });
     await BusinessStaff.create({ businessId: business._id, userId: employee._id, role: BusinessRole.EMPLOYEE, status: 'active', isActive: true });
-    await setPin(employee); // un empleado con PIN tampoco aparece
+    await User.updateOne({ _id: employee._id }, { $set: { twoFactorEnabled: true } });
+    expect((await setPin(employee)).status).toBe(200); // un empleado con PIN tampoco aparece
 
     const res = await request(app).get(`${API}/auth/counter/people`).query({ businessId: bid() }).set(await counterAuthHeader(owner));
     expect(res.status).toBe(200);

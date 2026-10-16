@@ -314,6 +314,60 @@ export class NotificationService {
     });
   }
 
+  /** Al cliente: falta un producto y hay que decidir en pocos minutos. */
+  async notifyItemShortageAsked(userId: string, orderId: string, orderNumber: string, shortageId: string) {
+    return this.create({
+      userId,
+      type: NotificationType.ORDER,
+      title: `Pedido #${orderNumber}`,
+      body: 'Falta un producto en tu pedido: ¿sigues con el resto?',
+      data: { orderId, orderNumber, event: 'item_shortage', shortageId },
+    });
+  }
+
+  /** Al cliente: la consulta venció sin respuesta y el pedido se canceló. */
+  async notifyItemShortageExpired(userId: string, orderId: string, orderNumber: string) {
+    return this.create({
+      userId,
+      type: NotificationType.ORDER,
+      title: `Pedido #${orderNumber}`,
+      body: 'No respondiste a tiempo por el producto que faltaba y el pedido se canceló.',
+      data: { orderId, orderNumber, event: 'item_shortage_expired' },
+    });
+  }
+
+  /** Al comercio: lo que decidió el cliente. */
+  async notifyItemShortageResult(
+    ownerId: string,
+    orderId: string,
+    orderNumber: string,
+    result: 'accepted' | 'rejected' | 'expired'
+  ) {
+    const body: Record<typeof result, string> = {
+      accepted: `El cliente del pedido #${orderNumber} aceptó seguir sin el producto que falta.`,
+      rejected: `El cliente del pedido #${orderNumber} no aceptó seguir sin el producto: el pedido se canceló.`,
+      expired: `El cliente del pedido #${orderNumber} no respondió a tiempo: el pedido se canceló.`,
+    };
+    return this.create({
+      userId: ownerId,
+      type: NotificationType.ORDER,
+      title: `Pedido #${orderNumber}`,
+      body: body[result],
+      data: { orderId, orderNumber, event: `item_shortage_${result}` },
+    });
+  }
+
+  /** Al domiciliario del pedido: el cobro en la puerta cambió. */
+  async notifyDriverCashAmountChanged(userId: string, orderId: string, orderNumber: string, amount: number) {
+    return this.create({
+      userId,
+      type: NotificationType.ORDER,
+      title: `Cambió el cobro del pedido #${orderNumber}`,
+      body: `El cliente seguirá sin un producto. Ahora cobra $${amount.toLocaleString('es-CO')} en la puerta.`,
+      data: { orderId, orderNumber, event: 'cash_amount_changed', amount },
+    });
+  }
+
   /** La bolsa se quedó llena y sin tocar. Se manda una sola vez por bolsa. */
   async notifyAbandonedCart(userId: string, businessName: string, itemCount: number) {
     const plural = itemCount === 1 ? 'producto' : 'productos';

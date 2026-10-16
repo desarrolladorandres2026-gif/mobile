@@ -77,6 +77,12 @@ export function useActiveOrdersLiveSync(businessId: string | undefined) {
     patch((orders) => orders.map((order) => (order._id === changed.orderId ? { ...order, status: changed.status } : order)));
     refresh();
   });
+  // El cliente respondió (o venció) la consulta por un producto que falta: el
+  // tablero cambia de «esperando» a «aceptó» o a cancelado sin esperar al sondeo.
+  useBusinessEvent('order:shortage', (shortage) => {
+    if (shortage.businessId && shortage.businessId !== businessId) return;
+    refresh();
+  });
   useBusinessEvent('order:driver:assigned', (assigned) => {
     if (assigned.businessId && assigned.businessId !== businessId) return;
     refresh();

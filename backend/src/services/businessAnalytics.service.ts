@@ -1,7 +1,11 @@
 import { Types } from 'mongoose';
 import { Order } from '../models';
-import { OrderStatus } from '../types';
+import { CancellationReason, CancelledBy, OrderStatus } from '../types';
 import { UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
+import { config } from '../config';
+
+/** Las horas y los días del comercio son los de Colombia, no los del servidor. */
+const TZ = () => config.settlement.timezone;
 
 /**
  * Analíticas de un comercio.
@@ -30,8 +34,23 @@ export interface BusinessAnalytics {
   /** Comparación con el periodo inmediatamente anterior, del mismo tamaño. */
   previous: { orders: number; revenue: number };
   byDay: Array<{ date: string; orders: number; revenue: number }>;
-  /** Pedidos por hora del día. Sirve para decidir turnos y promociones. */
+  /** Pedidos por hora del día (hora de Colombia). Sirve para decidir turnos y promociones. */
   byHour: Array<{ hour: number; orders: number }>;
+  /** Lo más vendido del periodo, por unidades. */
+  topProducts: Array<{ productId: string; name: string; quantity: number; sales: number }>;
+  /** Minutos promedio entre aceptar el pedido y dejarlo listo. `null` si no hay datos. */
+  avgPrepMinutes: number | null;
+  /**
+   * Clientes que compraron en el periodo: nuevos son los que nunca habían
+   * recibido un pedido de este comercio antes de que empezara.
+   */
+  customers: { total: number; new: number; returning: number };
+  /**
+   * Pedidos que el comercio no atendió: los rechazó o dejó vencer sin
+   * aceptarlos. Es lo que más cuesta, porque el cliente ya había pagado o
+   * esperado.
+   */
+  lostByBusiness: { orders: number; rate: number };
 }
 
 const DELIVERED_MATCH = { status: OrderStatus.DELIVERED };
@@ -89,7 +108,7 @@ export async function analyticsFor(
   const previousTo = new Date(from.getTime());
   const previousFrom = new Date(from.getTime() - days * 24 * 60 * 60 * 1000);
 
-  const [current, previous, byDay, byHour] = await Promise.all([
+  const [current, previous, byDay, byHour, topProducts, prepRow, clientIds, lost] = await Promise.all([
     totalsFor(businessId, from, to),
     totalsFor(businessId, previousFrom, previousTo),
 
@@ -97,7 +116,7 @@ export async function analyticsFor(
       { $match: { businessId, createdAt: { $gte: from, $lte: to }, ...DELIVERED_MATCH } },
       {
         $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: TZ() } },
           orders: { $sum: 1 },
           revenue: { $sum: { $ifNull: ['$finance.productSubtotal', '$subtotal'] } },
         },
@@ -108,11 +127,65 @@ export async function analyticsFor(
 
     Order.aggregate([
       { $match: { businessId, createdAt: { $gte: from, $lte: to }, ...DELIVERED_MATCH } },
-      { $group: { _id: { $hour: '$createdAt' }, orders: { $sum: 1 } } },
+      { $group: { _id: { $hour: { date: '$createdAt', timezone: TZ() } }, orders: { $sum: 1 } } },
       { $sort: { _id: 1 } },
       { $project: { _id: 0, hour: '$_id', orders: 1 } },
     ]),
+
+    Order.aggregate([
+      { $match: { businessId, $nor: [UNPAID_ONLINE_MATCH], createdAt: { $gte: from, $lte: to }, ...DELIVERED_MATCH } },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: '$items.productId',
+          name: { $last: '$items.productName' },
+          quantity: { $sum: '$items.quantity' },
+          sales: { $sum: '$items.totalPrice' },
+        },
+      },
+      { $sort: { quantity: -1, sales: -1 } },
+      { $limit: 8 },
+      { $project: { _id: 0, productId: { $toString: '$_id' }, name: 1, quantity: 1, sales: 1 } },
+    ]),
+
+    Order.aggregate([
+      {
+        $match: {
+          businessId,
+          $nor: [UNPAID_ONLINE_MATCH],
+          createdAt: { $gte: from, $lte: to },
+          acceptedAt: { $ne: null },
+          preparedAt: { $ne: null },
+        },
+      },
+      { $group: { _id: null, minutes: { $avg: { $divide: [{ $subtract: ['$preparedAt', '$acceptedAt'] }, 60000] } } } },
+    ]),
+
+    Order.distinct('clientId', { businessId, ...DELIVERED_MATCH, createdAt: { $gte: from, $lte: to } }),
+
+    Order.countDocuments({
+      businessId,
+      $nor: [UNPAID_ONLINE_MATCH],
+      createdAt: { $gte: from, $lte: to },
+      status: OrderStatus.CANCELLED,
+      $or: [
+        { cancelledBy: CancelledBy.BUSINESS },
+        { cancellationCode: CancellationReason.BUSINESS_NO_RESPONSE },
+      ],
+    }),
   ]);
+
+  // Los que ya habían recibido un pedido de este comercio antes del periodo.
+  const returningCount = clientIds.length
+    ? (
+        await Order.distinct('clientId', {
+          businessId,
+          ...DELIVERED_MATCH,
+          createdAt: { $lt: from },
+          clientId: { $in: clientIds },
+        })
+      ).length
+    : 0;
 
   return {
     range: { from, to, days },
@@ -126,6 +199,17 @@ export async function analyticsFor(
     previous: { orders: previous.orders, revenue: previous.revenue },
     byDay,
     byHour,
+    topProducts,
+    avgPrepMinutes: prepRow[0]?.minutes != null ? Math.round(prepRow[0].minutes) : null,
+    customers: {
+      total: clientIds.length,
+      new: clientIds.length - returningCount,
+      returning: returningCount,
+    },
+    lostByBusiness: {
+      orders: lost,
+      rate: current.orders ? Math.round((lost / current.orders) * 100) : 0,
+    },
   };
 }
 

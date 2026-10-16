@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { IS_DRIVER_APP } from '../constants/variant';
 import { ROUTES } from '../lib/routing';
+import { chatEventChannel, chatThreadKey } from '../lib/orderChat';
 import { socketService } from '../services/socket';
 import { useRealtimeStore } from '../stores/realtimeStore';
 import { useMyOrders } from './useApi';
@@ -203,8 +204,14 @@ export function useOrderFlowRealtime(orderId: string | undefined) {
     const refreshFlow = () => {
       queryClient.invalidateQueries({ queryKey: ['orderFlow', orderId] });
     };
-    const refreshChat = () => {
-      queryClient.invalidateQueries({ queryKey: ['orderChat', orderId] });
+    // Cada evento toca solo el hilo al que pertenece: un mensaje del comercio
+    // no recarga (ni cuenta en) el del cliente, y a la inversa. Sin `channel`
+    // (servidor viejo) es el hilo del cliente. En la app del cliente el hilo
+    // del comercio no existe, así que ese evento no hace nada.
+    const refreshChat = (data?: any) => {
+      const channel = chatEventChannel(data, orderId, IS_DRIVER_APP);
+      if (!channel) return;
+      queryClient.invalidateQueries({ queryKey: chatThreadKey(orderId, channel) });
       refreshFlow();
     };
     const onIncoming = (data: any) => {

@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   AlertCircle, LogOut,
   ChevronDown, CalendarDays, CalendarClock, Package, Wallet, Utensils, Tag,
-  Megaphone, Star, Users, FileText, MessageCircle, Settings,
+  Megaphone, Star, Users, FileText, MessageCircle, Settings, BarChart3,
 } from 'lucide-react';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
@@ -21,6 +21,7 @@ import CounterSwitch from './CounterSwitch';
 import StoreStatusButton from './StoreStatusButton';
 import { revokeServerSessions } from '../lib/session';
 import { useSupportAttention } from '../hooks/useSupportAttention';
+import { useAutoPrint } from '../hooks/useAutoPrint';
 
 /**
  * La barra está siempre en pantalla, sea cual sea el ancho: una columna fija
@@ -32,6 +33,7 @@ const nav = [
   { path: '/', Icon: CalendarDays, label: 'Resumen del día' },
   { path: '/orders', Icon: Package, label: 'Pedidos' },
   { path: '/scheduled', Icon: CalendarClock, label: 'Programados' },
+  { path: '/analytics', Icon: BarChart3, label: 'Analítica' },
   { path: '/settlements', Icon: Wallet, label: 'Liquidaciones' },
   { path: '/menu', Icon: Utensils, label: 'Menú & Catálogo' },
   { path: '/promotions', Icon: Tag, label: 'Promociones' },
@@ -58,6 +60,7 @@ export default function Layout() {
   const [loadingBusinesses, setLoadingBusinesses] = useState(false);
   const { access, can } = usePermissions(selectedBusiness?._id);
   const supportWaiting = useSupportAttention(selectedBusiness?._id);
+  useAutoPrint();
   const visibleNav = nav.filter((item) => canSee(item.path, access));
 
   // Un empleado que cae en una sección del dueño (la portada es el resumen

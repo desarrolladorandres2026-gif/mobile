@@ -10,6 +10,7 @@ import {
   orderEvidenceRateLimiter,
   orderCallRateLimiter,
   cashConfirmRateLimiter,
+  itemShortageRateLimiter,
 } from '../middlewares';
 import {
   createOrderSchema,
@@ -21,6 +22,8 @@ import {
   orderCallSchema,
   confirmCashSchema,
   changePaymentMethodSchema,
+  reportItemShortageSchema,
+  respondItemShortageSchema,
 } from '../validators';
 import { UserRole } from '../types';
 
@@ -73,6 +76,26 @@ router.post(
   cashConfirmRateLimiter,
   validate(confirmCashSchema),
   (req, res, next) => orderFlowController.confirmCash(req, res, next)
+);
+
+/**
+ * Producto que falta (solo efectivo). Sin `authorize(...)`: quién puede hacer
+ * cada cosa lo decide la relación con ESTE pedido (`resolveOrderAccess`) —el
+ * comercio avisa con `orders:manage`, solo el cliente del pedido responde—.
+ */
+router.post(
+  '/:id/item-shortage',
+  authenticate,
+  itemShortageRateLimiter,
+  validate(reportItemShortageSchema),
+  (req, res, next) => orderFlowController.reportItemShortage(req, res, next)
+);
+router.post(
+  '/:id/item-shortage/respond',
+  authenticate,
+  itemShortageRateLimiter,
+  validate(respondItemShortageSchema),
+  (req, res, next) => orderFlowController.respondItemShortage(req, res, next)
 );
 
 router.get('/:id/evidence', authenticate, adminRequires(Permission.EVIDENCES_VIEW), (req, res, next) => orderFlowController.listEvidence(req, res, next));

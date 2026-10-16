@@ -12,7 +12,8 @@ import { hasTwoFactor } from './mfa.service';
  * y la contraseña en ese paso, así que carga con lo que ellos protegían:
  *
  *   - Lo crea cada persona desde su propia cuenta completa, con su
- *     contraseña (y el representante legal con 2FA activo). Nadie conoce el
+ *     contraseña y con 2FA activo (desde 2026-10-15 también el administrador;
+ *     sin 2FA no hay PIN, y quitar el 2FA borra el PIN). Nadie conoce el
  *     PIN de otro: así la auditoría prueba quién actuó.
  *   - Se elige la persona y luego el PIN. Un PIN que identificara a alguien
  *     tendría que ser único por negocio, y "ese PIN ya está en uso" le
@@ -292,8 +293,10 @@ async function revokeElevatedSessions(userId: string): Promise<void> {
  * Crea o cambia el PIN propio. Se llama desde una sesión completa propia (la
  * ruta lleva `rejectCounterScope`, que también rechaza una sesión elevada) y
  * pide la contraseña actual: un PIN abre un panel desde el mostrador, así
- * que no basta con tener una sesión abierta. Quien sea propietario de algún
- * negocio necesita 2FA activo, porque el PIN lo reemplaza en el mostrador.
+ * que no basta con tener una sesión abierta. Toda persona (propietario o
+ * administrador) necesita 2FA activo: el PIN reemplaza al correo y la
+ * contraseña en el mostrador. Quitar o restablecer el 2FA borra el PIN
+ * (`removeOwnPin`).
  */
 export async function setOwnPin(userId: string, pin: string, currentPassword: string): Promise<void> {
   const problem = pinProblem(pin);
@@ -308,10 +311,13 @@ export async function setOwnPin(userId: string, pin: string, currentPassword: st
   const personal = personalPinProblem(pin, user);
   if (personal) throw new AppError(personal, 400, 'PIN_WEAK');
 
-  const isOwner = !!(await Business.exists({ ownerId: user._id }));
-  if (isOwner && !hasTwoFactor(user)) {
+  // Invariante: PIN de mostrador implica 2FA, para toda persona. Con un
+  // administrador sin 2FA y con PIN, `counterPeople` deja de estar vacío y
+  // `assertPasswordDoorOpen` cierra la puerta de la contraseña: el dueño sin
+  // 2FA ni clave del mostrador quedaría sin ninguna forma de entrar.
+  if (!hasTwoFactor(user)) {
     throw new AppError(
-      'Activa la verificación en dos pasos antes de crear tu PIN de representante legal.',
+      'Activa la verificación en dos pasos antes de crear tu PIN de mostrador.',
       403,
       'TWO_FACTOR_SETUP_REQUIRED'
     );

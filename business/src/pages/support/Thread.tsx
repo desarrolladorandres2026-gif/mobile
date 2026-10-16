@@ -4,6 +4,7 @@ import { AlertCircle, Paperclip, Send } from 'lucide-react';
 import api from '../../services/api';
 import { apiMessage } from '../../lib/apiError';
 import { dateTime, statusStyle } from '../../lib/orderFlow';
+import { useFlowProfile } from '../../hooks/useFlowProfile';
 import { awaitingYou } from '../../lib/supportState';
 import {
   ATTACHMENT_TYPES, CATEGORY_LABEL, DISPLAY_STATUS, MAX_ATTACHMENTS, PAYMENT_METHOD_LABEL, REFUND_LABEL,
@@ -19,6 +20,7 @@ export default function Thread({ ticket, queryKey, onBack }: {
   queryKey: unknown[];
   onBack: () => void;
 }) {
+  const profile = useFlowProfile();
   const queryClient = useQueryClient();
   const [text, setText] = useState('');
   const [error, setError] = useState('');
@@ -73,7 +75,7 @@ export default function Thread({ ticket, queryKey, onBack }: {
         {(ticket.order || ticket.settlement || method) && (
           <p className="text-xs text-[var(--color-text-secondary)]">
             {[
-              ticket.order ? `Pedido #${ticket.order.orderNumber} · ${statusStyle(ticket.order.status).label}` : null,
+              ticket.order ? `Pedido #${ticket.order.orderNumber} · ${statusStyle(ticket.order.status, profile).label}` : null,
               ticket.settlement ? `Liquidación del ${periodLabel(ticket.settlement.periodStart, ticket.settlement.periodEnd)}` : null,
               method ? PAYMENT_METHOD_LABEL[method] : null,
             ].filter(Boolean).join(' · ')}

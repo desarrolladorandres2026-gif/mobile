@@ -19,6 +19,7 @@ CEREBRO — mapa técnico vivo de ZIPP
   vigilar        Vigilante en primer plano (Ctrl+C para salir).
   verificar      Ejecuta las suites de pruebas seguras y guarda la evidencia.
   revisar        Registra un rango de líneas leído:  revisar <archivo> <desde-hasta> [nota]
+  reanclar       Actualiza los números de línea de las anclas manuales que solo se movieron.
   comprobar      Comprueba la coherencia de lo generado y de las referencias manuales.
 `;
 
@@ -72,6 +73,13 @@ async function main() {
     case 'revisar': {
       const { addReview } = await import('./lib/review.mjs');
       addReview(args);
+      break;
+    }
+    case 'reanclar': {
+      const { reanchor } = await import('./lib/reanchor.mjs');
+      const r = reanchor({ aplicar: !args.includes('--simular') });
+      console.log(`Anclas: ${r.ok} vigentes, ${r.movidas} actualizadas, ${r.perdidas.length} perdidas (requieren revisión humana).`);
+      for (const p of r.perdidas) console.log('  PERDIDA ' + p);
       break;
     }
     case 'comprobar': {

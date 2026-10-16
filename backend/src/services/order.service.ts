@@ -18,6 +18,7 @@ import {
   PayoutStatus,
   PayoutBeneficiary,
   PaymentType,
+  ItemShortageStatus,
 } from '../types';
 import { OrderSecurity } from '../security/orderSecurity';
 import { getIO, emitToUser } from '../sockets/emitter';
@@ -39,6 +40,7 @@ import { orderTimelineService, TimelineContext } from './orderTimeline.service';
 import { isOpenAt } from '../utils/businessHours';
 import { ageOn, ADULT_AGE } from '../utils/age';
 import { config } from '../config';
+import { announceShortage } from './itemShortageEvents';
 
 // Estado → transiciones válidas
 const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -198,6 +200,38 @@ export const ABANDONED_ONLINE_ORDER_MS = 30 * 60_000;
  * primero se avisa, después se actúa.
  */
 export const UNACCEPTED_ORDER_MS = 15 * 60_000;
+
+/**
+ * Cuánto tiene el cliente para responder a un producto que falta. Corto a
+ * propósito: la comida está en la cocina y el domiciliario esperando. Pasado
+ * el plazo la consulta vence y el pedido se cancela contra el comercio.
+ */
+export const ITEM_SHORTAGE_WINDOW_MS = 3 * 60_000;
+
+/**
+ * Una consulta por un producto que falta frena el paso a «listo» mientras no
+ * esté resuelta: sin respuesta (`pending_client`), rechazada o vencida (el pedido
+ * se está cancelando) o aceptada pero con el descuento aún sin ejecutar. Misma
+ * condición, en JS (para el mensaje) y como filtro de la escritura (para la
+ * carrera).
+ */
+const SHORTAGE_BLOCKS_READY_FILTER = [
+  {
+    'itemShortage.status': {
+      $in: [ItemShortageStatus.PENDING_CLIENT, ItemShortageStatus.REJECTED, ItemShortageStatus.EXPIRED],
+    },
+  },
+  { 'itemShortage.status': ItemShortageStatus.ACCEPTED, 'itemShortage.appliedAt': null },
+];
+
+function shortageBlocksReady(order: IOrder): boolean {
+  const shortage = order.itemShortage;
+  if (!shortage) return false;
+  if (shortage.status === ItemShortageStatus.ACCEPTED) return !shortage.appliedAt;
+  return [ItemShortageStatus.PENDING_CLIENT, ItemShortageStatus.REJECTED, ItemShortageStatus.EXPIRED].includes(
+    shortage.status
+  );
+}
 
 export class OrderService {
   /**
@@ -505,6 +539,11 @@ export class OrderService {
           'SCHEDULE_CLOSED'
         );
       }
+    } else if (!isOpenAt(business.schedule, new Date(), config.settlement.timezone)) {
+      // Un pedido inmediato también respeta el horario. Antes solo lo frenaba
+      // la app (límite L-3 de TESTE.md): una versión vieja, o una llamada
+      // directa a la API, hacía pedidos a un local que ya había cerrado.
+      throw new AppError('El negocio no atiende en este momento.', 409, 'STORE_CLOSED_NOW');
     }
 
     // ── Productos con restricción de edad ──
@@ -944,6 +983,12 @@ export class OrderService {
       scope?: import('./businessStaff.service').SessionScope;
       /** Un barrido decidió sobre el estado que leyó: si ya cambió, 409 y no se toca. */
       onlyIfStatus?: OrderStatus;
+      /**
+       * Quién cuenta como autor de la cancelación cuando no es quien llama. Solo
+       * para el flujo del producto que falta: el cliente pulsa «cancelar» pero
+       * la causa es del comercio, y `lostByBusiness` tiene que contarlo contra él.
+       */
+      cancelledBy?: CancelledBy;
     } = {}
   ): Promise<IOrder> {
     const order = await Order.findById(orderId);
@@ -1040,6 +1085,16 @@ export class OrderService {
     const roleAllowed = ROLE_ALLOWED_STATUSES[userRole] ?? [];
     if (!roleAllowed.includes(status)) {
       throw new AppError(`Tu rol no puede establecer el estado "${status}"`, 403);
+    }
+
+    // Una consulta por un producto que falta sin resolver frena el paso a listo
+    // (para cualquier rol: un administrador que quiera saltarla cancela).
+    if (status === OrderStatus.READY && shortageBlocksReady(order)) {
+      throw new AppError(
+        'Falta un producto y el cliente aún no ha respondido. Espera su respuesta antes de marcar el pedido listo.',
+        409,
+        'ITEM_SHORTAGE_PENDING'
+      );
     }
 
     // ── Hasta dónde cancela el cliente por su cuenta ──
@@ -1230,15 +1285,22 @@ export class OrderService {
       // Quién canceló se guarda en el pedido y no solo en el registro de
       // eventos. Es la pregunta que hace soporte en cada reclamo, y hasta
       // ahora había que reconstruirla leyendo la bitácora.
-      patch.cancelledBy = CANCELLER_BY_ROLE[userRole] ?? CancelledBy.SYSTEM;
+      patch.cancelledBy = opts.cancelledBy ?? CANCELLER_BY_ROLE[userRole] ?? CancelledBy.SYSTEM;
       // Un proceso automático no es una persona: sin `ObjectId` que guardar.
       if (mongoose.Types.ObjectId.isValid(userId)) patch.cancelledByUserId = userId;
     }
 
     const claimed = await Order.findOneAndUpdate(
       // `paymentStatus` viaja en el filtro: no puede cambiar entre la
-      // comprobación de arriba y la escritura.
-      { _id: order._id, status: previousStatus, paymentStatus: order.paymentStatus },
+      // comprobación de arriba y la escritura. Lo mismo la consulta por un
+      // producto que falta: si entra entre la lectura y esta escritura, el
+      // pedido no pasa a listo.
+      {
+        _id: order._id,
+        status: previousStatus,
+        paymentStatus: order.paymentStatus,
+        ...(status === OrderStatus.READY ? { $nor: SHORTAGE_BLOCKS_READY_FILTER } : {}),
+      },
       { $set: patch },
       { new: true }
     );
@@ -1248,6 +1310,14 @@ export class OrderService {
         'El pedido cambió de estado mientras se procesaba tu solicitud. Vuelve a intentarlo.',
         409
       );
+    }
+
+    // Cancelar mientras hay una consulta por un producto que falta (sin
+    // responder, o aceptada pero sin ejecutar) la deja `superseded`: el pedido
+    // se reversa entero por el camino normal y la consulta ya no tiene objeto.
+    // Sin dinero extra: nunca se ejecutó el descuento.
+    if (status === OrderStatus.CANCELLED && claimed.itemShortage) {
+      await this.supersedeShortageOnCancel(claimed);
     }
 
     // Aceptar es el primer instante en que el pedido va a existir de
@@ -1339,6 +1409,62 @@ export class OrderService {
     this.triggerStatusChangeNotifications(claimed, status, opts.scope === 'counter').catch(console.error);
 
     return claimed;
+  }
+
+  /**
+   * Producto que falta con aprobación del cliente (solo efectivo). La lógica
+   * vive en `itemShortage.service.ts`; estos dos métodos son la puerta que
+   * pide el contrato del pedido. Import dinámico: ese servicio importa este.
+   */
+  async reportShortage(
+    orderId: string,
+    actor: { userId: string; role: string },
+    body: import('./itemShortage.service').ReportShortageInput
+  ) {
+    const { itemShortageService } = await import('./itemShortage.service');
+    return itemShortageService.report(orderId, actor, body);
+  }
+
+  async respondShortage(orderId: string, clientId: string, accept: boolean) {
+    const { itemShortageService } = await import('./itemShortage.service');
+    return itemShortageService.respond(orderId, clientId, accept);
+  }
+
+  /**
+   * Cierra la consulta por un producto que falta de un pedido que se cancela.
+   *
+   * Solo toca la que sigue viva: sin responder, o aceptada cuyo descuento no
+   * llegó a ejecutarse. Una aceptada y ya aplicada se queda `accepted`: su
+   * `Refund` existe y la cancelación revierte únicamente el resto.
+   */
+  private async supersedeShortageOnCancel(order: IOrder): Promise<void> {
+    const updated = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        $or: [
+          { 'itemShortage.status': ItemShortageStatus.PENDING_CLIENT },
+          { 'itemShortage.status': ItemShortageStatus.ACCEPTED, 'itemShortage.appliedAt': null },
+        ],
+      },
+      { $set: { 'itemShortage.status': ItemShortageStatus.SUPERSEDED } },
+      { new: true }
+    );
+    if (updated) {
+      announceShortage(updated);
+    }
+  }
+
+  /**
+   * Espera a que termine un descuento por producto faltante a medio ejecutar
+   * (el cerrojo PENDING del `Refund`) antes de revertir el resto. Cancelar a la
+   * vez que se aplica el descuento revertiría dos veces la misma tajada: ya
+   * hay una ventana de milisegundos, y esto la cierra con una espera acotada.
+   */
+  private async waitForShortageRefund(orderId: unknown): Promise<void> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (!(await refundService.hasInFlight(String(orderId)))) return;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
   }
 
   /**
@@ -1452,7 +1578,8 @@ export class OrderService {
     }
 
     // Lo que `assignDriver` le descontó: el tope del mandado y/o el pago al
-    // comercio en efectivo.
+    // comercio en efectivo. BRUTO (`finance`, no el neto de reembolsos
+    // parciales), igual que la reserva: la simetría es lo que cuadra el fondo.
     const hold =
       errandService.reservationFor(order) +
       (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY
@@ -1624,15 +1751,20 @@ export class OrderService {
   private async onDelivered(order: IOrder): Promise<void> {
     const finance = order.finance;
 
+    // Cifras NETAS de reembolsos parciales previos (`finance` es el techo
+    // inmutable; lo vivo es finance − Σ allocation). Sin reembolsos, `net`
+    // coincide con `finance` y nada cambia.
+    const net = await refundService.netOf(order);
+
     await Commission.findOneAndUpdate(
       { orderId: order._id },
       {
         orderId: order._id,
         businessId: order.businessId,
         driverId: order.driverId,
-        platformAmount: finance.platformGrossRevenue,
-        businessAmount: finance.businessPayout,
-        driverAmount: finance.driverPayout,
+        platformAmount: net.platformGrossRevenue,
+        businessAmount: net.businessPayout,
+        driverAmount: net.driverPayout,
         status: CommissionStatus.PENDING,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -1656,15 +1788,18 @@ export class OrderService {
     }
 
     if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
-      const cashToRemit =
-        finance.customerTotal - finance.businessPayout - finance.driverPayout;
-
+      // Todo en NETO: el RECEIVABLE y MERCHANT_PAYABLE ya perdieron su
+      // tajada en el reembolso parcial, así que el asiento de entrega solo
+      // cierra lo que queda. Con el bruto, RECEIVABLE quedaba en negativo,
+      // MERCHANT_PAYABLE en positivo y CASH_IN_TRANSIT inflado.
+      // Un pedido reembolsado entero no deja nada que asentar: `post()`
+      // descarta las líneas de cero pesos y no escribe el lote.
       await ledgerService.recordCashCollected({
         orderId: order._id,
-        customerTotal: finance.customerTotal,
-        businessPayout: finance.businessPayout,
-        driverPayout: finance.driverPayout,
-        cashToRemit,
+        customerTotal: net.customerTotal,
+        businessPayout: net.businessPayout,
+        driverPayout: net.driverPayout,
+        cashToRemit: net.cashToRemit,
         pricingConfigVersion: finance.pricingConfigVersion,
         driverId: order.driverId!,
         businessId: order.businessId,
@@ -1715,9 +1850,17 @@ export class OrderService {
       // en la base, no sobre el que leyó este proceso.
       const increments: Record<string, number> = {
         totalDeliveries: 1,
-        totalEarnings: finance.driverPayout,
+        // Neto: un reembolso total revierte la tarifa del domiciliario; uno
+        // parcial no la toca, así que ahí neto == bruto.
+        totalEarnings: net.driverPayout,
       };
       if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) {
+        // BRUTO a propósito, simétrico con la reserva de `assignDriver`
+        // (`finance.businessPayout`) y con la devolución de `onCancelled` /
+        // `unassignDriver`. Es un tope de capital de trabajo que se retuvo
+        // entero al asignar: devolver el neto con una reserva bruta (o al
+        // revés) descuadra el fondo del domiciliario para siempre. Lo que
+        // se pagó de menos al comercio lo refleja el efectivo por rendir.
         increments.currentFund = finance.businessPayout;
       }
       // Un mandado repone el tope que se retuvo al aceptarlo. Va en el
@@ -1750,17 +1893,33 @@ export class OrderService {
     if (order.paymentStatus === PaymentStatus.PAID) await payoutService.hold(order._id);
     const finance = order.finance;
 
+    // Un descuento por producto faltante a medio ejecutar termina antes de
+    // calcular lo que queda por revertir (ver `waitForShortageRefund`).
+    if (order.itemShortage) await this.waitForShortageRefund(order._id);
+
     // El inventario apartado vuelve a la carta. Sin esto, cada cancelación
     // se comería unidades que nunca se vendieron y el negocio acabaría con
     // media carta apagada sin entender por qué.
+    //
+    // Salvo los productos que el comercio declaró faltantes en este pedido: los
+    // dejó agotados a propósito (`itemShortage`) y devolverles unidades los
+    // volvería a la carta con un inventario que no existe. Se queda como lo
+    // dejó; repone cuando de verdad tenga.
+    const shortageProductIds = new Set(
+      (order.itemShortage?.items ?? [])
+        .map((entry) => order.items.find((line) => String((line as unknown as { _id: unknown })._id) === entry.itemId)?.productId)
+        .filter(Boolean)
+        .map(String)
+    );
+    const releasable = order.items.filter((item) => !shortageProductIds.has(String(item.productId)));
     await this.releaseStock(
-      order.items.map((item) => ({ productId: item.productId, quantity: item.quantity }))
+      releasable.map((item) => ({ productId: item.productId, quantity: item.quantity }))
     );
 
     // Un producto que había llegado a cero vuelve a ofrecerse si el
     // inventario devuelto lo dejó por encima.
     await Product.updateMany(
-      { _id: { $in: order.items.map((i) => i.productId) }, stock: { $gt: 0 }, isAvailable: false },
+      { _id: { $in: releasable.map((i) => i.productId) }, stock: { $gt: 0 }, isAvailable: false },
       { $set: { isAvailable: true } }
     );
 
@@ -1785,6 +1944,9 @@ export class OrderService {
       // fórmula. Antes era `businessPayout || subtotal`: con un pago al
       // comercio de 0 (pedido cubierto entero por un descuento) no se había
       // retenido nada y se le acreditaba el subtotal completo.
+      //
+      // BRUTO a propósito, aunque haya reembolsos parciales: es simétrico
+      // con la reserva de `assignDriver` (ver ahí).
       const held = order.finance?.businessPayout ?? order.businessPayout ?? 0;
       if (held > 0) {
         await Driver.updateOne({ _id: order.driverId }, { $inc: { currentFund: held } });
@@ -1846,15 +2008,27 @@ export class OrderService {
     }
 
     // Nothing was collected: reverse the recognition against the receivable.
-    const allocation = allocateRefund(finance, finance.customerTotal, RefundKind.FULL);
-    await refundService.applyReversal(
-      order,
-      allocation,
-      finance.customerTotal,
-      RefundKind.FULL,
-      false,
-      `cancel:${order._id}`
-    );
+    //
+    // Solo lo que QUEDA vivo: un reembolso parcial previo (un admin, un
+    // faltante) ya reversó su tajada contra el mismo RECEIVABLE. Revertir el
+    // total completo otra vez dejaba RECEIVABLE en negativo y MERCHANT_PAYABLE
+    // en positivo, y `isBalanced` seguía dando true porque el lote cuadra en
+    // su conjunto. `prior` fija el techo de cada cuenta en lo que le queda.
+    // Si el parcial ya agotó el total no hay nada que revertir (y el segundo
+    // asiento sería de cero pesos).
+    const remaining = finance.customerTotal - (await refundService.refundedTotal(order._id));
+    if (remaining > 0) {
+      const prior = await refundService.allocatedSoFar(order._id);
+      const allocation = allocateRefund(finance, remaining, RefundKind.FULL, prior);
+      await refundService.applyReversal(
+        order,
+        allocation,
+        remaining,
+        RefundKind.FULL,
+        false,
+        `cancel:${order._id}`
+      );
+    }
 
     // `applyReversal` deja el cobro como `refunded`, y un pedido en línea
     // `refunded` cuenta como cobrado para el comercio. Nada se cobró: se
@@ -1989,7 +2163,7 @@ export class OrderService {
           'system',
           'El comercio no aceptó el pedido a tiempo: cancelado automáticamente',
           {},
-          CancellationReason.OTHER,
+          CancellationReason.BUSINESS_NO_RESPONSE,
           { onlyIfStatus: OrderStatus.PENDING }
         );
         cancelled++;
@@ -2252,6 +2426,11 @@ export class OrderService {
         }
       }
 
+      // BRUTO a propósito (nunca `netOf`): la retención, la devolución de
+      // `onDelivered`, la de `onCancelled` y la de `unassignDriver` leen
+      // todas `finance.businessPayout`. Si una usara el neto y la otra el
+      // bruto, un reembolso parcial entre asignar y cerrar dejaría el fondo
+      // del domiciliario descuadrado para siempre.
       reserved = order.finance?.businessPayout ?? order.businessPayout;
 
       // ── Reserva atómica del fondo ──

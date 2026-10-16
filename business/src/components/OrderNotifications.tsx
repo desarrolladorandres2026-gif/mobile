@@ -165,6 +165,22 @@ export default function OrderNotifications() {
     });
   });
 
+  // El domiciliario le escribe al local: se avisa en cualquier pantalla, porque
+  // quien está en la cocina no tiene la ficha del pedido abierta.
+  useBusinessEvent('order:chat:message', (event) => {
+    const { message } = event;
+    if (message.channel !== 'business_driver' || message.senderRole !== 'driver') return;
+    if (!isMine(undefined, event.orderId)) return;
+    if (isLeader) playNotificationSound('attention');
+    show({
+      id: `chat:${event.orderId}`,
+      kind: 'driver',
+      orderId: event.orderId,
+      title: 'Mensaje del domiciliario',
+      detail: message.message.length > 120 ? `${message.message.slice(0, 119)}…` : message.message,
+    }, DRIVER_NOTICE_MS);
+  });
+
   useBusinessEvent('order:driver:arrived', (arrived) => {
     if (arrived.stage !== 'pickup' || !isMine(arrived.businessId, arrived.orderId)) return;
     show({

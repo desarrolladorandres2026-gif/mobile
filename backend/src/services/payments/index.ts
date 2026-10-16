@@ -9,6 +9,7 @@ import {
   canTransitionPayment,
 } from '../../models';
 import { AppError } from '../../middlewares';
+import { assertMoney } from '../../utils';
 import { PaymentType, PaymentStatus, PaymentMethod, OrderStatus, OrderKind } from '../../types';
 import { AuditAction, AuditSeverity, logSystemAudit } from '../../security';
 import { emitToUser } from '../../sockets/emitter';
@@ -2168,6 +2169,10 @@ export class PaymentService {
     const existing = await Payment.findOne({ reference });
     if (existing) return existing;
 
+    // Lo que se cobra a la puerta es el total NETO de reembolsos parciales
+    // previos (`finance` es el techo inmutable). Sin reembolsos, es el total.
+    const amount = await this.cashAmountDue(order);
+
     try {
       const payment = new Payment({
         orderId: order._id,
@@ -2175,7 +2180,7 @@ export class PaymentService {
         type: PaymentType.ORDER_PAYMENT,
         method: PaymentMethod.CASH_ON_DELIVERY,
         status: PaymentStatus.PENDING_CASH,
-        amount: order.finance?.customerTotal ?? order.total,
+        amount,
         currency: order.finance?.currency ?? config.payments.currency,
         reference,
       });
@@ -2194,6 +2199,49 @@ export class PaymentService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Cuánto hay que cobrar hoy a la puerta: `finance.customerTotal` menos lo
+   * ya reembolsado. Pedidos sin snapshot (legacy) usan `order.total`.
+   */
+  async cashAmountDue(order: IOrder): Promise<number> {
+    if (!order.finance?.customerTotal) return order.total;
+    const { refundService } = await import('../refund.service');
+    return (await refundService.netOf(order)).customerTotal;
+  }
+
+  /**
+   * Re-fija el monto del cobro en efectivo tras un reembolso parcial.
+   *
+   * La fila nace al crear el pedido con el total completo; si un reembolso
+   * parcial llega antes de entregar, la puerta tiene que cobrar el neto.
+   * Condicionado a `PENDING_CASH` dentro del filtro: un cobro ya cerrado
+   * (PAID, CASH_NOT_RECEIVED) o anulado (FAILED) es historia y no se toca.
+   */
+  async repriceCashPayment(orderId: string, amount: number): Promise<boolean> {
+    assertMoney(amount, 'cobro en efectivo');
+    const result = await Payment.updateOne(
+      {
+        orderId,
+        method: PaymentMethod.CASH_ON_DELIVERY,
+        type: PaymentType.ORDER_PAYMENT,
+        status: PaymentStatus.PENDING_CASH,
+        amount: { $ne: amount },
+      },
+      {
+        $set: { amount },
+        $push: {
+          statusHistory: {
+            status: PaymentStatus.PENDING_CASH,
+            source: 'admin',
+            message: `Reembolso parcial: se cobra $${amount.toLocaleString('es-CO')} en la puerta`,
+            at: new Date(),
+          },
+        },
+      }
+    );
+    return result.modifiedCount > 0;
   }
 
   /**
@@ -2273,8 +2321,13 @@ export class PaymentService {
     // El monto sale del pedido, jamás de la petición. Si la fila y el
     // pedido discrepan, algo reescribió uno de los dos: se para en seco
     // en vez de cerrar un cobro por una cifra que nadie puede explicar.
-    const expected = order.finance?.customerTotal ?? order.total;
-    if (payment.amount !== expected) {
+    //
+    // El esperado es el NETO de reembolsos parciales (el cobro se re-fija
+    // al reembolsar). Solo se exige mientras el cobro sigue abierto: uno ya
+    // cerrado no cambia de monto, y un reembolso tardío no debe convertir
+    // una repetición idempotente en un 409.
+    const expected = await this.cashAmountDue(order);
+    if (payment.status === PaymentStatus.PENDING_CASH && payment.amount !== expected) {
       console.error('[PAYMENTS] Monto del cobro en efectivo inconsistente', {
         orderId: order._id.toString(),
         payment: payment.amount,

@@ -102,6 +102,7 @@ function sanitize(raw: Record<string, unknown>): ProductFormState {
     price: text(raw.price),
     discountPrice: text(raw.discountPrice),
     prepTimeMinutes: text(raw.prepTimeMinutes),
+    stock: text(raw.stock),
     requiresAgeVerification: raw.requiresAgeVerification === true,
     categoryId: text(raw.categoryId),
     extras: extras.map(({ name, price }) => ({ name, price })),

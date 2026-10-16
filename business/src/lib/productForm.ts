@@ -16,6 +16,8 @@ export interface ProductFormState {
   price: string;
   discountPrice: string;
   prepTimeMinutes: string;
+  /** Unidades disponibles. Vacío = no llevo la cuenta; 0 = agotado. */
+  stock: string;
   requiresAgeVerification: boolean;
   categoryId: string;
   extras: ExtraOption[];
@@ -28,6 +30,7 @@ export const EMPTY_PRODUCT_FORM: ProductFormState = {
   price: '',
   discountPrice: '',
   prepTimeMinutes: '',
+  stock: '',
   requiresAgeVerification: false,
   categoryId: '',
   extras: [],
@@ -76,6 +79,22 @@ export function readPricing(form: ProductFormState): PricingRead {
   }
 
   return { ok: true, price, discountPrice, prepTimeMinutes };
+}
+
+export type StockRead = { ok: true; stock: number | null } | { ok: false; message: string };
+
+/**
+ * Las unidades escritas, ya convertidas. Vacío es «no llevo la cuenta»
+ * (`null`), que no es lo mismo que cero: cero dice que se acabó.
+ */
+export function readStock(form: ProductFormState): StockRead {
+  const raw = form.stock.trim();
+  if (!raw) return { ok: true, stock: null };
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    return { ok: false, message: 'Las unidades son un número entero, de 0 en adelante.' };
+  }
+  return { ok: true, stock: value };
 }
 
 /** El servidor exige al menos dos caracteres. */
@@ -156,6 +175,7 @@ export function hasDraftContent(form: ProductFormState): boolean {
       form.price.trim() ||
       form.discountPrice.trim() ||
       form.prepTimeMinutes.trim() ||
+      form.stock.trim() ||
       form.requiresAgeVerification ||
       form.extras.length ||
       form.modifierGroups.length

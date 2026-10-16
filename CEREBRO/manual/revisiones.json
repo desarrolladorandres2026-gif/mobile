@@ -1,0 +1,513 @@
+{
+  "version": 1,
+  "revisiones": [
+    {
+      "archivo": "backend/src/utils/money.ts",
+      "rangos": [
+        [
+          1,
+          104
+        ]
+      ],
+      "hash": "8b4a3f758af1075ecfb0fc09b28c8d65624d4083",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.425Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/utils/gatewayFee.ts",
+      "rangos": [
+        [
+          1,
+          94
+        ]
+      ],
+      "hash": "a9253ed28c0aefd5bc46b399a7c0fb14ffa5f8e1",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.425Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/pricing.service.ts",
+      "rangos": [
+        [
+          1,
+          1857
+        ]
+      ],
+      "hash": "b7294931668307698721619a8bb2fa64c45b6553",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.426Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/ledger.service.ts",
+      "rangos": [
+        [
+          1,
+          766
+        ]
+      ],
+      "hash": "3c76bcc3bb2b66bab9ab8b88c37c35d990878c6d",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.426Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/refund.service.ts",
+      "rangos": [
+        [
+          1,
+          683
+        ]
+      ],
+      "hash": "eb624a3ca150aacd19be67afac4c7ea0057b46af",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.426Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/order.service.ts",
+      "rangos": [
+        [
+          1,
+          200
+        ],
+        [
+          403,
+          713
+        ],
+        [
+          934,
+          1342
+        ],
+        [
+          1431,
+          1900
+        ]
+      ],
+      "hash": "86400dac7f7640d3f40a38776e4d34aec6c5f56b",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.427Z",
+      "nota": "Lectura parcial: creación, updateStatus, desasignación, onDelivered, onCancelled. El archivo tuvo cambios concurrentes de otra sesión durante la auditoría; verificar con `comprobar`.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/payout.service.ts",
+      "rangos": [
+        [
+          100,
+          460
+        ],
+        [
+          562,
+          961
+        ]
+      ],
+      "hash": "c49773fdffe56c81a54800947fca05fd00568e1d",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.427Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/payments/index.ts",
+      "rangos": [
+        [
+          1290,
+          2010
+        ],
+        [
+          2465,
+          2680
+        ]
+      ],
+      "hash": "fb3d09ea7f0d3e51aced51608dc611b7a32bef0e",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.428Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/payments/wompi.provider.ts",
+      "rangos": [
+        [
+          516,
+          576
+        ]
+      ],
+      "hash": "4d30750e57eb712032cee239f015626bfdf36a03",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.428Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/platformResult.service.ts",
+      "rangos": [
+        [
+          1,
+          80
+        ]
+      ],
+      "hash": "1bcd7de83f11677707edcfdc4ed4aec179099e0b",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.428Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/authorization.service.ts",
+      "rangos": [
+        [
+          205,
+          240
+        ]
+      ],
+      "hash": "31216a7c71eb009e2c2100e7101382f0df66203e",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.428Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/middlewares/auth.ts",
+      "rangos": [
+        [
+          60,
+          390
+        ]
+      ],
+      "hash": "0b9991cd1749cbdee9812ab5308f82b7600ed792",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.429Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/security/otp.ts",
+      "rangos": [
+        [
+          1,
+          140
+        ]
+      ],
+      "hash": "99bcd201e4f81bb91f93f3d9c2e18f4b9f08b57f",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.429Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/security/rbac.ts",
+      "rangos": [
+        [
+          1,
+          140
+        ]
+      ],
+      "hash": "4123dd9a3eaa725f6b5ac25e240bb9e55aeb3ab1",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.429Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/routes/order.routes.ts",
+      "rangos": [
+        [
+          1,
+          108
+        ]
+      ],
+      "hash": "9dd02f3ad182171ad35681648e958bead0e61158",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.429Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/routes/index.ts",
+      "rangos": [
+        [
+          1,
+          60
+        ]
+      ],
+      "hash": "aef8163de79d9a5b33d573f049775c8a7f0e0d7f",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.429Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/app.ts",
+      "rangos": [
+        [
+          1,
+          120
+        ]
+      ],
+      "hash": "9504adf048cd7d299aa405924bb51b2da3fd104d",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.429Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/controllers/order.controller.ts",
+      "rangos": [
+        [
+          87,
+          111
+        ],
+        [
+          163,
+          189
+        ]
+      ],
+      "hash": "1151c651769bc8caffdebfd7fb770eda57968507",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.429Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/controllers/coupon.controller.ts",
+      "rangos": [
+        [
+          1,
+          50
+        ]
+      ],
+      "hash": "d60a9709d474b721f9fce7a81c1beb9d2295e295",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.430Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/controllers/payment.controller.ts",
+      "rangos": [
+        [
+          360,
+          440
+        ]
+      ],
+      "hash": "fb8b900d999d08170987aeff69246faa63d599f9",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.430Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/models/Payout.ts",
+      "rangos": [
+        [
+          1,
+          80
+        ]
+      ],
+      "hash": "4f8921d0458948cdbc58b1f1cf449946ba3121a4",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.430Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/models/Payment.ts",
+      "rangos": [
+        [
+          93,
+          123
+        ]
+      ],
+      "hash": "9a171fecd97e687c269ddd23ee713919dfc91f2b",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.431Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/sockets/emitter.ts",
+      "rangos": [
+        [
+          1,
+          104
+        ]
+      ],
+      "hash": "3019cff771c0f8c91cf8fea2672fe1079f82e5b8",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.431Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "mobile/services/endpoints.ts",
+      "rangos": [
+        [
+          1,
+          60
+        ]
+      ],
+      "hash": "2b07062d0a1861d8609d9ae192213eae9a94f608",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.431Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "mobile/services/api.ts",
+      "rangos": [
+        [
+          1,
+          60
+        ]
+      ],
+      "hash": "d2d9b4099575ffaab10fdd7bab71993ef36856ff",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.431Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "mobile/stores/cartStore.ts",
+      "rangos": [
+        [
+          1,
+          70
+        ]
+      ],
+      "hash": "51a3766c05e4e7e7c7b87c2c1359e645e50b617d",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.431Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "admin/src/services/api.ts",
+      "rangos": [
+        [
+          1,
+          50
+        ]
+      ],
+      "hash": "0bda788c781d545313404e835eec41416df9d425",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.431Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "web/src/lib/api.ts",
+      "rangos": [
+        [
+          1,
+          53
+        ]
+      ],
+      "hash": "166a6cd5001fb3469afbaa6ad2fb11700a561f3e",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.431Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": ".github/workflows/mobile-typecheck.yml",
+      "rangos": [
+        [
+          1,
+          25
+        ]
+      ],
+      "hash": "6ef7c6503f2e197fb3aeeed94c9e07332592745d",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.431Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": ".claude/settings.json",
+      "rangos": [
+        [
+          1,
+          38
+        ]
+      ],
+      "hash": "0cff86443fde6b8491c6c0cce200b5b615813c24",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.432Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/__tests__/payment-hardening.test.ts",
+      "rangos": [
+        [
+          1,
+          120
+        ],
+        [
+          606,
+          700
+        ]
+      ],
+      "hash": "ca7eff037cbe8054ab359de56e1b1756cb03da31",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.432Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/__tests__/cashPayments.test.ts",
+      "rangos": [
+        [
+          1,
+          200
+        ]
+      ],
+      "hash": "8b2053ecd05c66b2dba29b9138aecc09e2107013",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T01:46:50.432Z",
+      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/coupon.service.ts",
+      "rangos": [
+        [
+          286,
+          616
+        ]
+      ],
+      "hash": "df5fc3adef7c6e907df3e310b4788b0b0f6e7ca8",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T02:16:53.294Z",
+      "nota": "Lectura de los rangos indicados en la auditoría de 2026-10-15 (cupones: reparto, tope de presupuesto, canje atómico y liberación).",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/__tests__/payment-hardening.test.ts",
+      "rangos": [
+        [
+          1,
+          120
+        ],
+        [
+          606,
+          700
+        ]
+      ],
+      "hash": "ca7eff037cbe8054ab359de56e1b1756cb03da31",
+      "revisor": "claude-sonnet-5-5",
+      "fecha": "2026-10-16T02:16:53.296Z",
+      "nota": "Lectura de la prueba del cobro tardío y de los ayudantes de escenario.",
+      "nivel": "lectura"
+    }
+  ]
+}

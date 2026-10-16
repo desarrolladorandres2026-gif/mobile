@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "nota": "Notas de la auditoría de roles y permisos. La matriz de rutas y las matrices rol→permiso se generan automáticamente desde el código; aquí van las conclusiones que requieren juicio.",
+  "notas": [
+    {
+      "titulo": "Roles de cuenta y permisos efectivos",
+      "gravedad": "media",
+      "texto": "Hay cuatro tipos de cuenta (CLIENT, BUSINESS, DRIVER, ADMIN) y, encima, permisos RBAC granulares para ADMIN (roles y cargos) y roles de equipo dentro de un comercio (propietario, encargado, empleado…) con un tope especial para la sesión de mostrador. `authorize(...)` compara el tipo de cuenta; `requirePermission` compara permisos y, por su propia documentación, NO restringe por tipo de cuenta; `adminRequires` aplica el permiso solo si quien llama es admin y deja pasar a los demás roles a sus propias comprobaciones en el controlador."
+    },
+    {
+      "titulo": "Los permisos de admin solo bloquean con `rbac_enforce` encendido",
+      "gravedad": "alta",
+      "texto": "Sin el flag, `can()` devuelve true para todo admin aunque su rol no incluya el permiso (modo observación, solo registra). Ver hallazgo M-011. Hasta confirmar el valor del flag en producción, la matriz de permisos por rol debe leerse como intención, no como control activo.",
+      "refs": [{ "archivo": "backend/src/services/authorization.service.ts", "linea": 230, "ancla": "return on ? 'enforce' : 'observe';" }]
+    },
+    {
+      "titulo": "Controles verificados leyendo el código",
+      "gravedad": "baja",
+      "texto": "(1) Acceso a pedidos por objeto: `getById` y `getBusinessOrders` comprueban que quien llama sea el cliente, el domiciliario asignado, personal del comercio con `orders:view` y en el alcance de su rol, o un admin. (2) El domiciliario solo cambia el estado del pedido que tiene asignado (`Driver.findOne({_id: order.driverId, userId})`). (3) Cancelar un pedido pagado exige `orders:cancel_paid` en el comercio y permiso de reembolsos en el admin. (4) El admin que salta un código de recogida/entrega queda auditado con severidad alta. (5) Los OTP se guardan como HMAC con 5 intentos atómicos y comparación en tiempo constante. (6) Los pagos y la configuración de precios exigen permisos financieros y dejan auditoría.",
+      "refs": [{ "archivo": "backend/src/controllers/order.controller.ts", "linea": 87, "ancla": "async getById(req: Request, res: Response, next: NextFunction) {" }, { "archivo": "backend/src/security/otp.ts", "linea": 25, "ancla": "export const OTP_MAX_ATTEMPTS = 5;" }]
+    },
+    {
+      "titulo": "Las compuertas de la interfaz no son seguridad",
+      "gravedad": "media",
+      "texto": "Los paneles ocultan rutas con `RequireAccess`/`PermissionGate`, pero cualquier protección real está en el backend. La pestaña «Guardas por ruta» lista lo que el backend aplica de verdad. Falta un cruce automático compuerta de interfaz ↔ guarda de la ruta que esa pantalla llama (pendiente de implementar)."
+    }
+  ]
+}

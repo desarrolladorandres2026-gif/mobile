@@ -55,5 +55,7 @@ describe('Validación de los mensajes del puente', () => {
     expect(validateSettingsSet({ key: 'printerName', value: 123 }).ok).toBe(false);
     expect(validateSettingsSet({ key: 'paperWidthMm', value: 80 })).toMatchObject({ ok: true });
     expect(validateSettingsSet({ key: 'paperWidthMm', value: '80' }).ok).toBe(false);
+    expect(validateSettingsSet({ key: 'autoPrint', value: true })).toMatchObject({ ok: true });
+    expect(validateSettingsSet({ key: 'autoPrint', value: 'si' }).ok).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ import { orderService, UNACCEPTED_ORDER_MS } from '../services/order.service';
 import { refundService } from '../services/refund.service';
 import { config } from '../config';
 import { Order, Product } from '../models';
-import { CancelledBy, OrderStatus, PaymentMethod, PaymentStatus, RefundKind, UserRole } from '../types';
+import { CancellationReason, CancelledBy, OrderStatus, PaymentMethod, PaymentStatus, RefundKind, UserRole } from '../types';
 import { makeUser, makeBusiness, makeProduct, makePricingConfig, GARZON, offsetKm } from './factories';
 
 const DESTINATION = offsetKm(GARZON, 1);
@@ -65,6 +65,8 @@ describe('Pedidos que el comercio nunca aceptó', () => {
     const saved = await Order.findById(order._id);
     expect(saved!.status).toBe(OrderStatus.CANCELLED);
     expect(saved!.cancelledBy).toBe(CancelledBy.SYSTEM);
+    // Queda atribuido al comercio en las métricas, no como «otro motivo».
+    expect(saved!.cancellationCode).toBe(CancellationReason.BUSINESS_NO_RESPONSE);
     expect(await stock()).toBe(10);
   });
 

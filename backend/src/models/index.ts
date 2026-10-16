@@ -31,7 +31,7 @@ export {
 export { Driver, IDriver } from './Driver';
 export { DriverLocation, IDriverLocation } from './DriverLocation';
 export { DriverShift, IDriverShift } from './DriverShift';
-export { Order, IOrder, IOrderItem, IOrderFinance } from './Order';
+export { Order, IOrder, IOrderItem, IOrderFinance, IItemShortage, IItemShortageLine, IItemShortageAllocation, IItemShortageAfter } from './Order';
 
 // ── Traspaso físico del pedido ───────────────────────────────────────
 export { OrderEvidence, IOrderEvidence } from './OrderEvidence';

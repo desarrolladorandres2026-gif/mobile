@@ -47,6 +47,10 @@ const LABELS: Record<string, string> = {
   [OrderTimelineAction.CANCELLED]: 'Pedido cancelado',
   [OrderTimelineAction.CASH_CONFIRMED]: 'Efectivo recibido por el domiciliario',
   [OrderTimelineAction.CASH_NOT_RECEIVED]: 'El domiciliario no recibió el efectivo',
+  [OrderTimelineAction.ITEM_SHORTAGE_REPORTED]: 'El comercio avisó que falta un producto',
+  [OrderTimelineAction.ITEM_SHORTAGE_ACCEPTED]: 'El cliente aceptó seguir sin el producto',
+  [OrderTimelineAction.ITEM_SHORTAGE_REJECTED]: 'El cliente no aceptó seguir sin el producto',
+  [OrderTimelineAction.ITEM_SHORTAGE_EXPIRED]: 'El cliente no respondió a tiempo por el producto que falta',
 };
 
 /** Estado del pedido → hito que lo anuncia. */

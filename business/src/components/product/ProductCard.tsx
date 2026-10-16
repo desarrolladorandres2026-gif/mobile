@@ -35,6 +35,12 @@ export default function ProductCard({
   const offer = product.discountPrice ?? null;
   const percent = discountPercent(product.price, offer);
   const soldOut = !product.isAvailable;
+  const backAt =
+    soldOut && product.unavailableUntil
+      ? new Intl.DateTimeFormat('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true }).format(
+          new Date(product.unavailableUntil)
+        )
+      : null;
   const hasStock = typeof product.stock === 'number';
   const lowStock = hasStock && product.stock! > 0 && product.stock! <= (product.lowStockThreshold || 3);
   const canToggle = canEdit || canAvailability;
@@ -145,6 +151,9 @@ export default function ProductCard({
                 <ToggleRight className="h-6 w-6 text-[var(--color-primary)]" />
               )}
               {soldOut ? 'Agotado' : 'Disponible'}
+              {soldOut && backAt ? (
+                <span className="font-normal text-[var(--color-text-secondary)]">· vuelve {backAt}</span>
+              ) : null}
             </button>
           )}
           {canEdit && (

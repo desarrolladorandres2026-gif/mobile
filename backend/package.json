@@ -47,6 +47,7 @@
     "migrate:support-center": "tsx src/migrations/027-support-center.ts",
     "migrate:revoke-business-full-sessions": "tsx src/migrations/028-revoke-business-full-sessions.ts",
     "migrate:payout-late-refund": "tsx src/migrations/029-payout-late-refund-split.ts",
+    "migrate:counter-pin-2fa": "tsx src/migrations/030-counter-pin-requires-2fa.ts",
     "test": "vitest run",
     "test:load": "vitest run --config vitest.load.config.ts",
     "test:watch": "vitest",

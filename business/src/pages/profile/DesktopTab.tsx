@@ -16,6 +16,7 @@ export default function DesktopTab() {
   const [printerName, setPrinterName] = useState('');
   const [paperWidthMm, setPaperWidthMm] = useState(80);
   const [launchAtLogin, setLaunchAtLogin] = useState(true);
+  const [autoPrint, setAutoPrint] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'printing' | 'ok' | 'error'>('idle');
   const [testError, setTestError] = useState('');
 
@@ -24,6 +25,7 @@ export default function DesktopTab() {
     listDesktopPrinters().then(setPrinters);
     desktopSettings.get('printerName').then((r) => setPrinterName((r.ok ? (r as { value?: unknown }).value as string : '') || ''));
     desktopSettings.get('paperWidthMm').then((r) => setPaperWidthMm((r.ok ? (r as { value?: unknown }).value as number : 80) || 80));
+    desktopSettings.get('autoPrint').then((r) => setAutoPrint(r.ok ? (r as { value?: unknown }).value === true : false));
     desktopSettings.get('launchAtLogin').then((r) => setLaunchAtLogin(r.ok ? ((r as { value?: unknown }).value as boolean) !== false : true));
   }, []);
 
@@ -84,10 +86,28 @@ export default function DesktopTab() {
         <div className="space-y-1.5">
           <h2 className="text-sm font-semibold text-[var(--color-text-main)]">Impresora de comandas</h2>
           <p className="text-xs leading-relaxed text-[var(--color-text-secondary)]">
-            Elige la impresora y el ancho del papel. Por ahora solo se imprime la comanda de prueba; la impresión automática al aceptar un pedido aún no está activa.
+            Elige la impresora y el ancho del papel. Con la impresión automática, la comanda sale sola cuando un pedido se acepta, aunque lo acepte otra persona desde otro dispositivo.
           </p>
         </div>
         <div className="min-w-0 space-y-4">
+          <label className="flex items-center justify-between gap-3 text-xs font-semibold text-[var(--color-text-main)]">
+            Imprimir la comanda al aceptar un pedido
+            <input
+              type="checkbox"
+              checked={autoPrint}
+              disabled={!printerName}
+              onChange={(e) => {
+                setAutoPrint(e.target.checked);
+                desktopSettings.set('autoPrint', e.target.checked);
+              }}
+              className="h-4 w-4 accent-[var(--color-primary)] disabled:opacity-40"
+            />
+          </label>
+          {!printerName ? (
+            <p className="text-[11px] text-[var(--color-text-secondary)]">
+              Elige primero una impresora para activar la impresión automática.
+            </p>
+          ) : null}
           <select
             value={printerName}
             onChange={(e) => {

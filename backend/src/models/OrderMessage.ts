@@ -10,14 +10,23 @@ import { UserRole } from '../types';
  * único identificador que existe es `orderId`, y quién puede leerlo se
  * deriva del propio pedido en cada petición.
  *
- * Solo hay dos interlocutores: cliente y domiciliario. Por eso `readAt`
- * es un único campo y no una lista de lectores: el destinatario de un
- * mensaje siempre es "el otro". Un administrador que consulta la
- * conversación por soporte no marca nada como leído; su lectura queda en
- * la auditoría, no en el hilo.
+ * Hay dos hilos por pedido y en cada uno solo dos interlocutores: el domiciliario
+ * habla con el cliente (`client_driver`) y, aparte, con el comercio
+ * (`business_driver`). El cliente nunca ve el hilo del comercio ni el comercio
+ * el del cliente: el primero puede estar contando dónde vive (auditoría
+ * 2026-10-01, MEDIO 5), y el segundo no tiene por qué saberlo. Por eso `readAt`
+ * es un único campo y no una lista de lectores: el destinatario de un mensaje
+ * siempre es "el otro" de su hilo. Un administrador que consulta la
+ * conversación por soporte no marca nada como leído; su lectura queda en la
+ * auditoría, no en el hilo.
  */
+
+export const CHAT_CHANNELS = ['client_driver', 'business_driver'] as const;
+export type ChatChannel = (typeof CHAT_CHANNELS)[number];
 export interface IOrderMessage extends Document {
   orderId: Types.ObjectId;
+  /** Hilo al que pertenece. Los mensajes anteriores a esta columna no la tienen: son `client_driver`. */
+  channel?: ChatChannel;
   senderId: Types.ObjectId;
   senderRole: UserRole;
   message: string;
@@ -30,14 +39,15 @@ const orderMessageSchema = new Schema<IOrderMessage>(
   {
     orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true, index: true },
     senderId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    // Solo cliente y domiciliario escriben en el hilo. El enum lo deja
+    // Solo cliente, domiciliario y comercio escriben. El enum lo deja
     // dicho en el esquema en vez de confiar en que ningún servicio futuro
     // se cuele con otro rol.
     senderRole: {
       type: String,
-      enum: [UserRole.CLIENT, UserRole.DRIVER],
+      enum: [UserRole.CLIENT, UserRole.DRIVER, UserRole.BUSINESS],
       required: true,
     },
+    channel: { type: String, enum: CHAT_CHANNELS, default: 'client_driver' },
     message: { type: String, required: true, trim: true, maxlength: 2000 },
     readAt: { type: Date, default: null },
   },

@@ -141,6 +141,11 @@ export const updateProductSchema = z.object({
     stock: z.number().int().min(0).nullable().optional(),
     lowStockThreshold: z.number().int().min(0).optional(),
     isAvailable: z.boolean().optional(),
+    /**
+     * Agotar por un tiempo: apaga el producto y lo devuelve a la carta solo.
+     * Se cuenta en el servidor, no con la hora del navegador.
+     */
+    unavailableForMinutes: z.number().int().min(5).max(1440).optional(),
     isFeatured: z.boolean().optional(),
   }),
 });

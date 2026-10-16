@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 import { Order, Review } from '../models';
-import { OrderStatus, PaymentMethod } from '../types';
+import { OrderStatus, PaymentMethod, RefundStatus } from '../types';
 import { bogotaDayRange, bogotaDateString, shiftDateString } from '../utils/period';
 import { cashHandover } from './cashHandover.service';
 
@@ -14,6 +14,12 @@ import { cashHandover } from './cashHandover.service';
  * sale del snapshot inmutable `order.finance` —el mismo que usa la
  * liquidación—, así que este número y el de Liquidaciones no pueden
  * discrepar. El día se corta en hora de Bogotá.
+ *
+ * Neto de reembolsos: comisión, pago al comercio y lo cobrado (efectivo y
+ * digital) restan los reembolsos COMPLETADOS del pedido entregado (`$lookup` a
+ * `refunds`; el mismo `finance − Σ allocation` de `refundService.netOf`).
+ * Limitación: `sales` (subtotal de producto) y `merchantFundedDiscount` quedan
+ * en bruto, porque el reembolso parcial reparte por cuenta, no por ítem.
  */
 
 export interface BusinessDaySnapshot {
@@ -83,6 +89,44 @@ async function snapshot(businessId: Types.ObjectId, date: string): Promise<Busin
   const [[orders], [reviews], handover] = await Promise.all([
     Order.aggregate([
       { $match: { businessId, $nor: [UNPAID_ONLINE_MATCH], createdAt: { $gte: from, $lte: to } } },
+      // `finance` es el techo inmutable; lo vivo es finance − Σ reembolsos
+      // completados (ver `refundService.netOf`). Solo se trae lo necesario de
+      // los pedidos ENTREGADOS, que son los que suman dinero aquí.
+      {
+        $lookup: {
+          from: 'refunds',
+          let: { oid: '$_id', isDelivered: delivered },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$orderId', '$$oid'] },
+                    { $eq: ['$status', RefundStatus.COMPLETED] },
+                    '$$isDelivered',
+                  ],
+                },
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                amount: { $sum: '$amount' },
+                merchantPayout: { $sum: '$allocation.fromMerchantPayout' },
+                commission: { $sum: '$allocation.fromCommission' },
+              },
+            },
+          ],
+          as: '_refunds',
+        },
+      },
+      {
+        $addFields: {
+          refundedAmount: { $ifNull: [{ $first: '$_refunds.amount' }, 0] },
+          refundedPayout: { $ifNull: [{ $first: '$_refunds.merchantPayout' }, 0] },
+          refundedCommission: { $ifNull: [{ $first: '$_refunds.commission' }, 0] },
+        },
+      },
       {
         $group: {
           _id: null,
@@ -90,9 +134,9 @@ async function snapshot(businessId: Types.ObjectId, date: string): Promise<Busin
           delivered: { $sum: whenDelivered(1) },
           cancelled: { $sum: { $cond: [{ $eq: ['$status', OrderStatus.CANCELLED] }, 1, 0] } },
           sales: { $sum: whenDelivered({ $ifNull: ['$finance.productSubtotal', '$subtotal'] }) },
-          commission: { $sum: whenDelivered({ $ifNull: ['$finance.merchantCommission', 0] }) },
+          commission: { $sum: whenDelivered({ $max: [0, { $subtract: [{ $ifNull: ['$finance.merchantCommission', 0] }, '$refundedCommission'] }] }) },
           merchantDiscount: { $sum: whenDelivered({ $ifNull: ['$finance.merchantFundedDiscount', 0] }) },
-          payout: { $sum: whenDelivered({ $ifNull: ['$finance.businessPayout', 0] }) },
+          payout: { $sum: whenDelivered({ $max: [0, { $subtract: [{ $ifNull: ['$finance.businessPayout', 0] }, '$refundedPayout'] }] }) },
           prepMinutes: {
             $avg: {
               $cond: [
@@ -103,9 +147,9 @@ async function snapshot(businessId: Types.ObjectId, date: string): Promise<Busin
             },
           },
           cashCount: { $sum: { $cond: [{ $and: [delivered, isCash] }, 1, 0] } },
-          cashAmount: { $sum: { $cond: [{ $and: [delivered, isCash] }, { $ifNull: ['$finance.customerTotal', '$total'] }, 0] } },
+          cashAmount: { $sum: { $cond: [{ $and: [delivered, isCash] }, { $max: [0, { $subtract: [{ $ifNull: ['$finance.customerTotal', '$total'] }, '$refundedAmount'] }] }, 0] } },
           digitalCount: { $sum: { $cond: [{ $and: [delivered, { $not: [isCash] }] }, 1, 0] } },
-          digitalAmount: { $sum: { $cond: [{ $and: [delivered, { $not: [isCash] }] }, { $ifNull: ['$finance.customerTotal', '$total'] }, 0] } },
+          digitalAmount: { $sum: { $cond: [{ $and: [delivered, { $not: [isCash] }] }, { $max: [0, { $subtract: [{ $ifNull: ['$finance.customerTotal', '$total'] }, '$refundedAmount'] }] }, 0] } },
         },
       },
     ]),

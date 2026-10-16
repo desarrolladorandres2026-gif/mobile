@@ -46,7 +46,7 @@ function assertCatalog(req: Request, businessId: string, permission: BusinessPer
 }
 
 /** Campos que `catalog:availability` puede escribir: la cocina del momento. */
-const AVAILABILITY_FIELDS = new Set(['isAvailable', 'stock']);
+const AVAILABILITY_FIELDS = new Set(['isAvailable', 'stock', 'unavailableForMinutes']);
 
 function isAvailabilityOnly(body: Record<string, unknown>): boolean {
   const fields = Object.keys(body).filter((key) => key !== 'businessId' && body[key] !== undefined);

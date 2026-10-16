@@ -98,7 +98,7 @@ export function mountGraph(container, { nodes, edges, onSelect, selected = null,
     const ys = nodes.flatMap((n) => [n.y - n.h / 2, n.y + n.h / 2]);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
     const W = container.clientWidth || 900, H = container.clientHeight || 520;
-    const k = Math.min(1.2, Math.min((W - 60) / Math.max(1, maxX - minX), (H - 60) / Math.max(1, maxY - minY)));
+    const k = Math.min(1.7, Math.min((W - 60) / Math.max(1, maxX - minX), (H - 60) / Math.max(1, maxY - minY)));
     view.k = k;
     view.x = (W - (maxX - minX) * k) / 2 - minX * k;
     view.y = (H - (maxY - minY) * k) / 2 - minY * k;
@@ -237,3 +237,24 @@ export function layoutForce(nodes, edges, { iterations = 380, width = 1400, heig
 }
 
 export const _esc = esc;
+
+/** Capas deterministas: una columna por «col»; las columnas largas se parten en sub-columnas de `maxFilas`. */
+export function layoutLayers(nodes, { rowH = 54, gapX = 150, subGap = 36, maxFilas = 15 } = {}) {
+  const cols = new Map();
+  for (const n of nodes) { const c = n.col ?? 0; if (!cols.has(c)) cols.set(c, []); cols.get(c).push(n); }
+  let x = 0;
+  for (const c of [...cols.keys()].sort((a, b) => a - b)) {
+    const list = cols.get(c).sort((a, b) => String(a.pkg ?? '').localeCompare(String(b.pkg ?? '')) || String(a.id).localeCompare(String(b.id)));
+    const subs = Math.max(1, Math.ceil(list.length / maxFilas));
+    const per = Math.ceil(list.length / subs);
+    const w = Math.max(...list.map((n) => n.w ?? 170));
+    list.forEach((n, i) => {
+      const s = Math.floor(i / per);
+      const r = i % per;
+      n.x = x + s * (w + subGap) + w / 2;
+      n.y = r * rowH - ((per - 1) * rowH) / 2;
+    });
+    x += subs * (w + subGap) + gapX;
+  }
+  return nodes;
+}

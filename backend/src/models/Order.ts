@@ -9,6 +9,8 @@ import {
   OrderKind,
   CancellationReason,
   CancelledBy,
+  ItemShortageStatus,
+  ItemShortageReason,
 } from '../types';
 import { getNextSequence } from './Counter';
 
@@ -93,6 +95,136 @@ export interface IOrderDispatch {
   /** Cuándo deja de valer la ronda actual. */
   expiresAt?: Date | null;
   lastOfferedAt?: Date | null;
+}
+
+/**
+ * Cuenta por cuenta, lo que el faltante le quita al pedido. Es el mismo
+ * reparto que un `Refund` (`RefundAllocation`) y se calcula por adelantado,
+ * al avisar, para que aceptar no tenga que decidir nada: solo ejecuta lo ya
+ * fijado. Interno: nunca sale hacia el cliente ni el comercio.
+ */
+export interface IItemShortageAllocation {
+  fromMerchantPayout: number;
+  fromDriverPayout: number;
+  fromCommission: number;
+  fromDeliveryMargin: number;
+  fromServiceFee: number;
+  fromTax: number;
+  fromPlatform: number;
+}
+
+/** Las cifras del pedido DESPUES del faltante (neto). Interno. */
+export interface IItemShortageAfter {
+  productSubtotal: number;
+  customerTotal: number;
+  businessPayout: number;
+  merchantCommission: number;
+  customerServiceFee: number;
+  taxPayable: number;
+  merchantFundedDiscount: number;
+  platformFundedDiscount: number;
+  platformGrossRevenue: number;
+  cashToRemit: number;
+}
+
+export interface IItemShortageLine {
+  /** `_id` de la linea en `order.items`. */
+  itemId: string;
+  productName: string;
+  quantity: number;
+  missingQty: number;
+}
+
+/**
+ * Consulta al cliente por un producto que falta (v1: solo efectivo, una sola
+ * ronda por pedido). No es un estado del pedido: la maquina de estados sigue
+ * siendo `VALID_TRANSITIONS`; esto solo la frena (PREPARING -> READY) y,
+ * si el cliente acepta, ejecuta un `Refund` PARCIAL con el reparto ya fijado.
+ */
+export interface IItemShortage {
+  _id: Types.ObjectId;
+  status: ItemShortageStatus;
+  reason: ItemShortageReason;
+  note?: string;
+  items: IItemShortageLine[];
+  requestedAt: Date;
+  expiresAt: Date;
+  respondedAt?: Date | null;
+  /** Lo que el cliente deja de pagar si acepta. */
+  refundAmount: number;
+  allocation: IItemShortageAllocation;
+  after: IItemShortageAfter;
+  /** Cuando el Refund quedo asentado. `null` mientras `accepted` no se ejecuto. */
+  appliedAt?: Date | null;
+  applyAttempts: number;
+  lastApplyError?: string | null;
+  requestedBy: Types.ObjectId;
+  respondedBy?: Types.ObjectId | null;
+}
+
+/**
+ * Cuenta por cuenta, lo que el faltante le quita al pedido. Es el mismo
+ * reparto que un `Refund` (`RefundAllocation`) y se calcula por adelantado,
+ * al avisar, para que aceptar no tenga que decidir nada: solo ejecuta lo ya
+ * fijado. Interno: nunca sale hacia el cliente ni el comercio.
+ */
+export interface IItemShortageAllocation {
+  fromMerchantPayout: number;
+  fromDriverPayout: number;
+  fromCommission: number;
+  fromDeliveryMargin: number;
+  fromServiceFee: number;
+  fromTax: number;
+  fromPlatform: number;
+}
+
+/** Las cifras del pedido DESPUES del faltante (neto). Interno. */
+export interface IItemShortageAfter {
+  productSubtotal: number;
+  customerTotal: number;
+  businessPayout: number;
+  merchantCommission: number;
+  customerServiceFee: number;
+  taxPayable: number;
+  merchantFundedDiscount: number;
+  platformFundedDiscount: number;
+  platformGrossRevenue: number;
+  cashToRemit: number;
+}
+
+export interface IItemShortageLine {
+  /** `_id` de la linea en `order.items`. */
+  itemId: string;
+  productName: string;
+  quantity: number;
+  missingQty: number;
+}
+
+/**
+ * Consulta al cliente por un producto que falta (v1: solo efectivo, una sola
+ * ronda por pedido). No es un estado del pedido: la maquina de estados sigue
+ * siendo `VALID_TRANSITIONS`; esto solo la frena (PREPARING -> READY) y,
+ * si el cliente acepta, ejecuta un `Refund` PARCIAL con el reparto ya fijado.
+ */
+export interface IItemShortage {
+  _id: Types.ObjectId;
+  status: ItemShortageStatus;
+  reason: ItemShortageReason;
+  note?: string;
+  items: IItemShortageLine[];
+  requestedAt: Date;
+  expiresAt: Date;
+  respondedAt?: Date | null;
+  /** Lo que el cliente deja de pagar si acepta. */
+  refundAmount: number;
+  allocation: IItemShortageAllocation;
+  after: IItemShortageAfter;
+  /** Cuando el Refund quedo asentado. `null` mientras `accepted` no se ejecuto. */
+  appliedAt?: Date | null;
+  applyAttempts: number;
+  lastApplyError?: string | null;
+  requestedBy: Types.ObjectId;
+  respondedBy?: Types.ObjectId | null;
 }
 
 export interface IOrder extends Document {
@@ -236,6 +368,8 @@ export interface IOrder extends Document {
   cancelledByUserId?: Types.ObjectId;
   /** Estado de la oferta automática. Ausente en pedidos anteriores al reparto. */
   dispatch?: IOrderDispatch;
+  /** Producto que falta y la consulta al cliente. Ver `IItemShortage`. */
+  itemShortage?: IItemShortage;
   city: string;
   idempotencyKey?: string;
   createdAt: Date;
@@ -270,6 +404,200 @@ const orderItemSchema = new Schema(
     notes: { type: String, default: '' },
   },
   { _id: true }
+);
+
+const shortageIntMoney = { type: Number, required: true, min: 0, validate: Number.isInteger };
+
+const shortageAllocationSchema = new Schema(
+  {
+    fromMerchantPayout: shortageIntMoney,
+    fromDriverPayout: shortageIntMoney,
+    fromCommission: shortageIntMoney,
+    // Con signo en `RefundAllocation`, pero un faltante nunca toca el margen.
+    fromDeliveryMargin: shortageIntMoney,
+    fromServiceFee: shortageIntMoney,
+    fromTax: shortageIntMoney,
+    fromPlatform: shortageIntMoney,
+  },
+  { _id: false }
+);
+
+const shortageAfterSchema = new Schema(
+  {
+    productSubtotal: shortageIntMoney,
+    customerTotal: shortageIntMoney,
+    businessPayout: shortageIntMoney,
+    merchantCommission: shortageIntMoney,
+    customerServiceFee: shortageIntMoney,
+    taxPayable: shortageIntMoney,
+    merchantFundedDiscount: shortageIntMoney,
+    platformFundedDiscount: shortageIntMoney,
+    platformGrossRevenue: shortageIntMoney,
+    cashToRemit: shortageIntMoney,
+  },
+  { _id: false }
+);
+
+/**
+ * Lo unico que sale hacia fuera del backend: el contrato que consumen el panel
+ * del comercio y la app del cliente. `allocation`, `after` y la telemetria del
+ * reintento son dinero interno (margen de ZIPP, comision) y no viajan.
+ *
+ * Va en el esquema del subdocumento —`toJSON` y `toObject`— y no en cada
+ * controlador: el pedido sale por listas, detalle, sockets y el enmascarado del
+ * personal, y una lista blanca repartida en todos esos sitios es una fuga el
+ * dia que se olvide uno. Los servicios leen las propiedades del documento
+ * directamente, que la transformacion no toca. Un `.lean()` si las devuelve
+ * crudas: ningun endpoint de cliente ni de comercio lo usa para pedidos.
+ */
+export function shortagePublicView(_doc: unknown, ret: Record<string, any>) {
+  return {
+    id: String(ret._id),
+    status: ret.status,
+    reason: ret.reason,
+    ...(ret.note ? { note: ret.note } : {}),
+    items: (ret.items ?? []).map((i: IItemShortageLine) => ({
+      itemId: i.itemId,
+      productName: i.productName,
+      quantity: i.quantity,
+      missingQty: i.missingQty,
+    })),
+    requestedAt: ret.requestedAt,
+    expiresAt: ret.expiresAt,
+    respondedAt: ret.respondedAt ?? null,
+    refundAmount: ret.refundAmount,
+  };
+}
+
+const itemShortageSchema = new Schema<IItemShortage>(
+  {
+    status: { type: String, enum: Object.values(ItemShortageStatus), required: true },
+    reason: { type: String, enum: Object.values(ItemShortageReason), required: true },
+    note: { type: String, trim: true, maxlength: 200 },
+    items: {
+      type: [
+        new Schema(
+          {
+            itemId: { type: String, required: true },
+            productName: { type: String, required: true },
+            quantity: { type: Number, required: true, min: 1 },
+            missingQty: { type: Number, required: true, min: 1 },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
+    requestedAt: { type: Date, required: true },
+    expiresAt: { type: Date, required: true },
+    respondedAt: { type: Date, default: null },
+    refundAmount: { ...shortageIntMoney },
+    allocation: { type: shortageAllocationSchema, required: true },
+    after: { type: shortageAfterSchema, required: true },
+    appliedAt: { type: Date, default: null },
+    applyAttempts: { type: Number, default: 0, min: 0 },
+    lastApplyError: { type: String, default: null },
+    requestedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    respondedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  },
+  { _id: true, toJSON: { transform: shortagePublicView }, toObject: { transform: shortagePublicView } }
+);
+
+const shortageIntMoney = { type: Number, required: true, min: 0, validate: Number.isInteger };
+
+const shortageAllocationSchema = new Schema(
+  {
+    fromMerchantPayout: shortageIntMoney,
+    fromDriverPayout: shortageIntMoney,
+    fromCommission: shortageIntMoney,
+    // Con signo en `RefundAllocation`, pero un faltante nunca toca el margen.
+    fromDeliveryMargin: shortageIntMoney,
+    fromServiceFee: shortageIntMoney,
+    fromTax: shortageIntMoney,
+    fromPlatform: shortageIntMoney,
+  },
+  { _id: false }
+);
+
+const shortageAfterSchema = new Schema(
+  {
+    productSubtotal: shortageIntMoney,
+    customerTotal: shortageIntMoney,
+    businessPayout: shortageIntMoney,
+    merchantCommission: shortageIntMoney,
+    customerServiceFee: shortageIntMoney,
+    taxPayable: shortageIntMoney,
+    merchantFundedDiscount: shortageIntMoney,
+    platformFundedDiscount: shortageIntMoney,
+    platformGrossRevenue: shortageIntMoney,
+    cashToRemit: shortageIntMoney,
+  },
+  { _id: false }
+);
+
+/**
+ * Lo unico que sale hacia fuera del backend: el contrato que consumen el panel
+ * del comercio y la app del cliente. `allocation`, `after` y la telemetria del
+ * reintento son dinero interno (margen de ZIPP, comision) y no viajan.
+ *
+ * Va en el esquema del subdocumento �`toJSON` y `toObject`� y no en cada
+ * controlador: el pedido sale por listas, detalle, sockets y el enmascarado del
+ * personal, y una lista blanca repartida en todos esos sitios es una fuga el
+ * dia que se olvide uno. Los servicios leen las propiedades del documento
+ * directamente, que la transformacion no toca. Un `.lean()` si las devuelve
+ * crudas: ningun endpoint de cliente ni de comercio lo usa para pedidos.
+ */
+function shortagePublicView(_doc: unknown, ret: Record<string, any>) {
+  return {
+    id: String(ret._id),
+    status: ret.status,
+    reason: ret.reason,
+    ...(ret.note ? { note: ret.note } : {}),
+    items: (ret.items ?? []).map((i: IItemShortageLine) => ({
+      itemId: i.itemId,
+      productName: i.productName,
+      quantity: i.quantity,
+      missingQty: i.missingQty,
+    })),
+    requestedAt: ret.requestedAt,
+    expiresAt: ret.expiresAt,
+    respondedAt: ret.respondedAt ?? null,
+    refundAmount: ret.refundAmount,
+  };
+}
+
+const itemShortageSchema = new Schema<IItemShortage>(
+  {
+    status: { type: String, enum: Object.values(ItemShortageStatus), required: true },
+    reason: { type: String, enum: Object.values(ItemShortageReason), required: true },
+    note: { type: String, trim: true, maxlength: 200 },
+    items: {
+      type: [
+        new Schema(
+          {
+            itemId: { type: String, required: true },
+            productName: { type: String, required: true },
+            quantity: { type: Number, required: true, min: 1 },
+            missingQty: { type: Number, required: true, min: 1 },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
+    requestedAt: { type: Date, required: true },
+    expiresAt: { type: Date, required: true },
+    respondedAt: { type: Date, default: null },
+    refundAmount: { ...shortageIntMoney },
+    allocation: { type: shortageAllocationSchema, required: true },
+    after: { type: shortageAfterSchema, required: true },
+    appliedAt: { type: Date, default: null },
+    applyAttempts: { type: Number, default: 0, min: 0 },
+    lastApplyError: { type: String, default: null },
+    requestedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    respondedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  },
+  { _id: true, toJSON: { transform: shortagePublicView }, toObject: { transform: shortagePublicView } }
 );
 
 const intMoney = {
@@ -423,6 +751,7 @@ const orderSchema = new Schema<IOrder>(
       ),
       default: undefined,
     },
+    itemShortage: { type: itemShortageSchema, default: undefined },
     city: { type: String, default: 'Garzón' },
     idempotencyKey: { type: String, unique: true, sparse: true },
   },
@@ -460,6 +789,20 @@ orderSchema.index({ createdAt: -1 });
 orderSchema.index({ businessId: 1, createdAt: -1 });
 orderSchema.index({ businessId: 1, status: 1, createdAt: -1 });
 orderSchema.index({ driverId: 1, createdAt: -1 });
+// El barrido de consultas por producto faltante pregunta por las vencidas
+// (`pending_client` con `expiresAt` pasado) y por las aceptadas sin ejecutar
+// cada 30 s. Parcial: solo los pedidos con consulta (una fraccion minima).
+orderSchema.index(
+  { 'itemShortage.status': 1, 'itemShortage.expiresAt': 1 },
+  { partialFilterExpression: { 'itemShortage.status': { $exists: true } } }
+);
+// El barrido de consultas por producto faltante pregunta por las vencidas
+// (`pending_client` con `expiresAt` pasado) y por las aceptadas sin ejecutar
+// cada 30 s. Parcial: solo los pedidos con consulta (una fraccion minima).
+orderSchema.index(
+  { 'itemShortage.status': 1, 'itemShortage.expiresAt': 1 },
+  { partialFilterExpression: { 'itemShortage.status': { $exists: true } } }
+);
 
 orderSchema.plugin(realtimeInvalidatePlugin, { resource: 'orders' });
 export const Order = mongoose.model<IOrder>('Order', orderSchema);

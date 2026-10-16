@@ -10,6 +10,7 @@ import { useTrailingCallback } from '../hooks/useTrailingCallback';
 import { useAuthStore } from '../stores/authStore';
 import { useBusinessEvent } from '../hooks/realtimeContext';
 import { money, signedMoney, dateTime, statusStyle } from '../lib/orderFlow';
+import { useFlowProfile } from '../hooks/useFlowProfile';
 import SummaryGrid from '../components/SummaryGrid';
 
 /**
@@ -98,6 +99,7 @@ type Focus =
 
 export default function Settlements() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
+  const profile = useFlowProfile();
 
   const downloadCsv = async () => {
     if (!businessId) return;
@@ -473,7 +475,7 @@ export default function Settlements() {
                   </tr>
                 ) : (
                   lines.map((line, index) => {
-                    const style = statusStyle(line.orderStatus);
+                    const style = statusStyle(line.orderStatus, profile);
                     return (
                       <tr key={`${line.orderId}:${line.isClawback ? 'a' : 'v'}:${index}`} className="hover:bg-[var(--color-surface-hover)] transition-colors">
                         <td className="table-body-cell tabular font-medium whitespace-nowrap">

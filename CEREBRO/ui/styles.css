@@ -218,3 +218,4 @@ pre.code div.hl { background: var(--gold-bg); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; }
 @media (max-width: 1250px) { #app.with-drawer { grid-template-columns: var(--rail) 1fr; } #drawer { position: fixed; right: 0; top: 0; bottom: 0; width: min(520px, 96vw); z-index: 20; box-shadow: -20px 0 60px rgba(0,0,0,.5); } .split { grid-template-columns: 1fr; } }
 @media (max-width: 860px) { #app { grid-template-columns: 1fr; } #rail { display: none; } }
+.map-canvas { position: absolute; inset: 0; }

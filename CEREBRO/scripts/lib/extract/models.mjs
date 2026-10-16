@@ -11,6 +11,29 @@ export function extractModels(ctx, sf, namer) {
   const models = [];
   const result = [];
 
+  const OPTION_KEYS = new Set(['type', 'default', 'required', 'min', 'max', 'enum', 'ref', 'unique', 'index', 'validate', 'trim', 'lowercase', 'uppercase', 'maxlength', 'minlength', 'select', 'sparse', 'immutable', 'of', 'get', 'set']);
+  const optionObjects = new Map();
+  for (const st of sf.statements) {
+    if (!ts.isVariableStatement(st)) continue;
+    for (const d of st.declarationList.declarations) {
+      if (ts.isIdentifier(d.name) && d.initializer && ts.isObjectLiteralExpression(namer.strip(d.initializer))) optionObjects.set(d.name.text, namer.strip(d.initializer));
+    }
+  }
+  /** Propiedades de un literal de opciones, expandiendo los spreads de objetos conocidos del archivo. */
+  const specProps = (obj, depth = 0) => {
+    const out = [];
+    for (const q of obj.properties) {
+      if (ts.isSpreadAssignment(q)) {
+        const e = namer.strip(q.expression);
+        const ref = ts.isIdentifier(e) ? optionObjects.get(e.text) : null;
+        if (ref && depth < 3) out.push(...specProps(ref, depth + 1));
+        else out.push({ spreadDesconocido: true });
+      } else if (ts.isPropertyAssignment(q)) out.push(q);
+    }
+    return out;
+  };
+  const looksLikeSpec = (obj) => specProps(obj).some((q) => q.spreadDesconocido || (q.name && OPTION_KEYS.has(namer.keyText(q.name) ?? '')));
+
   const visit = (n) => {
     if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
       const init = namer.strip(n.initializer);
@@ -43,24 +66,22 @@ export function extractModels(ctx, sf, namer) {
       const field = { nombre: name, linea: lineAt(p), tipo: null, requerido: false, ref: null, enum: false, unico: false, indice: false, default: null, min: null, max: null, array: false, validador: false };
       let spec = null;
       if (ts.isObjectLiteralExpression(v)) {
-        const hasType = v.properties.some((q) => ts.isPropertyAssignment(q) && namer.keyText(q.name) === 'type');
-        if (hasType) spec = v;
+        if (looksLikeSpec(v)) spec = v;
         else if (depth < 3) { fieldsOf(v, name, depth + 1, out); continue; }
         else { field.tipo = 'subdocumento'; out.push(field); continue; }
       } else if (ts.isArrayLiteralExpression(v)) {
         field.array = true;
         const el = v.elements[0] && namer.strip(v.elements[0]);
         if (el && ts.isObjectLiteralExpression(el)) {
-          const hasType = el.properties.some((q) => ts.isPropertyAssignment(q) && namer.keyText(q.name) === 'type');
-          if (hasType) spec = el;
+          if (looksLikeSpec(el)) spec = el;
           else if (depth < 3) { fieldsOf(el, `${name}[]`, depth + 1, out); continue; }
         } else if (el) field.tipo = text(el, 40);
       } else {
         field.tipo = text(v, 60);
       }
       if (spec) {
-        for (const q of spec.properties) {
-          if (!ts.isPropertyAssignment(q)) continue;
+        for (const q of specProps(spec)) {
+          if (q.spreadDesconocido || !q.name) continue;
           const k = namer.keyText(q.name);
           const qv = namer.strip(q.initializer);
           if (k === 'type') field.tipo = text(qv, 60);

@@ -97,6 +97,20 @@ function otpError(result: OtpCheck, missingMessage = 'No hay un código pendient
   }
 }
 
+/**
+ * Rechazo único del OTP de WhatsApp en `verify-otp` y `reset-password`.
+ *
+ * Esas rutas no tienen sesión: cualquier diferencia entre "no hay cuenta",
+ * "no hay código pendiente", "venció" y "agotó sus intentos" le dice a quien
+ * escribe un número si está registrado (`locked` solo puede darse en una
+ * cuenta que existe). Por eso todo fallo del código responde igual, con el
+ * código `OTP_INVALID` que los clientes ya entienden.
+ */
+const OTP_REJECTED_MESSAGE = 'Código inválido o vencido. Pide uno nuevo.';
+function otpRejected(): AppError {
+  return new AppError(OTP_REJECTED_MESSAGE, 400, 'OTP_INVALID');
+}
+
 /** ¿Pasó el enfriamiento desde el último envío? */
 function resendAllowed(expires: Date | null | undefined): boolean {
   const issued = otpIssuedAt(expires);
@@ -1876,11 +1890,24 @@ export class AuthService {
   }
 
   async verifyOTP(phone: string, otpCode: string, req?: Request): Promise<AuthOutcome> {
+    // Cada fallo suma al contador por celular (25 en 15 min, desde cualquier
+    // IP): reenviar el código reinicia sus 5 intentos, así que sin esto el
+    // único freno era el límite por IP.
+    const ip = requestIp(req);
+    const bruteCheck = await checkBruteForce(ip, phone);
+    if (!bruteCheck.allowed) {
+      throw new AppError(bruteCheck.reason || 'Demasiados intentos. Intenta más tarde.', 429);
+    }
+
     const user = await User.findOne({ phone });
-    if (!user) throw otpError('invalid');
+    if (!user) {
+      await recordFailedAttempt(ip, phone);
+      throw otpRejected();
+    }
 
     const result = await checkOtp(User, { _id: user._id }, OTP_SLOTS.phone, otpCode);
     if (result !== 'ok') {
+      await recordFailedAttempt(ip, phone);
       if (req && result !== 'missing') {
         await logAudit(req, {
           action: AuditAction.OTP_FAILED,
@@ -1891,8 +1918,9 @@ export class AuthService {
           metadata: { channel: 'whatsapp', result },
         });
       }
-      throw otpError(result, 'No hay OTP pendiente');
+      throw otpRejected();
     }
+    await clearAttempts(ip, phone);
 
     // Login por WhatsApp OTP exitoso: el teléfono queda confirmado y se
     // bloquea para edición por el propio usuario (ver updateProfile).
@@ -2058,11 +2086,17 @@ export class AuthService {
     }
 
     const user = await User.findOne({ phone }).select('+password +counterPasswordHash');
-    if (!user) throw otpError('invalid');
+    if (!user) {
+      await recordFailedAttempt(ip, phone);
+      throw otpRejected();
+    }
 
     const twoFactor = hasTwoFactor(user);
     const firstCheck = await checkOtp(User, { _id: user._id }, OTP_SLOTS.phone, otpCode, { consume: !twoFactor });
-    if (firstCheck !== 'ok') throw otpError(firstCheck, 'No hay OTP pendiente');
+    if (firstCheck !== 'ok') {
+      await recordFailedAttempt(ip, phone);
+      throw otpRejected();
+    }
 
     // La contraseña personal no puede ser la clave del mostrador: esa la
     // conoce todo el local, y con ella igual la personal abriría el panel.
@@ -2598,6 +2632,11 @@ export class AuthService {
         $unset: { twoFactorSecret: 1, recoveryCodes: 1, twoFactorVerifiedAt: 1, twoFactorLastStep: 1 },
       }
     );
+
+    // El PIN de mostrador exige 2FA: sin él quedaría un PIN que cierra la
+    // puerta de la contraseña del local sin dejar otra salida.
+    const { removeOwnPin } = await import('./counterPin.service');
+    await removeOwnPin(userId);
 
     if (req) {
       await logAudit(req, {

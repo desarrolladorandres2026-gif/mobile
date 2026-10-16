@@ -5,6 +5,7 @@ import api from '../../services/api';
 import { qk } from '../../lib/queryKeys';
 import { apiMessage } from '../../lib/apiError';
 import { dateTime, isActive, isInTransit, money, orderTag, statusStyle, type BusinessOrder } from '../../lib/orderFlow';
+import { useFlowProfile } from '../../hooks/useFlowProfile';
 import { supportWhatsAppUrl } from '../../lib/contact';
 import {
   ATTACHMENT_TYPES, CATEGORY_LABEL, MAX_ATTACHMENTS, PAYMENT_METHOD_LABEL, REASONS, TYPE_LABEL,
@@ -30,6 +31,7 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
   onBack: () => void;
   onCreated: (id: string, failedFiles: number) => void;
 }) {
+  const profile = useFlowProfile();
   const fromOrder = preset?.order ?? null;
   // '' = aún no elige; 'other' = ninguno de los motivos, elige el tipo a mano.
   const [reason, setReason] = useState<Reason | 'other' | ''>(preset?.reason ?? (fromOrder ? 'order_issue' : ''));
@@ -187,7 +189,7 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
               )}
               {recent.data?.map((o) => (
                 <option key={o._id} value={o._id}>
-                  {orderTag(o)} · {statusStyle(o.status).label} · {money(o.total)} · {dateTime(o.createdAt)}
+                  {orderTag(o)} · {statusStyle(o.status, profile).label} · {money(o.total)} · {dateTime(o.createdAt)}
                 </option>
               ))}
             </select>

@@ -1,6 +1,6 @@
 // Mapa navegable: vista de módulos con zoom semántico (grupo → archivos) y vista de foco por símbolo.
 import { esc, D, A, fmt, short, loc, symLink, debounce, confTag } from '../lib.js';
-import { mountGraph, layoutForce, layoutColumns } from '../graph.js';
+import { mountGraph, layoutLayers, layoutColumns } from '../graph.js';
 import { openDrawer } from '../drawers.js';
 
 const PKG_COLOR = { backend: '#E5B242', mobile: '#7DB4FF', admin: '#34D399', business: '#F59E0B', web: '#C084FC', desktop: '#F472B6', deploy: '#9DAAC4', scripts: '#9DAAC4', docs: '#9DAAC4' };
@@ -70,7 +70,7 @@ async function renderModulos(el, params, { setParams }) {
   }
   // En nivel archivo, el col del grupo enfocado se hereda
   const gEdges = edges.map((e) => ({ a: e.a, b: e.b, w: e.w, estilo: e.kind === 'api' ? 'inf' : 'est', label: `${e.w} ${e.kind === 'api' ? 'llamadas HTTP' : 'imports'}` }));
-  layoutForce(list, gEdges, { width: 1500, height: 820 });
+  layoutLayers(list);
 
   const paquetes = [...new Set(inv.archivos.filter((f) => f.modo === 'ast').map((f) => f.paquete))];
   el.innerHTML = `
@@ -83,7 +83,7 @@ async function renderModulos(el, params, { setParams }) {
     <label>Ir a <input id="goto" type="search" placeholder="símbolo o función…" style="width:240px"></label>
     <span class="small muted2">${fmt(list.length)} nodos · ${fmt(gEdges.length)} conexiones</span>
   </div>
-  <div class="map-wrap" id="mw"><div class="map-tools"><button class="btn quiet" id="zi" title="Acercar">+</button><button class="btn quiet" id="zo" title="Alejar">−</button><button class="btn quiet" id="fit">Ajustar</button></div>
+  <div class="map-wrap"><div id="mw" class="map-canvas"></div><div class="map-tools"><button class="btn quiet" id="zi" title="Acercar">+</button><button class="btn quiet" id="zo" title="Alejar">−</button><button class="btn quiet" id="fit">Ajustar</button></div>
     <div class="map-legend"><span><i></i>import resuelto (estática)</span><span><i class="inf"></i>llamada HTTP entre apps</span></div></div>
   <div id="sel" class="small" style="margin-top:12px"></div>`;
   const $ = (s) => el.querySelector(s);
@@ -131,7 +131,7 @@ async function renderFoco(el, params, foco, { setParams }) {
     <button class="btn quiet" id="det">Abrir detalle</button>
     <span class="small muted2">${nodes.length} nodos${nodes.length >= 90 ? ' (recortado: baja la profundidad)' : ''} · ${edges.length} conexiones</span>
   </div>
-  <div class="map-wrap" id="mw"><div class="map-tools"><button class="btn quiet" id="zi">+</button><button class="btn quiet" id="zo">−</button><button class="btn quiet" id="fit">Ajustar</button></div>
+  <div class="map-wrap"><div id="mw" class="map-canvas"></div><div class="map-tools"><button class="btn quiet" id="zi">+</button><button class="btn quiet" id="zo">−</button><button class="btn quiet" id="fit">Ajustar</button></div>
     <div class="map-legend"><span><i></i>estática (tipos)</span><span><i class="inf"></i>inferida (convención)</span><span><i class="tst"></i>desde una prueba</span><span><i class="unk"></i>sin confirmar</span></div></div>
   <p class="small muted2" style="margin-top:10px">Clic: abrir detalle · doble clic: centrar el mapa en ese símbolo. Una arista «estática» prueba que el código la contiene, no que se ejecute.</p>`;
   const $ = (s) => el.querySelector(s);

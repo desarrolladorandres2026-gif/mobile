@@ -11,14 +11,14 @@ import { spawn } from 'node:child_process';
 import { ROOT, DATA_DIR, CACHE_DIR, ensureDir, writeJsonAtomic, readJson, nowIso, log, fmtMs } from './util.mjs';
 
 const SUITES = {
-  'backend-tipos': { paquete: 'backend', cmd: ['npx', 'tsc', '--noEmit'], tipo: 'tipos' },
+  'backend-tipos': { paquete: 'backend', cmd: ['npx', 'tsc', '--noEmit', '--incremental', 'false'], tipo: 'tipos' },
   'backend-pruebas': { paquete: 'backend', cmd: ['npx', 'vitest', 'run', '--reporter=json', '--outputFile={OUT}'], tipo: 'pruebas', json: 'vitest', timeoutMin: 60 },
   'business-pruebas': { paquete: 'business', cmd: ['npx', 'vitest', 'run', '--reporter=json', '--outputFile={OUT}'], tipo: 'pruebas', json: 'vitest', timeoutMin: 10 },
   'desktop-pruebas': { paquete: 'desktop', cmd: ['npx', 'vitest', 'run', '--reporter=json', '--outputFile={OUT}'], tipo: 'pruebas', json: 'vitest', timeoutMin: 10 },
-  'mobile-tipos': { paquete: 'mobile', cmd: ['npx', 'tsc', '--noEmit'], tipo: 'tipos' },
+  'mobile-tipos': { paquete: 'mobile', cmd: ['npx', 'tsc', '--noEmit', '--incremental', 'false'], tipo: 'tipos' },
   'mobile-pruebas': { paquete: 'mobile', cmd: ['npx', 'jest', '--json', '--outputFile={OUT}'], tipo: 'pruebas', json: 'jest', timeoutMin: 20 },
-  'admin-tipos': { paquete: 'admin', cmd: ['npx', 'tsc', '-p', 'tsconfig.app.json', '--noEmit'], tipo: 'tipos' },
-  'business-tipos': { paquete: 'business', cmd: ['npx', 'tsc', '-p', 'tsconfig.app.json', '--noEmit'], tipo: 'tipos' },
+  'admin-tipos': { paquete: 'admin', cmd: ['npx', 'tsc', '-p', 'tsconfig.app.json', '--noEmit', '--incremental', 'false'], tipo: 'tipos' },
+  'business-tipos': { paquete: 'business', cmd: ['npx', 'tsc', '-p', 'tsconfig.app.json', '--noEmit', '--incremental', 'false'], tipo: 'tipos' },
 };
 const GRUPOS = {
   rapido: ['backend-tipos', 'mobile-tipos', 'admin-tipos', 'business-tipos'],
@@ -38,10 +38,15 @@ function isolatedEnv() {
     } catch { /* sin ejemplo */ }
   }
   for (const n of ['MONGODB_URI', 'MONGO_URI', 'DATABASE_URL', 'REDIS_URL']) names.add(n);
+  // Solo se neutralizan credenciales y direcciones de SERVICIOS DE TERCEROS. Las variables propias de la app
+  // (orígenes CORS, URL públicas, versiones mínimas…) se dejan tal cual: cambiarlas rompe pruebas que dependen de ellas.
+  const TERCEROS = /MONGO|DATABASE|REDIS|SMTP|MAIL|WOMPI|CLOUDINARY|MAPBOX|TWILIO|WHATSAPP|PHOTOROOM|SENTRY|EXPO|FIREBASE|FCM|GOOGLE|FACEBOOK|APPLE|META|S3|AWS/;
   for (const n of names) {
     if (/^(NODE_ENV|PORT|LOG_LEVEL|TZ|HOST)$/.test(n)) continue;
-    if (/URI|URL|HOST|ORIGIN|DOMAIN/.test(n)) env[n] = /MONGO|DATABASE/.test(n) ? 'mongodb://127.0.0.1:1/cerebro-aislado' : /REDIS/.test(n) ? '' : 'http://127.0.0.1:9/cerebro-aislado';
-    else if (/KEY|SECRET|TOKEN|PASSWORD|PASS$|USER|ACCOUNT|SID|SALT|PRIVATE|INTEGRITY|EVENTS/.test(n)) env[n] = 'cerebro-aislado-cerebro-aislado-cerebro-aislado';
+    if (/KEY|SECRET|TOKEN|PASSWORD|PASS$|PRIVATE|INTEGRITY|EVENTS|SID|SALT/.test(n)) env[n] = 'cerebro-aislado-cerebro-aislado-cerebro-aislado';
+    else if (TERCEROS.test(n) && !/WOMPI|GOOGLE|FACEBOOK|APPLE|META|EXPO/.test(n) && /URI|URL|HOST|USER|ACCOUNT|ID$/.test(n)) {
+      env[n] = /MONGO|DATABASE/.test(n) ? 'mongodb://127.0.0.1:1/cerebro-aislado' : /REDIS/.test(n) ? '' : /URL|URI|HOST/.test(n) ? 'http://127.0.0.1:9/cerebro-aislado' : 'cerebro-aislado';
+    }
   }
   return env;
 }
@@ -86,17 +91,19 @@ function parseJsonReport(kind, file, pkgDir) {
 
 export async function verify(args = []) {
   const wanted = args.filter((a) => !a.startsWith('--'));
+  const filtro = (args.find((a) => a.startsWith('--archivos=')) ?? '').slice('--archivos='.length).split(',').filter(Boolean);
   const names = wanted.length ? wanted.flatMap((w) => GRUPOS[w] ?? [w]) : GRUPOS.rapido;
   for (const n of names) if (!SUITES[n]) { console.error(`Suite desconocida: ${n}. Disponibles: ${Object.keys(SUITES).join(', ')} · grupos: ${Object.keys(GRUPOS).join(', ')}`); process.exit(1); }
   ensureDir(CACHE_DIR);
   const previo = readJson(path.join(DATA_DIR, 'verificacion.json'), { archivos: {}, suites: [] });
   const env = isolatedEnv();
-  const resultado = { generadaEn: nowIso(), suites: previo.suites.filter((s) => !names.includes(s.id)), archivos: { ...previo.archivos } };
+  const resultado = { generadaEn: nowIso(), suites: previo.suites.filter((s) => !names.includes(s.id) && !names.some((n) => s.id === `${n}:parcial`)), archivos: { ...previo.archivos } };
   for (const n of names) {
     const s = SUITES[n];
     const out = path.join(CACHE_DIR, `${n}.json`);
     try { fs.rmSync(out, { force: true }); } catch { /* ignorar */ }
     const cmd = s.cmd.map((c) => c.replace('{OUT}', out));
+    if (filtro.length && s.json) cmd.push(...filtro);
     log(`▶ ${n}: ${cmd.join(' ')}`);
     const t0 = Date.now();
     const r = await run(cmd, path.join(ROOT, s.paquete), env, (s.timeoutMin ?? 15) * 60000, () => process.stdout.write('.'));
@@ -104,7 +111,7 @@ export async function verify(args = []) {
     const rep = s.json ? parseJsonReport(s.json, out, s.paquete) : null;
     const cola = clean(r.out).split(/\r?\n/).filter(Boolean).slice(-14).join('\n').slice(-1800);
     const entry = {
-      id: n, paquete: s.paquete, tipo: s.tipo, comando: cmd.join(' ').replace(out, '<salida>'), codigoSalida: r.code, tiempoAgotado: r.timeout,
+      id: filtro.length ? `${n}:parcial` : n, paquete: s.paquete, tipo: s.tipo, comando: cmd.join(' ').replace(out, '<salida>'), codigoSalida: r.code, tiempoAgotado: r.timeout,
       duracionMs: Date.now() - t0, resumen: rep?.totales ?? null, salidaCola: r.code === 0 && rep ? undefined : cola,
       nota: r.timeout ? 'Se agotó el tiempo; los resultados parciales no se registran como aprobados.' : undefined,
     };

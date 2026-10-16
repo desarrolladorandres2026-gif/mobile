@@ -380,6 +380,23 @@ El informe lista los arrastres con una liquidación en curso (no se tocan) y
 los payouts reclamados cuyo `reversedAmount` nuevo no iguala su
 `reversedAtClaim`: revísalos a mano antes de liquidar. Es idempotente.
 
+El PIN de mostrador exige 2FA (migración 030, 2026-10-15). Hasta ahora solo
+se le pedía al propietario: un administrador sin 2FA con PIN cerraba la puerta
+de la contraseña del local y el dueño sin 2FA quedaba sin entrada. La
+migración quita el PIN (y sus bloqueos, y sus sesiones elevadas) a toda cuenta
+que tenga PIN y no tenga 2FA activo, y **lista esas cuentas para avisarles**:
+para volver a crear su PIN tendrán que activar la verificación en dos pasos.
+Corre **antes de desplegar el código nuevo o inmediatamente después**; es
+manual (fuera de `deploy.sh`) y **en seco por defecto**:
+
+```bash
+sudo -u zipp -E npm run migrate:counter-pin-2fa                # solo informe
+sudo -u zipp -E npm run migrate:counter-pin-2fa -- --apply     # escribe
+```
+
+Es idempotente. Con el código nuevo, restablecer o quitar el 2FA de una
+cuenta borra también su PIN.
+
 > **Nunca** ejecutes `npm run seed` en producción: reinicializa datos.
 
 ---

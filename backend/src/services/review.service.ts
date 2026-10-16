@@ -132,16 +132,67 @@ export class ReviewService {
     return map;
   }
 
-  async getByBusiness(businessId: string, page = 1, limit = 20) {
+  /**
+   * Las reseñas de un negocio, paginadas.
+   *
+   * `filter.rating` deja solo las de esa nota; `filter.unanswered`, las que el
+   * comercio aún no contestó. El total y los números de `stats` son de TODAS
+   * las reseñas visibles del negocio, no de la página ni del filtro: el panel
+   * pintaba el promedio y «sin responder» sobre las veinte más recientes.
+   */
+  async getByBusiness(
+    businessId: string,
+    page = 1,
+    limit = 20,
+    filter: { rating?: number; unanswered?: boolean } = {}
+  ) {
     const skip = (page - 1) * limit;
-    const [reviews, total] = await Promise.all([
-      Review.find({ businessId, isHidden: { $ne: true }, businessRating: { $ne: null } })
+    const base = { businessId, isHidden: { $ne: true }, businessRating: { $ne: null } };
+    const noReply = [{ businessReply: { $exists: false } }, { businessReply: null }, { businessReply: '' }];
+
+    const where: Record<string, unknown> = { ...base };
+    if (filter.rating) where.businessRating = { $gte: filter.rating - 0.5, $lt: filter.rating + 0.5 };
+    if (filter.unanswered) where.$or = noReply;
+
+    const [reviews, total, statRows] = await Promise.all([
+      Review.find(where)
         .skip(skip).limit(limit)
         .sort({ createdAt: -1 })
         .populate('userId', 'name avatar'),
-      Review.countDocuments({ businessId, isHidden: { $ne: true }, businessRating: { $ne: null } }),
+      Review.countDocuments(where),
+      Review.aggregate([
+        { $match: { ...base, businessId: new Types.ObjectId(businessId) } },
+        {
+          $group: {
+            _id: { $round: ['$businessRating', 0] },
+            count: { $sum: 1 },
+            sum: { $sum: '$businessRating' },
+            unanswered: {
+              $sum: { $cond: [{ $gt: [{ $strLenCP: { $ifNull: ['$businessReply', ''] } }, 0] }, 0, 1] },
+            },
+          },
+        },
+      ]),
     ]);
-    return { reviews, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+
+    const byRating: Record<string, number> = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 };
+    let rated = 0;
+    let sum = 0;
+    let unanswered = 0;
+    for (const row of statRows) {
+      byRating[String(row._id)] = row.count;
+      rated += row.count;
+      sum += row.sum;
+      unanswered += row.unanswered;
+    }
+    const stats = {
+      rated,
+      average: rated ? Math.round((sum / rated) * 10) / 10 : 0,
+      unanswered,
+      byRating,
+    };
+
+    return { reviews, meta: { page, limit, total, totalPages: Math.ceil(total / limit), stats } };
   }
 
   async getByDriver(driverId: string, page = 1, limit = 20) {

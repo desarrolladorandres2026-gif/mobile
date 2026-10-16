@@ -185,6 +185,12 @@ export interface IProduct extends Document {
 
   /** Aviso al negocio cuando queda poco. Cero lo desactiva. */
   lowStockThreshold: number;
+  /**
+   * Hasta cuándo está agotado a mano («agotado por 2 h», «agotado hoy»). Un
+   * barrido lo devuelve a la carta al vencer. `null` con `isAvailable: false`
+   * es «hasta que yo lo active».
+   */
+  unavailableUntil?: Date | null;
   isFeatured: boolean;
 
   /**
@@ -394,6 +400,7 @@ const productSchema = new Schema<IProduct>(
     requiresAgeVerification: { type: Boolean, default: false },
     stock: { type: Number, default: null, min: 0 },
     lowStockThreshold: { type: Number, default: 0, min: 0 },
+    unavailableUntil: { type: Date, default: null },
     isAvailable: {
       type: Boolean,
       default: true,

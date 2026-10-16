@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import app from '../app';
-import { Business, BusinessStaff, BusinessRole, Order, Driver } from '../models';
+import { Business, BusinessStaff, BusinessRole, Order, Driver, OrderMessage } from '../models';
 import { OrderStatus, UserRole } from '../types';
 import { orderService, TERMINAL_ORDER_STATUSES } from '../services/order.service';
 import { resolveOrderAccess, TERMINAL_STATUSES } from '../services/orderAccess.service';
@@ -228,16 +228,29 @@ describe('Pedidos para el personal del comercio', () => {
     expect(ownerRes.body.data[0].clientId.phone).toBe(client.phone);
   });
 
-  it('MEDIO 5: el personal no lee el chat del pedido', async () => {
+  it('MEDIO 5: el personal no lee la conversación del cliente con el domiciliario', async () => {
     const order = await placeOrder();
     const driverUser = await makeUser({ role: UserRole.DRIVER });
     const driver = await makeDriver(driverUser._id);
     await orderService.assignDriver(order._id.toString(), driver._id.toString());
+    // El cliente le cuenta algo al domiciliario: eso es lo que el comercio no debe leer.
+    await OrderMessage.create({
+      orderId: order._id,
+      channel: 'client_driver',
+      senderId: order.clientId,
+      senderRole: UserRole.CLIENT,
+      message: 'Vivo sola, toque fuerte',
+    });
 
-    const res = await request(app)
-      .get(`/api/v1/orders/${order._id}/chat`)
-      .set(await authHeader(await employee(BusinessRole.MANAGER)));
-    expect(res.status).toBe(403);
+    // El comercio ya no recibe un 403: tiene SU hilo con el domiciliario
+    // (`business_driver`). Lo que nunca recibe es el del cliente, pida lo que pida.
+    for (const channel of ['', '?channel=client_driver', '?channel=business_driver']) {
+      const res = await request(app)
+        .get(`/api/v1/orders/${order._id}/chat${channel}`)
+        .set(await authHeader(await employee(BusinessRole.MANAGER)));
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+    }
   });
 
   it('MEDIO 7: el personal no cancela un pedido ya pagado en preparación; el dueño sí', async () => {

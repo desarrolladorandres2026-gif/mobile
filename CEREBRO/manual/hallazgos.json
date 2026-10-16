@@ -1,0 +1,750 @@
+{
+  "version": 1,
+  "nota": "Hallazgos de la auditoría manual. Ninguno se ha corregido: la auditoría no modifica el código de producción. Cada evidencia lleva un ancla (texto exacto de una línea) que CEREBRO verifica en cada construcción; si el código cambia, el hallazgo pasa a «revisar». Las sondas de ejecución están en manual/sondas/ y se corrieron contra el proveedor sandbox y MongoDB en memoria.",
+  "hallazgos": [
+    {
+      "id": "M-001-reembolso-tardio-doble-reversion",
+      "regla": "auditoria-finanzas",
+      "titulo": "Reembolsar desde el panel un cobro que llegó tarde a un pedido ya cancelado revierte el libro dos veces",
+      "severidad": "ALTO",
+      "confianza": "confirmado",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "media",
+      "impacto": "alto",
+      "descripcion": "Cuando un pedido en línea sin pagar se cancela, `onCancelled` deshace el libro contra la cuenta por cobrar con `applyReversal` pero NO crea ninguna fila `Refund`. Si luego el cliente paga el enlace viejo, el cobro queda PAID y retenido «para revisión». Finanzas lo reembolsa con `POST /payments/orders/:id/refunds` → `refundService.issue`, que calcula lo reembolsable sumando solo filas `Refund` COMPLETED (cero), así que ve el pedido entero como reembolsable y vuelve a reversar comisión, pagos al comercio y al domiciliario, impuestos y margen, esta vez contra la cuenta REFUND.",
+      "causa": "`refundedTotal` y `allocatedSoFar` solo leen la colección Refund; la cancelación sin cobro reversa el libro por otra vía (`applyReversal` directo) que no deja rastro en esa colección. `issue()` tampoco comprueba el estado del pedido ni si el libro ya fue reversado.",
+      "consecuencia": "Los libros quedan distorsionados aunque el lote cuadre: en la sonda, tras cancelar, cobrar tarde y reembolsar, MERCHANT_PAYABLE queda en +27.000 (deudor), COMMISSION_REVENUE en +3.000 (ingreso negativo), DRIVER_PAYABLE en +4.000 y REFUND en −34.000, con CUSTOMER_PAYMENT en 0. El «resultado de ZIPP» (que lee esas cuentas) quedaría falseado por la comisión negativa.",
+      "pruebaSugerida": "manual/sondas/refunds-h1-h2.probe.test.ts (H1). Para corregir: exigir en `issue()` que el pedido no esté CANCELLED con libro ya reversado, o crear una fila Refund al reversar por cancelación.",
+      "afectados": [
+        "refund.service.ts",
+        "order.service.ts (onCancelled)",
+        "payments/index.ts (onCaptured/holdForReview)",
+        "platformResult.service.ts",
+        "panel admin: Refunds"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/order.service.ts",
+          "linea": 1885,
+          "ancla": "const allocation = allocateRefund(finance, remaining, RefundKind.FULL, prior);",
+          "texto": "cancelación sin cobro: reversa el libro sin crear Refund"
+        },
+        {
+          "archivo": "backend/src/services/refund.service.ts",
+          "linea": 279,
+          "ancla": "const alreadyRefunded = await this.refundedTotal(order._id);",
+          "texto": "lo reembolsable solo cuenta filas Refund"
+        },
+        {
+          "archivo": "backend/src/services/refund.service.ts",
+          "linea": 511,
+          "ancla": "async refundedTotal(",
+          "texto": "suma Refund COMPLETED"
+        },
+        {
+          "archivo": "backend/src/services/payments/index.ts",
+          "linea": 1556,
+          "ancla": "if (shortPaid || orderClosed || alreadyPaid || methodChanged) {",
+          "texto": "el cobro tardío solo se retiene para revisión"
+        },
+        {
+          "archivo": "backend/src/controllers/payment.controller.ts",
+          "linea": 392,
+          "ancla": "async refund(req: Request",
+          "texto": "el panel no comprueba el estado del pedido"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/refund.service.ts#RefundService.issue"
+      ],
+      "nota": "Actualización 2026-10-16: el código ya corrige el caso inverso (reembolso parcial previo y luego cancelación sin cobro: `remaining`/`prior` en onCancelled). El caso de este hallazgo (cancelación sin cobro primero, reembolso por el panel después) sigue abierto: la cancelación no deja fila Refund, así que `issue()` ve el pedido entero como reembolsable."
+    },
+    {
+      "id": "M-002-reembolso-pending-bloqueado",
+      "regla": "auditoria-finanzas",
+      "titulo": "Un fallo después de que la pasarela devuelve el dinero deja el reembolso PENDING para siempre y sin reversar el libro",
+      "severidad": "ALTO",
+      "confianza": "confirmado",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "baja",
+      "impacto": "alto",
+      "descripcion": "`refundService.issue` crea la fila PENDING (cerrojo), llama a Wompi (`provider.refund`) y luego ejecuta `applyReversal` antes de marcar COMPLETED. Si `applyReversal` lanza (error de Mongo, descuadre del libro), no hay `catch`: la fila queda PENDING con el identificador de la pasarela solo en memoria (nunca se guarda), el pedido sigue PAID, los pagos a comercio y domiciliario no se reversan y el cliente ya recibió el dinero.",
+      "causa": "El orden «pasarela primero, libro después» es deliberado (mejor un reembolso que se pueda reintentar que un libro que miente), pero el tramo posterior a la pasarela no tiene compensación ni barrido que lo retome.",
+      "consecuencia": "En la sonda (H2): reintentar con la misma clave devuelve 409 REFUND_IN_FLIGHT, con otra clave también 409 por el índice único de reembolso en curso; el reembolso solo aparece en la bandeja «atención» tras 15 minutos y no hay en la API un modo de resolver una fila PENDING. El comercio seguiría cobrando un pedido ya devuelto en la próxima liquidación.",
+      "pruebaSugerida": "manual/sondas/refunds-h1-h2.probe.test.ts (H2). Remedio posible: guardar `transactionId` antes de `applyReversal` y añadir un barrido que reanude reembolsos PENDING con `transactionId`, igual que `sweepUnsettledCaptures` para cobros.",
+      "afectados": [
+        "refund.service.ts",
+        "payout.service.ts (liquidación)",
+        "alerts.service (refund_failed)"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/refund.service.ts",
+          "linea": 365,
+          "ancla": "const intent = await provider.refund(payment.transactionId, amount);",
+          "texto": "la pasarela devuelve el dinero"
+        },
+        {
+          "archivo": "backend/src/services/refund.service.ts",
+          "linea": 379,
+          "ancla": "await this.applyReversal(order, allocation, amount, kind, captured, String(refund._id));",
+          "texto": "sin try/catch tras la pasarela"
+        },
+        {
+          "archivo": "backend/src/services/refund.service.ts",
+          "linea": 381,
+          "ancla": "refund.status = RefundStatus.COMPLETED;",
+          "texto": "único punto que cierra el cerrojo"
+        },
+        {
+          "archivo": "backend/src/services/refund.service.ts",
+          "linea": 260,
+          "ancla": "if (existing.status === RefundStatus.PENDING) {",
+          "texto": "el reintento con la misma clave recibe 409"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/refund.service.ts#RefundService.issue"
+      ]
+    },
+    {
+      "id": "M-003-ondelivered-sin-recuperacion",
+      "regla": "auditoria-pedidos",
+      "titulo": "Si falla algo dentro de `onDelivered`, el pedido queda ENTREGADO con el domiciliario ocupado, el fondo sin devolver y sin forma de reintentar",
+      "severidad": "ALTO",
+      "confianza": "confirmado",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "baja",
+      "impacto": "alto",
+      "descripcion": "`updateStatus` reclama el paso a DELIVERED de forma atómica y luego hace `await this.onDelivered(claimed)` SIN try/catch (a diferencia de `onCancelled`, que sí captura, audita y deja marca). `onDelivered` ejecuta en orden: comisión, devengo, asiento de efectivo, `cashReconciliation.open`, liquidación en efectivo de pagos y, al final, el `$inc` de fondo/estadísticas y el paso del domiciliario a AVAILABLE. Un fallo en cualquier paso intermedio salta lo que sigue.",
+      "causa": "Los efectos van después del reclamo (a propósito, para no duplicarlos), pero no hay marca de «efectos pendientes» ni barrido que los complete; el reintento del cliente choca con la máquina de estados.",
+      "consecuencia": "Sonda H3 (pedido en efectivo, fallo simulado en `cashReconciliation.open`): pedido `delivered`, domiciliario sigue `busy`, fondo 83.000 (le faltan los 17.000 que adelantó al comercio), 0 entregas contadas, 0 filas de conciliación pero CASH_IN_TRANSIT con 3.000 deudor (efectivo de ZIPP sin registro que lo cobre) y el reintento responde «Transición inválida: delivered → delivered».",
+      "pruebaSugerida": "manual/sondas/ondelivered-h3.probe.test.ts. Remedio posible: registrar `deliveredEffectsPending` en el mismo reclamo y un barrido (patrón de `retryPendingFundReleases`); o capturar y auditar como hace `onCancelled`.",
+      "afectados": [
+        "order.service.ts",
+        "cashReconciliation.service.ts",
+        "dispatch (disponibilidad del domiciliario)",
+        "app del domiciliario"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/order.service.ts",
+          "linea": 1281,
+          "ancla": "await this.onDelivered(claimed);",
+          "texto": "sin try/catch ni marca de pendiente"
+        },
+        {
+          "archivo": "backend/src/services/order.service.ts",
+          "linea": 1301,
+          "ancla": "await this.onCancelled(claimed);",
+          "texto": "contraste: la cancelación sí captura y audita"
+        },
+        {
+          "archivo": "backend/src/services/order.service.ts",
+          "linea": 1688,
+          "ancla": "await cashReconciliationService.open(order);",
+          "texto": "paso que, al fallar, evita todo lo posterior"
+        },
+        {
+          "archivo": "backend/src/services/order.service.ts",
+          "linea": 1757,
+          "ancla": "{ $inc: increments, $set: { status: DriverStatus.AVAILABLE } }",
+          "texto": "último paso: fondo y disponibilidad"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/order.service.ts#OrderService.onDelivered"
+      ]
+    },
+    {
+      "id": "M-004-cobro-tardio-sin-asiento",
+      "regla": "auditoria-finanzas",
+      "titulo": "El dinero de un cobro retenido para revisión no entra al libro mayor",
+      "severidad": "MEDIO",
+      "confianza": "confirmado",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "media",
+      "impacto": "medio",
+      "descripcion": "Cuando `onCaptured` retiene un cobro (pedido cancelado, monto distinto, doble cobro, cambio de método) el pago queda PAID pero `finishCapture` no corre, así que no se asienta `PAYMENT_CAPTURED` ni la comisión estimada de la pasarela. `resolveReview` solo deja constancia y «no mueve dinero». El dinero está en Wompi y en ningún asiento hasta que alguien lo trate a mano.",
+      "causa": "Diseño explícito («visible y reparable»), pero sin una cuenta de transición para dinero recibido pendiente de resolver.",
+      "consecuencia": "La conciliación libro ↔ extracto de Wompi mostrará diferencias hasta que se resuelva cada caso; ver también M-001 para el riesgo de resolverlo por el camino de reembolso.",
+      "pruebaSugerida": "Sonda H1: tras el cobro tardío todas las cuentas del pedido siguen en 0.",
+      "afectados": [
+        "payments/index.ts",
+        "ledger.service.ts",
+        "finanzas: conciliación"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/payments/index.ts",
+          "linea": 1556,
+          "ancla": "if (shortPaid || orderClosed || alreadyPaid || methodChanged) {",
+          "texto": "rama de retención"
+        },
+        {
+          "archivo": "backend/src/services/payments/index.ts",
+          "linea": 1825,
+          "ancla": "async resolveReview(input: { paymentId: string; adminId: string; note: string }): Promise<IPayment> {",
+          "texto": "solo deja constancia"
+        },
+        {
+          "archivo": "backend/src/services/payments/index.ts",
+          "linea": 1639,
+          "ancla": "await ledgerService.recordPaymentCaptured({",
+          "texto": "solo se ejecuta en el camino sano"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-005-gatewayfeerefundbps-sin-efecto",
+      "regla": "config-sin-efecto",
+      "titulo": "`gatewayFeeRefundBps` («qué parte de la comisión devuelve la pasarela al reembolsar») se guarda y se muestra, pero ningún cálculo la usa",
+      "severidad": "MEDIO",
+      "confianza": "confirmado",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "alta",
+      "impacto": "medio",
+      "descripcion": "El campo existe en el modelo de configuración de precios, se valida y se puede editar desde el panel de finanzas, y `orderProfile360` lo muestra. Una búsqueda en todo `backend/src` (sin pruebas) no encuentra ninguna lectura en la contabilidad ni en `refund.service`. Además `recordReversal` no incluye líneas sobre PAYMENT_PROCESSING_EXPENSE / GATEWAY_WITHHELD: la comisión de pasarela asentada al capturar nunca se reversa ni se compensa en un reembolso.",
+      "causa": "Configuración declarada pero no conectada al motor contable.",
+      "consecuencia": "El coste de reembolsar (comisión de pasarela que no se recupera) no aparece en el resultado de la plataforma, aunque el panel sugiera que es configurable. Cualquier cifra de rentabilidad con reembolsos queda incompleta (regla financiera de CLAUDE.md).",
+      "pruebaSugerida": "Cambiar `gatewayFeeRefundBps` y emitir un reembolso: los asientos no cambian.",
+      "afectados": [
+        "PlatformPricingConfig",
+        "ledger.service.ts (recordReversal)",
+        "panel admin: Pricing",
+        "platformResult.service.ts"
+      ],
+      "verificacion": "lectura+busqueda",
+      "evidencia": [
+        {
+          "archivo": "backend/src/models/PlatformPricingConfig.ts",
+          "linea": 187,
+          "ancla": "gatewayFeeRefundBps: { type: Number",
+          "texto": "declarado y validado"
+        },
+        {
+          "archivo": "backend/src/services/orderProfile360.service.ts",
+          "linea": 260,
+          "ancla": "gatewayFeeRefundBps: pricingConfig?.gatewayFeeRefundBps ?? null,",
+          "texto": "única lectura: mostrarlo"
+        },
+        {
+          "archivo": "backend/src/services/ledger.service.ts",
+          "linea": 588,
+          "ancla": "async recordReversal(params: {",
+          "texto": "la reversión no toca el gasto de pasarela"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-006-costos-pasarela-transferencia-incompletos",
+      "regla": "auditoria-finanzas",
+      "titulo": "El resultado de la plataforma no incluye el coste real de Wompi ni el de las transferencias; y las tarifas nacen en 0",
+      "severidad": "MEDIO",
+      "confianza": "confirmado",
+      "area": "finanzas",
+      "alcance": "transversal",
+      "probabilidad": "alta",
+      "impacto": "alto",
+      "descripcion": "La comisión de Wompi que se asienta al capturar es una ESTIMACIÓN calculada con la tarifa configurada (`estimateGatewayFee`), no el valor real que Wompi retiene, y no hay conciliación con el extracto. Todas las tarifas (`gateway*Bps`, `gateway*Fixed`, IVA de la comisión) nacen en 0, y los reportes marcan `incomplete: true` siempre porque falta el coste de transferencia. Tampoco hay en el código ningún concepto de retenciones ni de otros costes bancarios.",
+      "causa": "Es una limitación declarada en el propio código (`PLATFORM_RESULT_INCOMPLETE_REASON`), coherente con la regla «no inventar tarifas»; pero mientras no se configuren, el «neto» sobreestima la rentabilidad.",
+      "consecuencia": "Cualquier simulación de rentabilidad hecha con estos datos es incompleta. Pendiente de confirmar: los valores reales configurados en la base de producción (no verificables desde el repositorio) y el contrato de tarifas de Wompi.",
+      "pruebaSugerida": "Comparar el gasto de pasarela del libro con el extracto de Wompi de un mes.",
+      "afectados": [
+        "finanzas",
+        "dailySummaryFinance.service.ts",
+        "platformResult.service.ts",
+        "panel admin: Financials"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "backend/src/models/PlatformPricingConfig.ts",
+          "linea": 177,
+          "ancla": "gatewayCardBps: { ...bps, default: 0 },",
+          "texto": "tarifas por defecto en 0"
+        },
+        {
+          "archivo": "backend/src/services/payments/index.ts",
+          "linea": 1633,
+          "ancla": "const processingFee = estimateGatewayFee(",
+          "texto": "comisión estimada, no real"
+        },
+        {
+          "archivo": "backend/src/services/platformResult.service.ts",
+          "linea": 38,
+          "ancla": "export const PLATFORM_RESULT_INCOMPLETE_REASON =",
+          "texto": "declaración de incompletitud"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-007-wompi-reembolso-parcial-api",
+      "regla": "auditoria-pagos",
+      "titulo": "Los reembolsos parciales por la ruta automática siempre fallan con Wompi; y la anulación por API puede no estar disponible para todos los métodos",
+      "severidad": "MEDIO",
+      "confianza": "probable",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "alta",
+      "impacto": "medio",
+      "descripcion": "`WompiPaymentProvider.refund` lanza un error si el monto es menor al del pago («Wompi no admite reembolsos parciales por API») y, para totales, llama a `POST /transactions/:id/void`. `PaymentController.refund` marca el reembolso como PARCIAL cuando recibe `amount`. Resultado: `issue()` con monto parcial nunca llega al libro (queda FAILED y responde 502); el camino real para parciales es `issueExternal` (registro manual de lo hecho en el dashboard de Wompi). Además, el propio mensaje de error admite que «es posible que la transacción ya esté liquidada» y el comentario de `payoutService.hold` menciona PSE y Nequi como métodos que la pasarela no puede anular.",
+      "causa": "Limitación del API de Wompi reflejada en el código.",
+      "consecuencia": "Cada cancelación automática de un pedido pagado con PSE/Nequi (o tarjeta ya liquidada) dejará un reembolso FAILED y trabajo manual; pendiente de confirmar con la documentación y el contrato de Wompi qué métodos admiten `/void`.",
+      "pruebaSugerida": "En el sandbox de Wompi: anular una transacción PSE y una de Nequi; reembolsar parcialmente por API.",
+      "afectados": [
+        "wompi.provider.ts",
+        "refund.service.ts",
+        "payment.controller.ts",
+        "operación de soporte"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/payments/wompi.provider.ts",
+          "linea": 519,
+          "ancla": "if (amount !== undefined && amount < current.amount) {",
+          "texto": "rechaza parciales"
+        },
+        {
+          "archivo": "backend/src/services/payments/wompi.provider.ts",
+          "linea": 526,
+          "ancla": "/transactions/${encodeURIComponent(paymentId)}/void",
+          "texto": "solo existe la anulación"
+        },
+        {
+          "archivo": "backend/src/services/payout.service.ts",
+          "linea": 256,
+          "ancla": "async hold(orderId: string | Types.ObjectId): Promise<number> {",
+          "texto": "el comentario previo reconoce PSE/Nequi"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-008-wompi-void-contracargo-ignorado",
+      "regla": "auditoria-pagos",
+      "titulo": "Una anulación o contracargo iniciado en Wompi sobre un pago aprobado se ignora (solo queda un `console.warn`)",
+      "severidad": "MEDIO",
+      "confianza": "probable",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "media",
+      "impacto": "medio",
+      "descripcion": "`toPaymentStatus` mapea `voided` a FAILED. La tabla de transiciones de `Payment` solo permite PAID → REFUNDED, así que un evento VOIDED sobre un pago PAID se descarta con «Transición de pago ignorada». Wompi no emite un estado «refunded»; por tanto no hay ruta automática PAID → REFUNDED. Los contracargos y reembolsos hechos en el dashboard dependen de que Finanzas los registre a mano (`recordChargeback` / `issueExternal`).",
+      "causa": "Decisión de evitar retrocesos desde estados terminales sin distinguir «aprobado y luego anulado».",
+      "consecuencia": "Un contracargo no registrado deja al comercio liquidable por un pedido cuyo dinero ya salió. Detectable solo leyendo logs. Pendiente de confirmar con Wompi qué eventos publica para anulaciones posteriores a la aprobación.",
+      "pruebaSugerida": "Entregar al webhook un evento VOIDED sobre un pago PAID y comprobar que el estado no cambia ni queda alerta.",
+      "afectados": [
+        "payments/index.ts",
+        "Payment.ts",
+        "alerts.service",
+        "operación de Finanzas"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/payments/index.ts",
+          "linea": 153,
+          "ancla": "case 'voided':",
+          "texto": "voided → FAILED"
+        },
+        {
+          "archivo": "backend/src/services/payments/index.ts",
+          "linea": 1360,
+          "ancla": "if (!canTransitionPayment(payment.status, nextStatus)) {",
+          "texto": "transición ignorada"
+        },
+        {
+          "archivo": "backend/src/models/Payment.ts",
+          "linea": 115,
+          "ancla": "[PaymentStatus.PAID]: [PaymentStatus.REFUNDED],",
+          "texto": "PAID solo puede ir a REFUNDED"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-009-ledger-post-no-atomico",
+      "regla": "auditoria-finanzas",
+      "titulo": "`ledgerService.post` inserta las líneas de un asiento sin transacción: un corte a mitad deja un lote descuadrado que el reintento da por «duplicado»",
+      "severidad": "MEDIO",
+      "confianza": "hipotesis",
+      "area": "finanzas",
+      "alcance": "transversal",
+      "probabilidad": "baja",
+      "impacto": "alto",
+      "descripcion": "El lote se valida (débitos = créditos) en memoria y se escribe con `insertMany({ordered:true})`. Si el proceso cae después de insertar algunas líneas, el reintento choca con el índice único en la primera línea ya escrita y `post` responde `duplicated: true` sin completar el resto. `isBalanced` solo lo detecta en una consulta global agregada (usada por el informe de finanzas), no por pedido.",
+      "causa": "MongoDB sin transacciones multi-documento en este camino.",
+      "consecuencia": "Un asiento parcial permanecería indefinidamente si el corte ocurre en esa ventana. No se ha reproducido: es una hipótesis a verificar.",
+      "pruebaSugerida": "Simular un fallo tras la segunda línea de `insertMany` y reintentar; añadir un chequeo de balance por grupo de asiento.",
+      "afectados": [
+        "ledger.service.ts",
+        "finance.controller.ts (isBalanced)"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/ledger.service.ts",
+          "linea": 94,
+          "ancla": "const entries = await LedgerEntry.insertMany(documents, { ordered: true });",
+          "texto": "escritura sin transacción"
+        },
+        {
+          "archivo": "backend/src/services/ledger.service.ts",
+          "linea": 740,
+          "ancla": "async isBalanced(filter: Record<string, unknown> = {}): Promise<boolean> {",
+          "texto": "comprobación agregada, no por lote"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/ledger.service.ts#LedgerService.post"
+      ]
+    },
+    {
+      "id": "M-010-create-sin-barrido-integridad",
+      "regla": "auditoria-pedidos",
+      "titulo": "Crear un pedido es una secuencia sin transacción (pedido → cupón → libro → pagos) y nada detecta un corte entre pasos",
+      "severidad": "MEDIO",
+      "confianza": "probable",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "baja",
+      "impacto": "medio",
+      "descripcion": "`rollbackNewOrder` deshace los pasos cuando uno LANZA una excepción, pero un reinicio o caída del proceso entre `Order.create` y `ledgerService.recordOrderPlaced` deja un pedido sin asientos (o con cupón consumido). Se buscó en el código cualquier barrido que compare pedidos con sus asientos `ORDER_PLACED`: la única referencia está en el propio servicio contable.",
+      "causa": "Sin transacciones y sin reconciliación periódica pedido ↔ libro.",
+      "consecuencia": "Un pedido sin asiento no genera pasivos con el comercio y no aparece en el resultado; se arrastraría silenciosamente.",
+      "pruebaSugerida": "Consulta de control: pedidos con `finance` y sin LedgerEntry ORDER_PLACED; añadirla como barrido o informe.",
+      "afectados": [
+        "order.service.ts",
+        "ledger.service.ts"
+      ],
+      "verificacion": "lectura+busqueda",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/order.service.ts",
+          "linea": 549,
+          "ancla": "order = await Order.create({",
+          "texto": "el pedido existe desde aquí"
+        },
+        {
+          "archivo": "backend/src/services/order.service.ts",
+          "linea": 673,
+          "ancla": "await ledgerService.recordOrderPlaced({",
+          "texto": "el libro llega después, sin transacción"
+        },
+        {
+          "archivo": "backend/src/services/order.service.ts",
+          "linea": 324,
+          "ancla": "private async rollbackNewOrder(",
+          "texto": "compensación solo ante excepciones"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-011-rbac-observe-por-defecto",
+      "regla": "auditoria-seguridad",
+      "titulo": "El control de permisos de los administradores solo se aplica con el feature flag `rbac_enforce`; sin flag el modo es «observación» y todo se permite",
+      "severidad": "ALTO",
+      "confianza": "hipotesis",
+      "area": "seguridad",
+      "alcance": "transversal",
+      "probabilidad": "media",
+      "impacto": "alto",
+      "descripcion": "Para cuentas ADMIN, `resolveMode` devuelve 'enforce' solo si el flag está encendido; sin flag o apagado devuelve 'observe'. En observación, `req.permissions` es la unión legacy (todos los permisos) y `can()`/`requirePermission` dejan pasar y solo registran un «shadow denied». Es decir, mientras el flag esté apagado, los roles y cargos que se asignen a un admin no restringen nada.",
+      "causa": "Despliegue gradual del RBAC (Fase 1) con el interruptor como mecanismo.",
+      "consecuencia": "Si en producción el flag está apagado, cualquier cuenta admin puede ejercer permisos financieros, de usuarios o de seguridad. No verificable desde el repositorio: pendiente de confirmar el valor del flag `rbac_enforce` en la base de datos de producción.",
+      "pruebaSugerida": "Consultar la colección de feature flags en producción; en entorno de pruebas, crear un admin sin roles y llamar a `PUT /finance/config`.",
+      "afectados": [
+        "authorization.service.ts",
+        "middlewares/auth.ts",
+        "todas las rutas con requirePermission/adminRequires",
+        "sockets de admin"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/authorization.service.ts",
+          "linea": 223,
+          "ancla": "async function resolveMode(user: IUser): Promise<AuthzMode> {",
+          "texto": "decide el modo por el flag"
+        },
+        {
+          "archivo": "backend/src/services/authorization.service.ts",
+          "linea": 230,
+          "ancla": "return on ? 'enforce' : 'observe';",
+          "texto": "apagado = observe"
+        },
+        {
+          "archivo": "backend/src/middlewares/auth.ts",
+          "linea": 241,
+          "ancla": "if (authz.mode === 'observe' && authz.legacyUnion.includes(permission)) return 'shadow';",
+          "texto": "shadow = permitido"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-012-pro-sin-guarda-de-margen",
+      "regla": "auditoria-finanzas",
+      "titulo": "Los beneficios de Zipp Pro (envío gratis y tarifa de servicio perdonada) pueden dejar el neto del pedido negativo sin ninguna guarda de margen",
+      "severidad": "MEDIO",
+      "confianza": "hipotesis",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "media",
+      "impacto": "medio",
+      "descripcion": "`breaksMarginFloor` solo evalúa cupones de plataforma. El descuento de Pro se suma a `platformFundedDiscount` y el neto es `platformGrossRevenue − platformFundedDiscount`: con envío gratis Pro el descuento iguala todo el domicilio mientras el ingreso por domicilio es solo el margen. Un pedido pequeño con comisión baja puede dar neto negativo, que el sistema acepta (solo el efectivo exige `cashToRemit ≥ 0`).",
+      "causa": "Se modeló como gasto de plataforma deliberado («lo paga ZIPP»); el control de margen no se extendió a la membresía.",
+      "consecuencia": "Subsidio operativo no acotado por pedido. Hay que contrastarlo con la cuota de la membresía y el mínimo `freeDeliveryMinSubtotal` antes de concluir que es un problema.",
+      "pruebaSugerida": "Pedido con Pro, producto en el mínimo, comisión 10 % y domicilio de 8.000: calcular `platformNetRevenueBeforeOperatingCosts`.",
+      "afectados": [
+        "pricing.service.ts",
+        "pro.service.ts",
+        "proSimulation.service.ts"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/pricing.service.ts",
+          "linea": 1578,
+          "ancla": "const proDeliveryDiscount = qualifiesForPro ? Math.max(0, deliveryAfterFree) : 0;",
+          "texto": "descuento Pro = todo el domicilio restante"
+        },
+        {
+          "archivo": "backend/src/services/pricing.service.ts",
+          "linea": 1008,
+          "ancla": "if (this.breaksMarginFloor(coupon, platformNetRevenueBeforeOperatingCosts, estimatedGatewayFee)) {",
+          "texto": "la guarda solo se evalúa con cupón"
+        },
+        {
+          "archivo": "backend/src/services/pricing.service.ts",
+          "linea": 1771,
+          "ancla": "breaksMarginFloor(",
+          "texto": "exige coupon.fundedBy === PLATFORM"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-013-reembolso-total-trato-del-domiciliario",
+      "regla": "auditoria-finanzas",
+      "titulo": "Un reembolso total puede quitarle al domiciliario su tarifa o no, según si ya se liquidó",
+      "severidad": "MEDIO",
+      "confianza": "probable",
+      "area": "finanzas",
+      "alcance": "local",
+      "probabilidad": "media",
+      "impacto": "medio",
+      "descripcion": "`allocateRefund` documenta que un reembolso parcial NO toca al domiciliario («ya hizo el viaje»), pero uno total revierte su pago íntegro. Si el pago del domiciliario aún no estaba comprometido en una liquidación, la reversión lo anula; si ya estaba liquidado, `payoutService.reverse` decide que ZIPP lo absorbe como gasto. El mismo reembolso trata distinto al domiciliario según el momento en que se emita.",
+      "causa": "Dos políticas (reembolso total = deshacer exactamente; domiciliario no se arrastra) que se cruzan.",
+      "consecuencia": "Inequidad entre domiciliarios por un hecho que no controlan y gasto variable para ZIPP. Decisión de negocio: confirmar cuál es la política deseada.",
+      "pruebaSugerida": "Mismo pedido entregado y reembolsado en total antes y después de la liquidación semanal; comparar el pago final del domiciliario.",
+      "afectados": [
+        "refund.service.ts",
+        "payout.service.ts",
+        "pago a domiciliarios"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/refund.service.ts",
+          "linea": 109,
+          "ancla": "fromDriverPayout: remaining.driverPayout,",
+          "texto": "total: se revierte el pago del domiciliario"
+        },
+        {
+          "archivo": "backend/src/services/payout.service.ts",
+          "linea": 297,
+          "ancla": "async reverse(",
+          "texto": "si ya está comprometido se absorbe"
+        },
+        {
+          "archivo": "backend/src/services/payout.service.ts",
+          "linea": 429,
+          "ancla": "event: LedgerEventType.DRIVER_FEE_ABSORBED,",
+          "texto": "ZIPP asume la tarifa"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-014-impuesto-una-sola-tasa",
+      "regla": "auditoria-finanzas",
+      "titulo": "El impuesto se calcula con una única tasa sobre productos, domicilio y tarifa de servicio",
+      "severidad": "MEDIO",
+      "confianza": "hipotesis",
+      "area": "finanzas",
+      "alcance": "transversal",
+      "probabilidad": "media",
+      "impacto": "alto",
+      "descripcion": "`taxPayable = applyBps(payableSubtotal + payableDelivery + payableServiceFee, taxBps)` con un único `taxBps` global (por defecto 0). Los tres conceptos pueden tener tratamiento tributario distinto (consumo del restaurante, servicio de ZIPP, domicilio); además se asienta todo como pasivo «impuestos por pagar».",
+      "causa": "Simplificación del modelo de precios.",
+      "consecuencia": "Si en producción `taxBps` > 0, el desglose podría no corresponder a lo que debe facturarse. No se afirma nada sobre la norma: pendiente de confirmar con el contador qué conceptos gravan y a qué tasa.",
+      "pruebaSugerida": "Revisión contable de un pedido real contra su factura/documento.",
+      "afectados": [
+        "pricing.service.ts",
+        "ledger.service.ts",
+        "fiscalDocument.service.ts"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/pricing.service.ts",
+          "linea": 1614,
+          "ancla": "const taxPayable = applyBps(",
+          "texto": "una tasa para tres conceptos"
+        },
+        {
+          "archivo": "backend/src/models/PlatformPricingConfig.ts",
+          "linea": 167,
+          "ancla": "taxBps: { ...bps, default: 0 },",
+          "texto": "por defecto 0"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-015-ci-inoperante-y-doc-desactualizada",
+      "regla": "documentacion-desactualizada",
+      "titulo": "Existe un workflow de CI que nunca se dispara, y CLAUDE.md dice que no hay CI",
+      "severidad": "BAJO",
+      "confianza": "confirmado",
+      "area": "calidad",
+      "alcance": "local",
+      "probabilidad": "alta",
+      "impacto": "bajo",
+      "descripcion": "`.github/workflows/mobile-typecheck.yml` solo corre en pushes/PR a la rama `main`, pero la rama principal del repositorio es `master`. CLAUDE.md afirma «No hay CI (`.github/` no existe)».",
+      "causa": "Workflow copiado de una plantilla; documentación no actualizada.",
+      "consecuencia": "El typecheck de mobile nunca se ejecuta automáticamente y la documentación engaña sobre el estado de la verificación.",
+      "pruebaSugerida": "Hacer un push a master y comprobar que no aparece ninguna ejecución en GitHub Actions.",
+      "afectados": [
+        ".github/workflows/mobile-typecheck.yml",
+        "CLAUDE.md"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": ".github/workflows/mobile-typecheck.yml",
+          "linea": 5,
+          "ancla": "branches: [main]",
+          "texto": "rama inexistente"
+        },
+        {
+          "archivo": "CLAUDE.md",
+          "linea": 81,
+          "ancla": "No hay CI",
+          "texto": "afirmación desactualizada"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-016-claude-settings-rutas-ajenas",
+      "regla": "configuracion-obsoleta",
+      "titulo": "`.claude/settings.json` permite comandos y directorios de otra máquina (`C:\\Users\\desar\\Videos\\ZIPP`)",
+      "severidad": "BAJO",
+      "confianza": "confirmado",
+      "area": "calidad",
+      "alcance": "local",
+      "probabilidad": "alta",
+      "impacto": "bajo",
+      "descripcion": "Las reglas de permiso y `additionalDirectories` apuntan a una ruta que no existe en este equipo, y el archivo está versionado. No afecta a ZIPP, pero deja permisos huérfanos para quien clone el repositorio en una ruta distinta.",
+      "causa": "Archivo generado en otra máquina.",
+      "consecuencia": "Permisos sin efecto o, peor, aplicables si alguien monta esa ruta.",
+      "pruebaSugerida": "Abrir el archivo y comparar con la ruta real del repositorio.",
+      "afectados": [
+        ".claude/settings.json"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": ".claude/settings.json",
+          "linea": 35,
+          "ancla": "C:\\\\Users\\\\desar\\\\Videos\\\\ZIPP\\\\backend\\\\node_modules",
+          "texto": "directorio adicional de otra máquina"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-017-envio-por-linea-recta",
+      "regla": "auditoria-finanzas",
+      "titulo": "La tarifa del domiciliario se calcula con distancia en línea recta, no por ruta",
+      "severidad": "BAJO",
+      "confianza": "hipotesis",
+      "area": "finanzas",
+      "alcance": "local",
+      "probabilidad": "media",
+      "impacto": "bajo",
+      "descripcion": "`priceRoute` usa `haversineMeters` entre comercio y destino para el componente por kilómetro y para el límite de cobertura; el tiempo de entrega usa `estimateRoute` (matemática pura con factor de rodeo, no Mapbox).",
+      "causa": "Decisión de no depender de una consulta de red en cada cotización.",
+      "consecuencia": "En ciudades con rodeos (ríos, sentido de las vías) el domiciliario puede cobrar menos de lo que recorre. Es una decisión de negocio: validar con datos reales de Garzón.",
+      "pruebaSugerida": "Comparar km reales de 50 entregas con la distancia cotizada.",
+      "afectados": [
+        "pricing.service.ts",
+        "pago a domiciliarios"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/pricing.service.ts",
+          "linea": 727,
+          "ancla": "const distanceMeters = haversineMeters(origin, destination);",
+          "texto": "distancia en línea recta"
+        }
+      ],
+      "elementos": []
+    },
+    {
+      "id": "M-018-prueba-chat-personal-roja",
+      "regla": "auditoria-seguridad",
+      "titulo": "La prueba «el personal no lee el chat del pedido» falla: el endpoint del chat responde 200 al personal del comercio",
+      "severidad": "MEDIO",
+      "confianza": "probable",
+      "area": "seguridad",
+      "alcance": "local",
+      "probabilidad": "media",
+      "impacto": "medio",
+      "descripcion": "Ejecutada la suite del backend (verificar), businessStaffOrders.test.ts espera 403 cuando un encargado (MANAGER) pide GET /orders/:id/chat y recibe 200. El controlador del chat admite ahora al participante «business» (con un hilo propio comercio↔domiciliario). Los archivos orderFlow.controller.ts, orderAccess.service.ts y orderChat.service.ts tienen cambios sin commit en el árbol de trabajo: parece un cambio deliberado en curso cuya prueba no se actualizó, no una regresión accidental.",
+      "causa": "Regla de acceso al chat cambiada (comercio ahora es parte de un hilo) sin actualizar la prueba de la auditoría del 2026-10-01 (MEDIO 5), que decía que el comercio no lee la conversación cliente↔domiciliario.",
+      "consecuencia": "Si la intención era mantener el cierre de MEDIO 5, el personal del comercio puede estar leyendo la conversación del cliente con el domiciliario (dirección, datos personales). Hay que confirmar que la función list de orderChat entrega SOLO el hilo business_driver al personal y no el hilo cliente↔domiciliario, y actualizar la prueba para fijar esa garantía.",
+      "pruebaSugerida": "Con un MANAGER: GET /orders/:id/chat y GET /orders/:id/chat?channel=client_driver; comprobar que ningún mensaje del cliente aparece.",
+      "afectados": [
+        "orderFlow.controller.ts",
+        "orderChat.service.ts",
+        "orderAccess.service.ts",
+        "businessStaffOrders.test.ts"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/__tests__/businessStaffOrders.test.ts",
+          "linea": 231,
+          "ancla": "MEDIO 5: el personal no lee el chat del pedido",
+          "texto": "prueba roja"
+        },
+        {
+          "archivo": "backend/src/controllers/orderFlow.controller.ts",
+          "linea": 519,
+          "ancla": "assertParticipant(access, ['client', 'driver', 'business', 'admin'], 'leer esta conversación');",
+          "texto": "el comercio ya es participante"
+        }
+      ],
+      "elementos": []
+    }
+  ]
+}

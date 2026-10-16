@@ -27,7 +27,7 @@ export interface ReportStatusPayload {
 }
 
 /** Ajustes que el contenedor recuerda entre arranques. Lista cerrada a propósito. */
-export const SETTINGS_KEYS = ['launchAtLogin', 'printerName', 'paperWidthMm'] as const;
+export const SETTINGS_KEYS = ['launchAtLogin', 'printerName', 'paperWidthMm', 'autoPrint'] as const;
 export type SettingKey = (typeof SETTINGS_KEYS)[number];
 
 export interface SettingsGetPayload {
@@ -108,5 +108,6 @@ export function validateSettingsSet(payload: unknown): ValidationResult<Settings
   if (key === 'launchAtLogin' && typeof value !== 'boolean') return fail('settings-set: launchAtLogin debe ser booleano');
   if (key === 'printerName' && typeof value !== 'string') return fail('settings-set: printerName debe ser texto');
   if (key === 'paperWidthMm' && typeof value !== 'number') return fail('settings-set: paperWidthMm debe ser numérico');
+  if (key === 'autoPrint' && typeof value !== 'boolean') return fail('settings-set: autoPrint debe ser booleano');
   return { ok: true, value: { key: key as SettingKey, value } };
 }

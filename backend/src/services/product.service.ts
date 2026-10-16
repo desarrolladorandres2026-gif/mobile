@@ -16,6 +16,8 @@ interface CreateProductInput {
   extras?: Array<{ name: string; price: number }>;
   modifierGroups?: ModifierGroup[];
   isAvailable?: boolean;
+  /** Agotar por un tiempo (minutos); lo repone el barrido de disponibilidad. */
+  unavailableForMinutes?: number;
   isFeatured?: boolean;
   stock?: number | null;
   lowStockThreshold?: number;
@@ -152,6 +154,19 @@ export class ProductService {
   }
 
 
+  /**
+   * Devuelve a la carta los productos cuyo «agotado por un tiempo» venció.
+   *
+   * Un producto que además llegó a cero unidades no vuelve: solo se limpia el
+   * plazo, porque el inventario manda sobre el reloj.
+   */
+  async reopenDue(now = new Date()): Promise<number> {
+    const due = { unavailableUntil: { $ne: null, $lte: now } };
+    await Product.updateMany({ ...due, stock: 0 }, { $set: { unavailableUntil: null } });
+    const res = await Product.updateMany(due, { $set: { isAvailable: true, unavailableUntil: null } });
+    return res.modifiedCount;
+  }
+
   async getById(id: string): Promise<IProduct> {
     const product = await Product.findById(id);
     if (!product) throw new AppError('Producto no encontrado', 404);
@@ -163,8 +178,15 @@ export class ProductService {
     // más de una persona: un valor absoluto leído→guardado pisaba a la otra
     // (auditoría 2026-10-09, BAJO 10). Con solo `isAvailable`/`stock` la
     // escritura es una sola operación atómica, con las mismas reglas de abajo.
-    const sent = Object.keys(data).filter((key) => (data as Record<string, unknown>)[key] !== undefined);
-    if (sent.length > 0 && sent.every((key) => key === 'isAvailable' || key === 'stock')) {
+    // `businessId` viaja en el cuerpo de la petición pero ya llega como argumento:
+    // contarlo como campo dejaba esta ruta atómica sin usar desde la API.
+    const sent = Object.keys(data).filter(
+      (key) => key !== 'businessId' && (data as Record<string, unknown>)[key] !== undefined
+    );
+    if (
+      sent.length > 0 &&
+      sent.every((key) => key === 'isAvailable' || key === 'stock' || key === 'unavailableForMinutes')
+    ) {
       const set: Record<string, unknown> = {};
       if (data.isAvailable !== undefined) set.isAvailable = data.isAvailable;
       if (data.stock !== undefined) {
@@ -172,6 +194,14 @@ export class ProductService {
         // Reponer lo devuelve a la carta; llegar a cero lo agota.
         if (data.stock !== null && data.stock > 0 && data.isAvailable === undefined) set.isAvailable = true;
         if (data.stock === 0) set.isAvailable = false;
+      }
+      // Agotar por un tiempo: se apaga ahora y el barrido lo repone. Cualquier
+      // otro cambio de disponibilidad (a mano, por inventario) cancela el plazo.
+      if (data.unavailableForMinutes !== undefined) {
+        set.isAvailable = false;
+        set.unavailableUntil = new Date(Date.now() + data.unavailableForMinutes * 60_000);
+      } else if (set.isAvailable !== undefined) {
+        set.unavailableUntil = null;
       }
       const updated = await Product.findOneAndUpdate(
         { _id: id, businessId },
@@ -206,7 +236,10 @@ export class ProductService {
     if (data.prepTimeMinutes !== undefined) product.prepTimeMinutes = data.prepTimeMinutes ?? null;
     if (data.extras !== undefined) product.extras = data.extras;
     if (data.modifierGroups !== undefined) product.modifierGroups = data.modifierGroups as any;
-    if (data.isAvailable !== undefined) product.isAvailable = data.isAvailable;
+    if (data.isAvailable !== undefined) {
+      product.isAvailable = data.isAvailable;
+      product.unavailableUntil = null;
+    }
     if (data.isFeatured !== undefined) product.isFeatured = data.isFeatured;
 
     // El inventario se escribe explícitamente y admite `null`, que no es lo

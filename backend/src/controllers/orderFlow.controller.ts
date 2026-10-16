@@ -20,11 +20,12 @@ import {
 } from '../services/orderAccess.service';
 import { orderSecurityService } from '../services/orderSecurity.service';
 import { orderEvidenceService } from '../services/orderEvidence.service';
-import { orderChatService } from '../services/orderChat.service';
+import { orderChatService, resolveChannel } from '../services/orderChat.service';
 import { orderCallService } from '../services/orderCall.service';
 import { orderService, notificationService, paymentService } from '../services';
 import { orderTimelineService } from '../services/orderTimeline.service';
-import { User } from '../models';
+import { User, BusinessPermission } from '../models';
+import { itemShortageService } from '../services/itemShortage.service';
 
 export class OrderFlowController {
   // ── Estado agregado del flujo ──────────────────────────────────────
@@ -43,11 +44,16 @@ export class OrderFlowController {
       const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
       const order = access.order;
 
-      const [security, evidences, unread, activeCall, participants] = await Promise.all([
+      const [security, evidences, unread, unreadBusiness, activeCall, participants] = await Promise.all([
         orderSecurityService.viewFor(access).catch(() => null),
         orderEvidenceService.listForOrder(access),
-        access.participant === 'client' || access.participant === 'driver'
+        // Cada parte cuenta lo de su hilo: el cliente y el comercio, el único
+        // que tienen; el domiciliario, el del cliente (el del comercio va aparte).
+        access.participant === 'client' || access.participant === 'driver' || access.participant === 'business'
           ? orderChatService.unreadCount(access)
+          : Promise.resolve(0),
+        access.participant === 'driver'
+          ? orderChatService.unreadCount(access, 'business_driver')
           : Promise.resolve(0),
         orderCallService.current(access).catch(() => null),
         getOrderParticipants(order),
@@ -82,6 +88,8 @@ export class OrderFlowController {
         chat: {
           available: orderChatService.isOpen(access),
           unread,
+          // Solo el domiciliario tiene dos hilos; para los demás es 0.
+          unreadBusiness,
         },
         call: {
           available: orderCallService.isAvailable(access),
@@ -504,15 +512,16 @@ export class OrderFlowController {
   async getChat(req: Request, res: Response, next: NextFunction) {
     try {
       const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
-      // MEDIO 5 (auditoría 2026-10-01): el chat es entre cliente y
-      // domiciliario; el comercio no es parte de esa conversación (el
-      // cliente puede estar contando dónde vive, o diciendo que está sola).
-      // Antes "cualquier parte del pedido" incluía al dueño, y ahora
-      // también al personal.
-      assertParticipant(access, ['client', 'driver', 'admin'], 'leer esta conversación');
+      // MEDIO 5 (auditoría 2026-10-01): el comercio no es parte de la
+      // conversación del cliente con el domiciliario (el cliente puede estar
+      // contando dónde vive, o diciendo que está sola). Se mantiene: el
+      // comercio tiene su PROPIO hilo con el domiciliario (`business_driver`)
+      // y `list` le entrega solo ese, sin importar qué `channel` pida.
+      assertParticipant(access, ['client', 'driver', 'business', 'admin'], 'leer esta conversación');
       const result = await orderChatService.list(access, {
         page: Number(query(req, 'page')) || 1,
         limit: clampLimit(query(req, 'limit'), 100, 50),
+        channel: query(req, 'channel'),
       });
 
       if (access.participant === 'admin') {
@@ -532,24 +541,41 @@ export class OrderFlowController {
   async sendMessage(req: Request, res: Response, next: NextFunction) {
     try {
       const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
-      assertParticipant(access, ['client', 'driver'], 'escribir en esta conversación');
-      const message = await orderChatService.send(access, req.body.message);
+      assertParticipant(access, ['client', 'driver', 'business'], 'escribir en esta conversación');
+      const message = await orderChatService.send(access, req.body.message, req.body.channel);
       const participants = await getOrderParticipants(access.order);
-
-      const recipientId =
-        access.participant === 'client'
-          ? participants.driverUserId
-          : participants.clientUserId;
-
       const io = req.app.get('io');
       const payload = { orderId: access.order._id.toString(), message };
-      if (recipientId) io?.to(`user:${recipientId}`).emit('order:chat:message', payload);
-      io?.to(`user:${access.userId}`).emit('order:chat:message', payload);
 
-      if (recipientId) {
-        notificationService
-          .notifyChatMessage(recipientId, access.order._id.toString(), access.order.orderNumber, req.user!.name)
-          .catch(console.error);
+      if (message.channel === 'business_driver') {
+        // Hilo del comercio: el cliente no entra nunca. El comercio lo recibe
+        // en la sala de su local (todas sus pantallas), el domiciliario en la suya.
+        if (access.order.businessId) {
+          io?.to(`business:${access.order.businessId.toString()}`).emit('order:chat:message', payload);
+        }
+        if (participants.driverUserId) {
+          io?.to(`user:${participants.driverUserId}`).emit('order:chat:message', payload);
+        }
+
+        if (access.participant === 'business' && participants.driverUserId) {
+          notificationService
+            .notifyChatMessage(participants.driverUserId, access.order._id.toString(), access.order.orderNumber, 'El comercio')
+            .catch(console.error);
+        }
+      } else {
+        const recipientId =
+          access.participant === 'client'
+            ? participants.driverUserId
+            : participants.clientUserId;
+
+        if (recipientId) io?.to(`user:${recipientId}`).emit('order:chat:message', payload);
+        io?.to(`user:${access.userId}`).emit('order:chat:message', payload);
+
+        if (recipientId) {
+          notificationService
+            .notifyChatMessage(recipientId, access.order._id.toString(), access.order.orderNumber, req.user!.name)
+            .catch(console.error);
+        }
       }
 
       sendResponse(res, 201, 'Mensaje enviado', message);
@@ -559,19 +585,30 @@ export class OrderFlowController {
   async markChatRead(req: Request, res: Response, next: NextFunction) {
     try {
       const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
-      const updated = await orderChatService.markRead(access);
+      const channel = resolveChannel(access, req.body?.channel ?? query(req, 'channel'));
+      const updated = await orderChatService.markRead(access, channel);
 
       const participants = await getOrderParticipants(access.order);
-      const otherId =
-        access.participant === 'client'
-          ? participants.driverUserId
-          : participants.clientUserId;
+      const io = req.app.get('io');
+      const readPayload = { orderId: access.order._id.toString(), channel };
 
-      if (updated > 0 && otherId) {
-        req.app
-          .get('io')
-          ?.to(`user:${otherId}`)
-          .emit('order:chat:read', { orderId: access.order._id.toString() });
+      if (updated > 0) {
+        if (channel === 'business_driver') {
+          // El acuse va a la otra punta de ESE hilo: nunca al cliente.
+          if (access.participant === 'driver') {
+            if (access.order.businessId) {
+              io?.to(`business:${access.order.businessId.toString()}`).emit('order:chat:read', readPayload);
+            }
+          } else if (participants.driverUserId) {
+            io?.to(`user:${participants.driverUserId}`).emit('order:chat:read', readPayload);
+          }
+        } else {
+          const otherId =
+            access.participant === 'client'
+              ? participants.driverUserId
+              : participants.clientUserId;
+          if (otherId) io?.to(`user:${otherId}`).emit('order:chat:read', readPayload);
+        }
       }
 
       sendResponse(res, 200, 'Mensajes marcados como leídos', { updated });
@@ -655,6 +692,75 @@ export class OrderFlowController {
       assertParticipant(access, ['client', 'driver', 'admin'], 'ver las llamadas');
       const calls = await orderCallService.listForOrder(access);
       sendResponse(res, 200, 'Llamadas del pedido', calls);
+    } catch (error) { next(error); }
+  }
+
+  // ── Producto que falta ─────────────────────────────────────────────
+
+  /**
+   * El comercio avisa de un producto que falta y consulta al cliente.
+   *
+   * Quién: el dueño o su personal con `orders:manage` (el mostrador también,
+   * con su sesión acotada). Un cliente, un repartidor o un comercio ajeno
+   * recibe lo mismo que ante un pedido inexistente.
+   */
+  async reportItemShortage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
+      assertParticipant(access, ['business'], 'avisar de un producto que falta');
+      if (!access.businessPermissions?.includes(BusinessPermission.ORDERS_MANAGE)) {
+        throw new AppError('Tu rol no puede gestionar los pedidos de este comercio.', 403, 'ORDER_MANAGE_FORBIDDEN');
+      }
+
+      const shortage = await itemShortageService.report(
+        access.order._id.toString(),
+        { userId: access.userId, role: UserRole.BUSINESS },
+        req.body
+      );
+
+      logAudit(req, {
+        action: AuditAction.ORDER_ITEM_SHORTAGE_REPORTED,
+        entity: 'order',
+        entityId: access.order._id.toString(),
+        severity: AuditSeverity.MEDIUM,
+        description: `Producto faltante avisado en el pedido ${access.order.orderNumber}`,
+        metadata: {
+          orderNumber: access.order.orderNumber,
+          shortageId: shortage.id,
+          reason: shortage.reason,
+          lines: shortage.items.length,
+          actorBusinessRole: access.businessRole,
+        },
+      }).catch(console.error);
+
+      sendResponse(res, 201, 'Consulta enviada al cliente', shortage);
+    } catch (error) { next(error); }
+  }
+
+  /** Solo el cliente del pedido responde: sigue sin ese producto o cancela. */
+  async respondItemShortage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const access = await resolveOrderAccess(param(req, 'id'), req.user!, req.sessionScope);
+      assertParticipant(access, ['client'], 'responder esta consulta');
+
+      const accept = req.body.accept === true;
+      const shortage = await itemShortageService.respond(
+        access.order._id.toString(),
+        access.userId,
+        accept,
+        { ip: clientIp(req), userAgent: userAgent(req) }
+      );
+
+      logAudit(req, {
+        action: AuditAction.ORDER_ITEM_SHORTAGE_RESPONDED,
+        entity: 'order',
+        entityId: access.order._id.toString(),
+        severity: AuditSeverity.MEDIUM,
+        description: `El cliente ${accept ? 'aceptó seguir sin' : 'no aceptó seguir sin'} el producto que falta (pedido ${access.order.orderNumber})`,
+        metadata: { orderNumber: access.order.orderNumber, shortageId: shortage.id, accept },
+      }).catch(console.error);
+
+      sendResponse(res, 200, accept ? 'Seguirás sin ese producto' : 'Pedido cancelado', shortage);
     } catch (error) { next(error); }
   }
 

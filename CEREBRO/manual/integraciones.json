@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "nota": "Estados: identificada (el código la menciona) · configurada (hay variables y proveedor activable) · probada (una prueba automática la ejercita, con un doble de prueba) · confirmada (se ha visto funcionar contra el servicio real). Ninguna integración puede declararse «confirmada» desde el repositorio: no hay credenciales ni acceso a producción en esta auditoría.",
+  "integraciones": [
+    {
+      "nombre": "Wompi (pagos)",
+      "proposito": "Cobros en línea: tarjeta, PSE, Nequi, Bancolombia; webhooks; anulaciones.",
+      "estado": "probada",
+      "notas": "El proveedor Wompi se prueba contra respuestas simuladas (wompi.test.ts, payment-*.test.ts); el resto usa un proveedor sandbox propio. La firma del webhook y la confirmación contra la API están implementadas. No se ha ejecutado contra el sandbox real de Wompi.",
+      "falta": "Llaves del sandbox de Wompi y una ejecución real: crear transacción, webhook, anulación total y parcial; contrato de tarifas y métodos con /void.",
+      "evidencia": [
+        { "archivo": "backend/src/services/payments/wompi.provider.ts", "linea": 519, "ancla": "if (amount !== undefined && amount < current.amount) {" },
+        { "archivo": "backend/src/services/payments/index.ts", "linea": 1907, "ancla": "if (provider.confirmEvent) {" }
+      ]
+    },
+    {
+      "nombre": "MongoDB Atlas",
+      "proposito": "Base de datos de desarrollo y producción.",
+      "estado": "identificada",
+      "notas": "Las pruebas usan MongoDB en memoria (mongodb-memory-server), nunca Atlas. CLAUDE.md indica que la base de dev es Atlas y que `npm run seed` no debe ejecutarse. CEREBRO no se conectó a ninguna base.",
+      "falta": "Acceso de solo lectura a una base de pruebas para contrastar `PlatformPricingConfig` y el flag `rbac_enforce` reales."
+    },
+    {
+      "nombre": "Cloudinary / almacenamiento de imágenes",
+      "proposito": "Fotos de productos, comercios y documentos.",
+      "estado": "identificada",
+      "notas": "Hay código de subida y almacenamiento privado para documentos. No se auditó."
+    },
+    {
+      "nombre": "Mapbox",
+      "proposito": "Geocodificación y rutas.",
+      "estado": "identificada",
+      "notas": "`estimateRoute`, usado en la cotización, es matemática pura sin red por decisión explícita; las llamadas reales a Mapbox están en el servicio de direcciones y de ruta del domiciliario. No se auditó."
+    },
+    {
+      "nombre": "Photoroom (recorte de fondo)",
+      "proposito": "Procesado de imágenes de producto.",
+      "estado": "probada",
+      "notas": "photoroomProvider.test.ts y backgroundRemoval.test.ts con dobles de prueba."
+    },
+    {
+      "nombre": "WhatsApp / correo / push (Expo)",
+      "proposito": "OTP, avisos y notificaciones.",
+      "estado": "identificada",
+      "notas": "Los OTP se guardan como HMAC y se validan con contador atómico de intentos (security/otp.ts, leído). El envío real no se verificó."
+    }
+  ]
+}

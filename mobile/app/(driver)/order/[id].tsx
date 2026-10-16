@@ -30,6 +30,7 @@ import { groupDigits, money, orderCode } from '../../../lib/format';
 import { tap } from '../../../lib/haptics';
 import { Spacing, BorderRadius } from '../../../theme/tokens';
 import { ROUTES } from '../../../lib/routing';
+import { totalUnread } from '../../../lib/orderChat';
 import { buildDirectionsUrl } from '../../../lib/mapNavigation';
 
 const CODE_LENGTH = 6;
@@ -47,6 +48,8 @@ export default function DriverActiveOrderScreen() {
 
   const { data: order, isLoading, isError, refetch } = useOrder(id);
   const { data: flow } = useOrderFlow(id);
+  // No leídos de los dos hilos (cliente y comercio): un solo indicador en el botón.
+  const chatUnread = totalUnread(flow?.chat);
   const { connected } = useOrderRealtime();
   const { incomingCall, clearIncomingCall } = useOrderFlowRealtime(id);
 
@@ -667,11 +670,11 @@ export default function DriverActiveOrderScreen() {
           </Card>
         ) : null}
 
-        {/* ── Comunicación con el cliente ── */}
+        {/* ── Comunicación con el cliente y el comercio ── */}
         {!isDelivered && !isCancelled && (flow?.chat.available || flow?.call.available) ? (
           <View style={styles.commsRow}>
             <Button
-              title={flow?.chat.unread ? `Chat (${flow.chat.unread})` : 'Chat con el cliente'}
+              title={chatUnread > 0 ? `Chat (${chatUnread})` : 'Chat del pedido'}
               icon="chat"
               variant="secondary"
               style={styles.flex}

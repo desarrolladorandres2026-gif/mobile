@@ -4,6 +4,7 @@ export { emailService } from './email.service';
 export { businessService } from './business.service';
 export { businessImageService } from './businessImage.service';
 export { orderService } from './order.service';
+export { itemShortageService } from './itemShortage.service';
 
 // ── Traspaso físico del pedido ───────────────────────────────────────
 export {

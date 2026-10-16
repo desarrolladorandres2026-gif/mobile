@@ -13,13 +13,16 @@ import OrderDetailPanel from '../components/OrderDetailPanel';
 import Pagination from '../components/Pagination';
 import OrderBoard from '../components/OrderBoard';
 import RejectOrderDialog from '../components/RejectOrderDialog';
+import ShortageDialog from '../components/ShortageDialog';
 import {
-  ORDER_STATUS, statusStyle, money, orderTag, dateTime, isActive,
+  statusLabel, statusStyle, money, orderTag, dateTime, isActive,
+  type FlowProfile,
   type OrderStatus,
   type BusinessOrder,
   type OrderItem,
 } from '../lib/orderFlow';
 import { apiMessage } from '../lib/apiError';
+import { useFlowProfile } from '../hooks/useFlowProfile';
 
 /**
  * Pedidos: comandas activas + historial, en una sola pantalla.
@@ -38,18 +41,20 @@ import { apiMessage } from '../lib/apiError';
  * tiene, así que cada línea mostraba $0.
  */
 
-const FILTERS: Array<{ value: OrderStatus | 'all'; label: string }> = [
+const filtersFor = (profile: FlowProfile): Array<{ value: OrderStatus | 'all'; label: string }> => [
   { value: 'all', label: 'Todos' },
-  { value: 'delivered', label: ORDER_STATUS.delivered.label },
-  { value: 'on_way', label: ORDER_STATUS.on_way.label },
-  { value: 'ready', label: ORDER_STATUS.ready.label },
-  { value: 'preparing', label: ORDER_STATUS.preparing.label },
-  { value: 'pending', label: ORDER_STATUS.pending.label },
-  { value: 'cancelled', label: ORDER_STATUS.cancelled.label },
+  { value: 'delivered', label: statusLabel('delivered', profile) },
+  { value: 'on_way', label: statusLabel('on_way', profile) },
+  { value: 'ready', label: statusLabel('ready', profile) },
+  { value: 'preparing', label: statusLabel('preparing', profile) },
+  { value: 'pending', label: statusLabel('pending', profile) },
+  { value: 'cancelled', label: statusLabel('cancelled', profile) },
 ];
 
 export default function Orders() {
   const selectedBusiness = useAuthStore((s) => s.selectedBusiness);
+  const profile = useFlowProfile();
+  const FILTERS = filtersFor(profile);
   const businessId = selectedBusiness?._id;
   const { can } = usePermissions(businessId);
   // Rechazar es cancelar: un pedido ya pagado devuelve el dinero al cliente y
@@ -81,6 +86,10 @@ export default function Orders() {
   // ── Comandas activas ──
   const [queueSearch, setQueueSearch] = useState('');
   const [rejecting, setRejecting] = useState<BusinessOrder | null>(null);
+  // «Me falta un producto»: el diálogo se queda abierto si el servidor lo rechaza.
+  const [shortageOrder, setShortageOrder] = useState<BusinessOrder | null>(null);
+  const [shortageBusy, setShortageBusy] = useState(false);
+  const [shortageError, setShortageError] = useState('');
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   // Sube en cada evento del traspaso: el pedido sigue en "listo" cuando el
@@ -165,6 +174,21 @@ export default function Orders() {
       return false;
     } finally {
       setBusyOrderId(null);
+    }
+  };
+
+  const reportShortage = async (body: { reason: string; items: Array<{ itemId: string; missingQty: number }> }) => {
+    if (!shortageOrder) return;
+    setShortageBusy(true);
+    setShortageError('');
+    try {
+      await api.post(`/orders/${shortageOrder._id}/item-shortage`, body);
+      setShortageOrder(null);
+      load();
+    } catch (err) {
+      setShortageError(apiMessage(err, 'No pudimos avisar al cliente.'));
+    } finally {
+      setShortageBusy(false);
     }
   };
 
@@ -256,7 +280,7 @@ export default function Orders() {
             <input
               value={queueSearch}
               onChange={(event) => setQueueSearch(event.target.value)}
-              placeholder="Buscar en la cocina…"
+              placeholder="Buscar entre los pedidos…"
               className="w-full bg-transparent text-xs text-[var(--color-text-main)] outline-none placeholder:text-[var(--color-text-secondary)]"
             />
           </label>
@@ -273,6 +297,7 @@ export default function Orders() {
             onAdvance={(order, status) => updateStatus(order._id, status)}
             onReject={setRejecting}
             canReject={canReject}
+            onShortage={can('orders:manage') ? (order) => { setShortageError(''); setShortageOrder(order); } : undefined}
             onOpen={setDetailOrder}
           />
         )}
@@ -364,7 +389,7 @@ export default function Orders() {
                       </tr>
                     ) : (
                       visible.map((order) => {
-                        const style = statusStyle(order.status);
+                        const style = statusStyle(order.status, profile);
                         return (
                           <tr
                             key={order._id}
@@ -427,6 +452,16 @@ export default function Orders() {
           businessId={businessId}
           refreshKey={liveTick}
           onClose={() => setDetailOrder(null)}
+        />
+      )}
+
+      {shortageOrder && (
+        <ShortageDialog
+          order={shortageOrder}
+          busy={shortageBusy}
+          error={shortageError}
+          onCancel={() => setShortageOrder(null)}
+          onConfirm={(body) => void reportShortage(body)}
         />
       )}
 

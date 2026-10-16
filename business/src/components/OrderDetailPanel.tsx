@@ -1,15 +1,19 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Lock, Camera, ImageOff, LifeBuoy } from 'lucide-react';
+import { X, Lock, Camera, ImageOff, LifeBuoy, Printer } from 'lucide-react';
 import api from '../services/api';
 import OrderTimeline from './OrderTimeline';
+import DriverChat from './DriverChat';
 import {
   statusStyle, money, signedMoney, orderTag, dateTime, clock,
   type BusinessOrder, type FlowState, type OrderFinance, type OrderItem, describeExtras,
 } from '../lib/orderFlow';
+import { useFlowProfile } from '../hooks/useFlowProfile';
 import { SUPPORT_PHONE_DISPLAY, supportWhatsAppUrl } from '../lib/contact';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuthStore } from '../stores/authStore';
+import { desktopSettings, isDesktop, printTicketOnDesktop } from '../lib/desktop';
+import { buildTicket } from '../lib/ticket';
 
 /**
  * Todo lo que el comercio sabe de un pedido, a pantalla completa.
@@ -65,6 +69,9 @@ const DRIVER_STATUSES: Record<string, string> = {
 };
 
 export default function OrderDetailPanel({ order, businessId, onClose, refreshKey = 0 }: Props) {
+  const profile = useFlowProfile();
+  const [printState, setPrintState] = useState<'idle' | 'printing' | 'error'>('idle');
+  const [printError, setPrintError] = useState('');
   const [flow, setFlow] = useState<FlowState | null>(null);
   const [line, setLine] = useState<StatementLine | null>(null);
   // Lo que del reembolso tardío todavía no se ha descontado (suma de los arrastres abiertos de este pedido).
@@ -123,7 +130,7 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
 
   if (!order) return null;
 
-  const style = statusStyle(order.status);
+  const style = statusStyle(order.status, profile);
   const client = order.clientId;
   const driver = order.driverId;
   const driverUser = driver?.userId;
@@ -167,6 +174,29 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
           >
             <LifeBuoy className="h-4 w-4" /> Reportar un problema
           </Link>
+          {isDesktop() ? (
+            <button
+              type="button"
+              disabled={printState === 'printing'}
+              onClick={async () => {
+                setPrintState('printing');
+                setPrintError('');
+                const width = (await desktopSettings.get('paperWidthMm')) as { ok: boolean; value?: unknown };
+                const result = await printTicketOnDesktop(
+                  buildTicket(order, selectedBusiness?.name ?? '', width.ok ? Number(width.value) || 80 : 80)
+                );
+                if (result.ok) setPrintState('idle');
+                else {
+                  setPrintState('error');
+                  setPrintError(result.error ?? 'No se pudo imprimir');
+                }
+              }}
+              className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-3 text-xs font-semibold text-[var(--color-primary)] hover:underline disabled:opacity-60"
+            >
+              <Printer className="h-4 w-4" />
+              {printState === 'printing' ? 'Imprimiendo…' : printState === 'error' ? `${printError}. Reintentar` : 'Imprimir comanda'}
+            </button>
+          ) : null}
           <button
             onClick={onClose}
             aria-label="Cerrar"
@@ -180,6 +210,11 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
       <div className="mt-2 space-y-6 pb-8">
         {/* El código, cuando toca enseñarlo. Solo llega si el servidor lo entrega. */}
         {flow?.pickup.code ? <PickupCode code={flow.pickup.code} /> : null}
+
+        {/* Solo con domiciliario asignado y el pedido listo o en camino: el servidor decide. */}
+        {flow?.chat?.available ? (
+          <DriverChat orderId={order._id} canWrite={!!access?.permissions.includes('orders:manage')} />
+        ) : null}
 
         {/* Orden de pedido: misma composición que el documento que el mostrador ya conoce. */}
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2 border-b-[3px] border-[var(--color-primary-dark)] pb-4">

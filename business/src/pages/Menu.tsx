@@ -10,6 +10,7 @@ import { qk } from '../lib/queryKeys';
 import { apiMessage } from '../lib/apiError';
 import { money } from '../lib/orderFlow';
 import ConfirmDialog from '../components/ConfirmDialog';
+import SoldOutDialog from '../components/SoldOutDialog';
 import type { Product } from '../lib/catalog';
 import ProductGalleryField from '../components/ProductGalleryField';
 import ProductImageField, {
@@ -23,7 +24,7 @@ import { fetchBusinessSettings } from '../lib/businessSettings';
 import { usePermissions } from '../hooks/usePermissions';
 import {
   EMPTY_PRODUCT_FORM, PREP_TIME_MAX, discountPercent, hasDraftContent, productChecklist,
-  productProgress, rawDiscountPercent, readPricing, type PricingField, type ProductFormState,
+  productProgress, rawDiscountPercent, readPricing, readStock, type PricingField, type ProductFormState,
 } from '../lib/productForm';
 import { productChecks, type PhotoState } from '../lib/productChecks';
 import { clearDraft, isDraftWorthRestoring, loadDraft, saveDraft } from '../lib/productDraft';
@@ -210,20 +211,49 @@ export default function Menu() {
 
   // ── Productos ──
 
+  // Volver a ofrecerlo es un toque; agotarlo pregunta por cuánto tiempo.
+  const [soldOutProduct, setSoldOutProduct] = useState<Product | null>(null);
+  const [soldOutBusy, setSoldOutBusy] = useState(false);
+
   const handleProductToggle = async (product: Product) => {
+    if (product.isAvailable) {
+      setSoldOutProduct(product);
+      return;
+    }
     try {
       setError('');
-      await api.put(`/products/${product._id}`, {
-        businessId,
-        isAvailable: !product.isAvailable,
-      });
+      await api.put(`/products/${product._id}`, { businessId, isAvailable: true });
       setProducts((previous) =>
         previous.map((item) =>
-          item._id === product._id ? { ...item, isAvailable: !item.isAvailable } : item
+          item._id === product._id ? { ...item, isAvailable: true, unavailableUntil: null } : item
         )
       );
     } catch (err) {
       setError(apiMessage(err, 'No pudimos cambiar la disponibilidad.'));
+    }
+  };
+
+  const confirmSoldOut = async (minutes?: number) => {
+    const product = soldOutProduct;
+    if (!product || soldOutBusy) return;
+    setSoldOutBusy(true);
+    try {
+      setError('');
+      await api.put(
+        `/products/${product._id}`,
+        minutes ? { businessId, unavailableForMinutes: minutes } : { businessId, isAvailable: false }
+      );
+      const until = minutes ? new Date(Date.now() + minutes * 60_000).toISOString() : null;
+      setProducts((previous) =>
+        previous.map((item) =>
+          item._id === product._id ? { ...item, isAvailable: false, unavailableUntil: until } : item
+        )
+      );
+    } catch (err) {
+      setError(apiMessage(err, 'No pudimos marcarlo como agotado.'));
+    } finally {
+      setSoldOutBusy(false);
+      setSoldOutProduct(null);
     }
   };
 
@@ -275,6 +305,7 @@ export default function Menu() {
         price: String(product.price),
         discountPrice: product.discountPrice ? String(product.discountPrice) : '',
         prepTimeMinutes: product.prepTimeMinutes ? String(product.prepTimeMinutes) : '',
+        stock: product.stock != null ? String(product.stock) : '',
         requiresAgeVerification: !!product.requiresAgeVerification,
         categoryId: product.categoryId,
         extras: product.extras || [],
@@ -377,6 +408,19 @@ export default function Menu() {
       return;
     }
 
+    const stockRead = readStock(productForm);
+    if (!stockRead.ok) {
+      setModalError(stockRead.message);
+      document.getElementById('product-stock')?.focus();
+      return;
+    }
+    // Al editar solo se manda si el comercio lo tocó: entre abrir el formulario
+    // y guardar, los pedidos descuentan unidades, y reenviar el número viejo
+    // las devolvería al inventario.
+    const stockTouched = editingProduct
+      ? productForm.stock.trim() !== (editingProduct.stock != null ? String(editingProduct.stock) : '')
+      : stockRead.stock !== null;
+
     const converted = fromDrafts(productForm.modifierGroups);
     if ('error' in converted) {
       // Plegadas, el comercio vería el error sin ver el grupo que lo causa.
@@ -396,6 +440,7 @@ export default function Menu() {
       discountPrice: pricing.discountPrice,
       prepTimeMinutes: pricing.prepTimeMinutes,
       requiresAgeVerification: productForm.requiresAgeVerification,
+      ...(stockTouched ? { stock: stockRead.stock } : {}),
       extras: productForm.extras,
       modifierGroups: converted.groups,
     };
@@ -625,6 +670,14 @@ export default function Menu() {
 
   return (
     <div className="space-y-6">
+      {soldOutProduct && (
+        <SoldOutDialog
+          productName={soldOutProduct.name}
+          busy={soldOutBusy}
+          onConfirm={(minutes) => void confirmSoldOut(minutes)}
+          onCancel={() => setSoldOutProduct(null)}
+        />
+      )}
       {/* Con el formulario abierto la lista se oculta (no se desmonta) y el
           formulario ocupa el área de contenido, junto a la barra lateral. */}
       <div className={showProductModal ? 'hidden' : 'space-y-6'}>
@@ -981,6 +1034,24 @@ export default function Menu() {
                       <Clock className="h-4 w-4" aria-hidden />
                     </span>
                   </div>
+                </Field>
+
+                <Field
+                  label="Unidades disponibles (opcional)"
+                  htmlFor="product-stock"
+                  hint="Vacío: no llevas la cuenta. Cada pedido descuenta unidades, y con 0 el producto queda agotado."
+                >
+                  <input
+                    id="product-stock"
+                    type="number"
+                    min={0}
+                    step={1}
+                    inputMode="numeric"
+                    value={productForm.stock}
+                    onChange={(event) => setProductForm({ ...productForm, stock: event.target.value })}
+                    placeholder="Ej.: 12"
+                    className={`${inputClass} tabular font-semibold`}
+                  />
                 </Field>
 
                 {/* Sin esta casilla el comercio no tenía cómo marcar sus

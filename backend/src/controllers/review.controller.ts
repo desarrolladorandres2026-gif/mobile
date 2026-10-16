@@ -124,10 +124,15 @@ export class ReviewController {
 
   async getByBusiness(req: Request, res: Response, next: NextFunction) {
     try {
+      const rating = Number(query(req, 'rating'));
       const result = await reviewService.getByBusiness(
         param(req, 'businessId'),
         Number(query(req, 'page')) || 1,
-        clampLimit(query(req, 'limit'))
+        clampLimit(query(req, 'limit')),
+        {
+          rating: Number.isInteger(rating) && rating >= 1 && rating <= 5 ? rating : undefined,
+          unanswered: query(req, 'unanswered') === 'true',
+        }
       );
       sendResponse(res, 200, 'Reseñas obtenidas', result.reviews, result.meta);
     } catch (error) { next(error); }

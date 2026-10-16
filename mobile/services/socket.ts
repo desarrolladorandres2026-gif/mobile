@@ -2,6 +2,7 @@ import { AppState, type NativeEventSubscription } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../constants';
 import { useAuthStore } from '../stores/authStore';
+import type { ChatChannel } from '../lib/orderChat';
 
 /** Oferta de un pedido, tal como la manda el reparto automático. */
 export interface OrderOffer {
@@ -20,6 +21,18 @@ export interface OrderOffer {
  * punto por el que pasan el webhook y la consulta directa, así que llega
  * una vez por cambio real, venga de donde venga.
  */
+/** `order:chat:message`. `message.channel` falta en servidores viejos. */
+export interface ChatMessageEvent {
+  orderId: string;
+  message: { id?: string; channel?: ChatChannel; senderRole?: 'client' | 'driver' | 'business' } & Record<string, unknown>;
+}
+
+/** `order:chat:read`. `channel` falta en servidores viejos. */
+export interface ChatReadEvent {
+  orderId: string;
+  channel?: ChatChannel;
+}
+
 export interface PaymentUpdate {
   /**
    * Nulo en el cobro de la membresía, que no cuelga de ningún pedido. Las
@@ -243,17 +256,19 @@ class SocketService {
     this.socket?.off('order:driver:arrived', callback);
   }
 
-  onChatMessage(callback: (data: any) => void) {
+  // `message.channel` dice a qué hilo pertenece; sin él (servidor viejo) es
+  // el del cliente. Ver `chatEventChannel` en `lib/orderChat`.
+  onChatMessage(callback: (data: ChatMessageEvent) => void) {
     this.socket?.on('order:chat:message', callback);
   }
-  offChatMessage(callback: (data: any) => void) {
+  offChatMessage(callback: (data: ChatMessageEvent) => void) {
     this.socket?.off('order:chat:message', callback);
   }
 
-  onChatRead(callback: (data: any) => void) {
+  onChatRead(callback: (data: ChatReadEvent) => void) {
     this.socket?.on('order:chat:read', callback);
   }
-  offChatRead(callback: (data: any) => void) {
+  offChatRead(callback: (data: ChatReadEvent) => void) {
     this.socket?.off('order:chat:read', callback);
   }
 

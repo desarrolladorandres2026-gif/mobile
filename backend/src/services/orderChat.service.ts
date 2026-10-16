@@ -1,7 +1,8 @@
 import { Types } from 'mongoose';
 import { config } from '../config';
 import { AppError } from '../middlewares';
-import { OrderMessage, IOrderMessage } from '../models';
+import { OrderMessage, IOrderMessage, BusinessPermission } from '../models';
+import type { ChatChannel } from '../models/OrderMessage';
 import { OrderStatus, UserRole } from '../types';
 import { OrderAccess, assertParticipant } from './orderAccess.service';
 
@@ -30,6 +31,7 @@ const CHAT_OPEN_STATUSES: OrderStatus[] = [
 export interface ChatMessageView {
   id: string;
   orderId: string;
+  channel: ChatChannel;
   senderId: string;
   senderRole: UserRole;
   message: string;
@@ -105,6 +107,29 @@ export function sanitizeMessage(raw: string): string {
   return cleaned;
 }
 
+/**
+ * En qué hilo habla o lee cada quien.
+ *
+ * El cliente solo tiene el suyo con el domiciliario y el comercio solo el suyo:
+ * el cuerpo de la petición no puede cambiarlo, porque de ahí saldría un cliente
+ * leyendo lo que el comercio le dijo al repartidor. Solo el domiciliario (que
+ * habla con los dos) y el administrador (que lee para soporte) eligen hilo, y
+ * sin elegir es el de siempre, el del cliente: así la app del domiciliario ya
+ * instalada sigue funcionando igual.
+ */
+export function resolveChannel(access: OrderAccess, requested?: string | null): ChatChannel {
+  if (access.participant === 'client') return 'client_driver';
+  if (access.participant === 'business') return 'business_driver';
+  return requested === 'business_driver' ? 'business_driver' : 'client_driver';
+}
+
+/** Los mensajes anteriores al campo `channel` no lo traen: pertenecen al hilo del cliente. */
+function channelFilter(channel: ChatChannel) {
+  return channel === 'client_driver'
+    ? { $or: [{ channel: 'client_driver' }, { channel: { $exists: false } }] }
+    : { channel };
+}
+
 export class OrderChatService {
   /** Si el pedido admite mensajes nuevos ahora mismo. */
   isOpen(access: OrderAccess): boolean {
@@ -122,12 +147,12 @@ export class OrderChatService {
    */
   async list(
     access: OrderAccess,
-    options: { page?: number; limit?: number } = {}
+    options: { page?: number; limit?: number; channel?: string | null } = {}
   ): Promise<{ messages: ChatMessageView[]; meta: any; isOpen: boolean }> {
     const page = Math.max(1, options.page ?? 1);
     const limit = Math.min(100, Math.max(1, options.limit ?? 50));
 
-    const filter = { orderId: access.order._id };
+    const filter = { orderId: access.order._id, ...channelFilter(resolveChannel(access, options.channel)) };
     const [messages, total] = await Promise.all([
       OrderMessage.find(filter)
         .sort({ createdAt: -1 })
@@ -153,8 +178,22 @@ export class OrderChatService {
    * de mensaje del cliente envenenaría la única prueba de lo que se
    * acordó entre las partes.
    */
-  async send(access: OrderAccess, rawMessage: string): Promise<ChatMessageView> {
-    assertParticipant(access, ['client', 'driver'], 'escribir');
+  async send(
+    access: OrderAccess,
+    rawMessage: string,
+    requestedChannel?: string | null
+  ): Promise<ChatMessageView> {
+    assertParticipant(access, ['client', 'driver', 'business'], 'escribir');
+
+    // Hablarle al domiciliario es operar el pedido, no solo verlo: quien
+    // únicamente puede mirar no escribe en nombre del local.
+    if (
+      access.participant === 'business' &&
+      !access.businessPermissions?.includes(BusinessPermission.ORDERS_MANAGE)
+    ) {
+      throw new AppError('Sin permisos para escribirle al domiciliario.', 403);
+    }
+    const channel = resolveChannel(access, requestedChannel);
 
     if (!access.assignedDriverId) {
       throw new AppError(
@@ -194,11 +233,17 @@ export class OrderChatService {
 
     const created = await OrderMessage.create({
       orderId: access.order._id,
+      channel,
       senderId: new Types.ObjectId(access.userId),
       // El rol se toma de la relación con el pedido, jamás del cuerpo de la
       // petición: si el cliente pudiera declararse "driver", el hilo dejaría
       // de probar quién dijo qué.
-      senderRole: access.participant === 'driver' ? UserRole.DRIVER : UserRole.CLIENT,
+      senderRole:
+        access.participant === 'driver'
+          ? UserRole.DRIVER
+          : access.participant === 'business'
+            ? UserRole.BUSINESS
+            : UserRole.CLIENT,
       message,
     });
 
@@ -211,12 +256,13 @@ export class OrderChatService {
    * El filtro `senderId: { $ne }` es lo que impide marcar como leídos los
    * propios: el acuse de recibo debe significar "el otro lo vio".
    */
-  async markRead(access: OrderAccess): Promise<number> {
-    assertParticipant(access, ['client', 'driver'], 'marcar como leído');
+  async markRead(access: OrderAccess, requestedChannel?: string | null): Promise<number> {
+    assertParticipant(access, ['client', 'driver', 'business'], 'marcar como leído');
 
     const result = await OrderMessage.updateMany(
       {
         orderId: access.order._id,
+        ...channelFilter(resolveChannel(access, requestedChannel)),
         senderId: { $ne: new Types.ObjectId(access.userId) },
         readAt: null,
       },
@@ -226,9 +272,10 @@ export class OrderChatService {
     return result.modifiedCount;
   }
 
-  async unreadCount(access: OrderAccess): Promise<number> {
+  async unreadCount(access: OrderAccess, requestedChannel?: string | null): Promise<number> {
     return OrderMessage.countDocuments({
       orderId: access.order._id,
+      ...channelFilter(resolveChannel(access, requestedChannel)),
       senderId: { $ne: new Types.ObjectId(access.userId) },
       readAt: null,
     });
@@ -238,6 +285,7 @@ export class OrderChatService {
     return {
       id: message._id.toString(),
       orderId: message.orderId.toString(),
+      channel: message.channel ?? 'client_driver',
       senderId: message.senderId.toString(),
       senderRole: message.senderRole,
       message: message.message,

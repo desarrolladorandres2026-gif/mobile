@@ -53,6 +53,8 @@ export interface Product {
    */
   stock?: number | null;
   lowStockThreshold?: number;
+  /** Hasta cuándo está agotado a mano. Un barrido del servidor lo repone. */
+  unavailableUntil?: string | null;
   /**
    * Id de la promoción automática activa que cubre este producto, o `null`.
    * Solo lo trae la vista del panel (`includeUnavailable=true`) — sirve

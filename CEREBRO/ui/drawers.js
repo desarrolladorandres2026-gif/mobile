@@ -232,6 +232,7 @@ async function hallazgoHtml(id) {
   return `${head(esc(h.titulo), `${sevTag(h.severidad)} ${confianzaTag(h.confianza)} <span class="tag">${esc(h.area ?? '')}</span> <span class="tag">${esc(h.origen)}</span>${h.estado && h.estado !== 'abierto' ? ` <span class="tag warn">${esc(h.estado)}</span>` : ''}`)}
   <div class="drawer-body">
     ${h.notaVigencia ? `<div class="note warn">${esc(h.notaVigencia)}</div>` : ''}
+    ${h.nota ? `<div class="note">${esc(h.nota)}</div>` : ''}
     ${h.descripcion ? `<section><h2>Qué ocurre</h2><p>${esc(h.descripcion)}</p></section>` : ''}
     ${h.causa ? `<section><h2>Causa</h2><p>${esc(h.causa)}</p></section>` : ''}
     ${h.consecuencia ? `<section><h2>Consecuencia posible</h2><p>${esc(h.consecuencia)}</p></section>` : ''}
