@@ -503,103 +503,6 @@ const itemShortageSchema = new Schema<IItemShortage>(
   { _id: true, toJSON: { transform: shortagePublicView }, toObject: { transform: shortagePublicView } }
 );
 
-const shortageIntMoney = { type: Number, required: true, min: 0, validate: Number.isInteger };
-
-const shortageAllocationSchema = new Schema(
-  {
-    fromMerchantPayout: shortageIntMoney,
-    fromDriverPayout: shortageIntMoney,
-    fromCommission: shortageIntMoney,
-    // Con signo en `RefundAllocation`, pero un faltante nunca toca el margen.
-    fromDeliveryMargin: shortageIntMoney,
-    fromServiceFee: shortageIntMoney,
-    fromTax: shortageIntMoney,
-    fromPlatform: shortageIntMoney,
-  },
-  { _id: false }
-);
-
-const shortageAfterSchema = new Schema(
-  {
-    productSubtotal: shortageIntMoney,
-    customerTotal: shortageIntMoney,
-    businessPayout: shortageIntMoney,
-    merchantCommission: shortageIntMoney,
-    customerServiceFee: shortageIntMoney,
-    taxPayable: shortageIntMoney,
-    merchantFundedDiscount: shortageIntMoney,
-    platformFundedDiscount: shortageIntMoney,
-    platformGrossRevenue: shortageIntMoney,
-    cashToRemit: shortageIntMoney,
-  },
-  { _id: false }
-);
-
-/**
- * Lo unico que sale hacia fuera del backend: el contrato que consumen el panel
- * del comercio y la app del cliente. `allocation`, `after` y la telemetria del
- * reintento son dinero interno (margen de ZIPP, comision) y no viajan.
- *
- * Va en el esquema del subdocumento —`toJSON` y `toObject`— y no en cada
- * controlador: el pedido sale por listas, detalle, sockets y el enmascarado del
- * personal, y una lista blanca repartida en todos esos sitios es una fuga el
- * dia que se olvide uno. Los servicios leen las propiedades del documento
- * directamente, que la transformacion no toca. Un `.lean()` si las devuelve
- * crudas: ningun endpoint de cliente ni de comercio lo usa para pedidos.
- */
-function shortagePublicView(_doc: unknown, ret: Record<string, any>) {
-  return {
-    id: String(ret._id),
-    status: ret.status,
-    reason: ret.reason,
-    ...(ret.note ? { note: ret.note } : {}),
-    items: (ret.items ?? []).map((i: IItemShortageLine) => ({
-      itemId: i.itemId,
-      productName: i.productName,
-      quantity: i.quantity,
-      missingQty: i.missingQty,
-    })),
-    requestedAt: ret.requestedAt,
-    expiresAt: ret.expiresAt,
-    respondedAt: ret.respondedAt ?? null,
-    refundAmount: ret.refundAmount,
-  };
-}
-
-const itemShortageSchema = new Schema<IItemShortage>(
-  {
-    status: { type: String, enum: Object.values(ItemShortageStatus), required: true },
-    reason: { type: String, enum: Object.values(ItemShortageReason), required: true },
-    note: { type: String, trim: true, maxlength: 200 },
-    items: {
-      type: [
-        new Schema(
-          {
-            itemId: { type: String, required: true },
-            productName: { type: String, required: true },
-            quantity: { type: Number, required: true, min: 1 },
-            missingQty: { type: Number, required: true, min: 1 },
-          },
-          { _id: false }
-        ),
-      ],
-      default: [],
-    },
-    requestedAt: { type: Date, required: true },
-    expiresAt: { type: Date, required: true },
-    respondedAt: { type: Date, default: null },
-    refundAmount: { ...shortageIntMoney },
-    allocation: { type: shortageAllocationSchema, required: true },
-    after: { type: shortageAfterSchema, required: true },
-    appliedAt: { type: Date, default: null },
-    applyAttempts: { type: Number, default: 0, min: 0 },
-    lastApplyError: { type: String, default: null },
-    requestedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    respondedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
-  },
-  { _id: true, toJSON: { transform: shortagePublicView }, toObject: { transform: shortagePublicView } }
-);
-
 const intMoney = {
   type: Number,
   default: 0,
@@ -789,13 +692,6 @@ orderSchema.index({ createdAt: -1 });
 orderSchema.index({ businessId: 1, createdAt: -1 });
 orderSchema.index({ businessId: 1, status: 1, createdAt: -1 });
 orderSchema.index({ driverId: 1, createdAt: -1 });
-// El barrido de consultas por producto faltante pregunta por las vencidas
-// (`pending_client` con `expiresAt` pasado) y por las aceptadas sin ejecutar
-// cada 30 s. Parcial: solo los pedidos con consulta (una fraccion minima).
-orderSchema.index(
-  { 'itemShortage.status': 1, 'itemShortage.expiresAt': 1 },
-  { partialFilterExpression: { 'itemShortage.status': { $exists: true } } }
-);
 // El barrido de consultas por producto faltante pregunta por las vencidas
 // (`pending_client` con `expiresAt` pasado) y por las aceptadas sin ejecutar
 // cada 30 s. Parcial: solo los pedidos con consulta (una fraccion minima).

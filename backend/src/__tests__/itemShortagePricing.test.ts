@@ -121,7 +121,7 @@ function call(o: BuildOpts, missing: Array<{ index: number; missingQty: number }
   return { finance, result: repriceShortage({ finance, items: o.lines, missing, cfg, ...extra } as any) };
 }
 
-const sumAlloc = (a: Record<string, number>) => Object.values(a).reduce((s, v) => s + v, 0);
+const sumAlloc = (a: object) => Object.values(a as Record<string, number>).reduce((s, v) => s + v, 0);
 
 function codeOf(fn: () => unknown): { status: number; code?: string } {
   try {
