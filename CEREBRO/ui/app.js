@@ -3,6 +3,7 @@ import { esc, A, D, clearCache, state, ago, fmt, toast, debounce, loc, short } f
 import { openDrawer, closeDrawer, drawerBack, loadCode, loadImpact } from './drawers.js';
 
 const VIEWS = {
+  recorrido: { t: 'El viaje de un pedido', g: 'Panorama', m: () => import('./views/recorrido.js') },
   resumen: { t: 'Resumen', g: 'Panorama', m: () => import('./views/resumen.js') },
   mapa: { t: 'Mapa', g: 'Panorama', m: () => import('./views/mapa.js') },
   acciones: { t: 'Botones y acciones', g: 'Trazabilidad', m: () => import('./views/acciones.js'), n: (m) => m.conteos.acciones },
@@ -24,7 +25,7 @@ let currentView = null;
 function parseHash() {
   const raw = location.hash.replace(/^#\/?/, '');
   const [path, qs] = raw.split('?');
-  return { vista: path || 'resumen', params: new URLSearchParams(qs ?? '') };
+  return { vista: path || 'recorrido', params: new URLSearchParams(qs ?? '') };
 }
 export function go(vista, params = {}) {
   const p = new URLSearchParams();

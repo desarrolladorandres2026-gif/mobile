@@ -219,3 +219,25 @@ pre.code div.hl { background: var(--gold-bg); }
 @media (max-width: 1250px) { #app.with-drawer { grid-template-columns: var(--rail) 1fr; } #drawer { position: fixed; right: 0; top: 0; bottom: 0; width: min(520px, 96vw); z-index: 20; box-shadow: -20px 0 60px rgba(0,0,0,.5); } .split { grid-template-columns: 1fr; } }
 @media (max-width: 860px) { #app { grid-template-columns: 1fr; } #rail { display: none; } }
 .map-canvas { position: absolute; inset: 0; }
+
+/* — El viaje de un pedido — */
+.rc-strip { display: grid; gap: 2px; max-width: 900px; overflow-x: auto; }
+.rc-lane { display: grid; grid-template-columns: 150px repeat(var(--cols), minmax(64px, 1fr)); align-items: center; border-top: 1px solid var(--line-soft); min-height: 38px; }
+.rc-heads { border-top: 0; }
+.rc-ln { font-size: 12px; color: var(--c, var(--text-3)); font-weight: 600; }
+.rc-h { background: none; border: 0; color: var(--text-2); font-size: 12px; text-align: center; padding: 6px 2px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.rc-h b { color: var(--gold); font-size: 13px; }
+.rc-h:hover { color: var(--text); }
+.rc-cell { display: flex; justify-content: center; position: relative; }
+.rc-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--c, var(--text-3)); background: transparent; vertical-align: middle; }
+.rc-dot.act { background: var(--c, var(--text-3)); }
+.rc-legend .rc-dot, p .rc-dot { --c: var(--text-2); }
+.rc-who { color: var(--c); font-weight: 600; font-size: 12px; }
+.rc-who::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--c); margin-right: 5px; }
+.rc-quien { margin: 3px 0 4px; display: flex; gap: 12px; flex-wrap: wrap; }
+.rc-ves { margin-top: 6px; display: grid; gap: 3px; }
+.rc-ve { color: var(--text-2); font-size: 13px; }
+.rc-step .step-d { max-width: 780px; }
+.rc-codes { display: flex; gap: 40px; flex-wrap: wrap; margin-top: 8px; }
+.rc-codes div { display: flex; flex-direction: column; gap: 2px; max-width: 340px; border-left: 2px solid var(--gold-deep); padding-left: 14px; }
+.rc-codes span { color: var(--text-2); }

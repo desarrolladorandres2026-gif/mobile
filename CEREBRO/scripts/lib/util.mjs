@@ -75,7 +75,7 @@ export function countLines(text) {
 }
 
 export function git(args, opts = {}) {
-  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, ...opts });
+  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, windowsHide: true, ...opts });
 }
 
 export function gitInfo() {
