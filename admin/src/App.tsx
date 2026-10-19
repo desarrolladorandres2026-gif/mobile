@@ -47,6 +47,7 @@ const Cash = lazyPage(() => import('./pages/Cash'), '/cash');
 const FiscalDocuments = lazyPage(() => import('./pages/FiscalDocuments'), '/documents');
 const Exports = lazyPage(() => import('./pages/Exports'), '/exports');
 const Pricing = lazyPage(() => import('./pages/Pricing'), '/pricing');
+const TaxRules = lazyPage(() => import('./pages/TaxRules'), '/tax-rules');
 const Security = lazyPage(() => import('./pages/Security'), '/security');
 const Legal = lazyPage(() => import('./pages/Legal'), '/legal');
 const Campaigns = lazyPage(() => import('./pages/Campaigns'), '/campaigns');
@@ -150,6 +151,7 @@ function App() {
  <Route path="documents" element={guard('/documents', <FiscalDocuments />)} />
  <Route path="exports" element={guard('/exports', <Exports />)} />
  <Route path="pricing" element={guard('/pricing', <Pricing />)} />
+ <Route path="tax-rules" element={guard('/tax-rules', <TaxRules />)} />
  <Route path="security" element={guard('/security', <Security />)} />
  <Route path="incidents" element={guard('/incidents', <Incidents />)} />
  <Route path="support" element={guard('/support', <Support />)} />

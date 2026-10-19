@@ -166,18 +166,29 @@ app.get('/health', async (_req, res) => {
   const dbStatus = dbState === 1 ? 'connected' : dbState === 2 ? 'connecting' : 'disconnected';
   const isHealthy = dbState === 1;
 
-  res.status(isHealthy ? 200 : 503).json({
+  // Es pública y sin límite: en producción solo dice si está viva y si llega
+  // a Mongo, que es lo que leen el cron, Docker y `deploy/README.md`. Entorno,
+  // versión, uptime y memoria le dicen a un atacante cuándo se reinició el
+  // proceso y cuánto le falta para quedarse sin memoria (auditoría 2026-10-17).
+  const base = {
     status: isHealthy ? 'OK' : 'DEGRADED',
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    environment: config.nodeEnv,
-    uptime: Math.floor(process.uptime()),
     database: dbStatus,
-    memory: {
-      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
-    },
-  });
+  };
+  res.status(isHealthy ? 200 : 503).json(
+    config.nodeEnv === 'production'
+      ? base
+      : {
+          ...base,
+          version: '1.0.0',
+          environment: config.nodeEnv,
+          uptime: Math.floor(process.uptime()),
+          memory: {
+            used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+            total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+          },
+        }
+  );
 });
 
 // ── PWA (app/mobile exportada como sitio estático) ──

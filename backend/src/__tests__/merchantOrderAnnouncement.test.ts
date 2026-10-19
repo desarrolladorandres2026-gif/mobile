@@ -105,7 +105,12 @@ describe('Anuncio de pedidos al comercio', () => {
     const toOwner = incoming().find((e) => e.to[0].startsWith('user:'))!;
     const toStaff = incoming().find((e) => e.to[0].startsWith('business:'))!;
     expect(toStaff.except).toEqual(toOwner.to);
-    expect(toOwner.payload.finance.driverPayout).toBeDefined();
+    // Decisión 2026-10-17: el dueño recibe su comisión y su neto, pero no el
+    // pago al domiciliario ni el margen de ZIPP.
+    expect(toOwner.payload.finance.businessPayout).toBeDefined();
+    expect(toOwner.payload.finance.merchantCommission).toBeDefined();
+    expect(toOwner.payload.finance.driverPayout).toBeUndefined();
+    expect(toOwner.payload.finance.deliveryMargin).toBeUndefined();
     expect(toStaff.payload.finance.driverPayout).toBeUndefined();
     expect(await ownerNotices()).toBe(1);
   });

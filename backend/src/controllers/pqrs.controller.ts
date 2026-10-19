@@ -1,11 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { Pqrs, Order, Settlement } from '../models'; import { AppError } from '../middlewares'; import { uploadPqrsEvidence } from '../middlewares/upload'; import { sendResponse, param, query } from '../utils'; import { AuditAction, logAudit } from '../security'; import { createPqrs, caseCode, recordStatus, REASON_CATEGORY } from '../services/pqrs.service'; import { supportService, canRequesterReopen } from '../services/support.service';
+import { Pqrs, Order, Settlement } from '../models'; import { AppError } from '../middlewares'; import { uploadPqrsEvidence } from '../middlewares/upload'; import { sendResponse, param, query } from '../utils'; import { AuditAction, AuditSeverity, logAudit } from '../security'; import { createPqrs, caseCode, recordStatus, REASON_CATEGORY, CUSTOMER_CONTACT_REASONS, decideContactException } from '../services/pqrs.service'; import { supportService, canRequesterReopen } from '../services/support.service';
 /**
  * Lo que ve quien abrió el caso: sin ids del personal ni prioridad. El motivo
  * de la solicitud de reembolso, quién la pidió y la nota de Finanzas son
  * internos: de `refundRequest` solo sale el estado (ver `ownView`).
  */
-const OWN_FIELDS = '-assignedTo -assignedAt -priority -responses.userId -refundRequest.reason -refundRequest.requestedBy -refundRequest.requestedAt -refundRequest.resolvedBy -refundRequest.resolvedAt -refundRequest.resolutionNote -evidence.storageKey -evidence.resourceType -evidence.url';
+const OWN_FIELDS = '-contactException.decidedBy -assignedTo -assignedAt -priority -responses.userId -refundRequest.reason -refundRequest.requestedBy -refundRequest.requestedAt -refundRequest.resolvedBy -refundRequest.resolvedAt -refundRequest.resolutionNote -evidence.storageKey -evidence.resourceType -evidence.url';
 const OPEN_STATUSES = ['received', 'in_review'];
 
 /**
@@ -67,7 +67,27 @@ async function withOrderSummary<T extends Record<string, any>>(rows: T[]): Promi
 export class PqrsController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const item = await createPqrs({ userId: req.user!._id.toString(), type: req.body.type, reason: req.body.reason, subject: req.body.subject, detail: req.body.detail, orderId: req.body.orderId, businessId: req.body.businessId, settlementId: req.body.settlementId, paymentMethod: req.body.paymentMethod, role: req.user!.role });
+      const item = await createPqrs({ userId: req.user!._id.toString(), type: req.body.type, reason: req.body.reason, subject: req.body.subject, detail: req.body.detail, orderId: req.body.orderId, businessId: req.body.businessId, settlementId: req.body.settlementId, paymentMethod: req.body.paymentMethod, role: req.user!.role, scope: req.sessionScope, exceptionJustification: req.body.exceptionJustification });
+      if (item.reason && CUSTOMER_CONTACT_REASONS.has(item.reason)) {
+        void logAudit(req, {
+          action: AuditAction.CUSTOMER_CONTACT_REQUESTED,
+          entity: 'order',
+          entityId: String(item.orderId),
+          severity: AuditSeverity.MEDIUM,
+          description: 'El comercio pidió contactar al cliente de un pedido cerrado por medio de ZIPP',
+          metadata: { pqrsId: item._id.toString(), reason: item.reason, businessId: String(item.businessId) },
+        });
+        if (item.contactException) {
+          void logAudit(req, {
+            action: AuditAction.CUSTOMER_CONTACT_EXCEPTION_REQUESTED,
+            entity: 'order',
+            entityId: String(item.orderId),
+            severity: AuditSeverity.HIGH,
+            description: 'El comercio pidió contacto con el cliente pasado el plazo: espera autorización de ZIPP',
+            metadata: { pqrsId: item._id.toString(), daysSinceClosed: item.contactException.daysSinceClosed, businessId: String(item.businessId) },
+          });
+        }
+      }
       void logAudit(req, { action: AuditAction.PQRS_CREATED, entity: 'pqrs', entityId: item._id.toString(), description: 'Caso de soporte abierto', metadata: { reason: item.reason ?? null, category: item.reason ? REASON_CATEGORY[item.reason] : null, orderId: item.orderId ? String(item.orderId) : null, businessId: item.businessId ? String(item.businessId) : null } });
       const [row] = await withOrderSummary([await Pqrs.findById(item._id).select(OWN_FIELDS).lean() as Record<string, any>]);
       sendResponse(res, 201, 'PQRS recibida', ownView(row));
@@ -160,11 +180,31 @@ export class PqrsController {
    * escribía directo sobre `Pqrs` y las dos vías dejaban estados distintos
    * (una asignaba y sellaba `firstResponseAt`, la otra no).
    */
+  /** Soporte o administración autoriza o niega un contacto con el cliente pasado el plazo. */
+  async decideContactException(req: Request, res: Response, next: NextFunction) {
+    try {
+      const id = param(req, 'id');
+      const item = await decideContactException(id, req.user!._id.toString(), req.body.decision, req.body.note);
+      void logAudit(req, {
+        action: AuditAction.CUSTOMER_CONTACT_EXCEPTION_DECIDED,
+        entity: 'pqrs',
+        entityId: id,
+        severity: AuditSeverity.HIGH,
+        description: req.body.decision === 'authorize' ? 'Contacto con el cliente fuera de plazo autorizado' : 'Contacto con el cliente fuera de plazo negado',
+        metadata: { decision: req.body.decision, note: String(req.body.note).slice(0, 300), orderId: item.orderId ? String(item.orderId) : null, businessId: item.businessId ? String(item.businessId) : null },
+      });
+      sendResponse(res, 200, req.body.decision === 'authorize' ? 'Excepción autorizada' : 'Excepción negada', item);
+    } catch (e) { next(e); }
+  }
+
   async respond(req: Request, res: Response, next: NextFunction) {
     try {
       const id = param(req, 'id');
-      const existing = await Pqrs.findById(id).select('assignedTo status');
+      const existing = await Pqrs.findById(id).select('assignedTo status contactException.status');
       if (!existing) throw new AppError('PQRS no encontrada', 404);
+      if (existing.contactException?.status === 'pending') {
+        throw new AppError('Este caso pide contacto con un cliente fuera de plazo: autoriza o niega la excepción antes de responder.', 409, 'CONTACT_EXCEPTION_PENDING');
+      }
 
       if (!existing.assignedTo) await supportService.assign(id, req.user!._id.toString());
 

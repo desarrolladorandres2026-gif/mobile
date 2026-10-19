@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import app from '../app';
+import { cloudinary } from '../config';
 import { BusinessStaff, BusinessRole, Product, Coupon, Notification, User } from '../models';
 import { Session, OTP_SLOTS, otpSetFields } from '../security';
 import { emailService } from '../services/email.service';
@@ -95,11 +96,13 @@ describe('Sesión de mostrador: tope al propietario', () => {
   });
 
   it('403 al pedir publicidad', async () => {
+    // Flyer válido (de nuestro Cloudinary): si no, la validación respondería 400 antes de llegar al permiso.
+    cloudinary.config({ cloud_name: 'demo' });
     const res = await request(app)
       .post(`/api/v1/advertisements/business/${bid()}`)
       .set(await counterAuthHeader(owner))
       .send({
-        campaignName: 'Campaña x', flyerUrl: 'https://x.com/a.png',
+        campaignName: 'Campaña x', flyerUrl: 'https://res.cloudinary.com/demo/image/upload/v1/ads/a.png',
         startDate: new Date(), endDate: new Date(Date.now() + 86400000),
         pricingModel: 'cpm', cpmRate: 100, cpcRate: 0, budget: 10000,
       });

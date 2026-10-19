@@ -218,6 +218,26 @@ export interface IBusiness extends Document {
   suspendedBy?: Types.ObjectId | null;
   suspensionReason?: string | null;
   /**
+   * Quién restauró un negocio archivado, cuándo y por qué (M-026). Archivar es la
+   * desactivación definitiva; restaurar es el procedimiento administrativo de
+   * reactivación y queda a nombre de quien lo autorizó.
+   */
+  restoredAt?: Date | null;
+  restoredBy?: Types.ObjectId | null;
+  restoreReason?: string | null;
+  /**
+   * Historia de las decisiones de ZIPP sobre el estado del negocio (suspender,
+   * levantar, archivar, restaurar): quién, cuándo y con qué motivo. Las últimas
+   * 100; la auditoría general conserva el resto. Solo lo escribe el personal de
+   * ZIPP; el dueño no puede tocarlo.
+   */
+  adminStatusLog?: Array<{
+    action: 'suspended' | 'suspension_lifted' | 'archived' | 'restored';
+    at: Date;
+    by: Types.ObjectId | null;
+    reason: string;
+  }>;
+  /**
    * Datos tributarios. `select: false`: no viajan en ninguna consulta
    * normal (ni en la ficha que recibe un empleado); quien los necesita los
    * pide a propósito (`+legal`) desde su endpoint propio.
@@ -477,6 +497,24 @@ const businessSchema = new Schema<IBusiness>(
     suspendedAt: { type: Date, default: null },
     suspendedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     suspensionReason: { type: String, default: null, maxlength: 500 },
+    restoredAt: { type: Date, default: null },
+    restoredBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    restoreReason: { type: String, default: null, maxlength: 500 },
+    adminStatusLog: {
+      type: [
+        new Schema(
+          {
+            action: { type: String, enum: ['suspended', 'suspension_lifted', 'archived', 'restored'], required: true },
+            at: { type: Date, required: true },
+            by: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+            reason: { type: String, default: '', maxlength: 500 },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+      select: false,
+    },
     legal: { type: legalSchema, select: false, default: undefined },
     payoutAccount: { type: payoutAccountSchema, select: false, default: undefined },
   },

@@ -4,7 +4,7 @@ import { toClientStatus, nativeCapabilities } from '../services/payments';
 import { Order, Payment, toPublicCard } from '../models';
 import { AppError } from '../middlewares';
 import { sendResponse, param, query, clampLimit } from '../utils';
-import { RefundKind, RefundStatus, UserRole } from '../types';
+import { RefundCause, RefundKind, RefundStatus, UserRole } from '../types';
 import { AuditAction, AuditSeverity, logAudit, Permission } from '../security';
 import { can } from '../middlewares/auth';
 
@@ -398,6 +398,7 @@ export class PaymentController {
         kind: req.body.amount ? RefundKind.PARTIAL : RefundKind.FULL,
         requestedBy: req.user!._id.toString(),
         idempotencyKey: req.body.idempotencyKey,
+        cause: req.body.cause as RefundCause | undefined,
       });
       void logAudit(req, {
         action: AuditAction.REFUND_ISSUED,
@@ -405,7 +406,10 @@ export class PaymentController {
         entityId: param(req, 'orderId'),
         severity: AuditSeverity.HIGH,
         description: `Reembolso por pasarela de $${refund.amount.toLocaleString('es-CO')} (${refund.status})`,
-        metadata: { refundId: String(refund._id), amount: refund.amount, status: refund.status },
+        metadata: {
+          refundId: String(refund._id), amount: refund.amount, status: refund.status,
+          cause: refund.cause, driverPay: refund.driverPay ?? null,
+        },
       });
       sendResponse(res, 201, 'Reembolso procesado', refund);
     } catch (error) { next(error); }
@@ -425,6 +429,7 @@ export class PaymentController {
         orderId: param(req, 'orderId'),
         amount: req.body.amount,
         reference: req.body.reference,
+        cause: RefundCause.GATEWAY,
       });
       void logAudit(req, {
         action: AuditAction.CHARGEBACK_RECORDED,
@@ -445,10 +450,37 @@ export class PaymentController {
         status: query(req, 'status') as RefundStatus | undefined,
         kind: query(req, 'kind') as RefundKind | undefined,
         attention: query(req, 'attention') === 'true',
+        driverReview: query(req, 'driverReview') === 'pending' ? 'pending' : undefined,
         page: Number(query(req, 'page')) || 1,
         limit: clampLimit(query(req, 'limit'), 100, 25),
       });
       sendResponse(res, 200, 'Reembolsos', { items: result.items, totals: result.totals }, result.meta);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Cierra la revisión del pago de un domiciliario con posible responsabilidad
+   * (M-013). No mueve dinero: deja constancia de quién decidió qué y por qué.
+   */
+  async resolveDriverPayReview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const refund = await refundService.resolveDriverPayReview(
+        param(req, 'refundId'),
+        req.user!._id.toString(),
+        req.body.decision,
+        req.body.note
+      );
+      void logAudit(req, {
+        action: AuditAction.DRIVER_PAY_REVIEW_RESOLVED,
+        entity: 'order',
+        entityId: String(refund.orderId),
+        severity: AuditSeverity.HIGH,
+        description: req.body.decision === 'keep'
+          ? 'Revisión del pago del domiciliario: se confirma que lo conserva'
+          : 'Revisión del pago del domiciliario: se escala a operaciones',
+        metadata: { refundId: String(refund._id), decision: req.body.decision, note: String(req.body.note).slice(0, 300) },
+      });
+      sendResponse(res, 200, 'Revisión resuelta', refund);
     } catch (error) { next(error); }
   }
 
@@ -499,6 +531,7 @@ export class PaymentController {
         reason: req.body.reason,
         externalReference: req.body.externalReference,
         requestedBy: req.user!._id.toString(),
+        cause: req.body.cause as RefundCause | undefined,
       });
       void logAudit(req, {
         action: AuditAction.REFUND_ISSUED,

@@ -19,7 +19,8 @@ export const setSuspensionSchema = z.object({
   params,
   body: z.object({
     suspended: z.boolean(),
-    reason: z.string().trim().min(5).max(300).optional(),
+    // Obligatorio en las dos direcciones (M-026).
+    reason: z.string().trim().min(5, 'Indica el motivo').max(300),
   }),
 });
 

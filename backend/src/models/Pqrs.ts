@@ -6,13 +6,17 @@ export type PqrsReasonValue =
   | 'driver_no_show' | 'order_issue' | 'customer_unreachable' | 'payment' | 'account'
   | 'driver_issue' | 'preparation_issue' | 'order_status_error' | 'order_payment_cancel'
   | 'settlement_difference' | 'wrong_commission' | 'unidentified_payment' | 'cancelled_order_adjustment' | 'refund_question'
-  | 'panel_issue';
+  | 'panel_issue'
+  // Contacto intermediado (2026-10-17): el comercio necesita hablar con el
+  // cliente de un pedido ya cerrado y ZIPP hace de puente sin darle el número.
+  | 'contact_customer_claim' | 'contact_customer_warranty' | 'contact_customer_clarification';
 
 export const PQRS_REASON_VALUES: readonly PqrsReasonValue[] = [
   'driver_no_show', 'order_issue', 'customer_unreachable', 'payment', 'account',
   'driver_issue', 'preparation_issue', 'order_status_error', 'order_payment_cancel',
   'settlement_difference', 'wrong_commission', 'unidentified_payment', 'cancelled_order_adjustment', 'refund_question',
   'panel_issue',
+  'contact_customer_claim', 'contact_customer_warranty', 'contact_customer_clarification',
 ];
 
 export interface IPqrs extends Document { userId: Types.ObjectId; type: 'petition'|'complaint'|'claim'|'suggestion'; subject: string; detail: string; status: 'received'|'in_review'|'answered'|'closed'; /**
@@ -97,6 +101,23 @@ export interface IPqrs extends Document { userId: Types.ObjectId; type: 'petitio
     resolvedAt?: Date | null;
     resolutionNote?: string;
   } | null;
+  /**
+   * Contacto con el cliente pasado el plazo (2026-10-19): el comercio pidió
+   * hablar con el cliente de un pedido cerrado hace más de
+   * `config.privacy.contactWindowDays` días calendario. No se rechaza —una
+   * garantía o un derecho legal pueden vencer después—, pero queda detenido
+   * hasta que soporte o administración lo autorice o lo niegue, con motivo.
+   */
+  contactException?: {
+    justification: string;
+    status: 'pending' | 'authorized' | 'denied';
+    /** Cuándo se cerró el pedido y cuántos días calendario habían pasado al pedirlo. */
+    orderClosedAt: Date;
+    daysSinceClosed: number;
+    decidedBy?: Types.ObjectId | null;
+    decidedAt?: Date | null;
+    decisionNote?: string;
+  } | null;
   /** Cuándo se cerró. Sin él, "reabrir en 7 días" tendría que adivinar con `updatedAt`. */
   closedAt?: Date | null;
   /** Veces que el solicitante reabrió el caso. Tiene tope: reabrir no es una forma de saltar la cola. */
@@ -128,6 +149,15 @@ const pqrsSchema = new Schema<IPqrs>({ userId: { type: Schema.Types.ObjectId, re
   closedAt: { type: Date, default: null },
   reopenCount: { type: Number, default: 0 },
   resolvedByRequester: { type: Boolean, default: false },
+  contactException: { type: new Schema({
+    justification: { type: String, required: true, maxlength: 1000 },
+    status: { type: String, enum: ['pending', 'authorized', 'denied'], required: true },
+    orderClosedAt: { type: Date, required: true },
+    daysSinceClosed: { type: Number, required: true, min: 0 },
+    decidedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    decidedAt: { type: Date, default: null },
+    decisionNote: { type: String, maxlength: 500 },
+  }, { _id: false }), default: null },
   refundRequest: { type: new Schema({
     status: { type: String, enum: ['pending', 'done', 'rejected'], required: true },
     reason: { type: String, required: true, maxlength: 500 },
@@ -138,6 +168,7 @@ const pqrsSchema = new Schema<IPqrs>({ userId: { type: Schema.Types.ObjectId, re
     resolutionNote: { type: String, maxlength: 500 },
   }, { _id: false }), default: null } }, { timestamps: true });
 pqrsSchema.index({ 'refundRequest.status': 1 }, { sparse: true });
+pqrsSchema.index({ 'contactException.status': 1 }, { sparse: true });
 // Único pero no obligatorio: las filas anteriores a la migración 027 no tienen número.
 pqrsSchema.index({ ticketNumber: 1 }, { unique: true, partialFilterExpression: { ticketNumber: { $type: 'number' } } });
 pqrsSchema.index({ userId: 1, createdAt: -1 }); pqrsSchema.index({ status: 1, createdAt: -1 });

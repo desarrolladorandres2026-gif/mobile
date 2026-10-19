@@ -572,7 +572,7 @@ export class AdminController {
 
   async restoreBusiness(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await adminService.restoreBusiness(param(req, 'id'), req);
+      const result = await adminService.restoreBusiness(param(req, 'id'), req.body?.reason, req.user!, req);
       sendResponse(res, 200, 'Negocio restaurado', result.business);
     } catch (error) { next(error); }
   }

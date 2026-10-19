@@ -21,6 +21,8 @@ import { estimateRoute } from './mapbox.service';
 import { couponService, AppliedCoupon } from './coupon.service';
 import { pricingConfigService } from './pricingConfig.service';
 import { proService, type ProBenefitsSnapshot } from './pro.service';
+import { taxRuleService, type CheckoutTaxPlan } from './taxRule.service';
+import type { TaxBase } from '../models/TaxRule';
 
 /** Cocina, cuando el comercio no declaró tiempo. */
 const DEFAULT_PREP_MINUTES = 25;
@@ -119,6 +121,19 @@ export interface SuggestedCoupon {
 /** The complete, auditable money breakdown for a cart. */
 export interface Quote {
   items: PricedItem[];
+  /**
+   * Presente cuando la guarda de margen quitó un beneficio de Zipp Pro de ESTE
+   * pedido (M-012). El checkout lo enseña antes de confirmar: ningún beneficio
+   * anunciado se pierde en silencio.
+   */
+  proBenefitNotice?: ProGuardResult | null;
+  /**
+   * De dónde salió el impuesto (M-014): `definitive` = reglas validadas por
+   * concepto; `legacy` = tasa global sin validar; `provisional` = las reglas están
+   * encendidas pero falta una vigente y se usó la tasa global.
+   */
+  taxStatus?: TaxStatus;
+  taxBreakdown?: TaxLine[];
   /** Consumer-facing aliases; all values are calculated by this service. */
   precioOriginal?: number;
   descuentoEnvio?: number;
@@ -244,7 +259,91 @@ export interface SettledDiscounts {
   deliveryAlreadyFree: boolean;
   /** Comisión de pasarela estimada del cobro. 0 en efectivo o sin tarifa configurada. */
   estimatedGatewayFee: number;
+  taxStatus: TaxStatus;
+  taxBreakdown: TaxLine[];
+  /**
+   * Resultado de la guarda de margen de Zipp Pro (M-012). `null` cuando el
+   * trato de Pro se aplicó tal cual o la persona no tiene Pro. Si no es `null`,
+   * al menos un beneficio se quitó de ESTE pedido para que ZIPP no lo pagara a
+   * pérdida, y aquí está cuál y por qué.
+   */
+  proGuard: ProGuardResult | null;
 }
+
+/**
+ * Una línea del impuesto de un pedido (M-014): qué regla, a qué tarifa y sobre qué
+ * importe. Con la tasa global (`legacy`) no hay líneas: es una sola cifra sin
+ * regla que la respalde.
+ */
+export interface TaxLine {
+  concept: 'products' | 'delivery' | 'service_fee';
+  ruleId: string;
+  rateBps: number;
+  base: TaxBase;
+  baseAmount: number;
+  amount: number;
+}
+
+/** De dónde salió el impuesto de un pedido. */
+export type TaxStatus = 'legacy' | 'definitive' | 'provisional';
+
+/**
+ * El impuesto de un pedido, concepto por concepto, cuando hay reglas; o la tasa
+ * global sobre la suma cuando no. Pura: es la ÚNICA fórmula del impuesto del
+ * checkout, y la usan la cotización, el sugeridor, la previsualización y el
+ * reprecio de un faltante.
+ */
+export function computeCheckoutTax(input: {
+  plan?: CheckoutTaxPlan | null;
+  legacyBps: number;
+  /** Lo que el cliente paga por cada concepto tras descuentos. */
+  net: { products: number; delivery: number; service_fee: number };
+  /** Lo mismo antes de descuentos. */
+  gross: { products: number; delivery: number; service_fee: number };
+}): { taxPayable: number; lines: TaxLine[]; status: TaxStatus } {
+  const { plan, legacyBps, net, gross } = input;
+  if (plan?.mode === 'rules') {
+    const lines: TaxLine[] = [];
+    for (const concept of ['products', 'delivery', 'service_fee'] as const) {
+      const rate = plan.rates[concept];
+      if (!rate) continue;
+      const baseAmount = Math.max(0, rate.base === 'gross' ? gross[concept] : net[concept]);
+      lines.push({ concept, ruleId: rate.ruleId, rateBps: rate.bps, base: rate.base, baseAmount, amount: applyBps(baseAmount, rate.bps) });
+    }
+    return { taxPayable: lines.reduce((sum, l) => sum + l.amount, 0), lines, status: 'definitive' };
+  }
+  return {
+    taxPayable: applyBps(net.products + net.delivery + net.service_fee, legacyBps),
+    lines: [],
+    status: plan?.status === 'provisional' ? 'provisional' : 'legacy',
+  };
+}
+
+/** Los beneficios de Zipp Pro que la guarda de margen puede quitar de un pedido. */
+export type ProBenefitKey = 'freeDelivery' | 'serviceFeeWaived';
+
+export interface ProGuardResult {
+  code: 'PRO_NEGATIVE_MARGIN';
+  /** Lo que se quitó, no lo que quedó. */
+  skipped: ProBenefitKey[];
+  /** Margen del pedido con el trato completo de Pro (negativo: por eso se ajustó). */
+  marginWithFullBenefit: number;
+  /** Margen del pedido tal como se cobra. */
+  marginApplied: number;
+  /** Frase para mostrarle al cliente en el checkout. */
+  message: string;
+}
+
+/**
+ * Margen mínimo por pedido para que ZIPP pague un beneficio de Zipp Pro.
+ *
+ * Es el margen DEL PEDIDO —lo que el pedido deja a ZIPP tras lo que le cuestan
+ * los descuentos y la pasarela—, no el del cliente en el mes: la cuota mensual
+ * de la membresía es un ingreso aparte que no se reparte entre pedidos, y un
+ * beneficio que solo se paga con la cuota de otro mes es un subsidio, no un
+ * beneficio autofinanciado. 0 = el pedido nunca puede dar pérdida por culpa de Pro.
+ */
+export const PRO_MIN_ORDER_MARGIN = 0;
 
 /** Lo que `settleDiscounts` necesita y no depende del cupón ni de las promociones. */
 export interface SettleBase {
@@ -261,6 +360,8 @@ export interface SettleBase {
   tip: number;
   /** Pago contra entrega: no genera comisión de pasarela. */
   isCash: boolean;
+  /** Cómo se calcula el impuesto (M-014). Ausente = tasa global, como siempre. */
+  taxPlan?: CheckoutTaxPlan | null;
 }
 
 export interface SettleParts extends SettleBase {
@@ -890,6 +991,11 @@ export class PricingService {
     // membresía caducada no llega hasta aquí.
     const pro = await proService.benefitsFor(input.userId);
 
+    // ── Impuesto (M-014) ──
+    // Con las reglas apagadas, la tasa global de siempre; encendidas, la regla
+    // validada y vigente de cada concepto en este instante.
+    const taxPlan = await taxRuleService.checkoutPlan(cfg, new Date());
+
     // Todo lo que no depende del cupón ni de las promociones, una sola vez.
     // `settleDiscounts` es la misma aritmética con la que se cobra y con la
     // que el sugeridor decide qué ofrecer: no hay una segunda copia que pueda
@@ -904,6 +1010,7 @@ export class PricingService {
       pro,
       tip,
       isCash,
+      taxPlan,
     };
 
     // ── Promociones automáticas por producto ──
@@ -1113,6 +1220,9 @@ export class PricingService {
       total: customerTotal,
       platformCommission: merchantCommission,
       precioOriginal: productSubtotal + delivery.customerFee + customerServiceFee + taxPayable + tip,
+      proBenefitNotice: settled.proGuard,
+      taxStatus: settled.taxStatus,
+      taxBreakdown: settled.taxBreakdown,
       descuentoEnvio: deliveryDiscount + freeDeliveryDiscount + proDeliveryDiscount,
       totalUsuario: customerTotal,
       subsidioPlataforma: platformFundedDiscount,
@@ -1210,6 +1320,8 @@ export class PricingService {
       input.freeDeliveryThreshold ??
       effectiveFreeDeliveryThreshold(business, new Date(), envConfig.settlement.timezone);
 
+    // El mismo impuesto que va a cobrar el checkout (M-014).
+    const taxPlan = await taxRuleService.checkoutPlan(cfg, new Date());
     const scenarios: PreviewScenario[] = [];
     for (const productSubtotal of input.subtotals) {
       assertMoney(productSubtotal, 'subtotal');
@@ -1230,6 +1342,7 @@ export class PricingService {
         pro: null,
         tip: 0,
         isCash,
+        taxPlan,
       };
 
       if (minOrder && productSubtotal < minOrder) {
@@ -1516,6 +1629,74 @@ export class PricingService {
    * es trabajo de `couponConflict` y `breaksMarginFloor`.
    */
   settleDiscounts(parts: SettleParts): SettledDiscounts {
+    const requested = this.settleOnce(parts);
+    const pro = parts.pro;
+    if (!pro) return requested;
+
+    const deliveryActive = requested.proDeliveryDiscount > 0;
+    const feeActive = requested.proServiceFeeDiscount > 0;
+    if (!deliveryActive && !feeActive) return requested;
+
+    const marginOf = (outcome: SettledDiscounts) =>
+      outcome.platformNetRevenueBeforeOperatingCosts - outcome.estimatedGatewayFee;
+    const marginWithFullBenefit = marginOf(requested);
+    if (marginWithFullBenefit >= PRO_MIN_ORDER_MARGIN) return requested;
+
+    // ── M-012: el trato de Pro dejaría este pedido en pérdida para ZIPP ──
+    //
+    // La alternativa es siempre una versión MÁS CHICA del mismo trato que Zipp
+    // Pro ya ofrece, nunca un descuento inventado: quitar la tarifa de servicio
+    // perdonada, quitar el envío gratis, o quitar ambos. Entre las que dejan el
+    // margen en regla gana la que más ahorro le deja al cliente; a igualdad, la
+    // que conserva el envío gratis, que es la promesa más visible de la
+    // membresía. Si ninguna parcial cabe, el pedido sale sin beneficio de Pro y
+    // `proGuard` dice por qué.
+    const candidates: Array<{ keep: Partial<ProBenefitsSnapshot>; skipped: ProBenefitKey[] }> = [];
+    if (deliveryActive && feeActive) {
+      candidates.push({ keep: { serviceFeeWaived: false }, skipped: ['serviceFeeWaived'] });
+      candidates.push({ keep: { freeDelivery: false }, skipped: ['freeDelivery'] });
+    }
+    candidates.push({
+      keep: { freeDelivery: false, serviceFeeWaived: false },
+      skipped: [...(deliveryActive ? ['freeDelivery' as const] : []), ...(feeActive ? ['serviceFeeWaived' as const] : [])],
+    });
+
+    const saving = (o: SettledDiscounts) => o.proDeliveryDiscount + o.proServiceFeeDiscount;
+    const evaluated = candidates.map((candidate) => ({
+      skipped: candidate.skipped,
+      outcome: this.settleOnce({ ...parts, pro: { ...pro, ...candidate.keep } }),
+    }));
+    // La última alternativa (sin beneficio de Pro) siempre existe: es la que se
+    // cobra si ninguna parcial deja el margen en regla.
+    const viable = evaluated.filter((e) => marginOf(e.outcome) >= PRO_MIN_ORDER_MARGIN);
+    const { outcome, skipped } = viable.length
+      ? viable.reduce((best, e) => (saving(e.outcome) > saving(best.outcome) ? e : best))
+      : evaluated[evaluated.length - 1];
+
+    const names: Record<ProBenefitKey, string> = {
+      freeDelivery: 'el envío gratis',
+      serviceFeeWaived: 'la tarifa de servicio sin costo',
+    };
+    return {
+      ...outcome,
+      proGuard: {
+        code: 'PRO_NEGATIVE_MARGIN',
+        skipped,
+        marginWithFullBenefit,
+        marginApplied: marginOf(outcome),
+        message:
+          `En este pedido no se aplica ${skipped.map((k) => names[k]).join(' ni ')} de Zipp Pro: ` +
+          'con esta compra ZIPP lo pagaría a pérdida. El resto de tu pedido no cambia.',
+      },
+    };
+  }
+
+  /**
+   * La aritmética del reparto, tal cual la pide el trato de Pro que le pasen.
+   * `settleDiscounts` la llama una vez con el trato completo y, solo si ese
+   * trato deja el pedido en pérdida, otra vez con versiones más chicas.
+   */
+  private settleOnce(parts: SettleParts): SettledDiscounts {
     const { coupon, productSubtotal, cfg } = parts;
 
     const couponMerchantFunded = coupon?.merchantFunded ?? 0;
@@ -1612,10 +1793,13 @@ export class PricingService {
     const payableServiceFee = parts.customerServiceFee - couponServiceFeeDiscount - proServiceFeeDiscount;
 
     // ── Tax and total ──
-    const taxPayable = applyBps(
-      payableSubtotal + payableDelivery + payableServiceFee,
-      cfg.taxBps
-    );
+    const tax = computeCheckoutTax({
+      plan: parts.taxPlan,
+      legacyBps: cfg.taxBps,
+      net: { products: payableSubtotal, delivery: payableDelivery, service_fee: payableServiceFee },
+      gross: { products: productSubtotal, delivery: parts.deliveryCustomerFee, service_fee: parts.customerServiceFee },
+    });
+    const taxPayable = tax.taxPayable;
     const customerTotal =
       payableSubtotal + payableDelivery + payableServiceFee + taxPayable + parts.tip;
 
@@ -1642,6 +1826,9 @@ export class PricingService {
       merchantPayout,
       deliveryAlreadyFree: qualifiesForFreeDelivery || qualifiesForPro,
       estimatedGatewayFee: this.estimateGatewayCost(cfg, parts.isCash, customerTotal),
+      taxStatus: tax.status,
+      taxBreakdown: tax.lines,
+      proGuard: null,
     };
   }
 
@@ -2075,7 +2262,23 @@ export function repriceShortage(input: RepriceShortageInput): ShortageRepricing 
     throw fail('los descuentos superarían lo que queda por pagar.');
   }
 
-  const tax2 = applyBps(payableSub2 + payableDelivery + payableService2, cfg.taxBps);
+  // El pedido conserva la regla con la que se cobró: si salió con reglas por
+  // concepto (M-014), el faltante se recalcula con ESAS tarifas y bases —no con las
+  // de hoy ni con la tasa global—; si no, con la tasa de la configuración.
+  const storedLines = finance.taxBreakdown ?? [];
+  const tax2 = computeCheckoutTax({
+    plan: storedLines.length
+      ? {
+          mode: 'rules',
+          status: 'definitive',
+          missing: [],
+          rates: Object.fromEntries(storedLines.map((l) => [l.concept, { bps: l.rateBps, base: l.base, ruleId: l.ruleId }])),
+        }
+      : null,
+    legacyBps: cfg.taxBps,
+    net: { products: payableSub2, delivery: payableDelivery, service_fee: payableService2 },
+    gross: { products: S2, delivery: deliveryFee, service_fee: fee2 },
+  }).taxPayable;
   const customerTotal2 = payableSub2 + payableDelivery + payableService2 + tax2 + tip;
 
   const merchantFunded2 = D_m2 + F + A2;

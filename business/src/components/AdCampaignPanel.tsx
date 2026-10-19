@@ -6,7 +6,7 @@ import { apiMessage } from '../lib/apiError';
 import {
   AdBudgetStep, AdCreativeStep, AdIdeaStep, AdPreview, AdReviewStep, AdWhenStep, type AdJump,
 } from './advertising/AdSteps';
-import { adProblem, applyAdTemplate, type AdDraft, type AdStep, type AdTemplate } from '../lib/advertising';
+import { adProblem, applyAdTemplate, type AdDraft, type AdOffer, type AdStep, type AdTemplate } from '../lib/advertising';
 
 /**
  * Pantalla completa para pedir una campaña de publicidad, como asistente de
@@ -27,6 +27,8 @@ import { adProblem, applyAdTemplate, type AdDraft, type AdStep, type AdTemplate 
 
 interface Props {
   businessId: string;
+  /** La oferta vigente de ZIPP: modalidades, rangos y duración. */
+  offer: AdOffer;
   initial: AdDraft;
   /** Viene de una campaña rechazada: se dice, para que no parezca la misma. */
   correcting: boolean;
@@ -41,7 +43,7 @@ const LABELS: Record<AdStep, string> = {
   idea: 'Idea', ad: 'Anuncio', when: 'Cuándo', budget: 'Inversión', review: 'Listo',
 };
 
-export default function AdCampaignPanel({ businessId, initial, correcting, initialStep, onClose, onCreated }: Props) {
+export default function AdCampaignPanel({ businessId, offer, initial, correcting, initialStep, onClose, onCreated }: Props) {
   const [form, setForm] = useState<AdDraft>(initial);
   const [step, setStep] = useState<AdStep>(initialStep);
   const [maxIdx, setMaxIdx] = useState(STEPS.indexOf(initialStep));
@@ -68,19 +70,19 @@ export default function AdCampaignPanel({ businessId, initial, correcting, initi
   };
 
   const next = () => {
-    const problem = adProblem(step, form);
+    const problem = adProblem(step, form, offer);
     if (problem) { setError(problem); return; }
     move(STEPS[idx + 1]);
   };
 
   const pickTemplate = (template: AdTemplate) => {
-    setForm((f) => ({ ...applyAdTemplate(template), flyerUrl: f.flyerUrl }));
+    setForm((f) => ({ ...applyAdTemplate(template, offer), flyerUrl: f.flyerUrl }));
     move('ad');
   };
 
   const submit = async () => {
     for (const s of ['ad', 'when', 'budget'] as const) {
-      const problem = adProblem(s, form);
+      const problem = adProblem(s, form, offer);
       if (problem) { move(s); setError(problem); return; }
     }
     setError('');
@@ -163,10 +165,10 @@ export default function AdCampaignPanel({ businessId, initial, correcting, initi
 
       <div className={`mt-6 grid gap-x-10 gap-y-8 pb-8 ${showAside ? 'xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]' : ''}`}>
         <div key={step} className="promo-step min-w-0">
-          {step === 'idea' && <AdIdeaStep onPick={pickTemplate} />}
-          {step === 'ad' && <AdCreativeStep draft={form} patch={patch} onFlyerChange={() => setFlyerBroken(false)} />}
-          {step === 'when' && <AdWhenStep draft={form} patch={patch} />}
-          {step === 'budget' && <AdBudgetStep draft={form} patch={patch} />}
+          {step === 'idea' && <AdIdeaStep onPick={pickTemplate} offer={offer} />}
+          {step === 'ad' && <AdCreativeStep draft={form} patch={patch} businessId={businessId} onFlyerChange={() => setFlyerBroken(false)} />}
+          {step === 'when' && <AdWhenStep draft={form} patch={patch} offer={offer} />}
+          {step === 'budget' && <AdBudgetStep draft={form} patch={patch} offer={offer} />}
           {step === 'review' && <AdReviewStep draft={form} correcting={correcting} onJump={(s: AdJump) => move(s)} />}
         </div>
 

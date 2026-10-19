@@ -51,6 +51,14 @@ export { Review, IReview } from './Review';
 export { Coupon, ICoupon, CouponRedemption, ICouponRedemption } from './Coupon';
 export { Zone, IZone, IZoneVersion, ZONE_TARIFF_FIELDS, ZoneTariffField, MAX_ZONE_VERSIONS } from './Zone';
 
+export { CspViolation, ICspViolation } from './CspViolation';
+
+// ── Reglas tributarias por concepto (M-014) ─────────────────────────
+export {
+  TaxRule, ITaxRule, TaxConcept, TaxTreatment, TaxBase, TaxType, TaxRuleStatus,
+  CHECKOUT_TAX_CONCEPTS, ALL_TAX_CONCEPTS,
+} from './TaxRule';
+
 // ── Monetisation ─────────────────────────────────────────────────────
 export {
   PlatformPricingConfig,
@@ -59,6 +67,7 @@ export {
   PricingConfigAudit,
   IPricingConfigAudit,
   COMMISSION_CATEGORIES,
+  AD_LAUNCH_OFFER,
 } from './PlatformPricingConfig';
 export { LedgerEntry, ILedgerEntry } from './LedgerEntry';
 export { Payout, IPayout, Settlement, ISettlement, ISettlementPayoutAccount } from './Payout';
@@ -105,6 +114,7 @@ export { AdInvoice, IAdInvoice } from './AdInvoice';
 export { ShiftClosing, IShiftClosing } from './ShiftClosing';
 export { FiscalDocument, IFiscalDocument } from './FiscalDocument';
 export { AdEvent, IAdEvent, AdEventType } from './AdEvent';
+export { AdClick, IAdClick, AdClickRejection, AdClickSignal, HARD_CLICK_SIGNALS, AdNetworkQuota, IAdNetworkQuota } from './AdClick';
 export {
   PromotionBanner,
   IPromotionBanner,

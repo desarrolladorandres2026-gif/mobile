@@ -257,13 +257,19 @@ describe('S11 · archivar en vez de borrar', () => {
     const business = await makeBusiness(owner._id, { lat: GARZON.lat, lng: GARZON.lng });
     await Business.updateOne({ _id: business._id }, { $set: { isArchived: true, archiveReason: 'x', archivedAt: new Date() } });
 
+    // Sin motivo no se reactiva (M-026).
+    await request(app).patch(`/api/v1/admin/businesses/${business._id}/restore`).set(await authHeader(admin)).expect(400);
+
     await request(app)
       .patch(`/api/v1/admin/businesses/${business._id}/restore`)
       .set(await authHeader(admin))
+      .send({ reason: 'Documentos al día, se reactiva' })
       .expect(200);
 
     const restored = await Business.findById(business._id);
     expect(restored!.isArchived).toBe(false);
+    expect(String(restored!.restoredBy)).toBe(String(admin._id));
+    expect(restored!.restoreReason).toBe('Documentos al día, se reactiva');
   });
 
   it('updateTerms ya no puede aprobar un comercio', async () => {

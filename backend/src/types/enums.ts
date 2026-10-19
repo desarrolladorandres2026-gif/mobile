@@ -494,6 +494,12 @@ export enum LedgerEventType {
   CLAWBACK_COLLECTED = 'clawback_collected',
   /** Finanzas dio por incobrable un arrastre de comercio. */
   CLAWBACK_WRITTEN_OFF = 'clawback_written_off',
+  /**
+   * Ajuste de la comisión de la pasarela por una operación posterior al cobro
+   * (M-005): la parte de la comisión que Wompi devuelve al reembolsar y/o el costo
+   * de la propia operación (reembolso, anulación, contracargo).
+   */
+  GATEWAY_FEE_ADJUSTED = 'gateway_fee_adjusted',
 }
 
 /** Lifecycle of an amount the platform owes a merchant or a driver. */
@@ -536,6 +542,29 @@ export enum RefundKind {
    * reparte contablemente y deja auditoría de la referencia externa.
    */
   EXTERNAL = 'external',
+}
+
+/**
+ * De quién fue el problema que originó un reembolso (M-013).
+ *
+ * Decide qué pasa con el pago del domiciliario y deja quién asume el costo
+ * (`Refund.driverPay`). Que un pedido se reembolse NO es que el domiciliario no
+ * haya trabajado: salvo que la causa sea suya, su pago por una entrega completada
+ * se conserva y lo asume ZIPP.
+ */
+export enum RefundCause {
+  /** Producto, preparación o error del comercio. */
+  MERCHANT = 'merchant',
+  /** Error de ZIPP: precio, cobro, app, soporte. */
+  PLATFORM = 'platform',
+  /** Arrepentimiento, error o fraude del cliente. */
+  CUSTOMER = 'customer',
+  /** Contracargo o reversión forzada por la pasarela. */
+  GATEWAY = 'gateway',
+  /** Posible responsabilidad del domiciliario: el pago no se retira, se revisa. */
+  DRIVER = 'driver',
+  /** No se indicó. Se trata como NO atribuible al domiciliario. */
+  UNSPECIFIED = 'unspecified',
 }
 
 /** Cómo se pagó manualmente una liquidación (Settlement). */

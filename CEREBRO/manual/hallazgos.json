@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "nota": "Hallazgos de la auditoría manual. Ninguno se ha corregido: la auditoría no modifica el código de producción. Cada evidencia lleva un ancla (texto exacto de una línea) que CEREBRO verifica en cada construcción; si el código cambia, el hallazgo pasa a «revisar». Las sondas de ejecución están en manual/sondas/ y se corrieron contra el proveedor sandbox y MongoDB en memoria.",
+  "nota": "Hallazgos de la auditoría manual. Los M-001…M-018 se registraron sin corregir (la auditoría no modificó producción). Desde el 2026-10-17 también se registran aquí los hallazgos corregidos, con `estado: resuelto` y las pruebas que lo demuestran. Cada evidencia lleva un ancla (texto exacto de una línea) que CEREBRO verifica en cada construcción; si el código cambia, el hallazgo pasa a «revisar». Las sondas de ejecución están en manual/sondas/.",
   "hallazgos": [
     {
       "id": "M-001-reembolso-tardio-doble-reversion",
@@ -27,7 +27,7 @@
       "evidencia": [
         {
           "archivo": "backend/src/services/order.service.ts",
-          "linea": 1885,
+          "linea": 2023,
           "ancla": "const allocation = allocateRefund(finance, remaining, RefundKind.FULL, prior);",
           "texto": "cancelación sin cobro: reversa el libro sin crear Refund"
         },
@@ -39,7 +39,7 @@
         },
         {
           "archivo": "backend/src/services/refund.service.ts",
-          "linea": 511,
+          "linea": 763,
           "ancla": "async refundedTotal(",
           "texto": "suma Refund COMPLETED"
         },
@@ -54,12 +54,25 @@
           "linea": 392,
           "ancla": "async refund(req: Request",
           "texto": "el panel no comprueba el estado del pedido"
+        },
+        {
+          "archivo": "backend/src/services/refund.service.ts",
+          "linea": 668,
+          "ancla": "  private async booksUnwoundByCancellation(order: IOrder): Promise<boolean> {",
+          "texto": "detección por el libro"
+        },
+        {
+          "archivo": "backend/src/services/refund.service.ts",
+          "linea": 683,
+          "ancla": "  private async returnLateCapture(",
+          "texto": "devolución sin segunda reversión"
         }
       ],
       "elementos": [
         "backend/src/services/refund.service.ts#RefundService.issue"
       ],
-      "nota": "Actualización 2026-10-16: el código ya corrige el caso inverso (reembolso parcial previo y luego cancelación sin cobro: `remaining`/`prior` en onCancelled). El caso de este hallazgo (cancelación sin cobro primero, reembolso por el panel después) sigue abierto: la cancelación no deja fila Refund, así que `issue()` ve el pedido entero como reembolsable."
+      "nota": "Actualización 2026-10-16: el código ya corrige el caso inverso (reembolso parcial previo y luego cancelación sin cobro: `remaining`/`prior` en onCancelled). El caso de este hallazgo (cancelación sin cobro primero, reembolso por el panel después) sigue abierto: la cancelación no deja fila Refund, así que `issue()` ve el pedido entero como reembolsable. Corregido 2026-10-17: `issue()` e `issueExternal()` detectan en el libro la reversión `cancel:<pedido>` de la cancelación sin cobro y solo devuelven el cobro tardío retenido para revisión (completo, fila Refund con reparto en 0, libro intacto). Prueba: backend/src/__tests__/lateCaptureRefund.test.ts (falla en el commit anterior, pasa ahora). M-004 sigue abierto: ese cobro tardío no entra al libro.",
+      "estado": "resuelto"
     },
     {
       "id": "M-002-reembolso-pending-bloqueado",
@@ -135,25 +148,25 @@
       "evidencia": [
         {
           "archivo": "backend/src/services/order.service.ts",
-          "linea": 1281,
+          "linea": 1352,
           "ancla": "await this.onDelivered(claimed);",
           "texto": "sin try/catch ni marca de pendiente"
         },
         {
           "archivo": "backend/src/services/order.service.ts",
-          "linea": 1301,
+          "linea": 1372,
           "ancla": "await this.onCancelled(claimed);",
           "texto": "contraste: la cancelación sí captura y audita"
         },
         {
           "archivo": "backend/src/services/order.service.ts",
-          "linea": 1688,
+          "linea": 1810,
           "ancla": "await cashReconciliationService.open(order);",
           "texto": "paso que, al fallar, evita todo lo posterior"
         },
         {
           "archivo": "backend/src/services/order.service.ts",
-          "linea": 1757,
+          "linea": 1879,
           "ancla": "{ $inc: increments, $set: { status: DriverStatus.AVAILABLE } }",
           "texto": "último paso: fondo y disponibilidad"
         }
@@ -228,7 +241,7 @@
       "evidencia": [
         {
           "archivo": "backend/src/models/PlatformPricingConfig.ts",
-          "linea": 187,
+          "linea": 225,
           "ancla": "gatewayFeeRefundBps: { type: Number",
           "texto": "declarado y validado"
         },
@@ -245,7 +258,9 @@
           "texto": "la reversión no toca el gasto de pasarela"
         }
       ],
-      "elementos": []
+      "elementos": [],
+      "estado": "resuelto",
+      "nota": "Corregido 2026-10-19: `gatewayFeeRefundBps` ahora se lee en `refundService.recordGatewayFeeAdjustment` (ajuste GATEWAY_FEE_ADJUSTED proporcional a lo reembolsado, sobre la comisión ya asentada; sin definir = no se asume nada). Pruebas: backend/src/__tests__/gatewayFees.test.ts. Falta el contrato real de Wompi para fijar el valor."
     },
     {
       "id": "M-006-costos-pasarela-transferencia-incompletos",
@@ -271,7 +286,7 @@
       "evidencia": [
         {
           "archivo": "backend/src/models/PlatformPricingConfig.ts",
-          "linea": 177,
+          "linea": 215,
           "ancla": "gatewayCardBps: { ...bps, default: 0 },",
           "texto": "tarifas por defecto en 0"
         },
@@ -288,7 +303,9 @@
           "texto": "declaración de incompletitud"
         }
       ],
-      "elementos": []
+      "elementos": [],
+      "estado": "parcial",
+      "nota": "Parcial 2026-10-19: costo por reembolso/anulación y por contracargo configurables (`gatewayRefundFixed`, `gatewayChargebackFixed`), comisión guardada con cada cobro (`Payment.metadata.gatewayFee`, no se reescribe al cambiar tarifas), informes leen lo guardado y marcan lo estimado, y `GET /finance/config/readiness` lista lo que falta. SIGUE ABIERTO: las tarifas reales (todas en 0), `gatewayContractRef` vacío, el costo de transferencia y la conciliación contra el extracto de Wompi. Los rechazos/anulaciones sin cobro se asumen sin costo (por confirmar)."
     },
     {
       "id": "M-007-wompi-reembolso-parcial-api",
@@ -435,19 +452,19 @@
       "evidencia": [
         {
           "archivo": "backend/src/services/order.service.ts",
-          "linea": 549,
+          "linea": 588,
           "ancla": "order = await Order.create({",
           "texto": "el pedido existe desde aquí"
         },
         {
           "archivo": "backend/src/services/order.service.ts",
-          "linea": 673,
+          "linea": 712,
           "ancla": "await ledgerService.recordOrderPlaced({",
           "texto": "el libro llega después, sin transacción"
         },
         {
           "archivo": "backend/src/services/order.service.ts",
-          "linea": 324,
+          "linea": 358,
           "ancla": "private async rollbackNewOrder(",
           "texto": "compensación solo ante excepciones"
         }
@@ -537,7 +554,9 @@
           "texto": "exige coupon.fundedBy === PLATFORM"
         }
       ],
-      "elementos": []
+      "elementos": [],
+      "estado": "resuelto",
+      "nota": "Corregido 2026-10-19: `settleDiscounts` mide el margen del pedido (con la pasarela estimada) y, si el trato completo de Pro queda bajo 0, aplica una versión más chica o ninguna (`proGuard`/`proBenefitNotice`, `finance.proBenefitSkipped`); `expectedTotal` → 409 PRICE_CHANGED. Pruebas: backend/src/__tests__/proMarginGuard.test.ts. Pendiente de negocio: que `PRO_PLAN.minSubtotal` ($30.000, propuesta) sea coherente con la comisión real: con 10 % el envío gratis casi nunca cabe."
     },
     {
       "id": "M-013-reembolso-total-trato-del-domiciliario",
@@ -579,7 +598,9 @@
           "texto": "ZIPP asume la tarifa"
         }
       ],
-      "elementos": []
+      "elementos": [],
+      "estado": "resuelto",
+      "nota": "Corregido 2026-10-19: entregado + reembolso total → el domiciliario conserva todo su pago (`allocation.driverRetained`, lo asume ZIPP); causa del domiciliario → revisión humana sin retirar el pago; cancelaciones antes de entregar con porcentajes configurables (0 de fábrica). Pruebas: backend/src/__tests__/driverPayOnRefund.test.ts. Límite conocido: un reembolso «total» posterior a uno parcial se trata como parcial y no puede devolver el pago del domiciliario (preexistente)."
     },
     {
       "id": "M-014-impuesto-una-sola-tasa",
@@ -610,12 +631,14 @@
         },
         {
           "archivo": "backend/src/models/PlatformPricingConfig.ts",
-          "linea": 167,
+          "linea": 205,
           "ancla": "taxBps: { ...bps, default: 0 },",
           "texto": "por defecto 0"
         }
       ],
-      "elementos": []
+      "elementos": [],
+      "estado": "parcial",
+      "nota": "Parcial 2026-10-19: modelo `TaxRule` por concepto con vigencia, validación con documento y checkout por concepto detrás de `taxRulesEnabled` (apagado). SIGUE ABIERTO el dato: ninguna regla está validada; la tasa global `taxBps` sigue siendo la que cobra, sin respaldo contable. Comisión, suscripción Pro y otros solo tienen la regla (sin integración); publicidad informa pero no cambia el cobro. No hay facturación electrónica. Pruebas: backend/src/__tests__/taxRules.test.ts."
     },
     {
       "id": "M-015-ci-inoperante-y-doc-desactualizada",
@@ -733,8 +756,8 @@
       "evidencia": [
         {
           "archivo": "backend/src/__tests__/businessStaffOrders.test.ts",
-          "linea": 231,
-          "ancla": "MEDIO 5: el personal no lee el chat del pedido",
+          "linea": 283,
+          "ancla": "  it('MEDIO 5: el personal no lee la conversación del cliente con el domiciliario', async () => {",
           "texto": "prueba roja"
         },
         {
@@ -744,7 +767,473 @@
           "texto": "el comercio ya es participante"
         }
       ],
-      "elementos": []
+      "elementos": [],
+      "estado": "resuelto",
+      "nota": " 2026-10-17: la prueba se renombró y pasa en la suite completa (26/26 en businessStaffOrders.test.ts)."
+    },
+    {
+      "id": "M-019-pedido-con-economia-de-zipp",
+      "regla": "auditoria-seguridad",
+      "titulo": "El pedido viajaba con el margen de ZIPP y el pago al domiciliario al dueño del comercio, al cliente y al domiciliario",
+      "severidad": "ALTO",
+      "confianza": "confirmado",
+      "area": "seguridad",
+      "alcance": "transversal",
+      "probabilidad": "alta",
+      "impacto": "alto",
+      "estado": "resuelto",
+      "descripcion": "Lista, detalle, programados, cambio de estado y el socket `order:incoming` entregaban al propietario `finance` entero (deliveryMargin, platformGrossRevenue, platformPromotionExpense, platformNetRevenueBeforeOperatingCosts, driverDeliveryPayout, taxPayable) y `dispatch`. Crear, «mis pedidos» y el detalle hacían lo mismo con el cliente, y las listas del domiciliario con él.",
+      "causa": "`merchantStaffOrderView` solo se aplicaba a quien no era el dueño; cliente y domiciliario no tenían vista propia.",
+      "consecuencia": "Cualquier comercio reconstruía el margen de ZIPP por pedido y la tabla de pagos a repartidores.",
+      "pruebaSugerida": "backend/src/__tests__/businessStaffOrders.test.ts («el propietario ve su comisión y su neto…») y customerContact.test.ts («Ningún pedido sale con la economía de ZIPP…»).",
+      "afectados": [
+        "order.controller.ts (getById, getMyOrders, getBusinessOrders, getScheduledOrders, updateStatus, assignDriver, getAvailableOrders, getDriverOrders, create)",
+        "order.service.ts (announceToBusiness)",
+        "profileMasking.ts"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/profileMasking.ts",
+          "linea": 90,
+          "ancla": "export const MERCHANT_OWNER_FINANCE_FIELDS = [",
+          "texto": "lista blanca del dueño: comisión, tasa, neto y lo que él financia"
+        },
+        {
+          "archivo": "backend/src/services/profileMasking.ts",
+          "linea": 119,
+          "ancla": "export function merchantOrderView<T extends object>(",
+          "texto": "única forma en que un pedido sale hacia un comercio"
+        },
+        {
+          "archivo": "backend/src/services/profileMasking.ts",
+          "linea": 173,
+          "ancla": "export function customerOrderView<T extends object>(order: T): T {",
+          "texto": "vista del cliente"
+        },
+        {
+          "archivo": "backend/src/services/profileMasking.ts",
+          "linea": 192,
+          "ancla": "export function driverOrderView<T extends object>(order: T): T {",
+          "texto": "vista del domiciliario"
+        },
+        {
+          "archivo": "backend/src/services/order.service.ts",
+          "linea": 803,
+          "ancla": "      io.to(ownerFullRoom).emit('order:incoming', merchantOrderView(order, { owner: true }));",
+          "texto": "el socket del dueño ya no lleva el pedido entero"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/profileMasking.ts#merchantOrderView"
+      ],
+      "nota": "Corregido 2026-10-17. El admin sin `commissions:view` sigue con `customerFinanceView` (H3)."
+    },
+    {
+      "id": "M-020-historial-con-telefono-y-coordenadas",
+      "regla": "auditoria-seguridad",
+      "titulo": "El historial del propietario conservaba teléfono y coordenadas exactas de todos los clientes",
+      "severidad": "ALTO",
+      "confianza": "confirmado",
+      "area": "seguridad",
+      "alcance": "modulo",
+      "probabilidad": "alta",
+      "impacto": "alto",
+      "estado": "resuelto",
+      "descripcion": "El recorte de pedidos cerrados (ALTO 4, 2026-10-01) solo aplicaba al personal: el dueño paginaba todo el historial con teléfono y `deliveryLocation`. Decisión 2026-10-17: lo cerrado enmascara teléfono del cliente y del domiciliario, quita coordenadas y teléfono de quien recibe para todos los papeles; conserva dirección, productos, montos y auditoría. La base no se toca.",
+      "causa": "`terminal` solo se pasaba en la rama de personal.",
+      "consecuencia": "Un comercio podía llevarse la base de clientes con teléfono y ubicación.",
+      "pruebaSugerida": "businessStaffOrders.test.ts «ALTO 4…» (ahora también dueño y detalle por id, y comprueba que la base conserva las coordenadas).",
+      "afectados": [
+        "order.controller.ts",
+        "business/src/components/OrderDetailPanel.tsx"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "business/src/components/OrderDetailPanel.tsx",
+          "linea": 249,
+          "ancla": "                          Contactar por medio de ZIPP",
+          "texto": "en pedido cerrado: número enmascarado sin tel: y acción de contacto intermediado"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/profileMasking.ts#merchantOrderView"
+      ],
+      "nota": "Corregido 2026-10-17. Contradice la decisión anterior («el dueño sigue viendo todo»), sustituida por instrucción del propietario de ZIPP."
+    },
+    {
+      "id": "M-021-contacto-intermediado-cliente",
+      "regla": "auditoria-seguridad",
+      "titulo": "Contacto con el cliente de un pedido cerrado por medio de ZIPP (PQRS contact_customer_*)",
+      "severidad": "MEDIO",
+      "confianza": "confirmado",
+      "area": "seguridad",
+      "alcance": "modulo",
+      "probabilidad": "media",
+      "impacto": "medio",
+      "estado": "resuelto",
+      "descripcion": "Nuevo: motivos PQRS contact_customer_claim / _warranty / _clarification. Solo pedidos entregados o cancelados, con permiso de comercio `customers:contact` (propietario y encargado; el mostrador no), un caso abierto por pedido, auditoría CUSTOMER_CONTACT_REQUESTED. El comercio nunca recibe el número; soporte lo ve en la ficha 360 del cliente, que ya registra PROFILE_VIEWED.",
+      "causa": "Tras enmascarar el historial hacía falta un canal autorizado para reclamos, garantías y aclaraciones.",
+      "consecuencia": "—",
+      "pruebaSugerida": "backend/src/__tests__/customerContact.test.ts (7 casos de contacto).",
+      "afectados": [
+        "pqrs.service.ts",
+        "pqrs.controller.ts",
+        "models/Pqrs.ts",
+        "models/BusinessStaff.ts",
+        "business/src/pages/support/NewCase.tsx",
+        "admin/src/pages/Support.tsx"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/pqrs.service.ts",
+          "linea": 134,
+          "ancla": "export const CUSTOMER_CONTACT_REASONS: ReadonlySet<PqrsReason> = new Set<PqrsReason>([",
+          "texto": "motivos de contacto"
+        },
+        {
+          "archivo": "backend/src/services/pqrs.service.ts",
+          "linea": 286,
+          "ancla": "  if (reason && CUSTOMER_CONTACT_REASONS.has(reason)) {",
+          "texto": "permiso, pedido cerrado y un caso por pedido"
+        },
+        {
+          "archivo": "backend/src/models/BusinessStaff.ts",
+          "linea": 132,
+          "ancla": "  CUSTOMERS_CONTACT = 'customers:contact',",
+          "texto": "permiso nuevo"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/pqrs.service.ts#createPqrs"
+      ],
+      "nota": "Pendiente de decidir: ventana máxima tras la entrega para pedir contacto (hoy sin límite; soporte decide)."
+    },
+    {
+      "id": "M-022-pqrs-invitacion-pendiente",
+      "regla": "auditoria-seguridad",
+      "titulo": "Una invitación de personal sin aceptar podía abrir casos de soporte a nombre del local",
+      "severidad": "BAJO",
+      "confianza": "confirmado",
+      "area": "seguridad",
+      "alcance": "local",
+      "probabilidad": "baja",
+      "impacto": "bajo",
+      "estado": "resuelto",
+      "descripcion": "`resolveParties` usaba `BusinessStaff.exists({isActive:true})` sin mirar `status: pending` ni el alcance de la sesión. Ahora usa `businessStaffService.accessFor`, la misma puerta del resto del panel.",
+      "causa": "Comprobación escrita a mano en vez de reutilizar el resolvedor.",
+      "consecuencia": "Casos con pedido del local abiertos por alguien que no aceptó la invitación.",
+      "pruebaSugerida": "customerContact.test.ts «una invitación sin aceptar no abre casos…».",
+      "afectados": [
+        "pqrs.service.ts"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/pqrs.service.ts",
+          "linea": 240,
+          "ancla": "    const access = await businessStaffService.accessFor(input.userId, input.businessId, input.scope);",
+          "texto": "misma puerta que el panel"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/pqrs.service.ts#createPqrs"
+      ],
+      "nota": "Corregido 2026-10-17."
+    },
+    {
+      "id": "M-023-flyer-url-externa",
+      "regla": "auditoria-seguridad",
+      "titulo": "El flyer de publicidad del comercio era una URL libre servida desde su servidor",
+      "severidad": "MEDIO",
+      "confianza": "confirmado",
+      "area": "seguridad",
+      "alcance": "modulo",
+      "probabilidad": "media",
+      "impacto": "medio",
+      "estado": "resuelto",
+      "descripcion": "El comercio podía mostrar una imagen al revisor y cambiarla después de aprobada, y veía IP/navegador del admin y de cada cliente. Ahora sube el archivo por POST /advertisements/business/:businessId/flyer (misma inspección que el admin, permiso advertising:manage, limitador) y la compra solo acepta https://res.cloudinary.com/<nuestro cloud>/.",
+      "causa": "`flyerUrl: z.string().url()` y un campo de texto en el panel.",
+      "consecuencia": "Contenido no revisado en el splash; filtración de IP.",
+      "pruebaSugerida": "backend/src/__tests__/adFlyerOrigin.test.ts; business/src/lib/advertising.test.ts.",
+      "afectados": [
+        "routes/advertisement.routes.ts",
+        "business/src/components/advertising/AdSteps.tsx",
+        "business/src/lib/advertising.ts"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/routes/advertisement.routes.ts",
+          "linea": 85,
+          "ancla": "const ownFlyerUrl = z",
+          "texto": "solo nuestro Cloudinary"
+        },
+        {
+          "archivo": "backend/src/routes/advertisement.routes.ts",
+          "linea": 130,
+          "ancla": "  '/business/:businessId/flyer',",
+          "texto": "subida del comercio"
+        }
+      ],
+      "elementos": [],
+      "nota": "La ruta admin conserva URL libre para no romper la edición de campañas antiguas; el panel admin siempre sube por /upload."
+    },
+    {
+      "id": "M-024-oraculo-y-validaciones-menores",
+      "regla": "auditoria-seguridad",
+      "titulo": "Menores: oráculo 403/404 en GET /orders/:id, categorías sin validación, /health con datos internos",
+      "severidad": "BAJO",
+      "confianza": "confirmado",
+      "area": "seguridad",
+      "alcance": "local",
+      "probabilidad": "baja",
+      "impacto": "bajo",
+      "estado": "resuelto",
+      "descripcion": "GET /orders/:id respondía 403 a un pedido ajeno y 404 a uno inexistente; ahora 404 en ambos. Las rutas de categorías no validaban el cuerpo (un businessId mal formado era 500 por CastError); ahora zod .strict(). /health exponía entorno, versión, uptime y memoria sin autenticación; en producción solo status, timestamp y database.",
+      "causa": "—",
+      "consecuencia": "Enumeración de ids; ruido de 500; reconocimiento del proceso.",
+      "pruebaSugerida": "businessStaffOrders.test.ts «un comercio ajeno recibe 404…»; auth.test.ts /health.",
+      "afectados": [
+        "order.controller.ts",
+        "routes/category.routes.ts",
+        "app.ts"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/controllers/order.controller.ts",
+          "linea": 101,
+          "ancla": "      if (user.role !== UserRole.ADMIN && !isClient && !isDriver && !isBusiness) throw new AppError('Pedido no encontrado', 404);",
+          "texto": "404 uniforme"
+        },
+        {
+          "archivo": "backend/src/routes/category.routes.ts",
+          "linea": 17,
+          "ancla": "const createCategorySchema = z.object({",
+          "texto": "validación de categorías"
+        },
+        {
+          "archivo": "backend/src/app.ts",
+          "linea": 179,
+          "ancla": "    config.nodeEnv === 'production'",
+          "texto": "health recortado en producción"
+        }
+      ],
+      "elementos": [],
+      "nota": "Corregido 2026-10-17."
+    },
+    {
+      "id": "M-025-csp-business-solo-informe",
+      "regla": "auditoria-seguridad",
+      "titulo": "La CSP del panel de comercios sigue en modo solo-informe y el refresh token vive en localStorage",
+      "severidad": "MEDIO",
+      "confianza": "confirmado",
+      "area": "seguridad",
+      "alcance": "modulo",
+      "probabilidad": "baja",
+      "impacto": "alto",
+      "estado": "abierto",
+      "descripcion": "Un XSS en el panel se llevaría la sesión completa. Revisión estática del 2026-10-17: la política cubre lo que usa el panel (Leaflet solo carga teselas como imagen; blob:/data: para el editor y la alarma; sin fuentes externas; index.html sin scripts en línea), pero su propio procedimiento exige recorrer el panel en un navegador antes de pasar a `Content-Security-Policy`.",
+      "causa": "Falta la verificación en ejecución con el dominio real (sigue REEMPLAZAR_DOMINIO).",
+      "consecuencia": "La CSP no bloquea nada hasta cambiarla.",
+      "pruebaSugerida": "Desplegar, recorrer pedidos, menú con foto, ajustes (mapa), publicidad, liquidaciones y cierre de caja sin violaciones en consola; cambiar el nombre de la cabecera.",
+      "afectados": [
+        "deploy/nginx/csp-business.conf"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "deploy/nginx/csp-business.conf",
+          "linea": 11,
+          "ancla": "# ARRANCA EN MODO SOLO-INFORME (`Content-Security-Policy-Report-Only`): el",
+          "texto": "procedimiento de activación"
+        }
+      ],
+      "elementos": [],
+      "nota": "Actualización 2026-10-19: el panel ADMIN no tenía CSP; ahora tiene `deploy/nginx/csp-admin.conf` en solo-informe, con el script del tema fuera de línea, receptor `POST /api/v1/csp-report` y lectura `GET /security/csp-violations`; las dos políticas (admin y comercios) reportan ahí. Pruebas estáticas: adminCsp.test.ts, cspReports.test.ts. SIGUE ABIERTO el paso a bloqueo: nadie ha recorrido los paneles en un navegador con el dominio real."
+    },
+    {
+      "id": "M-026-isactive-de-terminos-reversible",
+      "regla": "auditoria-seguridad",
+      "titulo": "Un negocio desactivado por admin vía términos (`isActive`) puede volver a abrirse solo",
+      "severidad": "BAJO",
+      "confianza": "confirmado",
+      "area": "seguridad",
+      "alcance": "local",
+      "probabilidad": "baja",
+      "impacto": "bajo",
+      "estado": "resuelto",
+      "descripcion": "`updateTerms` permite al admin poner isActive=false, pero el dueño lo revierte con PATCH /businesses/:id/open o el PUT. La suspensión real (`isSuspended`) sí está protegida, y es lo que usa el botón de admin.",
+      "causa": "`isActive` significa a la vez «abierto/cerrado» del dueño y desactivación de admin.",
+      "consecuencia": "Confusión operativa si un admin usa términos en vez de suspender.",
+      "pruebaSugerida": "Decidir: quitar isActive de updateTerms (usar solo suspensión) o marcar el cierre como de admin.",
+      "afectados": [
+        "business.service.ts"
+      ],
+      "verificacion": "lectura",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/business.service.ts",
+          "linea": 1313,
+          "ancla": "    if (terms.isActive !== undefined) {",
+          "texto": "isActive desde términos"
+        }
+      ],
+      "elementos": [],
+      "nota": "Corregido 2026-10-19: `updateTerms.isActive` ahora es suspensión administrativa (con motivo); la suspensión prevalece sobre el interruptor del dueño en `setOpen`, el PUT del dueño, el barrido `reopenDue`, el anuncio y la aceptación de pedidos; levantar suspensión y restaurar archivados piden motivo y quedan a nombre del administrador (`adminStatusLog`, `restoredBy`). Pruebas: backend/src/__tests__/businessSuspension.test.ts."
+    },
+    {
+      "id": "M-027-clic-tras-cancelar-se-facturaba",
+      "regla": "auditoria-finanzas",
+      "titulo": "Un clic sobre una campaña cancelada, pausada o vencida seguía sumando y se facturaba al cerrar",
+      "severidad": "ALTO",
+      "confianza": "confirmado",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "media",
+      "impacto": "alto",
+      "estado": "resuelto",
+      "descripcion": "`registerClick` solo comprobaba el tope de clics: ni `cancelledAt`, ni `isActive`, ni aprobación, ni fechas. `registerImpression` tampoco miraba cancelación, aprobación ni fechas. Ahora toda escritura de evento lleva `liveFilter` dentro del filtro atómico.",
+      "causa": "Condiciones de vida de la campaña fuera del filtro de la escritura.",
+      "consecuencia": "Cobro al comercio por clics después de cancelar la campaña.",
+      "pruebaSugerida": "adBilling.test.ts «una campaña cancelada no cobra ni un clic más», «una campaña vencida o pausada tampoco», «cerrar apaga la campaña y ya no cobra clics».",
+      "afectados": [
+        "advertisement.service.ts"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/advertisement.service.ts",
+          "linea": 453,
+          "ancla": "    const counted = await Advertisement.findOneAndUpdate(",
+          "texto": "el $inc del clic cobrable lleva liveFilter y el tope"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/advertisement.service.ts#AdvertisementService.registerClick"
+      ],
+      "nota": "Corregido 2026-10-17."
+    },
+    {
+      "id": "M-028-tarifa-de-publicidad-la-fijaba-el-comercio",
+      "regla": "auditoria-finanzas",
+      "titulo": "El comercio fijaba su propia tarifa CPM/CPC sin piso ni techo",
+      "severidad": "MEDIO",
+      "confianza": "confirmado",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "media",
+      "impacto": "alto",
+      "estado": "resuelto",
+      "descripcion": "`cpmRate`/`cpcRate` llegaban del cuerpo y se guardaban tal cual (1 COP de CPM pasaba). Ahora la oferta vive en PlatformPricingConfig (campos ad*, versionados, auditados, finance:manage): modalidad, rango de CPC, presupuesto, duración y ubicaciones. Nace apagada y en 0; sin oferta completa no se compra (409 AD_OFFER_UNAVAILABLE), fuera de ella no se compra (422 AD_OUT_OF_OFFER) y la aprobación vuelve a medir contra la oferta vigente (409). CPM y renovación automática no se pueden encender (validador z.literal(false) y pre-validate).",
+      "causa": "Tarifas como dato del comercio en vez de configuración de ZIPP.",
+      "consecuencia": "Publicidad a precio arbitrario; solo la revisión humana lo frenaba.",
+      "pruebaSugerida": "adBilling.test.ts (compra y aprobación) y adOfferConfig.test.ts (oferta, permisos, configuración).",
+      "afectados": [
+        "advertisement.service.ts",
+        "PlatformPricingConfig.ts",
+        "pricingConfig.service.ts",
+        "finance.validator.ts",
+        "admin/src/pages/Pricing.tsx",
+        "business/src/lib/advertising.ts",
+        "business/src/pages/Advertising.tsx"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/services/advertisement.service.ts",
+          "linea": 40,
+          "ancla": "export function adOffer(cfg: Pick<IPlatformPricingConfig,",
+          "texto": "única lectura de los campos ad*"
+        },
+        {
+          "archivo": "backend/src/services/advertisement.service.ts",
+          "linea": 594,
+          "ancla": "    const offer = adOffer(cfg);",
+          "texto": "compra contra la oferta"
+        },
+        {
+          "archivo": "backend/src/services/advertisement.service.ts",
+          "linea": 641,
+          "ancla": "    if (ad.billedToBusinessId) {",
+          "texto": "aprobación contra la oferta vigente"
+        },
+        {
+          "archivo": "backend/src/models/PlatformPricingConfig.ts",
+          "linea": 281,
+          "ancla": "  if (this.adCpmEnabled || this.adAutoRenewEnabled) {",
+          "texto": "CPM y renovación cerrados"
+        },
+        {
+          "archivo": "backend/src/validators/finance.validator.ts",
+          "linea": 75,
+          "ancla": "      adCpmEnabled: z.literal(false, { errorMap: () => ({ message: 'CPM todavía no está disponible' }) }).optional(),",
+          "texto": "validador"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/advertisement.service.ts#adOffer"
+      ],
+      "nota": "Las tarifas reales las decide ZIPP; ninguna viene en el código. Los tres controles antifraude (ventana 1440 min, impresión 30 min, 10 clics/red/día) son valores técnicos de arranque, configurables y por validar con datos."
+    },
+    {
+      "id": "M-029-clic-cobrable-sin-idempotencia-ni-evidencia",
+      "regla": "auditoria-finanzas",
+      "titulo": "Los clics CPC se cobraban por contador, sin idempotencia, sin deduplicación y sin evidencia duradera",
+      "severidad": "ALTO",
+      "confianza": "confirmado",
+      "area": "finanzas",
+      "alcance": "modulo",
+      "probabilidad": "alta",
+      "impacto": "alto",
+      "estado": "resuelto",
+      "descripcion": "Un doble toque o un script cobraban cada clic; la única traza era AdEvent (capped, se poda sola). Ahora cada clic CPC deja una fila en AdClick: (campaignId, clickId) único, dedupeKey único parcial (un cobrable por dispositivo y ventana, atómico), impresión previa del mismo dispositivo, tope por red y día, facturación encendida y el tope del presupuesto dentro del $inc. La factura CPC de campañas compradas con oferta cobra por la evidencia (nunca sobre el presupuesto) y marca evidenceMismatch si el contador difiere. La app manda un clickId por anuncio en pantalla.",
+      "causa": "Contador como única fuente del cobro.",
+      "consecuencia": "Cobros duplicados y fraude de clics contra el presupuesto de un comercio.",
+      "pruebaSugerida": "adBilling.test.ts (clickId repetido, mismo dispositivo, 5 clics simultáneos, red, presupuesto, factura por evidencia); adOfferConfig.test.ts (clic por HTTP).",
+      "afectados": [
+        "models/AdClick.ts",
+        "advertisement.service.ts",
+        "AdInvoice.ts",
+        "migrations/031-ad-click-indexes.ts",
+        "mobile/lib/adClickId.ts",
+        "mobile/components/domain/AdSplash.tsx",
+        "mobile/components/domain/PromoCarousel.tsx"
+      ],
+      "verificacion": "ejecucion",
+      "evidencia": [
+        {
+          "archivo": "backend/src/models/AdClick.ts",
+          "linea": 79,
+          "ancla": "adClickSchema.index({ campaignId: 1, clickId: 1 }, { unique: true });",
+          "texto": "idempotencia"
+        },
+        {
+          "archivo": "backend/src/services/advertisement.service.ts",
+          "linea": 382,
+          "ancla": "  private async registerBillableClick(",
+          "texto": "defensas del clic cobrable"
+        },
+        {
+          "archivo": "backend/src/services/advertisement.service.ts",
+          "linea": 705,
+          "ancla": "    let amount = this.spendOf(ad);",
+          "texto": "factura por evidencia"
+        },
+        {
+          "archivo": "mobile/components/domain/AdSplash.tsx",
+          "linea": 73,
+          "ancla": "  const clickId = useMemo(() => newAdClickId(), [ad.id]);",
+          "texto": "un clickId por anuncio mostrado"
+        }
+      ],
+      "elementos": [
+        "backend/src/services/advertisement.service.ts#AdvertisementService.registerBillableClick"
+      ],
+      "nota": "Antes de encender adBillingEnabled en producción: correr `npm run migrate:ad-click-indexes` (manual, fuera de deploy.sh). El servicio además espera AdClick.init() antes del primer clic cobrable."
     }
   ]
 }

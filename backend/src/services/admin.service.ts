@@ -962,33 +962,14 @@ export class AdminService {
    * en el historial, no solo "quién y cuándo"— y no lo es al levantarla.
    */
   async toggleBusinessActive(businessId: string, reason: string | undefined, req?: Request) {
-    const business = await Business.findById(businessId);
+    const business = await Business.findById(businessId).select('isSuspended');
     if (!business) throw new AppError('Negocio no encontrado', 404);
-    const wasSuspended = business.isSuspended;
-    const willSuspend = !wasSuspended;
-
-    if (willSuspend && (!reason || !reason.trim())) {
-      throw new AppError('El motivo de la suspensión es obligatorio', 400);
-    }
-
-    business.isSuspended = willSuspend;
-    business.suspendedAt = willSuspend ? new Date() : null;
-    business.suspendedBy = willSuspend ? (req?.user?._id as any) ?? null : null;
-    business.suspensionReason = willSuspend ? reason!.trim() : null;
-    await business.save();
-
-    if (req) {
-      await logAudit(req, {
-        action: AuditAction.BUSINESS_TOGGLED_ACTIVE,
-        entity: 'business',
-        entityId: businessId,
-        severity: AuditSeverity.HIGH,
-        description: `Negocio ${business.name} ${business.isSuspended ? 'suspendido' : 'reactivado'}${business.isSuspended && reason ? `: ${reason}` : ''}`,
-        metadata: { wasSuspended, isSuspended: business.isSuspended, reason },
-      });
-    }
-
-    return business;
+    if (!req) throw new AppError('Suspender o reactivar requiere un administrador identificado.', 400);
+    // El «cambiar» de siempre, pero por el mismo camino que la suspensión explícita
+    // (M-026): estado deseado dentro del filtro, motivo en ambas direcciones y
+    // constancia de quién lo decidió.
+    const { business: updated } = await this.setBusinessSuspension(businessId, !business.isSuspended, reason, req);
+    return updated;
   }
 
   async toggleBusinessFeatured(businessId: string, req?: Request) {
@@ -1021,8 +1002,8 @@ export class AdminService {
     return { archived: true, business };
   }
 
-  async restoreBusiness(businessId: string, req?: Request) {
-    const business = await businessService.restore(businessId, req);
+  async restoreBusiness(businessId: string, reason: string | undefined, actor: IUser, req?: Request) {
+    const business = await businessService.restore(businessId, req, { adminId: actor._id.toString(), reason: reason ?? '' });
     return { restored: true, business };
   }
 
@@ -1203,8 +1184,15 @@ export class AdminService {
    */
   async setBusinessSuspension(businessId: string, suspended: boolean, reason: string | undefined, req: Request) {
     const trimmed = reason?.trim();
-    if (suspended && (!trimmed || trimmed.length < 5 || trimmed.length > 300)) {
-      throw new AppError('El motivo de la suspensión es obligatorio (5 a 300 caracteres)', 400);
+    // El motivo se pide en las dos direcciones (M-026): suspender y levantar son
+    // decisiones de un administrador, y la reactivación queda a su nombre.
+    if (!trimmed || trimmed.length < 5 || trimmed.length > 300) {
+      throw new AppError(
+        suspended
+          ? 'El motivo de la suspensión es obligatorio (5 a 300 caracteres)'
+          : 'El motivo para levantar la suspensión es obligatorio (5 a 300 caracteres)',
+        400
+      );
     }
     if (!(await Business.exists({ _id: businessId }))) throw new AppError('Negocio no encontrado', 404);
 
@@ -1216,6 +1204,17 @@ export class AdminService {
           suspendedAt: suspended ? new Date() : null,
           suspendedBy: suspended ? (req.user?._id as any) ?? null : null,
           suspensionReason: suspended ? trimmed! : null,
+        },
+        $push: {
+          adminStatusLog: {
+            $each: [{
+              action: suspended ? 'suspended' : 'suspension_lifted',
+              at: new Date(),
+              by: (req.user?._id as any) ?? null,
+              reason: trimmed!,
+            }],
+            $slice: -100,
+          },
         },
       },
       { new: true }
@@ -1231,8 +1230,8 @@ export class AdminService {
       entity: 'business',
       entityId: businessId,
       severity: AuditSeverity.HIGH,
-      description: `Negocio ${updated.name} ${suspended ? 'suspendido' : 'reactivado'}${suspended ? `: ${trimmed}` : ''}`,
-      metadata: { suspended, reason: suspended ? trimmed : undefined },
+      description: `Negocio ${updated.name} ${suspended ? 'suspendido' : 'reactivado'}: ${trimmed}`,
+      metadata: { suspended, reason: trimmed },
     });
     return { business: updated, changed: true };
   }

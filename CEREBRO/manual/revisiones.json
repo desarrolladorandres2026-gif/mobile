@@ -58,20 +58,6 @@
       "nivel": "lectura"
     },
     {
-      "archivo": "backend/src/services/refund.service.ts",
-      "rangos": [
-        [
-          1,
-          683
-        ]
-      ],
-      "hash": "eb624a3ca150aacd19be67afac4c7ea0057b46af",
-      "revisor": "claude-sonnet-5-5",
-      "fecha": "2026-10-16T01:46:50.426Z",
-      "nota": "Lectura completa de los rangos indicados en la auditoría financiera de 2026-10-15.",
-      "nivel": "lectura"
-    },
-    {
       "archivo": "backend/src/services/order.service.ts",
       "rangos": [
         [
@@ -507,6 +493,132 @@
       "revisor": "claude-sonnet-5-5",
       "fecha": "2026-10-16T02:16:53.296Z",
       "nota": "Lectura de la prueba del cobro tardío y de los ayudantes de escenario.",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/profileMasking.ts",
+      "rangos": [
+        [
+          1,
+          235
+        ]
+      ],
+      "hash": "4dc30e2665b9044f3dd0ea2b3bdd4810d4f74589",
+      "revisor": "manual",
+      "fecha": "2026-10-17T17:48:09.057Z",
+      "nota": "auditoría seguridad/privacidad/publicidad 2026-10-17",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/advertisement.service.ts",
+      "rangos": [
+        [
+          1,
+          959
+        ]
+      ],
+      "hash": "9e610743cda93d16de5986f6d17e2e52e8684854",
+      "revisor": "manual",
+      "fecha": "2026-10-17T17:48:09.162Z",
+      "nota": "auditoría seguridad/privacidad/publicidad 2026-10-17",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/models/AdClick.ts",
+      "rangos": [
+        [
+          1,
+          87
+        ]
+      ],
+      "hash": "fe617c8606dc72ae9a2e1afcfe884eaaa9e5603d",
+      "revisor": "manual",
+      "fecha": "2026-10-17T17:48:09.268Z",
+      "nota": "auditoría seguridad/privacidad/publicidad 2026-10-17",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/orderAccess.service.ts",
+      "rangos": [
+        [
+          1,
+          185
+        ]
+      ],
+      "hash": "510cae2778efc90f1500a466f400a07141151ee1",
+      "revisor": "manual",
+      "fecha": "2026-10-17T17:48:09.354Z",
+      "nota": "auditoría seguridad/privacidad/publicidad 2026-10-17",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/middlewares/auth.ts",
+      "rangos": [
+        [
+          1,
+          390
+        ]
+      ],
+      "hash": "0b9991cd1749cbdee9812ab5308f82b7600ed792",
+      "revisor": "manual",
+      "fecha": "2026-10-17T17:48:09.459Z",
+      "nota": "auditoría seguridad/privacidad/publicidad 2026-10-17",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/routes/advertisement.routes.ts",
+      "rangos": [
+        [
+          1,
+          278
+        ]
+      ],
+      "hash": "753d9286f822ce2b63bf518cecc4571bdc2dca91",
+      "revisor": "manual",
+      "fecha": "2026-10-17T17:48:09.544Z",
+      "nota": "auditoría seguridad/privacidad/publicidad 2026-10-17",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/migrations/031-ad-click-indexes.ts",
+      "rangos": [
+        [
+          1,
+          49
+        ]
+      ],
+      "hash": "8009a7a042b126610a4992634806efdb12dc9bf0",
+      "revisor": "manual",
+      "fecha": "2026-10-17T17:48:09.649Z",
+      "nota": "auditoría seguridad/privacidad/publicidad 2026-10-17",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/refund.service.ts",
+      "rangos": [
+        [
+          246,
+          460
+        ]
+      ],
+      "hash": "902778fbbbdbb2ddd6755c0f47674bebce87e111",
+      "revisor": "manual",
+      "fecha": "2026-10-17T17:48:09.778Z",
+      "nota": "M-001 issue",
+      "nivel": "lectura"
+    },
+    {
+      "archivo": "backend/src/services/refund.service.ts",
+      "rangos": [
+        [
+          550,
+          800
+        ]
+      ],
+      "hash": "902778fbbbdbb2ddd6755c0f47674bebce87e111",
+      "revisor": "manual",
+      "fecha": "2026-10-17T17:48:09.870Z",
+      "nota": "M-001 applyReversal/returnLateCapture",
       "nivel": "lectura"
     }
   ]

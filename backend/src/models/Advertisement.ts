@@ -136,6 +136,12 @@ export interface IAdvertisement extends Document {
    * de `isActive: false`, que sí se revierte con "Reactivar".
    */
   cancelledAt: Date | null;
+  /**
+   * Versión de `PlatformPricingConfig` con la que el comercio compró. La
+   * aprobación vuelve a comprobar contra la vigente; esto deja constancia de
+   * con qué reglas nació la campaña. Nula en las que crea un admin.
+   */
+  adConfigVersion?: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -234,6 +240,7 @@ const advertisementSchema = new Schema<IAdvertisement>(
 
     internalNotes: { type: String, default: '', trim: true, maxlength: 500 },
     cancelledAt: { type: Date, default: null },
+    adConfigVersion: { type: Number, default: null },
   },
   { timestamps: true }
 );

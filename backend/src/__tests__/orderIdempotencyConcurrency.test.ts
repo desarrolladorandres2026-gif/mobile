@@ -200,8 +200,10 @@ describe('Pedidos — idempotencia y concurrencia', () => {
       const staff = incoming.find((e) => e.to[0].startsWith('business:'))!;
       expect(staff.except).toEqual(owner.to);
 
-      // El personal no ve el pago al domiciliario ni el margen de ZIPP.
-      expect(owner.payload.finance.driverPayout).toBeDefined();
+      // Nadie del comercio ve el pago al domiciliario ni el margen de ZIPP
+      // (el dueño tampoco desde 2026-10-17).
+      expect(owner.payload.finance.driverPayout).toBeUndefined();
+      expect(staff.payload.finance.driverPayout).toBeUndefined();
       // Desde 2026-10-09 tampoco ven el neto ni la comisión (ver docs/DIVISION.md).
       expect(owner.payload.finance.businessPayout).toBeDefined();
       expect(staff.payload.finance.businessPayout).toBeUndefined();

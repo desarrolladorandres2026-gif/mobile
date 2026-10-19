@@ -6,7 +6,10 @@ import {
   Payment,
   Refund,
   IRefund,
+  LedgerEntry,
+  Payout,
 } from '../models';
+import { LedgerAccount, LedgerDirection } from '../types';
 import { AppError } from '../middlewares';
 import {
   RefundKind,
@@ -17,6 +20,10 @@ import {
   OrderKind,
   OrderStatus,
   ItemShortageStatus,
+  RefundCause,
+  PayoutBeneficiary,
+  PayoutStatus,
+  CancelledBy,
 } from '../types';
 import { ledgerService } from './ledger.service';
 import { payoutService } from './payout.service';
@@ -24,6 +31,8 @@ import { couponService } from './coupon.service';
 import { cashReconciliationService } from './cashReconciliation.service';
 import { getPaymentProvider, paymentService } from './payments';
 import { assertMoney } from '../utils';
+import { gatewayFeeReturned, gatewayOperationFee } from '../utils/gatewayFee';
+import { pricingConfigService } from './pricingConfig.service';
 import { notifyAlertsChanged } from './alerts.service';
 
 export interface RefundAllocation {
@@ -35,7 +44,16 @@ export interface RefundAllocation {
   fromServiceFee: number;
   fromTax: number;
   fromPlatform: number;
+  /**
+   * M-013: pago del domiciliario que el reembolso NO le quita. Sigue siendo suyo
+   * y ZIPP lo asume. `fromDriverPayout + driverRetained` = lo que se llevaba de
+   * su pago. Opcional: los reembolsos anteriores no lo tienen (= 0).
+   */
+  driverRetained?: number;
 }
+
+/** Cuánto del pago del domiciliario se conserva: `'all'` = todo lo que le quede. */
+export type DriverRetention = number | 'all';
 
 /**
  * Splits a refund across the parties that were credited at placement.
@@ -43,9 +61,12 @@ export interface RefundAllocation {
  * Two distinct policies, because the situations are not alike:
  *
  *  - A **full** refund unwinds the order exactly: every account returns to
- *    where it started, including the driver's payout and the promotional
- *    expense. The identity that made the placement batch balance makes the
- *    reversal balance too.
+ *    where it started, including the promotional expense. The identity that
+ *    made the placement batch balance makes the reversal balance too. The
+ *    driver's payout is the exception (M-013): refunding the customer is not
+ *    the same as un-doing the work the courier already did, so when the
+ *    caller says the courier keeps their pay (`driverRetain`), that slice is
+ *    not reversed — `driverRetained` records it and ZIPP absorbs it.
  *
  *  - A **partial** refund (a missing item, a quality complaint) is charged
  *    to the merchant and the platform, pro rata. The driver is deliberately
@@ -73,7 +94,8 @@ export function allocateRefund(
   finance: IOrderFinance,
   amount: number,
   kind: RefundKind,
-  prior: PriorAllocation = ZERO_ALLOCATION
+  prior: PriorAllocation = ZERO_ALLOCATION,
+  driverRetain: DriverRetention = 0
 ): RefundAllocation {
   assertMoney(amount, 'reembolso');
 
@@ -90,7 +112,7 @@ export function allocateRefund(
   // realmente tiene.
   const remaining = {
     merchantPayout: Math.max(0, finance.businessPayout - prior.fromMerchantPayout),
-    driverPayout: Math.max(0, finance.driverPayout - prior.fromDriverPayout),
+    driverPayout: Math.max(0, finance.driverPayout - prior.fromDriverPayout - (prior.driverRetained ?? 0)),
     commission: Math.max(0, finance.merchantCommission - prior.fromCommission),
     serviceFee: Math.max(0, finance.customerServiceFee - prior.fromServiceFee),
     deliveryMargin: Math.max(0, finance.deliveryMargin - prior.fromDeliveryMargin),
@@ -106,9 +128,13 @@ export function allocateRefund(
   const deliveryMarginCap = Math.max(0, deliveryMarginSigned);
 
   if (isFull) {
+    const retained = driverRetain === 'all'
+      ? remaining.driverPayout
+      : Math.min(remaining.driverPayout, Math.max(0, Math.trunc(driverRetain)));
     return {
       fromMerchantPayout: remaining.merchantPayout,
-      fromDriverPayout: remaining.driverPayout,
+      fromDriverPayout: remaining.driverPayout - retained,
+      driverRetained: retained,
       fromCommission: remaining.commission,
       fromServiceFee: remaining.serviceFee,
       fromDeliveryMargin: deliveryMarginSigned,
@@ -144,6 +170,7 @@ export function allocateRefund(
     fromDeliveryMargin: 0,
     fromTax: 0,
     fromPlatform: 0,
+    driverRetained: 0,
   };
 
   if (pool === 0) return allocation;
@@ -208,7 +235,9 @@ export function netFinance(
   const nonNeg = (n: number) => Math.max(0, n);
   const customerTotal = nonNeg(finance.customerTotal - refundedTotal);
   const businessPayout = nonNeg(finance.businessPayout - prior.fromMerchantPayout);
-  const driverPayout = nonNeg(finance.driverPayout - prior.fromDriverPayout);
+  // Lo que el domiciliario conserva ya no es parte viva del pedido: se le paga
+  // aparte (lo asume ZIPP), así que tampoco entra en el efectivo por rendir.
+  const driverPayout = nonNeg(finance.driverPayout - prior.fromDriverPayout - (prior.driverRetained ?? 0));
   const merchantCommission = nonNeg(finance.merchantCommission - prior.fromCommission);
   const customerServiceFee = nonNeg(finance.customerServiceFee - prior.fromServiceFee);
   const deliveryMargin = finance.deliveryMargin - prior.fromDeliveryMargin;
@@ -224,6 +253,80 @@ export function netFinance(
     cashToRemit: customerTotal - businessPayout - driverPayout,
     platformGrossRevenue: merchantCommission + customerServiceFee + deliveryMargin,
   };
+}
+
+/**
+ * Cómo trata un reembolso el pago del domiciliario (M-013).
+ *
+ * Separa dos preguntas que antes se contestaban con la misma cuenta:
+ *  1. ¿Cuánto se le devuelve al cliente? — el reembolso.
+ *  2. ¿Cuánto cobra el domiciliario? — su remuneración por el trabajo hecho.
+ *
+ *  · **Pedido entregado** y reembolso total: el domiciliario completó la entrega.
+ *    Conserva TODO su pago —tarifa y propina—, sea cual sea la causa, y lo asume
+ *    ZIPP. Si la causa es suya (`DRIVER`) tampoco se le retira solo: el pago se
+ *    conserva y el caso queda en revisión con un humano.
+ *  · **Reembolso parcial**: nunca toca al domiciliario (ya era así).
+ *  · **Pedido no entregado** (reembolso a mitad de camino): sin cambios; las
+ *    cancelaciones tienen su propia regla (`driverCancellationPay`).
+ *
+ * El comercio no se carga con el pago del domiciliario: sería una regla comercial
+ * nueva que nadie ha decidido. Queda registrado quién lo asume (`costBearer`).
+ */
+export function driverRetentionFor(order: Pick<IOrder, 'status'>): DriverRetention {
+  return order.status === OrderStatus.DELIVERED ? 'all' : 0;
+}
+
+/** Lo que queda anotado en el `Refund` sobre el pago del domiciliario. */
+export function driverPayDescriptor(
+  allocation: RefundAllocation,
+  cause: RefundCause,
+  hadDriverPay: boolean
+): NonNullable<IRefund['driverPay']> {
+  const retained = allocation.driverRetained ?? 0;
+  if (!hadDriverPay) return { policy: 'none', retained: 0, costBearer: 'none' };
+  if (retained <= 0) {
+    return { policy: allocation.fromDriverPayout > 0 ? 'reversed' : 'none', retained: 0, costBearer: 'none' };
+  }
+  return {
+    policy: allocation.fromDriverPayout > 0 ? 'partial' : 'kept',
+    retained,
+    costBearer: 'platform',
+    // Posible responsabilidad del domiciliario: no se le retira automáticamente
+    // lo ya reconocido; un humano decide y queda constancia.
+    review: cause === RefundCause.DRIVER ? { status: 'pending' } : null,
+  };
+}
+
+/**
+ * Cuánto de su tarifa conserva el domiciliario si el pedido se cancela ANTES de
+ * entregarlo (M-013). Puro; la política vive en la configuración de precios:
+ *
+ *  · `driverCancelPayAssignedBps`: con domiciliario asignado y el pedido todavía
+ *    sin recoger.
+ *  · `driverCancelPayPickedUpBps`: ya recogido o en camino (hizo el viaje al local).
+ *
+ * Porcentaje sobre la tarifa de domicilio del domiciliario (la propina no cuenta:
+ * se da al entregar). No aplica si canceló el propio domiciliario, ni sin
+ * domiciliario. Ambos nacen en 0 —la regla actual (nada)— hasta que el negocio
+ * decida cifras.
+ */
+export function driverCancellationPay(
+  order: Pick<IOrder, 'driverId' | 'finance' | 'cancelledBy'>,
+  previousStatus: OrderStatus,
+  cfg: { driverCancelPayAssignedBps?: number; driverCancelPayPickedUpBps?: number }
+): { amount: number; tier: 'assigned' | 'picked_up'; bps: number } | null {
+  if (!order.driverId) return null;
+  if (order.cancelledBy === CancelledBy.DRIVER) return null;
+  const pickedUp = previousStatus === OrderStatus.PICKED_UP || previousStatus === OrderStatus.ON_WAY;
+  const tier = pickedUp ? 'picked_up' : 'assigned';
+  const bps = (pickedUp ? cfg.driverCancelPayPickedUpBps : cfg.driverCancelPayAssignedBps) ?? 0;
+  if (bps <= 0) return null;
+  const amount = Math.min(
+    order.finance?.driverDeliveryPayout ?? 0,
+    Math.floor(((order.finance?.driverDeliveryPayout ?? 0) * bps) / 10_000)
+  );
+  return amount > 0 ? { amount, tier, bps } : null;
 }
 
 export class RefundService {
@@ -250,6 +353,10 @@ export class RefundService {
     kind?: RefundKind;
     requestedBy?: string;
     idempotencyKey?: string;
+    /** De quién fue el problema (M-013). Sin indicar: no atribuible al domiciliario. */
+    cause?: RefundCause;
+    /** Solo cancelaciones: parte del pago del domiciliario que se conserva (ver `driverCancellationPay`). */
+    driverRetain?: number;
   }): Promise<IRefund> {
     if (params.idempotencyKey) {
       const existing = await Refund.findOne({ idempotencyKey: params.idempotencyKey });
@@ -278,6 +385,11 @@ export class RefundService {
       throw new AppError('Este pedido no tiene un snapshot financiero para reversar', 409);
     }
 
+    // M-001: la cancelación sin cobro ya deshizo el libro de este pedido.
+    if (await this.booksUnwoundByCancellation(order)) {
+      return this.returnLateCapture(order, { ...params, external: null });
+    }
+
     const alreadyRefunded = await this.refundedTotal(order._id);
     const refundable = finance.customerTotal - alreadyRefunded;
     if (refundable <= 0) {
@@ -298,7 +410,9 @@ export class RefundService {
       (amount >= refundable && alreadyRefunded === 0 ? RefundKind.FULL : RefundKind.PARTIAL);
 
     const prior = await this.allocatedSoFar(order._id);
-    const allocation = allocateRefund(finance, amount, kind, prior);
+    const cause = params.cause ?? RefundCause.UNSPECIFIED;
+    const driverRetain: DriverRetention = params.driverRetain ?? driverRetentionFor(order);
+    const allocation = allocateRefund(finance, amount, kind, prior, driverRetain);
 
     const payment = await Payment.findOne({
       orderId: order._id,
@@ -338,7 +452,10 @@ export class RefundService {
           fromDeliveryMargin: Math.max(0, allocation.fromDeliveryMargin),
           fromTax: allocation.fromTax,
           fromPlatform: allocation.fromPlatform,
+          driverRetained: allocation.driverRetained ?? 0,
         },
+        cause,
+        driverPay: driverPayDescriptor(allocation, cause, finance.driverPayout > 0),
         idempotencyKey: params.idempotencyKey,
         requestedBy: params.requestedBy ?? null,
       });
@@ -531,6 +648,7 @@ export class RefundService {
     orderId: string;
     amount?: number;
     reference: string;
+    cause?: RefundCause;
   }): Promise<IRefund> {
     return this.issue({
       orderId: params.orderId,
@@ -538,6 +656,7 @@ export class RefundService {
       reason: `Contracargo de la pasarela (${params.reference})`,
       kind: RefundKind.CHARGEBACK,
       idempotencyKey: `chargeback:${params.reference}`,
+      cause: params.cause ?? RefundCause.GATEWAY,
     });
   }
 
@@ -591,6 +710,7 @@ export class RefundService {
           order.kind === OrderKind.ERRAND && customerAmount >= finance.customerTotal
             ? finance.productSubtotal
             : 0,
+        driverRetained: allocation.driverRetained ?? 0,
       },
     });
 
@@ -602,6 +722,21 @@ export class RefundService {
       },
       reference
     );
+
+    // M-005: el costo de la pasarela también se mueve cuando se devuelve plata.
+    if (captured) {
+      await this.recordGatewayFeeAdjustment(order, customerAmount, kind === RefundKind.CHARGEBACK ? 'chargeback' : 'refund', reference);
+    }
+
+    // Lo que el domiciliario conserva es dinero que ZIPP le debe y va a pagar:
+    // si el pedido lo había retenido (cancelación con cobro, `hold`), vuelve a
+    // poder liquidarse. Solo su fila normal; nunca un arrastre.
+    if ((allocation.driverRetained ?? 0) > 0) {
+      await Payout.updateOne(
+        { orderId: order._id, beneficiary: PayoutBeneficiary.DRIVER, status: PayoutStatus.ACCRUED, isClawback: { $ne: true } },
+        { $set: { status: PayoutStatus.PAYABLE, becamePayableAt: new Date() } }
+      );
+    }
 
     // Acumulado, no solo este reembolso: un parcial que agota justo lo que
     // quedaba ("el resto") tiene que cerrar el pedido igual que uno total.
@@ -649,6 +784,163 @@ export class RefundService {
     }
   }
 
+  /**
+   * Ajusta el costo de la pasarela por un reembolso, una anulación o un contracargo
+   * (M-005). Dos movimientos, ambos con la tarifa vigente al momento de la
+   * operación y ambos sobre la comisión que el libro YA asentó al cobrar —no una
+   * recalculada con tarifas nuevas—:
+   *
+   *  · lo que Wompi devuelve de su comisión (`gatewayFeeRefundBps`), proporcional a
+   *    lo reembolsado y acotado a lo que no se haya devuelto antes;
+   *  · el costo de la operación (`gatewayRefundFixed` / `gatewayChargebackFixed`,
+   *    con IVA).
+   *
+   * Solo pedidos pagados por la pasarela (los que tienen su comisión asentada o
+   * un cobro en línea): un pedido en efectivo no pasa por Wompi. Con todo sin
+   * configurar no escribe nada: nada se inventa. Idempotente por referencia.
+   */
+  async recordGatewayFeeAdjustment(
+    order: IOrder,
+    refundedAmount: number,
+    operation: 'refund' | 'chargeback',
+    reference: string
+  ): Promise<void> {
+    if (order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY) return;
+    const cfg = await pricingConfigService.getCurrent();
+
+    const rows: Array<{ _id: { event: string; direction: LedgerDirection }; amount: number }> = await LedgerEntry.aggregate([
+      { $match: { orderId: order._id, account: LedgerAccount.PAYMENT_PROCESSING_EXPENSE } },
+      { $group: { _id: { event: '$event', direction: '$direction' }, amount: { $sum: '$amount' } } },
+    ]);
+    const sum = (event: LedgerEventType, direction: LedgerDirection) =>
+      rows.filter((r) => r._id.event === event && r._id.direction === direction).reduce((s, r) => s + r.amount, 0);
+    const originalFee = sum(LedgerEventType.PAYMENT_CAPTURED, LedgerDirection.DEBIT);
+    const alreadyReturned = sum(LedgerEventType.GATEWAY_FEE_ADJUSTED, LedgerDirection.CREDIT);
+
+    const payment = await Payment.findOne({ orderId: order._id, status: { $in: [PaymentStatus.PAID, PaymentStatus.REFUNDED] } })
+      .select('amount')
+      .lean();
+    if (!payment && originalFee === 0) return;
+
+    const returned = gatewayFeeReturned(cfg, originalFee, refundedAmount, payment?.amount ?? order.finance?.customerTotal ?? 0, alreadyReturned);
+    const operationCost = gatewayOperationFee(cfg, operation).total;
+    if (returned === 0 && operationCost === 0) return;
+
+    await ledgerService.recordGatewayFeeAdjustment({
+      orderId: order._id,
+      pricingConfigVersion: cfg.version,
+      reference: `gateway-fee:${reference}`,
+      currency: order.finance?.currency,
+      returned,
+      operationCost,
+    });
+  }
+
+  /**
+   * ¿La cancelación sin cobro ya deshizo el libro de este pedido?
+   *
+   * `onCancelled` revierte el reconocimiento contra la cuenta por cobrar con
+   * la referencia `cancel:<pedido>` y SIN fila `Refund` (no se devolvió dinero:
+   * no se había cobrado). `refundedTotal` y `allocatedSoFar` solo leen `Refund`,
+   * así que un reembolso posterior veía el pedido entero como reembolsable y
+   * revertía el libro otra vez (M-001: comisión negativa, comercio deudor).
+   * El asiento es la prueba: se mira el libro, no un estado que pudo cambiar.
+   */
+  private async booksUnwoundByCancellation(order: IOrder): Promise<boolean> {
+    if (order.status !== OrderStatus.CANCELLED) return false;
+    return Boolean(await LedgerEntry.exists({ orderId: order._id, reference: `cancel:${order._id}` }));
+  }
+
+  /**
+   * Devuelve un cobro que llegó DESPUÉS de cancelar sin cobro (`onCaptured`
+   * lo dejó PAID y retenido para revisión).
+   *
+   * Ese dinero nunca entró al libro (M-004) y el pedido ya se deshizo entero,
+   * así que devolverlo no reparte nada: es el mismo dinero saliendo por donde
+   * entró. Se devuelve completo —no hay «parte» de un pedido que ya no existe—
+   * y queda una fila `Refund` con reparto en cero para que se vea, se cuente
+   * una sola vez y bloquee el segundo intento.
+   */
+  private async returnLateCapture(
+    order: IOrder,
+    params: { orderId: string; amount?: number; reason: string; requestedBy?: string; idempotencyKey?: string; external: string | null }
+  ): Promise<IRefund> {
+    const payment = await Payment.findOne({
+      orderId: order._id,
+      status: PaymentStatus.PAID,
+      'metadata.requiresReview': true,
+    });
+    if (!payment) {
+      throw new AppError(
+        'Este pedido se canceló sin cobro y su contabilidad ya se deshizo: no hay nada que reembolsar.',
+        409,
+        'ORDER_ALREADY_UNWOUND'
+      );
+    }
+    if (await Refund.exists({ paymentId: payment._id, status: { $in: [RefundStatus.COMPLETED, RefundStatus.PENDING] } })) {
+      throw new AppError('Ese cobro tardío ya se devolvió o se está devolviendo.', 409, 'REFUND_IN_FLIGHT');
+    }
+    const amount = payment.amount;
+    if (params.amount !== undefined && params.amount !== amount) {
+      throw new AppError(
+        `Un cobro que llegó después de cancelar se devuelve completo: $${amount.toLocaleString('es-CO')}.`,
+        422,
+        'LATE_CAPTURE_FULL_ONLY'
+      );
+    }
+
+    let refund: IRefund;
+    try {
+      refund = await Refund.create({
+        orderId: order._id,
+        paymentId: payment._id,
+        kind: params.external ? RefundKind.EXTERNAL : RefundKind.FULL,
+        status: RefundStatus.PENDING,
+        amount,
+        currency: order.finance?.currency ?? 'COP',
+        reason: params.external
+          ? `${params.reason} (cobro tardío sobre pedido cancelado; externo, ref. ${params.external})`
+          : `${params.reason} (cobro tardío sobre pedido cancelado)`,
+        allocation: { ...ZERO_ALLOCATION },
+        idempotencyKey: params.idempotencyKey,
+        requestedBy: params.requestedBy ?? null,
+      });
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        throw new AppError('Ya hay un reembolso en curso para este pedido.', 409, 'REFUND_IN_FLIGHT');
+      }
+      throw error;
+    }
+
+    if (params.external) {
+      refund.transactionId = `external:${params.external}`;
+    } else if (payment.transactionId) {
+      try {
+        const intent = await getPaymentProvider().refund(payment.transactionId, amount);
+        refund.transactionId = intent.id;
+      } catch (error) {
+        refund.status = RefundStatus.FAILED;
+        refund.reason = `${refund.reason} — falló en la pasarela: ${(error as Error).message}`;
+        await refund.save();
+        void notifyAlertsChanged('refund_failed');
+        throw new AppError('El proveedor de pagos rechazó el reembolso. No se modificó ningún saldo.', 502);
+      }
+    }
+
+    refund.status = RefundStatus.COMPLETED;
+    refund.processedAt = new Date();
+    await refund.save();
+
+    // Sin libro que tocar: el pedido pasa a reembolsado y el cobro deja de
+    // pedir revisión, con la fecha en que se devolvió.
+    await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: PaymentStatus.REFUNDED } });
+    await Payment.updateOne(
+      { _id: payment._id },
+      { $set: { 'metadata.lateCaptureRefundedAt': new Date().toISOString(), 'metadata.lateCaptureRefundId': String(refund._id) } }
+    );
+    return refund;
+  }
+
   async refundedTotal(orderId: string | Types.ObjectId): Promise<number> {
     const [row] = await Refund.aggregate([
       { $match: { orderId: new Types.ObjectId(String(orderId)), status: RefundStatus.COMPLETED } },
@@ -671,6 +963,7 @@ export class RefundService {
           fromDeliveryMargin: { $sum: '$allocation.fromDeliveryMargin' },
           fromTax: { $sum: '$allocation.fromTax' },
           fromPlatform: { $sum: '$allocation.fromPlatform' },
+          driverRetained: { $sum: '$allocation.driverRetained' },
         },
       },
     ]);
@@ -683,6 +976,7 @@ export class RefundService {
       fromDeliveryMargin: row.fromDeliveryMargin ?? 0,
       fromTax: row.fromTax ?? 0,
       fromPlatform: row.fromPlatform ?? 0,
+      driverRetained: row.driverRetained ?? 0,
     };
   }
 
@@ -701,6 +995,7 @@ export class RefundService {
     reason: string;
     externalReference: string;
     requestedBy: string;
+    cause?: RefundCause;
   }): Promise<IRefund> {
     if (!params.externalReference?.trim()) {
       throw new AppError('La referencia externa es obligatoria', 422);
@@ -763,6 +1058,18 @@ export class RefundService {
     }
     const captured = true;
 
+    // M-001: igual que en `issue`.
+    if (await this.booksUnwoundByCancellation(order)) {
+      return this.returnLateCapture(order, {
+        orderId: params.orderId,
+        amount: params.amount,
+        reason: params.reason,
+        requestedBy: params.requestedBy,
+        idempotencyKey,
+        external: normalizedReference,
+      });
+    }
+
     const alreadyRefunded = await this.refundedTotal(order._id);
     const refundable = finance.customerTotal - alreadyRefunded;
     if (refundable <= 0) {
@@ -779,7 +1086,8 @@ export class RefundService {
 
     const kind = RefundKind.EXTERNAL;
     const prior = await this.allocatedSoFar(order._id);
-    const allocation = allocateRefund(finance, params.amount, kind, prior);
+    const cause = params.cause ?? RefundCause.UNSPECIFIED;
+    const allocation = allocateRefund(finance, params.amount, kind, prior, driverRetentionFor(order));
 
     let refund: IRefund;
     try {
@@ -799,7 +1107,10 @@ export class RefundService {
           fromDeliveryMargin: Math.max(0, allocation.fromDeliveryMargin),
           fromTax: allocation.fromTax,
           fromPlatform: allocation.fromPlatform,
+          driverRetained: allocation.driverRetained ?? 0,
         },
+        cause,
+        driverPay: driverPayDescriptor(allocation, cause, finance.driverPayout > 0),
         idempotencyKey,
         requestedBy: params.requestedBy,
       });
@@ -822,6 +1133,47 @@ export class RefundService {
     return refund;
   }
 
+  /**
+   * Cierra la revisión del pago de un domiciliario con posible responsabilidad
+   * (M-013). Atómica: solo pasa de `pending` a una decisión, una vez.
+   *
+   *  · `keep`: se confirma que conserva su pago.
+   *  · `escalate`: se manda a operaciones/legal para una medida que NO es un
+   *    descuento automático. ZIPP no le arrastra deuda al domiciliario por una
+   *    tarifa ya ganada (decisión de negocio vigente); cualquier descuento sería
+   *    una decisión humana fuera de este flujo, y aquí queda la constancia.
+   *
+   * Esta decisión no mueve dinero.
+   */
+  async resolveDriverPayReview(
+    refundId: string,
+    staffId: string,
+    decision: 'keep' | 'escalate',
+    note: string
+  ): Promise<IRefund> {
+    const text = note.trim();
+    if (text.length < 10) throw new AppError('Explica la decisión (mínimo 10 caracteres): queda en la auditoría.', 422);
+    if (!Types.ObjectId.isValid(refundId)) throw new AppError('Reembolso no encontrado', 404);
+
+    const updated = await Refund.findOneAndUpdate(
+      { _id: refundId, 'driverPay.review.status': 'pending' },
+      {
+        $set: {
+          'driverPay.review.status': decision === 'keep' ? 'kept' : 'escalated',
+          'driverPay.review.decidedBy': new Types.ObjectId(staffId),
+          'driverPay.review.decidedAt': new Date(),
+          'driverPay.review.note': text.slice(0, 500),
+        },
+      },
+      { new: true }
+    );
+    if (updated) return updated;
+    if (await Refund.exists({ _id: refundId, 'driverPay.review.status': { $in: ['kept', 'escalated'] } })) {
+      throw new AppError('Esa revisión ya fue resuelta.', 409);
+    }
+    throw new AppError('Este reembolso no tiene un pago de domiciliario en revisión.', 404);
+  }
+
   async listForOrder(orderId: string) {
     return Refund.find({ orderId }).sort({ createdAt: -1 });
   }
@@ -838,12 +1190,15 @@ export class RefundService {
     status?: RefundStatus;
     kind?: RefundKind;
     attention?: boolean;
+    /** Solo los que dejaron un pago del domiciliario en revisión. */
+    driverReview?: 'pending';
     page?: number;
     limit?: number;
   }) {
     const filter: Record<string, unknown> = {};
     if (params.status) filter.status = params.status;
     if (params.kind) filter.kind = params.kind;
+    if (params.driverReview) filter['driverPay.review.status'] = 'pending';
     if (params.attention) {
       filter.$or = [
         { status: RefundStatus.FAILED },
@@ -877,6 +1232,8 @@ export class RefundService {
       reason: r.reason,
       transactionId: r.transactionId ?? null,
       allocation: r.allocation,
+      cause: r.cause ?? 'unspecified',
+      driverPay: r.driverPay ?? null,
       processedAt: r.processedAt ?? null,
       createdAt: r.createdAt,
     }));

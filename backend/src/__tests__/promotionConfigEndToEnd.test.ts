@@ -583,7 +583,9 @@ describe('Zipp Pro: la venta sigue restringida hasta que ZIPP la abra', () => {
       currentPeriodEnd: new Date(Date.now() + 15 * 24 * 3600_000),
       autoRenew: true,
     });
-    const product = await makeProduct(ctx.business._id, { price: PRO_PLAN.benefits.freeDelivery.minSubtotal + 1000 });
+    // Con margen de sobra: la guarda de M-012 quita el envío gratis de un pedido
+    // que ZIPP pagaría a pérdida, y este caso prueba otra cosa (la venta cerrada).
+    const product = await makeProduct(ctx.business._id, { price: PRO_PLAN.benefits.freeDelivery.minSubtotal * 3 });
 
     const quote = await quoteFor({ ...ctx, product }, 1);
     expect(quote.proDeliveryDiscount).toBeGreaterThan(0);

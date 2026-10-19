@@ -52,6 +52,28 @@ export interface IOrderFinance {
   proDeliveryDiscount?: number;
   proServiceFeeDiscount?: number;
   /**
+   * Beneficios de Zipp Pro que la guarda de margen (M-012) quitó de ESTE pedido
+   * porque ZIPP lo habría pagado a pérdida: `freeDelivery`, `serviceFeeWaived`.
+   * Vacío si el trato se aplicó completo. Queda con el pedido para poder explicar
+   * meses después por qué un miembro Pro pagó envío o tarifa de servicio.
+   */
+  proBenefitSkipped?: string[];
+  /**
+   * De dónde salió el impuesto del pedido (M-014): `definitive` (reglas
+   * validadas por concepto, con su detalle en `taxBreakdown`), `legacy` (tasa
+   * global sin validar) o `provisional` (reglas encendidas pero faltaba una
+   * vigente). Pedidos anteriores: ausente = `legacy`.
+   */
+  taxStatus?: 'legacy' | 'definitive' | 'provisional';
+  taxBreakdown?: Array<{
+    concept: 'products' | 'delivery' | 'service_fee';
+    ruleId: string;
+    rateBps: number;
+    base: 'net_of_discounts' | 'gross';
+    baseAmount: number;
+    amount: number;
+  }>;
+  /**
    * El domicilio que el comercio regaló al alcanzar su umbral. Ya está DENTRO
    * de `merchantFundedDiscount` (no se suma otra vez): se guarda aparte para
    * poder decir cuánto le cuesta su envío gratis, que de otro modo queda
@@ -359,6 +381,13 @@ export interface IOrder extends Document {
   pickedUpAt?: Date;
   deliveredAt?: Date;
   cancelledAt?: Date;
+  /**
+   * Lo que el domiciliario conservó al cancelarse el pedido antes de entregarlo
+   * (M-013): un porcentaje de su tarifa de domicilio según hasta dónde había
+   * llegado. La asume ZIPP. Ausente si no hubo (porcentaje en 0, pedido sin
+   * domiciliario, o la cancelación fue del propio domiciliario).
+   */
+  driverCancelPay?: { amount: number; tier: 'assigned' | 'picked_up'; bps: number; previousStatus: string } | null;
   /** Texto libre. Se conserva para los pedidos anteriores al catálogo. */
   cancellationReason?: string;
   /** Motivo del catálogo cerrado. Es lo que se puede contar y agrupar. */
@@ -526,6 +555,24 @@ const orderFinanceSchema = new Schema<IOrderFinance>(
     platformFundedDiscount: intMoney,
     proDeliveryDiscount: intMoney,
     proServiceFeeDiscount: intMoney,
+    proBenefitSkipped: { type: [String], default: [] },
+    taxStatus: { type: String, enum: ['legacy', 'definitive', 'provisional'], default: 'legacy' },
+    taxBreakdown: {
+      type: [
+        new Schema(
+          {
+            concept: { type: String, enum: ['products', 'delivery', 'service_fee'], required: true },
+            ruleId: { type: String, required: true },
+            rateBps: { type: Number, required: true, min: 0, max: 10_000 },
+            base: { type: String, enum: ['net_of_discounts', 'gross'], required: true },
+            baseAmount: intMoney,
+            amount: intMoney,
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     freeDeliveryDiscount: intMoney,
     autoPromotionDiscount: intMoney,
     taxPayable: intMoney,
@@ -636,6 +683,20 @@ const orderSchema = new Schema<IOrder>(
     pickedUpAt: Date,
     deliveredAt: Date,
     cancelledAt: Date,
+    driverCancelPay: {
+      type: new Schema(
+        {
+          amount: { type: Number, required: true, min: 0, validate: Number.isInteger },
+          tier: { type: String, enum: ['assigned', 'picked_up'], required: true },
+          bps: { type: Number, required: true, min: 0, max: 10_000 },
+          previousStatus: { type: String, required: true },
+        },
+        { _id: false }
+      ),
+      // Sin valor por defecto a propósito: ausente = no hubo compensación. Con `null` el campo
+      // viajaba en cada respuesta del pedido a clientes y comercios (es dato interno de ZIPP).
+      default: undefined,
+    },
     cancellationReason: String,
     cancellationCode: { type: String, enum: Object.values(CancellationReason) },
     cancelledBy: { type: String, enum: Object.values(CancelledBy) },

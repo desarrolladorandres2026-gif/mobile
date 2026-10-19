@@ -18,6 +18,9 @@ import { adInvoiceService, type AdInvoiceView } from '../services/adInvoice.serv
 import { periodRange, isReportPeriod, customRange, type DateRange } from '../utils/period';
 import { PayoutBeneficiary, LedgerAccount, CashIncidentResolution, SettlementPaymentStatus, PaymentStatus } from '../types';
 import { AuditAction, AuditSeverity, logAudit } from '../security';
+import { taxRuleService } from '../services/taxRule.service';
+import { gatewayFeeReadiness } from '../utils/gatewayFee';
+import type { TaxConcept, TaxTreatment } from '../models/TaxRule';
 
 export class FinanceController {
   // ── Pricing configuration ──
@@ -26,6 +29,99 @@ export class FinanceController {
     try {
       const config = await pricingConfigService.getCurrent();
       sendResponse(res, 200, 'Configuración de precios', config);
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Qué falta para dar las cifras financieras por definitivas (M-005, M-006, M-014):
+   * las tarifas de Wompi y las reglas tributarias por concepto. Son los datos que
+   * el responsable contable y tributario de ZIPP debe validar antes de habilitar
+   * facturación definitiva. No inventa ninguno: enseña lo que falta.
+   */
+  async readiness(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const config = await pricingConfigService.getCurrent();
+      sendResponse(res, 200, 'Pendientes de configuración financiera', {
+        gateway: gatewayFeeReadiness(config as never),
+        tax: await taxRuleService.readiness(config),
+        configVersion: config.version,
+      });
+    } catch (error) { next(error); }
+  }
+
+  async listTaxRules(req: Request, res: Response, next: NextFunction) {
+    try {
+      sendResponse(res, 200, 'Reglas tributarias', await taxRuleService.list({
+        concept: query(req, 'concept') as TaxConcept | undefined,
+        status: query(req, 'status'),
+      }));
+    } catch (error) { next(error); }
+  }
+
+  async createTaxRule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const rule = await taxRuleService.createDraft(req.body, req.user!._id.toString());
+      void logAudit(req, {
+        action: AuditAction.TAX_RULE_DRAFTED,
+        entity: 'tax_rule',
+        entityId: String(rule._id),
+        severity: AuditSeverity.MEDIUM,
+        description: `Borrador de regla tributaria: ${rule.concept}`,
+        metadata: { concept: rule.concept, treatment: rule.treatment, rateBps: rule.rateBps, validFrom: rule.validFrom },
+      });
+      sendResponse(res, 201, 'Borrador creado', rule);
+    } catch (error) { next(error); }
+  }
+
+  async updateTaxRule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const rule = await taxRuleService.updateDraft(param(req, 'id'), req.body, req.user!._id.toString());
+      void logAudit(req, {
+        action: AuditAction.TAX_RULE_DRAFTED,
+        entity: 'tax_rule',
+        entityId: String(rule._id),
+        severity: AuditSeverity.MEDIUM,
+        description: `Borrador de regla tributaria editado: ${rule.concept}`,
+        metadata: { changes: Object.keys(req.body) },
+      });
+      sendResponse(res, 200, 'Borrador actualizado', rule);
+    } catch (error) { next(error); }
+  }
+
+  async removeTaxRule(req: Request, res: Response, next: NextFunction) {
+    try {
+      await taxRuleService.removeDraft(param(req, 'id'));
+      void logAudit(req, {
+        action: AuditAction.TAX_RULE_DRAFTED,
+        entity: 'tax_rule',
+        entityId: param(req, 'id'),
+        severity: AuditSeverity.LOW,
+        description: 'Borrador de regla tributaria eliminado',
+      });
+      sendResponse(res, 200, 'Borrador eliminado');
+    } catch (error) { next(error); }
+  }
+
+  async validateTaxRule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const rule = await taxRuleService.validate(param(req, 'id'), req.user!._id.toString(), req.body);
+      void logAudit(req, {
+        action: AuditAction.TAX_RULE_VALIDATED,
+        entity: 'tax_rule',
+        entityId: String(rule._id),
+        severity: AuditSeverity.HIGH,
+        description: `Regla tributaria validada: ${rule.concept} (${rule.treatment}${rule.rateBps != null ? `, ${rule.rateBps} pb` : ''})`,
+        metadata: {
+          concept: rule.concept,
+          treatment: rule.treatment as TaxTreatment,
+          rateBps: rule.rateBps,
+          base: rule.base,
+          priceIncludesTax: rule.priceIncludesTax,
+          validFrom: rule.validFrom,
+          validationRef: rule.validationRef,
+        },
+      });
+      sendResponse(res, 200, 'Regla validada', rule);
     } catch (error) { next(error); }
   }
 

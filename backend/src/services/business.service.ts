@@ -141,6 +141,8 @@ export interface BusinessTermsInput {
   isFeatured?: boolean;
   isApproved?: boolean;
   isActive?: boolean;
+  /** Motivo de la suspensión o de su levantamiento cuando se manda `isActive` (M-026). */
+  statusReason?: string;
   minOrder?: number;
 }
 
@@ -1310,14 +1312,21 @@ export class BusinessService {
       business.commissionRateBps = terms.commissionRateBps;
     }
     if (terms.isFeatured !== undefined) business.isFeatured = terms.isFeatured;
-    if (terms.isActive !== undefined) {
-      business.isActive = terms.isActive;
-      // Una decisión de administración manda sobre el cierre temporal del dueño.
-      business.reopenAt = null;
-    }
     if (terms.minOrder !== undefined) business.minOrder = terms.minOrder;
 
     await business.save();
+
+    // M-026: `isActive` es el interruptor «abierto/cerrado» del DUEÑO. Si el admin
+    // lo tocaba por aquí, el dueño lo deshacía solo con «abrir». Desactivar desde
+    // administración es suspender (y reactivar, levantar la suspensión): el único
+    // estado que el dueño no puede revertir, con motivo y a nombre de quien decide.
+    // El interruptor del dueño no se toca: la suspensión prevalece sobre él.
+    if (terms.isActive !== undefined && req) {
+      const { adminService } = await import('./admin.service');
+      await adminService.setBusinessSuspension(id, !terms.isActive, terms.statusReason, req);
+    } else if (terms.isActive !== undefined) {
+      throw new AppError('Cambiar el estado de un negocio requiere una solicitud con administrador identificado.', 400);
+    }
 
     if (req && terms.commissionRateBps !== undefined && terms.commissionRateBps !== previousCommissionRateBps) {
       await logAudit(req, {
@@ -1351,6 +1360,12 @@ export class BusinessService {
           archiveReason: reason.trim(),
           isActive: false,
         },
+        $push: {
+          adminStatusLog: {
+            $each: [{ action: 'archived', at: new Date(), by: adminId, reason: reason.trim() }],
+            $slice: -100,
+          },
+        },
       },
       { new: true }
     );
@@ -1373,10 +1388,31 @@ export class BusinessService {
     return business;
   }
 
-  async restore(id: string, req?: Request): Promise<IBusiness> {
+  /**
+   * Reactivar un negocio archivado (desactivación definitiva): procedimiento
+   * administrativo con motivo y a nombre de quien lo autoriza (M-026). Queda
+   * CERRADO (`isActive: false`): archivar lo cerró y el dueño decide cuándo abrir,
+   * salvo que además esté suspendido, caso en que sigue sin poder recibir pedidos.
+   */
+  async restore(id: string, req?: Request, restore?: { adminId: string; reason: string }): Promise<IBusiness> {
+    const reason = restore?.reason?.trim();
+    if (!reason || reason.length < 5) {
+      throw new AppError('El motivo de la reactivación es obligatorio (mínimo 5 caracteres)', 400);
+    }
     const business = await Business.findOneAndUpdate(
       { _id: id, isArchived: true },
-      { $set: { isArchived: false, archivedAt: null, archivedBy: null, archiveReason: null } },
+      {
+        $set: {
+          isArchived: false, archivedAt: null, archivedBy: null, archiveReason: null,
+          restoredAt: new Date(), restoredBy: restore?.adminId ?? null, restoreReason: reason,
+        },
+        $push: {
+          adminStatusLog: {
+            $each: [{ action: 'restored', at: new Date(), by: restore?.adminId ?? null, reason }],
+            $slice: -100,
+          },
+        },
+      },
       { new: true }
     );
     if (!business) {
@@ -1390,7 +1426,8 @@ export class BusinessService {
         entity: 'business',
         entityId: id,
         severity: AuditSeverity.MEDIUM,
-        description: `Negocio ${business.name} restaurado del archivo`,
+        description: `Negocio ${business.name} restaurado del archivo: ${reason}`,
+        metadata: { reason },
       });
     }
 
@@ -1620,6 +1657,15 @@ export class BusinessService {
       }
     }
 
+    // M-026: un negocio suspendido por ZIPP no se abre desde el PUT del dueño.
+    if (!isAdmin && business.isSuspended && (data as { isActive?: boolean }).isActive === true) {
+      throw new AppError(
+        'Tu negocio está suspendido por ZIPP: no puedes abrirlo hasta que soporte levante la suspensión.',
+        403,
+        'BUSINESS_SUSPENDED'
+      );
+    }
+
     const payload = { ...data } as Record<string, unknown>;
     for (const forbidden of [
       'commissionRate',
@@ -1682,6 +1728,18 @@ export class BusinessService {
     if (business.isArchived) {
       throw new AppError('Negocio archivado: contacta a soporte para reactivarlo', 403);
     }
+    // M-026: cierre voluntario, suspensión administrativa y desactivación
+    // definitiva son tres cosas distintas. El dueño abre y cierra su local —eso es
+    // `isActive`—, pero una suspensión de ZIPP prevalece sobre su interruptor: no la
+    // levanta abriendo, ni siquiera un administrador por este camino (se levanta
+    // con su propio procedimiento, que pide motivo).
+    if (isActive && business.isSuspended) {
+      throw new AppError(
+        'Este negocio está suspendido por ZIPP: no se puede abrir hasta que se levante la suspensión.',
+        403,
+        'BUSINESS_SUSPENDED'
+      );
+    }
     business.isActive = isActive;
     business.reopenAt = !isActive && closeMinutes ? new Date(Date.now() + closeMinutes * 60_000) : null;
     await business.save();
@@ -1691,12 +1749,13 @@ export class BusinessService {
   /**
    * Reabre los negocios cuyo cierre temporal venció. Un solo `updateMany`
    * atómico: no hay lectura previa que otro proceso pueda invalidar. El
-   * archivado no se reabre solo, y la suspensión de ZIPP sigue frenando los
-   * pedidos aunque `isActive` vuelva a `true`.
+   * archivado y el suspendido por ZIPP no se reabren solos (M-026): la suspensión
+   * prevalece sobre el interruptor del dueño, y al levantarla el barrido siguiente
+   * reabre lo que ya venció.
    */
   async reopenDue(now = new Date()): Promise<number> {
     const res = await Business.updateMany(
-      { isActive: false, isArchived: { $ne: true }, reopenAt: { $lte: now } },
+      { isActive: false, isArchived: { $ne: true }, isSuspended: { $ne: true }, reopenAt: { $lte: now } },
       { $set: { isActive: true, reopenAt: null } }
     );
     return res.modifiedCount;

@@ -37,6 +37,13 @@ export interface IAdInvoice extends Document {
 
   /** Importe en pesos, derivado de lo de arriba. */
   amount: number;
+  /**
+   * CPC: clics cobrables con fila en `AdClick` al cerrar. Debe coincidir con
+   * `clicks`; si no, `evidenceMismatch` lo marca para revisión en vez de
+   * esconderlo. Nulo en CPM y precio cerrado.
+   */
+  verifiedClicks?: number | null;
+  evidenceMismatch?: boolean;
   currency: string;
 
   periodStart: Date;
@@ -52,6 +59,22 @@ export interface IAdInvoice extends Document {
   settledAgainstPayout: boolean;
   settledAt?: Date | null;
 
+  /**
+   * Lo que dicen las reglas tributarias de la publicidad (M-014) en el momento de
+   * facturar. Es INFORMATIVO: `amount` no cambia. `pending` = no había regla
+   * validada y vigente, y no se calculó ningún impuesto ni se presenta como definitivo.
+   * Con regla, y como hoy este cobro no tiene dónde sumar el impuesto, la regla
+   * siempre es «incluido en el precio»: `taxIncluded` es la parte de `amount` que
+   * es impuesto.
+   */
+  taxAssessment?: {
+    status: 'definitive' | 'pending';
+    ruleId?: string | null;
+    treatment?: string | null;
+    rateBps?: number | null;
+    taxIncluded: number;
+    assessedAt: Date;
+  } | null;
   /** Cobro por fuera (`settledAgainstPayout: false`): con qué se pagó y quién lo registró. */
   collectionReference?: string | null;
   collectionReceiptUrl?: string | null;
@@ -81,6 +104,8 @@ const adInvoiceSchema = new Schema<IAdInvoice>(
       min: 0,
       validate: { validator: Number.isInteger, message: 'El importe debe ser un entero en COP' },
     },
+    verifiedClicks: { type: Number, default: null },
+    evidenceMismatch: { type: Boolean, default: false },
     currency: { type: String, default: 'COP' },
 
     periodStart: { type: Date, required: true },
@@ -89,6 +114,20 @@ const adInvoiceSchema = new Schema<IAdInvoice>(
     settledAgainstPayout: { type: Boolean, default: false },
     settledAt: { type: Date, default: null },
 
+    taxAssessment: {
+      type: new Schema(
+        {
+          status: { type: String, enum: ['definitive', 'pending'], required: true },
+          ruleId: { type: String, default: null },
+          treatment: { type: String, default: null },
+          rateBps: { type: Number, default: null },
+          taxIncluded: { type: Number, default: 0, min: 0 },
+          assessedAt: { type: Date, required: true },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     collectionReference: { type: String, default: null, maxlength: 120 },
     collectionReceiptUrl: { type: String, default: null, maxlength: 500 },
     collectedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },

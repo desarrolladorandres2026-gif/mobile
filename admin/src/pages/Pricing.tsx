@@ -41,6 +41,28 @@ interface PricingConfig {
  gatewayFeeVatBase?: 'total' | 'fixed';
  gatewayFeeRefundBps?: number | null;
  gatewayFeeVatBps: number;
+ gatewayRefundFixed: number;
+ gatewayChargebackFixed: number;
+ gatewayContractRef: string;
+ driverCancelPayAssignedBps: number;
+ driverCancelPayPickedUpBps: number;
+ taxRulesEnabled: boolean;
+ // Publicidad por autoservicio: todo apagado/0 = no se compra ni se cobra.
+ adSelfServiceEnabled: boolean;
+ adBillingEnabled: boolean;
+ adCpcEnabled: boolean;
+ adCpcMinRate: number;
+ adCpcMaxRate: number;
+ adCpmEnabled: boolean;
+ adMinBudget: number;
+ adMaxBudget: number;
+ adMinDurationDays: number;
+ adMaxDurationDays: number;
+ adPlacements: Array<'splash' | 'explore'>;
+ adClickDedupeWindowMinutes: number;
+ adClickImpressionWindowMinutes: number;
+ adMaxBillableClicksPerIpPerDay: number;
+ adAutoRenewEnabled: boolean;
  changeReason: string;
  updatedAt: string;
 }
@@ -55,6 +77,17 @@ interface AuditEntry {
  changes: Record<string, { before: unknown; after: unknown }>;
  createdAt: string;
 }
+
+/** Lo que falta para dar por buenas las tarifas de Wompi (GET /finance/config/readiness). */
+interface GatewayReadiness {
+ verified: boolean;
+ contractRef: string;
+ methodsWithoutTariff: string[];
+ toConfirm: Array<{ code: string; label: string }>;
+ complete: boolean;
+}
+
+const METODO_LABEL: Record<string, string> = { card: 'Tarjeta', pse: 'PSE', nequi: 'Nequi', other: 'Otros' };
 
 const CATEGORIAS = ['restaurant', 'fast_food', 'pharmacy', 'cafe', 'supermarket'] as const;
 
@@ -79,6 +112,7 @@ export default function Pricing() {
  const [error, setError] = useState('');
  const [ok, setOk] = useState('');
  const [sinPermiso, setSinPermiso] = useState(false);
+ const [pasarela, setPasarela] = useState<GatewayReadiness | null>(null);
 
  const cargar = async () => {
  try {
@@ -87,6 +121,8 @@ export default function Pricing() {
  api.get('/finance/config'),
  api.get('/finance/config/audit?limit=25'),
  ]);
+ // Los pendientes no bloquean la pantalla: si fallan, solo no se muestran.
+ api.get('/finance/config/readiness').then((r) => setPasarela(r.data.data.gateway)).catch(() => setPasarela(null));
  setConfig(resConfig.data.data);
  setBorrador({});
  setAudit(resAudit.data.data);
@@ -195,6 +231,17 @@ export default function Pricing() {
  </div>
  );
 
+ const ctrlTexto = (campo: keyof PricingConfig, placeholder: string) => (
+ <input
+ type="text"
+ maxLength={200}
+ value={valor<string>(campo) ?? ''}
+ placeholder={placeholder}
+ onChange={(e) => set(campo as string, e.target.value)}
+ className={`${inputBase} px-2 font-sans`}
+ />
+ );
+
  /** Interruptor sí/no para reglas que activan o apagan un comportamiento entero. */
  const ctrlToggle = (campo: keyof PricingConfig) => (
  <select
@@ -234,6 +281,23 @@ export default function Pricing() {
  <option value="10000">Reembolsable</option>
  {actual != null && actual !== 0 && actual !== 10000 && <option value={String(actual)}>Parcial ({actual / 100}%)</option>}
  </select>
+ );
+ };
+
+ /** Superficies donde un comercio puede comprar: ninguna marcada = no se vende ninguna. */
+ const ctrlPlacements = () => {
+ const actuales = valor<string[]>('adPlacements') ?? [];
+ const alternar = (p: string) =>
+ set('adPlacements', actuales.includes(p) ? actuales.filter((x) => x !== p) : [...actuales, p]);
+ return (
+ <div className="flex flex-wrap gap-3 text-xs font-semibold text-[var(--color-text-main)]">
+ {[['splash', 'Pantalla de carga (al abrir la app)'], ['explore', 'Explorar (feed de descubrimiento)']].map(([clave, etiqueta]) => (
+ <label key={clave} className="flex items-center gap-1.5 cursor-pointer">
+ <input type="checkbox" checked={actuales.includes(clave)} onChange={() => alternar(clave)} className="accent-[var(--color-primary)]" />
+ {etiqueta}
+ </label>
+ ))}
+ </div>
  );
  };
 
@@ -384,7 +448,13 @@ export default function Pricing() {
  { etiqueta: 'Radio Máximo de Cobertura', control: ctrlEntero('maxRadiusMeters', 'm'), nota: 'Fuera de cobertura', ayuda: 'Distancia desde el negocio a partir de la cual la dirección queda "fuera de cobertura".' },
  { etiqueta: 'Paso de Redondeo', control: ctrlMoneda('deliveryRoundingStep'), ayuda: 'El domicilio final siempre cae en un múltiplo de este valor.' },
  { etiqueta: 'Propina Máxima', control: ctrlBps('maxTipBps'), nota: 'Tope sobre el subtotal de productos', ayuda: 'Tope sobre el subtotal de productos. El cliente no puede escribir una propina mayor.' },
- { etiqueta: 'Impuesto Aplicado', control: ctrlBps('taxBps'), nota: 'Sobre subtotal + domicilio + fee', ayuda: 'Se suma sobre subtotal + domicilio + fee de servicio, ya con descuentos aplicados.' },
+ { etiqueta: 'Impuesto: Tasa Global', control: ctrlBps('taxBps'), nota: 'Sin validar. Se usa mientras las reglas por concepto estén apagadas', ayuda: 'La tasa de siempre: una sola sobre subtotal + domicilio + fee de servicio, ya con descuentos. No distingue conceptos ni está respaldada por contabilidad.' },
+ { etiqueta: 'Impuesto: Reglas por Concepto', control: ctrlToggle('taxRulesEnabled'), nota: 'Solo se enciende con productos, domicilio y tarifa de servicio validados (ver Impuestos)', ayuda: 'Calcula el impuesto con la tarifa, la base y la vigencia que el responsable contable validó para cada concepto. El servidor rechaza encenderlo si falta alguna regla.' },
+ ]))}
+
+ {seccion('Domiciliario: Cancelaciones antes de Entregar', 'Qué parte de su tarifa de domicilio conserva el domiciliario si el pedido se cancela cuando ya iba en camino. La asume ZIPP, no cambia lo que se le devuelve al cliente y no aplica si cancela el propio domiciliario. En 0 = no conserva nada (la regla de siempre).', tablaPares([
+ { etiqueta: 'Asignado, sin recoger', control: ctrlBps('driverCancelPayAssignedBps'), nota: 'Del pedido con domiciliario asignado todavía sin recoger', ayuda: 'Porcentaje de la tarifa de domicilio del domiciliario que conserva si se cancela antes de recoger.' },
+ { etiqueta: 'Recogido o en camino', control: ctrlBps('driverCancelPayPickedUpBps'), nota: 'Ya hizo el viaje al local', ayuda: 'Porcentaje de su tarifa de domicilio que conserva si se cancela con el pedido ya recogido o en camino.' },
  ]))}
 
  {seccion('Promociones: Subsidio y Presupuesto', 'Techos que protegen el margen de la plataforma frente a cupones y campañas financiadas por ZIPP.', tablaPares([
@@ -409,7 +479,46 @@ export default function Pricing() {
  { etiqueta: 'Otros: Fijo', control: ctrlMoneda('gatewayOtherFixed') },
  { etiqueta: 'IVA sobre la Comisión', control: ctrlBps('gatewayFeeVatBps'), nota: 'Solo si el contrato lo cobra aparte', ayuda: 'El IVA que Wompi le suma a su propia comisión. Solo aplica si tu contrato lo cobra aparte.' },
  { etiqueta: 'Base del IVA', control: ctrlVatBase(), nota: 'Confirmar con el contrato', ayuda: 'Sobre qué se calcula el IVA: porcentaje + fijo (por defecto) o solo la tarifa fija.' },
- { etiqueta: 'Comisión al Reembolsar', control: ctrlRefundPolicy(), nota: 'Por ahora solo informativo', ayuda: 'Si Wompi devuelve su comisión al reembolsar. Sin definir no asume nada; por ahora solo se muestra en el detalle del pedido y no altera el libro.' },
+ { etiqueta: 'Comisión al Reembolsar', control: ctrlRefundPolicy(), nota: 'Qué parte de su comisión devuelve Wompi', ayuda: 'Si Wompi devuelve su comisión al reembolsar. Sin definir no se asume nada. Definida, baja el gasto de pasarela del pedido en proporción a lo reembolsado.' },
+ { etiqueta: 'Costo por Reembolso o Anulación', control: ctrlMoneda('gatewayRefundFixed'), nota: 'Fijo, antes de IVA. 0 = sin costo', ayuda: 'Lo que Wompi cobra por cada reembolso o anulación. Se asienta como gasto de pasarela, con el IVA de arriba.' },
+ { etiqueta: 'Costo por Contracargo', control: ctrlMoneda('gatewayChargebackFixed'), nota: 'Fijo, antes de IVA. 0 = sin costo', ayuda: 'Lo que Wompi cobra por cada contracargo. Se asienta como gasto de pasarela, con el IVA de arriba.' },
+ { etiqueta: 'Contrato que lo respalda', control: ctrlTexto('gatewayContractRef', 'Contrato, anexo y fecha'), nota: 'Vacío = tarifas sin verificar', ayuda: 'Escribe aquí el documento que respalda estas tarifas (contrato, anexo de tarifas, fecha). Es tu atestación: ZIPP no verifica nada por sí solo. Mientras esté vacío, las comisiones se muestran como estimación provisional.' },
+ ]))}
+
+ {pasarela && (
+ <div className="text-xs space-y-1.5 text-[var(--color-text-main)]">
+ <p className="font-semibold">
+ {pasarela.verified
+ ? `Tarifas respaldadas por: ${pasarela.contractRef}`
+ : 'Tarifas sin verificar: ningún documento las respalda. Las cifras de comisión son una estimación provisional.'}
+ </p>
+ {pasarela.methodsWithoutTariff.length > 0 && (
+ <p>Sin tarifa configurada (la comisión sale en 0): {pasarela.methodsWithoutTariff.map((m) => METODO_LABEL[m] ?? m).join(', ')}.</p>
+ )}
+ {pasarela.toConfirm.length > 0 && (
+ <ul className="list-disc pl-5 text-[var(--color-text-secondary)]">
+ {pasarela.toConfirm.map((c) => <li key={c.code}>{c.label}</li>)}
+ </ul>
+ )}
+ </div>
+ )}
+
+ {seccion('Publicidad de Comercios', 'Lo que un comercio puede comprar por su cuenta. Los rangos de lanzamiento (CPC $100–$1.000, tope $10.000–$500.000, 1–30 días) se pueden cambiar aquí sin tocar código; los interruptores nacen apagados. Mientras falte la tarifa, el tope o la duración, o estén apagados, el comercio no puede comprar y una campaña no se aprueba ni cobra. Cada clic queda registrado con su veredicto; los repetidos o sospechosos se guardan sin cobro.', tablaPares([
+ { etiqueta: 'Compra por Autoservicio', control: ctrlToggle('adSelfServiceEnabled'), nota: 'Apagado: el comercio no puede comprar', ayuda: 'Con esto apagado, el panel del comercio explica que la publicidad todavía no está disponible y el servidor rechaza la compra.' },
+ { etiqueta: 'Facturación Activa', control: ctrlToggle('adBillingEnabled'), nota: 'Apagado: ninguna campaña de comercio se aprueba, se sirve ni cobra', ayuda: 'Interruptor general de cobro. Apagarlo con campañas en curso las saca de la app y deja de contar clics cobrables.' },
+ { etiqueta: 'Cobro por Clic (CPC)', control: ctrlToggle('adCpcEnabled'), nota: 'Primera modalidad disponible' },
+ { etiqueta: 'Cobro por Mil (CPM)', control: <span className="text-xs text-[var(--color-text-secondary)]">No disponible todavía</span>, nota: 'Pendiente de definir sus reglas comerciales', ayuda: 'La infraestructura está preparada; se habilita cuando se definan tarifa, verificación de impresiones y reglas antifraude.' },
+ { etiqueta: 'CPC Mínimo', control: ctrlMoneda('adCpcMinRate'), nota: 'Por clic, en COP' },
+ { etiqueta: 'CPC Máximo', control: ctrlMoneda('adCpcMaxRate') },
+ { etiqueta: 'Presupuesto Mínimo', control: ctrlMoneda('adMinBudget'), nota: 'Tope de gasto por campaña' },
+ { etiqueta: 'Presupuesto Máximo', control: ctrlMoneda('adMaxBudget') },
+ { etiqueta: 'Duración Mínima', control: ctrlEntero('adMinDurationDays', 'días'), nota: 'Días entre inicio y fin' },
+ { etiqueta: 'Duración Máxima', control: ctrlEntero('adMaxDurationDays', 'días') },
+ { etiqueta: 'Ubicaciones', control: ctrlPlacements(), nota: 'Solo las que existen en la app', ayuda: 'Solo se listan las superficies publicitarias que la app ya implementa. Resultados de búsqueda y listado de negocios todavía no existen como ubicación publicitaria, así que no se pueden ofrecer.' },
+ { etiqueta: 'Renovación Automática', control: <span className="text-xs text-[var(--color-text-secondary)]">Desactivada</span>, nota: 'Desactivada durante el lanzamiento', ayuda: 'Las campañas terminan en su fecha o al agotar su tope. No se renuevan solas.' },
+ { etiqueta: 'Ventana por Dispositivo', control: ctrlEntero('adClickDedupeWindowMinutes', 'min'), nota: 'Un clic cobrable por dispositivo y campaña en la ventana', ayuda: 'Los clics del mismo dispositivo dentro de esta ventana se registran sin cobro.' },
+ { etiqueta: 'Impresión Previa', control: ctrlEntero('adClickImpressionWindowMinutes', 'min'), nota: 'El clic cobra solo si ese dispositivo vio el anuncio en este lapso', ayuda: 'Un clic sin impresión reciente del mismo dispositivo se registra sin cobro: es la firma de un script.' },
+ { etiqueta: 'Clics Cobrables por Red', control: ctrlEntero('adMaxBillableClicksPerIpPerDay', 'día'), nota: 'Por campaña y por red; 0 = sin límite', ayuda: 'Tope diario de clics cobrables desde una misma IP. En redes móviles muchas personas comparten IP: un número bajo cobra de menos, nunca de más.' },
  ]))}
 
  {seccion('Auditoría de cambios de tarifas', 'Últimas versiones publicadas.', (

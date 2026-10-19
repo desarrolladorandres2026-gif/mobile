@@ -17,7 +17,7 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 429,
+              "linea": 463,
               "ancla": "const quote = await pricingService.quote({",
               "simbolo": "backend/src/services/order.service.ts#OrderService.create"
             }
@@ -32,12 +32,12 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1132,
+              "linea": 1188,
               "ancla": "'Este pedido es de pago en línea y aún no está pagado. ' +"
             },
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1257,
+              "linea": 1328,
               "ancla": "await orderSecurityService.ensureIssued(claimed._id.toString());"
             }
           ]
@@ -51,7 +51,7 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1040,
+              "linea": 1086,
               "ancla": "const roleAllowed = ROLE_ALLOWED_STATUSES[userRole] ?? [];"
             }
           ]
@@ -65,7 +65,7 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1020,
+              "linea": 1066,
               "ancla": "const allowedNext = VALID_TRANSITIONS[order.status];"
             }
           ]
@@ -80,12 +80,12 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1174,
+              "linea": 1230,
               "ancla": "await this.assertCodeConsumed(order._id.toString(), OrderCodeKind.DELIVERY);"
             },
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1281,
+              "linea": 1352,
               "ancla": "await this.onDelivered(claimed);"
             }
           ]
@@ -99,7 +99,7 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1769,
+              "linea": 1891,
               "ancla": "private async onCancelled(order: IOrder): Promise<void> {"
             }
           ]
@@ -113,7 +113,7 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1238,
+              "linea": 1294,
               "ancla": "const claimed = await Order.findOneAndUpdate("
             }
           ]
@@ -127,7 +127,7 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1923,
+              "linea": 2061,
               "ancla": "async cancelAbandonedOnlineOrders(now = new Date()): Promise<number> {"
             }
           ]

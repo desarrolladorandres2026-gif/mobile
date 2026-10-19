@@ -1,6 +1,7 @@
 export { errorHandler, AppError } from './errorHandler';
 export {
   authenticate,
+  authenticateIfPresent,
   authorize,
   requirePermission,
   requireAnyPermission,
@@ -27,6 +28,9 @@ export {
   orderChatRateLimiter,
   orderEvidenceRateLimiter,
   productImageUploadRateLimiter,
+  cspReportRateLimiter,
+  adEventDeviceRateLimiter,
+  adEventNetworkRateLimiter,
   businessDocumentUploadRateLimiter,
   driverDossierFileRateLimiter,
   driverDossierPdfRateLimiter,

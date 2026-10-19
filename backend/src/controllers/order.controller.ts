@@ -6,7 +6,7 @@ import { Driver, BusinessPermission, BusinessRole } from '../models';
 import { AppError } from '../middlewares';
 import { can } from '../middlewares/auth';
 import { Permission, logAudit, AuditAction, AuditSeverity } from '../security';
-import { customerFinanceView, merchantStaffOrderView } from '../services/profileMasking';
+import { customerFinanceView, customerOrderView, driverOrderView, merchantOrderView } from '../services/profileMasking';
 import { businessStaffService, staffOrderScope, isInStaffScope, type BusinessAccess } from '../services/businessStaff.service';
 import { TERMINAL_ORDER_STATUSES } from '../services/order.service';
 import { isMerchantVisible, orderEventPayload } from '../utils/merchantVisibility';
@@ -80,7 +80,7 @@ export class OrderController {
         emitToAdmin(io, 'orders', 'order:new', { orderId: order._id.toString(), orderNumber: order.orderNumber });
       }
 
-      sendResponse(res, 201, 'Pedido creado exitosamente', order);
+      sendResponse(res, 201, 'Pedido creado exitosamente', customerOrderView(order));
     } catch (error) { next(error); }
   }
 
@@ -96,15 +96,25 @@ export class OrderController {
       const isBusiness = !!businessAccess
         && businessAccess.permissions.includes(BusinessPermission.ORDERS_VIEW)
         && isInStaffScope(businessAccess.role, order, TERMINAL_ORDER_STATUSES);
-      if (user.role !== UserRole.ADMIN && !isClient && !isDriver && !isBusiness) throw new AppError('No autorizado para ver este pedido', 403);
-      if (isBusiness && businessAccess!.role !== BusinessRole.OWNER) {
-        return sendResponse(res, 200, 'Pedido obtenido', merchantStaffOrderView(order, { terminal: TERMINAL_ORDER_STATUSES.includes(order.status) }));
+      // 404 y no 403: igual que `resolveOrderAccess`, un pedido ajeno y uno
+      // inexistente responden lo mismo para no servir de oráculo de ids.
+      if (user.role !== UserRole.ADMIN && !isClient && !isDriver && !isBusiness) throw new AppError('Pedido no encontrado', 404);
+      if (isBusiness) {
+        return sendResponse(res, 200, 'Pedido obtenido', merchantOrderView(order, {
+          owner: businessAccess!.role === BusinessRole.OWNER,
+          terminal: TERMINAL_ORDER_STATUSES.includes(order.status),
+        }));
       }
       // H3: el margen de ZIPP solo para quien ve comisiones.
       if (user.role === UserRole.ADMIN && !can(req, Permission.COMMISSIONS_VIEW)) {
         const plain = typeof (order as any).toObject === 'function' ? (order as any).toObject() : { ...(order as any) };
         plain.finance = customerFinanceView(plain.finance);
         return sendResponse(res, 200, 'Pedido obtenido', plain);
+      }
+      if (user.role !== UserRole.ADMIN) {
+        // Auditoría 2026-10-17: cliente y domiciliario recibían `finance`
+        // entero —comisión del comercio, margen e ingresos de ZIPP—.
+        return sendResponse(res, 200, 'Pedido obtenido', isDriver ? driverOrderView(order) : customerOrderView(order));
       }
       sendResponse(res, 200, 'Pedido obtenido', order);
     } catch (error) { next(error); }
@@ -117,7 +127,7 @@ export class OrderController {
         Number(query(req, 'page')) || 1,
         clampLimit(query(req, 'limit'), 100, 20)
       );
-      sendResponse(res, 200, 'Mis pedidos', result.orders, result.meta);
+      sendResponse(res, 200, 'Mis pedidos', result.orders.map((order) => customerOrderView(order)), result.meta);
     } catch (error) { next(error); }
   }
   async receipt(req: Request, res: Response, next: NextFunction) {
@@ -179,10 +189,14 @@ export class OrderController {
         clampLimit(query(req, 'limit'), 100, 20),
         access ? staffOrderScope(access.role, TERMINAL_ORDER_STATUSES) : null
       );
-      // El personal no ve el margen de ZIPP ni el pago al domiciliario: la
-      // misma forma que ya le llega por socket (`announceToBusiness`).
-      const orders = access && access.role !== BusinessRole.OWNER
-        ? result.orders.map((order) => merchantStaffOrderView(order, { terminal: TERMINAL_ORDER_STATUSES.includes(order.status) }))
+      // Nadie del comercio ve el margen de ZIPP ni el pago al domiciliario; el
+      // dueño además ve su comisión y su neto. La misma forma que le llega por
+      // socket (`announceToBusiness`).
+      const orders = access
+        ? result.orders.map((order) => merchantOrderView(order, {
+          owner: access!.role === BusinessRole.OWNER,
+          terminal: TERMINAL_ORDER_STATUSES.includes(order.status),
+        }))
         : result.orders;
       sendResponse(res, 200, 'Pedidos del negocio', orders, result.meta);
     } catch (error) { next(error); }
@@ -199,9 +213,9 @@ export class OrderController {
         }
       }
       const orders = await orderService.getScheduledByBusiness(param(req, 'businessId'));
-      // El personal no ve el margen de ZIPP ni el pago al domiciliario.
-      const view = access && access.role !== BusinessRole.OWNER
-        ? orders.map((order) => merchantStaffOrderView(order))
+      // Nadie del comercio ve el margen de ZIPP ni el pago al domiciliario.
+      const view = access
+        ? orders.map((order) => merchantOrderView(order, { owner: access!.role === BusinessRole.OWNER }))
         : orders;
       sendResponse(res, 200, 'Pedidos programados', view);
     } catch (error) { next(error); }
@@ -319,19 +333,21 @@ export class OrderController {
       // recorte que ya tiene `getById`.
       let body: unknown = order;
       if (req.user!.role === UserRole.CLIENT) {
-        const plain = typeof (order as any).toObject === 'function' ? (order as any).toObject() : { ...(order as any) };
-        plain.finance = customerFinanceView(plain.finance);
-        delete plain.driverPayout;
-        body = plain;
+        body = customerOrderView(order);
+      } else if (req.user!.role === UserRole.DRIVER) {
+        body = driverOrderView(order);
       } else if (req.user!.role === UserRole.BUSINESS && order.businessId) {
         const access = await businessStaffService.accessFor(
           req.user!._id.toString(),
           String((order.businessId as any)._id ?? order.businessId),
           req.sessionScope
         );
-        if (access && access.role !== BusinessRole.OWNER) {
-          body = merchantStaffOrderView(order, { terminal: TERMINAL_ORDER_STATUSES.includes(order.status) });
-        }
+        // Sin acceso no hay forma de que haya llegado aquí (el servicio lanza),
+        // pero si pasara, sale la forma más recortada y no el pedido entero.
+        body = merchantOrderView(order, {
+          owner: access?.role === BusinessRole.OWNER,
+          terminal: TERMINAL_ORDER_STATUSES.includes(order.status),
+        });
       }
 
       sendResponse(
@@ -399,7 +415,7 @@ export class OrderController {
         emitToAdmin(io, 'orders', 'order:driver:assigned', payload);
       }
 
-      sendResponse(res, 200, 'Domiciliario asignado', order);
+      sendResponse(res, 200, 'Domiciliario asignado', req.user!.role === UserRole.ADMIN ? order : driverOrderView(order));
     } catch (error) { next(error); }
   }
 
@@ -409,7 +425,8 @@ export class OrderController {
         Number(query(req, 'page')) || 1,
         clampLimit(query(req, 'limit'), 100, 20)
       );
-      sendResponse(res, 200, 'Pedidos disponibles', result.orders, result.meta);
+      const orders = req.user!.role === UserRole.ADMIN ? result.orders : result.orders.map((order) => driverOrderView(order));
+      sendResponse(res, 200, 'Pedidos disponibles', orders, result.meta);
     } catch (error) { next(error); }
   }
 
@@ -421,7 +438,7 @@ export class OrderController {
         Number(query(req, 'page')) || 1,
         clampLimit(query(req, 'limit'), 100, 20)
       );
-      sendResponse(res, 200, 'Pedidos del domiciliario', result.orders, result.meta);
+      sendResponse(res, 200, 'Pedidos del domiciliario', result.orders.map((order) => driverOrderView(order)), result.meta);
     } catch (error) { next(error); }
   }
 }

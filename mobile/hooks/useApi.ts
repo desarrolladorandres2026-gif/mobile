@@ -723,6 +723,13 @@ export interface OrderQuote {
   proDeliveryDiscount?: number;
   proServiceFeeDiscount?: number;
   /**
+   * Presente cuando el servidor quitó un beneficio de Zipp Pro de ESTE pedido
+   * porque ZIPP lo habría pagado a pérdida. `message` ya viene redactado para
+   * el cliente; el desglose lo enseña antes de confirmar. Opcional porque un
+   * backend anterior no lo manda.
+   */
+  proBenefitNotice?: { code: string; skipped: string[]; message: string } | null;
+  /**
    * Lo que descontaron las promociones automáticas del comercio sobre los
    * productos del carrito, sin código. Ya está dentro de `total`; viaja
    * aparte solo para que el desglose lo enseñe. Opcional porque un backend

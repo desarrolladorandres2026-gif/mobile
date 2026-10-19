@@ -14,31 +14,67 @@ export interface AdDraft {
   budget: number;
 }
 
-/** Mañana hasta dentro de dos semanas: una campaña que empieza hoy no alcanza a revisarse. */
-export const emptyDraft = (): AdDraft => ({
-  campaignName: '',
-  flyerUrl: '',
-  startDate: localDay(1),
-  endDate: localDay(15),
-  pricingModel: 'cpm',
-  cpmRate: 2000,
-  cpcRate: 500,
-  budget: 100000,
-});
+// ── Lo que ZIPP ofrece hoy (`GET /advertisements/business/:id/offer`) ──
+//
+// Las tarifas, los topes y la duración ya no viven en el panel (auditoría
+// 2026-10-17): los configura ZIPP en Tarifas y Monetización y el servidor los
+// vuelve a exigir al comprar y al aprobar. Aquí solo se leen para guiar.
+
+export interface AdModelOffer {
+  enabled: boolean;
+  minRate: number;
+  maxRate: number;
+}
+
+export interface AdOffer {
+  available: boolean;
+  /** Por qué no se puede comprar todavía, en frases para el comercio. */
+  reasons: string[];
+  billingEnabled: boolean;
+  models: Record<PricingModel, AdModelOffer>;
+  budget: { min: number; max: number };
+  durationDays: { min: number; max: number };
+  placements: Array<'splash' | 'explore'>;
+  autoRenew: false;
+  configVersion: number;
+}
+
+const MODELS: PricingModel[] = ['cpc', 'cpm'];
+
+/** Las modalidades que se pueden comprar, CPC primero. */
+export const offeredModels = (offer: AdOffer): PricingModel[] => MODELS.filter((m) => offer.models[m]?.enabled);
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+/** Duración por defecto dentro de lo permitido: dos semanas si caben. */
+const defaultDays = (offer: AdOffer, wanted = 14) => clamp(wanted, Math.max(1, offer.durationDays.min), Math.max(1, offer.durationDays.max));
+
+/** Borrador inicial: la tarifa mínima, el presupuesto mínimo y desde mañana. */
+export const emptyDraft = (offer: AdOffer): AdDraft => {
+  const model = offeredModels(offer)[0] ?? 'cpc';
+  return {
+    campaignName: '',
+    flyerUrl: '',
+    startDate: localDay(1),
+    endDate: localDay(1 + defaultDays(offer)),
+    pricingModel: model,
+    cpmRate: offer.models.cpm?.minRate ?? 0,
+    cpcRate: offer.models.cpc?.minRate ?? 0,
+    budget: offer.budget.min,
+  };
+};
 
 /**
- * Ideas de campaña listas para ajustar. Son datos, como las de promociones: el
- * servidor sigue validando y revisando todo. Las tarifas y los topes son
- * sugerencias de arranque, no una tabla de precios de Zipp; el tope manda,
- * porque es lo único que acota el gasto.
+ * Ideas de campaña listas para ajustar: nombre, modalidad y duración. Ya no
+ * traen tarifas ni presupuestos: esos salen de la oferta de ZIPP.
  */
 export interface AdTemplate {
   id: string;
   title: string;
   blurb: string;
   logo: TemplateLogoKey;
-  patch: Partial<AdDraft>;
-  /** Días que dura, contados desde que empieza. */
+  patch: Partial<Pick<AdDraft, 'campaignName' | 'pricingModel'>>;
+  /** Días que dura, contados desde que empieza (se ajusta a lo permitido). */
   days: number;
   /** Cuántos días desde hoy empieza; `'weekend'` es el próximo viernes. */
   start: number | 'weekend';
@@ -46,20 +82,20 @@ export interface AdTemplate {
 
 export const AD_TEMPLATES: AdTemplate[] = [
   {
-    id: 'seen',
-    title: 'Que más gente me vea',
-    blurb: 'Pagas por cada mil veces que tu anuncio sale en pantalla.',
-    logo: 'rating',
-    patch: { campaignName: 'Más visibilidad', pricingModel: 'cpm', cpmRate: 2000, budget: 100000 },
-    days: 14,
-    start: 1,
-  },
-  {
     id: 'visits',
     title: 'Que entren a mi tienda',
     blurb: 'Pagas solo cuando alguien toca el anuncio.',
     logo: 'store',
-    patch: { campaignName: 'Visitas a mi tienda', pricingModel: 'cpc', cpcRate: 500, budget: 100000 },
+    patch: { campaignName: 'Visitas a mi tienda', pricingModel: 'cpc' },
+    days: 14,
+    start: 1,
+  },
+  {
+    id: 'seen',
+    title: 'Que más gente me vea',
+    blurb: 'Pagas por cada mil veces que tu anuncio sale en pantalla.',
+    logo: 'rating',
+    patch: { campaignName: 'Más visibilidad', pricingModel: 'cpm' },
     days: 14,
     start: 1,
   },
@@ -68,7 +104,7 @@ export const AD_TEMPLATES: AdTemplate[] = [
     title: 'Lanzamiento',
     blurb: 'Un mes de presencia para que el barrio sepa que abriste o que tienes algo nuevo.',
     logo: 'package',
-    patch: { campaignName: 'Lanzamiento', pricingModel: 'cpm', cpmRate: 3000, budget: 200000 },
+    patch: { campaignName: 'Lanzamiento' },
     days: 30,
     start: 1,
   },
@@ -77,7 +113,7 @@ export const AD_TEMPLATES: AdTemplate[] = [
     title: 'Solo el fin de semana',
     blurb: 'De viernes a domingo, cuando más se pide a domicilio.',
     logo: 'delivery',
-    patch: { campaignName: 'Fin de semana', pricingModel: 'cpm', cpmRate: 2500, budget: 100000 },
+    patch: { campaignName: 'Fin de semana' },
     days: 3,
     start: 'weekend',
   },
@@ -92,25 +128,37 @@ export const AD_TEMPLATES: AdTemplate[] = [
   },
 ];
 
+/** Solo las ideas que se pueden comprar con la oferta de hoy (CPM apagado → sin «Que más gente me vea»). */
+export const templatesFor = (offer: AdOffer): AdTemplate[] =>
+  AD_TEMPLATES.filter((t) => !t.patch.pricingModel || offer.models[t.patch.pricingModel]?.enabled);
+
 /** Días desde hoy hasta el próximo viernes, nunca antes de mañana. */
 export const daysToNextFriday = (from: Date = new Date()): number => ((5 - from.getDay() + 7) % 7) || 7;
 
-export function applyAdTemplate(template: AdTemplate, from: Date = new Date()): AdDraft {
+export function applyAdTemplate(template: AdTemplate, offer: AdOffer, from: Date = new Date()): AdDraft {
   const start = template.start === 'weekend' ? daysToNextFriday(from) : template.start;
+  const base = emptyDraft(offer);
+  const model = template.patch.pricingModel && offer.models[template.patch.pricingModel]?.enabled
+    ? template.patch.pricingModel
+    : base.pricingModel;
   return {
-    ...emptyDraft(),
+    ...base,
     ...template.patch,
+    pricingModel: model,
     startDate: localDay(start, from),
-    endDate: localDay(start + template.days, from),
+    endDate: localDay(start + defaultDays(offer, template.days), from),
   };
 }
 
-/** Atajos de duración a partir de la fecha de inicio elegida. */
+/** Atajos de duración a partir de la fecha de inicio elegida (solo los permitidos). */
 export const AD_DURATIONS = [
   { days: 7, label: '1 semana' },
   { days: 14, label: '2 semanas' },
   { days: 30, label: '1 mes' },
 ] as const;
+
+export const durationsFor = (offer: AdOffer) =>
+  AD_DURATIONS.filter((d) => d.days >= offer.durationDays.min && d.days <= offer.durationDays.max);
 
 export const dayDiff = (from: string, to: string) =>
   Math.round((new Date(`${to}T00:00:00`).getTime() - new Date(`${from}T00:00:00`).getTime()) / 86_400_000);
@@ -120,9 +168,19 @@ export const addDays = (day: string, days: number) => {
   return localDay(days, new Date(y, m - 1, d));
 };
 
-export const AD_BUDGET_PRESETS = [50000, 100000, 200000, 500000];
-export const CPM_PRESETS = [1500, 2000, 3000, 5000];
-export const CPC_PRESETS = [300, 500, 800, 1200];
+const unique = (values: number[]) => [...new Set(values.filter((v) => v > 0))].sort((a, b) => a - b);
+
+/** Atajos de tarifa: mínimo, punto medio (redondeado a $50) y máximo de la oferta. */
+export function ratePresets(offer: AdOffer, model: PricingModel): number[] {
+  const { minRate, maxRate } = offer.models[model];
+  return unique([minRate, Math.round((minRate + maxRate) / 2 / 50) * 50, maxRate]).filter((v) => v >= minRate && v <= maxRate);
+}
+
+/** Atajos de tope: el mínimo, su doble, su quíntuple y el máximo, sin salirse del rango. */
+export function budgetPresets(offer: AdOffer): number[] {
+  const { min, max } = offer.budget;
+  return unique([min, min * 2, min * 5, max]).filter((v) => v >= min && v <= max);
+}
 
 /** Tarifa vigente del borrador, según cómo se cobre. */
 export const rateOf = (d: AdDraft) => (d.pricingModel === 'cpm' ? d.cpmRate : d.cpcRate);
@@ -141,22 +199,48 @@ export function reachOf(d: AdDraft): number | null {
 
 export type AdStep = 'idea' | 'ad' | 'when' | 'budget' | 'review';
 
-const HTTP_URL = /^https?:\/\/.+/i;
-export const isFlyerUrl = (value: string) => HTTP_URL.test(value.trim());
+/**
+ * Un flyer subido a Zipp (Cloudinary). Un enlace externo ya no se acepta: el
+ * servidor lo rechaza en la compra (auditoría 2026-10-17), así que aquí se
+ * pide subirlo antes de llegar a ese 400.
+ */
+export const isFlyerUrl = (value: string) => {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'https:' && url.hostname === 'res.cloudinary.com';
+  } catch {
+    return false;
+  }
+};
 
-/** Lo que falta en un paso, en el orden en que la pantalla lo pide; vacío si está bien. */
-export function adProblem(step: AdStep, d: AdDraft): string {
+/**
+ * Lo que falta en un paso, en el orden en que la pantalla lo pide; vacío si
+ * está bien. Los rangos son los de la oferta: el servidor los vuelve a exigir.
+ */
+export function adProblem(step: AdStep, d: AdDraft, offer: AdOffer): string {
   if (step === 'ad') {
     if (d.campaignName.trim().length < 3) return 'Ponle un nombre de al menos 3 letras a la campaña.';
-    if (!isFlyerUrl(d.flyerUrl)) return 'Pega el enlace del flyer (empieza con https://).';
+    if (!isFlyerUrl(d.flyerUrl)) return 'Sube la imagen del flyer.';
   }
   if (step === 'when') {
     if (!d.startDate || !d.endDate) return 'Elige cuándo empieza y cuándo termina.';
-    if (dayDiff(d.startDate, d.endDate) <= 0) return 'La campaña tiene que terminar después de empezar.';
+    const days = dayDiff(d.startDate, d.endDate);
+    if (days <= 0) return 'La campaña tiene que terminar después de empezar.';
+    if (days < offer.durationDays.min) return `La campaña dura al menos ${offer.durationDays.min} días.`;
+    if (days > offer.durationDays.max) return `La campaña dura como máximo ${offer.durationDays.max} días.`;
   }
   if (step === 'budget') {
-    if (!rateOf(d)) return `Pon la tarifa ${d.pricingModel === 'cpm' ? 'por mil impresiones' : 'por clic'}.`;
+    const model = offer.models[d.pricingModel];
+    if (!model?.enabled) return 'Esa forma de cobro todavía no está disponible. Elige otra.';
+    const rate = rateOf(d);
+    if (!rate) return `Pon la tarifa ${d.pricingModel === 'cpm' ? 'por mil impresiones' : 'por clic'}.`;
+    if (rate < model.minRate || rate > model.maxRate) {
+      return `La tarifa va de ${money(model.minRate)} a ${money(model.maxRate)}.`;
+    }
     if (!d.budget) return 'Pon un tope de gasto: sin él estarías firmando un gasto abierto.';
+    if (d.budget < offer.budget.min || d.budget > offer.budget.max) {
+      return `El tope va de ${money(offer.budget.min)} a ${money(offer.budget.max)}.`;
+    }
     if (!reachOf(d)) return 'Con esa tarifa el tope no alcanza para nada.';
   }
   return '';

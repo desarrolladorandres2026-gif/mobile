@@ -303,6 +303,8 @@ export interface BusinessOrder {
   items: OrderItem[];
   deliveryAddress?: string;
   deliveryDetails?: string;
+  /** El servidor ocultó la dirección y redujo el nombre: pasó el plazo de contacto con el cliente. */
+  personalDataProtected?: boolean;
   notes?: string;
   paymentMethod?: 'online' | 'cash_on_delivery';
   /** Un pedido en línea solo se puede aceptar cuando está `paid`. */

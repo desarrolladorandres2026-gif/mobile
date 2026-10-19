@@ -10,7 +10,7 @@ import {
   paymentWebhookRateLimiter,
   paymentOtpRateLimiter,
 } from '../middlewares';
-import { refundSchema, externalRefundSchema, listAllRefundsSchema } from '../validators/finance.validator';
+import { refundSchema, externalRefundSchema, listAllRefundsSchema, resolveDriverPayReviewSchema } from '../validators/finance.validator';
 import {
   initiatePaymentSchema,
   payNativeSchema,
@@ -165,6 +165,14 @@ router.post(
   requirePermission(Permission.REFUNDS_CREATE),
   validate(externalRefundSchema),
   (req, res, next) => paymentController.refundExternal(req, res, next)
+);
+router.patch(
+  '/refunds/:refundId/driver-review',
+  authenticate,
+  authorize(UserRole.ADMIN),
+  requirePermission(Permission.REFUNDS_CREATE),
+  validate(resolveDriverPayReviewSchema),
+  (req, res, next) => paymentController.resolveDriverPayReview(req, res, next)
 );
 router.post(
   '/orders/:orderId/chargeback',

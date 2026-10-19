@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { objectId } from './common';
 
 const money = z.number().int().min(0);
+const refundCause = z.enum(['merchant', 'platform', 'customer', 'gateway', 'driver', 'unspecified']);
 const bps = z.number().int().min(0).max(10_000);
 
 /**
@@ -40,6 +41,7 @@ export const updatePricingConfigSchema = z.object({
       maxTipBps: bps.optional(),
       maxRadiusMeters: money.optional(),
       taxBps: bps.optional(),
+      taxRulesEnabled: z.boolean().optional(),
 
       couponSubsidyLimit: money.optional(),
       campaignBudgetTotal: money.optional(),
@@ -50,6 +52,9 @@ export const updatePricingConfigSchema = z.object({
       // 0 desactiva el techo. Se admite a propósito: apagar la regla no
       // debería exigir un despliegue.
       maxDriverCashDebt: money.optional(),
+      // Parte de su tarifa que el domiciliario conserva si cancelan antes de entregar. 0 = nada.
+      driverCancelPayAssignedBps: bps.optional(),
+      driverCancelPayPickedUpBps: bps.optional(),
 
       // Comisión de la pasarela por método (contrato con Wompi).
       gatewayCardBps: bps.optional(),
@@ -64,6 +69,31 @@ export const updatePricingConfigSchema = z.object({
       gatewayFeeVatBase: z.enum(['total', 'fixed']).optional(),
       // null = sin definir; 0 = no reembolsable; 10000 = reembolsable.
       gatewayFeeRefundBps: bps.nullable().optional(),
+      // Costo por reembolso/anulación y por contracargo (COP, antes de IVA). 0 = sin costo.
+      gatewayRefundFixed: money.optional(),
+      gatewayChargebackFixed: money.optional(),
+      // El documento que respalda las tarifas. Vacío = sin verificar.
+      gatewayContractRef: z.string().trim().max(200).optional(),
+
+      // Publicidad por autoservicio. 0 = sin configurar (bloquea la compra).
+      adSelfServiceEnabled: z.boolean().optional(),
+      adBillingEnabled: z.boolean().optional(),
+      adCpcEnabled: z.boolean().optional(),
+      adCpcMinRate: money.optional(),
+      adCpcMaxRate: money.optional(),
+      // Preparados, cerrados: se habilitan cuando existan sus reglas.
+      adCpmEnabled: z.literal(false, { errorMap: () => ({ message: 'CPM todavía no está disponible' }) }).optional(),
+      adCpmMinRate: money.optional(),
+      adCpmMaxRate: money.optional(),
+      adMinBudget: money.optional(),
+      adMaxBudget: money.optional(),
+      adMinDurationDays: z.number().int().min(0).max(365).optional(),
+      adMaxDurationDays: z.number().int().min(0).max(365).optional(),
+      adPlacements: z.array(z.enum(['splash', 'explore'])).max(2).optional(),
+      adClickDedupeWindowMinutes: z.number().int().min(1).max(10_080).optional(),
+      adClickImpressionWindowMinutes: z.number().int().min(1).max(1_440).optional(),
+      adMaxBillableClicksPerIpPerDay: z.number().int().min(0).max(10_000).optional(),
+      adAutoRenewEnabled: z.literal(false, { errorMap: () => ({ message: 'La renovación automática no está disponible en el lanzamiento' }) }).optional(),
     })
     .strict()
     .refine(
@@ -273,12 +303,24 @@ export const reportCashSchema = z.object({
   params: z.object({}).optional(),
 });
 
+export const resolveDriverPayReviewSchema = z.object({
+  body: z
+    .object({
+      decision: z.enum(['keep', 'escalate']),
+      note: z.string().trim().min(10).max(500),
+    })
+    .strict(),
+  query: z.object({}).optional(),
+  params: z.object({ refundId: objectId }),
+});
+
 export const externalRefundSchema = z.object({
   body: z
     .object({
       amount: z.number().int().positive().max(100_000_000),
       reason: z.string().min(3).max(300),
       externalReference: z.string().trim().min(3).max(120),
+      cause: refundCause.optional(),
     })
     .strict(),
   query: z.object({}).optional(),
@@ -324,6 +366,8 @@ export const refundSchema = z.object({
       amount: z.number().int().positive().max(100_000_000).optional(),
       reason: z.string().min(3).max(300),
       idempotencyKey: z.string().trim().max(120).optional(),
+      // De quién fue el problema (M-013): decide qué pasa con el pago del domiciliario.
+      cause: refundCause.optional(),
     })
     .strict(),
   query: z.object({}).optional(),
@@ -336,8 +380,68 @@ export const listAllRefundsSchema = z.object({
     status: z.enum(['pending', 'completed', 'failed']).optional(),
     kind: z.enum(['full', 'partial', 'chargeback', 'external']).optional(),
     attention: z.enum(['true', 'false']).optional(),
+    driverReview: z.enum(['pending']).optional(),
     page: z.coerce.number().int().min(1).max(10_000).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
+  }),
+  params: z.object({}).optional(),
+});
+
+// ── Reglas tributarias por concepto (M-014) ──
+
+const taxConcept = z.enum(['products', 'delivery', 'service_fee', 'commission', 'advertising', 'pro_subscription', 'other']);
+
+const taxRuleBody = z
+  .object({
+    concept: taxConcept,
+    label: z.string().trim().max(80).optional(),
+    treatment: z.enum(['taxed', 'exempt', 'excluded', 'not_applicable']),
+    taxType: z.enum(['iva', 'consumption', 'other']).optional(),
+    // Puntos básicos: 1900 = 19 %. Solo con tratamiento gravado.
+    rateBps: z.number().int().min(0).max(10_000).nullable().optional(),
+    base: z.enum(['net_of_discounts', 'gross']).optional(),
+    priceIncludesTax: z.boolean().optional(),
+    conditions: z.string().trim().max(500).optional(),
+    validFrom: z.coerce.date(),
+    changeReason: z.string().trim().max(300).optional(),
+  })
+  .strict();
+
+export const createTaxRuleSchema = z.object({
+  body: taxRuleBody,
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
+export const updateTaxRuleSchema = z.object({
+  body: taxRuleBody.partial().strict().refine((b) => Object.keys(b).length > 0, { message: 'Indica al menos un campo' }),
+  query: z.object({}).optional(),
+  params: z.object({ id: objectId }),
+});
+
+export const validateTaxRuleSchema = z.object({
+  body: z
+    .object({
+      // El documento que respalda la regla: sin él no hay validación.
+      validationRef: z.string().trim().min(5).max(300),
+      note: z.string().trim().max(500).optional(),
+    })
+    .strict(),
+  query: z.object({}).optional(),
+  params: z.object({ id: objectId }),
+});
+
+export const taxRuleIdSchema = z.object({
+  body: z.object({}).strict().optional(),
+  query: z.object({}).optional(),
+  params: z.object({ id: objectId }),
+});
+
+export const listTaxRulesSchema = z.object({
+  body: z.object({}).strict().optional(),
+  query: z.object({
+    concept: taxConcept.optional(),
+    status: z.enum(['draft', 'validated', 'superseded']).optional(),
   }),
   params: z.object({}).optional(),
 });

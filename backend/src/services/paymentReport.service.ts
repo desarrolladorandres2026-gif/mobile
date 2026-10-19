@@ -2,7 +2,7 @@ import { Payment, LedgerEntry } from '../models';
 import { PaymentMethod, PaymentStatus, LedgerAccount, LedgerDirection } from '../types';
 import { AppError } from '../middlewares';
 import { pricingConfigService } from './pricingConfig.service';
-import { estimateGatewayFee, gatewayFeeMethod } from '../utils/gatewayFee';
+import { paymentGatewayFee, gatewayFeeMethod } from '../utils/gatewayFee';
 import { bogotaDateString, customRange, type DateRange } from '../utils/period';
 
 /**
@@ -42,7 +42,9 @@ export const paymentReportService = {
         .skip((page - 1) * limit)
         .limit(limit)
         .populate('orderId', 'orderNumber')
-        .select('-metadata -statusHistory')
+        // `metadata` viaja entero hasta aquí solo para leer `metadata.gatewayFee`
+        // (la comisión guardada al cobrar); la respuesta se arma campo a campo.
+        .select('-statusHistory')
         .lean(),
       Payment.countDocuments(filter),
       Payment.aggregate([
@@ -62,9 +64,15 @@ export const paymentReportService = {
       amount: p.amount,
       reference: p.reference ?? null,
       transactionId: p.transactionId ?? null,
+      // La comisión guardada al cobrar si existe; si no (cobros anteriores a M-006),
+      // la estimación con la tarifa vigente. `feeSource` lo dice para no pasar una
+      // estimación de hoy por el historial.
       estimatedFee: p.status === PaymentStatus.PAID || p.status === PaymentStatus.REFUNDED
-        ? estimateGatewayFee(config, p.paymentMethodType, p.amount)
+        ? paymentGatewayFee(p, config).total
         : 0,
+      feeSource: p.status === PaymentStatus.PAID || p.status === PaymentStatus.REFUNDED
+        ? paymentGatewayFee(p, config).source
+        : null,
       createdAt: p.createdAt,
       processedAt: p.processedAt ?? null,
     }));
@@ -91,7 +99,7 @@ export const paymentReportService = {
         { processedAt: null, createdAt: { $gte: range.from, $lte: range.to } },
       ],
     })
-      .select('amount paymentMethodType processedAt createdAt orderId')
+      .select('amount paymentMethodType processedAt createdAt orderId metadata.gatewayFee')
       .limit(MAX_DAILY_ROWS + 1)
       .lean();
     if (rows.length > MAX_DAILY_ROWS) {
@@ -106,7 +114,7 @@ export const paymentReportService = {
       const method = gatewayFeeMethod(p.paymentMethodType);
       day.count += 1;
       day.gross += p.amount;
-      day.estimatedFee += estimateGatewayFee(config, p.paymentMethodType, p.amount);
+      day.estimatedFee += paymentGatewayFee(p, config).total;
       const bucket = day.byMethod[method] ?? { count: 0, amount: 0 };
       bucket.count += 1;
       bucket.amount += p.amount;

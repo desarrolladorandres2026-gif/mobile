@@ -1,9 +1,16 @@
-import { Pqrs, IPqrs, Order, Business, BusinessStaff, Driver, Settlement, getNextSequence } from '../models';
+import mongoose from 'mongoose';
+import { Pqrs, IPqrs, Order, Driver, Settlement, getNextSequence, BusinessPermission } from '../models';
+import { businessStaffService, type SessionScope } from './businessStaff.service';
 import { PQRS_REASON_VALUES, PqrsReasonValue } from '../models/Pqrs';
 import { AppError } from '../middlewares/errorHandler';
 import { OrderStatus, PaymentMethod, PayoutBeneficiary, UserRole } from '../types';
 import { addBusinessDays } from '../utils';
 import { notifyAlertsChanged } from './alerts.service';
+import { contactWindowExpired, orderClosedAt } from './profileMasking';
+import { config } from '../config';
+
+/** Una justificación de una línea («lo necesito») no permite decidir nada. */
+export const CONTACT_EXCEPTION_MIN_CHARS = 30;
 
 /**
  * Plazo legal de respuesta por tipo de PQRS, en días hábiles.
@@ -79,6 +86,9 @@ export const REASON_CATEGORY: Record<PqrsReason, PqrsCategory> = {
   unidentified_payment: 'financial',
   cancelled_order_adjustment: 'financial',
   refund_question: 'financial',
+  contact_customer_claim: 'operational',
+  contact_customer_warranty: 'operational',
+  contact_customer_clarification: 'operational',
 };
 
 export const REASON_TYPE: Record<PqrsReason, IPqrs['type']> = {
@@ -97,12 +107,37 @@ export const REASON_TYPE: Record<PqrsReason, IPqrs['type']> = {
   refund_question: 'complaint',
   account: 'petition',
   panel_issue: 'complaint',
+  // El comercio le pide a ZIPP que haga de puente: es una petición a ZIPP,
+  // no un reclamo contra ZIPP (el reclamo, si lo hay, es del cliente).
+  contact_customer_claim: 'petition',
+  contact_customer_warranty: 'petition',
+  contact_customer_clarification: 'petition',
 };
 
 /** Motivos que hablan de un pedido concreto: sin pedido no hay nada que investigar. */
 const ORDER_REQUIRED_REASONS: ReadonlySet<PqrsReason> = new Set<PqrsReason>([
   'driver_no_show', 'order_issue', 'customer_unreachable', 'driver_issue', 'preparation_issue', 'order_status_error',
   'order_payment_cancel', 'cancelled_order_adjustment', 'refund_question',
+  'contact_customer_claim', 'contact_customer_warranty', 'contact_customer_clarification',
+]);
+
+/**
+ * Contacto intermediado con el cliente de un pedido YA CERRADO (2026-10-17).
+ *
+ * El historial del comercio enmascara el teléfono y quita las coordenadas
+ * (`merchantOrderView`); cuando el comercio necesita al cliente por un
+ * reclamo, una garantía o una aclaración, abre uno de estos casos y soporte
+ * hace de puente. El comercio nunca recibe el número; el personal de ZIPP lo
+ * ve en la ficha del cliente, que ya deja `PROFILE_VIEWED` en la auditoría.
+ *
+ * - Solo con `customers:contact` en ESE negocio (propietario y encargado; el
+ *   mostrador no): es hablar con un cliente en nombre del local.
+ * - Solo pedidos entregados o cancelados: en curso está `customer_unreachable`.
+ * - Un caso abierto por pedido: reabrir el mismo pedido una y otra vez sería
+ *   acoso al cliente con ZIPP de mensajero.
+ */
+export const CUSTOMER_CONTACT_REASONS: ReadonlySet<PqrsReason> = new Set<PqrsReason>([
+  'contact_customer_claim', 'contact_customer_warranty', 'contact_customer_clarification',
 ]);
 
 /** Motivos que ocurren en la calle: si el pedido sigue en curso, no pueden esperar 24 h. */
@@ -175,6 +210,10 @@ export interface CreatePqrsInput {
   settlementId?: string | null;
   /** Solo casos financieros sin pedido; con pedido manda el del pedido. */
   paymentMethod?: PaymentMethod | null;
+  /** `req.sessionScope`: el mostrador se topa a Empleado (ver `accessFor`). */
+  scope?: SessionScope;
+  /** Solo contacto con el cliente de un pedido cerrado fuera del plazo: por qué hace falta. */
+  exceptionJustification?: string | null;
 }
 
 const idStr = (v: unknown) => (v == null ? null : String(v));
@@ -188,6 +227,8 @@ const idStr = (v: unknown) => (v == null ? null : String(v));
  */
 async function resolveParties(input: CreatePqrsInput): Promise<{
   requesterRole: IPqrs['requesterRole']; businessId: string | null; driverId: string | null; orderActive: boolean; orderPaymentMethod: PaymentMethod | null;
+  /** Solo comercios: lo que esa persona puede hacer en ese negocio. */
+  businessPermissions?: BusinessPermission[];
 }> {
   const order = input.orderId
     ? await Order.findById(input.orderId).select('clientId businessId driverId status paymentMethod').lean()
@@ -199,13 +240,17 @@ async function resolveParties(input: CreatePqrsInput): Promise<{
 
   if (input.role === UserRole.BUSINESS) {
     if (!input.businessId) throw new AppError('Indica de qué negocio es el caso', 422);
-    const [owned, staff] = await Promise.all([
-      Business.exists({ _id: input.businessId, ownerId: input.userId }),
-      BusinessStaff.exists({ businessId: input.businessId, userId: input.userId, isActive: true }),
-    ]);
-    if (!owned && !staff) throw new AppError('Ese negocio no es tuyo', 403);
+    if (!mongoose.isValidObjectId(input.businessId)) throw new AppError('Ese negocio no es tuyo', 403);
+    // `accessFor` y no un `exists` a mano (2026-10-17): el `exists` aceptaba
+    // una invitación sin aceptar y no conocía la sesión de mostrador ni la
+    // elevada con PIN de otro local. Es la misma puerta que el resto del panel.
+    const access = await businessStaffService.accessFor(input.userId, input.businessId, input.scope);
+    if (!access) throw new AppError('Ese negocio no es tuyo', 403);
     if (order && idStr(order.businessId) !== input.businessId) throw new AppError('Ese pedido no es de tu negocio', 403);
-    return { requesterRole: 'business', businessId: input.businessId, driverId: idStr(order?.driverId), orderActive, orderPaymentMethod };
+    return {
+      requesterRole: 'business', businessId: input.businessId, driverId: idStr(order?.driverId), orderActive, orderPaymentMethod,
+      businessPermissions: access.permissions,
+    };
   }
 
   if (input.role === UserRole.DRIVER) {
@@ -242,8 +287,49 @@ export async function createPqrs(input: CreatePqrsInput): Promise<IPqrs> {
   const financial = category === 'financial';
   if (input.settlementId && !financial) throw new AppError('Solo un caso financiero se asocia a una liquidación', 422);
 
-  const { requesterRole, businessId, driverId, orderActive, orderPaymentMethod } = await resolveParties(input);
+  const { requesterRole, businessId, driverId, orderActive, orderPaymentMethod, businessPermissions } = await resolveParties(input);
+  let contactException: IPqrs['contactException'] = null;
   const priority = priorityFor(type, reason, orderActive);
+
+  if (reason && CUSTOMER_CONTACT_REASONS.has(reason)) {
+    if (!businessPermissions?.includes(BusinessPermission.CUSTOMERS_CONTACT)) {
+      throw new AppError('Pedir contacto con un cliente es del propietario o del encargado del local.', 403);
+    }
+    if (orderActive) {
+      throw new AppError('El pedido sigue en curso: si el cliente no contesta, usa «El cliente no responde».', 422);
+    }
+    const pending = await Pqrs.exists({
+      orderId: input.orderId,
+      businessId,
+      reason: { $in: [...CUSTOMER_CONTACT_REASONS] },
+      status: { $in: ['received', 'in_review', 'answered'] },
+    });
+    if (pending) throw new AppError('Ya hay una solicitud de contacto abierta para este pedido.', 409);
+
+    // Plazo de contacto (2026-10-19): pasados `contactWindowDays` días calendario
+    // desde la entrega o cancelación, pedir contacto es una excepción. No se
+    // niega —garantías, reclamos y obligaciones legales pueden vencer después—,
+    // pero exige justificación y queda detenida hasta que ZIPP la autorice.
+    const closed = await Order.findById(input.orderId).select('status deliveredAt cancelledAt').lean();
+    if (closed && contactWindowExpired(closed)) {
+      const justification = (input.exceptionJustification ?? '').trim();
+      if (justification.length < CONTACT_EXCEPTION_MIN_CHARS) {
+        throw new AppError(
+          `Pasaron más de ${config.privacy.contactWindowDays} días desde que se cerró el pedido. Para pedir contacto cuéntanos por qué hace falta ` +
+          `(garantía, reclamo, obligación legal…) en al menos ${CONTACT_EXCEPTION_MIN_CHARS} caracteres; soporte lo revisa antes de contactar al cliente.`,
+          422,
+          'CONTACT_WINDOW_EXPIRED'
+        );
+      }
+      const closedAt = orderClosedAt(closed)!;
+      contactException = {
+        justification: justification.slice(0, 1000),
+        status: 'pending',
+        orderClosedAt: closedAt,
+        daysSinceClosed: Math.floor((Date.now() - closedAt.getTime()) / 86_400_000),
+      };
+    }
+  }
 
   // Mismo mensaje para "no existe" y "es de otro negocio": no se revela qué liquidaciones hay.
   if (input.settlementId) {
@@ -275,8 +361,54 @@ export async function createPqrs(input: CreatePqrsInput): Promise<IPqrs> {
     priority,
     dueAt: new Date(createdAt.getTime() + SLA_HOURS[priority] * 60 * 60 * 1000),
     legalDueAt: computePqrsLegalDueAt(type, createdAt),
+    contactException,
     createdAt,
   });
   void notifyAlertsChanged('pqrs');
   return created;
+}
+
+/**
+ * Soporte o administración decide una excepción de contacto fuera de plazo.
+ *
+ * Atómica: solo pasa de `pending` a una decisión, una vez. Dos agentes que
+ * decidan a la vez no pisan el motivo del otro. Negar cierra el caso con la
+ * explicación a la vista de quien lo pidió; autorizar lo deja en la cola para
+ * que el equipo haga el puente, sin darle nunca el número al comercio.
+ */
+export async function decideContactException(
+  id: string,
+  staffId: string,
+  decision: 'authorize' | 'deny',
+  note: string
+): Promise<IPqrs> {
+  const reason = note.trim();
+  if (reason.length < 10) throw new AppError('Explica la decisión (mínimo 10 caracteres): queda en la auditoría.', 422);
+  if (!mongoose.isValidObjectId(id)) throw new AppError('PQRS no encontrada', 404);
+
+  const now = new Date();
+  const updated = await Pqrs.findOneAndUpdate(
+    { _id: id, 'contactException.status': 'pending' },
+    {
+      $set: {
+        'contactException.status': decision === 'authorize' ? 'authorized' : 'denied',
+        'contactException.decidedBy': new mongoose.Types.ObjectId(staffId),
+        'contactException.decidedAt': now,
+        'contactException.decisionNote': reason.slice(0, 500),
+      },
+    },
+    { new: true }
+  );
+  if (!updated) {
+    const exists = await Pqrs.exists({ _id: id, 'contactException.status': { $in: ['authorized', 'denied'] } });
+    if (exists) throw new AppError('Esa excepción ya fue decidida.', 409);
+    throw new AppError('Este caso no tiene una excepción de contacto pendiente.', 404);
+  }
+
+  if (decision === 'deny') {
+    const { supportService } = await import('./support.service');
+    await supportService.reply(id, staffId, `No se autorizó el contacto con el cliente: ${reason}`);
+    return supportService.close(id, staffId);
+  }
+  return updated;
 }

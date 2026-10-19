@@ -560,6 +560,9 @@ export default function CheckoutScreen() {
         notes: notes.trim() || undefined,
         couponCode: appliedCode || undefined,
         tip: tipAmount,
+        // El total que el cliente está viendo: si el servidor calcula otro al
+        // crear el pedido, responde `PRICE_CHANGED` en vez de cobrar otro importe.
+        expectedTotal: quote.total,
         cashPayment:
           payment === 'cash_on_delivery'
             ? { needsChange: !!needsChange, payingWith: needsChange ? payingWithAmount : undefined }
@@ -655,6 +658,14 @@ export default function CheckoutScreen() {
           // servidor dice que falta la fecha, se pide en vez de solo avisar.
           if ((error as any)?.response?.data?.code === 'BIRTHDATE_REQUIRED') {
             setBirthSheet(true);
+            tap('warning');
+            return;
+          }
+          // El total cambió entre que lo viste y lo confirmaste: se vuelve a
+          // calcular y se enseña el nuevo antes de cobrar nada.
+          if ((error as any)?.response?.data?.code === 'PRICE_CHANGED') {
+            refetchQuote();
+            setSubmitError('El total de tu pedido cambió. Revisa el nuevo total y confírmalo de nuevo.');
             tap('warning');
             return;
           }
@@ -1195,6 +1206,12 @@ export default function CheckoutScreen() {
                 value={`−${money(quote.proServiceFeeDiscount)}`}
                 tone="successText"
               />
+            ) : null}
+
+            {/* Un beneficio de Pro que no aplica a ESTE pedido se dice aquí,
+                antes de confirmar: nunca se pierde en silencio. */}
+            {quote?.proBenefitNotice ? (
+              <Text v="bodyS" tone="text">{quote.proBenefitNotice.message}</Text>
             ) : null}
 
             {quote?.tax ? <DetailRow label="Impuestos" value={money(quote.tax)} /> : null}

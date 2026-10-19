@@ -7,21 +7,11 @@
     <meta name="description" content="Panel administrativo de ZIPP" />
     <title>ZIPP Admin</title>
     <!--
-      El tema se aplica antes del primer pintado. Si esperara a React
-      (initTheme corre en un efecto, después de pintar), quien usa modo
-      oscuro vería un destello blanco en cada carga. Misma lógica que
-      stores/themeStore.ts: tema guardado, o el del sistema en "auto".
+      El tema se aplica antes del primer pintado (ver public/theme-init.js, que
+      explica por qué). Va en un archivo y no en línea para que la CSP del panel
+      pueda prohibir los scripts en línea.
     -->
-    <script>
-      (function () {
-        try {
-          var saved = localStorage.getItem('zipp_theme') || 'auto';
-          var dark = saved === 'dark' || (saved === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-          if (dark) document.documentElement.classList.add('dark');
-          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-        } catch (e) {}
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

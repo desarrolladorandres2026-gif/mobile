@@ -212,10 +212,12 @@ sudo ln -s /etc/nginx/sites-available/descargas.tudominio.com /etc/nginx/sites-e
 sudo mkdir -p /etc/nginx/snippets
 sudo cp /var/www/zipp/deploy/nginx/security-headers.conf \
         /etc/nginx/snippets/zipp-security-headers.conf
-# Solo comercios: su CSP (en modo solo-informe; instrucciones dentro del archivo).
-sudo cp /var/www/zipp/deploy/nginx/csp-business.conf \
-        /etc/nginx/snippets/zipp-csp-business.conf
-sudo sed -i 's/REEMPLAZAR_DOMINIO/tudominio.com/g' /etc/nginx/snippets/zipp-csp-business.conf
+# Comercios y administración: cada panel con su CSP (ambas en modo solo-informe;
+# las instrucciones para pasarlas a bloqueo están dentro de cada archivo).
+for panel in business admin; do
+  sudo cp /var/www/zipp/deploy/nginx/csp-$panel.conf /etc/nginx/snippets/zipp-csp-$panel.conf
+  sudo sed -i 's/REEMPLAZAR_DOMINIO/tudominio.com/g' /etc/nginx/snippets/zipp-csp-$panel.conf
+done
 
 # Los tres SPA, a partir de la plantilla (ver la tabla dentro del archivo)
 for pair in "panel.tudominio.com:/var/www/zipp-admin" \
@@ -228,9 +230,11 @@ for pair in "panel.tudominio.com:/var/www/zipp-admin" \
   sudo ln -s /etc/nginx/sites-available/$sub /etc/nginx/sites-enabled/
 done
 
-# El CSP de comercios va debajo de cada include de seguridad (server y locations).
+# Cada CSP va debajo de cada include de seguridad (server y locations) de SU panel.
 sudo sed -i 's#^\(\s*\)include /etc/nginx/snippets/zipp-security-headers.conf;#&\n\1include /etc/nginx/snippets/zipp-csp-business.conf;#' \
   /etc/nginx/sites-available/comercios.tudominio.com
+sudo sed -i 's#^\(\s*\)include /etc/nginx/snippets/zipp-security-headers.conf;#&\n\1include /etc/nginx/snippets/zipp-csp-admin.conf;#' \
+  /etc/nginx/sites-available/panel.tudominio.com
 
 sudo nginx -t && sudo systemctl reload nginx
 

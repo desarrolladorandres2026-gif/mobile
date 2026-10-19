@@ -29,7 +29,24 @@ interface Refund {
  status: string;
  transactionId?: string;
  createdAt: string;
+ cause?: string;
+ /** Qué pasó con el pago del domiciliario (M-013). */
+ driverPay?: {
+ policy: 'kept' | 'partial' | 'reversed' | 'none';
+ retained: number;
+ costBearer: 'platform' | 'none';
+ review?: { status: 'pending' | 'kept' | 'escalated'; note?: string } | null;
+ };
 }
+
+/** De quién fue el problema: decide qué pasa con el pago del domiciliario. */
+const CAUSES: Array<{ id: string; label: string }> = [
+ { id: 'unspecified', label: 'No lo sé / otra causa' },
+ { id: 'merchant', label: 'El comercio (producto o preparación)' },
+ { id: 'platform', label: 'ZIPP (precio, cobro, app)' },
+ { id: 'customer', label: 'El cliente' },
+ { id: 'driver', label: 'Posible responsabilidad del domiciliario' },
+];
 
 type Mode = 'gateway' | 'external' | 'chargeback';
 
@@ -77,6 +94,8 @@ export default function RefundPanel({
  const [amount, setAmount] = useState('');
  const [reason, setReason] = useState('');
  const [reference, setReference] = useState('');
+ const [cause, setCause] = useState('unspecified');
+ const [reviewNote, setReviewNote] = useState('');
  const [error, setError] = useState('');
  const [submitting, setSubmitting] = useState(false);
 
@@ -107,7 +126,24 @@ export default function RefundPanel({
  setAmount('');
  setReason('');
  setReference('');
+ setCause('unspecified');
  setError('');
+ };
+
+ /** Cierra la revisión del pago de un domiciliario. No mueve dinero: deja constancia. */
+ const resolveReview = async (refundId: string, decision: 'keep' | 'escalate') => {
+ if (reviewNote.trim().length < 10) {
+ return setError('Explica la decisión (mínimo 10 caracteres): queda en la auditoría.');
+ }
+ setError('');
+ try {
+ await api.patch(`/payments/refunds/${refundId}/driver-review`, { decision, note: reviewNote.trim() });
+ setReviewNote('');
+ await load();
+ onDone?.();
+ } catch (err) {
+ setError(apiMessage(err, 'No se pudo registrar la decisión.'));
+ }
  };
 
  const submit = async () => {
@@ -134,6 +170,7 @@ export default function RefundPanel({
  // Sin monto, el servidor lo entiende como reembolso total.
  ...(value > 0 && value < remaining ? { amount: value } : {}),
  reason: reason.trim(),
+ cause,
  // Reintentar tras un timeout no puede devolver el dinero dos veces.
  idempotencyKey: `admin:${orderId}:${value || 'full'}:${reason.trim().slice(0, 40)}`,
  });
@@ -141,6 +178,7 @@ export default function RefundPanel({
  await api.post(`/payments/orders/${orderId}/refund/external`, {
  amount: value,
  reason: reason.trim(),
+ cause,
  externalReference: reference.trim(),
  });
  } else {
@@ -189,6 +227,40 @@ export default function RefundPanel({
  {KIND_LABEL[r.kind] ?? r.kind} · {new Date(r.createdAt).toLocaleDateString('es-CO')}
  {r.status !== 'completed' ? ` · ${r.status}` : ''}
  </p>
+ {r.driverPay && r.driverPay.policy !== 'none' ? (
+ <p className="text-[11px] text-[var(--color-text-main)]">
+ {r.driverPay.retained > 0
+ ? `El domiciliario conserva ${money(r.driverPay.retained)} de su pago${r.driverPay.costBearer === 'platform' ? ' (lo asume ZIPP)' : ''}.`
+ : 'Se le retiró su pago al domiciliario.'}
+ </p>
+ ) : null}
+ {r.driverPay?.review?.status === 'pending' ? (
+ <div className="mt-1 space-y-1 border border-[var(--color-border-light)] p-2">
+ <p className="text-[11px] font-semibold text-[var(--color-text-main)]">
+ Posible responsabilidad del domiciliario: su pago no se retiró. Decide qué hacer.
+ </p>
+ <input
+ value={reviewNote}
+ onChange={(e) => { setReviewNote(e.target.value); setError(''); }}
+ maxLength={500}
+ placeholder="Por qué (queda en la auditoría)"
+ className={inputClass}
+ />
+ <div className="flex gap-2">
+ <button onClick={() => resolveReview(r._id, 'keep')} className="cursor-pointer rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-main)]">
+ Conserva su pago
+ </button>
+ <button onClick={() => resolveReview(r._id, 'escalate')} className="cursor-pointer rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-main)]">
+ Escalar a operaciones
+ </button>
+ </div>
+ </div>
+ ) : r.driverPay?.review ? (
+ <p className="text-[11px] text-[var(--color-text-main)]">
+ Revisión: {r.driverPay.review.status === 'kept' ? 'conserva su pago' : 'escalada a operaciones'}
+ {r.driverPay.review.note ? ` — ${r.driverPay.review.note}` : ''}
+ </p>
+ ) : null}
  </div>
  {r.status === 'completed' ? (
  <Check className="w-4 h-4 shrink-0 text-[var(--color-success)]" />
@@ -242,6 +314,20 @@ export default function RefundPanel({
  placeholder="Faltaba un producto y el cliente lo reportó con foto"
  className={inputClass}
  />
+ </label>
+ )}
+
+ {mode !== 'chargeback' && (
+ <label className="block space-y-1">
+ <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ De quién fue el problema
+ </span>
+ <select value={cause} onChange={(e) => setCause(e.target.value)} className={inputClass}>
+ {CAUSES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+ </select>
+ <span className="block text-[11px] text-[var(--color-text-main)]">
+ Si el pedido ya se entregó, el domiciliario conserva su pago y lo asume ZIPP. Marcar «domiciliario» no se lo retira: queda en revisión.
+ </span>
  </label>
  )}
 

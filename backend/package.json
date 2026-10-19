@@ -48,6 +48,8 @@
     "migrate:revoke-business-full-sessions": "tsx src/migrations/028-revoke-business-full-sessions.ts",
     "migrate:payout-late-refund": "tsx src/migrations/029-payout-late-refund-split.ts",
     "migrate:counter-pin-2fa": "tsx src/migrations/030-counter-pin-requires-2fa.ts",
+    "migrate:ad-click-indexes": "tsx src/migrations/031-ad-click-indexes.ts",
+    "migrate:ad-launch-offer": "tsx src/migrations/032-ad-launch-offer.ts",
     "test": "vitest run",
     "test:load": "vitest run --config vitest.load.config.ts",
     "test:watch": "vitest",

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import app from '../app';
-import { ProSubscription, ProSubscriptionStatus } from '../models';
+import { ProSubscription, ProSubscriptionStatus, Product } from '../models';
 import { CouponType, CouponFundedBy, CouponScope, PaymentMethod, UserRole } from '../types';
 import { couponService } from '../services/coupon.service';
 import { pricingConfigService } from '../services/pricingConfig.service';
@@ -308,6 +308,9 @@ describe('C3 y C4 — qué cupón se sugiere', () => {
 
       beforeEach(async () => {
         await makePricingConfig({ couponSubsidyLimit: 0, serviceFeeFixed: FEE });
+        // Con margen de sobra: la guarda de M-012 quita el trato de Zipp Pro de un pedido que
+        // ZIPP pagaría a pérdida, y aquí se prueba otra cosa (el cupón de tarifa frente a Pro).
+        await Product.updateOne({ _id: product._id }, { $set: { price: 2 * Math.ceil(PRO_PLAN.benefits.freeDelivery.minSubtotal / 4) } });
       });
 
       it('sin membresía, el cupón de tarifa ahorra lo que descuenta y se sugiere', async () => {

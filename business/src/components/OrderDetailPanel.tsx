@@ -89,6 +89,8 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
   const { access } = usePermissions(businessId);
   const seesMoney = !!access?.permissions.includes('financial:view');
   const fetchStatement = seesMoney;
+  const canContact = !!access?.permissions.includes('customers:contact');
+  const closed = order?.status === 'delivered' || order?.status === 'cancelled';
 
   useEffect(() => {
     if (!orderId) return;
@@ -233,10 +235,30 @@ export default function OrderDetailPanel({ order, businessId, onClose, refreshKe
             title="Cliente"
             rows={[
               ['Nombre', client?.name ?? 'Cliente'],
-              ...(client?.phone
-                ? [['Teléfono', <a key="tel" href={`tel:${client.phone}`} className="text-[var(--color-primary-dark)] hover:underline">{client.phone}</a>] as [string, ReactNode]]
-                : []),
-              ['Dirección', `${order.deliveryAddress ?? ''}${order.deliveryDetails ? ` · ${order.deliveryDetails}` : ''}`],
+              ...(closed
+                // Pedido cerrado: el servidor ya manda el número enmascarado
+                // (`merchantOrderView`). Se ofrece el contacto por ZIPP en vez de un `tel:` roto.
+                ? [['Teléfono', (
+                    <span key="tel" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      {client?.phone ? <span className="tabular">{client.phone}</span> : null}
+                      {canContact ? (
+                        <Link
+                          to={`/support?order=${encodeURIComponent(order._id)}&n=${encodeURIComponent(order.orderNumber ?? '')}&reason=contact_customer_clarification`}
+                          className="font-semibold text-[var(--color-primary-dark)] hover:underline"
+                        >
+                          Contactar por medio de ZIPP
+                        </Link>
+                      ) : (
+                        <span className="text-[var(--color-text-secondary)]">El propietario o el administrador pueden pedir a ZIPP que lo contacte.</span>
+                      )}
+                    </span>
+                  )] as [string, ReactNode]]
+                : client?.phone
+                  ? [['Teléfono', <a key="tel" href={`tel:${client.phone}`} className="text-[var(--color-primary-dark)] hover:underline">{client.phone}</a>] as [string, ReactNode]]
+                  : []),
+              order.personalDataProtected
+                ? ['Dirección', <span key="addr" className="text-[var(--color-text-secondary)]">Protegida: pasó el plazo de contacto con el cliente.</span>] as [string, ReactNode]
+                : ['Dirección', `${order.deliveryAddress ?? ''}${order.deliveryDetails ? ` · ${order.deliveryDetails}` : ''}`],
               ...(order.notes ? [['Observaciones', <span key="obs" className="text-[var(--color-warning)]">{order.notes}</span>] as [string, ReactNode]] : []),
             ]}
           />

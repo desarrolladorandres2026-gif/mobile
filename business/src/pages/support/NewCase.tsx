@@ -3,12 +3,13 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { AlertCircle, MessageCircle, Paperclip, X } from 'lucide-react';
 import api from '../../services/api';
 import { qk } from '../../lib/queryKeys';
-import { apiMessage } from '../../lib/apiError';
+import { apiErrorCode, apiMessage } from '../../lib/apiError';
 import { dateTime, isActive, isInTransit, money, orderTag, statusStyle, type BusinessOrder } from '../../lib/orderFlow';
 import { useFlowProfile } from '../../hooks/useFlowProfile';
 import { supportWhatsAppUrl } from '../../lib/contact';
+import { usePermissions } from '../../hooks/usePermissions';
 import {
-  ATTACHMENT_TYPES, CATEGORY_LABEL, MAX_ATTACHMENTS, PAYMENT_METHOD_LABEL, REASONS, TYPE_LABEL,
+  ATTACHMENT_TYPES, CATEGORY_LABEL, CONTACT_GROUP_LABEL, MAX_ATTACHMENTS, PAYMENT_METHOD_LABEL, REASONS, TYPE_LABEL,
   attachmentError, periodLabel, uploadEvidence,
   type CaseType, type Category, type PaymentMethod, type Reason, type Ticket,
 } from '../../lib/support';
@@ -32,6 +33,9 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
   onCreated: (id: string, failedFiles: number) => void;
 }) {
   const profile = useFlowProfile();
+  // Estricto: sin el permiso el grupo no aparece; el servidor responde 403 igual.
+  const { access } = usePermissions(businessId);
+  const canContact = !!access?.permissions.includes('customers:contact');
   const fromOrder = preset?.order ?? null;
   // '' = aún no elige; 'other' = ninguno de los motivos, elige el tipo a mano.
   const [reason, setReason] = useState<Reason | 'other' | ''>(preset?.reason ?? (fromOrder ? 'order_issue' : ''));
@@ -44,6 +48,10 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | ''>('');
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState('');
+  // Pasado el plazo de contacto el servidor lo dice (`CONTACT_WINDOW_EXPIRED`) y
+  // el formulario pide por qué hace falta: no se adivina el plazo en el navegador.
+  const [exceptionNeeded, setExceptionNeeded] = useState(false);
+  const [justification, setJustification] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
 
   // Los pedidos recientes del local: el caso nace atado a lo que pasó en la
@@ -76,6 +84,9 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
   const subject = subjectDraft ?? suggestedSubject;
   // Un pedido terminado no corre prisa; uno que no conocemos, por si acaso, sí.
   const orderLive = !order || isActive(order.status) || isInTransit(order.status);
+  // El contacto intermediado es solo para pedidos cerrados; en curso, el
+  // camino es «El cliente no responde». Se sabe solo si el pedido está en la lista.
+  const contactOnLiveOrder = !!current?.contact && !!order && orderLive;
 
   const send = useMutation({
     mutationFn: async () => {
@@ -84,6 +95,7 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
         ...(reason && reason !== 'other' ? { reason } : { type }),
         subject: subject.trim(), detail: detail.trim(), businessId,
         ...(orderId ? { orderId } : {}),
+        ...(current?.contact && exceptionNeeded && justification.trim() ? { exceptionJustification: justification.trim() } : {}),
         ...(current?.settlement && settlementId ? { settlementId } : {}),
         // Con pedido, el medio de pago lo pone el servidor desde el pedido.
         ...(financial && !orderId && paymentMethod ? { paymentMethod } : {}),
@@ -96,7 +108,10 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
       return { ticket, failed };
     },
     onSuccess: ({ ticket, failed }) => onCreated(ticket._id, failed),
-    onError: (err) => setError(apiMessage(err, 'No se pudo enviar el caso.')),
+    onError: (err) => {
+      if (apiErrorCode(err) === 'CONTACT_WINDOW_EXPIRED') setExceptionNeeded(true);
+      setError(apiMessage(err, 'No se pudo enviar el caso.'));
+    },
   });
 
   // El botón no se apaga: dice qué falta. Un botón gris no explica nada.
@@ -104,8 +119,15 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
     if (!businessId) return setError('Elige primero el local.');
     if (!reason) return setError('Elige qué pasó.');
     if (needsOrder && !orderId) return setError('Elige el pedido del que hablas.');
+    if (contactOnLiveOrder) {
+      setReason('customer_unreachable');
+      return setError('Ese pedido sigue en curso: lo cambiamos a «El cliente no responde», que atendemos primero. Revisa y envía.');
+    }
     if (subject.trim().length < 3) return setError('Escribe un asunto.');
     if (detail.trim().length < 10) return setError('Cuéntanos con al menos 10 caracteres qué ocurrió.');
+    if (current?.contact && exceptionNeeded && justification.trim().length < 30) {
+      return setError('Cuéntanos por qué hace falta contactar al cliente pasado el plazo (mínimo 30 caracteres).');
+    }
     setError('');
     send.mutate();
   };
@@ -124,11 +146,12 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
     setFiles(next);
   };
 
-  const groups = (Object.keys(CATEGORY_LABEL) as Category[]).map((key) => ({
+  const groups: Array<{ key: string; label: string; options: typeof REASONS }> = (Object.keys(CATEGORY_LABEL) as Category[]).map((key) => ({
     key,
     label: CATEGORY_LABEL[key],
-    options: REASONS.filter((r) => r.category === key),
+    options: REASONS.filter((r) => r.category === key && !r.contact),
   }));
+  if (canContact) groups.push({ key: 'contact', label: CONTACT_GROUP_LABEL, options: REASONS.filter((r) => r.contact) });
 
   return (
     <div className="space-y-5 max-w-xl">
@@ -213,6 +236,14 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
             )}
           </div>
 
+          {current?.contact && (
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              {contactOnLiveOrder
+                ? 'Ese pedido sigue en curso. Para un cliente que no contesta ahora mismo, usa «El cliente no responde».'
+                : 'ZIPP contacta al cliente y te responde en este caso. Por privacidad, su número no se comparte con el local.'}
+            </p>
+          )}
+
           {current?.settlement && (
             <div className="space-y-1.5">
               <label htmlFor="support-settlement" className={labelClass}>Liquidación (opcional)</label>
@@ -270,6 +301,24 @@ export default function NewCase({ businessId, preset, onBack, onCreated }: {
               className={fieldClass}
             />
           </div>
+
+          {current?.contact && exceptionNeeded && (
+            <div className="space-y-1.5">
+              <label htmlFor="support-exception" className={labelClass}>Por qué hace falta contactar al cliente ahora</label>
+              <textarea
+                id="support-exception"
+                value={justification}
+                onChange={(e) => setJustification(e.target.value)}
+                rows={4}
+                maxLength={1000}
+                placeholder="Una garantía vigente, un reclamo formal, una obligación legal… Soporte lo revisa antes de contactar al cliente."
+                className={fieldClass}
+              />
+              <p className="text-xs text-[var(--color-text-secondary)]">
+                El pedido se cerró hace más días de los que permite el contacto directo. No se rechaza: soporte revisa tu motivo y decide.
+              </p>
+            </div>
+          )}
 
           <div className="space-y-1">
             {files.length > 0 && (

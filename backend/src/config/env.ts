@@ -872,6 +872,20 @@ export const config = {
   },
 
   /**
+   * Datos personales del cliente en el historial del comercio (2026-10-19).
+   *
+   * Durante `contactWindowDays` días calendario después de entregar (o de
+   * cancelar) un pedido, el comercio puede pedir contacto con el cliente por
+   * un motivo ligado a la compra. Pasado el plazo, el historial además oculta
+   * la dirección y reduce el nombre, y pedir contacto es una excepción que
+   * exige justificación y la autorización de soporte o administración.
+   * Es una regla inicial: se ajusta con los datos reales, sin tocar código.
+   */
+  privacy: {
+    contactWindowDays: Math.max(1, parseInt(process.env.CUSTOMER_CONTACT_WINDOW_DAYS || '7', 10) || 7),
+  },
+
+  /**
    * Cómo se corta la semana de liquidación.
    *
    * La zona horaria no es cosmética: agrupar por semanas en UTC mueve

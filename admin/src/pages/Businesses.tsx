@@ -58,6 +58,7 @@ const ownerOf = (b: Business) => (b.ownerId && typeof b.ownerId === 'object' ? b
 
 type PendingAction =
  | { kind: 'suspend'; business: Business }
+ | { kind: 'lift'; business: Business }
  | { kind: 'archive'; business: Business }
  | { kind: 'restore'; business: Business };
 
@@ -133,16 +134,6 @@ export default function Businesses() {
  const patchLocal = (id: string, patch: Partial<Business>) =>
  setBusinesses((prev) => prev.map((b) => (b._id === id ? { ...b, ...patch } : b)));
 
- const liftSuspension = async (business: Business) => {
- try {
- setError('');
- const { data } = await api.patch(`/admin/businesses/${business._id}/toggle`);
- patchLocal(business._id, { isSuspended: data.data.isSuspended, suspensionReason: data.data.suspensionReason });
- } catch (err) {
- setError(apiMessage(err, 'No se pudo levantar la suspensión.'));
- }
- };
-
  const handleToggleFeatured = async (business: Business) => {
  try {
  setError('');
@@ -159,14 +150,15 @@ export default function Businesses() {
  setPending(null);
  try {
  setError('');
- if (kind === 'suspend') {
+ if (kind === 'suspend' || kind === 'lift') {
+ // Motivo en las dos direcciones: levantar una suspensión también queda a nombre de quien la autoriza.
  const { data } = await api.patch(`/admin/businesses/${business._id}/toggle`, { reason });
  patchLocal(business._id, { isSuspended: data.data.isSuspended, suspensionReason: data.data.suspensionReason });
  } else if (kind === 'archive') {
  await api.patch(`/admin/businesses/${business._id}/archive`, { reason });
  setBusinesses((prev) => prev.filter((b) => b._id !== business._id));
  } else {
- await api.patch(`/admin/businesses/${business._id}/restore`);
+ await api.patch(`/admin/businesses/${business._id}/restore`, { reason });
  setBusinesses((prev) => prev.filter((b) => b._id !== business._id));
  }
  } catch (err) {
@@ -227,6 +219,14 @@ export default function Businesses() {
  variant: 'warning' as const,
  reason: { label: 'Motivo (lo ve el comercio)', placeholder: 'Ej. documentos vencidos: SOAT y concepto sanitario' },
  }
+ : pending.kind === 'lift'
+ ? {
+ title: 'Levantar suspensión',
+ message: `"${pending.business.name}" vuelve a la app y puede recibir pedidos si su dueño lo tiene abierto. Tu nombre y el motivo quedan registrados como quien autorizó la reactivación.`,
+ confirmLabel: 'Levantar suspensión',
+ variant: 'default' as const,
+ reason: { label: 'Motivo de la reactivación', placeholder: 'Ej. subsanó los documentos y la apelación fue aceptada' },
+ }
  : pending.kind === 'archive'
  ? {
  title: 'Archivar comercio',
@@ -240,7 +240,7 @@ export default function Businesses() {
  message: `"${pending.business.name}" vuelve al listado de comercios y a la app si está aprobado.`,
  confirmLabel: 'Restaurar',
  variant: 'default' as const,
- reason: undefined,
+ reason: { label: 'Motivo de la reactivación', placeholder: 'Ej. reabrió con documentos al día' },
  }
  : null;
 
@@ -429,7 +429,7 @@ export default function Businesses() {
  </button>
  </PermissionGate>
  <button
- onClick={() => (b.isSuspended ? liftSuspension(b) : setPending({ kind: 'suspend', business: b }))}
+ onClick={() => setPending({ kind: b.isSuspended ? 'lift' : 'suspend', business: b })}
  title={b.isSuspended ? 'Levantar suspensión' : 'Suspender'}
  className={`p-2 rounded-lg border cursor-pointer ${b.isSuspended ? 'border-[var(--color-primary)] text-[var(--color-text-main)]' : 'border-[var(--color-border)] text-[var(--color-danger)]'}`}
  >

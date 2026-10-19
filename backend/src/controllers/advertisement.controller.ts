@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { advertisementService } from '../services';
 import { Advertisement } from '../models';
-import { sendResponse, param, query, escapeRegex } from '../utils';
+import { sendResponse, param, query, escapeRegex, clientIp } from '../utils';
 import { AppError } from '../middlewares';
 import { uploadImage } from '../middlewares/upload';
 import { AuditAction, AuditSeverity, logAudit } from '../security';
@@ -35,8 +35,15 @@ export class AdvertisementController {
 
   async registerClick(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user?._id?.toString();
-      await advertisementService.registerClick(param(req, 'id'), req.body.deviceId, userId);
+      const userId = (req as any).user?._id?.toString() as string | undefined;
+      // La respuesta no dice si se cobró ni por qué no: a quien automatiza
+      // clics no se le explica qué regla lo frenó.
+      await advertisementService.registerClick(param(req, 'id'), req.body.deviceId, {
+        userId,
+        clickId: req.body.clickId,
+        ip: clientIp(req),
+        userAgent: req.get('user-agent') ?? undefined,
+      });
       sendResponse(res, 200, 'Clic registrado');
     } catch (error) { next(error); }
   }
@@ -212,6 +219,29 @@ export class AdvertisementController {
       });
 
       sendResponse(res, 200, 'Campaña eliminada');
+    } catch (error) { next(error); }
+  }
+
+  // ── Evidencia de clics (investigación) ───────────────────────────────
+
+  /**
+   * Cada clic de una campaña con su veredicto: cobrado, rechazado (y por qué) o
+   * en revisión. Es la fuente para investigar una factura discutida o un patrón
+   * sospechoso. No expone el hash de red completo ni el agente de usuario a quien
+   * no tenga `ads:view`: la ruta ya lo exige.
+   */
+  async listClicks(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = Math.max(1, Number(query(req, 'page')) || 1);
+      const limit = Math.min(Number(query(req, 'limit')) || 50, 200);
+      const result = await advertisementService.listClicks(param(req, 'id'), {
+        verdict: query(req, 'verdict') as 'billable' | 'rejected' | 'review' | undefined,
+        page,
+        limit,
+      });
+      sendResponse(res, 200, 'Clics de la campaña', { summary: result.summary, clicks: result.clicks }, {
+        page, limit, total: result.total, totalPages: Math.ceil(result.total / limit),
+      });
     } catch (error) { next(error); }
   }
 

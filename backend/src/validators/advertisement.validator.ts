@@ -61,6 +61,8 @@ export const updateAdvertisementSchema = z.object({
 export const adEventSchema = z.object({
   body: z.object({
     deviceId: z.string().trim().min(1, 'Falta el identificador de dispositivo').max(100),
+    /** Un id por anuncio en pantalla: el mismo `clickId` no se cobra dos veces. Solo en clics. */
+    clickId: z.string().trim().min(8).max(64).regex(/^[A-Za-z0-9-]+$/).optional(),
   }),
   query: z.object({}).optional(),
   params: z.object({ id: z.string() }),

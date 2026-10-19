@@ -277,7 +277,9 @@ describe('El umbral se mide sobre lo que el cliente paga en productos', () => {
     const client = await makeUser({ role: UserRole.CLIENT });
     const owner = await makeUser({ role: UserRole.BUSINESS });
     const business = await makeBusiness(owner._id, { lat: GARZON.lat, lng: GARZON.lng });
-    const unit = Math.ceil(PRO_PLAN.benefits.freeDelivery.minSubtotal / 4);
+    // El doble de lo justo para pasar el mínimo: la comisión de 5 unidades tiene
+    // que cubrir el domicilio que regala Pro, o la guarda de margen (M-012) lo quita.
+    const unit = 2 * Math.ceil(PRO_PLAN.benefits.freeDelivery.minSubtotal / 4);
     const product = await makeProduct(business._id, { price: unit });
     await ProSubscription.create({
       userId: client._id,

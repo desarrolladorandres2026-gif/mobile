@@ -30,12 +30,15 @@ export const EDITABLE_PRICING_FIELDS = [
   'maxTipBps',
   'maxRadiusMeters',
   'taxBps',
+  'taxRulesEnabled',
   'couponSubsidyLimit',
   'campaignBudgetTotal',
   'defaultMinimumContributionMargin',
   'cashOnDeliveryEnabled',
   'cashOnDeliveryMaxAmount',
   'maxDriverCashDebt',
+  'driverCancelPayAssignedBps',
+  'driverCancelPayPickedUpBps',
   'gatewayCardBps',
   'gatewayCardFixed',
   'gatewayPseBps',
@@ -47,6 +50,26 @@ export const EDITABLE_PRICING_FIELDS = [
   'gatewayFeeVatBps',
   'gatewayFeeVatBase',
   'gatewayFeeRefundBps',
+  'gatewayRefundFixed',
+  'gatewayChargebackFixed',
+  'gatewayContractRef',
+  'adSelfServiceEnabled',
+  'adBillingEnabled',
+  'adCpcEnabled',
+  'adCpcMinRate',
+  'adCpcMaxRate',
+  'adCpmEnabled',
+  'adCpmMinRate',
+  'adCpmMaxRate',
+  'adMinBudget',
+  'adMaxBudget',
+  'adMinDurationDays',
+  'adMaxDurationDays',
+  'adPlacements',
+  'adClickDedupeWindowMinutes',
+  'adClickImpressionWindowMinutes',
+  'adMaxBillableClicksPerIpPerDay',
+  'adAutoRenewEnabled',
 ] as const;
 
 export type EditablePricingField = (typeof EDITABLE_PRICING_FIELDS)[number];
@@ -245,6 +268,13 @@ export class PricingConfigService {
 
     if (Object.keys(changes).length === 0) {
       throw new AppError('No hay cambios que aplicar', 400);
+    }
+
+    // M-014: las reglas tributarias solo se encienden con los tres conceptos del
+    // checkout validados y vigentes; apagarlas siempre se puede.
+    if (nextValues.taxRulesEnabled === true) {
+      const { taxRuleService } = await import('./taxRule.service');
+      await taxRuleService.assertCanEnableCheckoutRules();
     }
 
     const nextVersion = current.version + 1;

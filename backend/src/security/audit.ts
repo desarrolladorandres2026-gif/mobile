@@ -181,6 +181,18 @@ export enum AuditAction {
   DOCUMENT_REVIEWED = 'document_reviewed',
   PQRS_ANSWERED = 'pqrs_answered',
   PQRS_CREATED = 'pqrs_created',
+  /** Un comercio pidió que ZIPP contacte al cliente de un pedido cerrado (`contact_customer_*`). */
+  CUSTOMER_CONTACT_REQUESTED = 'customer_contact_requested',
+  /** Se creó, editó o borró un borrador de regla tributaria. */
+  TAX_RULE_DRAFTED = 'tax_rule_drafted',
+  /** Una regla tributaria quedó validada (con su documento de respaldo) y empezó a regir. */
+  TAX_RULE_VALIDATED = 'tax_rule_validated',
+  /** Se cerró la revisión del pago de un domiciliario con posible responsabilidad en un reembolso. */
+  DRIVER_PAY_REVIEW_RESOLVED = 'driver_pay_review_resolved',
+  /** El comercio pidió contacto pasado el plazo: queda detenido hasta que ZIPP lo autorice. */
+  CUSTOMER_CONTACT_EXCEPTION_REQUESTED = 'customer_contact_exception_requested',
+  /** Soporte o administración autorizó o negó un contacto fuera de plazo. */
+  CUSTOMER_CONTACT_EXCEPTION_DECIDED = 'customer_contact_exception_decided',
   HELP_ARTICLE_CREATED = 'help_article_created',
   HELP_ARTICLE_UPDATED = 'help_article_updated',
   HELP_ARTICLE_DELETED = 'help_article_deleted',

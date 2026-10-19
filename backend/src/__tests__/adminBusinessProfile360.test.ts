@@ -160,7 +160,9 @@ describe('Ficha 360 del comercio y sus acciones (B5)', () => {
       expect(r2.body.data.changed).toBe(false);
       expect(await AuditLog.countDocuments({ action: AuditAction.BUSINESS_SUSPENSION_SET, entityId: String(business._id) })).toBe(1);
 
-      const r3 = await patch(h, { suspended: false }).expect(200);
+      // Levantar también pide motivo (M-026): la reactivación queda a nombre de quien la autoriza.
+      await patch(h, { suspended: false }).expect(400);
+      const r3 = await patch(h, { suspended: false, reason: 'Subsanó el incumplimiento' }).expect(200);
       expect(r3.body.data).toMatchObject({ isSuspended: false, changed: true });
       const fresh = await Business.findById(business._id).lean();
       expect(fresh!.suspensionReason).toBeNull();
@@ -179,12 +181,13 @@ describe('Ficha 360 del comercio y sus acciones (B5)', () => {
     });
 
     it('403 sin businesses:update_all y con otros roles; 404', async () => {
-      await patch(await staffWith('soporte', VIEW_ONLY), { suspended: false }).expect(403);
+      const lift = { suspended: false, reason: 'Subsanó el incumplimiento' };
+      await patch(await staffWith('soporte', VIEW_ONLY), lift).expect(403);
       for (const u of [await makeUser({ role: UserRole.CLIENT }), owner]) {
-        await patch(await authHeader(u), { suspended: false }).expect(403);
+        await patch(await authHeader(u), lift).expect(403);
       }
       await request(app).patch(`${API}/admin/businesses/64b7f0f0f0f0f0f0f0f0f0f0/suspension`)
-        .set(await staffWith('operaciones', EVERYTHING)).send({ suspended: false }).expect(404);
+        .set(await staffWith('operaciones', EVERYTHING)).send(lift).expect(404);
     });
   });
 

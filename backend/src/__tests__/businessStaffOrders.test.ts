@@ -221,11 +221,63 @@ describe('Pedidos para el personal del comercio', () => {
     expect(listed.clientId.phone).toMatch(/\*/);
     expect(listed.deliveryLocation).toBeUndefined();
 
-    // El dueño sigue viendo todo tal cual.
+    // Decisión 2026-10-17: el dueño tampoco conserva el teléfono ni las
+    // coordenadas del historial; para un pedido pasado está el contacto
+    // intermediado por ZIPP. Lo operativo y lo financiero siguen.
     const ownerRes = await request(app)
       .get(`/api/v1/orders/business/${business._id}?status=delivered`)
       .set(await authHeader(owner));
-    expect(ownerRes.body.data[0].clientId.phone).toBe(client.phone);
+    const ownerListed = ownerRes.body.data[0];
+    expect(ownerListed.clientId.phone).not.toBe(client.phone);
+    expect(ownerListed.clientId.phone).toMatch(/\*/);
+    expect(ownerListed.deliveryLocation).toBeUndefined();
+    expect(ownerListed.deliveryAddress).toBe('Calle 5 # 3-21');
+    expect(ownerListed.finance.businessPayout).toBeDefined();
+
+    // Ocultarlo en la lista no basta: el detalle por id tampoco lo entrega.
+    const ownerDetail = await request(app).get(`/api/v1/orders/${order._id}`).set(await authHeader(owner));
+    expect(ownerDetail.status).toBe(200);
+    expect(ownerDetail.body.data.clientId.phone).toMatch(/\*/);
+    expect(ownerDetail.body.data.deliveryLocation).toBeUndefined();
+
+    // La base conserva el dato: el recorte es de lo que viaja al panel.
+    const stored = await Order.findById(order._id).lean();
+    expect(stored!.deliveryLocation.coordinates).toHaveLength(2);
+  });
+
+  it('el pedido en curso sí lleva el teléfono del cliente a todo el comercio', async () => {
+    await placeOrder();
+    const res = await list(owner);
+    expect(res.body.data[0].clientId.phone).toBe(client.phone);
+    expect(res.body.data[0].deliveryLocation).toBeDefined();
+  });
+
+  it('el propietario ve su comisión y su neto, nunca el margen de ZIPP ni el pago al domiciliario', async () => {
+    const order = await placeOrder();
+    const responses = [
+      (await list(owner)).body.data[0],
+      (await request(app).get(`/api/v1/orders/${order._id}`).set(await authHeader(owner))).body.data,
+      (await request(app).get(`/api/v1/orders/business/${business._id}/scheduled`).set(await authHeader(owner))).body.data[0],
+    ].filter(Boolean);
+    expect(responses.length).toBeGreaterThanOrEqual(2);
+    for (const view of responses) {
+      for (const key of ['deliveryMargin', 'driverDeliveryPayout', 'driverPayout', 'platformGrossRevenue', 'platformPromotionExpense', 'platformNetRevenueBeforeOperatingCosts', 'taxPayable']) {
+        expect(view.finance?.[key]).toBeUndefined();
+      }
+      expect(view.driverPayout).toBeUndefined();
+      expect(view.tax).toBeUndefined();
+      expect(view.dispatch).toBeUndefined();
+      expect(view.finance.merchantCommission).toBeDefined();
+      expect(view.finance.appliedCommissionBps).toBeDefined();
+    }
+  });
+
+  it('un comercio ajeno recibe 404 en el detalle: no distingue ajeno de inexistente', async () => {
+    const order = await placeOrder();
+    const otherOwner = await makeUser({ role: UserRole.BUSINESS });
+    await makeBusiness(otherOwner._id);
+    const res = await request(app).get(`/api/v1/orders/${order._id}`).set(await authHeader(otherOwner));
+    expect(res.status).toBe(404);
   });
 
   it('MEDIO 5: el personal no lee la conversación del cliente con el domiciliario', async () => {

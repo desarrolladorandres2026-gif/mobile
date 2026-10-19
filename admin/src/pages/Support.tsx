@@ -57,6 +57,16 @@ interface Ticket {
  reopenCount?: number;
  resolvedByRequester?: boolean;
  refundRequest?: { status: 'pending' | 'done' | 'rejected'; reason: string; resolutionNote?: string } | null;
+ /** Contacto con el cliente pedido pasado el plazo: detenido hasta que soporte lo autorice o lo niegue. */
+ contactException?: {
+ justification: string;
+ status: 'pending' | 'authorized' | 'denied';
+ orderClosedAt: string;
+ daysSinceClosed: number;
+ decidedBy?: string | { name?: string } | null;
+ decidedAt?: string | null;
+ decisionNote?: string;
+ } | null;
  responses?: Array<{ message: string; from?: 'staff' | 'requester'; createdAt: string }>;
  createdAt: string;
 }
@@ -113,6 +123,11 @@ const REASON_LABEL = {
  panel_issue: 'Falla técnica',
  payment: 'Cobro o liquidación',
  account: 'Cuenta o local',
+ // El comercio pide que ZIPP contacte al cliente de un pedido cerrado. El
+ // número no se le da al comercio: se contacta desde la ficha del cliente.
+ contact_customer_claim: 'Contactar al cliente: reclamo',
+ contact_customer_warranty: 'Contactar al cliente: garantía',
+ contact_customer_clarification: 'Contactar al cliente: aclaración',
 } as const;
 
 const CATEGORY_LABEL = { operational: 'Operativo', technical: 'Técnico y cuenta', financial: 'Financiero' } as const;
@@ -180,6 +195,7 @@ export default function Support() {
  const [limit, setLimit] = useState(PAGE);
  const [metrics, setMetrics] = useState<Metrics | null>(null);
  const [refundReason, setRefundReason] = useState('');
+ const [exceptionNote, setExceptionNote] = useState('');
  const myId = useAuthStore((state) => state.user?._id);
  const [type, setType] = useState('');
  const [category, setCategory] = useState('');
@@ -297,6 +313,13 @@ export default function Support() {
  if (reply.trim().length < 2) throw { response: { data: { message: 'Escribe la respuesta.' } } };
  await api.patch(`/pqrs/${id}/respond`, { message: reply.trim() });
  setReply('');
+ });
+
+ const decideException = (id: string, decision: 'authorize' | 'deny') =>
+ run(async () => {
+ if (exceptionNote.trim().length < 10) throw { response: { data: { message: 'Explica la decisión (mínimo 10 caracteres): queda en la auditoría.' } } };
+ await api.patch(`/pqrs/${id}/contact-exception`, { decision, note: exceptionNote.trim() });
+ setExceptionNote('');
  });
 
  const close = (id: string) =>
@@ -546,6 +569,52 @@ export default function Support() {
  </div>
  </PermissionGate>
  </div>
+
+ {selected.contactException ? (
+ <section className="space-y-2 border-t border-[var(--color-border-light)] pt-4">
+ <h3 className="text-sm font-bold text-[var(--color-text-main)]">Contacto fuera de plazo</h3>
+ <p className="text-xs text-[var(--color-text-main)]">
+ El pedido se cerró hace {selected.contactException.daysSinceClosed} días ({new Date(selected.contactException.orderClosedAt).toLocaleDateString('es-CO')}).
+ Motivo del comercio: {selected.contactException.justification}
+ </p>
+ {selected.contactException.status === 'pending' ? (
+ <PermissionGate permission={Permission.SUPPORT_MANAGE}>
+ <p className="text-xs text-[var(--color-text-main)] opacity-70">
+ Hasta decidir no se puede responder este caso ni contactar al cliente. Autorizar no le da el número al comercio: ZIPP hace de puente.
+ </p>
+ <input
+ value={exceptionNote}
+ onChange={(e) => setExceptionNote(e.target.value)}
+ maxLength={500}
+ placeholder="Por qué se autoriza o se niega"
+ className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
+ />
+ <div className="flex gap-2">
+ <button
+ onClick={() => decideException(selected._id, 'authorize')}
+ disabled={busy}
+ className="cursor-pointer rounded-lg bg-[var(--color-success)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+ >
+ Autorizar contacto
+ </button>
+ <button
+ onClick={() => decideException(selected._id, 'deny')}
+ disabled={busy}
+ className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ >
+ Negar y cerrar
+ </button>
+ </div>
+ </PermissionGate>
+ ) : (
+ <p className="text-xs font-semibold text-[var(--color-text-main)]">
+ {selected.contactException.status === 'authorized' ? 'Autorizado' : 'Negado'}
+ {selected.contactException.decidedAt ? ` el ${new Date(selected.contactException.decidedAt).toLocaleString('es-CO')}` : ''}
+ {selected.contactException.decisionNote ? ` — ${selected.contactException.decisionNote}` : ''}
+ </p>
+ )}
+ </section>
+ ) : null}
 
  {selected.orderId ? (
  <section className="space-y-2 border-t border-[var(--color-border-light)] pt-4">

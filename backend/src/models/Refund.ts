@@ -1,6 +1,6 @@
 import { realtimeInvalidatePlugin } from '../realtime/invalidate';
 import mongoose, { Schema, Document, Types } from 'mongoose';
-import { RefundStatus, RefundKind } from '../types';
+import { RefundStatus, RefundKind, RefundCause } from '../types';
 
 /**
  * Money returned to the customer, in whole or in part.
@@ -31,6 +31,33 @@ export interface IRefund extends Document {
     fromDeliveryMargin: number;
     fromTax: number;
     fromPlatform: number;
+    /**
+     * Pago del domiciliario que este reembolso NO le quita (M-013): sigue
+     * siendo suyo y ZIPP lo asume. `fromDriverPayout + driverRetained` es todo
+     * lo que quedaba de su pago. Ausente en reembolsos anteriores (= 0).
+     */
+    driverRetained?: number;
+  };
+  /** De quién fue el problema. Decide el trato del pago del domiciliario. */
+  cause?: RefundCause;
+  /**
+   * Qué pasó con el pago del domiciliario por este reembolso y quién lo costea.
+   * Separa dos cosas que antes se mezclaban: devolverle el dinero al cliente y
+   * pagarle al domiciliario por el trabajo que hizo.
+   */
+  driverPay?: {
+    /** `kept`: conserva todo su pago · `partial`: conserva una parte · `reversed`: se le retiró · `none`: no aplica (reembolso parcial o sin domiciliario). */
+    policy: 'kept' | 'partial' | 'reversed' | 'none';
+    retained: number;
+    /** Quién paga lo que el domiciliario conserva. Hoy siempre ZIPP; el comercio no se carga sin una regla comercial expresa. */
+    costBearer: 'platform' | 'none';
+    /** Posible responsabilidad del domiciliario: se conserva el pago y un humano decide. */
+    review?: {
+      status: 'pending' | 'kept' | 'escalated';
+      decidedBy?: Types.ObjectId | null;
+      decidedAt?: Date | null;
+      note?: string;
+    } | null;
   };
   transactionId?: string | null;
   /** Client-supplied key so a retried refund never doubles up. */
@@ -63,6 +90,31 @@ const refundSchema = new Schema<IRefund>(
       fromDeliveryMargin: { type: Number, default: 0, min: 0 },
       fromTax: { type: Number, default: 0, min: 0 },
       fromPlatform: { type: Number, default: 0, min: 0 },
+      driverRetained: { type: Number, default: 0, min: 0 },
+    },
+    cause: { type: String, enum: Object.values(RefundCause), default: RefundCause.UNSPECIFIED },
+    driverPay: {
+      type: new Schema(
+        {
+          policy: { type: String, enum: ['kept', 'partial', 'reversed', 'none'], required: true },
+          retained: { type: Number, default: 0, min: 0 },
+          costBearer: { type: String, enum: ['platform', 'none'], default: 'none' },
+          review: {
+            type: new Schema(
+              {
+                status: { type: String, enum: ['pending', 'kept', 'escalated'], required: true },
+                decidedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+                decidedAt: { type: Date, default: null },
+                note: { type: String, maxlength: 500 },
+              },
+              { _id: false }
+            ),
+            default: null,
+          },
+        },
+        { _id: false }
+      ),
+      default: undefined,
     },
     transactionId: { type: String, default: null },
     idempotencyKey: { type: String, unique: true, sparse: true },
@@ -74,6 +126,8 @@ const refundSchema = new Schema<IRefund>(
 
 refundSchema.index({ orderId: 1, createdAt: -1 });
 refundSchema.index({ status: 1 });
+// La cola de revisión del pago del domiciliario.
+refundSchema.index({ 'driverPay.review.status': 1 }, { partialFilterExpression: { 'driverPay.review.status': 'pending' } });
 
 /**
  * Un solo reembolso en curso por pedido.

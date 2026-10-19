@@ -79,6 +79,21 @@ const ALLOWED_NEW_KEYS = new Set([
   'proDeliveryDiscount',
   'proServiceFeeDiscount',
 
+  // ── Guarda de margen de Zipp Pro, M-012 (2026-10-19) ──
+  // Aditivo y `null` salvo cuando un beneficio de Pro se quitó de ese pedido
+  // para que ZIPP no lo pagara a pérdida: entonces explica cuál y por qué. El
+  // total que el cliente paga ya lo incluye; un cliente compilado que no lo
+  // conozca lo ignora y cobra lo mismo.
+  'proBenefitNotice',
+
+  // ── Impuesto por concepto, M-014 (2026-10-19) ──
+  // Aditivos en la cotización: de dónde salió el impuesto (`legacy` mientras las reglas
+  // estén apagadas, que es lo de siempre) y su desglose por concepto (vacío en `legacy`).
+  // `taxPayable`/`total` no cambian de significado; un cliente compilado que no los conozca
+  // los ignora y cobra lo mismo.
+  'taxStatus',
+  'taxBreakdown',
+
   // ── Etiquetas de producto (2026-09-20) ──
   // Aditivo y siempre presente, aunque sea como array vacío mientras el
   // relleno (`scripts/backfillProductTags.ts`) no haya corrido. Un cliente

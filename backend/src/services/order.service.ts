@@ -19,12 +19,13 @@ import {
   PayoutBeneficiary,
   PaymentType,
   ItemShortageStatus,
+  RefundCause,
 } from '../types';
 import { OrderSecurity } from '../security/orderSecurity';
 import { getIO, emitToUser } from '../sockets/emitter';
 import { logSystemAudit, AuditAction, AuditSeverity } from '../security';
 import { notificationService } from './notification.service';
-import { merchantStaffOrderView } from './profileMasking';
+import { merchantOrderView, merchantStaffOrderView } from './profileMasking';
 import { businessStaffService, isInStaffScope } from './businessStaff.service';
 import { isActionableForBusiness, isMerchantVisible, UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 import { pricingService, Quote } from './pricing.service';
@@ -33,7 +34,7 @@ import { ledgerService } from './ledger.service';
 import { payoutService } from './payout.service';
 import { cashReconciliationService } from './cashReconciliation.service';
 import { pricingConfigService } from './pricingConfig.service';
-import { refundService, allocateRefund } from './refund.service';
+import { refundService, allocateRefund, driverCancellationPay } from './refund.service';
 import { errandService } from './errand.service';
 import { orderSecurityService } from './orderSecurity.service';
 import { orderTimelineService, TimelineContext } from './orderTimeline.service';
@@ -108,6 +109,8 @@ interface CreateOrderInput {
   notes?: string;
   couponCode?: string;
   tip?: number;
+  /** El total que el cliente aceptó en el checkout; si el servidor calcula otro, no se cobra en silencio. */
+  expectedTotal?: number;
   idempotencyKey?: string;
   /** Para quién es, si no es para quien paga. */
   recipient?: { name: string; phone: string; note?: string };
@@ -139,6 +142,9 @@ function toFinanceSnapshot(quote: Quote): IOrderFinance {
     platformFundedDiscount: quote.platformFundedDiscount,
     proDeliveryDiscount: quote.proDeliveryDiscount,
     proServiceFeeDiscount: quote.proServiceFeeDiscount,
+    proBenefitSkipped: quote.proBenefitNotice?.skipped ?? [],
+    taxStatus: quote.taxStatus ?? 'legacy',
+    taxBreakdown: quote.taxBreakdown ?? [],
     freeDeliveryDiscount: quote.freeDeliveryDiscount,
     autoPromotionDiscount: quote.promotionDiscount,
     taxPayable: quote.taxPayable,
@@ -475,6 +481,18 @@ export class OrderService {
       suggest: false,
     });
 
+    // El cliente aceptó un total en el checkout. Si el que sale ahora es otro
+    // —cambió una tarifa, un beneficio de Zipp Pro, un stock—, no se le cobra en
+    // silencio: se le dice y decide. Va antes de apartar stock o canjear nada.
+    if (input.expectedTotal !== undefined && input.expectedTotal !== quote.customerTotal) {
+      throw new AppError(
+        'El total de tu pedido cambió. Revísalo y confírmalo de nuevo.',
+        409,
+        'PRICE_CHANGED',
+        { expectedTotal: input.expectedTotal, newTotal: quote.customerTotal, proBenefitNotice: quote.proBenefitNotice ?? null }
+      );
+    }
+
     const finance = toFinanceSnapshot(quote);
 
     // Un pedido en efectivo nace en su propio estado, no en el genérico
@@ -782,14 +800,19 @@ export class OrderService {
     if (!isActionableForBusiness(order)) return false;
 
     const businessId = String((order.businessId as unknown as { _id?: unknown })?._id ?? order.businessId);
-    const business = await Business.findById(businessId).select('ownerId');
+    const business = await Business.findById(businessId).select('ownerId isSuspended isArchived');
     if (!business) return false;
+    // M-026: a un negocio suspendido o archivado no le suena un pedido (p. ej. uno
+    // programado que se activa mientras tanto). Sin aceptarse, el barrido de pedidos
+    // sin aceptar lo cancela y reembolsa; no se queda esperando a quien no puede atenderlo.
+    if (business.isSuspended || business.isArchived) return false;
     const ownerId = business.ownerId.toString();
 
-    // El dueño recibe el pedido entero; el personal (encargado y mostrador,
-    // que no tienen `settlements:view`), sin el pago al domiciliario ni el
-    // margen de ZIPP. Son dos emisiones para poder mandar dos formas
-    // distintas; `except` saca de la segunda a quien ya recibió la primera.
+    // El dueño recibe su capa financiera (comisión y neto); el personal
+    // (encargado y mostrador, que no tienen `settlements:view`), no. Ninguno
+    // recibe el pago al domiciliario ni el margen de ZIPP (2026-10-17). Son
+    // dos emisiones para poder mandar dos formas distintas; `except` saca de
+    // la segunda a quien ya recibió la primera.
     //
     // La sala "del dueño" es `user:<ownerId>:full`, no `user:<ownerId>`:
     // esta última la comparten TODAS las sesiones de esa persona, incluida
@@ -799,7 +822,7 @@ export class OrderService {
     // el pedido sin enmascarar por compartir cuenta con el propietario.
     if (io) {
       const ownerFullRoom = `user:${ownerId}:full`;
-      io.to(ownerFullRoom).emit('order:incoming', order);
+      io.to(ownerFullRoom).emit('order:incoming', merchantOrderView(order, { owner: true }));
       io.to(`business:${businessId}`).except(ownerFullRoom).emit('order:incoming', merchantStaffOrderView(order));
     }
 
@@ -1065,6 +1088,19 @@ export class OrderService {
     const allowedNext = VALID_TRANSITIONS[order.status];
     if (!allowedNext.includes(status)) {
       throw new AppError(`Transición inválida: ${order.status} → ${status}`, 400);
+    }
+
+    // M-026: un negocio suspendido por ZIPP no acepta pedidos nuevos. Lo que ya
+    // aceptó antes de la suspensión sí lo termina: el cliente está esperando.
+    if (userRole === UserRole.BUSINESS && order.status === OrderStatus.PENDING && status === OrderStatus.ACCEPTED && order.businessId) {
+      const standing = await Business.findById(order.businessId).select('isSuspended isArchived').lean();
+      if (standing?.isSuspended || standing?.isArchived) {
+        throw new AppError(
+          'Tu negocio está suspendido por ZIPP: no puedes aceptar pedidos nuevos.',
+          403,
+          'BUSINESS_SUSPENDED'
+        );
+      }
     }
 
     // El comercio no cancela lo que ya salió del local (ver BUSINESS_CANCELLABLE_STATUSES).
@@ -1368,7 +1404,7 @@ export class OrderService {
       // reembolso, con su fila `Refund` FAILED/PENDING (alerta `refund_failed`)
       // para que Finanzas lo reintente desde el panel.
       try {
-        await this.onCancelled(claimed);
+        await this.onCancelled(claimed, previousStatus);
       } catch (err) {
         (claimed.$locals as Record<string, unknown>).cancelSideEffectsFailed = true;
         console.error('[Order] Falló un efecto de la cancelación:', err);
@@ -1887,7 +1923,7 @@ export class OrderService {
    * driver's reserved fund permanently and left revenue recognised for an
    * order that never happened.
    */
-  private async onCancelled(order: IOrder): Promise<void> {
+  private async onCancelled(order: IOrder, previousStatus: OrderStatus = OrderStatus.PENDING): Promise<void> {
     // Lo primero: si cobrado, retener los payouts antes de cualquier paso que
     // pueda fallar y quedar tragado por el catch de `updateStatus`.
     if (order.paymentStatus === PaymentStatus.PAID) await payoutService.hold(order._id);
@@ -1977,6 +2013,30 @@ export class OrderService {
       return;
     }
 
+    // ── M-013: lo que el domiciliario conserva al cancelarse antes de entregar ──
+    //
+    // Cancelar al cliente no es lo mismo que desconocer el trabajo ya hecho. Según
+    // hasta dónde llegó el pedido (asignado / ya recogido) y salvo que cancele el
+    // propio domiciliario, conserva el porcentaje de su tarifa que ZIPP configuró
+    // (hoy 0 = ninguno, como siempre). Lo asume ZIPP. Queda en el pedido y en el
+    // libro, y no cambia nada de lo que se le devuelve al cliente.
+    const compensation = driverCancellationPay(order, previousStatus, await pricingConfigService.getCurrent());
+    if (compensation) {
+      await Order.updateOne(
+        { _id: order._id, driverCancelPay: null },
+        { $set: { driverCancelPay: { ...compensation, previousStatus } } }
+      );
+    }
+    const cancelCause = (
+      {
+        [CancelledBy.BUSINESS]: RefundCause.MERCHANT,
+        [CancelledBy.CLIENT]: RefundCause.CUSTOMER,
+        [CancelledBy.DRIVER]: RefundCause.DRIVER,
+        [CancelledBy.ADMIN]: RefundCause.PLATFORM,
+        [CancelledBy.SYSTEM]: RefundCause.PLATFORM,
+      } as Record<string, RefundCause>
+    )[order.cancelledBy ?? CancelledBy.SYSTEM] ?? RefundCause.UNSPECIFIED;
+
     // El cobro puede entrar entre que se reclamó la cancelación y este punto
     // (el webhook no espera a nadie). Por eso el paso a FAILED se hace antes
     // de deshacer nada y con la condición dentro del filtro: si el pedido ya
@@ -2003,6 +2063,8 @@ export class OrderService {
         reason: order.cancellationReason || 'Pedido cancelado',
         kind: RefundKind.FULL,
         idempotencyKey: `cancel:${order._id}`,
+        cause: cancelCause,
+        driverRetain: compensation?.amount ?? 0,
       });
       return;
     }
@@ -2019,7 +2081,7 @@ export class OrderService {
     const remaining = finance.customerTotal - (await refundService.refundedTotal(order._id));
     if (remaining > 0) {
       const prior = await refundService.allocatedSoFar(order._id);
-      const allocation = allocateRefund(finance, remaining, RefundKind.FULL, prior);
+      const allocation = allocateRefund(finance, remaining, RefundKind.FULL, prior, compensation?.amount ?? 0);
       await refundService.applyReversal(
         order,
         allocation,

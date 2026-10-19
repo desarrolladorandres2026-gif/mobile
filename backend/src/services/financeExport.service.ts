@@ -4,7 +4,7 @@ import { AppError } from '../middlewares';
 import type { CsvColumn } from '../utils';
 import type { DateRange } from '../utils/period';
 import { pricingConfigService } from './pricingConfig.service';
-import { estimateGatewayFee } from '../utils/gatewayFee';
+import { paymentGatewayFee } from '../utils/gatewayFee';
 
 /**
  * Exportes contables para quien lleva los libros de ZIPP.
@@ -135,7 +135,8 @@ export const financeExportService = {
             .sort({ createdAt: 1 })
             .limit(MAX_ROWS + 1)
             .populate('orderId', 'orderNumber')
-            .select('-metadata -statusHistory')
+            // Solo se lee `metadata.gatewayFee`; las columnas se arman campo a campo.
+            .select('-statusHistory')
             .lean()
         );
         const settled = (r: any) => r.status === PaymentStatus.PAID || r.status === PaymentStatus.REFUNDED;
@@ -150,7 +151,8 @@ export const financeExportService = {
             { header: 'Método', value: (r: any) => r.paymentMethodType },
             { header: 'Estado', value: (r: any) => r.status },
             { header: 'Monto', value: (r: any) => r.amount },
-            { header: 'Comisión estimada', value: (r: any) => (settled(r) ? estimateGatewayFee(config, r.paymentMethodType, r.amount) : 0) },
+            { header: 'Comisión estimada', value: (r: any) => (settled(r) ? paymentGatewayFee(r, config).total : 0) },
+            { header: 'Origen de la comisión', value: (r: any) => (settled(r) ? (paymentGatewayFee(r, config).source === 'snapshot' ? 'Guardada al cobrar' : 'Estimada con la tarifa vigente') : '') },
             { header: 'Referencia', value: (r: any) => r.reference },
             { header: 'Transacción', value: (r: any) => r.transactionId },
           ],

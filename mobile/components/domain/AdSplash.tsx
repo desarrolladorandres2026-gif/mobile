@@ -7,6 +7,7 @@ import { Text, Icon } from '../ui';
 import { useTheme } from '../../hooks/useTheme';
 import { adsApi, type ActiveAd } from '../../services/endpoints';
 import { getDeviceId } from '../../lib/deviceId';
+import { newAdClickId } from '../../lib/adClickId';
 import { tap } from '../../lib/haptics';
 import { Spacing, BorderRadius } from '../../theme/tokens';
 
@@ -68,6 +69,9 @@ export function AdSplash({ ad, onDone }: AdSplashProps) {
     [progress]
   );
 
+  // Uno por anuncio mostrado: un doble toque no se cobra dos veces.
+  const clickId = useMemo(() => newAdClickId(), [ad.id]);
+
   const close = () => {
     tap('light');
     finish();
@@ -76,7 +80,7 @@ export function AdSplash({ ad, onDone }: AdSplashProps) {
   const handlePress = () => {
     tap('medium');
     getDeviceId().then((deviceId) => {
-      adsApi.registerClick(ad.id, deviceId).catch(() => {});
+      adsApi.registerClick(ad.id, deviceId, clickId).catch(() => {});
     });
 
     if (ad.actionType === 'business' && ad.businessId) {

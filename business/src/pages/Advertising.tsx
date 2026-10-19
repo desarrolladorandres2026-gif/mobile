@@ -10,8 +10,8 @@ import AdCampaignPanel from '../components/AdCampaignPanel';
 import AdCampaignCard from '../components/AdCampaignCard';
 import { Choice, TemplateLogo } from '../components/promotion/ui';
 import {
-  AD_TEMPLATES, applyAdTemplate, emptyDraft, isCpmOf, phaseOf, spentOf,
-  type AdDraft, type AdStep, type Campaign, type Invoice, type Phase,
+  applyAdTemplate, emptyDraft, isCpmOf, phaseOf, spentOf, templatesFor,
+  type AdDraft, type AdOffer, type AdStep, type Campaign, type Invoice, type Phase,
 } from '../lib/advertising';
 
 /**
@@ -72,6 +72,16 @@ export default function Advertising() {
       };
     },
   });
+  // Lo que ZIPP ofrece hoy (modalidades, rangos, duración). Si no hay oferta,
+  // comprar se explica en vez de abrir un asistente que el servidor rechazaría.
+  const offerQuery = useQuery({
+    queryKey: [...qk.advertising(businessId), 'offer'],
+    enabled: !!businessId,
+    queryFn: async () => (await api.get(`/advertisements/business/${businessId}/offer`)).data.data as AdOffer,
+  });
+  const offer = offerQuery.data;
+  const [blocked, setBlocked] = useState<string[] | null>(null);
+
   const campaigns = useMemo(() => adsQuery.data?.campaigns ?? [], [adsQuery.data]);
   const invoices = useMemo(() => adsQuery.data?.invoices ?? [], [adsQuery.data]);
   const outstanding = adsQuery.data?.outstanding ?? 0;
@@ -99,24 +109,41 @@ export default function Advertising() {
     [queryClient, businessId]
   );
 
+  /** Sin oferta no se abre el asistente: se dice por qué y qué esperar. */
+  const usableOffer = (): AdOffer | null => {
+    if (offer?.available) { setBlocked(null); return offer; }
+    setBlocked(offer?.reasons?.length ? offer.reasons : ['No pudimos consultar la oferta de publicidad. Inténtalo de nuevo en un momento.']);
+    if (!offer) void offerQuery.refetch();
+    return null;
+  };
+
   const startCreate = (templateId?: string) => {
-    const template = AD_TEMPLATES.find((t) => t.id === templateId);
+    const current = usableOffer();
+    if (!current) return;
+    const template = templatesFor(current).find((t) => t.id === templateId);
     setCorrecting(false);
-    setDraft(template ? applyAdTemplate(template) : emptyDraft());
+    setDraft(template ? applyAdTemplate(template, current) : emptyDraft(current));
     // Con la idea ya elegida desde el estado vacío, el asistente salta al anuncio.
     setInitialStep(template ? 'ad' : 'idea');
   };
   const startCorrect = (c: Campaign) => {
+    const current = usableOffer();
+    if (!current) return;
+    const base = emptyDraft(current);
+    // La modalidad de la campaña rechazada puede ya no estar disponible: se
+    // conserva solo si sigue habilitada; las cifras fuera de rango las marca
+    // el paso de inversión, no se corrigen en silencio.
+    const model = isCpmOf(c) ? 'cpm' : 'cpc';
     setCorrecting(true);
     setInitialStep('ad');
     setDraft({
-      ...emptyDraft(),
+      ...base,
       campaignName: c.campaignName,
       flyerUrl: c.flyerUrl,
-      pricingModel: isCpmOf(c) ? 'cpm' : 'cpc',
-      cpmRate: c.cpmRate || 2000,
-      cpcRate: c.cpcRate || 500,
-      budget: c.budget || 100000,
+      pricingModel: current.models[model]?.enabled ? model : base.pricingModel,
+      cpmRate: c.cpmRate || base.cpmRate,
+      cpcRate: c.cpcRate || base.cpcRate,
+      budget: c.budget || base.budget,
     });
   };
 
@@ -140,6 +167,18 @@ export default function Advertising() {
           Nueva campaña
         </button>
       </div>
+
+      {blocked ? (
+        <div role="status" className="flex items-start gap-2 border-l-2 border-[var(--color-warning)] py-0.5 pl-3">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning)]" />
+          <div className="space-y-0.5">
+            <p className="text-xs font-semibold text-[var(--color-text-main)]">Todavía no puedes comprar publicidad</p>
+            {blocked.map((reason) => (
+              <p key={reason} className="text-xs text-[var(--color-text-secondary)]">{reason}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {adsQuery.isError ? (
         <div role="alert" className="flex items-start gap-2 border-l-2 border-[var(--color-danger)] py-0.5 pl-3">
@@ -190,7 +229,7 @@ export default function Advertising() {
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {AD_TEMPLATES.map((template) => (
+            {(offer ? templatesFor(offer) : []).map((template) => (
               <Choice key={template.id} selected={false} onClick={() => startCreate(template.id)}>
                 <TemplateLogo name={template.logo} size={48} />
                 <span className="text-sm font-semibold">{template.title}</span>
@@ -244,9 +283,10 @@ export default function Advertising() {
         </p>
       ) : null}
 
-      {draft && businessId ? (
+      {draft && businessId && offer ? (
         <AdCampaignPanel
           businessId={businessId}
+          offer={offer}
           initial={draft}
           correcting={correcting}
           initialStep={initialStep}

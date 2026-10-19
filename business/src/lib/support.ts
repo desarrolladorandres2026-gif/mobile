@@ -23,6 +23,7 @@ export type Reason =
   | 'order_payment_cancel' | 'settlement_difference' | 'wrong_commission' | 'unidentified_payment'
   | 'cancelled_order_adjustment' | 'refund_question'
   | 'panel_issue' | 'account'
+  | 'contact_customer_claim' | 'contact_customer_warranty' | 'contact_customer_clarification'
   // Anterior a los motivos financieros específicos: ya no se ofrece, pero hay casos guardados con él.
   | 'payment';
 
@@ -83,6 +84,11 @@ export interface ReasonOption {
   needsOrder: boolean;
   /** Ofrece escoger una liquidación del local. */
   settlement?: boolean;
+  /**
+   * Contacto intermediado con el cliente de un pedido cerrado. Solo se ofrece
+   * con `customers:contact`; el servidor lo vuelve a exigir.
+   */
+  contact?: boolean;
 }
 
 /**
@@ -105,7 +111,15 @@ export const REASONS: ReasonOption[] = [
   { key: 'refund_question', category: 'financial', label: 'Duda sobre un reembolso', short: 'Duda sobre reembolso', hint: 'Qué quieres saber del reembolso de este pedido.', needsOrder: true },
   { key: 'panel_issue', category: 'technical', label: 'Algo falla en el panel o la app', short: 'Falla técnica', hint: 'Qué pantalla, qué hacías y qué mensaje apareció.', needsOrder: false },
   { key: 'account', category: 'technical', label: 'Mi cuenta o mi local', short: 'Cuenta o local', hint: 'Qué intentas hacer y qué te lo impide.', needsOrder: false },
+  // ZIPP habla con el cliente de un pedido ya entregado o cancelado: el
+  // historial no guarda su número para el local (decisión 2026-10-17).
+  { key: 'contact_customer_claim', category: 'operational', label: 'Atender un reclamo del cliente', short: 'Contactar al cliente: reclamo', hint: 'Qué reclamó el cliente y qué le quieres proponer. ZIPP se lo transmite.', needsOrder: true, contact: true },
+  { key: 'contact_customer_warranty', category: 'operational', label: 'Una garantía de un producto', short: 'Contactar al cliente: garantía', hint: 'Qué producto, qué falla y cómo la resolverías (cambio, devolución, visita).', needsOrder: true, contact: true },
+  { key: 'contact_customer_clarification', category: 'operational', label: 'Aclarar algo del pedido con el cliente', short: 'Contactar al cliente: aclaración', hint: 'Qué necesitas aclarar y qué le debemos preguntar.', needsOrder: true, contact: true },
 ];
+
+/** Título del grupo de contacto en el formulario. */
+export const CONTACT_GROUP_LABEL = 'Hablar con un cliente por medio de ZIPP';
 
 /** Para nombrar casos que ya no se ofrecen (`payment`) o que se abrieron eligiendo el tipo. */
 export function reasonLabel(ticket: Pick<Ticket, 'reason' | 'type'>): string {

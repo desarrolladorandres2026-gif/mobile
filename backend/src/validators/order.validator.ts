@@ -52,6 +52,14 @@ const orderItemSchema = z.object({
 const moneyExtras = {
   couponCode: z.string().trim().max(24).optional(),
   tip: z.number().min(0).optional(),
+  /**
+   * El total que el cliente vio y aceptó en el checkout. Si al crear el pedido
+   * el servidor calcula otro (cambió una tarifa, un beneficio o un stock), no se
+   * cobra otro importe en silencio: responde 409 `PRICE_CHANGED` con el nuevo
+   * total para que el cliente lo acepte. Opcional por compatibilidad con
+   * versiones de la app que todavía no lo mandan.
+   */
+  expectedTotal: z.number().int().min(0).optional(),
 
   /**
    * Para quién es el pedido, si no es para quien lo paga.

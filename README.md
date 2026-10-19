@@ -262,6 +262,83 @@ total = subtotal + envío + impuestos + propina − descuento
   interruptor `pro_subscriptions_open` (Interruptores en administración). El
   tope mensual de envíos gratis sigue sin decidirse; la simulación está en
   `GET /admin/growth/pro/simulation`.
+- **Zipp Pro no puede dejar un pedido en pérdida (M-012, 2026-10-19).**
+  `settleDiscounts` mide el margen del pedido —comisión + tarifa de servicio +
+  margen de domicilio − lo que regala ZIPP − la comisión estimada de la
+  pasarela— y, si con el trato completo queda por debajo de 0
+  (`PRO_MIN_ORDER_MARGIN`), busca una versión más chica del mismo trato (sin la
+  tarifa de servicio perdonada, o sin el envío gratis, la que más ahorre al
+  cliente y deje margen); si ninguna cabe, el pedido sale sin beneficio de Pro.
+  La cotización lo dice en `proBenefitNotice` (la app lo muestra antes de
+  confirmar) y el pedido guarda `finance.proBenefitSkipped`. Un pedido ya creado
+  nunca se recalcula, y `expectedTotal` en `POST /orders` (el total que el
+  cliente vio) hace que un total distinto responda `409 PRICE_CHANGED` con el
+  total nuevo en vez de cobrarse en silencio. La cuota mensual de la membresía
+  es un ingreso aparte: no se reparte entre pedidos.
+
+### Reembolsos y el pago del domiciliario (M-013)
+
+Devolverle el dinero al cliente no es desconocer el trabajo del domiciliario.
+
+- **Entregado + reembolso total**: el domiciliario conserva TODO su pago
+  (tarifa y propina), sin importar si ya se liquidó, y lo asume ZIPP
+  (`DRIVER_FEE_ABSORBED_EXPENSE`). Antes dependía del día en que se emitiera el
+  reembolso. Si la causa es suya (`cause: 'driver'`) tampoco se le retira solo:
+  conserva el pago y el reembolso queda en la cola de revisión
+  (`GET /payments/refunds?driverReview=pending`); `PATCH
+  /payments/refunds/:id/driver-review` la cierra (`keep` o `escalate`) con
+  motivo. Esa decisión no mueve dinero: a un domiciliario no se le arrastra
+  deuda por una tarifa ya ganada (decisión vigente).
+- **Reembolso parcial**: nunca toca al domiciliario.
+- **Cancelación antes de entregar**: según hasta dónde llegó el pedido (asignado /
+  recogido o en camino) y salvo que cancele el propio domiciliario, conserva el
+  porcentaje de su tarifa que ZIPP configure en `driverCancelPayAssignedBps` /
+  `driverCancelPayPickedUpBps`. Ambos nacen en 0 (la regla de siempre): las cifras
+  las decide el negocio. Queda en `order.driverCancelPay`.
+- Cada `Refund` guarda `cause` y `driverPay` (política, monto conservado, quién
+  lo asume y la revisión). El comercio no se carga con el pago del domiciliario:
+  sería una regla comercial nueva que nadie ha decidido.
+
+### Impuestos por concepto (M-014)
+
+Había una tasa global (`taxBps`) aplicada por igual a productos, domicilio y tarifa
+de servicio. Ahora cada concepto —productos, domicilio, tarifa de servicio,
+comisión, publicidad, suscripción Pro, otros— tiene sus reglas (`TaxRule`,
+[taxRule.service.ts](backend/src/services/taxRule.service.ts)): tratamiento,
+tarifa, base, si el impuesto va encima o incluido, condiciones y vigencia.
+
+- **Ninguna tarifa viene de fábrica.** Una regla nace en borrador y no se usa
+  para nada hasta que alguien con `finance:manage` la **valida** con el documento
+  que la respalda (`validationRef`). No se valida hacia el pasado y una regla
+  validada no se edita: se publica otra con su fecha de inicio y la anterior
+  termina ese instante. Sin regla, el concepto es «pendiente» y el impuesto no se
+  calcula ni se presenta como definitivo.
+- **Checkout**: `taxRulesEnabled` (apagado de fábrica) calcula el impuesto con la
+  regla de cada concepto; el servidor no deja encenderlo si falta alguna de las tres
+  del checkout. Cada pedido guarda `finance.taxStatus` (`definitive` / `legacy` /
+  `provisional`) y `finance.taxBreakdown`; un faltante se recalcula con las tarifas
+  con que se cobró, no con las de hoy.
+- **Publicidad**: la factura informa cuánto del precio es impuesto; no cambia lo
+  que se cobra. Comisión, suscripción Pro y otros: solo la regla, sin integración.
+- **No hay facturación electrónica**: los comprobantes `INT-` son internos.
+  `GET /finance/config/readiness` y la pantalla *Impuestos* listan, concepto por
+  concepto, lo que el responsable contable debe validar antes de habilitarla.
+
+### Costo de Wompi (M-005 / M-006)
+
+- Una sola fórmula ([gatewayFee.ts](backend/src/utils/gatewayFee.ts)): porcentaje +
+  fijo por método, IVA sobre la comisión, y costo por reembolso/anulación y por
+  contracargo. **Ninguna tarifa viene inventada**: todas nacen en 0.
+- La comisión se calcula una vez al cobrar y se guarda con el pago
+  (`metadata.gatewayFee`); los informes la leen de ahí. Cambiar las tarifas no
+  reescribe cobros históricos; los anteriores a este registro se siguen estimando y
+  el informe lo marca (`feeSource: 'estimate'`).
+- Al reembolsar, se ajusta sobre la comisión YA asentada: lo que Wompi devuelve
+  (`gatewayFeeRefundBps`; sin definir = nada) en proporción a lo reembolsado, y el
+  costo de la operación. Solo gasto de ZIPP: no toca al comercio, al domiciliario
+  ni al impuesto. Idempotente por reembolso.
+- `gatewayContractRef` es el documento que respalda las tarifas. Vacío = sin
+  verificar: el panel lo dice. `GET /finance/config/readiness` enseña qué falta.
 
 ---
 
@@ -698,6 +775,44 @@ camino de fallo.
 
 Nada más cambia: ni la lógica de negocio, ni los controladores, ni la app.
 
+### Publicidad: oferta y antifraude
+
+- Valores de lanzamiento (2026-10-19, `AD_LAUNCH_OFFER`): CPC $100–$1.000, tope
+  por campaña $10.000–$500.000, 1–30 días. Se cambian en *Tarifas y Precios* sin
+  tocar código; los interruptores nacen apagados.
+- Ubicaciones que existen de verdad: `splash` (al abrir la app) y `explore`
+  (feed de descubrimiento). Resultados de búsqueda y listado de negocios **no son
+  una superficie publicitaria todavía** y no se ofrecen. El lanzamiento usa `explore`.
+- Un clic se cobra si: es el primero del dispositivo —y de la cuenta— en la
+  ventana (1.440 min, día de Colombia), ese dispositivo vio la campaña en los
+  últimos 30 min, no llegó antes de 500 ms ni con agente de automatización, el cupo
+  diario de la **red** (10; reservado de forma atómica, `AdNetworkQuota`) no está
+  lleno y queda presupuesto. La IP nunca es la identidad: solo limita cuántos
+  clics cobrables caben desde ella. Cada clic deja en `AdClick` su veredicto,
+  señales, retraso y versión de configuración; los sospechosos (`review`) no se
+  cobran y se investigan en `GET /advertisements/:id/clicks`.
+
+### Datos del cliente en el historial del comercio
+
+Pasados `CUSTOMER_CONTACT_WINDOW_DAYS` (7) días calendario desde la entrega o
+cancelación, el historial deja de mostrar la dirección y reduce el nombre
+(`personalDataProtected`), y pedir contacto con el cliente es una excepción: lleva
+justificación y queda detenida hasta que soporte o administración la autorice o la
+niegue (`PATCH /pqrs/:id/contact-exception`). Nunca se rechaza sin salida: una
+garantía puede vencer después. La base conserva todo.
+
+### Cierre, suspensión y desactivación de un negocio (M-026)
+
+Tres cosas distintas sobre estados que ya existían: el **cierre voluntario**
+(`isActive` + `reopenAt`, del dueño), la **suspensión de ZIPP** (`isSuspended`) y la
+**desactivación definitiva** (`isArchived`). La suspensión prevalece sobre el
+interruptor del dueño en todos los puntos de entrada: ni el dueño, ni el personal,
+ni un administrador por «abrir» la levantan; solo el procedimiento de suspensión,
+con motivo, a nombre de quien lo autoriza (`adminStatusLog`). Un negocio suspendido
+no recibe, anuncia ni acepta pedidos nuevos (lo ya aceptado sí lo termina) y su
+cierre temporal no se reabre solo. Desactivar desde los términos comerciales es
+suspender. Restaurar un archivado exige motivo y lo deja cerrado.
+
 ---
 
 ## Variables de entorno
@@ -786,6 +901,11 @@ una capa entre el editor y el recambio en caliente.
 - Roles y permisos (RBAC), auditoría y detección de fraude.
 - Helmet, CORS con lista blanca, sanitización NoSQL, protección HPP y límites
   de peticiones.
+- Content-Security-Policy de los paneles de administración y de comercios, en
+  modo **solo-informe** (`deploy/nginx/csp-*.conf`). Las infracciones llegan a
+  `POST /api/v1/csp-report` y se leen en `GET /api/v1/security/csp-violations`.
+  Pasar a bloqueo exige recorrer cada panel en un navegador con el dominio real: los
+  pasos están en cada archivo.
 
 **Nunca subas `.env` al repositorio.** El [.gitignore](.gitignore) raíz lo
 excluye.

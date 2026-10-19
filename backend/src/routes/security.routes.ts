@@ -18,6 +18,19 @@ router.get(
   (req, res, next) => securityController.getSecurityDashboard(req, res, next)
 );
 
+// ── Infracciones de la CSP de los paneles (M-025) ──
+router.get(
+  '/csp-violations',
+  requirePermission(Permission.SECURITY_VIEW),
+  async (req, res, next) => {
+    try {
+      const { cspReportService } = await import('../services/cspReport.service');
+      const origin = typeof req.query.documentOrigin === 'string' ? req.query.documentOrigin : undefined;
+      res.json({ success: true, message: 'Infracciones de la CSP', data: await cspReportService.list({ documentOrigin: origin }) });
+    } catch (error) { next(error); }
+  }
+);
+
 // ── Audit Logs ──
 router.get(
   '/audit-logs',

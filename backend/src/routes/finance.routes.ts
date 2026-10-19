@@ -21,6 +21,11 @@ import {
   collectAdInvoiceSchema,
   collectClawbackSchema,
   writeOffClawbackSchema,
+  createTaxRuleSchema,
+  updateTaxRuleSchema,
+  validateTaxRuleSchema,
+  taxRuleIdSchema,
+  listTaxRulesSchema,
 } from '../validators/finance.validator';
 import { adminBusinessTermsSchema } from '../validators/business.validator';
 import { UserRole } from '../types';
@@ -33,6 +38,26 @@ router.use(authenticate, authorize(UserRole.ADMIN));
 
 // ── Lectura: finance:view ──
 router.get('/config', requirePermission(Permission.FINANCE_VIEW), (req, res, next) => financeController.getConfig(req, res, next));
+// Lo que falta para dar las cifras por definitivas: tarifas de Wompi y reglas tributarias.
+router.get('/config/readiness', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
+  financeController.readiness(req, res, next)
+);
+router.get('/tax-rules', requirePermission(Permission.FINANCE_VIEW), validate(listTaxRulesSchema), (req, res, next) =>
+  financeController.listTaxRules(req, res, next)
+);
+// Escribir y, sobre todo, validar una regla tributaria cambia lo que se cobra: finance:manage.
+router.post('/tax-rules', requirePermission(Permission.FINANCE_MANAGE), validate(createTaxRuleSchema), (req, res, next) =>
+  financeController.createTaxRule(req, res, next)
+);
+router.patch('/tax-rules/:id', requirePermission(Permission.FINANCE_MANAGE), validate(updateTaxRuleSchema), (req, res, next) =>
+  financeController.updateTaxRule(req, res, next)
+);
+router.delete('/tax-rules/:id', requirePermission(Permission.FINANCE_MANAGE), validate(taxRuleIdSchema), (req, res, next) =>
+  financeController.removeTaxRule(req, res, next)
+);
+router.post('/tax-rules/:id/validate', requirePermission(Permission.FINANCE_MANAGE), validate(validateTaxRuleSchema), (req, res, next) =>
+  financeController.validateTaxRule(req, res, next)
+);
 router.get('/config/versions', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
   financeController.listConfigVersions(req, res, next)
 );

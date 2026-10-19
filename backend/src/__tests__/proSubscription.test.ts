@@ -81,9 +81,11 @@ describe('El trato de Zipp Pro en el precio', () => {
     client = await makeUser({ role: UserRole.CLIENT });
     const owner = await makeUser({ role: UserRole.BUSINESS });
     business = await makeBusiness(owner._id, { lat: GARZON.lat, lng: GARZON.lng });
-    // Precio por unidad tal que 5 unidades superen el mínimo del plan y 1 no.
+    // Precio por unidad tal que 5 unidades superen el mínimo del plan y 1 no, y
+    // que la comisión (10 %) de esas 5 cubra el domicilio que paga ZIPP: la
+    // guarda de margen (M-012) quita el beneficio si el pedido sale en pérdida.
     product = await makeProduct(business._id, {
-      price: Math.max(1000, Math.ceil(PRO_PLAN.benefits.freeDelivery.minSubtotal / 4)),
+      price: Math.max(1000, 2 * Math.ceil(PRO_PLAN.benefits.freeDelivery.minSubtotal / 4)),
     });
   });
 

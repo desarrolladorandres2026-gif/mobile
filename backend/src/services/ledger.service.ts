@@ -254,6 +254,64 @@ export class LedgerService {
   }
 
   /**
+   * Ajusta la comisión de la pasarela por una operación posterior al cobro
+   * (M-005): lo que Wompi devuelve de su comisión al reembolsar y/o lo que cobra
+   * por la propia operación.
+   *
+   * Solo toca dos cuentas, las mismas del cobro (`PAYMENT_PROCESSING_EXPENSE` y
+   * `GATEWAY_WITHHELD`), y nunca ingresos ni pasivos con terceros: el costo de la
+   * pasarela es un gasto de ZIPP, no del comercio ni del domiciliario ni un
+   * ingreso. La referencia hace el asiento idempotente (un reembolso reintentado
+   * no lo duplica).
+   */
+  async recordGatewayFeeAdjustment(params: {
+    orderId: string | Types.ObjectId;
+    pricingConfigVersion: number;
+    reference: string;
+    currency?: string;
+    /** Parte de la comisión original que la pasarela devuelve: baja el gasto. */
+    returned: number;
+    /** Costo de la operación (con IVA): sube el gasto. */
+    operationCost: number;
+  }) {
+    return this.post(
+      {
+        orderId: params.orderId,
+        event: LedgerEventType.GATEWAY_FEE_ADJUSTED,
+        pricingConfigVersion: params.pricingConfigVersion,
+        reference: params.reference,
+        currency: params.currency,
+      },
+      [
+        {
+          account: LedgerAccount.GATEWAY_WITHHELD,
+          direction: LedgerDirection.DEBIT,
+          amount: params.returned,
+          memo: 'Comisión que la pasarela devuelve al reembolsar',
+        },
+        {
+          account: LedgerAccount.PAYMENT_PROCESSING_EXPENSE,
+          direction: LedgerDirection.CREDIT,
+          amount: params.returned,
+          memo: 'Menor gasto de pasarela por la comisión devuelta',
+        },
+        {
+          account: LedgerAccount.PAYMENT_PROCESSING_EXPENSE,
+          direction: LedgerDirection.DEBIT,
+          amount: params.operationCost,
+          memo: 'Costo de la pasarela por el reembolso, la anulación o el contracargo',
+        },
+        {
+          account: LedgerAccount.GATEWAY_WITHHELD,
+          direction: LedgerDirection.CREDIT,
+          amount: params.operationCost,
+          memo: 'Retenido por la pasarela al desembolsar',
+        },
+      ]
+    );
+  }
+
+  /**
    * Settles a cash delivery at the door.
    *
    * The driver collects the customer's whole total, but most of it is
@@ -610,6 +668,13 @@ export class LedgerService {
        * devolvérselo tiene que salir de la única cuenta donde estaba.
        */
       fromErrandAdvance?: number;
+      /**
+       * Pago del domiciliario que NO se revierte (M-013): su cuenta por pagar se
+       * queda como está y ZIPP lo asume como gasto. Sin esta línea el lote no
+       * cuadraría: el dinero que se le devuelve al cliente incluye lo que el
+       * domiciliario conserva, y alguien tiene que ponerlo.
+       */
+      driverRetained?: number;
     };
     /** Total returned to (or clawed back from) the customer. */
     customerAmount: number;
@@ -672,6 +737,12 @@ export class LedgerService {
         direction: LedgerDirection.CREDIT,
         amount: a.fromPlatform,
         memo: 'Reversión de gasto promocional',
+      },
+      {
+        account: LedgerAccount.DRIVER_FEE_ABSORBED_EXPENSE,
+        direction: LedgerDirection.DEBIT,
+        amount: a.driverRetained ?? 0,
+        memo: 'Pago del domiciliario que se conserva tras el reembolso o la cancelación, asumido por ZIPP',
       },
     ];
 

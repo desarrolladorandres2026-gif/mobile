@@ -6,7 +6,7 @@ import { FraudAlert, FraudAlertType } from '../security';
 import { PRO_PLAN } from '../config/pro';
 import { OrderStatus, PaymentStatus, PaymentType } from '../types';
 import { pricingConfigService } from './pricingConfig.service';
-import { estimateGatewayFee } from '../utils/gatewayFee';
+import { estimateGatewayFee, paymentGatewayFee } from '../utils/gatewayFee';
 
 /**
  * Lecturas de Crecimiento para el panel: referidos y Zipp Pro.
@@ -156,7 +156,7 @@ export class AdminGrowthService {
           { processedAt: null, createdAt: { $gte: since } },
         ],
       })
-        .select('amount paymentMethodType')
+        .select('amount paymentMethodType metadata.gatewayFee')
         .limit(20_000)
         .lean(),
       Order.aggregate([
@@ -186,7 +186,7 @@ export class AdminGrowthService {
     ]);
 
     const collected = payments.reduce((s, p) => s + p.amount, 0);
-    const gatewayFee = payments.reduce((s, p) => s + estimateGatewayFee(cfg, p.paymentMethodType, p.amount), 0);
+    const gatewayFee = payments.reduce((s, p) => s + paymentGatewayFee(p as never, cfg).total, 0);
     const b = benefits[0] ?? { delivery: 0, serviceFee: 0, ordersWithBenefit: 0, ordersWithoutData: 0 };
     const benefitsCost = b.delivery + b.serviceFee;
     const gatewayFeeConfigured = estimateGatewayFee(cfg, 'CARD', 100_000) > 0;

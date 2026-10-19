@@ -1630,12 +1630,22 @@ export class PaymentService {
     const { payoutService } = await import('../payout.service');
 
     const { pricingConfigService } = await import('../pricingConfig.service');
-    const { estimateGatewayFee } = await import('../../utils/gatewayFee');
-    const processingFee = estimateGatewayFee(
+    const { gatewayFeeSnapshot } = await import('../../utils/gatewayFee');
+    // La comisión se calcula UNA vez, con la tarifa vigente al cobrar, y se guarda
+    // con el propio cobro: cambiar la tarifa mañana no reescribe este cobro (M-006).
+    const fee = gatewayFeeSnapshot(
       await pricingConfigService.getCurrent(),
       payment.paymentMethodType,
       payment.amount
     );
+    const stored = (payment.metadata as Record<string, any> | undefined)?.gatewayFee;
+    const processingFee = typeof stored?.total === 'number' ? stored.total : fee.total;
+    if (typeof stored?.total !== 'number') {
+      await Payment.updateOne(
+        { _id: payment._id, 'metadata.gatewayFee': { $exists: false } },
+        { $set: { 'metadata.gatewayFee': fee } }
+      );
+    }
 
     await ledgerService.recordPaymentCaptured({
       orderId: order._id,

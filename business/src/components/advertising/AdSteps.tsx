@@ -1,11 +1,13 @@
-import { ImageOff, Pencil } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { ImageOff, Pencil, Upload } from 'lucide-react';
+import api from '../../services/api';
+import { apiMessage } from '../../lib/apiError';
 import DateRangeField from '../DateRangeField';
 import { AmountPicker, Chip, Choice, Field, inputClass, StepHeading, TemplateLogo } from '../promotion/ui';
 import { money } from '../../lib/orderFlow';
 import {
-  AD_BUDGET_PRESETS, AD_DURATIONS, AD_TEMPLATES, CPC_PRESETS, CPM_PRESETS,
-  addDays, adSummary, dayDiff, isFlyerUrl, reachOf, rateOf,
-  type AdDraft, type AdTemplate,
+  addDays, adSummary, budgetPresets, dayDiff, durationsFor, isFlyerUrl, offeredModels, ratePresets, reachOf, rateOf,
+  templatesFor, type AdDraft, type AdOffer, type AdTemplate,
 } from '../../lib/advertising';
 
 /**
@@ -22,7 +24,7 @@ interface StepProps {
 const dayEs = (day: string) =>
   day ? new Date(`${day}T00:00:00`).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : '';
 
-export function AdIdeaStep({ onPick }: { onPick: (template: AdTemplate) => void }) {
+export function AdIdeaStep({ onPick, offer }: { onPick: (template: AdTemplate) => void; offer: AdOffer }) {
   return (
     <div className="space-y-5">
       <StepHeading
@@ -30,7 +32,7 @@ export function AdIdeaStep({ onPick }: { onPick: (template: AdTemplate) => void 
         hint="Elige una idea de partida. Después ajustas lo que quieras: nada queda fijo."
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {AD_TEMPLATES.map((template) => (
+        {templatesFor(offer).map((template) => (
           <Choice key={template.id} selected={false} onClick={() => onPick(template)}>
             <TemplateLogo name={template.logo} size={48} />
             <span className="text-sm font-semibold">{template.title}</span>
@@ -42,7 +44,34 @@ export function AdIdeaStep({ onPick }: { onPick: (template: AdTemplate) => void 
   );
 }
 
-export function AdCreativeStep({ draft, patch, onFlyerChange }: StepProps & { onFlyerChange: () => void }) {
+export function AdCreativeStep({ draft, patch, onFlyerChange, businessId }: StepProps & { onFlyerChange: () => void; businessId: string }) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+
+  // El flyer se sube a Zipp, no se enlaza: así lo que se revisa es lo que sale
+  // en la app, y nadie fuera de Zipp ve quién lo abre.
+  const upload = async (file: File | undefined) => {
+    if (fileInput.current) fileInput.current.value = '';
+    if (!file) return;
+    try {
+      setBusy(true);
+      setUploadError('');
+      const form = new FormData();
+      form.append('flyer', file, file.name);
+      // `Content-Type` explícito en `undefined`: ver BusinessImageField.
+      const { data } = await api.post(`/advertisements/business/${businessId}/flyer`, form, {
+        headers: { 'Content-Type': undefined },
+      });
+      patch({ flyerUrl: data.data?.url ?? '' });
+      onFlyerChange();
+    } catch (err) {
+      setUploadError(apiMessage(err, 'No se pudo subir el flyer.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <StepHeading
@@ -59,13 +88,24 @@ export function AdCreativeStep({ draft, patch, onFlyerChange }: StepProps & { on
             className={inputClass}
           />
         </Field>
-        <Field label="Enlace del flyer" hint="Imagen vertical, con letra grande: se ve en celular">
+        <Field label="Flyer" hint="Imagen vertical, con letra grande: se ve en celular. JPG, PNG o WEBP">
           <input
-            value={draft.flyerUrl}
-            onChange={(e) => { patch({ flyerUrl: e.target.value }); onFlyerChange(); }}
-            placeholder="https://…"
-            className={inputClass}
+            ref={fileInput}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => upload(e.target.files?.[0])}
           />
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            disabled={busy}
+            className="inline-flex h-9 cursor-pointer items-center gap-2 text-sm font-semibold text-[var(--color-primary)] disabled:opacity-60"
+          >
+            <Upload className="h-4 w-4" />
+            {busy ? 'Subiendo…' : isFlyerUrl(draft.flyerUrl) ? 'Cambiar imagen' : 'Subir imagen'}
+          </button>
+          {uploadError && <p className="text-xs font-semibold text-[var(--color-danger)]">{uploadError}</p>}
         </Field>
       </div>
       <ul className="space-y-1 text-xs text-[var(--color-text-secondary)]">
@@ -77,7 +117,7 @@ export function AdCreativeStep({ draft, patch, onFlyerChange }: StepProps & { on
   );
 }
 
-export function AdWhenStep({ draft, patch }: StepProps) {
+export function AdWhenStep({ draft, patch, offer }: StepProps & { offer: AdOffer }) {
   const length = draft.startDate && draft.endDate ? dayDiff(draft.startDate, draft.endDate) : 0;
   return (
     <div className="space-y-6">
@@ -88,7 +128,7 @@ export function AdWhenStep({ draft, patch }: StepProps) {
       <div className="space-y-3">
         <p className="text-xs font-semibold text-[var(--color-text-main)]">Duración</p>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Duración rápida">
-          {AD_DURATIONS.map(({ days, label }) => (
+          {durationsFor(offer).map(({ days, label }) => (
             <Chip
               key={days}
               active={length === days}
@@ -109,14 +149,19 @@ export function AdWhenStep({ draft, patch }: StepProps) {
             {length} {length === 1 ? 'día' : 'días'} en pantalla, o menos si llega antes al tope.
           </p>
         )}
+        <p className="text-xs text-[var(--color-text-secondary)]">
+          Una campaña dura entre {offer.durationDays.min} y {offer.durationDays.max} días. No se renueva sola.
+        </p>
       </div>
     </div>
   );
 }
 
-export function AdBudgetStep({ draft, patch }: StepProps) {
+export function AdBudgetStep({ draft, patch, offer }: StepProps & { offer: AdOffer }) {
   const isCpm = draft.pricingModel === 'cpm';
   const reach = reachOf(draft);
+  const models = offeredModels(offer);
+  const range = offer.models[draft.pricingModel];
   return (
     <div className="space-y-6">
       <StepHeading
@@ -124,30 +169,41 @@ export function AdBudgetStep({ draft, patch }: StepProps) {
         hint="El tope es el gasto máximo real: no se gasta un peso más. Se descuenta de tu liquidación, no se cobra con tarjeta."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Choice selected={isCpm} onClick={() => patch({ pricingModel: 'cpm' })}>
-          <span className="text-sm font-semibold">Por visibilidad</span>
-          <span className="text-xs text-[var(--color-text-secondary)]">Pagas por cada mil veces que sale tu anuncio (CPM).</span>
-        </Choice>
-        <Choice selected={!isCpm} onClick={() => patch({ pricingModel: 'cpc' })}>
-          <span className="text-sm font-semibold">Por toques</span>
-          <span className="text-xs text-[var(--color-text-secondary)]">Pagas solo cuando alguien toca el anuncio (CPC).</span>
-        </Choice>
-      </div>
+      {/* Solo lo que ZIPP habilitó. Con una sola modalidad no hay nada que elegir. */}
+      {models.length > 1 ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {models.includes('cpm') ? (
+            <Choice selected={isCpm} onClick={() => patch({ pricingModel: 'cpm' })}>
+              <span className="text-sm font-semibold">Por visibilidad</span>
+              <span className="text-xs text-[var(--color-text-secondary)]">Pagas por cada mil veces que sale tu anuncio (CPM).</span>
+            </Choice>
+          ) : null}
+          {models.includes('cpc') ? (
+            <Choice selected={!isCpm} onClick={() => patch({ pricingModel: 'cpc' })}>
+              <span className="text-sm font-semibold">Por toques</span>
+              <span className="text-xs text-[var(--color-text-secondary)]">Pagas solo cuando alguien toca el anuncio (CPC).</span>
+            </Choice>
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-sm text-[var(--color-text-main)]">
+          {isCpm ? 'Pagas por cada mil veces que sale tu anuncio.' : 'Pagas solo cuando alguien toca el anuncio. Los toques repetidos o sospechosos no se cobran.'}
+        </p>
+      )}
 
       <AmountPicker
         label="Tope de gasto"
-        hint="Sin tope no se compra."
+        hint={`Entre ${money(offer.budget.min)} y ${money(offer.budget.max)}. Sin tope no se compra.`}
         value={draft.budget}
         onChange={(budget) => patch({ budget })}
-        presets={AD_BUDGET_PRESETS}
+        presets={budgetPresets(offer)}
       />
       <AmountPicker
         label={isCpm ? 'Tarifa por mil impresiones' : 'Tarifa por clic'}
-        hint="Más tarifa significa menos alcance con el mismo tope. Zipp revisa la tarifa al aprobar la campaña."
+        hint={range ? `Entre ${money(range.minRate)} y ${money(range.maxRate)}. Más tarifa significa menos alcance con el mismo tope.` : 'Elige cómo pagar.'}
         value={rateOf(draft)}
         onChange={(rate) => patch(isCpm ? { cpmRate: rate } : { cpcRate: rate })}
-        presets={isCpm ? CPM_PRESETS : CPC_PRESETS}
+        presets={range ? ratePresets(offer, draft.pricingModel) : []}
       />
 
       {reach ? (

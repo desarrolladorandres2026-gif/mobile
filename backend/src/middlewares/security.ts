@@ -357,6 +357,46 @@ export const productImageUploadRateLimiter = rateLimit({
 });
 
 /**
+ * Impresiones y clics de publicidad (públicos, sin sesión) — protegen la base
+ * de un bucle, no deciden qué se cobra (eso lo hace `AdClick`).
+ *
+ * Dos topes, ninguno identifica a una persona por su IP: uno por dispositivo
+ * declarado (un cliente que toca sin parar) y otro por red, holgado, para que
+ * una oficina o una antena móvil compartida no se bloquee entre sí.
+ */
+export const adEventDeviceRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: limitFor(30),
+  message: { success: false, message: 'Demasiadas solicitudes seguidas.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.ip}:${String(req.body?.deviceId ?? '').slice(0, 100)}`,
+});
+
+export const adEventNetworkRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: limitFor(600),
+  message: { success: false, message: 'Demasiadas solicitudes seguidas.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
+ * Reportes de la Content-Security-Policy de los paneles (público, sin sesión).
+ * Una carga de página puede mandar varios; un bucle de render, muchos iguales: el
+ * servicio los agrupa, esto solo frena el flujo por IP.
+ */
+export const cspReportRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: limitFor(60),
+  handler: (_req, res) => {
+    res.status(204).end();
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
  * Subida de documentos del comercio (cédula, RUT, certificado bancario).
  *
  * Por cuenta y no por IP, igual que las fotos de producto: va detrás de

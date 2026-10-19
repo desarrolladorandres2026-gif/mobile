@@ -186,7 +186,7 @@ export default function BusinessProfile360({
  const setSuspension = (suspended: boolean, reason?: string) =>
  run(
  // Se manda el estado deseado, no un"cambiar": dos clics seguidos no se anulan.
- () => api.patch(`/admin/businesses/${businessId}/suspension`, { suspended, ...(reason ? { reason } : {}) }),
+ () => api.patch(`/admin/businesses/${businessId}/suspension`, { suspended, reason }),
  suspended ? 'Comercio suspendido.' : 'Suspensión levantada.',
  suspended ? 'No se pudo suspender el comercio.' : 'No se pudo levantar la suspensión.',
  );
@@ -198,9 +198,9 @@ export default function BusinessProfile360({
  'No se pudo archivar el comercio.',
  );
 
- const restore = () =>
+ const restore = (reason?: string) =>
  run(
- () => api.patch(`/admin/businesses/${businessId}/restore`),
+ () => api.patch(`/admin/businesses/${businessId}/restore`, { reason }),
  'Comercio restaurado.',
  'No se pudo restaurar el comercio.',
  );
@@ -783,12 +783,13 @@ export default function BusinessProfile360({
  {dialog === 'lift' && b && (
  <ConfirmDialog
  title="Levantar suspensión"
- message={`${b.name} vuelve a poder recibir pedidos.`}
+ message={`${b.name} vuelve a poder recibir pedidos si su dueño lo tiene abierto. Tu nombre y el motivo quedan registrados como quien autorizó la reactivación.`}
  confirmLabel="Levantar"
  variant="default"
- onConfirm={() => {
+ reason={{ label: 'Motivo de la reactivación', placeholder: 'Por qué se levanta', minLength: 5 }}
+ onConfirm={(reason) => {
  setDialog(null);
- void setSuspension(false);
+ void setSuspension(false, reason);
  }}
  onCancel={() => setDialog(null)}
  />
@@ -809,12 +810,13 @@ export default function BusinessProfile360({
  {dialog === 'restore' && b && (
  <ConfirmDialog
  title="Restaurar comercio"
- message={`${b.name} vuelve al listado.`}
+ message={`${b.name} vuelve al listado, cerrado: su dueño decide cuándo abrir. Tu nombre y el motivo quedan registrados como quien autorizó la reactivación.`}
  confirmLabel="Restaurar"
  variant="default"
- onConfirm={() => {
+ reason={{ label: 'Motivo de la reactivación', placeholder: 'Por qué se restaura', minLength: 5 }}
+ onConfirm={(reason) => {
  setDialog(null);
- void restore();
+ void restore(reason);
  }}
  onCancel={() => setDialog(null)}
  />

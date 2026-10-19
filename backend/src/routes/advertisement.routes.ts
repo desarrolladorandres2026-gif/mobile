@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { advertisementController } from '../controllers';
-import { authenticate, authorize, validate } from '../middlewares';
+import { authenticate, authenticateIfPresent, authorize, validate, productImageUploadRateLimiter, adEventDeviceRateLimiter, adEventNetworkRateLimiter } from '../middlewares';
 import { createAdvertisementSchema, updateAdvertisementSchema, adEventSchema } from '../validators';
 import { UserRole } from '../types';
 import { Permission } from '../security';
 import { requirePermission, adminRequires, can } from '../middlewares/auth';
 import { z } from 'zod';
 import { advertisementService } from '../services/advertisement.service';
+import { isOwnStorageUrl } from '../services/driverDossierFiles';
 import { businessStaffService } from '../services/businessStaff.service';
 import { sendResponse, param } from '../utils';
 import { AdInvoice, Advertisement, AdPricingModel, BusinessPermission } from '../models';
@@ -52,11 +53,18 @@ const router = Router();
 router.get('/active', (req, res, next) => advertisementController.getActive(req, res, next));
 router.post(
   '/:id/impression',
+  adEventNetworkRateLimiter,
+  adEventDeviceRateLimiter,
+  // Quien tiene sesión queda identificado: el clic cobrable es uno por cuenta, no solo por dispositivo.
+  authenticateIfPresent,
   validate(adEventSchema),
   (req, res, next) => advertisementController.registerImpression(req, res, next)
 );
 router.post(
   '/:id/click',
+  adEventNetworkRateLimiter,
+  adEventDeviceRateLimiter,
+  authenticateIfPresent,
   validate(adEventSchema),
   (req, res, next) => advertisementController.registerClick(req, res, next)
 );
@@ -74,10 +82,25 @@ router.post(
 // Van antes de `/:id` para que "business" no se lea como el id de una
 // campaña, igual que en cupones.
 
+/**
+ * El flyer del comercio tiene que vivir en NUESTRO Cloudinary (auditoría
+ * 2026-10-17). Con una URL libre, el comercio servía la imagen desde su propio
+ * servidor: podía enseñar una al revisor y cambiarla después de aprobada, y
+ * veía la IP del admin que revisa y la de cada cliente que abre la app. Se
+ * sube por `POST /business/:businessId/flyer`, que inspecciona el archivo.
+ */
+const ownFlyerUrl = z
+  .string()
+  .url()
+  .max(500)
+  .refine((url) => isOwnStorageUrl(url) && new URL(url).hostname === 'res.cloudinary.com', {
+    message: 'Sube el flyer desde el panel: no se aceptan enlaces externos',
+  });
+
 const buySchema = z.object({
   body: z.object({
     campaignName: z.string().trim().min(3).max(120),
-    flyerUrl: z.string().url().max(500),
+    flyerUrl: ownFlyerUrl,
     startDate: z.coerce.date(),
     endDate: z.coerce.date(),
     pricingModel: z.enum([AdPricingModel.CPM, AdPricingModel.CPC]),
@@ -86,8 +109,42 @@ const buySchema = z.object({
     /** Sin tope no se compra: sería firmar un gasto abierto. */
     budget: z.number().int().positive().max(20_000_000),
     targetCities: z.array(z.string().trim().max(80)).max(20).optional(),
+    // Dentro de lo que ofrece ZIPP; sin indicar, la primera que ofrezca.
+    placement: z.enum(['splash', 'explore']).optional(),
   }),
 });
+
+/**
+ * Qué puede comprar hoy este comercio: modalidades, rangos de tarifa,
+ * presupuesto, duración y ubicaciones. El panel lo usa para guiar; la compra
+ * y la aprobación lo vuelven a exigir.
+ */
+router.get(
+  '/business/:businessId/offer',
+  authenticate,
+  authorize(UserRole.BUSINESS),
+  async (req, res, next) => {
+    try {
+      await assertOwnsBusinessOrAdmin(req, param(req, 'businessId'));
+      sendResponse(res, 200, 'Oferta de publicidad', await advertisementService.currentOffer());
+    } catch (error) { next(error); }
+  }
+);
+
+// Subida del flyer del comercio: misma inspección (tipo real, tamaño) que la
+// del admin. El permiso se comprueba antes de leer el archivo entero a memoria.
+router.post(
+  '/business/:businessId/flyer',
+  authenticate,
+  authorize(UserRole.BUSINESS),
+  productImageUploadRateLimiter,
+  async (req, res, next) => {
+    try {
+      await assertOwnsBusinessOrAdmin(req, param(req, 'businessId'));
+      advertisementController.uploadFlyer(req, res, next);
+    } catch (error) { next(error); }
+  }
+);
 
 router.post(
   '/business/:businessId',
@@ -190,6 +247,9 @@ router.get('/:id', authenticate, authorize(UserRole.ADMIN), requirePermission(Pe
 );
 router.get('/:id/stats', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADS_VIEW), (req, res, next) =>
   advertisementController.getStats(req, res, next)
+);
+router.get('/:id/clicks', authenticate, authorize(UserRole.ADMIN), requirePermission(Permission.ADS_VIEW), (req, res, next) =>
+  advertisementController.listClicks(req, res, next)
 );
 router.post(
   '/',

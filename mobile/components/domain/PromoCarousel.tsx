@@ -7,6 +7,7 @@ import Animated, { FadeIn } from 'react-native-reanimated';
 import { Text, Icon } from '../ui';
 import { useTheme } from '../../hooks/useTheme';
 import { useHomeBanners } from '../../hooks/useApi';
+import { newAdClickId } from '../../lib/adClickId';
 import { hasAction, runBannerAction } from '../../lib/bannerAction';
 import { sizedImageUri, screenWidth } from '../../lib/cloudinaryImage';
 import { tap } from '../../lib/haptics';
@@ -87,12 +88,22 @@ export function PromoCarousel({
     });
   }, [visible, preview]);
 
+  // Un `clickId` por anuncio mientras el carrusel está montado: tocar dos
+  // veces el mismo banner no se cobra dos veces.
+  const adClickIds = useRef(new Map<string, string>());
+
   const press = useCallback(
     (banner: PromoBanner) => {
       if (preview) return;
       if (banner.isAd) {
+        let clickId = adClickIds.current.get(banner.id);
+        if (!clickId) {
+          clickId = newAdClickId();
+          adClickIds.current.set(banner.id, clickId);
+        }
+        const id = clickId;
         getDeviceId().then((deviceId) => {
-          adsApi.registerClick(banner.id, deviceId).catch(() => {});
+          adsApi.registerClick(banner.id, deviceId, id).catch(() => {});
         });
       }
       if (!hasAction(banner)) return;

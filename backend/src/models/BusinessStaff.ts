@@ -122,6 +122,14 @@ export enum BusinessPermission {
    * que reportaron los demás —que puede incluir cobros y liquidaciones— no.
    */
   SUPPORT_VIEW_TEAM = 'support:view_team',
+
+  /**
+   * Pedirle a ZIPP que contacte al cliente de un pedido ya cerrado (reclamo,
+   * garantía, aclaración). Es hablar con un cliente en nombre del local, con
+   * ZIPP de puente y sin revelar su número: del propietario y del encargado,
+   * no del mostrador. Ver `CUSTOMER_CONTACT_REASONS` en pqrs.service.ts.
+   */
+  CUSTOMERS_CONTACT = 'customers:contact',
 }
 
 const P = BusinessPermission;
@@ -152,7 +160,7 @@ export const BUSINESS_ROLE_PERMISSIONS: Record<BusinessRole, BusinessPermission[
     P.PROMOTIONS_VIEW, P.PROMOTIONS_MANAGE, P.ADVERTISING_MANAGE,
     P.REVIEWS_VIEW, P.REVIEWS_RESPOND,
     P.TEAM_VIEW, P.TEAM_INVITE, P.TEAM_EDIT, P.TEAM_REMOVE,
-    P.ANALYTICS_VIEW, P.STORE_TOGGLE, P.SUPPORT_VIEW_TEAM,
+    P.ANALYTICS_VIEW, P.STORE_TOGGLE, P.SUPPORT_VIEW_TEAM, P.CUSTOMERS_CONTACT,
   ],
   // `shift:view` y `shift:close` (decisión 2026-10-13, revierte la del 2026-10-09):
   // el empleado cobra en el mostrador y necesita saber cuánto vendió y cerrar

@@ -143,10 +143,17 @@ export const adminBusinessTermsSchema = z.object({
       // aparte (`businessService.approve`) que exige documentos en regla y
       // deja `approvedBy`. Aceptarlo aquí dejaba aprobar sin ninguno de los
       // dos. `.strict()` en el body rechaza cualquier envío que lo incluya.
+      // Desactivar desde administración es SUSPENDER (M-026): pide motivo, y no lo
+      // deshace el dueño. Reactivar es levantar la suspensión, también con motivo.
       isActive: z.boolean().optional(),
+      statusReason: z.string().trim().min(5).max(300).optional(),
       minOrder: z.number().int().min(0).optional(),
     })
-    .strict(),
+    .strict()
+    .refine((b) => b.isActive === undefined || !!b.statusReason, {
+      message: 'Indica el motivo para suspender o reactivar el negocio',
+      path: ['statusReason'],
+    }),
   query: z.object({}).optional(),
   params: z.object({ id: z.string() }),
 });

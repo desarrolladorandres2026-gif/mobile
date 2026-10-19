@@ -333,12 +333,12 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 549,
+              "linea": 588,
               "ancla": "order = await Order.create({"
             },
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 673,
+              "linea": 712,
               "ancla": "await ledgerService.recordOrderPlaced({"
             }
           ]
@@ -505,7 +505,7 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1456,
+              "linea": 1584,
               "ancla": "const hold ="
             }
           ]
@@ -521,17 +521,17 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1676,
+              "linea": 1798,
               "ancla": "await ledgerService.recordCashCollected({"
             },
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1688,
+              "linea": 1810,
               "ancla": "await cashReconciliationService.open(order);"
             },
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1757,
+              "linea": 1879,
               "ancla": "{ $inc: increments, $set: { status: DriverStatus.AVAILABLE } }"
             }
           ]
@@ -611,12 +611,12 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1056,
+              "linea": 1112,
               "ancla": "const clientCancellable ="
             },
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1031,
+              "linea": 1077,
               "ancla": "!BUSINESS_CANCELLABLE_STATUSES.includes(order.status)"
             }
           ]
@@ -630,12 +630,12 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1769,
+              "linea": 1891,
               "ancla": "private async onCancelled(order: IOrder): Promise<void> {"
             },
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1301,
+              "linea": 1372,
               "ancla": "await this.onCancelled(claimed);"
             }
           ]
@@ -650,7 +650,7 @@
           "refs": [
             {
               "archivo": "backend/src/services/order.service.ts",
-              "linea": 1885,
+              "linea": 2023,
               "ancla": "const allocation = allocateRefund(finance, remaining, RefundKind.FULL, prior);"
             }
           ]
@@ -831,6 +831,141 @@
         }
       ],
       "importes": []
+    },
+    {
+      "id": "publicidad-cpc",
+      "titulo": "Publicidad del comercio cobrada por clic: oferta, clic cobrable, factura y descuento en la liquidación",
+      "descripcion": "Lo que compra un comercio por autoservicio. Las reglas salen de PlatformPricingConfig (campos ad*) y se leen solo con `adOffer`. El cobro real ocurre al cerrar la campaña (AdInvoice) y se compensa contra la liquidación del comercio; AdInvoice y AdClick no van al libro mayor (no hay pedido detrás, ver CLAUDE.md).",
+      "estadoVerificacion": "ejecutada: adBilling.test.ts, adOfferConfig.test.ts, adFlyerOrigin.test.ts (2026-10-17)",
+      "pasos": [
+        {
+          "orden": 1,
+          "actor": "ZIPP (finanzas)",
+          "titulo": "Configura la oferta",
+          "descripcion": "Interruptores de autoservicio y facturación, CPC mínimo/máximo, presupuesto mínimo/máximo, duración en días, ubicaciones y controles antifraude. Nueva versión auditada; todo nace apagado.",
+          "formula": "oferta disponible ⇔ autoservicio ∧ facturación ∧ CPC(min>0, max≥min) ∧ presupuesto(min>0, max≥min) ∧ duración(min>0, max≥min) ∧ ubicaciones≠∅",
+          "entradas": [
+            "PUT /finance/config (finance:manage)"
+          ],
+          "salidas": [
+            "PlatformPricingConfig vN"
+          ],
+          "certeza": "ejecutada",
+          "refs": [
+            {
+              "archivo": "backend/src/services/advertisement.service.ts",
+              "linea": 40,
+              "ancla": "export function adOffer(cfg: Pick<IPlatformPricingConfig,",
+              "texto": ""
+            }
+          ]
+        },
+        {
+          "orden": 2,
+          "actor": "Comercio",
+          "titulo": "Compra dentro de la oferta",
+          "descripcion": "La tarifa y el tope los elige dentro de los rangos; el presupuesto se traduce una vez a un tope de clics.",
+          "formula": "maxClicks = floor(budget / cpcRate)",
+          "entradas": [
+            "cpcRate",
+            "budget",
+            "fechas",
+            "ubicación"
+          ],
+          "salidas": [
+            "Advertisement PENDING (adConfigVersion)"
+          ],
+          "certeza": "ejecutada",
+          "refs": [
+            {
+              "archivo": "backend/src/services/advertisement.service.ts",
+              "linea": 594,
+              "ancla": "    const offer = adOffer(cfg);",
+              "texto": ""
+            }
+          ]
+        },
+        {
+          "orden": 3,
+          "actor": "ZIPP (admin)",
+          "titulo": "Aprueba contra la oferta vigente",
+          "descripcion": "Si la oferta cambió y la campaña ya no cabe, o la facturación está apagada, no se aprueba (409).",
+          "formula": "—",
+          "entradas": [],
+          "salidas": [
+            "APPROVED, isActive"
+          ],
+          "certeza": "ejecutada",
+          "refs": [
+            {
+              "archivo": "backend/src/services/advertisement.service.ts",
+              "linea": 641,
+              "ancla": "    if (ad.billedToBusinessId) {",
+              "texto": ""
+            }
+          ]
+        },
+        {
+          "orden": 4,
+          "actor": "Cliente (app)",
+          "titulo": "Clic cobrable",
+          "descripcion": "Cobra solo si la campaña está viva, la facturación encendida, el dispositivo vio la campaña hace poco, no superó su red el tope diario, es su primer clic cobrable en la ventana y queda tope. Cada clic deja fila en AdClick, cobrado o con motivo.",
+          "formula": "clickCount += 1 ⇔ $inc atómico con liveFilter ∧ clickCount < maxClicks;  AdClick.amount = cpcRate",
+          "entradas": [
+            "deviceId",
+            "clickId",
+            "IP (HMAC)"
+          ],
+          "salidas": [
+            "AdClick",
+            "AdEvent"
+          ],
+          "certeza": "ejecutada",
+          "refs": [
+            {
+              "archivo": "backend/src/services/advertisement.service.ts",
+              "linea": 382,
+              "ancla": "  private async registerBillableClick(",
+              "texto": ""
+            }
+          ]
+        },
+        {
+          "orden": 5,
+          "actor": "ZIPP (admin)",
+          "titulo": "Cierra y factura",
+          "descripcion": "La factura de una campaña comprada con oferta cobra la suma de AdClick cobrables, nunca por encima del presupuesto; si el contador difiere se marca evidenceMismatch.",
+          "formula": "amount = min(Σ AdClick.amount (billable), budget)",
+          "entradas": [],
+          "salidas": [
+            "AdInvoice (única por campaña)"
+          ],
+          "certeza": "ejecutada",
+          "refs": [
+            {
+              "archivo": "backend/src/services/advertisement.service.ts",
+              "linea": 705,
+              "ancla": "    let amount = this.spendOf(ad);",
+              "texto": ""
+            }
+          ]
+        },
+        {
+          "orden": 6,
+          "actor": "Servidor",
+          "titulo": "Se descuenta de la liquidación",
+          "descripcion": "La siguiente liquidación del comercio compensa lo que cabe (AD_SPEND_OFFSET); un mes flojo no lo deja debiendo.",
+          "formula": "adSpendAmount = min(outstanding, neto de la liquidación)",
+          "entradas": [
+            "AdInvoice settledAgainstPayout"
+          ],
+          "salidas": [
+            "Settlement.adSpendAmount"
+          ],
+          "certeza": "ejecutada",
+          "refs": []
+        }
+      ]
     }
   ]
 }

@@ -79,6 +79,22 @@ const TWO_FACTOR_SETUP_PATHS = new Set([
 
 const requestPath = (req: Request) => (req.originalUrl || req.url || '').split('?')[0].replace(/\/+$/, '');
 
+/**
+ * Identifica a quien manda un token válido, y deja pasar igual a quien no manda
+ * ninguno o manda uno malo: la petición sigue como anónima (`req.user` sin definir).
+ *
+ * Para rutas públicas que mejoran si saben quién llama pero no pueden exigirlo —los
+ * eventos de publicidad: un visitante sin cuenta también ve un anuncio—. Un token
+ * inválido NUNCA da un 401 aquí ni deja una sesión a medias.
+ */
+export const authenticateIfPresent = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.headers.authorization?.startsWith('Bearer ')) return next();
+  void authenticate(req, res, (error?: unknown) => {
+    if (error) (req as { user?: unknown }).user = undefined;
+    next();
+  });
+};
+
 export const authenticate = async (
   req: Request,
   _res: Response,

@@ -13,12 +13,18 @@ export class AppError extends Error {
    * válidos y la respuesta solo la incluye cuando se define.
    */
   public code?: string;
+  /**
+   * Datos para que el cliente actúe sobre el error (p. ej. el total nuevo en un
+   * `PRICE_CHANGED`). Solo cosas que el cliente ya puede ver: nunca internos.
+   */
+  public details?: Record<string, unknown>;
 
-  constructor(message: string, statusCode: number, code?: string) {
+  constructor(message: string, statusCode: number, code?: string, details?: Record<string, unknown>) {
     super(message);
     this.statusCode = statusCode;
     this.isOperational = true;
     this.code = code;
+    this.details = details;
 
     Error.captureStackTrace(this, this.constructor);
   }
@@ -35,6 +41,7 @@ export const errorHandler = (
       success: false,
       message: err.message,
       ...(err.code ? { code: err.code } : {}),
+      ...(err.details ? { details: err.details } : {}),
     });
   }
 

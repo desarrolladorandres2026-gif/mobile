@@ -1637,8 +1637,9 @@ export const adsApi = {
   registerImpression: (id: string, deviceId: string) =>
     api.post(`/advertisements/${id}/impression`, { deviceId }).then((r) => r.data),
 
-  registerClick: (id: string, deviceId: string) =>
-    api.post(`/advertisements/${id}/click`, { deviceId }).then((r) => r.data),
+  /** `clickId` va una vez por anuncio en pantalla: el servidor no cobra dos veces el mismo. */
+  registerClick: (id: string, deviceId: string, clickId: string) =>
+    api.post(`/advertisements/${id}/click`, { deviceId, clickId }).then((r) => r.data),
 };
 
 // ── Banners promocionales de inicio ──

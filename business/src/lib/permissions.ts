@@ -41,7 +41,8 @@ export type BusinessPermission =
   | 'settings:manage'
   | 'security:manage'
   | 'store:toggle'
-  | 'support:view_team';
+  | 'support:view_team'
+  | 'customers:contact';
 
 export type BusinessRole = 'owner' | 'manager' | 'employee';
 /** Los papeles que se pueden dar a alguien del equipo (el dueño no se asigna). */
@@ -54,7 +55,7 @@ export const ROLE_LABELS: Record<BusinessRole, string> = {
 };
 
 export const ROLE_DESCRIPTIONS: Record<StaffRole, string> = {
-  manager: 'Pedidos (cancela solo los no pagados), menú, promociones, publicidad, reseñas y equipo operativo. No ve liquidaciones, documentos ni ajustes, y no cambia roles.',
+  manager: 'Pedidos (cancela solo los no pagados), menú, promociones, publicidad, reseñas, equipo operativo y pedir a ZIPP que contacte a un cliente. No ve liquidaciones, documentos ni ajustes, y no cambia roles.',
   employee: 'Ejecuta el día: pedidos (cancela solo los no pagados), agotar y reponer productos, y abrir y cerrar el local. No ve dinero ni equipo.',
 };
 
