@@ -5,9 +5,12 @@ import {
   ProSubscriptionStatus,
   isProActive,
   IPayment,
+  Payment,
   SavedCard,
   User,
 } from '../models';
+import { taxRuleService } from './taxRule.service';
+import { TaxConcept } from '../models/TaxRule';
 import { AppError } from '../middlewares';
 import { PaymentStatus } from '../types';
 import {
@@ -288,6 +291,17 @@ export class ProService {
     }
 
     if (status === PaymentStatus.PAID) {
+      // Qué dice la regla tributaria de ESTE cobro en este momento. «Incluido en la cuota»:
+      // no cambia lo cobrado. Solo la primera vez (un webhook repetido no la pisa) y sin
+      // bloquear la activación si falla: el dinero ya entró.
+      try {
+        await Payment.updateOne(
+          { _id: payment._id, 'metadata.taxAssessment': { $exists: false } },
+          { $set: { 'metadata.taxAssessment': await taxRuleService.snapshot(TaxConcept.PRO_SUBSCRIPTION, payment.amount) } }
+        );
+      } catch (error) {
+        console.error('[PRO] No se pudo guardar la evaluación tributaria del cobro', { paymentId: payment._id.toString(), error });
+      }
       await this.activate(sub, payment);
       return;
     }

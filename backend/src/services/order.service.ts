@@ -29,6 +29,8 @@ import { merchantOrderView, merchantStaffOrderView } from './profileMasking';
 import { businessStaffService, isInStaffScope } from './businessStaff.service';
 import { isActionableForBusiness, isMerchantVisible, UNPAID_ONLINE_MATCH } from '../utils/merchantVisibility';
 import { pricingService, Quote } from './pricing.service';
+import { taxRuleService } from './taxRule.service';
+import { TaxConcept } from '../models/TaxRule';
 import { couponService } from './coupon.service';
 import { ledgerService } from './ledger.service';
 import { payoutService } from './payout.service';
@@ -494,6 +496,8 @@ export class OrderService {
     }
 
     const finance = toFinanceSnapshot(quote);
+    // La comisión queda con su evaluación tributaria. No altera ningún importe (ver `commissionTax`).
+    finance.commissionTax = await taxRuleService.snapshot(TaxConcept.COMMISSION, finance.merchantCommission);
 
     // Un pedido en efectivo nace en su propio estado, no en el genérico
     // "pendiente". `PENDING` significa "el cliente no ha pagado y el

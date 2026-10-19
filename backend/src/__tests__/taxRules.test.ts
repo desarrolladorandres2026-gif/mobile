@@ -37,16 +37,19 @@ const draft = (over: Record<string, unknown> = {}) => ({
   ...over,
 }) as never;
 
+/** `admin` aprueba; `proposer` propone. Nadie aprueba lo que propuso (doble aprobación, 2026-10-19). */
 let admin: any;
+let proposer: any;
 
 beforeEach(async () => {
   await featureFlagService.upsert('rbac_enforce', { audience: 'staff' });
   await cache.flush();
   admin = await makeUser({ role: UserRole.ADMIN });
+  proposer = await makeUser({ role: UserRole.ADMIN });
 });
 
 const validated = async (over: Record<string, unknown> = {}) => {
-  const rule = await taxRuleService.createDraft(draft(over), String(admin._id));
+  const rule = await taxRuleService.createDraft(draft(over), String(proposer._id));
   return taxRuleService.validate(String(rule._id), String(admin._id), { validationRef: REF });
 };
 
@@ -75,7 +78,7 @@ describe('Qué puede ser una regla', () => {
 
 describe('Validar una regla', () => {
   it('sin el documento que la respalda no hay validación', async () => {
-    const rule = await taxRuleService.createDraft(draft(), String(admin._id));
+    const rule = await taxRuleService.createDraft(draft(), String(proposer._id));
     await expect(taxRuleService.validate(String(rule._id), String(admin._id), { validationRef: 'ok' })).rejects.toMatchObject({ code: 'TAX_RULE_NEEDS_REFERENCE' });
     expect((await TaxRule.findById(rule._id))!.status).toBe('draft');
   });
@@ -87,7 +90,7 @@ describe('Validar una regla', () => {
   });
 
   it('no se valida hacia el pasado: los pedidos ya cobrados no se reescriben', async () => {
-    const rule = await taxRuleService.createDraft(draft({ validFrom: new Date(Date.now() - 3 * DAY) }), String(admin._id));
+    const rule = await taxRuleService.createDraft(draft({ validFrom: new Date(Date.now() - 3 * DAY) }), String(proposer._id));
     await expect(taxRuleService.validate(String(rule._id), String(admin._id), { validationRef: REF })).rejects.toMatchObject({ code: 'TAX_RULE_RETROACTIVE' });
   });
 
@@ -113,8 +116,8 @@ describe('Validar una regla', () => {
   });
 
   it('dos validaciones simultáneas del mismo concepto no dejan dos reglas vigentes a la vez', async () => {
-    const a = await taxRuleService.createDraft(draft({ rateBps: 1900 }), String(admin._id));
-    const b = await taxRuleService.createDraft(draft({ rateBps: 500, validFrom: TOMORROW() }), String(admin._id));
+    const a = await taxRuleService.createDraft(draft({ rateBps: 1900 }), String(proposer._id));
+    const b = await taxRuleService.createDraft(draft({ rateBps: 500, validFrom: TOMORROW() }), String(proposer._id));
     await Promise.allSettled([
       taxRuleService.validate(String(a._id), String(admin._id), { validationRef: REF }),
       taxRuleService.validate(String(b._id), String(admin._id), { validationRef: REF }),
@@ -314,11 +317,12 @@ describe('Publicidad: el impuesto se informa, no cambia el cobro', () => {
 describe('Administración: permisos y auditoría', () => {
   const body = { concept: 'delivery', treatment: 'taxed', rateBps: 1900, validFrom: new Date().toISOString() };
 
-  it('ver es finance:view; escribir y validar, finance:manage', async () => {
+  it('ver es finance:view; escribir, finance:manage; aprobar, tax:approve (permiso propio)', async () => {
     // Cada papel con sus permisos exactos (un papel por usuario: comparten la fila del rol).
     const viewer = await makeStaff({ roleSlug: 'soporte', permissions: [Permission.FINANCE_VIEW] });
     const manager = await makeStaff({ roleSlug: 'finanzas', permissions: [Permission.FINANCE_VIEW, Permission.FINANCE_MANAGE] });
     const outsider = await makeStaff({ roleSlug: 'operaciones', permissions: [Permission.SUPPORT_VIEW] });
+    const approver = await makeStaff({ roleSlug: 'super_admin' });
 
     expect((await request(app).get(`${API}/finance/tax-rules`).set(await authHeader(viewer))).status).toBe(200);
     expect((await request(app).get(`${API}/finance/tax-rules`).set(await authHeader(outsider))).status).toBe(403);
@@ -329,14 +333,17 @@ describe('Administración: permisos y auditoría', () => {
     const id = created.body.data._id;
 
     expect((await request(app).post(`${API}/finance/tax-rules/${id}/validate`).set(await authHeader(viewer)).send({ validationRef: REF })).status).toBe(403);
-    expect((await request(app).post(`${API}/finance/tax-rules/${id}/validate`).set(await authHeader(manager)).send({ validationRef: 'ok' })).status).toBe(400);
-    const ok = await request(app).post(`${API}/finance/tax-rules/${id}/validate`).set(await authHeader(manager)).send({ validationRef: REF });
+    // Configurar no es aprobar: finance:manage solo no basta.
+    expect((await request(app).post(`${API}/finance/tax-rules/${id}/validate`).set(await authHeader(manager)).send({ validationRef: REF })).status).toBe(403);
+    expect((await request(app).post(`${API}/finance/tax-rules/${id}/validate`).set(await authHeader(approver)).send({ validationRef: 'ok' })).status).toBe(400);
+    const ok = await request(app).post(`${API}/finance/tax-rules/${id}/validate`).set(await authHeader(approver)).send({ validationRef: REF });
     expect(ok.status).toBe(200);
     expect(ok.body.data.status).toBe('validated');
 
     await new Promise((r) => setTimeout(r, 60));
     const audit = await AuditLog.findOne({ action: AuditAction.TAX_RULE_VALIDATED, entityId: id }).lean();
     expect(audit?.metadata?.validationRef).toBe(REF);
+    expect(audit?.metadata).toMatchObject({ proposedBy: String(manager._id), approvedBy: String(approver._id), previous: null });
   });
 
   it('la tarifa no puede salirse del rango ni quedar sin documento', async () => {

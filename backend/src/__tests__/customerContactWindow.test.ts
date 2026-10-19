@@ -75,8 +75,9 @@ describe('El plazo de siete días calendario', () => {
     expect(contactWindowExpired(delivered('2026-10-12T08:00:00-05:00'), { now })).toBe(true);
   });
 
-  it('un pedido sin fecha de cierre (en curso o anterior al registro) no se da por vencido', () => {
+  it('un pedido EN CURSO (sin fecha de cierre porque aún no cierra) no vence', () => {
     expect(contactWindowExpired({})).toBe(false);
+    expect(contactWindowExpired({ status: OrderStatus.ON_WAY, createdAt: ago(1) })).toBe(false);
     expect(contactWindowExpired({ deliveredAt: 'basura' })).toBe(false);
   });
 
@@ -260,5 +261,92 @@ describe('Lo que ve el comercio en el historial', () => {
     const admin = await makeStaff({ roleSlug: 'super_admin' });
     const staff = await request(app).get(`${API}/orders/${order._id}`).set(await authHeader(admin));
     expect(staff.body.data.deliveryAddress).toBe('Carrera 10 # 5-20, apto 301');
+  });
+});
+
+describe('Pedidos cerrados sin fecha de entrega (Auditoría 2026-10-19)', () => {
+  // `closedOrder` crea con createdAt = ahora; aquí se retrocede por el driver nativo, como una migración.
+  const backdated = async (over: Record<string, unknown>, createdDaysAgo: number) => {
+    const order = await closedOrder(over);
+    await Order.collection.updateOne({ _id: order._id }, { $set: { createdAt: ago(createdDaysAgo) } });
+    return order;
+  };
+
+  it('la falta de dato nunca da acceso indefinido: sin fecha de cierre cuenta desde la creación', () => {
+    const delivered = (createdAt: Date) => ({ status: OrderStatus.DELIVERED, createdAt });
+    expect(contactWindowExpired(delivered(ago(30)))).toBe(true);   // antiguo y sin fecha: vencido
+    expect(contactWindowExpired(delivered(ago(2)))).toBe(false);   // reciente: sigue dentro del plazo
+    expect(contactWindowExpired({ status: OrderStatus.CANCELLED, createdAt: ago(30) })).toBe(true);
+  });
+
+  it('sin NINGUNA fecha utilizable se restringe', () => {
+    expect(contactWindowExpired({ status: OrderStatus.DELIVERED })).toBe(true);
+    expect(contactWindowExpired({ status: OrderStatus.DELIVERED, createdAt: 'basura', deliveredAt: 'basura' })).toBe(true);
+    // El historial del comercio solo muestra pedidos cerrados: ahí `terminal` basta aunque falte el estado.
+    expect(contactWindowExpired({}, { terminal: true })).toBe(true);
+  });
+
+  it('una fecha de entrega en el futuro es un dato corrupto: no alarga el acceso', () => {
+    const future = new Date(Date.now() + 90 * DAY);
+    expect(contactWindowExpired({ status: OrderStatus.DELIVERED, deliveredAt: future, createdAt: ago(30) })).toBe(true);
+  });
+
+  it('un pedido «en curso» atascado desde hace semanas tampoco queda abierto para siempre', () => {
+    expect(contactWindowExpired({ status: OrderStatus.PENDING, createdAt: ago(3) })).toBe(false);
+    expect(contactWindowExpired({ status: OrderStatus.PENDING, createdAt: ago(40) })).toBe(true);
+  });
+
+  it('la fecha real manda siempre sobre la de creación', () => {
+    expect(contactWindowExpired({ status: OrderStatus.DELIVERED, deliveredAt: ago(1), createdAt: ago(60) })).toBe(false);
+    expect(contactWindowExpired({ status: OrderStatus.DELIVERED, deliveredAt: ago(60), createdAt: ago(1) })).toBe(true);
+  });
+
+  it('el historial del comercio oculta dirección y nombre completo de un pedido antiguo sin fecha de entrega', async () => {
+    const order = await backdated({ deliveredAt: undefined }, 45);
+    const plain = (await Order.findById(order._id).populate('clientId', 'name phone email').lean())!;
+    const view: any = merchantOrderView(plain as never, { owner: true, terminal: true });
+    expect(view.personalDataProtected).toBe(true);
+    expect(view.deliveryAddress).toBe('');
+    expect(view.clientId.name).toBe('María G.');
+  });
+
+  it('pedir contacto: vencido por creación exige justificación; con ella nace detenido y dice de dónde salió la fecha', async () => {
+    const order = await backdated({ deliveredAt: undefined }, 45);
+
+    const bare = await ask(owner, order._id.toString());
+    expect(bare.status).toBe(422);
+    expect(bare.body.code ?? bare.body.errorCode).toBe('CONTACT_WINDOW_EXPIRED');
+
+    const res = await ask(owner, order._id.toString(), { reason: 'contact_customer_warranty', exceptionJustification: JUSTIFICATION });
+    expect(res.status).toBe(201);
+    const stored: any = await Pqrs.findById(res.body.data._id).lean();
+    expect(stored.contactException).toMatchObject({ status: 'pending', closedAtSource: 'created_at_fallback' });
+    expect(stored.contactException.daysSinceClosed).toBeGreaterThanOrEqual(44);
+
+    // No se inventó una entrega ni se tocó el registro histórico.
+    const untouched: any = await Order.findById(order._id).lean();
+    expect(untouched.deliveredAt ?? null).toBeNull();
+  });
+
+  it('un pedido cancelado sin fecha de cancelación recibe el mismo tratamiento', async () => {
+    const order = await backdated({ status: OrderStatus.CANCELLED, deliveredAt: undefined, cancelledAt: undefined }, 20);
+    const res = await ask(owner, order._id.toString());
+    expect(res.status).toBe(422);
+  });
+
+  it('un pedido reciente sin fecha de entrega sigue dentro del plazo: sin excepción', async () => {
+    const order = await backdated({ deliveredAt: undefined }, 2);
+    const res = await ask(owner, order._id.toString());
+    expect(res.status).toBe(201);
+    expect(((await Pqrs.findById(res.body.data._id).lean()) as any).contactException ?? null).toBeNull();
+  });
+
+  it('una excepción autorizada por soporte sobre un pedido sin fecha queda auditada como cualquier otra', async () => {
+    const order = await backdated({ deliveredAt: undefined }, 45);
+    const res = await ask(owner, order._id.toString(), { reason: 'contact_customer_warranty', exceptionJustification: JUSTIFICATION });
+    const staff = await makeStaff({ roleSlug: 'soporte' });
+    const decided = await decideContactException(res.body.data._id, String(staff._id), 'authorize', 'Garantía vigente verificada con el comercio.');
+    expect(decided.contactException).toMatchObject({ status: 'authorized' });
+    expect(String(decided.contactException!.decidedBy)).toBe(String(staff._id));
   });
 });

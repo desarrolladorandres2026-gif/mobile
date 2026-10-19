@@ -68,7 +68,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/refunds', Icon: BoxRegular, label: 'Reembolsos', permission: Permission.REFUNDS_VIEW },
       { path: '/commissions', Icon: TagRegular, label: 'Comisiones', permission: Permission.COMMISSIONS_VIEW },
       { path: '/documents', Icon: DocumentRegular, label: 'Comprobantes', permission: Permission.FINANCE_VIEW },
-      { path: '/ad-invoices', Icon: MegaphoneRegular, label: 'Facturas de publicidad', permission: Permission.FINANCE_VIEW },
+      { path: '/ad-invoices', Icon: MegaphoneRegular, label: 'Cobros de publicidad', permission: Permission.FINANCE_VIEW },
       { path: '/exports', Icon: TagRegular, label: 'Exportes', permission: Permission.REPORTS_EXPORT },
     ],
   },

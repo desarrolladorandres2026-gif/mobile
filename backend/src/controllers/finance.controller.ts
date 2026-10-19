@@ -17,7 +17,8 @@ import { fiscalDocumentService } from '../services/fiscalDocument.service';
 import { adInvoiceService, type AdInvoiceView } from '../services/adInvoice.service';
 import { periodRange, isReportPeriod, customRange, type DateRange } from '../utils/period';
 import { PayoutBeneficiary, LedgerAccount, CashIncidentResolution, SettlementPaymentStatus, PaymentStatus } from '../types';
-import { AuditAction, AuditSeverity, logAudit } from '../security';
+import { AuditAction, AuditSeverity, logAudit, Permission } from '../security';
+import { can } from '../middlewares/auth';
 import { taxRuleService } from '../services/taxRule.service';
 import { gatewayFeeReadiness } from '../utils/gatewayFee';
 import type { TaxConcept, TaxTreatment } from '../models/TaxRule';
@@ -46,6 +47,30 @@ export class FinanceController {
         tax: await taxRuleService.readiness(config),
         configVersion: config.version,
       });
+    } catch (error) { next(error); }
+  }
+
+  /**
+   * Conciliación tributaria de un periodo, por concepto: lo que cada hecho guardó al
+   * ocurrir (no se recalcula con las reglas de hoy). `?period=today|week|month` o
+   * `?from=YYYY-MM-DD&to=YYYY-MM-DD` (hora de Bogotá); sin parámetros, el mes en curso.
+   */
+  async taxReconciliation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const periodParam = query(req, 'period');
+      const fromParam = query(req, 'from');
+      const toParam = query(req, 'to');
+      let range: DateRange;
+      if (fromParam || toParam) {
+        const custom = customRange(fromParam || '', toParam || fromParam || '');
+        if (!custom) throw new AppError('Rango inválido: usa from y to como YYYY-MM-DD', 400);
+        range = custom;
+      } else {
+        const period = periodParam || 'month';
+        if (!isReportPeriod(period)) throw new AppError('Periodo inválido: usa today, week o month', 400);
+        range = periodRange(period);
+      }
+      sendResponse(res, 200, 'Conciliación tributaria', await taxRuleService.reconciliation(range));
     } catch (error) { next(error); }
   }
 
@@ -113,11 +138,21 @@ export class FinanceController {
         description: `Regla tributaria validada: ${rule.concept} (${rule.treatment}${rule.rateBps != null ? `, ${rule.rateBps} pb` : ''})`,
         metadata: {
           concept: rule.concept,
-          treatment: rule.treatment as TaxTreatment,
-          rateBps: rule.rateBps,
-          base: rule.base,
-          priceIncludesTax: rule.priceIncludesTax,
-          validFrom: rule.validFrom,
+          // Quién propuso, quién aprobó, cuándo, qué había antes, qué hay ahora y desde cuándo rige.
+          proposedBy: String(rule.createdBy),
+          lastEditedBy: rule.lastEditedBy ? String(rule.lastEditedBy) : null,
+          approvedBy: String(req.user!._id),
+          approvedAt: rule.validatedAt,
+          previous: rule.previousValues ?? null,
+          supersedes: rule.supersedes ? String(rule.supersedes) : null,
+          new: {
+            treatment: rule.treatment as TaxTreatment,
+            rateBps: rule.rateBps,
+            base: rule.base,
+            priceIncludesTax: rule.priceIncludesTax,
+          },
+          effectiveFrom: rule.validFrom,
+          proposedValidFrom: rule.proposedValidFrom ?? null,
           validationRef: rule.validationRef,
         },
       });
@@ -134,6 +169,9 @@ export class FinanceController {
         userName: req.user!.name,
         reason,
         ip: req.ip,
+        // Cambiar la tasa global o encender las reglas por concepto es decidir cómo se
+        // cobra el impuesto: es de quien aprueba lo tributario, no de quien configura.
+        canApproveTax: can(req, Permission.TAX_RULES_APPROVE),
       });
 
       sendResponse(res, 200, 'Configuración actualizada', {
@@ -295,7 +333,7 @@ export class FinanceController {
         page: Number(query(req, 'page')) || 1,
         limit: clampLimit(query(req, 'limit'), 100, 25),
       });
-      sendResponse(res, 200, 'Facturas de publicidad', { items: result.items, totals: result.totals }, result.meta);
+      sendResponse(res, 200, 'Cobros de publicidad', { items: result.items, totals: result.totals }, result.meta);
     } catch (error) { next(error); }
   }
 
@@ -313,7 +351,7 @@ export class FinanceController {
         entity: 'ad_invoice',
         entityId: param(req, 'id'),
         severity: AuditSeverity.HIGH,
-        description: `Factura de publicidad cobrada por fuera, ref. ${req.body.reference}`,
+        description: `Cobro de publicidad registrado por fuera, ref. ${req.body.reference}`,
         metadata: { amount: invoice.amount, campaignName: invoice.campaignName, reference: req.body.reference },
       });
       sendResponse(res, 200, 'Cobro de publicidad registrado', invoice);

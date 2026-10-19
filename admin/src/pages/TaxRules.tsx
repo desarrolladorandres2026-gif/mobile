@@ -3,6 +3,7 @@ import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
+import { useAuthStore } from '../stores/authStore';
 
 /**
  * Impuestos por concepto (M-014).
@@ -83,6 +84,11 @@ interface Rule {
  status: 'draft' | 'validated' | 'superseded';
  validationRef: string;
  validatedAt?: string | null;
+ /** Doble aprobación: quien propone o edita no aprueba. */
+ createdBy?: string;
+ lastEditedBy?: string | null;
+ validatedBy?: string | null;
+ proposedValidFrom?: string | null;
 }
 
 const CHECKOUT: Concept[] = ['products', 'delivery', 'service_fee'];
@@ -109,6 +115,11 @@ export default function TaxRules() {
  const [draft, setDraft] = useState(emptyDraft());
  const [refs, setRefs] = useState<Record<string, string>>({});
  const [working, setWorking] = useState(false);
+ const { hasPermission, user } = useAuthStore();
+
+ // Aprueba otra persona con permiso de aprobación tributaria: nunca quien creó o editó el borrador.
+ const canApprove = (r: Rule) =>
+ hasPermission(Permission.TAX_RULES_APPROVE) && !!user && r.createdBy !== user._id && r.lastEditedBy !== user._id;
 
  const load = useCallback(async () => {
  try {
@@ -170,8 +181,8 @@ export default function TaxRules() {
  if (ref.length < 5) return setError('Escribe el documento que respalda la regla (concepto del contador, circular, radicado).');
  void run(
  () => api.post(`/finance/tax-rules/${rule._id}/validate`, { validationRef: ref }),
- 'Regla validada. Rige desde su fecha de inicio.',
- 'No se pudo validar la regla.',
+ 'Regla aprobada. Rige desde su fecha de inicio, nunca hacia atrás.',
+ 'No se pudo aprobar la regla.',
  );
  };
 
@@ -358,7 +369,8 @@ export default function TaxRules() {
  <td className="table-body-cell">{r.status === 'draft' ? 'Borrador' : r.status === 'validated' ? 'Validada' : 'Reemplazada'}</td>
  <td className="table-body-cell wrap">
  {r.status === 'draft' ? (
- <PermissionGate permission={Permission.FINANCE_MANAGE}>
+ <div className="space-y-1.5">
+ {canApprove(r) ? (
  <div className="flex flex-wrap items-center gap-2">
  <input
  className={`${inputClass} max-w-[260px]`}
@@ -367,12 +379,22 @@ export default function TaxRules() {
  maxLength={300}
  onChange={(e) => setRefs({ ...refs, [r._id]: e.target.value })}
  />
- <button onClick={() => validate(r)} disabled={working} className="cursor-pointer rounded-lg bg-[var(--color-success)] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-60">Validar</button>
- <button onClick={() => remove(r)} disabled={working} className="cursor-pointer rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-main)] disabled:opacity-60">Eliminar</button>
+ <button onClick={() => validate(r)} disabled={working} className="cursor-pointer rounded-lg bg-[var(--color-success)] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-60">Aprobar</button>
  </div>
- </PermissionGate>
  ) : (
- r.validationRef || '—'
+ <p className="text-[11px] text-[var(--color-text-secondary)]">
+ Espera la aprobación de otra persona con permiso de aprobación tributaria. Quien propone o edita una regla no la aprueba.
+ </p>
+ )}
+ <PermissionGate permission={Permission.FINANCE_MANAGE}>
+ <button onClick={() => remove(r)} disabled={working} className="cursor-pointer rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-main)] disabled:opacity-60">Eliminar</button>
+ </PermissionGate>
+ </div>
+ ) : (
+ <>
+ {r.validationRef || '—'}
+ {r.proposedValidFrom ? <span className="block text-[var(--color-text-secondary)]">Se pidió desde {day(r.proposedValidFrom)}; rige desde su aprobación.</span> : null}
+ </>
  )}
  </td>
  </tr>

@@ -138,8 +138,8 @@ export default function AdCampaignCard({ campaign: c, phase, now, index, invoice
       {phase === 'closed' && seesBilling ? (
         <p className="border-t border-[var(--color-border)] pt-2.5 text-xs text-[var(--color-text-secondary)]">
           {invoice
-            ? `Facturado ${money(invoice.amount)} · ${invoice.settledAt ? 'ya descontado de tu liquidación' : 'pendiente de descontar'}`
-            : 'Aún sin facturar: se cobra al cerrar la campaña.'}
+            ? `Cobrado ${money(invoice.amount)} · ${invoice.settledAt ? 'ya descontado de tu liquidación' : 'pendiente de descontar'}`
+            : 'Aún sin cobrar: se cobra al cerrar la campaña.'}
         </p>
       ) : null}
     </article>

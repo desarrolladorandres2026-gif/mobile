@@ -779,15 +779,9 @@ export interface OrderQuote {
 
   /** Charged to the customer, shown as its own line. */
   customerServiceFee: number;
-  /** What the courier is guaranteed for the trip, before tip. */
-  driverDeliveryPayout: number;
-  /** deliveryFee − driverDeliveryPayout. Informational. */
-  deliveryMargin: number;
-  merchantFundedDiscount: number;
-  platformFundedDiscount: number;
-  /** Cash the courier would have to remit. 0 for online orders. */
-  cashToRemit: number;
-  pricingConfigVersion: number;
+  // El reparto interno (pago al domiciliario, margen, quién financia cada
+  // descuento, tarifa vigente) ya no viaja en la cotización: el servidor lo
+  // guarda en el pedido y no es del cliente (Auditoría 2026-10-19).
 }
 
 export interface PaymentMethods {

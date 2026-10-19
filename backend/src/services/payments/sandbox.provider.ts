@@ -24,6 +24,8 @@ export class SandboxPaymentProvider implements PaymentProvider {
   readonly name = 'sandbox';
 
   private intents = new Map<string, PaymentIntent>();
+  /** Lo ya devuelto por pago, para que los parciales se acumulen. */
+  private refunded = new Map<string, number>();
 
   isConfigured(): boolean {
     return true; // never needs credentials
@@ -81,11 +83,17 @@ export class SandboxPaymentProvider implements PaymentProvider {
     if (intent.status !== 'approved') {
       throw new Error('Solo se pueden reembolsar pagos aprobados');
     }
-    if (amount !== undefined && amount > intent.amount) {
+    // Acumulado: un reembolso parcial deja el pago aprobado por lo que falta, y
+    // solo el que agota el monto lo marca reembolsado. Sin esto el sandbox no
+    // podía probar «parcial y luego el resto», que es justo lo que hace un admin.
+    const already = this.refunded.get(paymentId) ?? 0;
+    const requested = amount ?? intent.amount - already;
+    if (requested > intent.amount - already) {
       throw new Error('El reembolso no puede superar el monto del pago');
     }
+    this.refunded.set(paymentId, already + requested);
 
-    const refunded: PaymentIntent = { ...intent, status: 'refunded' };
+    const refunded: PaymentIntent = already + requested >= intent.amount ? { ...intent, status: 'refunded' } : { ...intent };
     this.intents.set(paymentId, refunded);
     return refunded;
   }

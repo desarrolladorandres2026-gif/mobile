@@ -83,6 +83,21 @@ export interface IOrderFinance {
   /** Lo que descontaron las promociones automáticas del comercio. También dentro de `merchantFundedDiscount`. */
   autoPromotionDiscount?: number;
   taxPayable: number;
+  /**
+   * Evaluación tributaria de la comisión de ZIPP al crear el pedido (Auditoría
+   * 2026-10-19): `pending` mientras no haya regla validada y vigente. «Incluido»:
+   * NO cambia `merchantCommission` ni `businessPayout`, solo separa cuánto de la
+   * comisión sería impuesto. Pedidos anteriores: ausente (= no evaluado).
+   */
+  commissionTax?: {
+    status: 'definitive' | 'pending';
+    ruleId: string | null;
+    treatment: string | null;
+    rateBps: number | null;
+    baseAmount: number;
+    taxIncluded: number;
+    assessedAt: Date;
+  } | null;
   businessPayout: number;
   driverPayout: number;
   platformGrossRevenue: number;
@@ -576,6 +591,21 @@ const orderFinanceSchema = new Schema<IOrderFinance>(
     freeDeliveryDiscount: intMoney,
     autoPromotionDiscount: intMoney,
     taxPayable: intMoney,
+    commissionTax: {
+      type: new Schema(
+        {
+          status: { type: String, enum: ['definitive', 'pending'], required: true },
+          ruleId: { type: String, default: null },
+          treatment: { type: String, default: null },
+          rateBps: { type: Number, default: null },
+          baseAmount: intMoney,
+          taxIncluded: intMoney,
+          assessedAt: { type: Date, required: true },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     businessPayout: intMoney,
     driverPayout: intMoney,
     platformGrossRevenue: { type: Number, default: 0, validate: Number.isInteger },

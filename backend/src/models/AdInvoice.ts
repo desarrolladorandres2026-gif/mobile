@@ -20,7 +20,16 @@ import mongoose, { Schema, Document, Types } from 'mongoose';
  * es reproducible: con los mismos contadores y las mismas tarifas siempre
  * da lo mismo, aunque el cálculo cambie mañana.
  */
+/**
+ * Lo que un cobro de publicidad ES: el registro interno de lo que costó una campaña y de cómo se
+ * cobró. El modelo conserva el nombre `AdInvoice` por compatibilidad, pero NO es una factura
+ * electrónica ni tiene validez ante la DIAN (ver `electronicInvoicing.service`).
+ */
+export const AD_CHARGE_NOTICE = 'Cobro interno de publicidad. No es factura electrónica ni documento soporte validado por la DIAN.';
+
 export interface IAdInvoice extends Document {
+  /** Siempre `AD_CHARGE_NOTICE`: el documento se describe a sí mismo para que ninguna pantalla lo presente como factura. */
+  notice: string;
   campaignId: Types.ObjectId;
   campaignName: string;
   /** A quién se le cobra. Nulo si la vendió el equipo comercial por fuera. */
@@ -86,6 +95,7 @@ export interface IAdInvoice extends Document {
 
 const adInvoiceSchema = new Schema<IAdInvoice>(
   {
+    notice: { type: String, default: AD_CHARGE_NOTICE },
     campaignId: { type: Schema.Types.ObjectId, ref: 'Advertisement', required: true },
     campaignName: { type: String, required: true, trim: true },
     businessId: { type: Schema.Types.ObjectId, ref: 'Business', default: null },

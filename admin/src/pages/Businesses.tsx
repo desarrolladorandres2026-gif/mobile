@@ -230,7 +230,7 @@ export default function Businesses() {
  : pending.kind === 'archive'
  ? {
  title: 'Archivar comercio',
- message: `"${pending.business.name}" sale de la app y del catálogo. Sus pedidos, liquidaciones y facturas se conservan, y se puede restaurar.`,
+ message: `"${pending.business.name}" sale de la app y del catálogo. Sus pedidos, liquidaciones y cobros se conservan, y se puede restaurar.`,
  confirmLabel: 'Archivar',
  variant: 'danger' as const,
  reason: { label: 'Motivo del archivo', placeholder: 'Ej. cerró definitivamente el local' },

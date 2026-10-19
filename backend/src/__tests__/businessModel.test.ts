@@ -180,9 +180,12 @@ describe('Modelo de negocio · 5 pedidos de punta a punta', () => {
 
     // El cliente paga 4.900 + 600 de margen; al repartidor le corresponden
     // los 4.900, y los 600 son de ZIPP.
-    expect(cotizacion.driverDeliveryPayout).toBe(TARIFA_REPARTIDOR);
+    // El reparto interno ya no viaja en la cotización HTTP (quoteSecurity.test.ts):
+    // se comprueba en lo que el pedido congeló.
+    const congelado = await Order.findById(pedido._id);
+    expect(congelado!.finance.driverDeliveryPayout).toBe(TARIFA_REPARTIDOR);
     expect(cotizacion.deliveryFee).toBe(TARIFA_REPARTIDOR + 600);
-    expect(cotizacion.deliveryMargin).toBe(600);
+    expect(congelado!.finance.deliveryMargin).toBe(600);
 
     // Recién creado no hay nada pagadero: se devengó, pero nadie ha pagado.
     const antesDeCobrar = await Payout.find({ orderId: pedido._id });
@@ -306,8 +309,9 @@ describe('Modelo de negocio · 5 pedidos de punta a punta', () => {
 
     expect(cotizacion.subtotal).toBe(40000);
     expect(cotizacion.coupon.productDiscount).toBe(10000);
-    expect(cotizacion.merchantFundedDiscount).toBe(10000);
-    expect(cotizacion.platformFundedDiscount).toBe(0);
+    const congelado = await Order.findById(pedido._id);
+    expect(congelado!.finance.merchantFundedDiscount).toBe(10000);
+    expect(congelado!.finance.platformFundedDiscount).toBe(0);
     expect(pedido.total).toBe(cotizacion.total);
 
     await cobrarEnLinea(pedido._id, cliente);

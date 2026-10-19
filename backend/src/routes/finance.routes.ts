@@ -42,6 +42,10 @@ router.get('/config', requirePermission(Permission.FINANCE_VIEW), (req, res, nex
 router.get('/config/readiness', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
   financeController.readiness(req, res, next)
 );
+// Conciliación por concepto de lo que cada pedido, cobro de publicidad y membresía guardó al ocurrir.
+router.get('/tax-reconciliation', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>
+  financeController.taxReconciliation(req, res, next)
+);
 router.get('/tax-rules', requirePermission(Permission.FINANCE_VIEW), validate(listTaxRulesSchema), (req, res, next) =>
   financeController.listTaxRules(req, res, next)
 );
@@ -55,7 +59,8 @@ router.patch('/tax-rules/:id', requirePermission(Permission.FINANCE_MANAGE), val
 router.delete('/tax-rules/:id', requirePermission(Permission.FINANCE_MANAGE), validate(taxRuleIdSchema), (req, res, next) =>
   financeController.removeTaxRule(req, res, next)
 );
-router.post('/tax-rules/:id/validate', requirePermission(Permission.FINANCE_MANAGE), validate(validateTaxRuleSchema), (req, res, next) =>
+// Aprobar no es configurar: permiso propio, y además otra persona distinta de quien propuso (ver `taxRuleService.validate`).
+router.post('/tax-rules/:id/validate', requirePermission(Permission.TAX_RULES_APPROVE), validate(validateTaxRuleSchema), (req, res, next) =>
   financeController.validateTaxRule(req, res, next)
 );
 router.get('/config/versions', requirePermission(Permission.FINANCE_VIEW), (req, res, next) =>

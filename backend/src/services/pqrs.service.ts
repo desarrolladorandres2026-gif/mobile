@@ -6,7 +6,7 @@ import { AppError } from '../middlewares/errorHandler';
 import { OrderStatus, PaymentMethod, PayoutBeneficiary, UserRole } from '../types';
 import { addBusinessDays } from '../utils';
 import { notifyAlertsChanged } from './alerts.service';
-import { contactWindowExpired, orderClosedAt } from './profileMasking';
+import { contactWindowExpired, orderClosure } from './profileMasking';
 import { config } from '../config';
 
 /** Una justificación de una línea («lo necesito») no permite decidir nada. */
@@ -310,8 +310,8 @@ export async function createPqrs(input: CreatePqrsInput): Promise<IPqrs> {
     // desde la entrega o cancelación, pedir contacto es una excepción. No se
     // niega —garantías, reclamos y obligaciones legales pueden vencer después—,
     // pero exige justificación y queda detenida hasta que ZIPP la autorice.
-    const closed = await Order.findById(input.orderId).select('status deliveredAt cancelledAt').lean();
-    if (closed && contactWindowExpired(closed)) {
+    const closed = await Order.findById(input.orderId).select('status deliveredAt cancelledAt createdAt').lean();
+    if (closed && contactWindowExpired(closed, { terminal: true })) {
       const justification = (input.exceptionJustification ?? '').trim();
       if (justification.length < CONTACT_EXCEPTION_MIN_CHARS) {
         throw new AppError(
@@ -321,12 +321,16 @@ export async function createPqrs(input: CreatePqrsInput): Promise<IPqrs> {
           'CONTACT_WINDOW_EXPIRED'
         );
       }
-      const closedAt = orderClosedAt(closed)!;
+      // Sin fecha de cierre real, el plazo cuenta desde la creación del pedido (nunca se inventa una
+      // entrega); el revisor ve de dónde salió la fecha para decidir con ese dato a la vista.
+      const closure = orderClosure(closed, { terminal: true });
+      const closedAt = closure.at;
       contactException = {
         justification: justification.slice(0, 1000),
         status: 'pending',
         orderClosedAt: closedAt,
-        daysSinceClosed: Math.floor((Date.now() - closedAt.getTime()) / 86_400_000),
+        daysSinceClosed: closedAt ? Math.floor((Date.now() - closedAt.getTime()) / 86_400_000) : null,
+        closedAtSource: closure.source,
       };
     }
   }

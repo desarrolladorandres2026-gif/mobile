@@ -111,9 +111,17 @@ export interface IPqrs extends Document { userId: Types.ObjectId; type: 'petitio
   contactException?: {
     justification: string;
     status: 'pending' | 'authorized' | 'denied';
-    /** Cuándo se cerró el pedido y cuántos días calendario habían pasado al pedirlo. */
-    orderClosedAt: Date;
-    daysSinceClosed: number;
+    /**
+     * Cuándo se cerró el pedido y cuántos días calendario habían pasado al pedirlo. Nulos si el pedido
+     * no guardó NINGUNA fecha utilizable (entonces se restringe y el revisor decide).
+     */
+    orderClosedAt: Date | null;
+    daysSinceClosed: number | null;
+    /**
+     * De dónde salió esa fecha: la entrega o cancelación reales, o `created_at_fallback` (pedido cerrado
+     * que no guardó la fecha: se cuenta desde la creación, nunca se inventa una entrega).
+     */
+    closedAtSource?: 'delivered_at' | 'cancelled_at' | 'created_at_fallback' | 'unknown' | 'open';
     decidedBy?: Types.ObjectId | null;
     decidedAt?: Date | null;
     decisionNote?: string;
@@ -152,8 +160,9 @@ const pqrsSchema = new Schema<IPqrs>({ userId: { type: Schema.Types.ObjectId, re
   contactException: { type: new Schema({
     justification: { type: String, required: true, maxlength: 1000 },
     status: { type: String, enum: ['pending', 'authorized', 'denied'], required: true },
-    orderClosedAt: { type: Date, required: true },
-    daysSinceClosed: { type: Number, required: true, min: 0 },
+    orderClosedAt: { type: Date, default: null },
+    daysSinceClosed: { type: Number, min: 0, default: null },
+    closedAtSource: { type: String, enum: ['delivered_at', 'cancelled_at', 'created_at_fallback', 'unknown', 'open'], default: undefined },
     decidedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     decidedAt: { type: Date, default: null },
     decisionNote: { type: String, maxlength: 500 },

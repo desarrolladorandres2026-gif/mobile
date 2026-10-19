@@ -1802,6 +1802,37 @@ export class PaymentService {
       { _id: payment._id },
       { $set: { 'metadata.requiresReview': true, 'metadata.reviewReason': reason, 'metadata.reviewOpenedAt': new Date().toISOString() } }
     );
+
+    // Cobro tardío sobre un pedido cancelado o reembolsado (Auditoría 2026-10-19):
+    // el dinero entró y el libro no lo conoce. Se deja escrito QUÉ hay pendiente,
+    // por qué y en qué estado de conciliación, para que Administración lo trabaje
+    // sin reconstruirlo. Solo la primera vez: un evento repetido no pisa lo que
+    // ya avanzó (p. ej. un reembolso en curso). No mueve dinero ni toca el libro.
+    if (order.status === OrderStatus.CANCELLED || order.paymentStatus === PaymentStatus.REFUNDED) {
+      const { pricingConfigService } = await import('../pricingConfig.service');
+      const { gatewayFeeSnapshot } = await import('../../utils/gatewayFee');
+      const fee = gatewayFeeSnapshot(await pricingConfigService.getCurrent(), payment.paymentMethodType, payment.amount);
+      await Payment.updateOne(
+        { _id: payment._id, 'metadata.lateCapture': { $exists: false } },
+        {
+          $set: {
+            'metadata.lateCapture': {
+              state: 'pending_refund',
+              pendingAmount: payment.amount,
+              reason,
+              detectedAt: new Date().toISOString(),
+              // Estimación de lo que Wompi cobró por procesarlo. No se asienta hasta que el cobro se devuelva.
+              gatewayFee: fee,
+              reconciliation: 'pending',
+            },
+          },
+        }
+      );
+      await Payment.updateOne(
+        { _id: payment._id, 'metadata.gatewayFee': { $exists: false } },
+        { $set: { 'metadata.gatewayFee': fee } }
+      );
+    }
     logSystemAudit({
       userId: 'system',
       role: 'system',
@@ -1849,6 +1880,14 @@ export class PaymentService {
       },
       { new: true }
     );
+    // Un cobro tardío cerrado a mano (devuelto por fuera, aplicado, sin nada que hacer)
+    // no se da por conciliado: nadie ha comprobado contra el extracto de Wompi.
+    if (resolved) {
+      await Payment.updateOne(
+        { _id: resolved._id, 'metadata.lateCapture.state': { $in: ['pending_refund', 'refund_failed'] } },
+        { $set: { 'metadata.lateCapture.state': 'resolved_manually', 'metadata.lateCapture.reconciliation': 'manual_pending' } }
+      );
+    }
     if (!resolved) {
       throw new AppError('No hay un cobro pendiente de revisión con ese identificador', 404);
     }

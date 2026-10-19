@@ -535,7 +535,7 @@ export class IncidentCenterService {
         severity: 'medium' as IncidentSeverity,
         id: String(a._id),
         key: makeKey('ad_uninvoiced', String(a._id), 'pending'),
-        title: 'Campaña terminada sin facturar',
+        title: 'Campaña terminada sin cobrar',
         detail: `${a.campaignName} (${a.advertiserName}) terminó el ${new Date(a.endDate).toLocaleDateString('es-CO')}`,
         at: a.endDate,
         businessId: a.billedToBusinessId ? String(a.billedToBusinessId) : undefined,

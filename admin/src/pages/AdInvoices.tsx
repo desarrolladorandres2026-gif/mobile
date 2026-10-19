@@ -10,7 +10,7 @@ import { Permission } from '../lib/permissions';
 import SummaryGrid from '../components/SummaryGrid';
 
 /**
- * Facturas de publicidad: lo que cada campaña cerrada le costó al anunciante.
+ * Cobros de publicidad: lo que cada campaña cerrada le costó al anunciante. Son registros internos, NO facturas electrónicas.
  *
  * Las de un comercio se descuentan solas de su siguiente liquidación. Las que
  * vendió el equipo comercial por fuera solo se cierran aquí, registrando el
@@ -74,7 +74,7 @@ export default function AdInvoices() {
  setTotals(data.data?.totals ?? null);
  setMeta(data.meta ?? { total: 0, totalPages: 1, limit: 25 });
  } catch (err) {
- setError(apiMessage(err, 'No se pudieron cargar las facturas de publicidad.'));
+ setError(apiMessage(err, 'No se pudieron cargar los cobros de publicidad.'));
  } finally {
  setLoading(false);
  }
@@ -107,7 +107,7 @@ export default function AdInvoices() {
  <div className="space-y-4 animate-fade-in">
  <div className="page-header">
  <div>
- <h1 className="page-title">Facturas de publicidad</h1>
+ <h1 className="page-title">Cobros de publicidad</h1>
  <p className="page-subtitle">Lo que cuestan las campañas cerradas y si ya se cobró</p>
  </div>
  <div className="flex gap-1">
@@ -132,7 +132,7 @@ export default function AdInvoices() {
  items={(Object.keys(VIEW_LABEL) as View[]).map((k) => ({
  label: VIEW_LABEL[k].text,
  value: money(totals[k].amount),
- sub: `${totals[k].count} ${totals[k].count === 1 ? 'factura' : 'facturas'}`,
+ sub: `${totals[k].count} ${totals[k].count === 1 ? 'cobro' : 'cobros'}`,
  }))}
  />
  )}
@@ -146,7 +146,7 @@ export default function AdInvoices() {
  {loading ? (
  <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
  ) : items.length === 0 ? (
- <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay facturas con este filtro.</p>
+ <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay cobros con este filtro.</p>
  ) : (
  <>
  <div className="table-container">

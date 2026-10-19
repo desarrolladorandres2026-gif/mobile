@@ -231,7 +231,7 @@ export class PricingConfigService {
    */
   async update(
     patch: PricingConfigPatch,
-    context: { userId: string; userName?: string; reason: string; ip?: string }
+    context: { userId: string; userName?: string; reason: string; ip?: string; canApproveTax?: boolean }
   ): Promise<{ config: PricingConfigDoc; changes: Record<string, unknown> }> {
     const reason = (context.reason || '').trim();
     if (reason.length < 5) {
@@ -268,6 +268,18 @@ export class PricingConfigService {
 
     if (Object.keys(changes).length === 0) {
       throw new AppError('No hay cambios que aplicar', 400);
+    }
+
+    // Auditoría 2026-10-19: la tasa global y el interruptor de las reglas por concepto
+    // cambian cómo se cobra el impuesto de TODOS los pedidos. Quien configura precios no
+    // las mueve sin el permiso de aprobación tributaria. `canApproveTax` solo lo manda la
+    // ruta HTTP; los llamadores internos (migraciones, pruebas) no pasan por permisos.
+    if (context.canApproveTax === false && ('taxBps' in changes || 'taxRulesEnabled' in changes)) {
+      throw new AppError(
+        'Cambiar la tasa de impuesto global o encender las reglas tributarias requiere el permiso de aprobación tributaria.',
+        403,
+        'TAX_APPROVAL_REQUIRED'
+      );
     }
 
     // M-014: las reglas tributarias solo se encienden con los tres conceptos del

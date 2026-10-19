@@ -105,6 +105,7 @@ export const Permission = {
  LEGAL_PUBLISH: 'legal:publish',
  SOS_VIEW: 'sos:view',
  SOS_MANAGE: 'sos:manage',
+ TAX_RULES_APPROVE: 'tax:approve',
 } as const;
 
 export type PermissionKey = (typeof Permission)[keyof typeof Permission];

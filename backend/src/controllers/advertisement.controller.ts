@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { advertisementService } from '../services';
+import { adOrigin } from '../services/advertisement.service';
 import { Advertisement } from '../models';
 import { sendResponse, param, query, escapeRegex, clientIp } from '../utils';
 import { AppError } from '../middlewares';
@@ -103,6 +104,9 @@ export class AdvertisementController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
+      // El esquema solo deja pasar lo de una campaña de ZIPP (precio cerrado, sin tarifa
+      // ni comercio facturado), y aun así el destino se comprueba: ver `adOrigin`.
+      if (req.body.actionType === 'business') await advertisementService.assertTargetBusiness(String(req.body.businessId));
       const campaign = await Advertisement.create(req.body);
       void logAudit(req, {
         action: AuditAction.AD_CAMPAIGN_CREATED,
@@ -110,7 +114,17 @@ export class AdvertisementController {
         entityId: campaign._id.toString(),
         severity: AuditSeverity.MEDIUM,
         description: 'Campaña publicitaria creada',
-        metadata: { campaignName: campaign.campaignName, advertiserName: campaign.advertiserName },
+        metadata: {
+          campaignName: campaign.campaignName,
+          advertiserName: campaign.advertiserName,
+          origin: adOrigin(campaign),
+          pricePaid: campaign.pricePaid,
+          placement: campaign.placement,
+          targetBusinessId: campaign.businessId?.toString() ?? null,
+          startDate: campaign.startDate,
+          endDate: campaign.endDate,
+          maxImpressions: campaign.maxImpressions,
+        },
       });
       sendResponse(res, 201, 'Campaña creada', campaign);
     } catch (error) { next(error); }
@@ -135,7 +149,13 @@ export class AdvertisementController {
         );
       }
 
+      // Una campaña que pagó un comercio no se reescribe por aquí (destino, fechas
+      // fuera de la oferta, encenderla sin aprobar): ver `assertAdminEdit`.
+      await advertisementService.assertAdminEdit(campaign, req.body);
+
       const previousFlyerUrl = campaign.flyerUrl;
+      const before: Record<string, unknown> = {};
+      for (const key of Object.keys(req.body)) before[key] = (campaign as any)[key];
       Object.assign(campaign, req.body);
       await campaign.save();
       void logAudit(req, {
@@ -144,7 +164,14 @@ export class AdvertisementController {
         entityId: campaign._id.toString(),
         severity: AuditSeverity.MEDIUM,
         description: 'Campaña publicitaria actualizada',
-        metadata: { campaignName: campaign.campaignName, changes: Object.keys(req.body) },
+        metadata: {
+          campaignName: campaign.campaignName,
+          origin: adOrigin(campaign),
+          changes: Object.keys(req.body),
+          // Antes y después: sin esto, mover fechas o destino de una campaña quedaba sin rastro del valor anterior.
+          before,
+          after: Object.fromEntries(Object.keys(req.body).map((k) => [k, (campaign as any)[k]])),
+        },
       });
 
       // El flyer viejo ya no lo referencia nadie: se borra después de
@@ -164,6 +191,7 @@ export class AdvertisementController {
       if (!campaign) throw new AppError('Campaña no encontrada', 404);
       if (campaign.cancelledAt) throw new AppError('La campaña está cancelada y no puede reactivarse', 409);
 
+      if (!campaign.isActive) await advertisementService.assertAdminEdit(campaign, { isActive: true });
       campaign.isActive = !campaign.isActive;
       await campaign.save();
       void logAudit(req, {
@@ -207,6 +235,7 @@ export class AdvertisementController {
       const campaign = await Advertisement.findById(param(req, 'id'));
       if (!campaign) throw new AppError('Campaña no encontrada', 404);
 
+      await advertisementService.assertRemovable(campaign);
       await campaign.deleteOne();
       void advertisementService.destroyFlyer(campaign.flyerUrl);
       void logAudit(req, {
@@ -215,7 +244,7 @@ export class AdvertisementController {
         entityId: campaign._id.toString(),
         severity: AuditSeverity.HIGH,
         description: 'Campaña publicitaria eliminada',
-        metadata: { campaignName: campaign.campaignName },
+        metadata: { campaignName: campaign.campaignName, origin: adOrigin(campaign), impressions: campaign.impressionCount, clicks: campaign.clickCount },
       });
 
       sendResponse(res, 200, 'Campaña eliminada');

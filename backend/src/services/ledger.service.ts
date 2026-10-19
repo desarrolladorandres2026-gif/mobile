@@ -312,6 +312,49 @@ export class LedgerService {
   }
 
   /**
+   * El costo de la pasarela de un cobro que llegó DESPUÉS de cancelar el pedido
+   * y se devolvió completo (Auditoría 2026-10-19).
+   *
+   * Ese dinero nunca entró al libro (ni ingreso, ni comisión, ni liquidación),
+   * pero Wompi sí procesó la transacción: lo que se queda de su comisión y lo que
+   * cobra por anularla es gasto real de ZIPP. Mismas dos cuentas que el cobro
+   * normal y que `recordGatewayFeeAdjustment` —nunca toca ingresos ni pasivos con
+   * terceros—, con referencia propia para que sea idempotente.
+   */
+  async recordLateCaptureGatewayCost(params: {
+    orderId: string | Types.ObjectId;
+    pricingConfigVersion: number;
+    reference: string;
+    currency?: string;
+    /** Comisión de la pasarela que NO se devuelve + costo de la anulación. */
+    amount: number;
+  }) {
+    return this.post(
+      {
+        orderId: params.orderId,
+        event: LedgerEventType.GATEWAY_FEE_ADJUSTED,
+        pricingConfigVersion: params.pricingConfigVersion,
+        reference: params.reference,
+        currency: params.currency,
+      },
+      [
+        {
+          account: LedgerAccount.PAYMENT_PROCESSING_EXPENSE,
+          direction: LedgerDirection.DEBIT,
+          amount: params.amount,
+          memo: 'Costo de la pasarela por un cobro tardío sobre un pedido cancelado, ya devuelto',
+        },
+        {
+          account: LedgerAccount.GATEWAY_WITHHELD,
+          direction: LedgerDirection.CREDIT,
+          amount: params.amount,
+          memo: 'Retenido por la pasarela al desembolsar',
+        },
+      ]
+    );
+  }
+
+  /**
    * Settles a cash delivery at the door.
    *
    * The driver collects the customer's whole total, but most of it is

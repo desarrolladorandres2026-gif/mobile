@@ -684,9 +684,9 @@ export default function BusinessProfile360({
  />
  </div>
  <Grid
- title="Facturas"
+ title="Cobros de publicidad"
  head={['Fecha', 'Estado', 'Importe']}
- empty="Sin facturas."
+ empty="Sin cobros de publicidad."
  right={[2]}
  rows={data.ads.invoices.map((inv) => [
  day(inv.createdAt),

@@ -6,7 +6,7 @@ import { Driver, BusinessPermission, BusinessRole } from '../models';
 import { AppError } from '../middlewares';
 import { can } from '../middlewares/auth';
 import { Permission, logAudit, AuditAction, AuditSeverity } from '../security';
-import { customerFinanceView, customerOrderView, driverOrderView, merchantOrderView } from '../services/profileMasking';
+import { customerFinanceView, customerOrderView, customerQuoteView, driverOrderView, merchantOrderView } from '../services/profileMasking';
 import { businessStaffService, staffOrderScope, isInStaffScope, type BusinessAccess } from '../services/businessStaff.service';
 import { TERMINAL_ORDER_STATUSES } from '../services/order.service';
 import { isMerchantVisible, orderEventPayload } from '../utils/merchantVisibility';
@@ -53,7 +53,9 @@ export class OrderController {
         ...req.body,
         clientId: req.user!._id.toString(),
       });
-      sendResponse(res, 200, 'Cotización calculada', quote);
+      // El `Quote` interno lleva el margen y los ingresos de ZIPP y el pago al
+      // domiciliario; el cliente recibe solo lo que el checkout pinta.
+      sendResponse(res, 200, 'Cotización calculada', customerQuoteView(quote));
     } catch (error) { next(error); }
   }
 

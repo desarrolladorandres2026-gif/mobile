@@ -131,6 +131,26 @@ const ALLOWED_NEW_KEYS = new Set([
   'unavailableUntil',
 ]);
 
+/**
+ * Campos que SALEN de la cotización por decisión de seguridad (Auditoría
+ * 2026-10-19, quoteSecurity.test.ts). `POST /orders/quote` devolvía el `Quote`
+ * interno —margen, pago al domiciliario, ingresos de ZIPP—. Ninguno lo lee la
+ * app (verificado en `mobile/`), así que quitarlos no rompe a un cliente
+ * compilado. Solo aplica a las capturas `order.quote.*`: en cualquier otra
+ * ruta, que una de estas claves desaparezca sigue siendo ruptura.
+ */
+const REMOVED_FROM_QUOTE = new Set([
+  'merchantCommission', 'deliveryCustomerFee', 'driverDeliveryPayout',
+  'deliveryMargin', 'merchantFundedDiscount', 'platformFundedDiscount', 'taxPayable',
+  'businessPayout', 'driverPayout', 'platformGrossRevenue', 'platformPromotionExpense',
+  'platformNetRevenueBeforeOperatingCosts', 'pricingConfigVersion', 'appliedCommissionBps',
+  'zoneId', 'zoneVersion', 'cashToRemit', 'platformCommission', 'appliedAutoPromotions',
+  'subsidioPlataforma', 'subsidioComercio', 'taxStatus', 'taxBreakdown',
+  // Del cupón aplicado y del aviso de Pro:
+  'couponId', 'merchantFunded', 'platformFunded', 'minimumContributionMargin', 'campaignApproved',
+  'marginWithFullBenefit', 'marginApplied',
+]);
+
 type Shape = string | Shape[] | { [key: string]: Shape };
 
 /** Claves y tipos, sin valores: lo que un cliente compilado espera encontrar. */
@@ -154,19 +174,20 @@ function shapeOf(value: unknown): Shape {
  * solo se tolera si está en la lista. Un array vacío en un lado no dice
  * nada de la forma de sus elementos, así que no se compara por dentro.
  */
-function breakingChanges(before: Shape, after: Shape, at = '$'): string[] {
+function breakingChanges(before: Shape, after: Shape, at = '$', removable?: Set<string>): string[] {
   if (typeof before === 'string' || typeof after === 'string') {
     return before === after ? [] : [`${at}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`];
   }
   if (Array.isArray(before) || Array.isArray(after)) {
     if (!Array.isArray(before) || !Array.isArray(after)) return [`${at}: cambió entre array y objeto`];
     if (!before.length || !after.length) return [];
-    return breakingChanges(before[0], after[0], `${at}[0]`);
+    return breakingChanges(before[0], after[0], `${at}[0]`, removable);
   }
   const problems: string[] = [];
   for (const key of Object.keys(before)) {
-    if (!(key in after)) problems.push(`${at}.${key}: desapareció`);
-    else problems.push(...breakingChanges(before[key], after[key], `${at}.${key}`));
+    if (!(key in after)) {
+      if (!removable?.has(key)) problems.push(`${at}.${key}: desapareció`);
+    } else problems.push(...breakingChanges(before[key], after[key], `${at}.${key}`, removable));
   }
   for (const key of Object.keys(after)) {
     if (!(key in before) && !ALLOWED_NEW_KEYS.has(key)) problems.push(`${at}.${key}: campo nuevo no autorizado`);
@@ -296,7 +317,7 @@ describe('Contrato de la API — solo puede crecer', () => {
       const after = current[name];
       if (!after) { problems.push(`${name}: la ruta ya no se captura`); continue; }
       if (after.status !== before.status) problems.push(`${name}: estado ${before.status} → ${after.status}`);
-      problems.push(...breakingChanges(before.shape, after.shape, name));
+      problems.push(...breakingChanges(before.shape, after.shape, name, name.startsWith('order.quote.') ? REMOVED_FROM_QUOTE : undefined));
       if (JSON.stringify(after.money) !== JSON.stringify(before.money)) {
         problems.push(`${name}: dinero ${JSON.stringify(before.money)} → ${JSON.stringify(after.money)}`);
       }

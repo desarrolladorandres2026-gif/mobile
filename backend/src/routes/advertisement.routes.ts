@@ -204,7 +204,7 @@ router.get(
         AdInvoice.find({ businessId }).sort({ createdAt: -1 }).limit(50),
         advertisementService.outstandingForBusiness(businessId),
       ]);
-      sendResponse(res, 200, 'Facturas de publicidad', { invoices, outstanding });
+      sendResponse(res, 200, 'Cobros de publicidad', { invoices, outstanding });
     } catch (error) { next(error); }
   }
 );
@@ -228,10 +228,10 @@ router.post('/:id/close', authenticate, authorize(UserRole.ADMIN), requirePermis
   try {
     // Cerrar y facturar mueve dinero del comercio: ademas de ads:manage exige finance:manage.
     if (!can(req, Permission.FINANCE_MANAGE)) {
-      throw new AppError('Cerrar y facturar una campaña requiere permisos financieros', 403);
+      throw new AppError('Cerrar y cobrar una campaña requiere permisos financieros', 403);
     }
     const invoice = await advertisementService.closeAndInvoice(param(req, 'id'));
-    sendResponse(res, 201, 'Campaña cerrada y facturada', invoice);
+    sendResponse(res, 201, 'Campaña cerrada y cobrada', invoice);
   } catch (error) { next(error); }
 });
 

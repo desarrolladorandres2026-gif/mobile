@@ -126,6 +126,13 @@ export enum Permission {
   LEGAL_PUBLISH = 'legal:publish',
   SOS_VIEW = 'sos:view',
   SOS_MANAGE = 'sos:manage',
+
+  // ── Aprobación tributaria (Auditoría 2026-10-19) ──
+  // Separada de `finance:manage` a propósito: quien configura (propone una regla,
+  // edita un borrador) no es quien la aprueba, y aprobar es decidir cómo se cobra
+  // el impuesto. Sin rol base: solo el Super Administrador, igual que `legal:publish`.
+  // Además, nadie aprueba lo que él mismo propuso o editó (ver `taxRuleService.validate`).
+  TAX_RULES_APPROVE = 'tax:approve',
 }
 
 // ── Extended Roles ──

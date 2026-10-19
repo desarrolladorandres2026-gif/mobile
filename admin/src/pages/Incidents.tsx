@@ -101,7 +101,7 @@ const KIND: Record<string, { label: string; icon: LucideIcon }> = {
  cash_overdue: { label: 'Efectivo vencido', icon: Banknote },
  business_document_expiring: { label: 'Documento de comercio por vencer', icon: FileWarning },
  driver_document_expiring: { label: 'Documento de domiciliario por vencer', icon: FileWarning },
- ad_uninvoiced: { label: 'Publicidad sin facturar', icon: Megaphone },
+ ad_uninvoiced: { label: 'Publicidad sin cobrar', icon: Megaphone },
  refund_failed: { label: 'Reembolso fallido', icon: Undo2 },
  payment_review: { label: 'Cobro en revisión', icon: Banknote },
  order_unaccepted: { label: 'Pedido sin aceptar', icon: Clock },

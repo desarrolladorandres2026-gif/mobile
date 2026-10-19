@@ -1,11 +1,13 @@
 import { Types } from 'mongoose';
 import { AdInvoice } from '../models';
+import { AD_CHARGE_NOTICE } from '../models/AdInvoice';
 import { AppError } from '../middlewares';
 
 /**
- * Facturas de publicidad vistas por finanzas.
+ * Cobros de publicidad vistos por finanzas (el modelo se llama `AdInvoice` por compatibilidad;
+ * NO son facturas electrónicas, ver `AD_CHARGE_NOTICE`).
  *
- * Una factura de un comercio se descuenta sola de su siguiente liquidación
+ * El cobro de un comercio se descuenta sola de su siguiente liquidación
  * (`settle()`); una venta que hizo el equipo comercial por fuera
  * (`settledAgainstPayout: false`, sin comercio) no tiene de dónde
  * descontarse y solo se cierra cuando finanzas registra el cobro con su
@@ -82,6 +84,9 @@ export const adInvoiceService = {
       collectionReference: r.collectionReference ?? null,
       collectionReceiptUrl: r.collectionReceiptUrl ?? null,
       createdAt: r.createdAt,
+      // Es un cobro interno, no una factura electrónica: la pantalla lo dice con esto.
+      legalKind: 'commercial_document' as const,
+      notice: AD_CHARGE_NOTICE,
     }));
 
     return { items, totals, meta: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
@@ -94,7 +99,7 @@ export const adInvoiceService = {
    * referencia de la primera.
    */
   async collect(params: { invoiceId: string; reference: string; receiptUrl: string; collectedBy: string }) {
-    if (!Types.ObjectId.isValid(params.invoiceId)) throw new AppError('Factura no encontrada', 404);
+    if (!Types.ObjectId.isValid(params.invoiceId)) throw new AppError('Cobro de publicidad no encontrado', 404);
 
     const updated = await AdInvoice.findOneAndUpdate(
       { _id: params.invoiceId, settledAgainstPayout: false, settledAt: null },
@@ -111,10 +116,10 @@ export const adInvoiceService = {
     if (updated) return updated;
 
     const existing = await AdInvoice.findById(params.invoiceId).select('settledAgainstPayout settledAt');
-    if (!existing) throw new AppError('Factura no encontrada', 404);
+    if (!existing) throw new AppError('Cobro de publicidad no encontrado', 404);
     if (existing.settledAgainstPayout) {
-      throw new AppError('Esta factura se descuenta de la liquidación del comercio; no se cobra por fuera', 409);
+      throw new AppError('Este cobro se descuenta de la liquidación del comercio; no se cobra por fuera', 409);
     }
-    throw new AppError('Esta factura ya fue cobrada', 409);
+    throw new AppError('Este cobro de publicidad ya fue cobrado', 409);
   },
 };

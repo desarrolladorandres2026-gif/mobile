@@ -343,7 +343,7 @@ export default function Campaigns() {
  };
 
  /**
- * Cierra la campaña y emite su factura.
+ * Cierra la campaña y registra su cobro (interno; no es una factura electrónica).
  *
  * Es el disparador de toda la cadena de cobro: sin este paso las
  * facturas no existen y el descuento en la liquidación del comercio no
@@ -355,7 +355,7 @@ export default function Campaigns() {
  const { data } = await api.post(`/advertisements/${c._id}/close`);
  await fetchAll();
  window.alert(
- `Campaña cerrada. Se facturaron $${(data.data.amount ?? 0).toLocaleString('es-CO')}` +
+ `Campaña cerrada. Se cobraron $${(data.data.amount ?? 0).toLocaleString('es-CO')}` +
  (data.data.settledAgainstPayout
  ? ', que se descontarán de la próxima liquidación del comercio.'
  : '. Se cobra por fuera: aquí solo queda constancia.')
@@ -571,9 +571,9 @@ export default function Campaigns() {
  <button
  onClick={() => handleClose(c)}
  className="px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-main)] text-[11px] font-bold uppercase tracking-wider cursor-pointer"
- title="Cerrar la campaña y emitir su factura"
+ title="Cerrar la campaña y registrar su cobro"
  >
- Cerrar y facturar
+ Cerrar y cobrar
  </button>
  </PermissionGate>
  ) : null}

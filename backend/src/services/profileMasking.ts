@@ -7,6 +7,7 @@
  */
 import { maskPhone, maskEmail } from '../utils/mask';
 import { config } from '../config';
+import { OrderStatus } from '../types';
 
 // `maskPhone` (`***4567`) y `maskEmail` (`c***@t***.co`) ya existían en
 // `utils/mask.ts` para los logs; se reexportan aquí para que las fichas
@@ -97,41 +98,97 @@ export const MERCHANT_OWNER_FINANCE_FIELDS = [
   'autoPromotionDiscount',
 ] as const;
 
+/**
+ * De dónde sale la fecha que cuenta el plazo de datos personales de un pedido.
+ *
+ *  · `delivered_at` / `cancelled_at`: la fecha real registrada. Es la única que se usa cuando existe.
+ *  · `created_at_fallback`: el pedido está cerrado (entregado o cancelado) pero NO guardó la fecha
+ *    —pedidos anteriores al registro, migrados, o con la escritura caída a medias—. No se inventa
+ *    una entrega: se cuenta desde la creación, que es siempre anterior o igual al cierre real. Así
+ *    el plazo solo puede vencer ANTES, nunca después, y la falta de dato nunca amplía el acceso.
+ *  · `open`: el pedido sigue en curso; la ausencia de fecha de cierre es lo normal.
+ *  · `unknown`: no hay ninguna fecha utilizable; se trata como vencido (restricción segura).
+ */
+export type OrderClosureSource = 'delivered_at' | 'cancelled_at' | 'created_at_fallback' | 'open' | 'unknown';
+
+const CLOSED_STATUSES: readonly string[] = [OrderStatus.DELIVERED, OrderStatus.CANCELLED];
 const DAY_MS = 86_400_000;
+/**
+ * Un pedido en curso con más antigüedad que esto (el plazo + los 7 días máximos de un pedido
+ * programado, `MAX_SCHEDULE_AHEAD_MS` en `order.service`) está atascado, no «en curso»: tampoco
+ * da acceso indefinido.
+ */
+const OPEN_ORDER_SCHEDULE_HORIZON_DAYS = 7;
+
+const validDate = (value: unknown, now: Date): Date | null => {
+  if (value === null || value === undefined || value === '') return null;
+  const date = new Date(value as string | number | Date);
+  if (Number.isNaN(date.getTime())) return null;
+  // Una fecha de cierre en el futuro es un dato corrupto: aceptarla alargaría el acceso hasta entonces.
+  if (date.getTime() > now.getTime() + DAY_MS) return null;
+  return date;
+};
 
 /**
- * Cuándo se cerró un pedido para efectos del plazo de datos personales: la
- * entrega, o la cancelación si nunca se entregó. `null` si sigue en curso.
+ * Cuándo se cerró un pedido para efectos del plazo de datos personales y de dónde sale esa fecha.
+ * `terminal: true` fuerza a tratarlo como cerrado aunque el objeto no traiga `status` (los historiales
+ * del comercio solo muestran pedidos cerrados).
  */
-export function orderClosedAt(order: object): Date | null {
-  const o = order as { deliveredAt?: Date | string | null; cancelledAt?: Date | string | null };
-  const at = o.deliveredAt ?? o.cancelledAt ?? null;
-  if (!at) return null;
-  const date = new Date(at);
-  return Number.isNaN(date.getTime()) ? null : date;
+export function orderClosure(
+  order: object,
+  opts: { now?: Date; terminal?: boolean } = {}
+): { at: Date | null; source: OrderClosureSource } {
+  const o = order as { status?: string; deliveredAt?: unknown; cancelledAt?: unknown; createdAt?: unknown };
+  const now = opts.now ?? new Date();
+  const delivered = validDate(o.deliveredAt, now);
+  if (delivered) return { at: delivered, source: 'delivered_at' };
+  const cancelled = validDate(o.cancelledAt, now);
+  if (cancelled) return { at: cancelled, source: 'cancelled_at' };
+
+  const closed = opts.terminal === true || (typeof o.status === 'string' && CLOSED_STATUSES.includes(o.status));
+  const created = validDate(o.createdAt, now);
+  if (closed) return created ? { at: created, source: 'created_at_fallback' } : { at: null, source: 'unknown' };
+  return { at: null, source: 'open' };
+}
+
+/**
+ * Cuándo se cerró un pedido para efectos del plazo de datos personales: la entrega, o la
+ * cancelación si nunca se entregó; en un pedido cerrado sin ninguna de las dos, la creación
+ * (ver `OrderClosureSource`). `null` si sigue en curso o no hay ninguna fecha.
+ */
+export function orderClosedAt(order: object, opts: { now?: Date; terminal?: boolean } = {}): Date | null {
+  return orderClosure(order, opts).at;
 }
 
 /**
  * ¿Ya pasaron los días calendario del plazo para pedir contacto con el cliente?
  * El plazo cuenta días calendario en la zona horaria de liquidación desde el
  * cierre: un pedido entregado el lunes a cualquier hora vence el lunes siguiente
- * a las 23:59 si el plazo es de 7 días. Un pedido sin fecha de cierre no vence
- * (sigue en curso o es anterior al registro de fechas: se trata como vigente y
- * no como expirado, para no ocultar de más lo que no se puede fechar).
+ * a las 23:59 si el plazo es de 7 días.
+ *
+ * Un pedido cerrado sin fecha de cierre cuenta desde su creación; sin ninguna fecha, está
+ * vencido: la falta de dato NUNCA da acceso indefinido (Auditoría 2026-10-19). Los casos
+ * excepcionales —garantías, reclamos, obligaciones legales— pasan por la solicitud de contacto
+ * con justificación y autorización de soporte (`decideContactException`), que queda auditada.
+ * Un pedido en curso no vence, salvo que esté atascado más allá de lo que dura un pedido.
  */
 export function contactWindowExpired(
   order: object,
-  opts: { now?: Date; windowDays?: number } = {}
+  opts: { now?: Date; windowDays?: number; terminal?: boolean } = {}
 ): boolean {
-  const closed = orderClosedAt(order);
-  if (!closed) return false;
-  const windowDays = opts.windowDays ?? config.privacy.contactWindowDays;
   const now = opts.now ?? new Date();
+  const windowDays = opts.windowDays ?? config.privacy.contactWindowDays;
   const day = (d: Date) => {
     const local = new Date(d.toLocaleString('en-US', { timeZone: config.settlement.timezone }));
     return Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
   };
-  return (day(now) - day(closed)) / DAY_MS > windowDays;
+  const { at, source } = orderClosure(order, { now, terminal: opts.terminal });
+  if (source === 'unknown') return true;
+  if (source === 'open') {
+    const created = validDate((order as { createdAt?: unknown }).createdAt, now);
+    return !!created && (day(now) - day(created)) / DAY_MS > windowDays + OPEN_ORDER_SCHEDULE_HORIZON_DAYS;
+  }
+  return (day(now) - day(at!)) / DAY_MS > windowDays;
 }
 
 /** «María Fernanda Gómez» → «María G.»: lo justo para reconocer al cliente en un reporte, no para ubicarlo. */
@@ -206,7 +263,7 @@ export function merchantOrderView<T extends object>(
     // reducido y sin quien recibió. Lo operativo, lo financiero y la auditoría
     // siguen intactos y la base conserva todo; solo cambia lo que viaja al panel.
     // Pedir contacto pasado el plazo es una excepción con autorización de ZIPP.
-    if (contactWindowExpired(plain, { now: opts.now })) {
+    if (contactWindowExpired(plain, { now: opts.now, terminal: true })) {
       const holder = plain.clientId;
       if (holder && typeof holder === 'object') {
         const copy = { ...(holder as Record<string, unknown>) };
@@ -254,6 +311,80 @@ export function customerOrderView<T extends object>(order: T): T {
   delete plain.fundHoldReleasePending;
   delete plain.driverCancelPay;
   return plain as T;
+}
+
+/**
+ * Lista blanca de la cotización que ve el cliente en el checkout (Auditoría
+ * 2026-10-19). `POST /orders/quote` devolvía el `Quote` interno entero —margen
+ * del domicilio, pago al domiciliario, comisión e ingreso bruto de ZIPP, gasto
+ * en promociones, versión de tarifa—, de modo que cualquier cuenta de cliente
+ * reconstruía la economía de la plataforma con solo cotizar un carrito. Aquí
+ * sale lo que el checkout pinta y suma, y nada más. El modelo interno
+ * (`pricingService.quote`) no cambia: la creación del pedido lo sigue usando
+ * completo para congelar `finance`.
+ *
+ * Los alias heredados (`subtotal`, `deliveryFee`, `discount`, `tax`, `total`)
+ * se conservan: la app instalada los lee.
+ */
+export const CUSTOMER_QUOTE_FIELDS = [
+  'subtotal',
+  'deliveryFee',
+  'deliveryPayable',
+  'freeDeliveryApplied',
+  'freeDeliveryDiscount',
+  'proDeliveryDiscount',
+  'proServiceFeeDiscount',
+  'customerServiceFee',
+  'productSubtotal',
+  'promotionDiscount',
+  'discount',
+  'tip',
+  'tax',
+  'total',
+  'customerTotal',
+  'currency',
+  'minOrder',
+  'etaMinutesMin',
+  'etaMinutesMax',
+  'deliveryDistanceKm',
+  'zoneName',
+  'requiresAgeVerification',
+  // Alias de presentación ya calculados por el servidor (todos valores que el
+  // cliente puede ver en pantalla; no llevan subsidios).
+  'precioOriginal',
+  'descuentoEnvio',
+  'totalUsuario',
+] as const;
+
+const CUSTOMER_QUOTE_ITEM_FIELDS = ['productId', 'productName', 'quantity', 'unitPrice', 'totalPrice', 'selectedExtras', 'notes'] as const;
+const CUSTOMER_QUOTE_EXTRA_FIELDS = ['name', 'price', 'quantity', 'groupId', 'groupName', 'optionId'] as const;
+/** Del cupón aplicado, lo que el cliente ve: nada de `couponId`, lo que absorbe cada financiador ni el piso de margen. */
+const CUSTOMER_QUOTE_COUPON_FIELDS = [
+  'code', 'title', 'type', 'fundedBy', 'scope',
+  'productDiscount', 'deliveryDiscount', 'serviceFeeDiscount', 'totalDiscount',
+] as const;
+/** Del aviso de Pro, la frase y qué se quitó; los márgenes con y sin beneficio son de ZIPP. */
+const CUSTOMER_QUOTE_PRO_NOTICE_FIELDS = ['code', 'skipped', 'message'] as const;
+
+export function customerQuoteView(quote: unknown): Record<string, unknown> {
+  const q = (quote ?? {}) as Record<string, unknown>;
+  const out = pick(q, CUSTOMER_QUOTE_FIELDS) ?? {};
+
+  out.items = Array.isArray(q.items)
+    ? q.items.map((item) => {
+        const view = pick(item, CUSTOMER_QUOTE_ITEM_FIELDS) ?? {};
+        if (Array.isArray(view.selectedExtras)) {
+          view.selectedExtras = view.selectedExtras.map((e) => pick(e, CUSTOMER_QUOTE_EXTRA_FIELDS));
+        }
+        return view;
+      })
+    : [];
+
+  out.coupon = q.coupon ? pick(q.coupon, CUSTOMER_QUOTE_COUPON_FIELDS) : null;
+  out.suggestedCoupon = q.suggestedCoupon ? pick(q.suggestedCoupon, ['code', 'title', 'discount']) : null;
+  if (q.proBenefitNotice) out.proBenefitNotice = pick(q.proBenefitNotice, CUSTOMER_QUOTE_PRO_NOTICE_FIELDS);
+  else if (q.proBenefitNotice === null) out.proBenefitNotice = null;
+  return out;
 }
 
 /** Lo del cliente más lo que le toca al domiciliario: su pago y la propina. */

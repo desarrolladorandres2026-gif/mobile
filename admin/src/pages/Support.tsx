@@ -61,8 +61,10 @@ interface Ticket {
  contactException?: {
  justification: string;
  status: 'pending' | 'authorized' | 'denied';
- orderClosedAt: string;
- daysSinceClosed: number;
+ orderClosedAt: string | null;
+ daysSinceClosed: number | null;
+ /** `created_at_fallback`: el pedido no guardó su fecha de cierre y se cuenta desde que se creó. */
+ closedAtSource?: 'delivered_at' | 'cancelled_at' | 'created_at_fallback' | 'unknown' | 'open';
  decidedBy?: string | { name?: string } | null;
  decidedAt?: string | null;
  decisionNote?: string;
@@ -574,7 +576,9 @@ export default function Support() {
  <section className="space-y-2 border-t border-[var(--color-border-light)] pt-4">
  <h3 className="text-sm font-bold text-[var(--color-text-main)]">Contacto fuera de plazo</h3>
  <p className="text-xs text-[var(--color-text-main)]">
- El pedido se cerró hace {selected.contactException.daysSinceClosed} días ({new Date(selected.contactException.orderClosedAt).toLocaleDateString('es-CO')}).
+ {selected.contactException.orderClosedAt
+ ? <>El pedido se cerró hace {selected.contactException.daysSinceClosed} días ({new Date(selected.contactException.orderClosedAt).toLocaleDateString('es-CO')}){selected.contactException.closedAtSource === 'created_at_fallback' ? ', contando desde que se creó porque el pedido no guardó su fecha de entrega' : ''}.</>
+ : <>El pedido no guardó ninguna fecha utilizable: se restringió por seguridad y hace falta tu criterio.</>}
  Motivo del comercio: {selected.contactException.justification}
  </p>
  {selected.contactException.status === 'pending' ? (

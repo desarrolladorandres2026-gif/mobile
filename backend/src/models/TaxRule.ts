@@ -95,7 +95,26 @@ export interface ITaxRule extends Document {
   validationRef: string;
   validationNote: string;
   createdBy: Types.ObjectId;
+  /** Última persona que tocó el borrador. Tampoco puede aprobarlo: la regla que se aprueba no la escribió quien la aprueba. */
+  lastEditedBy?: Types.ObjectId | null;
   changeReason: string;
+  /**
+   * Doble aprobación (Auditoría 2026-10-19). Al aprobar queda la regla a la que
+   * reemplaza y sus valores, y la fecha que se pidió: la vigencia nunca retrocede
+   * (si se pidió hoy a las 00:00 y se aprueba a las 15:00, rige desde las 15:00).
+   */
+  supersedes?: Types.ObjectId | null;
+  previousValues?: {
+    treatment: TaxTreatment;
+    rateBps: number | null;
+    base: TaxBase;
+    priceIncludesTax: boolean;
+    validFrom: Date;
+    validTo: Date | null;
+    validationRef: string;
+  } | null;
+  /** La fecha de inicio tal como se propuso, si la aprobación la movió hacia adelante. */
+  proposedValidFrom?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -124,7 +143,25 @@ const taxRuleSchema = new Schema<ITaxRule>(
     validationRef: { type: String, default: '', trim: true, maxlength: 300 },
     validationNote: { type: String, default: '', trim: true, maxlength: 500 },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    lastEditedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     changeReason: { type: String, default: '', trim: true, maxlength: 300 },
+    supersedes: { type: Schema.Types.ObjectId, ref: 'TaxRule', default: null },
+    previousValues: {
+      type: new Schema(
+        {
+          treatment: { type: String, enum: Object.values(TaxTreatment) },
+          rateBps: { type: Number, default: null },
+          base: { type: String, enum: ['net_of_discounts', 'gross'] },
+          priceIncludesTax: { type: Boolean },
+          validFrom: { type: Date },
+          validTo: { type: Date, default: null },
+          validationRef: { type: String, default: '' },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
+    proposedValidFrom: { type: Date, default: null },
   },
   { timestamps: true }
 );

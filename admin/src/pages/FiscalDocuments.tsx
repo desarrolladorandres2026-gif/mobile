@@ -29,7 +29,7 @@ interface Doc {
 }
 
 const TYPE_LABEL: Record<Doc['type'], string> = {
- settlement_statement: 'Pre-factura de liquidación a comercio',
+ settlement_statement: 'Comprobante interno de liquidación a comercio',
  driver_payment_voucher: 'Comprobante de pago a domiciliario',
 };
 

@@ -1,7 +1,13 @@
 import { Types } from 'mongoose';
 import { TaxRule, ITaxRule, TaxConcept, TaxTreatment, TaxBase, TaxType, CHECKOUT_TAX_CONCEPTS, ALL_TAX_CONCEPTS } from '../models/TaxRule';
+import { Order } from '../models/Order';
+import { Payment } from '../models/Payment';
+import { AdInvoice } from '../models/AdInvoice';
+import { Refund } from '../models/Refund';
+import { OrderStatus, PaymentStatus, PaymentType, RefundStatus } from '../types';
 import { AppError } from '../middlewares';
 import { applyBps } from '../utils/money';
+import { electronicInvoicingService } from './electronicInvoicing.service';
 
 /**
  * Reglas tributarias por concepto (M-014): el único lugar donde ZIPP pregunta
@@ -66,11 +72,120 @@ const CONSUMERS: Record<TaxConcept, string> = {
   [TaxConcept.PRODUCTS]: 'Checkout: impuesto del pedido (se suma al total del cliente).',
   [TaxConcept.DELIVERY]: 'Checkout: impuesto del pedido (se suma al total del cliente).',
   [TaxConcept.SERVICE_FEE]: 'Checkout: impuesto del pedido (se suma al total del cliente).',
-  [TaxConcept.COMMISSION]: 'Sin integración: la comisión se descuenta al comercio sin línea de impuesto. Solo queda la regla.',
-  [TaxConcept.ADVERTISING]: 'Factura de publicidad: se extrae del precio (informativo, no cambia lo que se cobra).',
-  [TaxConcept.PRO_SUBSCRIPTION]: 'Sin integración: la cuota de Zipp Pro se cobra sin línea de impuesto. Solo queda la regla.',
+  [TaxConcept.COMMISSION]: 'Pedido: la comisión queda con su evaluación tributaria (incluida en el precio; no cambia lo que se descuenta al comercio).',
+  [TaxConcept.ADVERTISING]: 'Cobro de publicidad: se extrae del precio (informativo, no cambia lo que se cobra).',
+  [TaxConcept.PRO_SUBSCRIPTION]: 'Cobro de Zipp Pro: queda con su evaluación tributaria (incluida en la cuota; no cambia lo que se cobra).',
   [TaxConcept.OTHER]: 'Sin integración: servicios futuros.',
 };
+
+/**
+ * Cómo se conecta cada concepto con el dinero (Auditoría 2026-10-19). Son HECHOS
+ * del código, no criterio tributario: quién presta el servicio, quién recibe el
+ * ingreso, sobre qué importe se calcularía y en qué momento queda registrado.
+ * Lo que NO se sabe va en `openQuestions`, para el responsable contable: ZIPP no
+ * decide qué grava la ley.
+ *
+ *  · `checkout`: el impuesto se SUMA al total del cliente y se asienta en el libro
+ *    (`taxPayable`) en el pedido. Solo con las reglas encendidas y validadas.
+ *  · `snapshot`: la evaluación se guarda con el hecho (pedido, cobro) para
+ *    conciliar. El tratamiento es «incluido en el precio»: NO cambia el importe
+ *    cobrado ni lo que se paga a nadie; solo separa cuánto de lo cobrado es impuesto.
+ *  · `none`: sin integración todavía.
+ */
+export type TaxIntegration = 'checkout' | 'snapshot' | 'none';
+
+export interface TaxConceptProfile {
+  integration: TaxIntegration;
+  provider: string;
+  recipient: string;
+  base: string;
+  recordedIn: string;
+  openQuestions: string[];
+}
+
+export const CONCEPT_PROFILES: Record<TaxConcept, TaxConceptProfile> = {
+  [TaxConcept.PRODUCTS]: {
+    integration: 'checkout',
+    provider: 'El comercio (vende el producto).',
+    recipient: 'El comercio; ZIPP recauda en su nombre y se lo liquida.',
+    base: 'Subtotal de productos, tras descuentos (o bruto, según la regla).',
+    recordedIn: 'Pedido (`finance.taxBreakdown`) y libro (`taxPayable`).',
+    openQuestions: [
+      '¿Quién declara y paga el impuesto de los productos: el comercio o ZIPP? Hoy el libro lo registra como pasivo de ZIPP.',
+      '¿Cambia según el régimen del comercio (responsable o no de IVA)?',
+    ],
+  },
+  [TaxConcept.DELIVERY]: {
+    integration: 'checkout',
+    provider: 'ZIPP con su red de domiciliarios (por confirmar).',
+    recipient: 'ZIPP (margen) y el domiciliario (su pago).',
+    base: 'Domicilio que paga el cliente, tras descuentos.',
+    recordedIn: 'Pedido (`finance.taxBreakdown`) y libro (`taxPayable`).',
+    openQuestions: [
+      '¿Quién presta el servicio de transporte: ZIPP o el domiciliario como independiente? Define quién factura y quién declara.',
+    ],
+  },
+  [TaxConcept.SERVICE_FEE]: {
+    integration: 'checkout',
+    provider: 'ZIPP.',
+    recipient: 'ZIPP.',
+    base: 'Tarifa de servicio cobrada al cliente, tras descuentos.',
+    recordedIn: 'Pedido (`finance.taxBreakdown`) y libro (`taxPayable`).',
+    openQuestions: [],
+  },
+  [TaxConcept.COMMISSION]: {
+    integration: 'snapshot',
+    provider: 'ZIPP (servicio de plataforma al comercio).',
+    recipient: 'ZIPP.',
+    base: 'Comisión del pedido, ya descontados los descuentos que paga el comercio.',
+    recordedIn: 'Pedido (`finance.commissionTax`), al crearlo.',
+    openQuestions: [
+      '¿La comisión lleva impuesto? Si sí, ¿va incluido en la comisión o se cobra encima al comercio? Hoy solo se admite «incluido»: cobrarlo encima cambia la liquidación del comercio.',
+      'El comercio necesita un documento válido para descontar el impuesto: depende de la facturación electrónica (no integrada).',
+    ],
+  },
+  [TaxConcept.ADVERTISING]: {
+    integration: 'snapshot',
+    provider: 'ZIPP.',
+    recipient: 'ZIPP.',
+    base: 'Importe cobrado al cerrar la campaña (`AdInvoice.amount`).',
+    recordedIn: 'Cobro de publicidad (`AdInvoice.taxAssessment`), al cerrar la campaña.',
+    openQuestions: [
+      '¿Incluido o encima? Hoy solo «incluido». El cobro de publicidad es interno: no es factura electrónica.',
+    ],
+  },
+  [TaxConcept.PRO_SUBSCRIPTION]: {
+    integration: 'snapshot',
+    provider: 'ZIPP.',
+    recipient: 'ZIPP.',
+    base: 'Cuota cobrada (`Payment.amount`).',
+    recordedIn: 'Cobro de la membresía (`Payment.metadata.taxAssessment`), al aprobarse.',
+    openQuestions: [
+      '¿Incluido o encima? Hoy solo «incluido». El cliente final también necesita su documento (facturación electrónica no integrada).',
+    ],
+  },
+  [TaxConcept.OTHER]: {
+    integration: 'none',
+    provider: 'Por definir.',
+    recipient: 'Por definir.',
+    base: 'Por definir.',
+    recordedIn: 'No se registra: servicios futuros.',
+    openQuestions: ['Cada servicio nuevo necesita su propio análisis antes de cobrarse.'],
+  },
+};
+
+/** La evaluación tributaria de un cobro, tal como se guarda junto a él. */
+export interface TaxSnapshot {
+  status: 'definitive' | 'pending';
+  ruleId: string | null;
+  treatment: TaxTreatment | null;
+  rateBps: number | null;
+  /** Importe sobre el que se evaluó. */
+  baseAmount: number;
+  /** Cuánto de lo cobrado es impuesto (extraído, «incluido»). 0 si está pendiente, exento o excluido. */
+  taxIncluded: number;
+  assessedAt: Date;
+}
 
 const REQUIRED_FROM_ACCOUNTANT = [
   'Tratamiento tributario del concepto (gravado, exento, excluido o no aplica).',
@@ -131,7 +246,8 @@ export const taxRuleService = {
       validFrom: merged.validFrom,
       changeReason: patch.changeReason ?? rule.changeReason,
     });
-    void userId;
+    // Quien edita deja de poder aprobar: lo que se aprueba no lo escribió quien lo aprueba.
+    rule.lastEditedBy = new Types.ObjectId(userId);
     await rule.save();
     return rule;
   },
@@ -142,12 +258,20 @@ export const taxRuleService = {
   },
 
   /**
-   * Valida una regla: desde ese momento la usan los cálculos.
+   * Valida (aprueba) una regla: desde ese momento la usan los cálculos.
+   *
+   * Doble aprobación (Auditoría 2026-10-19): una persona propone —crea o edita el
+   * borrador— y OTRA lo aprueba. Quien creó o tocó el borrador no puede aprobarlo,
+   * ni siquiera con el permiso `tax:approve`. La ruta exige ese permiso, aparte del
+   * de configuración; aquí queda la regla que no depende de ningún permiso.
    *
    * Quien valida deja el documento que respalda la decisión (`validationRef`);
    * sin él no hay validación. No se valida hacia el pasado —un pedido ya cobrado
-   * conserva la regla con la que se cobró— y la regla anterior del concepto se
-   * cierra en el mismo instante en que empieza la nueva, sin hueco ni solape.
+   * conserva la regla con la que se cobró—: si el borrador pedía empezar antes de
+   * este instante, la regla rige desde este instante (`proposedValidFrom` guarda lo
+   * pedido). La regla anterior del concepto se cierra en el mismo instante en que
+   * empieza la nueva, sin hueco ni solape, y esta queda enlazada a ella con sus
+   * valores previos.
    */
   async validate(id: string, userId: string, input: { validationRef: string; note?: string }): Promise<ITaxRule> {
     const ref = (input.validationRef ?? '').trim();
@@ -158,6 +282,17 @@ export const taxRuleService = {
     if (rule.status !== 'draft') throw new AppError('Esa regla ya fue validada.', 409, 'TAX_RULE_IMMUTABLE');
     this.assertCoherent(rule);
 
+    if (
+      String(rule.createdBy) === String(userId) ||
+      (rule.lastEditedBy && String(rule.lastEditedBy) === String(userId))
+    ) {
+      throw new AppError(
+        'No puedes aprobar una regla que tú propusiste o editaste: la aprueba otra persona.',
+        403,
+        'TAX_RULE_SELF_APPROVAL'
+      );
+    }
+
     // Inicio del día de hoy en Colombia (UTC−5, sin horario de verano), expresado en UTC.
     const COLOMBIA_OFFSET_MS = 5 * 3_600_000;
     const startOfToday = new Date(Math.floor((Date.now() - COLOMBIA_OFFSET_MS) / DAY_MS) * DAY_MS + COLOMBIA_OFFSET_MS);
@@ -165,22 +300,27 @@ export const taxRuleService = {
       throw new AppError('Una regla validada no puede empezar en el pasado: no se reescriben los pedidos ya cobrados.', 422, 'TAX_RULE_RETROACTIVE');
     }
 
+    // Hoy, pero antes de este instante: tampoco. Un pedido de hace dos horas ya se cobró con
+    // lo que regía entonces; la regla empieza ahora y la fecha pedida queda anotada.
+    const now = new Date();
+    const requestedFrom = rule.validFrom;
+    const effectiveFrom = requestedFrom < now ? now : requestedFrom;
+    rule.validFrom = effectiveFrom;
+
     // Una regla futura ya validada para el concepto bloquea otra anterior a ella.
     const later = await TaxRule.findOne({ concept: rule.concept, status: 'validated', validFrom: { $gt: rule.validFrom } }).lean();
     if (later) {
       throw new AppError('Ya hay una regla validada que empieza después. Cámbiala primero.', 409, 'TAX_RULE_OVERLAP');
     }
 
-    // Cierra la vigente: queda terminada justo cuando empieza esta. Condicionado
-    // a `validTo: null` (o posterior) dentro del filtro, así dos validaciones
-    // simultáneas del mismo concepto no se pisan.
-    await TaxRule.updateMany(
-      { concept: rule.concept, status: 'validated', $or: [{ validTo: null }, { validTo: { $gt: rule.validFrom } }] },
-      { $set: { validTo: rule.validFrom } }
-    );
+    // La regla que esta reemplaza, con sus valores, antes de cerrarla.
+    const previous = await TaxRule.findOne({
+      concept: rule.concept, status: 'validated', validFrom: { $lte: rule.validFrom },
+      $or: [{ validTo: null }, { validTo: { $gt: rule.validFrom } }],
+    }).sort({ validFrom: -1 }).lean();
 
     const validated = await TaxRule.findOneAndUpdate(
-      { _id: rule._id, status: 'draft' },
+      { _id: rule._id, status: 'draft', updatedAt: rule.updatedAt },
       {
         $set: {
           status: 'validated',
@@ -188,11 +328,30 @@ export const taxRuleService = {
           validatedAt: new Date(),
           validationRef: ref,
           validationNote: (input.note ?? '').trim().slice(0, 500),
+          validFrom: effectiveFrom,
+          proposedValidFrom: effectiveFrom.getTime() !== requestedFrom.getTime() ? requestedFrom : null,
+          supersedes: previous?._id ?? null,
+          previousValues: previous
+            ? {
+                treatment: previous.treatment, rateBps: previous.rateBps ?? null, base: previous.base,
+                priceIncludesTax: previous.priceIncludesTax, validFrom: previous.validFrom,
+                validTo: previous.validTo ?? null, validationRef: previous.validationRef,
+              }
+            : null,
         },
       },
       { new: true }
     );
     if (!validated) throw new AppError('Esa regla cambió mientras se validaba. Revísala e inténtalo de nuevo.', 409);
+
+    // Cierra la vigente: queda terminada justo cuando empieza esta. Va DESPUÉS de reclamar el
+    // borrador: si alguien lo editó mientras se aprobaba, el reclamo falla y la regla vigente
+    // no se queda cerrada sin reemplazo. Condicionado dentro del filtro, así dos validaciones
+    // simultáneas del mismo concepto no se pisan.
+    await TaxRule.updateMany(
+      { _id: { $ne: validated._id }, concept: rule.concept, status: 'validated', validFrom: { $lt: effectiveFrom }, $or: [{ validTo: null }, { validTo: { $gt: effectiveFrom } }] },
+      { $set: { validTo: effectiveFrom } }
+    );
 
     // Dos validaciones simultáneas del mismo concepto pueden haber cerrado cada
     // una lo que veía y no lo que la otra acababa de escribir. Esto lo deja
@@ -245,6 +404,145 @@ export const taxRuleService = {
       };
     }
     return this.assessWith(rule, amount);
+  },
+
+  /**
+   * La evaluación que se guarda con un cobro de un concepto «incluido en el precio»
+   * (comisión, publicidad, Zipp Pro). Una sola implementación para los tres: un
+   * cambio de criterio no puede dejar a uno con la regla vieja.
+   *
+   * No cambia ningún importe: separa cuánto de lo ya cobrado es impuesto. Sin regla
+   * validada y vigente en `at` queda `pending` y 0: nunca una tarifa supuesta. Una
+   * regla «encima» (que `assertCoherent` impide para estos conceptos) no se extrae.
+   */
+  async snapshot(concept: TaxConcept, amount: number, at: Date = new Date()): Promise<TaxSnapshot> {
+    const assessment = await this.assess(concept, amount, at);
+    return {
+      status: assessment.status,
+      ruleId: assessment.ruleId,
+      treatment: assessment.treatment,
+      rateBps: assessment.rateBps,
+      baseAmount: amount,
+      taxIncluded: assessment.status === 'definitive' && assessment.priceIncludesTax ? assessment.taxAmount : 0,
+      assessedAt: at,
+    };
+  },
+
+  /**
+   * Conciliación tributaria por concepto de un periodo: cuántos hechos hubo, sobre
+   * qué base, cuánto impuesto quedó definido y cuántos siguen PENDIENTES (sin regla
+   * validada al momento del hecho). Lee lo que cada hecho guardó; NO recalcula con
+   * las reglas de hoy, así que un cambio de vigencia no reescribe el pasado.
+   *
+   * No es una declaración: mientras haya hechos pendientes o pedidos con la tasa
+   * global sin validar, `definitive` es falso y el informe lo dice.
+   */
+  async reconciliation(range: { from: Date; to: Date }) {
+    const createdAt = { $gte: range.from, $lte: range.to };
+    const empty = () => ({ events: 0, baseTotal: 0, taxTotal: 0, pendingEvents: 0, pendingBase: 0, notAssessed: 0 });
+    const rows: Record<string, ReturnType<typeof empty>> = {};
+    for (const c of ALL_TAX_CONCEPTS) rows[c] = empty();
+
+    // Checkout: lo que el pedido congeló. Los pedidos con tasa global (`legacy`/`provisional`) no tienen
+    // concepto ni regla: se cuentan aparte, sin validar.
+    const orders = await Order.aggregate([
+      { $match: { createdAt, status: { $ne: OrderStatus.CANCELLED }, 'finance.customerTotal': { $gt: 0 } } },
+      {
+        $group: {
+          _id: { $ifNull: ['$finance.taxStatus', 'legacy'] },
+          orders: { $sum: 1 },
+          taxPayable: { $sum: '$finance.taxPayable' },
+        },
+      },
+    ]);
+    const unvalidatedTax = { orders: 0, taxPayable: 0 };
+    let definitiveOrders = 0;
+    for (const r of orders) {
+      if (r._id === 'definitive') definitiveOrders += r.orders;
+      else { unvalidatedTax.orders += r.orders; unvalidatedTax.taxPayable += r.taxPayable; }
+    }
+    const lines = await Order.aggregate([
+      { $match: { createdAt, status: { $ne: OrderStatus.CANCELLED }, 'finance.taxStatus': 'definitive' } },
+      { $unwind: '$finance.taxBreakdown' },
+      {
+        $group: {
+          _id: '$finance.taxBreakdown.concept',
+          events: { $sum: 1 },
+          baseTotal: { $sum: '$finance.taxBreakdown.baseAmount' },
+          taxTotal: { $sum: '$finance.taxBreakdown.amount' },
+        },
+      },
+    ]);
+    for (const l of lines) if (rows[l._id]) Object.assign(rows[l._id], { events: l.events, baseTotal: l.baseTotal, taxTotal: l.taxTotal });
+
+    // Comisión: evaluación guardada en el pedido. Los pedidos anteriores a este registro no la tienen.
+    const commission = await Order.aggregate([
+      { $match: { createdAt, status: { $ne: OrderStatus.CANCELLED }, 'finance.merchantCommission': { $gt: 0 } } },
+      {
+        $group: {
+          _id: { $ifNull: ['$finance.commissionTax.status', 'none'] },
+          events: { $sum: 1 },
+          base: { $sum: { $ifNull: ['$finance.commissionTax.baseAmount', '$finance.merchantCommission'] } },
+          tax: { $sum: { $ifNull: ['$finance.commissionTax.taxIncluded', 0] } },
+        },
+      },
+    ]);
+    for (const c of commission) this.fold(rows[TaxConcept.COMMISSION], c._id, c.events, c.base, c.tax);
+
+    // Publicidad: cobro al cerrar la campaña.
+    const ads = await AdInvoice.aggregate([
+      { $match: { createdAt } },
+      {
+        $group: {
+          _id: { $ifNull: ['$taxAssessment.status', 'none'] },
+          events: { $sum: 1 },
+          base: { $sum: '$amount' },
+          tax: { $sum: { $ifNull: ['$taxAssessment.taxIncluded', 0] } },
+        },
+      },
+    ]);
+    for (const a of ads) this.fold(rows[TaxConcept.ADVERTISING], a._id, a.events, a.base, a.tax);
+
+    // Zipp Pro: cobros de membresía aprobados.
+    const pro = await Payment.aggregate([
+      { $match: { createdAt, type: PaymentType.PRO_SUBSCRIPTION, status: PaymentStatus.PAID } },
+      {
+        $group: {
+          _id: { $ifNull: ['$metadata.taxAssessment.status', 'none'] },
+          events: { $sum: 1 },
+          base: { $sum: '$amount' },
+          tax: { $sum: { $ifNull: ['$metadata.taxAssessment.taxIncluded', 0] } },
+        },
+      },
+    ]);
+    for (const x of pro) this.fold(rows[TaxConcept.PRO_SUBSCRIPTION], x._id, x.events, x.base, x.tax);
+
+    // Impuesto del checkout que se devolvió al cliente en reembolsos del periodo (no se mezcla con lo cobrado).
+    const [refunded] = await Refund.aggregate([
+      { $match: { createdAt, status: RefundStatus.COMPLETED } },
+      { $group: { _id: null, tax: { $sum: '$allocation.fromTax' }, commission: { $sum: '$allocation.fromCommission' } } },
+    ]);
+
+    const concepts = ALL_TAX_CONCEPTS.map((concept) => ({ concept, integration: CONCEPT_PROFILES[concept].integration, ...rows[concept] }));
+    const pending = concepts.reduce((n, c) => n + c.pendingEvents + c.notAssessed, 0) + unvalidatedTax.orders;
+    return {
+      range,
+      concepts,
+      checkout: { definitiveOrders, unvalidatedGlobalRate: unvalidatedTax },
+      refunds: { checkoutTaxReturned: refunded?.tax ?? 0, commissionReturned: refunded?.commission ?? 0 },
+      // Falso mientras algo del periodo se haya cobrado sin regla validada: el informe no se puede presentar como cifra fiscal.
+      definitive: pending === 0,
+      note:
+        'Conciliación de lo que cada hecho guardó al ocurrir; no es una declaración tributaria. ' +
+        'Los hechos «pendientes» se cobraron sin una regla validada y vigente en ese momento: el impuesto no se calculó.',
+    };
+  },
+
+  /** Suma un grupo de la agregación a la fila del concepto según el estado guardado. */
+  fold(row: { events: number; baseTotal: number; taxTotal: number; pendingEvents: number; pendingBase: number; notAssessed: number }, status: string, events: number, base: number, tax: number) {
+    if (status === 'definitive') { row.events += events; row.baseTotal += base; row.taxTotal += tax; }
+    else if (status === 'pending') { row.pendingEvents += events; row.pendingBase += base; }
+    else { row.notAssessed += events; }
   },
 
   /** El cálculo de una regla ya resuelta (pura). */
@@ -334,6 +632,7 @@ export const taxRuleService = {
         upcomingFrom: upcoming?.validFrom ?? null,
         drafts,
         consumer: CONSUMERS[concept],
+        profile: CONCEPT_PROFILES[concept],
         pending: active ? [] : REQUIRED_FROM_ACCOUNTANT,
       });
     }
@@ -349,10 +648,10 @@ export const taxRuleService = {
       blockers,
       concepts,
       electronicInvoicing: {
-        integrated: false,
         note:
           'ZIPP no tiene facturación electrónica integrada: los comprobantes INT- son internos, no son facturas. ' +
           'Antes de habilitar facturación definitiva, el responsable contable y tributario debe validar cada concepto de esta lista.',
+        ...(await electronicInvoicingService.status()),
       },
     };
   },

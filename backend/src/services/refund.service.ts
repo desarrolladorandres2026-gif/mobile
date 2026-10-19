@@ -3,6 +3,7 @@ import {
   Order,
   IOrder,
   IOrderFinance,
+  IPayment,
   Payment,
   Refund,
   IRefund,
@@ -31,7 +32,7 @@ import { couponService } from './coupon.service';
 import { cashReconciliationService } from './cashReconciliation.service';
 import { getPaymentProvider, paymentService } from './payments';
 import { assertMoney } from '../utils';
-import { gatewayFeeReturned, gatewayOperationFee } from '../utils/gatewayFee';
+import { gatewayFeeReturned, gatewayOperationFee, gatewayFeeSnapshot } from '../utils/gatewayFee';
 import { pricingConfigService } from './pricingConfig.service';
 import { notifyAlertsChanged } from './alerts.service';
 
@@ -95,7 +96,18 @@ export function allocateRefund(
   amount: number,
   kind: RefundKind,
   prior: PriorAllocation = ZERO_ALLOCATION,
-  driverRetain: DriverRetention = 0
+  driverRetain: DriverRetention = 0,
+  /**
+   * Lo que todavía se podía devolver ANTES de este reembolso (`customerTotal −
+   * Σ reembolsos completados`). Cuando se conoce, manda sobre el nombre de la
+   * operación: un reembolso que agota ese saldo CIERRA el pedido y se reparte
+   * como total —sobre lo que queda vivo en cada cuenta—, se haya llamado
+   * «parcial» o «total», y uno que no lo agota es parcial aunque se le haya
+   * llamado «total». Antes, el «resto» tras un parcial se trataba como otro
+   * parcial: nunca alcanzaba `customerTotal`, no podía tocar el pago del
+   * domiciliario ni el gasto promocional y fallaba con «usa un reembolso total».
+   */
+  refundable?: number
 ): RefundAllocation {
   assertMoney(amount, 'reembolso');
 
@@ -104,7 +116,9 @@ export function allocateRefund(
   // reembolso parcial, o cada contracargo parcial explota en
   // `LedgerImbalanceError` al intentar devolver cuentas enteras por menos
   // dinero del que en verdad se revirtió.
-  const isFull = kind === RefundKind.FULL || amount >= finance.customerTotal;
+  const isFull = refundable !== undefined
+    ? amount >= refundable
+    : kind === RefundKind.FULL || amount >= finance.customerTotal;
 
   // Lo que queda vivo en cada cuenta después de reembolsos previos. Sin
   // esto, un segundo reembolso parcial vuelve a usar los montos originales
@@ -390,29 +404,10 @@ export class RefundService {
       return this.returnLateCapture(order, { ...params, external: null });
     }
 
-    const alreadyRefunded = await this.refundedTotal(order._id);
-    const refundable = finance.customerTotal - alreadyRefunded;
-    if (refundable <= 0) {
-      throw new AppError('Este pedido ya fue reembolsado en su totalidad', 409);
-    }
-
-    const amount = params.amount ?? refundable;
-    assertMoney(amount, 'reembolso');
-    if (amount > refundable) {
-      throw new AppError(
-        `El reembolso máximo disponible es $${refundable.toLocaleString('es-CO')}`,
-        422
-      );
-    }
-
-    const kind =
-      params.kind ??
-      (amount >= refundable && alreadyRefunded === 0 ? RefundKind.FULL : RefundKind.PARTIAL);
-
-    const prior = await this.allocatedSoFar(order._id);
+    const plan = await this.planRefund(order, params);
+    const { amount, kind } = plan;
+    let { allocation } = plan;
     const cause = params.cause ?? RefundCause.UNSPECIFIED;
-    const driverRetain: DriverRetention = params.driverRetain ?? driverRetentionFor(order);
-    const allocation = allocateRefund(finance, amount, kind, prior, driverRetain);
 
     const payment = await Payment.findOne({
       orderId: order._id,
@@ -477,11 +472,34 @@ export class RefundService {
       throw error;
     }
 
+    // Bajo el cerrojo se vuelve a leer el saldo: entre el primer cálculo y la
+    // fila PENDING cabía otro reembolso entero (el cerrojo solo estorba mientras
+    // el otro sigue PENDING, no cuando ya terminó). Sin esto, dos solicitudes
+    // simultáneas podían devolver el mismo dinero dos veces.
+    try {
+      const replanned = await this.planRefund(await Order.findById(order._id) ?? order, params);
+      if (replanned.amount !== amount || replanned.kind !== kind || JSON.stringify(replanned.allocation) !== JSON.stringify(allocation)) {
+        refund.kind = replanned.kind;
+        refund.amount = replanned.amount;
+        refund.allocation = {
+          ...replanned.allocation,
+          fromDeliveryMargin: Math.max(0, replanned.allocation.fromDeliveryMargin),
+          driverRetained: replanned.allocation.driverRetained ?? 0,
+        } as IRefund['allocation'];
+        refund.driverPay = driverPayDescriptor(replanned.allocation, cause, finance.driverPayout > 0);
+        await refund.save();
+        allocation = replanned.allocation;
+      }
+    } catch (error) {
+      await Refund.deleteOne({ _id: refund._id, status: RefundStatus.PENDING });
+      throw error;
+    }
+
     // Ask the gateway for the money back before touching the books.
-    if (captured && payment?.transactionId && kind !== RefundKind.CHARGEBACK) {
+    if (captured && payment?.transactionId && refund.kind !== RefundKind.CHARGEBACK) {
       try {
         const provider = getPaymentProvider();
-        const intent = await provider.refund(payment.transactionId, amount);
+        const intent = await provider.refund(payment.transactionId, refund.amount);
         refund.transactionId = intent.id;
       } catch (error) {
         refund.status = RefundStatus.FAILED;
@@ -495,13 +513,58 @@ export class RefundService {
       }
     }
 
-    await this.applyReversal(order, allocation, amount, kind, captured, String(refund._id));
+    await this.applyReversal(order, allocation, refund.amount, refund.kind, captured, String(refund._id));
 
     refund.status = RefundStatus.COMPLETED;
     refund.processedAt = new Date();
     await refund.save();
 
     return refund;
+  }
+
+  /**
+   * Qué se devuelve y de dónde sale, a partir de los IMPORTES: lo ya
+   * reembolsado (filas `COMPLETED`), lo que queda vivo en cada cuenta y la
+   * política del pago del domiciliario. Nunca del nombre de la operación
+   * anterior ni del que trae la petición (ver `allocateRefund`).
+   *
+   *  · El importe que se devuelve al cliente es `amount` (≤ `refundable`).
+   *  · Si agota `refundable`, cierra el pedido: reparto total sobre el saldo
+   *    vivo, y el pago del domiciliario sigue `driverRetentionFor` (entregado:
+   *    lo conserva y lo asume ZIPP; no entregado: se revierte lo que queda).
+   *  · Si no lo agota, es parcial y nunca toca al domiciliario.
+   *  · Contracargo y reembolso externo conservan su etiqueta (cambian el asiento
+   *    y la pasarela), pero se reparten con la misma regla de cierre.
+   */
+  private async planRefund(
+    order: IOrder,
+    params: { amount?: number; kind?: RefundKind; driverRetain?: number }
+  ): Promise<{ amount: number; kind: RefundKind; refundable: number; allocation: RefundAllocation }> {
+    const finance = order.finance;
+    const alreadyRefunded = await this.refundedTotal(order._id);
+    const refundable = finance.customerTotal - alreadyRefunded;
+    if (refundable <= 0) {
+      throw new AppError('Este pedido ya fue reembolsado en su totalidad', 409);
+    }
+
+    const amount = params.amount ?? refundable;
+    assertMoney(amount, 'reembolso');
+    if (amount > refundable) {
+      throw new AppError(
+        `El reembolso máximo disponible es $${refundable.toLocaleString('es-CO')}`,
+        422
+      );
+    }
+
+    const kind =
+      params.kind === RefundKind.CHARGEBACK || params.kind === RefundKind.EXTERNAL
+        ? params.kind
+        : amount >= refundable ? RefundKind.FULL : RefundKind.PARTIAL;
+
+    const prior = await this.allocatedSoFar(order._id);
+    const driverRetain: DriverRetention = params.driverRetain ?? driverRetentionFor(order);
+    const allocation = allocateRefund(finance, amount, kind, prior, driverRetain, refundable);
+    return { amount, kind, refundable, allocation };
   }
 
   /**
@@ -922,6 +985,21 @@ export class RefundService {
         refund.status = RefundStatus.FAILED;
         refund.reason = `${refund.reason} — falló en la pasarela: ${(error as Error).message}`;
         await refund.save();
+        // El importe sigue pendiente y queda dicho por qué: Wompi solo anula
+        // transacciones completas y a veces ya están liquidadas; en ese caso lo
+        // devuelve una persona desde el dashboard y lo registra como reembolso externo.
+        await Payment.updateOne(
+          { _id: payment._id },
+          {
+            $set: {
+              'metadata.lateCapture.state': 'refund_failed',
+              'metadata.lateCapture.pendingAmount': amount,
+              'metadata.lateCapture.lastError': (error as Error).message.slice(0, 300),
+              'metadata.lateCapture.lastAttemptAt': new Date().toISOString(),
+              'metadata.lateCapture.reconciliation': 'pending_manual',
+            },
+          }
+        );
         void notifyAlertsChanged('refund_failed');
         throw new AppError('El proveedor de pagos rechazó el reembolso. No se modificó ningún saldo.', 502);
       }
@@ -934,11 +1012,104 @@ export class RefundService {
     // Sin libro que tocar: el pedido pasa a reembolsado y el cobro deja de
     // pedir revisión, con la fecha en que se devolvió.
     await Order.updateOne({ _id: order._id }, { $set: { paymentStatus: PaymentStatus.REFUNDED } });
+    const now = new Date().toISOString();
     await Payment.updateOne(
       { _id: payment._id },
-      { $set: { 'metadata.lateCaptureRefundedAt': new Date().toISOString(), 'metadata.lateCaptureRefundId': String(refund._id) } }
+      {
+        $set: {
+          'metadata.lateCaptureRefundedAt': now,
+          'metadata.lateCaptureRefundId': String(refund._id),
+          // El dinero ya volvió al cliente: la revisión de ese cobro está resuelta y sale de la
+          // bandeja. Lo que queda abierto es la conciliación del costo de la pasarela.
+          'metadata.reviewResolvedAt': now,
+          'metadata.reviewResolvedBy': params.requestedBy ?? 'system',
+          'metadata.reviewResolution': `Devuelto al cliente (reembolso ${String(refund._id)})`,
+        },
+      }
     );
+    await this.recordLateCaptureOutcome(order, payment, refund, params.external);
+    void notifyAlertsChanged('payment_review');
     return refund;
+  }
+
+  /**
+   * Cierra la cuenta de un cobro tardío ya devuelto: qué costó la pasarela y en
+   * qué estado de conciliación queda.
+   *
+   *  · Se asienta como gasto de ZIPP lo que Wompi se queda: su comisión sobre el
+   *    cobro (la guardada al detectarlo, o la estimación vigente) menos lo que
+   *    devuelva SEGÚN la política configurada (`gatewayFeeRefundBps`; sin definir,
+   *    no se asume que devuelva nada), más el costo de la anulación.
+   *  · Mientras las tarifas no estén configuradas el importe es 0 y no se asienta
+   *    nada —no se inventa un costo—; queda `unconfigured`.
+   *  · Siempre es una estimación hasta cotejarla con el extracto de Wompi:
+   *    `reconciliation` lo dice y Finanzas lo cierra.
+   *  · Si el asiento falla, el reembolso ya hecho NO se deshace: el costo queda
+   *    como `pending_manual` con el error, visible en el cobro.
+   */
+  private async recordLateCaptureOutcome(
+    order: IOrder,
+    payment: IPayment,
+    refund: IRefund,
+    external: string | null
+  ): Promise<void> {
+    const state = external ? 'refunded_external' : 'refunded';
+    try {
+      const cfg = await pricingConfigService.getCurrent();
+      const stored = (payment.metadata as Record<string, any> | undefined)?.gatewayFee;
+      const feeTotal = typeof stored?.total === 'number'
+        ? stored.total
+        : gatewayFeeSnapshot(cfg, payment.paymentMethodType, payment.amount).total;
+      const returned = gatewayFeeReturned(cfg, feeTotal, payment.amount, payment.amount, 0);
+      const operationCost = gatewayOperationFee(cfg, 'refund').total;
+      const expense = feeTotal - returned + operationCost;
+
+      if (expense > 0) {
+        await ledgerService.recordLateCaptureGatewayCost({
+          orderId: order._id,
+          pricingConfigVersion: cfg.version,
+          reference: `gateway-fee:late:${payment._id}`,
+          currency: order.finance?.currency,
+          amount: expense,
+        });
+      }
+      await Payment.updateOne(
+        { _id: payment._id },
+        {
+          $set: {
+            'metadata.lateCapture.state': state,
+            'metadata.lateCapture.pendingAmount': 0,
+            'metadata.lateCapture.refundId': String(refund._id),
+            'metadata.lateCapture.refundedAt': new Date().toISOString(),
+            'metadata.lateCapture.gatewayCost': {
+              fee: feeTotal,
+              feeReturned: returned,
+              operationCost,
+              booked: expense,
+              feeRefundPolicyDefined: cfg.gatewayFeeRefundBps != null,
+              contractVerified: !!cfg.gatewayContractRef?.trim(),
+            },
+            'metadata.lateCapture.reconciliation': expense > 0 ? 'estimated' : 'unconfigured',
+          },
+        }
+      );
+    } catch (error) {
+      console.error('[REFUND] No se pudo asentar el costo de la pasarela de un cobro tardío', {
+        paymentId: String(payment._id), error,
+      });
+      await Payment.updateOne(
+        { _id: payment._id },
+        {
+          $set: {
+            'metadata.lateCapture.state': state,
+            'metadata.lateCapture.pendingAmount': 0,
+            'metadata.lateCapture.refundId': String(refund._id),
+            'metadata.lateCapture.reconciliation': 'pending_manual',
+            'metadata.lateCapture.gatewayCostError': (error as Error).message.slice(0, 300),
+          },
+        }
+      );
+    }
   }
 
   async refundedTotal(orderId: string | Types.ObjectId): Promise<number> {
@@ -1070,24 +1241,10 @@ export class RefundService {
       });
     }
 
-    const alreadyRefunded = await this.refundedTotal(order._id);
-    const refundable = finance.customerTotal - alreadyRefunded;
-    if (refundable <= 0) {
-      throw new AppError('Este pedido ya fue reembolsado en su totalidad', 409);
-    }
-
     assertMoney(params.amount, 'reembolso');
-    if (params.amount > refundable) {
-      throw new AppError(
-        `El reembolso máximo disponible es $${refundable.toLocaleString('es-CO')}`,
-        422
-      );
-    }
-
-    const kind = RefundKind.EXTERNAL;
-    const prior = await this.allocatedSoFar(order._id);
+    const { kind, allocation: firstAllocation } = await this.planRefund(order, { amount: params.amount, kind: RefundKind.EXTERNAL });
+    let allocation = firstAllocation;
     const cause = params.cause ?? RefundCause.UNSPECIFIED;
-    const allocation = allocateRefund(finance, params.amount, kind, prior, driverRetentionFor(order));
 
     let refund: IRefund;
     try {
@@ -1120,6 +1277,24 @@ export class RefundService {
         if (twin) return twin;
         throw new AppError('Ya hay un reembolso en curso para este pedido.', 409, 'REFUND_IN_FLIGHT');
       }
+      throw error;
+    }
+
+    // Igual que en `issue`: el saldo se vuelve a leer bajo el cerrojo.
+    try {
+      const replanned = await this.planRefund(await Order.findById(order._id) ?? order, { amount: params.amount, kind: RefundKind.EXTERNAL });
+      if (JSON.stringify(replanned.allocation) !== JSON.stringify(allocation)) {
+        refund.allocation = {
+          ...replanned.allocation,
+          fromDeliveryMargin: Math.max(0, replanned.allocation.fromDeliveryMargin),
+          driverRetained: replanned.allocation.driverRetained ?? 0,
+        } as IRefund['allocation'];
+        refund.driverPay = driverPayDescriptor(replanned.allocation, cause, finance.driverPayout > 0);
+        await refund.save();
+        allocation = replanned.allocation;
+      }
+    } catch (error) {
+      await Refund.deleteOne({ _id: refund._id, status: RefundStatus.PENDING });
       throw error;
     }
 

@@ -71,7 +71,7 @@ export function adOffer(cfg: Pick<IPlatformPricingConfig,
 
   const reasons: string[] = [];
   if (!cfg.adSelfServiceEnabled) reasons.push('ZIPP todavía no ha abierto la compra de publicidad desde el panel.');
-  if (!cfg.adBillingEnabled) reasons.push('La facturación de publicidad todavía no está habilitada.');
+  if (!cfg.adBillingEnabled) reasons.push('El cobro de publicidad todavía no está habilitado.');
   if (!cpcOk) reasons.push('Falta que ZIPP configure la tarifa por clic.');
   if (!budgetOk) reasons.push('Falta que ZIPP configure el presupuesto mínimo y máximo por campaña.');
   if (!durationOk) reasons.push('Falta que ZIPP configure cuántos días puede durar una campaña.');
@@ -127,6 +127,73 @@ export function campaignProblems(
   }
   if (!c.placement || !offer.placements.includes(c.placement as AdPlacement)) {
     problems.push('Esa ubicación no está disponible para compra.');
+  }
+  return problems;
+}
+
+/**
+ * De dónde viene una campaña (Auditoría 2026-10-19). Son modelos distintos y
+ * no se les aplican las mismas reglas:
+ *
+ *  - `business_purchase`: la compró un comercio desde su panel. Es dinero del
+ *    comercio, descontado de su liquidación: CPC, tope de gasto y duración
+ *    salen de la oferta de ZIPP y se exigen al comprar y al aprobar.
+ *  - `zipp_sold`: la vendió el equipo comercial por fuera (`pricePaid` > 0).
+ *    Precio cerrado, sin cobro por evento: no hay CPC ni tope que aplicar.
+ *  - `zipp_internal`: promoción o comunicado de ZIPP (`pricePaid` = 0). No
+ *    cobra a nadie, así que no tiene sentido medirla contra la oferta
+ *    comercial; sus controles son el permiso `ads:manage`, la auditoría de
+ *    cada cambio y que el destino sea un comercio activo.
+ *
+ * Las dos últimas las crea un admin por `POST /advertisements`, cuyo esquema
+ * NO acepta tarifa, tope, comercio facturado ni estado de aprobación: por ahí
+ * no se puede fabricar una campaña cobrable. Se deriva de los datos y no se
+ * guarda aparte para que no pueda contradecirse con ellos.
+ */
+export type AdOrigin = 'business_purchase' | 'zipp_sold' | 'zipp_internal';
+
+export function adOrigin(ad: Pick<IAdvertisement, 'billedToBusinessId' | 'pricePaid'>): AdOrigin {
+  if (ad.billedToBusinessId) return 'business_purchase';
+  return (ad.pricePaid ?? 0) > 0 ? 'zipp_sold' : 'zipp_internal';
+}
+
+/** Lo que un admin NO puede cambiar de una campaña que pagó un comercio sin deshacer lo que se compró. */
+export function adminEditProblems(
+  offer: AdOffer,
+  ad: Pick<IAdvertisement, 'billedToBusinessId' | 'businessId' | 'actionType' | 'pricingModel' | 'cpcRate' | 'cpmRate' | 'budget' | 'startDate' | 'endDate' | 'placement' | 'advertiserName'>,
+  patch: Record<string, unknown>
+): string[] {
+  if (!ad.billedToBusinessId) return [];
+  const problems: string[] = [];
+
+  // El destino del toque y el anunciante son lo que el comercio compró: cambiarlos
+  // es mandar tráfico pagado a un tercero.
+  if (patch.businessId !== undefined && String(patch.businessId ?? '') !== String(ad.businessId ?? '')) {
+    problems.push('El destino de una campaña comprada por un comercio no se cambia: es el comercio que la pagó.');
+  }
+  if (patch.actionType !== undefined && patch.actionType !== ad.actionType) {
+    problems.push('La acción de una campaña comprada por un comercio no se cambia.');
+  }
+  if (patch.advertiserName !== undefined && patch.advertiserName !== ad.advertiserName) {
+    problems.push('El anunciante de una campaña comprada por un comercio no se cambia.');
+  }
+
+  // Fechas y ubicación: se vuelven a medir contra la oferta, pero solo por lo que el cambio
+  // EMPEORA. Una campaña que ya estaba fuera de oferta (la tarifa cambió después) no bloquea
+  // editar su prioridad.
+  const touches = patch.startDate !== undefined || patch.endDate !== undefined || patch.placement !== undefined;
+  if (touches) {
+    const view = (over: Record<string, unknown>) => ({
+      pricingModel: ad.pricingModel, cpcRate: ad.cpcRate, cpmRate: ad.cpmRate, budget: ad.budget,
+      startDate: ad.startDate, endDate: ad.endDate, placement: ad.placement, ...over,
+    });
+    const before = campaignProblems(offer, view({}) as never);
+    const after = campaignProblems(offer, view({
+      ...(patch.startDate !== undefined ? { startDate: new Date(patch.startDate as string) } : {}),
+      ...(patch.endDate !== undefined ? { endDate: new Date(patch.endDate as string) } : {}),
+      ...(patch.placement !== undefined ? { placement: patch.placement } : {}),
+    }) as never);
+    problems.push(...after.filter((p) => !before.includes(p)));
   }
   return problems;
 }
@@ -793,6 +860,53 @@ export class AdvertisementService {
     });
   }
 
+  /**
+   * Antes de que un admin cambie una campaña: nada que deshaga lo que pagó un
+   * comercio, nada que la encienda sin haberse aprobado y ningún destino que
+   * no sea un comercio vivo. Lanza 409/422 con el motivo.
+   */
+  async assertAdminEdit(ad: IAdvertisement, patch: Record<string, unknown>): Promise<void> {
+    if (patch.isActive === true && (ad.approvalStatus !== AdApprovalStatus.APPROVED || ad.cancelledAt)) {
+      throw new AppError(
+        ad.cancelledAt ? 'La campaña está cancelada y no puede reactivarse' : 'La campaña no está aprobada: apruébala antes de encenderla',
+        409
+      );
+    }
+    const problems = adminEditProblems(adOffer(await pricingConfigService.getCurrent()), ad, patch);
+    if (problems.length) throw new AppError(problems.join(' '), 422, 'AD_ADMIN_EDIT_BLOCKED');
+
+    const target = patch.businessId !== undefined ? patch.businessId : (patch.actionType === 'business' ? ad.businessId : undefined);
+    if (target) await this.assertTargetBusiness(String(target));
+  }
+
+  /** El destino de un anuncio tiene que existir y estar operando: tocar un flyer no puede llevar a un comercio suspendido o inexistente. */
+  async assertTargetBusiness(businessId: string): Promise<void> {
+    const business = Types.ObjectId.isValid(businessId)
+      ? await Business.findById(businessId).select('isActive isSuspended isArchived')
+      : null;
+    if (!business || !business.isActive || business.isSuspended || business.isArchived) {
+      throw new AppError('El comercio de destino no existe o no está operando', 422, 'AD_TARGET_UNAVAILABLE');
+    }
+  }
+
+  /**
+   * Borrar una campaña borra la evidencia de lo que se le cobró a alguien.
+   * Las que mueven dinero se cancelan (queda el rastro y se puede facturar);
+   * solo se eliminan las de ZIPP que nunca cobraron.
+   */
+  async assertRemovable(ad: IAdvertisement): Promise<void> {
+    if (adOrigin(ad) !== 'zipp_internal' || ad.pricingModel !== AdPricingModel.FLAT) {
+      throw new AppError(
+        'Esta campaña mueve dinero: cancélala en lugar de eliminarla, para conservar su evidencia y poder cobrarla.',
+        409,
+        'AD_REMOVE_BLOCKED'
+      );
+    }
+    if (await AdInvoice.exists({ campaignId: ad._id })) {
+      throw new AppError('La campaña ya tiene su cobro registrado: no se puede eliminar.', 409, 'AD_REMOVE_BLOCKED');
+    }
+  }
+
   /** Un admin mira el flyer y la deja salir. */
   async approve(campaignId: string): Promise<IAdvertisement> {
     const ad = await Advertisement.findById(campaignId);
@@ -883,15 +997,7 @@ export class AdvertisementService {
 
     // M-014: qué dicen las reglas tributarias de la publicidad. Informativo: no
     // cambia lo que se cobra, y sin regla validada queda «pendiente».
-    const assessment = await taxRuleService.assess(TaxConcept.ADVERTISING, amount);
-    const taxAssessment = {
-      status: assessment.status,
-      ruleId: assessment.ruleId,
-      treatment: assessment.treatment,
-      rateBps: assessment.rateBps,
-      taxIncluded: assessment.status === 'definitive' && assessment.priceIncludesTax ? assessment.taxAmount : 0,
-      assessedAt: new Date(),
-    };
+    const taxAssessment = await taxRuleService.snapshot(TaxConcept.ADVERTISING, amount);
 
     try {
       return await AdInvoice.create({
