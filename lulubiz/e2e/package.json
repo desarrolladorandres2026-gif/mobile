@@ -1,0 +1,13 @@
+{
+  "name": "lulubiz-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:app": "npm --prefix ../frontend run build",
+    "test": "npm run build:app && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  }
+}

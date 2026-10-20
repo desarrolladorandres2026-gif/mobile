@@ -1,0 +1,24 @@
+{
+  "name": "lulubiz-backend",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "db:setup": "node --env-file-if-exists=.env src/scripts/db-setup.js",
+    "bench": "node src/scripts/bench.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.3",
+    "@fastify/helmet": "^13.2.0",
+    "@fastify/rate-limit": "^11.2.1",
+    "fastify": "^5.12.7",
+    "mongodb": "^6.10.0",
+    "nodemailer": "^10.1.7"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^10.1.0",
+    "vitest": "^2.1.0"
+  }
+}

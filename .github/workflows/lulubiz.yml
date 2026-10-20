@@ -1,0 +1,108 @@
+name: lulubiz
+
+on:
+  push:
+    paths:
+      - 'lulubiz/**'
+      - '.github/workflows/lulubiz.yml'
+  pull_request:
+    paths:
+      - 'lulubiz/**'
+      - '.github/workflows/lulubiz.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lulubiz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Las pruebas arrancan un MongoDB en memoria: se descarga una vez y se guarda en caché.
+  MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}/.mongoms-cache
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: lulubiz/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lulubiz/backend/package-lock.json
+      - run: npm ci
+      - name: Auditoría de dependencias de producción
+        run: npm audit --omit=dev --audit-level=high
+      - uses: actions/cache@v4
+        with:
+          path: .mongoms-cache
+          key: mongoms-${{ runner.os }}-${{ hashFiles('lulubiz/backend/package-lock.json') }}
+      - name: Pruebas del backend
+        run: npm test
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: lulubiz/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lulubiz/frontend/package-lock.json
+      - run: npm ci
+      - name: Auditoría de dependencias de producción
+        run: npm audit --omit=dev --audit-level=high
+      - name: Pruebas del frontend
+        run: npm test
+      - name: Compilación
+        run: npm run build
+
+  e2e:
+    # El recorrido completo en un navegador real: servidor, base de datos con transacciones y la interfaz compilada.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      E2E_CHANNEL: chromium
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            lulubiz/backend/package-lock.json
+            lulubiz/frontend/package-lock.json
+            lulubiz/e2e/package-lock.json
+      - run: npm ci
+        working-directory: lulubiz/backend
+      - run: npm ci
+        working-directory: lulubiz/frontend
+      - run: npm ci
+        working-directory: lulubiz/e2e
+      - uses: actions/cache@v4
+        with:
+          path: .mongoms-cache
+          key: mongoms-${{ runner.os }}-${{ hashFiles('lulubiz/backend/package-lock.json') }}
+      - name: Navegador
+        run: npx playwright install --with-deps chromium
+        working-directory: lulubiz/e2e
+      - name: Recorrido de extremo a extremo
+        run: npm test
+        working-directory: lulubiz/e2e
+      - name: Capturas de pantalla
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas-e2e
+          path: lulubiz/e2e/shots
+          if-no-files-found: ignore
+          retention-days: 7
