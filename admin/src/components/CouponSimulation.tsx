@@ -55,7 +55,7 @@ interface Preview {
 
 const cop = (n: number) => `$${(n || 0).toLocaleString('es-CO')}`;
 
-const th = 'px-3 py-2 text-left text-xs font-bold text-[var(--color-surface)] bg-[var(--color-primary-dark)] whitespace-nowrap';
+const th = 'px-3 py-2 text-left text-xs font-bold text-white bg-[var(--color-primary-dark)] whitespace-nowrap';
 const td = 'px-3 py-2 text-xs tabular-nums text-[var(--color-text-main)] whitespace-nowrap align-top border-b border-[var(--color-border)]';
 
 export default function CouponSimulation({

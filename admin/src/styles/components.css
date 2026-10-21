@@ -18,8 +18,8 @@
   --accent-link: var(--color-primary-dark);
   --danger-fill: var(--color-danger);
   --row-selected: var(--color-primary-bg);
-  --head-bg: var(--color-bg-alt);
-  --head-ink: var(--color-text-main);
+  --head-bg: var(--accent-fill-pressed);
+  --head-ink: var(--accent-ink);
   --toast-bg: var(--color-surface);
   --dialog-border: var(--color-border);
 }
@@ -35,7 +35,6 @@
   --accent-link: var(--zp-accent-text);
   --danger-fill: var(--zp-danger-fill);
   --row-selected: var(--zp-selected);
-  --head-bg: var(--zp-surface-active);
   --toast-bg: var(--zp-surface-active);
   --dialog-border: var(--zp-dialog-border);
 }

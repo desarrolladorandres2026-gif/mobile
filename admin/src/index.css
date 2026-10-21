@@ -365,10 +365,10 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-/* Columna ordenada: completa y en color de enlace, con «(asc.)» o «(desc.)». */
+/* Columna ordenada: completa y subrayada, con «(asc.)» o «(desc.)». */
 .data-grid th[aria-sort='ascending'],
 .data-grid th[aria-sort='descending'] {
-  color: var(--accent-link);
+  text-decoration: underline;
 }
 /* Fila de sección dentro de una tabla unificada: separa bloques por
    tipografía y una línea, nunca por una caja de color. */
