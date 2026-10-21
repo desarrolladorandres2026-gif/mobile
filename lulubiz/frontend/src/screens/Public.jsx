@@ -338,7 +338,7 @@ export function InvitationScreen() {
   }
 
   const title = `Te invitaron a ${info.company}`;
-  const roles = { owner: 'propietario', admin: 'administrador', accountant: 'contador', viewer: 'lector' };
+  const roles = { owner: 'propietario', admin: 'administrador', accountant: 'contador', cashier: 'cajero', viewer: 'lector' };
 
   if (info.accountExists) {
     const mine = status === 'authenticated' && account?.email === info.email;

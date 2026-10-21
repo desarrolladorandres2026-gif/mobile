@@ -5,37 +5,87 @@ import { Link, Redirect, useRouter } from '../lib/router.jsx';
 import { useSession } from '../lib/session.jsx';
 import { AccountsScreen } from './Accounts.jsx';
 import { AuditScreen, MembersScreen } from './Admin.jsx';
+import { ApiKeysScreen } from './ApiKeys.jsx';
 import { InvoicingSettingsScreen } from './InvoicingSettings.jsx';
+import { ItemsScreen, StockScreen } from './Inventory.jsx';
 import { CreditNotesScreen, InvoicesScreen } from './Invoices.jsx';
 import { FinancialReportsScreen } from './FinancialReports.jsx';
+import { GettingStartedScreen } from './GettingStarted.jsx';
+import { ImportScreen } from './Import.jsx';
 import { JournalsScreen } from './Journals.jsx';
 import { PayablesScreen, PaymentsScreen } from './Payables.jsx';
 import { PartiesScreen } from './Parties.jsx';
+import { PosRegistersScreen, PosScreen, PosShiftsScreen } from './Pos.jsx';
 import { PurchasesScreen, SupplierNotesScreen } from './Purchases.jsx';
 import { ReceiptsScreen, ReceivablesScreen } from './Receivables.jsx';
 import { BalancesScreen, PeriodsScreen } from './Reports.jsx';
 import { SecurityScreen } from './Security.jsx';
+import { YearEndScreen } from './YearEnd.jsx';
+import { StockMovementsScreen } from './StockMovements.jsx';
 
-/** Secciones de la aplicación. `permission` solo decide qué mostrar; el servidor comprueba cada petición. */
-const SECTIONS = [
-  { path: 'asientos', label: 'Asientos', permission: 'journals:read', Screen: JournalsScreen },
-  { path: 'cuentas', label: 'Plan de cuentas', permission: 'accounts:read', Screen: AccountsScreen },
-  { path: 'terceros', label: 'Terceros', permission: 'parties:read', Screen: PartiesScreen },
-  { path: 'facturas', label: 'Facturas', permission: 'invoices:read', Screen: InvoicesScreen },
-  { path: 'cartera', label: 'Cartera', permission: 'invoices:read', Screen: ReceivablesScreen },
-  { path: 'recibos', label: 'Recibos de caja', permission: 'invoices:read', Screen: ReceiptsScreen },
-  { path: 'notas-credito', label: 'Notas crédito', permission: 'invoices:read', Screen: CreditNotesScreen },
-  { path: 'compras', label: 'Compras', permission: 'purchases:read', Screen: PurchasesScreen },
-  { path: 'notas-proveedor', label: 'Notas de proveedor', permission: 'purchases:read', Screen: SupplierNotesScreen },
-  { path: 'por-pagar', label: 'Cuentas por pagar', permission: 'purchases:read', Screen: PayablesScreen },
-  { path: 'pagos', label: 'Pagos', permission: 'purchases:read', Screen: PaymentsScreen },
-  { path: 'informes', label: 'Informes', permission: 'reports:read', Screen: FinancialReportsScreen },
-  { path: 'saldos', label: 'Saldos', permission: 'reports:read', Screen: BalancesScreen },
-  { path: 'periodos', label: 'Períodos', permission: 'journals:read', Screen: PeriodsScreen },
-  { path: 'facturacion', label: 'Facturación', permission: 'invoices:read', Screen: InvoicingSettingsScreen },
-  { path: 'miembros', label: 'Miembros', permission: 'users:manage', Screen: MembersScreen },
-  { path: 'auditoria', label: 'Auditoría', permission: 'audit:read', Screen: AuditScreen },
-  { path: 'cuenta', label: 'Mi cuenta', permission: null, Screen: SecurityScreen },
+/**
+ * Secciones de la aplicación, agrupadas como se usan. `permission` solo decide qué mostrar; el servidor comprueba cada petición.
+ * Un grupo sin secciones visibles no se muestra.
+ */
+const GROUPS = [
+  {
+    label: 'Contabilidad',
+    sections: [
+      { path: 'asientos', label: 'Asientos', permission: 'journals:read', Screen: JournalsScreen },
+      { path: 'cuentas', label: 'Plan de cuentas', permission: 'accounts:read', Screen: AccountsScreen },
+      { path: 'informes', label: 'Informes', permission: 'reports:read', Screen: FinancialReportsScreen },
+      { path: 'saldos', label: 'Saldos', permission: 'reports:read', Screen: BalancesScreen },
+      { path: 'periodos', label: 'Períodos', permission: 'journals:read', Screen: PeriodsScreen },
+      { path: 'cierre', label: 'Cierre de ejercicio', permission: 'reports:read', Screen: YearEndScreen },
+    ],
+  },
+  {
+    label: 'Punto de venta',
+    sections: [
+      { path: 'vender', label: 'Vender', permission: 'pos:sell', Screen: PosScreen },
+      { path: 'turnos', label: 'Turnos y ventas', permission: 'pos:read', Screen: PosShiftsScreen },
+      { path: 'cajas', label: 'Cajas', permission: 'pos:manage', Screen: PosRegistersScreen },
+    ],
+  },
+  {
+    label: 'Ventas',
+    sections: [
+      { path: 'facturas', label: 'Facturas', permission: 'invoices:read', Screen: InvoicesScreen },
+      { path: 'notas-credito', label: 'Notas crédito', permission: 'invoices:read', Screen: CreditNotesScreen },
+      { path: 'cartera', label: 'Cartera', permission: 'invoices:read', Screen: ReceivablesScreen },
+      { path: 'recibos', label: 'Recibos de caja', permission: 'invoices:read', Screen: ReceiptsScreen },
+    ],
+  },
+  {
+    label: 'Compras',
+    sections: [
+      { path: 'compras', label: 'Compras', permission: 'purchases:read', Screen: PurchasesScreen },
+      { path: 'notas-proveedor', label: 'Notas de proveedor', permission: 'purchases:read', Screen: SupplierNotesScreen },
+      { path: 'por-pagar', label: 'Cuentas por pagar', permission: 'purchases:read', Screen: PayablesScreen },
+      { path: 'pagos', label: 'Pagos', permission: 'purchases:read', Screen: PaymentsScreen },
+    ],
+  },
+  {
+    label: 'Inventario',
+    sections: [
+      { path: 'articulos', label: 'Artículos', permission: 'inventory:read', Screen: ItemsScreen },
+      { path: 'existencias', label: 'Existencias', permission: 'inventory:read', Screen: StockScreen },
+      { path: 'ajustes', label: 'Ajustes y traspasos', permission: 'inventory:read', Screen: StockMovementsScreen },
+    ],
+  },
+  {
+    label: 'Administración',
+    sections: [
+      { path: 'primeros-pasos', label: 'Primeros pasos', permission: 'reports:read', Screen: GettingStartedScreen },
+      { path: 'terceros', label: 'Terceros', permission: 'parties:read', Screen: PartiesScreen },
+      { path: 'importar', label: 'Importar', permission: 'parties:manage', Screen: ImportScreen },
+      { path: 'facturacion', label: 'Facturación', permission: 'invoices:read', Screen: InvoicingSettingsScreen },
+      { path: 'miembros', label: 'Miembros', permission: 'users:manage', Screen: MembersScreen },
+      { path: 'claves-api', label: 'Claves de API', permission: 'apikeys:manage', Screen: ApiKeysScreen },
+      { path: 'auditoria', label: 'Auditoría', permission: 'audit:read', Screen: AuditScreen },
+      { path: 'cuenta', label: 'Mi cuenta', permission: null, Screen: SecurityScreen },
+    ],
+  },
 ];
 
 function VerifyEmailBanner() {
@@ -60,7 +110,8 @@ export function Shell() {
   const { account, memberships, tenant, can, logout, selectTenant } = useSession();
   const { pathname } = useRouter();
 
-  const visible = SECTIONS.filter((s) => !s.permission || can(s.permission));
+  const groups = GROUPS.map((g) => ({ ...g, sections: g.sections.filter((s) => !s.permission || can(s.permission)) })).filter((g) => g.sections.length > 0);
+  const visible = groups.flatMap((g) => g.sections);
   const active = visible.find((s) => pathname === `/app/${s.path}`) ?? null;
 
   // La ruta no existe o no tienes acceso: se vuelve a la primera sección disponible.
@@ -100,22 +151,29 @@ export function Shell() {
 
       <div className="flex flex-1 flex-col md:flex-row">
         <nav aria-label="Principal" className="shrink-0 border-b border-borde bg-papel py-2 md:w-56 md:border-b-0 md:border-r md:py-4">
-          <ul className="flex flex-wrap md:block">
-            {visible.map((s) => {
-              const isActive = s === active;
-              return (
-                <li key={s.path}>
-                  <Link
-                    href={`/app/${s.path}`}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={`block border-l-4 px-5 py-2 text-sm no-underline ${isActive ? 'border-azul bg-azul-suave font-semibold text-azul-oscuro' : 'border-transparent text-tinta hover:bg-papel-fondo'}`}
-                  >
-                    {s.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="flex flex-wrap md:block">
+            {groups.map((g) => (
+              <div key={g.label} className="md:mb-3">
+                <p className="px-5 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-tinta">{g.label}</p>
+                <ul className="flex flex-wrap md:block">
+                  {g.sections.map((s) => {
+                    const isActive = s === active;
+                    return (
+                      <li key={s.path}>
+                        <Link
+                          href={`/app/${s.path}`}
+                          aria-current={isActive ? 'page' : undefined}
+                          className={`block border-l-4 px-5 py-2 text-sm no-underline ${isActive ? 'border-azul bg-azul-suave font-semibold text-azul-oscuro' : 'border-transparent text-tinta hover:bg-papel-fondo'}`}
+                        >
+                          {s.label}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
         </nav>
 
         <main className="min-w-0 flex-1 px-6 py-5">

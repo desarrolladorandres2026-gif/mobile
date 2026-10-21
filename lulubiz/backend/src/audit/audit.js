@@ -5,7 +5,8 @@ export const MAX_AUDIT_PAGE = 100;
 
 /*
  * Bitácora de auditoría, solo de agregar. Evento (referencia, sin tipos):
- * { _id, at, tenantId|null, userId|null, action, target?, ip, requestId, details? }
+ * { _id, at, tenantId|null, userId|null, apiKeyId?, action, target?, ip, requestId, details? }
+ * `apiKeyId` va en lugar de `userId` cuando quien actuó fue una clave de API.
  *
  * Las operaciones que modifican datos reciben `inTx(session, resultado)` y escriben aquí con esa
  * misma sesión: la operación y su evento se confirman juntos o ninguno. Solo los eventos que no
@@ -15,12 +16,13 @@ export function createAuditService(db) {
   const events = db.collection(COLLECTIONS.audit);
 
   return {
-    async record({ tenantId = null, userId = null, action, target, ip, requestId, details }, { session } = {}) {
+    async record({ tenantId = null, userId = null, apiKeyId, action, target, ip, requestId, details }, { session } = {}) {
       await events.insertOne(
         {
           at: new Date(),
           tenantId,
           userId,
+          ...(apiKeyId ? { apiKeyId } : {}),
           action,
           ...(target ? { target: String(target) } : {}),
           ip: ip ?? null,

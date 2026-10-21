@@ -3,7 +3,7 @@ import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextFie
 import { api } from '../lib/api.js';
 import { useSession, useTenantApi } from '../lib/session.jsx';
 
-export const ROLE_LABELS = { owner: 'Propietario', admin: 'Administrador', accountant: 'Contador', viewer: 'Lector' };
+export const ROLE_LABELS = { owner: 'Propietario', admin: 'Administrador', accountant: 'Contador', cashier: 'Cajero', viewer: 'Lector' };
 
 export function MembersScreen() {
   const base = useTenantApi();
@@ -136,6 +136,10 @@ const ACTIONS = {
   'member.accept_invitation': 'Aceptó una invitación',
   'member.change_role': 'Cambió un rol',
   'member.remove': 'Quitó a un miembro',
+  'year.close': 'Cerró un ejercicio',
+  'year.reopen': 'Reabrió un ejercicio',
+  'apikey.create': 'Creó una clave de API',
+  'apikey.revoke': 'Revocó una clave de API',
 };
 
 const stamp = (iso) => {
@@ -145,8 +149,10 @@ const stamp = (iso) => {
 
 export function AuditScreen() {
   const base = useTenantApi();
+  const { can } = useSession();
   const list = useLoad(() => api.get(`${base}/audit?limit=50`), [base]);
   const members = useLoad(() => api.get(`${base}/members`), [base]);
+  const keys = useLoad(() => (can('apikeys:manage') ? api.get(`${base}/api-keys`) : Promise.resolve(null)), [base]);
   const [extra, setExtra] = useState([]);
   const [cursor, setCursor] = useState(undefined);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -154,7 +160,10 @@ export function AuditScreen() {
 
   const items = [...(list.data?.items ?? []), ...extra];
   const next = cursor === undefined ? list.data?.nextCursor : cursor;
-  const who = (id) => members.data?.items.find((m) => m.userId === id)?.email ?? (id ? 'Usuario retirado' : 'Sistema');
+  const who = (e) =>
+    e.apiKeyId
+      ? `Clave de API${keys.data?.items.find((k) => k._id === e.apiKeyId) ? `: ${keys.data.items.find((k) => k._id === e.apiKeyId).name}` : ''}`
+      : (members.data?.items.find((m) => m.userId === e.userId)?.email ?? (e.userId ? 'Usuario retirado' : 'Sistema'));
 
   const loadMore = async () => {
     setLoadingMore(true);
@@ -172,7 +181,7 @@ export function AuditScreen() {
 
   const columns = [
     { key: 'at', title: 'Fecha y hora', render: (e) => <span className="tabular-nums">{stamp(e.at)}</span> },
-    { key: 'user', title: 'Quién', render: (e) => who(e.userId) },
+    { key: 'user', title: 'Quién', render: (e) => who(e) },
     { key: 'action', title: 'Qué hizo', render: (e) => ACTIONS[e.action] ?? e.action },
     { key: 'target', title: 'Sobre', render: (e) => e.target ?? '' },
     { key: 'details', title: 'Detalle', render: (e) => (e.details ? Object.entries(e.details).map(([k, v]) => `${k}: ${v}`).join(' · ') : '') },

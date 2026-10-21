@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ItemPicker } from '../components/ItemPicker.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
@@ -65,7 +66,7 @@ export function outcomeNotice(result, kindLabel) {
 }
 
 /** Validación del formulario de factura: devuelve errores por campo, las líneas listas para enviar y la vista previa de importes. */
-export function validateInvoice({ customerId, issueDate, paymentMethod, dueDate, lines, currency }) {
+export function validateInvoice({ customerId, issueDate, paymentMethod, dueDate, lines, currency, warehouseId = '' }) {
   const errors = { form: [], lines: [] };
   if (!customerId) errors.form.push('Elige el cliente.');
   if (!issueDate) errors.form.push('Elige la fecha de emisión.');
@@ -77,8 +78,10 @@ export function validateInvoice({ customerId, issueDate, paymentMethod, dueDate,
   lines.forEach((line, i) => {
     const e = {};
     errors.lines[i] = e;
-    const blank = !line.description.trim() && !line.unitPrice.trim() && line.quantity.trim() === '1';
+    const typed = (line.itemText ?? '').trim();
+    const blank = !line.description.trim() && !line.unitPrice.trim() && line.quantity.trim() === '1' && !typed;
     if (blank) return;
+    if (typed && !line.item) e.item = 'Elige un código de la lista o borra el campo.';
     if (!line.description.trim()) e.description = 'Escribe qué se vende.';
     const quantity = parseQuantity(line.quantity);
     if (quantity === null) e.quantity = 'Cantidad no válida (hasta 3 decimales).';
@@ -101,6 +104,7 @@ export function validateInvoice({ customerId, issueDate, paymentMethod, dueDate,
       ...(discountBps ? { discountBps } : {}),
       vatBps: line.vatBps,
       ...(line.accountId.trim() ? { accountId: line.accountId.trim() } : {}),
+      ...(line.item ? { itemId: line.item._id, ...(warehouseId ? { warehouseId } : {}) } : {}),
       _preview: result,
     });
   });
@@ -111,7 +115,7 @@ export function validateInvoice({ customerId, issueDate, paymentMethod, dueDate,
   return { ok: !errors.form.length && !hasLineErrors, errors, prepared, totals };
 }
 
-const blankLine = (vatBps) => ({ description: '', quantity: '1', unitPrice: '', discount: '', vatBps, accountId: '' });
+const blankLine = (vatBps) => ({ description: '', quantity: '1', unitPrice: '', discount: '', vatBps, accountId: '', itemText: '', item: null });
 
 function InvoiceForm({ status, onCreated, onCancel }) {
   const base = useTenantApi();
@@ -125,13 +129,33 @@ function InvoiceForm({ status, onCreated, onCancel }) {
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState([blankLine(defaultRate)]);
+  const [warehouseId, setWarehouseId] = useState('');
   const [showErrors, setShowErrors] = useState(false);
   const [key, setKey] = useState(newIdempotencyKey);
   const accounts = useLoad(() => api.get(`${base}/accounts?activeOnly=true`), [base]);
+  const warehouses = useLoad(() => api.get(`${base}/warehouses`).catch(() => ({ items: [] })), [base]);
+  const activeWarehouses = (warehouses.data?.items ?? []).filter((w) => w.active);
   const postable = (accounts.data?.items ?? []).filter((a) => a.postable);
 
-  const result = validateInvoice({ customerId, issueDate, paymentMethod, dueDate, lines, currency });
+  const result = validateInvoice({ customerId, issueDate, paymentMethod, dueDate, lines, currency, warehouseId });
   const setLine = (i, field) => (e) => setLines((ls) => ls.map((l, n) => (n === i ? { ...l, [field]: field === 'vatBps' ? Number(e.target.value) : e.target.value } : l)));
+
+  /** Al elegir un artículo se proponen su nombre, precio e IVA en los campos que siguen vacíos. */
+  const pickItem = (i) => (itemText, item) =>
+    setLines((ls) =>
+      ls.map((l, n) => {
+        if (n !== i) return l;
+        const chosen = item && (!l.item || l.item._id !== item._id);
+        return {
+          ...l,
+          itemText,
+          item,
+          ...(chosen && !l.description.trim() ? { description: item.name } : {}),
+          ...(chosen && !l.unitPrice.trim() && item.price !== undefined ? { unitPrice: formatAmount(item.price, currency) } : {}),
+          ...(chosen && item.vatBps !== undefined && rates.includes(item.vatBps) ? { vatBps: item.vatBps } : {}),
+        };
+      }),
+    );
 
   const submit = useSubmit(async () => {
     setShowErrors(true);
@@ -165,6 +189,16 @@ function InvoiceForm({ status, onCreated, onCancel }) {
         <SelectField label="Forma de pago" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} options={[{ value: 'cash', label: 'Contado' }, { value: 'credit', label: 'Crédito' }]} />
         <TextField label={paymentMethod === 'credit' ? 'Vencimiento' : 'Vencimiento (opcional)'} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
       </div>
+      {activeWarehouses.length > 1 ? (
+        <div className="grid gap-x-4 sm:grid-cols-3">
+          <SelectField
+            label="Bodega de donde salen los artículos"
+            value={warehouseId}
+            onChange={(e) => setWarehouseId(e.target.value)}
+            options={[{ value: '', label: 'Principal' }, ...activeWarehouses.filter((w) => !w.isDefault).map((w) => ({ value: w._id, label: `${w.code} — ${w.name}` }))]}
+          />
+        </div>
+      ) : null}
 
       <datalist id="cuentas-ingreso">
         {postable.map((a) => (
@@ -176,6 +210,7 @@ function InvoiceForm({ status, onCreated, onCancel }) {
         <table className="mb-2 w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-borde-fuerte text-left">
+              <th scope="col" className="px-2 py-2 font-semibold">Artículo (opcional)</th>
               <th scope="col" className="px-2 py-2 font-semibold">Descripción</th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">Cantidad</th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">Precio unitario ({currency})</th>
@@ -205,6 +240,9 @@ function InvoiceForm({ status, onCreated, onCancel }) {
               return (
                 <tr key={i} className="border-b border-borde align-top">
                   <td className="px-2 py-2">
+                    <ItemPicker base={base} label={`Artículo de la línea ${i + 1}`} className="w-40" text={line.itemText} item={line.item} onChange={pickItem(i)} error={e.item} />
+                  </td>
+                  <td className="px-2 py-2">
                     {field('description', 'Descripción', { className: 'min-w-48', props: { maxLength: 200 } })}
                     {e.description ? <p role="alert" className="text-xs font-semibold text-rojo">{e.description}</p> : null}
                   </td>
@@ -233,7 +271,7 @@ function InvoiceForm({ status, onCreated, onCancel }) {
                     </select>
                   </td>
                   <td className="px-2 py-2">
-                    {field('accountId', 'Cuenta de ingreso', { className: 'w-28', props: { list: 'cuentas-ingreso' } })}
+                    {field('accountId', 'Cuenta de ingreso', { className: 'w-28', props: { list: 'cuentas-ingreso', ...(line.item?.incomeAccount ? { placeholder: line.item.incomeAccount } : {}) } })}
                     {e.accountId ? <p role="alert" className="text-xs font-semibold text-rojo">{e.accountId}</p> : null}
                   </td>
                   <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-tinta">{preview ? formatAmount(preview.total, currency) : ''}</td>
@@ -322,6 +360,13 @@ function CreditNoteForm({ invoice, status, currency, onDone, onCancel }) {
         <SelectField label="Motivo" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} options={status.creditNoteReasons.map((r) => ({ value: r.code, label: r.label }))} />
         <TextField label="Fecha de la nota" type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} required />
       </div>
+      {invoice.lines.some((l) => l.itemId) ? (
+        <p className="mb-3 text-sm text-tinta">
+          {status.creditNoteReasons.find((r) => r.code === reasonCode)?.returnsGoods
+            ? 'Con este motivo, los bienes acreditados vuelven al inventario al costo al que salieron.'
+            : 'Con este motivo, los bienes no vuelven al inventario: solo cambia el valor facturado.'}
+        </p>
+      ) : null}
       <SelectField
         label="Qué se acredita"
         value={mode}

@@ -53,6 +53,18 @@ export function averageCost(stock, quantity) {
   return Number(roundDiv(BigInt(stock.value) * BigInt(quantity), BigInt(stock.quantity)));
 }
 
+/**
+ * Costo que vuelve a la existencia al devolver `quantity` de una línea vendida por `soldQuantity` a `soldCost`.
+ * Vuelve al costo al que salió, no al promedio de hoy. La devolución que agota lo vendido recibe lo que quede,
+ * para que devolver todo en varias partes sume exactamente el costo original.
+ */
+export function returnedCost(soldCost, soldQuantity, { quantity, restockedQuantity = 0, restockedCost = 0 }) {
+  const remaining = soldQuantity - restockedQuantity;
+  if (!Number.isSafeInteger(quantity) || quantity <= 0 || quantity > remaining) throw new InventoryError('no se puede devolver más de lo vendido');
+  if (quantity === remaining) return soldCost - restockedCost;
+  return Math.min(Number(roundDiv(BigInt(soldCost) * BigInt(quantity), BigInt(soldQuantity))), soldCost - restockedCost);
+}
+
 /*
  * Inventario con costo promedio ponderado, permanente.
  *

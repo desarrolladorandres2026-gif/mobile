@@ -14,10 +14,10 @@ export const COUNTRY_PACKS = {
     defaultChartIsDraft: true,
     /** Tarifas de IVA en puntos básicos (1 900 = 19 %). */
     vatRatesBps: [0, 500, 1900],
-    /** Motivos de nota crédito de la DIAN. */
+    /** Motivos de nota crédito de la DIAN. `returnsGoods`: los bienes acreditados vuelven al inventario. */
     creditNoteReasons: [
-      { code: '1', label: 'Devolución parcial de los bienes o no aceptación parcial del servicio' },
-      { code: '2', label: 'Anulación de la factura electrónica' },
+      { code: '1', label: 'Devolución parcial de los bienes o no aceptación parcial del servicio', returnsGoods: true },
+      { code: '2', label: 'Anulación de la factura electrónica', returnsGoods: true },
       { code: '3', label: 'Rebaja o descuento parcial o total' },
       { code: '4', label: 'Ajuste de precio' },
       { code: '5', label: 'Otros' },

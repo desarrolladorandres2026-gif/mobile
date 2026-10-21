@@ -18,7 +18,7 @@ export const WITHHOLDING_BASES = [
  * Validación del formulario de factura de compra: errores por campo, el cuerpo listo para enviar y la vista previa
  * de importes (subtotal, IVA, retenciones y lo que se le debe al proveedor).
  */
-export function validatePurchase({ supplierId, supplierDocNumber, issueDate, dueDate, lines, withholdings, currency }) {
+export function validatePurchase({ supplierId, supplierDocNumber, issueDate, dueDate, lines, withholdings, currency, warehouseId = '' }) {
   const errors = { form: [], lines: [], withholdings: [] };
   if (!supplierId) errors.form.push('Elige el proveedor.');
   if (!supplierDocNumber.trim()) errors.form.push('Escribe el número de la factura del proveedor.');
@@ -30,8 +30,10 @@ export function validatePurchase({ supplierId, supplierDocNumber, issueDate, due
   lines.forEach((line, i) => {
     const e = {};
     errors.lines[i] = e;
-    const blank = !line.description.trim() && !line.unitPrice.trim() && line.quantity.trim() === '1' && !line.accountId.trim();
+    const typed = (line.itemText ?? '').trim();
+    const blank = !line.description.trim() && !line.unitPrice.trim() && line.quantity.trim() === '1' && !line.accountId.trim() && !typed;
     if (blank) return;
+    if (typed && !line.item) e.item = 'Elige un código de la lista o borra el campo.';
     if (!line.description.trim()) e.description = 'Escribe qué se compra.';
     const quantity = parseQuantity(line.quantity);
     if (quantity === null) e.quantity = 'Cantidad no válida (hasta 3 decimales).';
@@ -39,7 +41,8 @@ export function validatePurchase({ supplierId, supplierDocNumber, issueDate, due
     if (unitPrice === null || line.unitPrice.trim() === '') e.unitPrice = 'Precio no válido. Ejemplo: 1.250.000,50';
     const discountBps = parsePercent(line.discount);
     if (discountBps === null) e.discount = 'Descuento entre 0 y 100.';
-    if (!/^\d{1,12}$/.test(line.accountId.trim())) e.accountId = 'Indica la cuenta del gasto, costo o activo.';
+    // Un bien del inventario trae su propia cuenta; las demás líneas la piden.
+    if (!line.item && !/^\d{1,12}$/.test(line.accountId.trim())) e.accountId = 'Indica la cuenta del gasto, costo o activo.';
     if (Object.keys(e).length) return;
     const result = computeLine({ quantity, unitPrice, discountBps, vatBps: line.vatBps });
     if (!result) {
@@ -53,7 +56,7 @@ export function validatePurchase({ supplierId, supplierDocNumber, issueDate, due
       unitPrice,
       ...(discountBps ? { discountBps } : {}),
       vatBps: line.vatBps,
-      accountId: line.accountId.trim(),
+      ...(line.item ? { itemId: line.item._id, ...(warehouseId ? { warehouseId } : {}) } : { accountId: line.accountId.trim() }),
     });
   });
   if (prepared.length === 0) errors.form.push('Agrega al menos una línea.');

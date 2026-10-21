@@ -14,7 +14,7 @@ export const MAX_JOURNAL_PAGE = 50;
  * Tipos de documento que generan los módulos (facturas, cobros, compras…). Un asiento manual no puede usarlos:
  * consumiría su consecutivo y dejaría huecos, y un asiento a mano sobre sus cuentas no actualiza el documento.
  */
-export const MODULE_DOC_TYPES = ['FV', 'NC', 'RC', 'FC', 'CE', 'NP', 'MI', 'PV', 'CJ'];
+export const MODULE_DOC_TYPES = ['FV', 'NC', 'RC', 'FC', 'CE', 'NP', 'MI', 'PV', 'CJ', 'CA'];
 const PERIOD_PATTERN = /^[0-9]{4}-(0[1-9]|1[0-2])$/;
 
 export class LedgerValidationError extends Error {

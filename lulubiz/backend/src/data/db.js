@@ -21,6 +21,10 @@ export const COLLECTIONS = {
   stock: 'stock',
   movements: 'movements',
   stockDocs: 'stockDocs',
+  posRegisters: 'posRegisters',
+  posShifts: 'posShifts',
+  posSales: 'posSales',
+  apiKeys: 'apiKeys',
   journals: 'journals',
   balances: 'balances',
   counters: 'counters',
@@ -46,6 +50,11 @@ export async function ensureIndexes(db) {
     { key: { purpose: 1, userId: 1, createdAt: -1 }, name: 'token_purpose_user' },
     { key: { purpose: 1, tenantId: 1, email: 1 }, name: 'token_invite_lookup' },
     { key: { expiresAt: 1 }, name: 'token_ttl', expireAfterSeconds: 0 },
+  ]);
+  await db.collection(COLLECTIONS.apiKeys).createIndexes([
+    // El prefijo identifica la clave al autenticar, sin saber todavía de qué empresa es.
+    { key: { prefix: 1 }, name: 'apikey_prefix', unique: true },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_apikey_recent' },
   ]);
   await db.collection(COLLECTIONS.memberships).createIndexes([
     { key: { tenantId: 1, userId: 1 }, name: 'tenant_user', unique: true },
@@ -156,6 +165,21 @@ export async function ensureIndexes(db) {
     { key: { tenantId: 1, idempotencyKey: 1 }, name: 'tenant_stockdoc_idempotency', unique: true },
     { key: { tenantId: 1, kind: 1, number: 1 }, name: 'tenant_stockdoc_number', unique: true },
     { key: { tenantId: 1, _id: -1 }, name: 'tenant_stockdoc_recent' },
+  ]);
+  await db.collection(COLLECTIONS.posRegisters).createIndexes([
+    { key: { tenantId: 1, code: 1 }, name: 'tenant_register_code', unique: true },
+  ]);
+  await db.collection(COLLECTIONS.posShifts).createIndexes([
+    // Una caja tiene a lo sumo un turno abierto: dos aperturas simultáneas no pueden coexistir.
+    { key: { tenantId: 1, registerId: 1 }, name: 'tenant_shift_open', unique: true, partialFilterExpression: { status: 'open' } },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_shift_recent' },
+    { key: { tenantId: 1, registerId: 1, _id: -1 }, name: 'tenant_shift_register' },
+  ]);
+  await db.collection(COLLECTIONS.posSales).createIndexes([
+    { key: { tenantId: 1, idempotencyKey: 1 }, name: 'tenant_possale_idempotency', unique: true },
+    { key: { tenantId: 1, registerId: 1, number: 1 }, name: 'tenant_possale_number', unique: true },
+    { key: { tenantId: 1, shiftId: 1, _id: -1 }, name: 'tenant_possale_shift' },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_possale_recent' },
   ]);
   await db.collection(COLLECTIONS.receipts).createIndexes([
     { key: { tenantId: 1, idempotencyKey: 1 }, name: 'tenant_receipt_idempotency', unique: true },

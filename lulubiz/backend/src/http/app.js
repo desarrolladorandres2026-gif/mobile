@@ -6,6 +6,8 @@ import Fastify from 'fastify';
 import { ObjectId } from 'mongodb';
 import { createAccountService } from '../accounts/accounts.js';
 import { createAuditService } from '../audit/audit.js';
+import { createYearEndService } from '../closing/yearEnd.js';
+import { GRANTABLE_SCOPES, createApiKeyService } from '../auth/apiKeys.js';
 import { createAuthService } from '../auth/auth.js';
 import { parseKey } from '../auth/secretbox.js';
 import { COUNTRY_PACKS } from '../countries/index.js';
@@ -18,6 +20,9 @@ import { createPayablesService } from '../purchases/payables.js';
 import { createPurchasesService } from '../purchases/purchases.js';
 import { createReceivablesService } from '../receivables/receivables.js';
 import { createInventoryService } from '../inventory/inventory.js';
+import { can } from '../auth/permissions.js';
+import { createOnboardingService } from '../onboarding/onboarding.js';
+import { createPosService } from '../pos/pos.js';
 import { createReportService } from '../reports/reports.js';
 import { errorHandler } from './errors.js';
 import { createMetrics } from './metrics.js';
@@ -68,6 +73,15 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     ajv: { customOptions: { coerceTypes: false, removeAdditional: false, allErrors: false } },
   });
 
+  // Las rutas registradas, para que una prueba compruebe que la documentación de la API las cubre todas.
+  const routeList = [];
+  app.addHook('onRoute', (route) => {
+    for (const method of [route.method].flat()) {
+      if (method !== 'HEAD' && method !== 'OPTIONS') routeList.push({ method, url: route.url, permission: [route.preValidation].flat().find((hook) => hook?.permission)?.permission ?? null });
+    }
+  });
+  app.decorate('routeList', routeList);
+
   const resolvedMailer =
     mailer ?? (config.smtpUrl ? createSmtpMailer({ url: config.smtpUrl, from: config.mailFrom }) : createLogMailer(app.log));
   const resolvedReporter =
@@ -88,20 +102,24 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     mfaKey: config.mfaEncryptionKey ? parseKey(config.mfaEncryptionKey) : null,
     onMailError: (err, info) => app.log.error({ err, subject: info.subject }, 'no se pudo enviar el correo'),
   });
+  const apiKeys = createApiKeyService({ client, db, ...(now ? { now } : {}) });
   const accounts = createAccountService(client, db);
   const parties = createPartyService(client, db);
   const ledger = createLedger(client, db);
   const auditLog = createAuditService(db);
   const reports = createReportService(db, accounts);
+  const yearEnd = createYearEndService({ client, db, ledger, accounts, ...(now ? { now } : {}) });
   const metrics = createMetrics();
   const settingsService = createSettingsService(client, db, accounts);
   const resolutionService = createResolutionService(client, db);
   const provider = invoicingProvider !== undefined ? invoicingProvider : config.invoicingProvider === 'sandbox' ? createSandboxProvider() : null;
-  const invoicing = createInvoicingService({ client, db, ledger, accounts, parties, settings: settingsService, resolutions: resolutionService, provider });
-  const receivables = createReceivablesService({ client, db, ledger, accounts, parties });
   const inventory = createInventoryService({ client, db, ledger, accounts });
+  const invoicing = createInvoicingService({ client, db, ledger, accounts, parties, settings: settingsService, resolutions: resolutionService, provider, inventory });
+  const receivables = createReceivablesService({ client, db, ledger, accounts, parties });
+  const pos = createPosService({ client, db, ledger, accounts, parties, settings: settingsService, inventory });
   const purchases = createPurchasesService({ client, db, ledger, accounts, parties, settings: settingsService, inventory });
   const payables = createPayablesService({ db, ledger, accounts, parties });
+  const onboarding = createOnboardingService({ db, invoicing, purchases });
 
   /** Contexto de una operación de facturación: la clave de idempotencia, quién la hace y cómo auditar dentro de su transacción. */
   const invoicingContext = (request) => ({
@@ -109,7 +127,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     userId: request.ctx.userId,
     auditTx: (session, event) =>
       auditLog.record(
-        { tenantId: request.ctx.tenantId, userId: request.ctx.userId, ip: request.ip, requestId: request.id, ...event },
+        { tenantId: request.ctx.tenantId, userId: request.ctx.userId, apiKeyId: request.ctx.apiKeyId, ip: request.ip, requestId: request.id, ...event },
         { session },
       ),
   });
@@ -124,6 +142,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
       {
         tenantId: request.ctx?.tenantId ?? null,
         userId: request.ctx?.userId ?? null,
+        apiKeyId: request.ctx?.apiKeyId,
         action,
         ip: request.ip,
         requestId: request.id,
@@ -152,6 +171,8 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
   app.addHook('onRequest', async (request, reply) => {
     if (SAFE_METHODS.has(request.method)) return;
     const { origin } = request.headers;
+    // Una clave de API viaja en una cabecera que ningún sitio ajeno puede añadir a una petición del navegador: no hay CSRF que defender.
+    if (/^Bearer\s+lbk_/i.test(request.headers.authorization ?? '')) return;
     if (origin && !config.allowedOrigins.includes(origin)) {
       return reply.status(403).send({ error: 'FORBIDDEN_ORIGIN', message: 'origen no permitido' });
     }
@@ -162,15 +183,17 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     if (request.url.startsWith('/v1/')) reply.header('cache-control', 'no-store');
   });
 
-  const guard = (permission) => async (request) => {
-    request.ctx = await auth.authorize(
-      request.cookies[config.cookieName],
-      new ObjectId(request.params.tenantId),
-      permission,
-    );
+  /** Clave de API de la cabecera `Authorization: Bearer ...`, si viene; la sesión por cookie no la necesita. */
+  const bearerOf = (request) => /^Bearer\s+(\S+)$/i.exec(request.headers.authorization ?? '')?.[1] ?? null;
+
+  const guard = (permission) => Object.assign(async (request) => {
+    const tenantId = new ObjectId(request.params.tenantId);
+    const token = bearerOf(request);
+    // Una clave de API se prueba contra la empresa de la ruta y el permiso de la ruta, como una sesión.
+    request.ctx = token ? await apiKeys.authenticate(token, tenantId, permission) : await auth.authorize(request.cookies[config.cookieName], tenantId, permission);
     // Desde aquí, cada línea del log de esta petición lleva la empresa y el usuario.
     request.log = request.log.child({ tenantId: String(request.ctx.tenantId), userId: String(request.ctx.userId) });
-  };
+  }, { permission });
 
   /** Exige una sesión válida, sin empresa: para operaciones sobre la propia cuenta. */
   const session = async (request) => {
@@ -1208,6 +1231,150 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     async (request) => inventory.listStockDocs(request.ctx.tenantId, request.query),
   );
 
+  // ---- Punto de venta: cajas, turnos y ventas de mostrador ----
+  const accountCode = { type: 'string', maxLength: 12 };
+  const registerAccounts = bodyOf({ cash: accountCode, card: accountCode, transfer: accountCode, shortage: accountCode, surplus: accountCode });
+  const posQuery = (extra = {}) => ({ type: 'object', additionalProperties: false, properties: { ...extra, ...pageQuery } });
+
+  app.get(`${base}/pos/registers`, { preValidation: guard('pos:read'), schema: { params: tenantParams } }, async (request) => ({
+    items: await pos.listRegisters(request.ctx.tenantId),
+  }));
+
+  app.post(
+    `${base}/pos/registers`,
+    {
+      preValidation: guard('pos:manage'),
+      schema: {
+        params: tenantParams,
+        body: bodyOf(
+          { code: { type: 'string', minLength: 1, maxLength: 10 }, name: { type: 'string', minLength: 1, maxLength: 100 }, warehouseId: OBJECT_ID, accounts: registerAccounts },
+          ['code', 'name', 'accounts'],
+        ),
+      },
+    },
+    async (request, reply) => {
+      const created = await pos.createRegister(request.ctx.tenantId, request.body, { inTx: tx(request, 'pos.register_create', (r) => ({ target: r._id, details: { code: r.code } })) });
+      return reply.status(201).send(created);
+    },
+  );
+
+  app.patch(
+    `${base}/pos/registers/:id`,
+    {
+      preValidation: guard('pos:manage'),
+      schema: {
+        params: idParams,
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          minProperties: 1,
+          properties: { name: { type: 'string', minLength: 1, maxLength: 100 }, active: { type: 'boolean' }, warehouseId: OBJECT_ID, accounts: registerAccounts },
+        },
+      },
+    },
+    async (request) => pos.updateRegister(request.ctx.tenantId, request.params.id, request.body, { inTx: tx(request, 'pos.register_update', () => ({ target: request.params.id })) }),
+  );
+
+  app.post(
+    `${base}/pos/registers/:id/shifts`,
+    { preValidation: guard('pos:sell'), schema: { params: idParams, body: bodyOf({ openingCash: money }) } },
+    async (request, reply) => reply.status(201).send(await pos.openShift(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request))),
+  );
+
+  app.get(
+    `${base}/pos/shifts`,
+    { preValidation: guard('pos:read'), schema: { params: tenantParams, querystring: posQuery({ registerId: OBJECT_ID, status: { type: 'string', enum: ['open', 'closed'] } }) } },
+    async (request) => pos.listShifts(request.ctx.tenantId, request.query),
+  );
+
+  app.get(`${base}/pos/shifts/:id`, { preValidation: guard('pos:read'), schema: { params: idParams } }, async (request, reply) => {
+    const shift = await pos.getShift(request.ctx.tenantId, request.params.id);
+    return shift ?? reply.status(404).send({ error: 'NOT_FOUND', message: 'el turno no existe' });
+  });
+
+  app.post(
+    `${base}/pos/shifts/:id/close`,
+    {
+      preValidation: guard('pos:sell'),
+      schema: {
+        params: idParams,
+        body: bodyOf({ countedCash: money, counterAccount: { type: 'string', pattern: '^[0-9]{1,12}$' }, date: DAY, notes: { type: 'string', maxLength: 500 } }, ['countedCash', 'date']),
+      },
+    },
+    async (request) => {
+      // Elegir la cuenta de la diferencia es una decisión contable: el cajero usa la que trae la caja.
+      if (request.body.counterAccount && !can(request.ctx.role, 'pos:manage')) {
+        throw Object.assign(new Error('elegir la cuenta de la diferencia requiere permiso de gestión de cajas'), { code: 'FORBIDDEN' });
+      }
+      return pos.closeShift(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request));
+    },
+  );
+
+  app.post(
+    `${base}/pos/sales`,
+    {
+      preValidation: guard('pos:sell'),
+      schema: {
+        params: tenantParams,
+        headers: idempotencyHeader,
+        body: bodyOf(
+          {
+            registerId: OBJECT_ID,
+            customerId: OBJECT_ID,
+            date: DAY,
+            notes: { type: 'string', maxLength: 500 },
+            cashTendered: money,
+            lines: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 200,
+              items: bodyOf(
+                {
+                  description: { type: 'string', maxLength: 200 },
+                  quantity: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+                  unitPrice: money,
+                  discountBps: { type: 'integer', minimum: 0, maximum: 10_000 },
+                  vatBps: { type: 'integer', minimum: 0, maximum: 10_000 },
+                  accountId: { type: 'string', pattern: '^[0-9]{1,12}$' },
+                  itemId: OBJECT_ID,
+                },
+                ['description', 'quantity', 'unitPrice'],
+              ),
+            },
+            payments: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 3,
+              items: bodyOf({ method: { type: 'string', maxLength: 10 }, amount: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER } }, ['method', 'amount']),
+            },
+          },
+          ['registerId', 'date', 'lines', 'payments'],
+        ),
+      },
+    },
+    async (request, reply) => {
+      const { sale, replayed } = await pos.createSale(request.ctx.tenantId, request.body, invoicingContext(request));
+      return reply.status(replayed ? 200 : 201).send({ replayed, sale });
+    },
+  );
+
+  app.get(
+    `${base}/pos/sales`,
+    { preValidation: guard('pos:read'), schema: { params: tenantParams, querystring: posQuery({ shiftId: OBJECT_ID, registerId: OBJECT_ID, status: { type: 'string', enum: ['posted', 'void'] } }) } },
+    async (request) => pos.listSales(request.ctx.tenantId, request.query),
+  );
+
+  app.get(`${base}/pos/sales/:id`, { preValidation: guard('pos:read'), schema: { params: idParams } }, async (request, reply) => {
+    const sale = await pos.getSale(request.ctx.tenantId, request.params.id);
+    return sale ?? reply.status(404).send({ error: 'NOT_FOUND', message: 'la venta no existe' });
+  });
+
+  app.post(
+    `${base}/pos/sales/:id/void`,
+    { preValidation: guard('pos:void'), schema: { params: idParams, body: bodyOf({ reason: { type: 'string', minLength: 1, maxLength: 200 }, date: DAY }, ['reason']) } },
+    async (request) => pos.voidSale(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request)),
+  );
+
   // ---- Reportes contables ----
   const CURRENCY = { type: 'string', minLength: 3, maxLength: 3 };
   const reportRoute = (path, query, required, run) =>
@@ -1244,10 +1411,49 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     }),
   );
 
-  app.post(`${base}/periods/:period/reopen`, { preValidation: guard('periods:reopen'), schema: { params: periodParams } }, async (request) =>
-    ledger.reopenPeriod(request.ctx.tenantId, request.params.period, request.ctx.userId, {
+  app.post(`${base}/periods/:period/reopen`, { preValidation: guard('periods:reopen'), schema: { params: periodParams } }, async (request) => {
+    // Un período que cerró el cierre del ejercicio no se reabre suelto: se reabre el ejercicio.
+    await yearEnd.assertPeriodReopenable(request.ctx.tenantId, request.params.period);
+    return ledger.reopenPeriod(request.ctx.tenantId, request.params.period, request.ctx.userId, {
       inTx: tx(request, 'period.reopen', (r) => ({ target: r.period })),
-    }),
+    });
+  });
+
+  // ---- Cierre de ejercicio ----
+  const yearBody = { year: { type: 'integer', minimum: 2000, maximum: 2100 }, currency: { type: 'string', minLength: 3, maxLength: 3 } };
+
+  app.get(`${base}/year-end`, { preValidation: guard('reports:read'), schema: { params: tenantParams } }, async (request) => ({
+    items: await yearEnd.list(request.ctx.tenantId),
+  }));
+
+  app.get(
+    `${base}/year-end/preview`,
+    {
+      preValidation: guard('reports:read'),
+      schema: { params: tenantParams, querystring: bodyOf({ year: { type: 'string', pattern: '^[0-9]{4}$' }, currency: yearBody.currency }, ['year', 'currency']) },
+    },
+    async (request) => yearEnd.preview(request.ctx.tenantId, { year: Number(request.query.year), currency: request.query.currency }),
+  );
+
+  app.post(
+    `${base}/year-end/close`,
+    {
+      preValidation: guard('periods:manage'),
+      schema: {
+        params: tenantParams,
+        body: bodyOf({ ...yearBody, profitAccount: { type: 'string', pattern: '^[0-9]{1,12}$' }, lossAccount: { type: 'string', pattern: '^[0-9]{1,12}$' } }, ['year', 'currency', 'profitAccount']),
+      },
+    },
+    async (request, reply) => {
+      const result = await yearEnd.close(request.ctx.tenantId, request.body, invoicingContext(request));
+      return reply.status(result.replayed ? 200 : 201).send(result);
+    },
+  );
+
+  app.post(
+    `${base}/year-end/reopen`,
+    { preValidation: guard('periods:reopen'), schema: { params: tenantParams, body: bodyOf(yearBody, ['year', 'currency']) } },
+    async (request) => yearEnd.reopen(request.ctx.tenantId, request.body, invoicingContext(request)),
   );
 
   // ---- Miembros de la empresa ----
@@ -1436,6 +1642,8 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
                   discountBps: { type: 'integer', minimum: 0, maximum: 10_000 },
                   vatBps: { type: 'integer', minimum: 0, maximum: 10_000 },
                   accountId: { type: 'string', maxLength: 12 },
+                  itemId: OBJECT_ID,
+                  warehouseId: OBJECT_ID,
                 },
                 ['description', 'quantity', 'unitPrice'],
               ),
@@ -1502,6 +1710,44 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
 
   app.post(`${base}/credit-notes/:id/account`, { preValidation: guard('invoices:issue'), schema: { params: idParams } }, async (request) => ({
     note: await invoicing.accountCreditNote(request.ctx.tenantId, request.params.id, invoicingContext(request)),
+  }));
+
+  // ---- Primeros pasos ----
+  app.get(`${base}/onboarding`, { preValidation: guard('reports:read'), schema: { params: tenantParams } }, async (request) => onboarding.get(request.ctx.tenantId));
+
+  // ---- Claves de API ----
+  app.get(`${base}/api-keys/scopes`, { preValidation: guard('apikeys:manage'), schema: { params: tenantParams } }, async (request) => ({
+    scopes: GRANTABLE_SCOPES.filter((scope) => can(request.ctx.role, scope)),
+  }));
+
+  app.get(`${base}/api-keys`, { preValidation: guard('apikeys:manage'), schema: { params: tenantParams } }, async (request) => ({
+    items: await apiKeys.list(request.ctx.tenantId),
+  }));
+
+  app.post(
+    `${base}/api-keys`,
+    {
+      preValidation: guard('apikeys:manage'),
+      schema: {
+        params: tenantParams,
+        body: bodyOf(
+          { name: { type: 'string', minLength: 1, maxLength: 60 }, scopes: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'string', maxLength: 40 } }, expiresAt: DAY },
+          ['name', 'scopes'],
+        ),
+      },
+    },
+    async (request, reply) => {
+      const created = await apiKeys.create(request.ctx, request.body, {
+        inTx: tx(request, 'apikey.create', (k) => ({ target: k._id, details: { name: k.name, prefix: k.prefix } })),
+      });
+      return reply.status(201).send(created);
+    },
+  );
+
+  app.post(`${base}/api-keys/:id/revoke`, { preValidation: guard('apikeys:manage'), schema: { params: idParams } }, async (request) => ({
+    apiKey: await apiKeys.revoke(request.ctx.tenantId, request.params.id, {
+      inTx: tx(request, 'apikey.revoke', (k) => ({ target: k._id, details: { name: k.name, prefix: k.prefix } })),
+    }),
   }));
 
   // ---- Auditoría ----

@@ -3,6 +3,7 @@ import { creditNoteReasonsFor, vatRatesFor } from '../countries/index.js';
 import { COLLECTIONS } from '../data/db.js';
 import { TenantCollection } from '../data/tenantCollection.js';
 import { isDuplicate, withTransaction } from '../data/tx.js';
+import { averageCost, returnedCost } from '../inventory/inventory.js';
 import { ProviderUnavailableError, assertProvider } from './provider.js';
 import { InvoicingError, missingSettings } from './settings.js';
 import { computeLine, computeTotals, proportionalShare } from './tax.js';
@@ -29,7 +30,9 @@ const isoDay = (date) => date.toISOString().slice(0, 10);
  *   status 'pending_provider'|'rejected'|'issued',
  *   customer { partyId, name, taxIdType, taxId, checkDigit?, email?, phone?, address? },
  *   issueDate, dueDate?, paymentMethod, currency, notes?,
- *   lines [{ description, quantity, unitPrice, discountBps, vatBps, accountId, gross, discount, net, tax, total }],
+ *   lines [{ description, quantity, unitPrice, discountBps, vatBps, accountId, gross, discount, net, tax, total,
+ *            itemId?, warehouseId?, inventoryAccount?, cogsAccount? }],   las cuatro últimas, solo en líneas de bienes del inventario
+ *   stockCost?[]                                           costo de ventas de cada línea (0 si no es del inventario), fijado al contabilizar
  *   totals { subtotal, discount, tax, total, taxByRate[] },
  *   accountsUsed { debit, vat },                          cuentas fijadas al crearla: un cambio posterior de configuración no la altera
  *   credited { quantity[], net[], tax[] }, creditedTotal,   lo ya acreditado por notas crédito
@@ -47,8 +50,13 @@ const isoDay = (date) => date.toISOString().slice(0, 10);
  *   · sin respuesta → sigue `pending_provider` y se reintenta con `submit`. El proveedor es idempotente por referencia.
  * Si el proveedor ya la validó pero la contabilización falla (período cerrado, cuenta inactiva…), la validación
  * NO se pierde: la factura queda `issued` con la contabilización pendiente y se reintenta con `account`.
+ *
+ * Inventario. Una línea con `itemId` vende un bien: al contabilizar, en la misma transacción que el asiento FV, la
+ * existencia sale al costo promedio de ese momento y el asiento suma costo de ventas contra inventario. La nota crédito
+ * cuyo motivo devuelve bienes los regresa al costo al que salieron (`returnedCost`) y revierte ese costo. Si no hay
+ * existencias al contabilizar, la factura (ya validada) queda emitida con la contabilización pendiente.
  */
-export function createInvoicingService({ client, db, ledger, accounts, parties, settings, resolutions, provider = null, now = () => new Date() }) {
+export function createInvoicingService({ client, db, ledger, accounts, parties, settings, resolutions, provider = null, inventory = null, now = () => new Date() }) {
   if (provider) assertProvider(provider);
   const invoicesOf = (tenantId) => new TenantCollection(db.collection(COLLECTIONS.invoices), tenantId);
   const notesOf = (tenantId) => new TenantCollection(db.collection(COLLECTIONS.creditNotes), tenantId);
@@ -92,6 +100,9 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
     ...(party.address ? { address: party.address } : {}),
   });
 
+  /** Lo que el proveedor no necesita ni debe ver: el inventario y su costo son internos. */
+  const withoutStock = ({ itemId, warehouseId, inventoryAccount, cogsAccount, stockCost, ...visible }) => visible;
+
   function providerDocument(kind, doc, cfg) {
     return {
       kind,
@@ -102,7 +113,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
       ...(doc.paymentMethod ? { paymentMethod: doc.paymentMethod } : {}),
       currency: doc.currency,
       customer: doc.customer,
-      lines: doc.lines,
+      lines: doc.lines.map(withoutStock),
       totals: doc.totals,
       ...(doc.notes ? { notes: doc.notes } : {}),
       ...(kind === 'credit_note'
@@ -148,11 +159,86 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
     };
   }
 
+  // ------------------------------------------------------------------ inventario
+
+  const addTo = (map, key, amount) => map.set(key, (map.get(key) ?? 0) + amount);
+
+  /** Líneas del asiento del costo: costo de ventas contra inventario, o al revés cuando el bien vuelve. */
+  function costLines(entries, returning) {
+    const cogs = new Map();
+    const stock = new Map();
+    for (const e of entries) {
+      if (e.cost <= 0) continue;
+      addTo(cogs, e.cogsAccount, e.cost);
+      addTo(stock, e.inventoryAccount, e.cost);
+    }
+    const lines = (map, side) => [...map].map(([accountId, amount]) => ({ accountId, [side]: amount }));
+    return returning ? [...lines(stock, 'debit'), ...lines(cogs, 'credit')] : [...lines(cogs, 'debit'), ...lines(stock, 'credit')];
+  }
+
+  /**
+   * Salida de las líneas de bienes de una factura al costo promedio de este momento. Lee y planea; `apply` escribe
+   * dentro de la transacción del asiento y falla con STOCK_CONFLICT si las existencias cambiaron entremedias.
+   */
+  async function saleStock(tenantId, invoice, ctx) {
+    const stockLines = invoice.lines.map((line, index) => ({ line, index })).filter(({ line }) => line.itemId);
+    if (!stockLines.length) return null;
+    if (!inventory) throw new InvoicingError('el inventario no está disponible');
+    const plan = await inventory.planOut(tenantId, stockLines.map(({ line }) => ({ itemId: line.itemId, warehouseId: line.warehouseId, quantity: line.quantity })));
+    // El costo de cada grupo (artículo y bodega) se reparte entre sus líneas sin dejar residuo.
+    const left = new Map(plan.map((p) => [`${p.itemId}:${p.warehouseId}`, { quantity: p.quantity, value: p.cost }]));
+    const stockCost = invoice.lines.map(() => 0);
+    for (const { line, index } of stockLines) {
+      const group = left.get(`${line.itemId}:${line.warehouseId}`);
+      stockCost[index] = averageCost(group, line.quantity);
+      group.quantity -= line.quantity;
+      group.value -= stockCost[index];
+    }
+    return {
+      set: { stockCost },
+      lines: costLines(stockLines.map(({ line, index }) => ({ cost: stockCost[index], cogsAccount: line.cogsAccount, inventoryAccount: line.inventoryAccount })), false),
+      apply: (session) =>
+        inventory.applyOut(tenantId, plan, session, { type: 'sale_out', date: invoice.issueDate, source: { kind: 'invoice', id: String(invoice._id) }, userId: ctx.userId }),
+    };
+  }
+
+  /** Reingreso de los bienes que una nota crédito devuelve, al costo al que salieron (fijado al crear la nota). */
+  function returnStock(tenantId, note, ctx) {
+    const lines = note.lines.filter((l) => l.itemId);
+    if (!lines.length) return null;
+    if (!inventory) throw new InvoicingError('el inventario no está disponible');
+    return {
+      set: {},
+      lines: costLines(lines.map((l) => ({ cost: l.stockCost, cogsAccount: l.cogsAccount, inventoryAccount: l.inventoryAccount })), true),
+      apply: (session) =>
+        inventory.applyIn(
+          tenantId,
+          lines.map((l) => ({ itemId: l.itemId, warehouseId: l.warehouseId, quantity: l.quantity, value: l.stockCost, lineIndex: l.lineIndex })),
+          session,
+          { type: 'sale_return', date: note.issueDate, source: { kind: 'credit_note', id: String(note._id) }, userId: ctx.userId },
+        ),
+    };
+  }
+
+  /**
+   * Publica el asiento. Con inventario, planea la salida o el reingreso, suma el costo al asiento y lo aplica en la
+   * misma transacción; si otra operación movió las existencias entremedias, repite todo desde la lectura.
+   */
+  async function postWithStock(tenantId, journalInput, stock, inTx) {
+    const attempt = async () => {
+      const extra = stock ? await stock() : null;
+      const input = extra?.lines.length ? { ...journalInput, lines: [...journalInput.lines, ...extra.lines] } : journalInput;
+      return ledger.postJournal(tenantId, input, { inTx: (session, posted) => inTx(session, posted, extra) });
+    };
+    return stock && inventory ? inventory.withStockRetry(attempt) : attempt();
+  }
+
   /**
    * Contabiliza un documento ya validado por el proveedor y lo marca emitido, en una sola transacción.
    * Si la contabilización falla, la validación se conserva: queda emitido con la contabilización pendiente.
+   * `stock`, si viene, planea el movimiento de inventario que acompaña al asiento.
    */
-  async function finalize({ tenantId, collection, doc, receipt, journalInput, auditAction, auditDetails, ctx }) {
+  async function finalize({ tenantId, collection, doc, receipt, journalInput, stock, auditAction, auditDetails, ctx }) {
     const target = collection(tenantId);
     const issuedFields = {
       status: 'issued',
@@ -163,16 +249,15 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
       issuedAt: now(),
     };
     try {
-      const { journal, replayed } = await ledger.postJournal(tenantId, journalInput, {
-        inTx: async (session, { journal: created }) => {
-          const result = await target.updateOne(
-            { _id: doc._id, status: { $in: NOT_FINAL } },
-            { $set: { ...issuedFields, accounting: { status: 'posted', journalId: created._id } }, $unset: { rejection: '' } },
-            { session },
-          );
-          if (result.matchedCount === 0) throw new InvoicingError('el estado del documento cambió mientras se emitía', 'INVALID_STATE');
-          await ctx.auditTx?.(session, { action: auditAction, target: doc._id, details: auditDetails });
-        },
+      const { journal, replayed } = await postWithStock(tenantId, journalInput, stock, async (session, { journal: created }, extra) => {
+        const result = await target.updateOne(
+          { _id: doc._id, status: { $in: NOT_FINAL } },
+          { $set: { ...issuedFields, ...(extra?.set ?? {}), accounting: { status: 'posted', journalId: created._id } }, $unset: { rejection: '' } },
+          { session },
+        );
+        if (result.matchedCount === 0) throw new InvoicingError('el estado del documento cambió mientras se emitía', 'INVALID_STATE');
+        await extra?.apply(session);
+        await ctx.auditTx?.(session, { action: auditAction, target: doc._id, details: auditDetails });
       });
       if (replayed) {
         // El asiento ya existía (un intento anterior lo registró): solo falta marcar el documento.
@@ -209,7 +294,24 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
     return target.findOne({ _id: doc._id });
   }
 
-  function prepareLines(inputLines, { country, regime, defaultAccount }) {
+  /** Artículos y bodegas de las líneas que traen `itemId`; las demás quedan sin información de inventario. */
+  async function resolveStock(tenantId, inputLines) {
+    const wanted = (Array.isArray(inputLines) ? inputLines : []).map((l) => l?.itemId);
+    if (!wanted.some(Boolean)) return [];
+    if (!inventory) throw new InvoicingError('el inventario no está disponible');
+    const items = await inventory.loadItems(tenantId, wanted.filter(Boolean));
+    const info = [];
+    for (const [i, itemId] of wanted.entries()) {
+      if (!itemId) continue;
+      const item = items.get(String(itemId));
+      if (item.type !== 'goods') throw new InvoicingError(`línea ${i + 1}: solo los bienes salen del inventario; un servicio se factura sin artículo`);
+      if (!item.active) throw new InvoicingError(`línea ${i + 1}: el artículo ${item.sku} está inactivo`);
+      info[i] = { item, warehouse: await inventory.resolveWarehouse(tenantId, inputLines[i].warehouseId) };
+    }
+    return info;
+  }
+
+  function prepareLines(inputLines, { country, regime, defaultAccount, stockInfo = [] }) {
     if (!Array.isArray(inputLines) || inputLines.length === 0) throw new InvoicingError('la factura necesita al menos una línea');
     if (inputLines.length > MAX_LINES) throw new InvoicingError(`la factura admite como máximo ${MAX_LINES} líneas`);
     const allowed = vatRatesFor(country);
@@ -227,8 +329,20 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
       } catch (error) {
         throw new InvoicingError(`línea ${n}: ${error.message}`);
       }
-      const accountId = String(line.accountId ?? defaultAccount).trim();
-      return { description, quantity: line.quantity, unitPrice: line.unitPrice, discountBps: line.discountBps ?? 0, vatBps, accountId, ...computed };
+      const stock = stockInfo[i];
+      const accountId = String(line.accountId ?? stock?.item.incomeAccount ?? defaultAccount).trim();
+      return {
+        description,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        discountBps: line.discountBps ?? 0,
+        vatBps,
+        accountId,
+        ...(stock
+          ? { itemId: stock.item._id, warehouseId: stock.warehouse._id, inventoryAccount: stock.item.inventoryAccount, cogsAccount: stock.item.cogsAccount }
+          : {}),
+        ...computed,
+      };
     });
   }
 
@@ -258,6 +372,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
       doc: invoice,
       receipt: result,
       journalInput: invoiceJournal(invoice),
+      stock: () => saleStock(tenantId, invoice, ctx),
       auditAction: 'invoice.issue',
       auditDetails: { number: invoice.fullNumber, total: invoice.totals.total, sandbox: provider.sandbox },
       ctx,
@@ -292,13 +407,17 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
     if (paymentMethod === 'credit' && !dueDate) throw new InvoicingError('una venta a crédito necesita fecha de vencimiento');
     const notes = String(input.notes ?? '').trim().slice(0, 500) || undefined;
 
-    const lines = prepareLines(input.lines, { country: tenant.country, regime: cfg.issuer.regime, defaultAccount: cfg.accounts.income });
+    const stockInfo = await resolveStock(tenantId, input.lines);
+    const lines = prepareLines(input.lines, { country: tenant.country, regime: cfg.issuer.regime, defaultAccount: cfg.accounts.income, stockInfo });
     const totals = computeTotals(lines);
     if (totals.total <= 0) throw new InvoicingError('el total de la factura debe ser mayor que cero');
 
     const debit = paymentMethod === 'cash' && cfg.accounts.cash ? cfg.accounts.cash : cfg.accounts.receivable;
     const problems = await accounts.postingProblems(tenantId, [debit, cfg.accounts.vatPayable, ...lines.map((l) => l.accountId)]);
     if (problems.length) throw new InvoicingError(problems.join('; '));
+    // Aviso temprano, antes de gastar un número de la resolución: lo definitivo se comprueba al contabilizar.
+    const sold = lines.filter((l) => l.itemId).map((l) => ({ itemId: l.itemId, warehouseId: l.warehouseId, quantity: l.quantity }));
+    if (sold.length) await inventory.planOut(tenantId, sold);
 
     let created;
     try {
@@ -321,7 +440,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
           lines,
           totals,
           accountsUsed: { debit, vat: cfg.accounts.vatPayable },
-          credited: { quantity: lines.map(() => 0), net: lines.map(() => 0), tax: lines.map(() => 0) },
+          credited: { quantity: lines.map(() => 0), net: lines.map(() => 0), tax: lines.map(() => 0), restocked: lines.map(() => 0), cost: lines.map(() => 0) },
           creditedTotal: 0,
           collectible: debit === cfg.accounts.receivable,
           paidTotal: 0,
@@ -350,15 +469,14 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
     if (!invoice) throw new InvoicingError('la factura no existe', 'NOT_FOUND');
     if (invoice.status !== 'issued') throw new InvoicingError('solo se contabilizan facturas ya emitidas', 'INVALID_STATE');
     if (invoice.accounting?.status === 'posted') return present(invoice);
-    await ledger.postJournal(tenantId, invoiceJournal(invoice), {
-      inTx: async (session, { journal }) => {
-        await invoicesOf(tenantId).updateOne(
-          { _id: invoice._id, 'accounting.status': 'pending' },
-          { $set: { accounting: { status: 'posted', journalId: journal._id } } },
-          { session },
-        );
-        await ctx.auditTx?.(session, { action: 'invoice.account', target: invoice._id, details: { number: invoice.fullNumber } });
-      },
+    await postWithStock(tenantId, invoiceJournal(invoice), () => saleStock(tenantId, invoice, ctx), async (session, { journal }, extra) => {
+      await invoicesOf(tenantId).updateOne(
+        { _id: invoice._id, 'accounting.status': 'pending' },
+        { $set: { ...(extra?.set ?? {}), accounting: { status: 'posted', journalId: journal._id } } },
+        { session },
+      );
+      await extra?.apply(session);
+      await ctx.auditTx?.(session, { action: 'invoice.account', target: invoice._id, details: { number: invoice.fullNumber } });
     });
     return present(await invoicesOf(tenantId).findOne({ _id: invoice._id }));
   }
@@ -401,6 +519,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
                   [`credited.quantity.${l.lineIndex}`, -l.quantity],
                   [`credited.net.${l.lineIndex}`, -l.net],
                   [`credited.tax.${l.lineIndex}`, -l.tax],
+                  ...(l.itemId ? [[`credited.restocked.${l.lineIndex}`, -l.quantity], [`credited.cost.${l.lineIndex}`, -l.stockCost]] : []),
                 ])),
               },
             },
@@ -415,6 +534,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
       doc: note,
       receipt: result,
       journalInput: noteJournal(note, invoice),
+      stock: () => returnStock(tenantId, note, ctx),
       auditAction: 'credit_note.issue',
       auditDetails: { number: note.fullNumber, invoice: note.invoiceFullNumber, total: note.totals.total, sandbox: provider.sandbox },
       ctx,
@@ -465,6 +585,22 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
         } catch (error) {
           throw new InvoicingError(`línea ${w.lineIndex + 1}: ${error.message}`, 'OVER_CREDIT');
         }
+        // Un bien que vuelve entra al inventario al costo al que salió; ese costo se fija ahora, junto con lo demás que se reserva.
+        let restock = {};
+        if (reason.returnsGoods && line.itemId) {
+          if (!invoice.stockCost) throw new InvoicingError('la factura aún no tiene contabilizado su costo de ventas: contabilízala antes de devolver sus bienes', 'INVALID_STATE');
+          let stockCost;
+          try {
+            stockCost = returnedCost(invoice.stockCost[w.lineIndex], line.quantity, {
+              quantity: w.quantity,
+              restockedQuantity: invoice.credited.restocked?.[w.lineIndex] ?? 0,
+              restockedCost: invoice.credited.cost?.[w.lineIndex] ?? 0,
+            });
+          } catch (error) {
+            throw new InvoicingError(`línea ${w.lineIndex + 1}: ${error.message}`, 'OVER_CREDIT');
+          }
+          restock = { itemId: line.itemId, warehouseId: line.warehouseId, inventoryAccount: line.inventoryAccount, cogsAccount: line.cogsAccount, stockCost };
+        }
         return {
           lineIndex: w.lineIndex,
           description: line.description,
@@ -477,6 +613,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
           net: share.net,
           tax: share.tax,
           total: share.total,
+          ...restock,
         };
       });
       const totals = computeTotals(noteLines);
@@ -491,6 +628,12 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
         inc[`credited.quantity.${l.lineIndex}`] = l.quantity;
         inc[`credited.net.${l.lineIndex}`] = l.net;
         inc[`credited.tax.${l.lineIndex}`] = l.tax;
+        if (l.itemId) {
+          guard[`credited.restocked.${l.lineIndex}`] = invoice.credited.restocked?.[l.lineIndex] ?? 0;
+          guard[`credited.cost.${l.lineIndex}`] = invoice.credited.cost?.[l.lineIndex] ?? 0;
+          inc[`credited.restocked.${l.lineIndex}`] = l.quantity;
+          inc[`credited.cost.${l.lineIndex}`] = l.stockCost;
+        }
       }
 
       let created = null;
@@ -543,15 +686,14 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
     if (note.status !== 'issued') throw new InvoicingError('solo se contabilizan notas crédito ya emitidas', 'INVALID_STATE');
     if (note.accounting?.status === 'posted') return note;
     const invoice = await invoicesOf(tenantId).findOne({ _id: note.invoiceId });
-    await ledger.postJournal(tenantId, noteJournal(note, invoice), {
-      inTx: async (session, { journal }) => {
-        await notesOf(tenantId).updateOne(
-          { _id: note._id, 'accounting.status': 'pending' },
-          { $set: { accounting: { status: 'posted', journalId: journal._id } } },
-          { session },
-        );
-        await ctx.auditTx?.(session, { action: 'credit_note.account', target: note._id, details: { number: note.fullNumber } });
-      },
+    await postWithStock(tenantId, noteJournal(note, invoice), () => returnStock(tenantId, note, ctx), async (session, { journal }, extra) => {
+      await notesOf(tenantId).updateOne(
+        { _id: note._id, 'accounting.status': 'pending' },
+        { $set: { accounting: { status: 'posted', journalId: journal._id } } },
+        { session },
+      );
+      await extra?.apply(session);
+      await ctx.auditTx?.(session, { action: 'credit_note.account', target: note._id, details: { number: note.fullNumber } });
     });
     return notesOf(tenantId).findOne({ _id: note._id });
   }

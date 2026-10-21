@@ -88,3 +88,30 @@ describe('validación del formulario de compra', () => {
     expect(check({ lines: [line({ unitPrice: '0' })] }).errors.form).toContain('El total debe ser mayor que cero.');
   });
 });
+
+describe('líneas con artículo del inventario', () => {
+  const item = { _id: 'a1', sku: 'TORN-1', name: 'Tornillo', inventoryAccount: '143505' };
+
+  it('una línea con artículo no pide cuenta y manda itemId en vez de accountId', () => {
+    const result = check({ lines: [line({ accountId: '', item, itemText: 'TORN-1' })] });
+    expect(result.ok).toBe(true);
+    expect(result.prepared[0]).toEqual({ description: 'Servicio de aseo', quantity: 1000, unitPrice: 1_000_000, vatBps: 1900, itemId: 'a1' });
+  });
+
+  it('manda la bodega elegida solo en las líneas con artículo', () => {
+    const result = check({ warehouseId: 'w2', lines: [line({ accountId: '', item, itemText: 'TORN-1' }), line()] });
+    expect(result.prepared[0]).toMatchObject({ itemId: 'a1', warehouseId: 'w2' });
+    expect(result.prepared[1]).not.toHaveProperty('warehouseId');
+    expect(result.prepared[1].accountId).toBe('519595');
+  });
+
+  it('un código escrito que no se eligió de la lista es un error de la línea', () => {
+    const result = check({ lines: [line({ itemText: 'TORN-9', item: null })] });
+    expect(result.ok).toBe(false);
+    expect(result.errors.lines[0].item).toMatch(/lista/);
+  });
+
+  it('sin artículo, la cuenta sigue siendo obligatoria', () => {
+    expect(check({ lines: [line({ accountId: '' })] }).errors.lines[0].accountId).toBeDefined();
+  });
+});

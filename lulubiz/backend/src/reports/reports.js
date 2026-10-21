@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb';
 import { assertCurrency, assertMinorUnits } from '../core/money.js';
 import { COLLECTIONS } from '../data/db.js';
 import { TenantCollection } from '../data/tenantCollection.js';
+import { closingEffects } from '../closing/yearEnd.js';
 import { LedgerValidationError, assertPeriod } from '../ledger/ledger.js';
 
 export const MAX_LEDGER_PAGE = 200;
@@ -17,9 +18,10 @@ const FIRST_PERIOD = '0000-01';
  * del lado de la naturaleza de la cuenta (débito para activos y gastos, crédito para pasivos,
  * patrimonio e ingresos) y negativo cuando es contrario.
  *
- * Límites conocidos: el ejercicio no se cierra (no hay asiento de cierre), así que el balance
- * muestra un único "resultado acumulado" desde el primer período. Los reportes son por
- * períodos mensuales (AAAA-MM) y por una sola moneda a la vez.
+ * Cierre de ejercicio: el asiento de cierre lleva a cero ingresos, costos y gastos del año contra el patrimonio. El balance
+ * general ya lo refleja solo (el resultado del año queda en el patrimonio y el acumulado empieza de cero). El estado de
+ * resultados, en cambio, resta ese asiento para mostrar la actividad real del año. El balance de prueba sí lo incluye.
+ * Los reportes son por períodos mensuales (AAAA-MM) y por una sola moneda a la vez.
  */
 
 // 0 - net y no -net: negar un cero entrega -0, que se compara distinto de 0 aunque el JSON lo muestre igual.
@@ -65,7 +67,7 @@ export function createReportService(db, accounts) {
   const journalsOf = (tenantId) => new TenantCollection(db.collection(COLLECTIONS.journals), tenantId);
 
   /** Movimiento por cuenta hasta `to`: lo anterior a `from` es saldo inicial y lo demás, movimiento del rango. */
-  async function movements(tenantId, currency, from, to) {
+  async function movements(tenantId, currency, from, to, { excludeClosing = false } = {}) {
     const rows = await balancesOf(tenantId)
       .aggregate([
         { $match: { currency, period: { $lte: to } } },
@@ -80,12 +82,26 @@ export function createReportService(db, accounts) {
         },
       ])
       .toArray();
-    return rows.map((r) => ({ code: r._id, od: Number(r.od), oc: Number(r.oc), d: Number(r.d), c: Number(r.c) }));
+    const moves = new Map(rows.map((r) => [r._id, { code: r._id, od: Number(r.od), oc: Number(r.oc), d: Number(r.d), c: Number(r.c) }]));
+    if (excludeClosing) {
+      for (const e of await closingEffects(db, tenantId, currency, to)) {
+        const m = moves.get(e.accountId);
+        if (!m) continue;
+        if (e.period < from) {
+          m.od -= e.debit;
+          m.oc -= e.credit;
+        } else {
+          m.d -= e.debit;
+          m.c -= e.credit;
+        }
+      }
+    }
+    return [...moves.values()];
   }
 
   /** Acumula cada movimiento en su cuenta y en todos sus ancestros: así las cuentas de grupo suman a sus hijas. */
-  async function buildRows(tenantId, currency, from, to) {
-    const [chart, moves] = await Promise.all([accounts.list(tenantId), movements(tenantId, currency, from, to)]);
+  async function buildRows(tenantId, currency, from, to, options) {
+    const [chart, moves] = await Promise.all([accounts.list(tenantId), movements(tenantId, currency, from, to, options)]);
     const byCode = new Map(chart.map((a) => [a.code, a]));
     const totals = new Map();
     const add = (code, m) => {
@@ -159,7 +175,7 @@ export function createReportService(db, accounts) {
     async incomeStatement(tenantId, { from, to, currency }) {
       assertRange(from, to);
       assertCurrency(currency);
-      const rows = await buildRows(tenantId, currency, from, to);
+      const rows = await buildRows(tenantId, currency, from, to, { excludeClosing: true });
       const section = (type) =>
         rows
           .filter((r) => r.type === type)

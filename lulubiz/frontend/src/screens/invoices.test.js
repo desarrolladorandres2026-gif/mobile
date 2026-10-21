@@ -95,3 +95,21 @@ describe('mensajes del resultado de emitir', () => {
     expect(outcomeNotice({ note: { fullNumber: 'NC1', status: 'issued', accounting: { status: 'posted' } } }, 'La nota crédito').text).toMatch(/La nota crédito NC1 emitida/);
   });
 });
+
+describe('líneas con artículo del inventario', () => {
+  const item = { _id: 'a1', sku: 'TORN-1', name: 'Tornillo' };
+
+  it('manda itemId y la bodega elegida, y deja la cuenta de ingreso opcional', () => {
+    const result = check({ warehouseId: 'w2', lines: [line({ item, itemText: 'TORN-1' }), line({ description: 'Instalación' })] });
+    expect(result.ok).toBe(true);
+    expect(result.prepared[0]).toMatchObject({ itemId: 'a1', warehouseId: 'w2' });
+    expect(result.prepared[1]).not.toHaveProperty('itemId');
+    expect(result.prepared[1]).not.toHaveProperty('warehouseId');
+  });
+
+  it('un código escrito que no se eligió de la lista es un error de la línea', () => {
+    const result = check({ lines: [line({ itemText: 'XX', item: null })] });
+    expect(result.ok).toBe(false);
+    expect(result.errors.lines[0].item).toMatch(/lista/);
+  });
+});

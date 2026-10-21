@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ItemPicker } from '../components/ItemPicker.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
 import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
@@ -13,7 +14,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const STATUS = { posted: 'Vigente', void: 'Anulada' };
 const CREDIT = { partial: 'acreditada en parte', full: 'acreditada del todo' };
 
-const blankLine = (vatBps) => ({ description: '', quantity: '1', unitPrice: '', discount: '', vatBps, accountId: '' });
+const blankLine = (vatBps) => ({ description: '', quantity: '1', unitPrice: '', discount: '', vatBps, accountId: '', itemText: '', item: null });
 const blankWithholding = () => ({ name: '', accountId: '', basis: 'subtotal', rate: '' });
 
 function usePurchasingStatus() {
@@ -45,15 +46,26 @@ function PurchaseForm({ status, onCreated, onCancel }) {
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState([blankLine(defaultRate)]);
   const [withholdings, setWithholdings] = useState([]);
+  const [warehouseId, setWarehouseId] = useState('');
   const [showErrors, setShowErrors] = useState(false);
   const [key, setKey] = useState(newIdempotencyKey);
   const accounts = useLoad(() => api.get(`${base}/accounts?activeOnly=true`), [base]);
+  const warehouses = useLoad(() => api.get(`${base}/warehouses`).catch(() => ({ items: [] })), [base]);
+  const activeWarehouses = (warehouses.data?.items ?? []).filter((w) => w.active);
   const postable = (accounts.data?.items ?? []).filter((a) => a.postable);
   const expenseAccounts = postable.filter((a) => ['asset', 'expense', 'cost'].includes(a.type));
   const liabilityAccounts = postable.filter((a) => a.type === 'liability');
 
-  const result = validatePurchase({ supplierId, supplierDocNumber, issueDate, dueDate, lines, withholdings, currency });
+  const result = validatePurchase({ supplierId, supplierDocNumber, issueDate, dueDate, lines, withholdings, currency, warehouseId });
   const setLine = (i, field) => (e) => setLines((ls) => ls.map((l, n) => (n === i ? { ...l, [field]: field === 'vatBps' ? Number(e.target.value) : e.target.value } : l)));
+  const pickItem = (i) => (itemText, item) =>
+    setLines((ls) =>
+      ls.map((l, n) => {
+        if (n !== i) return l;
+        const chosen = item && (!l.item || l.item._id !== item._id);
+        return { ...l, itemText, item, ...(chosen && !l.description.trim() ? { description: item.name } : {}) };
+      }),
+    );
   const setWithholding = (i, field) => (e) => setWithholdings((ws) => ws.map((w, n) => (n === i ? { ...w, [field]: e.target.value } : w)));
 
   const submit = useSubmit(async () => {
@@ -89,6 +101,16 @@ function PurchaseForm({ status, onCreated, onCancel }) {
         <TextField label="Fecha de la factura" type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} required />
         <TextField label="Vencimiento (opcional)" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} hint="Sin fecha, vence el mismo día." />
       </div>
+      {activeWarehouses.length > 1 ? (
+        <div className="grid gap-x-4 sm:grid-cols-3">
+          <SelectField
+            label="Bodega de destino de los artículos"
+            value={warehouseId}
+            onChange={(e) => setWarehouseId(e.target.value)}
+            options={[{ value: '', label: 'Principal' }, ...activeWarehouses.filter((w) => !w.isDefault).map((w) => ({ value: w._id, label: `${w.code} — ${w.name}` }))]}
+          />
+        </div>
+      ) : null}
 
       <datalist id="cuentas-compra">
         {expenseAccounts.map((a) => (
@@ -105,6 +127,7 @@ function PurchaseForm({ status, onCreated, onCancel }) {
         <table className="mb-2 w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-borde-fuerte text-left">
+              <th scope="col" className="px-2 py-2 font-semibold">Artículo (opcional)</th>
               <th scope="col" className="px-2 py-2 font-semibold">Descripción</th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">Cantidad</th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">Precio unitario ({currency})</th>
@@ -127,6 +150,9 @@ function PurchaseForm({ status, onCreated, onCancel }) {
               );
               return (
                 <tr key={i} className="border-b border-borde align-top">
+                  <td className="px-2 py-2">
+                    <ItemPicker base={base} label={`Artículo de la línea ${i + 1}`} className="w-40" text={line.itemText} item={line.item} onChange={pickItem(i)} error={e.item} showStock={false} />
+                  </td>
                   <td className="px-2 py-2">
                     {field('description', 'Descripción', 'min-w-48', { maxLength: 200 })}
                     {e.description ? <p role="alert" className="text-xs font-semibold text-rojo">{e.description}</p> : null}
@@ -151,8 +177,14 @@ function PurchaseForm({ status, onCreated, onCancel }) {
                     </select>
                   </td>
                   <td className="px-2 py-2">
-                    {field('accountId', 'Cuenta', 'w-28', { list: 'cuentas-compra' })}
-                    {e.accountId ? <p role="alert" className="text-xs font-semibold text-rojo">{e.accountId}</p> : null}
+                    {line.item ? (
+                      <p className="text-sm text-tinta">{line.item.inventoryAccount} (inventario)</p>
+                    ) : (
+                      <>
+                        {field('accountId', 'Cuenta', 'w-28', { list: 'cuentas-compra' })}
+                        {e.accountId ? <p role="alert" className="text-xs font-semibold text-rojo">{e.accountId}</p> : null}
+                      </>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-tinta">{preview ? formatAmount(preview.total, currency) : ''}</td>
                   <td className="px-2 py-2">{lines.length > 1 ? <TextButton danger onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</TextButton> : null}</td>

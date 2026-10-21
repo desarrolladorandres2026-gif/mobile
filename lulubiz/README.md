@@ -1,10 +1,10 @@
 # Lulubiz
 
-Software contable y administrativo. React + Node.js + MongoDB, en JavaScript. Diseño y decisiones: [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md). Investigación de referencia: [docs/INVESTIGACION-SIIGO.md](docs/INVESTIGACION-SIIGO.md).
+Software contable y administrativo. React + Node.js + MongoDB, en JavaScript. Diseño y decisiones: [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md). Investigación de referencia: [docs/INVESTIGACION-SIIGO.md](docs/INVESTIGACION-SIIGO.md). Para integrar otros sistemas: [docs/API.md](docs/API.md) (claves de API, convenciones y rutas). Para desplegar, respaldar y dar de alta un cliente: [docs/OPERACION.md](docs/OPERACION.md).
 
 | Carpeta | Qué es |
 |---|---|
-| `backend/` | API (Fastify), libro contable, informes, cartera, compras, facturación electrónica, autenticación, auditoría |
+| `backend/` | API (Fastify), libro contable, informes, cartera, compras, inventario, punto de venta, facturación electrónica, autenticación, auditoría |
 | `frontend/` | Interfaz (React 19, Vite, Tailwind 4) |
 | `e2e/` | Recorrido completo en un navegador real |
 
@@ -13,8 +13,8 @@ Software contable y administrativo. React + Node.js + MongoDB, en JavaScript. Di
 Cada paquete es independiente: `npm install` en cada carpeta.
 
 ```
-cd backend  && npm test       # 366 pruebas (descarga un MongoDB de pruebas la primera vez)
-cd frontend && npm test       # 113 pruebas
+cd backend  && npm test       # 527 pruebas (descarga un MongoDB de pruebas la primera vez)
+cd frontend && npm test       # 169 pruebas
 cd e2e      && npm test       # compila la interfaz y corre el recorrido en Chrome
 cd backend  && npm run bench  # medición de rendimiento contra un MongoDB local
 ```
