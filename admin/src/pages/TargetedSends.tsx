@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import { AlertCircle, Send } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
@@ -46,7 +45,7 @@ const STATUS_LABEL: Record<SendRecord['status'], string> = {
  failed: 'Falló',
 };
 
-const fieldClass = 'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
+const fieldClass = 'w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
 
 function describe(segment: Segment, businesses: BusinessOption[]): string {
  const parts: string[] = [segment.role === 'driver' ? 'Domiciliarios' : 'Clientes'];
@@ -143,7 +142,7 @@ export default function TargetedSends() {
  const messageOk = title.trim().length >= 3 && body.trim().length >= 3;
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Envíos dirigidos</h1>
@@ -155,7 +154,7 @@ export default function TargetedSends() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {error}
+  {error}
  </p>
  )}
  {notice && <p className="text-xs font-semibold text-[var(--color-success)]">{notice}</p>}
@@ -238,7 +237,7 @@ export default function TargetedSends() {
  <button
  onClick={preview}
  disabled={working}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-4 py-2 text-xs font-semibold text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-4 py-2 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Calcular alcance
  </button>
@@ -250,9 +249,9 @@ export default function TargetedSends() {
  <button
  onClick={() => (reach === null ? preview() : setConfirming(true))}
  disabled={working || sending || !messageOk || reach === 0}
- className="ml-auto flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-[var(--color-on-primary,#000)] disabled:opacity-50"
+ className="ml-auto flex cursor-pointer items-center gap-2 rounded bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-[var(--color-on-primary,#000)]"
  >
- <Send className="h-4 w-4" />
+ 
  {sending ? 'Hay un envío en curso' : reach === null ? 'Calcular y continuar' : 'Enviar'}
  </button>
  </div>
@@ -264,7 +263,7 @@ export default function TargetedSends() {
  <h2 className="text-sm font-bold text-[var(--color-text-main)]">Historial</h2>
  </div>
  {history.length === 0 ? (
- <p className="py-8 text-center text-xs font-semibold text-[var(--color-text-main)]">Aún no se ha enviado nada.</p>
+ <p className="state-line">Aún no se ha enviado nada.</p>
  ) : (
  <div className="table-container">
  <div className="overflow-x-auto">

@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import { AlertCircle, Scale } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
@@ -111,7 +110,7 @@ export default function LegalOps() {
  const closed = requests.filter((r) => r.status === 'resolved' || r.status === 'rejected');
  const overdue = open.filter((r) => r.legalOverdue).length;
 
- const headClass = 'px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-surface)] whitespace-nowrap';
+ const headClass = 'px-3 py-3 text-left text-xs font-bold text-[var(--color-surface)] whitespace-nowrap';
  const cellClass = 'px-3 py-3.5 text-xs align-top border-t border-[var(--color-border-light)] text-[var(--color-text-main)]';
 
  const row = (r: DataRequest) => {
@@ -130,7 +129,7 @@ export default function LegalOps() {
  <td className={`${cellClass} whitespace-nowrap`}>
  <p>Recibida {day(r.createdAt)}</p>
  {r.extendedAt && (
- <p className="text-[10px] font-semibold text-[var(--color-text-main)]">Plazo ampliado {day(r.extendedAt)}</p>
+ <p className="text-xs font-semibold text-[var(--color-text-main)]">Plazo ampliado {day(r.extendedAt)}</p>
  )}
  {isOpen && r.legalDueAt && (
  <p
@@ -138,14 +137,14 @@ export default function LegalOps() {
  r.legalOverdue ? 'text-[var(--color-danger)]' : r.legalDueSoon ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'
  }`}
  >
- <Scale className="h-3 w-3" />
+ 
  {r.legalOverdue ? 'Venció ' : 'Vence '}
  {day(r.legalDueAt)}
  </p>
  )}
  </td>
  <td className={cellClass}>
- <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-main)]">
+ <p className="text-xs font-bold text-[var(--color-text-main)]">
  {STATUS_LABEL[r.status] ?? r.status}
  </p>
  </td>
@@ -156,7 +155,7 @@ export default function LegalOps() {
  <PermissionGate permission={Permission.LEGAL_MANAGE}>
  <button
  onClick={() => act(() => api.patch(`/legal/admin/data-requests/${r._id}/take`), 'No se pudo tomar la solicitud.')}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[11px] font-semibold"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold"
  >
  Tomar
  </button>
@@ -166,7 +165,7 @@ export default function LegalOps() {
  <PermissionGate permission={Permission.LEGAL_MANAGE}>
  <button
  onClick={() => setExtending(r)}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[11px] font-semibold"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold"
  >
  Ampliar plazo
  </button>
@@ -175,7 +174,7 @@ export default function LegalOps() {
  <PermissionGate permission={Permission.LEGAL_MANAGE}>
  <button
  onClick={() => setPending({ request: r, status: 'resolved', anonymize: false })}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-[11px] font-bold text-white"
+ className="cursor-pointer rounded bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
  >
  Responder
  </button>
@@ -184,7 +183,7 @@ export default function LegalOps() {
  <PermissionGate permission={Permission.LEGAL_MANAGE} role="super_admin">
  <button
  onClick={() => setPending({ request: r, status: 'resolved', anonymize: true })}
- className="cursor-pointer rounded-lg border border-[var(--color-danger)] px-3 py-1.5 text-[11px] font-bold text-[var(--color-danger)]"
+ className="cursor-pointer rounded border border-[var(--color-danger)] px-3 py-1.5 text-xs font-bold text-[var(--color-danger)]"
  >
  Suprimir datos
  </button>
@@ -193,7 +192,7 @@ export default function LegalOps() {
  <PermissionGate permission={Permission.LEGAL_MANAGE}>
  <button
  onClick={() => setPending({ request: r, status: 'rejected', anonymize: false })}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[11px] font-semibold"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold"
  >
  Rechazar
  </button>
@@ -206,7 +205,7 @@ export default function LegalOps() {
  };
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="page-header">
  <div>
  <h1 className="page-title">Datos personales</h1>
@@ -219,12 +218,12 @@ export default function LegalOps() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {error}
+  {error}
  </p>
  )}
 
  {loading ? (
- <p className="py-16 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando solicitudes...</p>
+ <p className="state-line">Cargando solicitudes…</p>
  ) : (
  <div className="overflow-x-auto">
  <table className="data-grid min-w-[860px]">
@@ -241,7 +240,7 @@ export default function LegalOps() {
  {[...open, ...closed].map(row)}
  {requests.length === 0 && (
  <tr>
- <td colSpan={5} className="px-6 py-14 text-center text-xs font-semibold text-[var(--color-text-main)]">
+ <td colSpan={5} className="state-line">
  No hay solicitudes de datos personales.
  </td>
  </tr>

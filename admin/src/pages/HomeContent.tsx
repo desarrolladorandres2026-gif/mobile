@@ -28,7 +28,7 @@ export default function HomeContent() {
  const active = visible.find((t) => t.id === requested) ?? visible[0];
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="flex gap-1.5">
  {visible.map((t) => (
  <button

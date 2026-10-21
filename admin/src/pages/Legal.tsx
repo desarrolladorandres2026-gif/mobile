@@ -26,7 +26,7 @@ export default function Legal() {
           <button
             key={t.id}
             onClick={() => setParams(t.id === 'datos' ? {} : { tab: t.id }, { replace: true })}
-            className={`px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap border-b-2 ${
+            className={`px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap border-b-2 ${
               active === t.id
                 ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
                 : 'border-transparent text-[var(--color-text-main)]'

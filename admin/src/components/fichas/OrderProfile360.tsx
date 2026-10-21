@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { X, AlertTriangle, UserPlus, UserMinus, RefreshCw, Ban, RotateCcw, BellRing } from 'lucide-react';
 import api from '../../services/api';
 import { apiErrorCode, apiMessage } from '../../lib/apiError';
 import { dateTime, money } from '../../lib/drivers';
@@ -37,13 +36,13 @@ import {
  */
 
 const statusLabels: Record<string, { label: string; text: string }> = {
- pending: { label: 'Pendiente', text: 'text-[#B45309]' },
+ pending: { label: 'Pendiente', text: 'text-[var(--color-warning)]' },
  accepted: { label: 'Aceptado', text: 'text-[var(--color-chart-purple)]' },
- preparing: { label: 'Preparando', text: 'text-[#B45309]' },
+ preparing: { label: 'Preparando', text: 'text-[var(--color-warning)]' },
  ready: { label: 'Listo', text: 'text-[var(--color-chart-purple)]' },
- picked_up: { label: 'En camino', text: 'text-[#8A5D08]' },
- on_way: { label: 'En camino', text: 'text-[#8A5D08]' },
- delivered: { label: 'Entregado', text: 'text-[#047857]' },
+ picked_up: { label: 'En camino', text: 'text-[var(--accent-link)]' },
+ on_way: { label: 'En camino', text: 'text-[var(--accent-link)]' },
+ delivered: { label: 'Entregado', text: 'text-[var(--color-success)]' },
  cancelled: { label: 'Cancelado', text: 'text-[var(--color-danger)]' },
 };
 
@@ -200,7 +199,7 @@ function HandoffPhotos({ orderId, count }: { orderId: string; count: number }) {
  {open &&
  createPortal(
  <div
- className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4"
+ className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4"
  onClick={() => setOpen(false)}
  >
  <div
@@ -221,8 +220,8 @@ function HandoffPhotos({ orderId, count }: { orderId: string; count: number }) {
  <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
  {photos.map((ev) => (
  <button key={ev.id} onClick={() => setPreview(ev.url)} className="cursor-zoom-in text-left">
- <img src={ev.url} alt="" loading="lazy" decoding="async" className="h-32 w-full rounded-lg object-cover" />
- <p className="mt-1 text-[10px] font-semibold text-[var(--color-text-main)]">
+ <img src={ev.url} alt="" loading="lazy" decoding="async" className="h-32 w-full rounded object-cover" />
+ <p className="mt-1 text-xs font-semibold text-[var(--color-text-main)]">
  {ev.type === 'pickup_evidence' ? 'Recogida' : 'Entrega'} · {dateTime(ev.uploadedAt)}
  </p>
  </button>
@@ -236,10 +235,10 @@ function HandoffPhotos({ orderId, count }: { orderId: string; count: number }) {
  {preview &&
  createPortal(
  <div
- className="fixed inset-0 z-[90] flex cursor-zoom-out items-center justify-center bg-black/70 p-4"
+ className="fixed inset-0 z-[90] flex cursor-zoom-out items-center justify-center bg-black/60 p-4"
  onClick={() => setPreview(null)}
  >
- <img src={preview} alt="Evidencia" className="max-h-full max-w-full rounded-xl" />
+ <img src={preview} alt="Evidencia" className="max-h-full max-w-full rounded" />
  </div>,
  document.body,
  )}
@@ -296,8 +295,8 @@ function PaymentRefs({ orderId }: { orderId: string }) {
  rows={(refs ?? []).map((r) => [
  dateTime(r.createdAt),
  `${railLabel(r.paymentMethodType) || (r.method === 'cash_on_delivery' ? 'Efectivo' : 'En línea')} · ${paymentStateLabel(r.method, r.status)}`,
- <span className="font-mono text-[11px]">{r.transactionId ?? '—'}</span>,
- <span className="font-mono text-[11px]">{r.reference ?? '—'}</span>,
+ <span className="font-mono text-xs">{r.transactionId ?? '—'}</span>,
+ <span className="font-mono text-xs">{r.reference ?? '—'}</span>,
  ])}
  />
  );
@@ -510,8 +509,8 @@ export default function OrderProfile360({
  return (
  <>
  {/* Pantalla completa dentro del área de contenido: deja a la vista la
- cabecera (h-20) y la barra lateral (w-30, fija desde lg). */}
- <div className="fixed bottom-0 left-0 right-0 top-20 z-30 lg:left-30">
+ la barra lateral (200 px, fija desde lg). */}
+ <div className="fixed bottom-0 left-0 right-0 top-0 z-30 lg:left-[var(--zp-sidebar-w)]">
  <div className="h-full w-full overflow-y-auto bg-[var(--color-bg)] p-6 lg:p-8">
  <div className="flex items-start justify-between gap-4">
  <div className="min-w-0">
@@ -519,7 +518,7 @@ export default function OrderProfile360({
  {order ? `Pedido ${order.orderNumber ?? order._id.slice(-8).toUpperCase()}` : 'Ficha del pedido'}
  </h2>
  {order && status && (
- <p className="flex flex-wrap items-center gap-x-3 text-[11px] font-bold uppercase tracking-wide">
+ <p className="flex flex-wrap items-center gap-x-3 text-xs font-bold">
  <span className={status.text}>{status.label}</span>
  <span className="text-[var(--color-text-main)]">
  {order.kind === 'errand' ? 'Mandado' : 'Domicilio'} · {dateTime(order.createdAt)}
@@ -530,15 +529,15 @@ export default function OrderProfile360({
  <button
  onClick={onClose}
  aria-label="Cerrar"
- className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]"
+ className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)]"
  >
- <X className="h-4 w-4" /> Volver a pedidos
+  Volver a pedidos
  </button>
  </div>
 
  {error ? (
  <p className="mt-6 flex items-center gap-1.5 text-sm text-[var(--color-danger)]">
- <AlertTriangle className="h-4 w-4" /> {error}
+  {error}
  </p>
  ) : !data || !order || !allowed ? (
  <p className="mt-6 text-sm text-[var(--color-text-main)]">Cargando…</p>
@@ -549,27 +548,27 @@ export default function OrderProfile360({
  <div className="flex flex-wrap items-center gap-2.5">
  {allowed.assign && !hasDriver && (
  <button onClick={openAssign} className={actionButtonClass}>
- <UserPlus className="h-4 w-4" /> Asignar
+  Asignar
  </button>
  )}
  {allowed.unassign && hasDriver && (
  <>
  <button onClick={() => setUnassignMode('redispatch')} className={actionButtonClass}>
- <RefreshCw className="h-4 w-4" /> Reasignar
+  Reasignar
  </button>
  <button onClick={() => setUnassignMode('release')} className={actionButtonClass}>
- <UserMinus className="h-4 w-4" /> Desasignar
+  Desasignar
  </button>
  </>
  )}
  {allowed.notify && (
  <button onClick={() => setPanel(panel === 'notify' ? null : 'notify')} className={`${actionButtonClass} !border-transparent !px-1`}>
- <BellRing className="h-4 w-4" /> Reenviar aviso
+  Reenviar aviso
  </button>
  )}
  {allowed.refund && (
  <button onClick={() => setPanel(panel === 'refund' ? null : 'refund')} className={actionButtonClass}>
- <RotateCcw className="h-4 w-4" /> Reembolsar
+  Reembolsar
  </button>
  )}
  {allowed.cancel && (
@@ -577,15 +576,15 @@ export default function OrderProfile360({
  onClick={() => setPanel(panel === 'cancel' ? null : 'cancel')}
  className={`${actionButtonClass} !border-transparent !px-1 !text-[var(--color-danger)]`}
  >
- <Ban className="h-4 w-4" /> Cancelar
+  Cancelar
  </button>
  )}
  </div>
 
- {notice && <p className="font-semibold text-[#047857]">{notice}</p>}
+ {notice && <p className="font-semibold text-[var(--color-success)]">{notice}</p>}
  {warning && (
  <p className="flex items-start gap-1.5 font-semibold text-[var(--color-text-main)]">
- <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {warning}
+  {warning}
  </p>
  )}
  {actionError && <ErrorLine>{actionError}</ErrorLine>}
@@ -661,7 +660,7 @@ export default function OrderProfile360({
  </select>
  </label>
  </div>
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  Solo avisos fijos: no admite texto libre. Máximo 3 por pedido cada 10 minutos.
  </p>
  <div className="flex justify-end gap-2">
@@ -737,7 +736,7 @@ export default function OrderProfile360({
  <button
  onClick={requestCancel}
  disabled={working}
- className="cursor-pointer rounded-lg bg-[var(--color-danger)] px-3.5 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+ className="cursor-pointer rounded bg-[var(--danger-fill)] px-3.5 py-1.5 text-xs font-bold text-white"
  >
  Cancelar pedido
  </button>
@@ -1030,7 +1029,7 @@ export default function OrderProfile360({
  empty="Sin reseña."
  rows={
  data.after.review
- ? [[data.after.review.rating > 0 ? `${data.after.review.rating}★` : 'Sin calificación', data.after.review.comment ?? '']]
+ ? [[data.after.review.rating > 0 ? `${data.after.review.rating} de 5` : 'Sin calificación', data.after.review.comment ?? '']]
  : []
  }
  />

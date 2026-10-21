@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { ShieldAlert, X } from 'lucide-react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
 import EntityLink from '../components/EntityLink';
@@ -49,7 +48,7 @@ const FILTERS: Array<{ id: View | ''; text: string }> = [
 ];
 
 const input =
- 'h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]';
+ 'h-10 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]';
 
 export default function AdInvoices() {
  const canManage = useAuthStore((s) => s.hasPermission(Permission.FINANCE_MANAGE));
@@ -104,7 +103,7 @@ export default function AdInvoices() {
  };
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Cobros de publicidad</h1>
@@ -115,7 +114,7 @@ export default function AdInvoices() {
  <button
  key={f.text}
  onClick={() => { setView(f.id); setPage(1); }}
- className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${
+ className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold transition-all ${
  view === f.id
  ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
@@ -139,14 +138,14 @@ export default function AdInvoices() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+  {error}
  </p>
  )}
 
  {loading ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : items.length === 0 ? (
- <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay cobros con este filtro.</p>
+ <p className="state-line">No hay cobros con este filtro.</p>
  ) : (
  <>
  <div className="table-container">
@@ -201,30 +200,30 @@ export default function AdInvoices() {
  )}
 
  {collecting && (
- <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-fade-in">
- <div className="zipp-modal w-full max-w-sm space-y-3 rounded-2xl p-6">
+ <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+ <div className="zipp-modal w-full max-w-sm space-y-3 rounded p-6">
  <div className="flex items-start justify-between gap-3">
  <div>
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Registrar cobro</h3>
  <p className="text-xs text-[var(--color-text-main)]">{collecting.campaignName} · {money(collecting.amount)}</p>
  </div>
- <button onClick={() => setCollecting(null)} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-main)]">
- <X className="h-4 w-4" />
+ <button onClick={() => setCollecting(null)} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-main)]">Cerrar
+ 
  </button>
  </div>
  <label className="block space-y-1">
- <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Referencia del pago</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">Referencia del pago</span>
  <input value={form.reference} onChange={(e) => setForm((f) => ({ ...f, reference: e.target.value }))} maxLength={120} className={input} />
  </label>
  <label className="block space-y-1">
- <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Enlace del comprobante</span>
- <input value={form.receiptUrl} onChange={(e) => setForm((f) => ({ ...f, receiptUrl: e.target.value }))} placeholder="https://..." className={input} />
+ <span className="text-xs font-bold text-[var(--color-text-main)]">Enlace del comprobante</span>
+ <input value={form.receiptUrl} onChange={(e) => setForm((f) => ({ ...f, receiptUrl: e.target.value }))} placeholder="https://…" className={input} />
  </label>
  {formError && <p className="text-xs font-semibold text-[var(--color-danger)]">{formError}</p>}
  <button
  onClick={collect}
  disabled={busy}
- className="h-10 w-full cursor-pointer rounded-lg bg-[var(--color-primary)] text-xs font-bold uppercase tracking-wider text-white disabled:opacity-60"
+ className="h-10 w-full cursor-pointer rounded bg-[var(--color-primary)] text-xs font-bold text-white"
  >
  {busy ? 'Registrando…' : 'Registrar cobro'}
  </button>

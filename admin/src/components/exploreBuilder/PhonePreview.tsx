@@ -75,7 +75,7 @@ export function PhonePreview({ sections, loading, large = false }: {
  sandbox="allow-scripts allow-same-origin"
  />
  </div>
- <p className="text-[11px] text-[var(--color-text-main)] h-4">
+ <p className="text-xs text-[var(--color-text-main)] h-4">
  {timedOut && !ready
  ? 'No abre la vista previa: arranca la web de mobile (npm start) o revisa VITE_PREVIEW_URL.'
  : loading

@@ -20,7 +20,7 @@ export function NoRoleScreen() {
  await logout();
  navigate('/login');
  }}
- className="px-4 py-2 bg-[var(--color-primary)] text-white text-xs font-bold rounded-lg cursor-pointer"
+ className="px-4 py-2 bg-[var(--color-primary)] text-white text-xs font-bold rounded cursor-pointer"
  >
  Cerrar sesión
  </button>

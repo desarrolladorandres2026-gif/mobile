@@ -262,3 +262,24 @@ textarea.field {
   border-color: transparent;
   text-decoration: none;
 }
+
+/* No disponible, en cualquier botón del panel (no solo los `.btn`): fondo y
+   borde planos, texto secundario y cursor not-allowed; nunca opacidad. */
+button:disabled:not(.btn):not(.btn-text) {
+  background-color: var(--color-surface-hover);
+  border-color: var(--color-border-light);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+}
+
+/* Tema oscuro: campos hundidos con borde de 3:1 (WCAG 1.4.11) en toda la
+   interfaz, también donde la página trae sus propias clases. Va sin capa para
+   ganar a las utilidades de Tailwind. Excluye la cuadrícula de datos, cuyos
+   campos van sin caja. */
+.dark :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='color']), select, textarea):not(.data-grid *) {
+  background-color: var(--zp-field);
+  border-color: var(--zp-field-border);
+}
+.dark :where(input:not([type='checkbox']):not([type='radio']), select, textarea):not(.data-grid *):focus {
+  border-color: var(--zp-focus);
+}

@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import { Trash2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
@@ -88,7 +87,7 @@ function formatDate(iso: string): string {
  });
 }
 
-const fieldClass = 'rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs text-[var(--color-text-main)]';
+const fieldClass = 'rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs text-[var(--color-text-main)]';
 
 const EMPTY_FORM = {
  kind: 'synonym' as RuleKind,
@@ -205,7 +204,7 @@ export default function SearchInsights() {
  ) : null}
 
  {loading && !data ? (
- <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <div className="state-line">
  Cargando búsquedas…
  </div>
  ) : (
@@ -215,7 +214,7 @@ export default function SearchInsights() {
  <header className="flex items-center gap-2">
  <h2 className="text-sm font-bold text-[var(--color-text-main)]">Lo más buscado</h2>
  </header>
- <p className="text-[11px] font-medium text-[var(--color-text-main)]">
+ <p className="text-xs font-medium text-[var(--color-text-main)]">
  Alimenta las sugerencias de la pantalla de búsqueda en la app.
  </p>
 
@@ -240,7 +239,7 @@ export default function SearchInsights() {
  ))
  ) : (
  <tr>
- <td colSpan={2} className="px-4 py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">
+ <td colSpan={2} className="state-line">
  Todavía no hay búsquedas registradas.
  </td>
  </tr>
@@ -255,7 +254,7 @@ export default function SearchInsights() {
  <header className="flex items-center gap-2">
  <h2 className="text-sm font-bold text-[var(--color-text-main)]">Buscado y no encontrado</h2>
  </header>
- <p className="text-[11px] font-medium text-[var(--color-text-main)]">
+ <p className="text-xs font-medium text-[var(--color-text-main)]">
  Cada línea es una venta que se perdió. Ordenado por cuánta gente lo pidió: es la lista de qué comercios o
  productos hacen falta. Lo que ya está marcado como atendido no aparece.
  </p>
@@ -280,20 +279,20 @@ export default function SearchInsights() {
  <td className="px-4 py-3 text-xs font-semibold text-[var(--color-text-main)]">
  {row.term}
  {row.rule && (
- <span className="block text-[11px] font-medium text-[var(--color-text-main)]">
+ <span className="block text-xs font-medium text-[var(--color-text-main)]">
  {KIND_LABEL[row.rule.kind]} · {describeRule(row.rule)}
  </span>
  )}
  </td>
  <td className="px-4 py-3 text-xs font-bold text-right text-[var(--color-danger)]">{row.count}</td>
- <td className="px-4 py-3 text-[11px] font-medium text-right text-[var(--color-text-main)] whitespace-nowrap">
+ <td className="px-4 py-3 text-xs font-medium text-right text-[var(--color-text-main)] whitespace-nowrap">
  {formatDate(row.lastAt)}
  </td>
  <td className="px-4 py-3 text-right">
  <PermissionGate permission={Permission.CONTENT_MANAGE}>
  <button
  onClick={() => openAction(row)}
- className="cursor-pointer text-[11px] font-bold text-[var(--color-text-main)]"
+ className="cursor-pointer text-xs font-bold text-[var(--color-text-main)]"
  >
  {row.rule ? 'Cambiar' : 'Resolver'}
  </button>
@@ -303,7 +302,7 @@ export default function SearchInsights() {
  ))
  ) : (
  <tr>
- <td colSpan={4} className="px-4 py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">
+ <td colSpan={4} className="state-line">
  Nadie se ha ido con las manos vacías. Por ahora.
  </td>
  </tr>
@@ -377,7 +376,7 @@ export default function SearchInsights() {
  className={`${fieldClass} min-w-[200px] flex-1`}
  />
  </div>
- <p className="text-[11px] font-medium text-[var(--color-text-main)]">
+ <p className="text-xs font-medium text-[var(--color-text-main)]">
  {form.kind === 'synonym' &&
  'Solo se usa cuando la búsqueda literal no encuentra nada; nunca pisa un resultado. El destino debe devolver resultados.'}
  {form.kind === 'redirect' && 'La app ofrece ir al destino cuando la búsqueda sigue vacía.'}
@@ -388,7 +387,7 @@ export default function SearchInsights() {
  <button
  onClick={saveRule}
  disabled={saveDisabled}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+ className="cursor-pointer rounded bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white"
  >
  Guardar
  </button>
@@ -427,8 +426,8 @@ export default function SearchInsights() {
  onClick={() => removeRule(r._id)}
  aria-label={`Quitar regla de ${r.termRaw}`}
  className="ml-auto cursor-pointer text-[var(--color-text-main)]"
- >
- <Trash2 className="h-4 w-4" />
+ >{`Quitar regla de ${r.termRaw}`}
+ 
  </button>
  </PermissionGate>
  </li>

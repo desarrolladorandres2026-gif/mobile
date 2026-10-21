@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
@@ -119,10 +118,10 @@ export default function LegalDocuments() {
 
  const canPublish = form.version.trim() && form.title.trim().length >= 3 && form.content.trim().length >= 50 && (!hasPrevious || form.changeNote.trim());
 
- const fieldClass = 'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
+ const fieldClass = 'w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Documentos legales</h1>
@@ -133,16 +132,16 @@ export default function LegalDocuments() {
  <PermissionGate permission={Permission.LEGAL_PUBLISH}>
  <button
  onClick={() => setDrafting(true)}
- className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white"
+ className="flex cursor-pointer items-center gap-2 rounded bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white"
  >
- <Plus className="h-4 w-4" /> Nueva versión
+  Nueva versión
  </button>
  </PermissionGate>
  </div>
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {error}
+  {error}
  </p>
  )}
 
@@ -193,13 +192,13 @@ export default function LegalDocuments() {
  <div className="flex justify-end gap-2">
  <button
  onClick={() => { setDrafting(false); setForm(EMPTY); }}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Cancelar
  </button>
  <button
  onClick={() => (canPublish ? setConfirming(true) : setError('Completa versión, título, texto (mínimo 50 caracteres)' + (hasPrevious ? ' y qué cambió.' : '.')))}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
+ className="cursor-pointer rounded bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
  >
  Publicar
  </button>
@@ -208,9 +207,9 @@ export default function LegalDocuments() {
  )}
 
  {loading ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : byKind.length === 0 ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">
+ <p className="state-line">
  Aún no hay documentos legales publicados.
  </p>
  ) : (
@@ -223,9 +222,9 @@ export default function LegalDocuments() {
  return (
  <li key={doc._id} className="border-b border-[var(--color-border-light)] py-3">
  <button onClick={() => open(doc)} className="flex w-full cursor-pointer items-center gap-2 text-left">
- {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+ 
  <span className="font-semibold text-[var(--color-text-main)]">Versión {doc.version}</span>
- <span className={`text-[10px] font-bold uppercase tracking-wider ${doc.isActive ? 'text-[var(--color-success)]' : 'text-[var(--color-text-main)]'}`}>
+ <span className={`text-xs font-bold ${doc.isActive ? 'text-[var(--color-success)]' : 'text-[var(--color-text-main)]'}`}>
  {doc.isActive ? 'Vigente' : 'Archivada'}
  </span>
  <span className="text-xs text-[var(--color-text-main)]">
@@ -242,7 +241,7 @@ export default function LegalDocuments() {
  </p>
  {acceptances && (
  <div>
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <p className="text-xs font-bold text-[var(--color-text-main)]">
  Quién la aceptó ({acceptances.total})
  </p>
  {acceptances.rows.length === 0 ? (

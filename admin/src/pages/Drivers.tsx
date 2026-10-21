@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { Search, Star, AlertCircle, CheckCircle, X, Ban, PlayCircle, Eye, RotateCw, SlidersHorizontal } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
@@ -38,10 +37,10 @@ const sortOptions = [
 ];
 
 const fieldClass =
- 'h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none';
+ 'h-10 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none';
 
 const headClass =
- 'px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-surface)] whitespace-nowrap';
+ 'px-3 py-3 text-left text-xs font-bold text-[var(--color-surface)] whitespace-nowrap';
 const cellClass =
  'px-3 py-3.5 text-xs align-middle border-t border-[var(--color-border-light)] text-[var(--color-text-main)]';
 
@@ -175,7 +174,7 @@ export default function Drivers() {
  const onlineCount = drivers.filter((d) => d.status === 'available' || d.status === 'busy').length;
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="page-header">
  <div>
  <h1 className="page-title">Domiciliarios</h1>
@@ -187,7 +186,7 @@ export default function Drivers() {
 
  {error && (
  <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
- <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
+ 
  <p className="flex-1 font-semibold">{error}</p>
  </div>
  )}
@@ -195,22 +194,22 @@ export default function Drivers() {
  <div className="space-y-2.5 pb-4 border-b border-[var(--color-border-light)]">
  <div className="flex flex-col md:flex-row gap-2.5 justify-between md:items-center">
  <div className="relative w-full md:w-96">
- <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-main)]" />
+ 
  <input
  type="text"
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- placeholder="Buscar por nombre, documento, teléfono, correo o placa..."
- className={`${fieldClass} w-full pl-9`}
+ placeholder="Buscar por nombre, documento, teléfono, correo o placa…"
+ className={`${fieldClass} w-full`}
  />
  </div>
 
  <button
  onClick={() => setShowFilters((v) => !v)}
  aria-expanded={showFilters}
- className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-4 text-xs font-bold text-[var(--color-text-main)]"
+ className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded border border-[var(--color-border)] px-4 text-xs font-bold text-[var(--color-text-main)]"
  >
- <SlidersHorizontal className="h-4 w-4" />
+ 
  Filtros{activeFilters > 0 ? ` (${activeFilters})` : ''}
  </button>
  </div>
@@ -235,7 +234,7 @@ export default function Drivers() {
 
  <div className="flex flex-wrap items-end gap-3">
  <label className="space-y-1">
- <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <span className="block text-xs font-bold text-[var(--color-text-main)]">
  Disponibilidad
  </span>
  <select value={availability} onChange={(e) => setAvailability(e.target.value)} className={fieldClass}>
@@ -246,7 +245,7 @@ export default function Drivers() {
  </select>
  </label>
  <label className="space-y-1">
- <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <span className="block text-xs font-bold text-[var(--color-text-main)]">
  Vehículo
  </span>
  <select value={vehicleType} onChange={(e) => setVehicleType(e.target.value)} className={fieldClass}>
@@ -256,19 +255,19 @@ export default function Drivers() {
  </select>
  </label>
  <label className="space-y-1">
- <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <span className="block text-xs font-bold text-[var(--color-text-main)]">
  Registro desde
  </span>
  <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={fieldClass} />
  </label>
  <label className="space-y-1">
- <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <span className="block text-xs font-bold text-[var(--color-text-main)]">
  Hasta
  </span>
  <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={fieldClass} />
  </label>
  <label className="space-y-1">
- <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <span className="block text-xs font-bold text-[var(--color-text-main)]">
  Ordenar por
  </span>
  <select value={sort} onChange={(e) => setSort(e.target.value)} className={fieldClass}>
@@ -285,8 +284,8 @@ export default function Drivers() {
  </div>
 
  {loading ? (
- <div className="p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
- <RotateCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin mx-auto mb-2" />
+ <div className="state-line">
+ 
  Cargando domiciliarios...
  </div>
  ) : (
@@ -317,7 +316,7 @@ export default function Drivers() {
  <tr key={d._id} className="hover:bg-[var(--color-bg)] transition-colors">
  <td className={cellClass}>
  <div className="flex items-center gap-3">
- <div className="w-10 h-10 shrink-0 overflow-hidden rounded-full border border-[var(--color-border)] flex items-center justify-center text-sm font-bold uppercase text-[var(--color-text-main)]">
+ <div className="w-10 h-10 shrink-0 overflow-hidden rounded border border-[var(--color-border)] flex items-center justify-center text-sm font-bold text-[var(--color-text-main)]">
  {d.userId?.avatar ? (
  <img src={d.userId.avatar} alt="" className="h-full w-full object-cover" />
  ) : (
@@ -329,7 +328,7 @@ export default function Drivers() {
  <EntityLink type="driver" id={d._id}>{d.userId?.name || 'Domiciliario'}</EntityLink>
  </p>
  {debt > 0 && (
- <p className="text-[10px] font-bold text-[var(--color-text-main)]">
+ <p className="text-xs font-bold text-[var(--color-text-main)]">
  Fondo por debajo: {money(debt)}
  </p>
  )}
@@ -348,18 +347,17 @@ export default function Drivers() {
  </p>
  </td>
  <td className={cellClass}>
- <p className={`text-[10px] font-bold uppercase tracking-wide ${accountStateStyles[account].text}`}>
+ <p className={`text-xs font-bold ${accountStateStyles[account].text}`}>
  {accountStateStyles[account].label}
  </p>
  {d.userId?.isBlocked && (
- <p className="text-[10px] font-bold uppercase text-[var(--color-danger)]">Cuenta bloqueada</p>
+ <p className="text-xs font-bold text-[var(--color-danger)]">Cuenta bloqueada</p>
  )}
  </td>
  <td className={cellClass}>
  <span
- className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${availabilityStyle.text}`}
+ className={`inline-flex items-center gap-1.5 text-xs font-bold ${availabilityStyle.text}`}
  >
- <span className={`w-1.5 h-1.5 rounded-full ${availabilityStyle.dot}`} />
  {availabilityStyle.label}
  </span>
  </td>
@@ -377,7 +375,7 @@ export default function Drivers() {
  <td className={`${cellClass} text-right font-semibold`}>{d.totalDeliveries || 0}</td>
  <td className={`${cellClass} whitespace-nowrap`}>
  <span className="inline-flex items-center gap-1 font-medium">
- <Star className="w-3.5 h-3.5 text-[var(--color-text-main)] fill-[var(--color-warning)]" />
+ 
  {d.rating > 0 ? d.rating.toFixed(1) : 'S/V'}
  <span className="text-[var(--color-text-main)]">({d.totalReviews ?? 0})</span>
  </span>
@@ -387,18 +385,18 @@ export default function Drivers() {
  <button
  onClick={() => openFicha('driver', d._id)}
  title="Ver perfil completo"
- className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer"
- >
- <Eye className="w-4 h-4" />
+ className="p-2 rounded border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer"
+ >Ver perfil completo
+ 
  </button>
  {account === 'pending' && (
  <PermissionGate permission={Permission.DRIVERS_APPROVE}>
  <button
  onClick={() => handleApprove(d._id)}
  title="Aprobar"
- className="p-2 rounded-lg text-[var(--color-text-main)] cursor-pointer"
- >
- <CheckCircle className="w-4 h-4" />
+ className="p-2 rounded text-[var(--color-text-main)] cursor-pointer"
+ >Aprobar
+ 
  </button>
  </PermissionGate>
  )}
@@ -407,20 +405,20 @@ export default function Drivers() {
  <button
  onClick={() => setConfirmSuspend(d)}
  title={d.isActive ? 'Suspender' : 'Reactivar'}
- className={`p-2 rounded-lg border cursor-pointer ${
+ className={`p-2 rounded border cursor-pointer ${
  d.isActive
  ? 'border-[var(--color-danger)] text-[var(--color-danger)]'
  : 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  }`}
  >
- {d.isActive ? <Ban className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
+ {d.isActive ? 'Suspender' : 'Reactivar'}
  </button>
  </PermissionGate>
  )}
  {canManageFinance && (
  <button
  onClick={() => handleOpenFundModal(d)}
- className="px-2.5 py-2 rounded-lg border border-[var(--color-border)] text-[11px] font-semibold text-[var(--color-text-main)] cursor-pointer whitespace-nowrap"
+ className="px-2.5 py-2 rounded border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] cursor-pointer whitespace-nowrap"
  >
  Fondo
  </button>
@@ -432,7 +430,7 @@ export default function Drivers() {
  })}
  {drivers.length === 0 && (
  <tr>
- <td colSpan={11} className="px-6 py-14 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <td colSpan={11} className="state-line">
  No hay domiciliarios que coincidan con los filtros.
  </td>
  </tr>
@@ -460,12 +458,12 @@ export default function Drivers() {
  )}
 
  {showFundModal && selectedDriver && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-2.5">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-sm rounded p-6 space-y-2.5">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-3">
- <h3 className="text-base font-bold text-[var(--color-text-main)]">Modificar Fondo Base</h3>
- <button onClick={() => setShowFundModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg">
- <X className="w-5 h-5" />
+ <h3 className="text-base font-bold text-[var(--color-text-main)]">Modificar fondo base</h3>
+ <button onClick={() => setShowFundModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded">Cerrar
+ 
  </button>
  </div>
 
@@ -476,7 +474,7 @@ export default function Drivers() {
  Solo se ajusta la diferencia: lo retenido en pedidos en curso se respeta.
  </p>
  <div>
- <label className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5">Nuevo fondo base ($ COP, sin decimales)</label>
+ <label className="block text-xs font-bold text-[var(--color-text-main)] mb-1.5">Nuevo fondo base ($ COP, sin decimales)</label>
  <input
  type="text"
  inputMode="numeric"
@@ -488,7 +486,7 @@ export default function Drivers() {
  />
  </div>
  <div>
- <label className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5">Motivo</label>
+ <label className="block text-xs font-bold text-[var(--color-text-main)] mb-1.5">Motivo</label>
  <input
  type="text"
  value={fundReason}
@@ -501,7 +499,7 @@ export default function Drivers() {
  {fundError && <p className="text-xs font-semibold text-[var(--color-danger)]">{fundError}</p>}
  <button
  type="submit"
- className="w-full h-10 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-white font-bold text-xs uppercase tracking-wider rounded-lg cursor-pointer"
+ className="w-full h-10 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-white font-bold text-xs rounded cursor-pointer"
  >
  Guardar Nuevo Fondo
  </button>

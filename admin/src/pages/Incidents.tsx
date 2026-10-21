@@ -1,11 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
 import { useNavigate } from 'react-router-dom';
-import {
- AlertTriangle, ShieldAlert, Banknote, MessageSquareWarning, Clock,
- ArrowRight, ShieldCheck, Scale, FileWarning, Megaphone, Undo2,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import SosPanel from '../components/SosPanel';
@@ -88,28 +83,28 @@ interface Summary {
  legalOverdueDataRequests?: number;
 }
 
-const KIND: Record<string, { label: string; icon: LucideIcon }> = {
- sos: { label: 'Emergencia', icon: ShieldAlert },
- fraud: { label: 'Fraude', icon: AlertTriangle },
- cash: { label: 'Efectivo', icon: Banknote },
- complaint: { label: 'Reclamo', icon: MessageSquareWarning },
- stalled_order: { label: 'Pedido detenido', icon: Clock },
- pqrs_legal: { label: 'Plazo legal PQRS', icon: Scale },
- data_request_legal: { label: 'Datos personales', icon: Scale },
- clawback_overdue: { label: 'Saldo en contra', icon: Banknote },
- unassigned_order: { label: 'Pedido sin domiciliario', icon: Clock },
- cash_overdue: { label: 'Efectivo vencido', icon: Banknote },
- business_document_expiring: { label: 'Documento de comercio por vencer', icon: FileWarning },
- driver_document_expiring: { label: 'Documento de domiciliario por vencer', icon: FileWarning },
- ad_uninvoiced: { label: 'Publicidad sin cobrar', icon: Megaphone },
- refund_failed: { label: 'Reembolso fallido', icon: Undo2 },
- payment_review: { label: 'Cobro en revisión', icon: Banknote },
- order_unaccepted: { label: 'Pedido sin aceptar', icon: Clock },
- refund_requested: { label: 'Reembolso pedido por Soporte', icon: Undo2 },
+const KIND: Record<string, { label: string }> = {
+ sos: { label: 'Emergencia' },
+ fraud: { label: 'Fraude' },
+ cash: { label: 'Efectivo' },
+ complaint: { label: 'Reclamo' },
+ stalled_order: { label: 'Pedido detenido' },
+ pqrs_legal: { label: 'Plazo legal PQRS' },
+ data_request_legal: { label: 'Datos personales' },
+ clawback_overdue: { label: 'Saldo en contra' },
+ unassigned_order: { label: 'Pedido sin domiciliario' },
+ cash_overdue: { label: 'Efectivo vencido' },
+ business_document_expiring: { label: 'Documento de comercio por vencer' },
+ driver_document_expiring: { label: 'Documento de domiciliario por vencer' },
+ ad_uninvoiced: { label: 'Publicidad sin cobrar' },
+ refund_failed: { label: 'Reembolso fallido' },
+ payment_review: { label: 'Cobro en revisión' },
+ order_unaccepted: { label: 'Pedido sin aceptar' },
+ refund_requested: { label: 'Reembolso pedido por Soporte' },
 };
 
 /** Un tipo que esta pantalla aún no conoce: se ve, con una etiqueta neutra. */
-const DEFAULT_KIND: { label: string; icon: LucideIcon } = { label: 'Alerta', icon: AlertTriangle };
+const DEFAULT_KIND: { label: string } = { label: 'Alerta' };
 const kindOf = (kind: string) => KIND[kind] ?? DEFAULT_KIND;
 
 const SEVERITY: Record<Severity, { label: string; bar: string; chip: string }> = {
@@ -142,10 +137,10 @@ function waitingFor(iso: string): string {
 function Kpi({ label, value, tone }: { label: string; value: number; tone?: string }) {
  return (
  <div>
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <p className="text-xs font-bold text-[var(--color-text-main)]">
  {label}
  </p>
- <p className={`text-2xl font-bold ${tone ?? 'text-[var(--color-text-main)]'}`}>{value}</p>
+ <p className={`text-lg font-bold ${tone ?? 'text-[var(--color-text-main)]'}`}>{value}</p>
  </div>
  );
 }
@@ -233,7 +228,7 @@ export default function Incidents() {
  const shown = filter === 'all' ? incidents : incidents.filter((i) => i.kind === filter);
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="page-header">
  <div>
  <h1 className="page-title">Centro de incidentes</h1>
@@ -246,9 +241,9 @@ export default function Incidents() {
  {justArrived ? (
  <button
  onClick={() => { setOpenAlertId(justArrived.id); setJustArrived(null); }}
- className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-[var(--color-danger)] bg-[var(--color-danger)] px-4 py-3 text-left text-white shadow-lg animate-fade-in"
+ className="flex w-full cursor-pointer items-center gap-3 rounded border border-[var(--color-danger)] bg-[var(--danger-fill)] px-4 py-3 text-left text-white"
  >
- <ShieldAlert className="h-5 w-5 shrink-0 animate-pulse" />
+ 
  <span className="flex-1 text-sm font-bold">
  {justArrived.detail}: un domiciliario acaba de activar el botón de pánico
  </span>
@@ -258,7 +253,7 @@ export default function Incidents() {
 
  {loadError ? (
  <p className="flex items-center gap-2 text-sm font-bold text-[var(--color-danger)]">
- <AlertTriangle className="h-4 w-4 shrink-0" /> {loadError} Lo que ves puede estar desactualizado.
+  {loadError} Lo que ves puede estar desactualizado.
  </p>
  ) : null}
 
@@ -297,7 +292,7 @@ export default function Incidents() {
  <p className="text-sm text-[var(--color-text-main)]">Cargando…</p>
  ) : shown.length === 0 ? (
  <div className="flex flex-col items-center gap-2 border-y border-[var(--color-border-light)] py-10">
- <ShieldCheck className="h-8 w-8 text-[var(--color-success)]" />
+ 
  <p className="font-semibold text-[var(--color-text-main)]">No hay nada abierto</p>
  <p className="text-sm text-[var(--color-text-main)]">
  Ni emergencias, ni faltantes, ni pedidos detenidos.
@@ -308,7 +303,6 @@ export default function Incidents() {
  {shown.map((incident) => {
  const kind = kindOf(incident.kind);
  const severity = SEVERITY[incident.severity];
- const Icon = kind.icon;
 
  return (
  <li
@@ -320,13 +314,12 @@ export default function Incidents() {
  <div className={`w-1 shrink-0 ${severity.bar}`} />
 
  <div className="flex flex-1 flex-wrap items-center gap-3 p-4">
- <Icon className="h-5 w-5 shrink-0 text-[var(--color-text-main)]" />
-
+ 
  <div className="min-w-0 flex-1">
  <div className="flex flex-wrap items-center gap-2">
  <p className="font-bold text-[var(--color-text-main)]">{incident.title}</p>
  <span
- className={`text-[10px] font-bold uppercase tracking-wider ${severity.chip}`}
+ className={`text-xs font-bold ${severity.chip}`}
  >
  {severity.label}
  </span>
@@ -334,7 +327,7 @@ export default function Incidents() {
  <p className="break-words text-sm text-[var(--color-text-main)]">
  {incident.detail}
  </p>
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  {kind.label} · {waitingFor(incident.at)}
  </p>
  {/* Un incidente sin a dónde ir es una notificación. Las
@@ -352,64 +345,64 @@ export default function Incidents() {
  <div className="flex shrink-0 gap-2">
  <button
  onClick={() => navigate('/fleet')}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Ver en el mapa
  </button>
  <button
  onClick={() => setOpenAlertId(incident.id)}
- className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--color-danger)] px-3 py-1.5 text-xs font-bold text-white"
+ className="flex cursor-pointer items-center gap-1 rounded bg-[var(--danger-fill)] px-3 py-1.5 text-xs font-bold text-white"
  >
- Atender <ArrowRight className="h-3.5 w-3.5" />
+ Atender 
  </button>
  </div>
  ) : null}
  {incident.kind === 'payment_review' ? (
  <button
  onClick={() => resolvePaymentReview(incident.id)}
- className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- Marcar resuelto <ArrowRight className="h-3.5 w-3.5" />
+ Marcar resuelto 
  </button>
  ) : null}
  {incident.kind === 'refund_requested' ? (
  <div className="flex shrink-0 gap-2">
  <button
  onClick={() => resolveRefundRequest(incident.id, 'rejected')}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Rechazar
  </button>
  <button
  onClick={() => resolveRefundRequest(incident.id, 'done')}
- className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- Ya reembolsado <ArrowRight className="h-3.5 w-3.5" />
+ Ya reembolsado 
  </button>
  </div>
  ) : null}
  {incident.kind === 'clawback_overdue' ? (
  <button
  onClick={() => navigate('/financials')}
- className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- Abrir finanzas <ArrowRight className="h-3.5 w-3.5" />
+ Abrir finanzas 
  </button>
  ) : null}
  {incident.kind === 'data_request_legal' ? (
  <button
  onClick={() => navigate('/legal')}
- className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- Abrir datos personales <ArrowRight className="h-3.5 w-3.5" />
+ Abrir datos personales 
  </button>
  ) : null}
  {incident.kind === 'complaint' || incident.kind === 'pqrs_legal' ? (
  <button
  onClick={() => navigate('/support')}
- className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- Abrir en soporte <ArrowRight className="h-3.5 w-3.5" />
+ Abrir en soporte 
  </button>
  ) : null}
  </div>

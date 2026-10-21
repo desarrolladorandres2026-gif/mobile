@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
 import EntityLink from '../components/EntityLink';
@@ -69,7 +68,7 @@ export default function Commissions() {
  const settled = totals.settled ?? EMPTY;
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Comisiones</h1>
@@ -79,7 +78,7 @@ export default function Commissions() {
  value={status}
  onChange={(e) => { setStatus(e.target.value as typeof status); setPage(1); }}
  aria-label="Estado"
- className="h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs font-semibold text-[var(--color-text-main)]"
+ className="h-9 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs font-semibold text-[var(--color-text-main)]"
  >
  <option value="">Todas</option>
  <option value="pending">Por liquidar</option>
@@ -98,14 +97,14 @@ export default function Commissions() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+  {error}
  </p>
  )}
 
  {loading ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : items.length === 0 ? (
- <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay comisiones con este filtro.</p>
+ <p className="state-line">No hay comisiones con este filtro.</p>
  ) : (
  <>
  <div className="table-container">

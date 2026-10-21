@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { ShieldAlert, Phone, MapPin, User, Clock, X, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { PermissionGate } from './PermissionGate';
@@ -35,12 +34,11 @@ interface SosAlertDetail {
  acknowledgedAt?: string | null;
 }
 
-function InfoRow({ icon: Icon, label, value }: { icon: typeof Phone; label: string; value: string }) {
+function InfoRow({ label, value }: { label: string; value: string }) {
  return (
  <div className="flex items-start gap-3">
- <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-text-main)]" />
  <div className="min-w-0">
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{label}</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">{label}</p>
  <p className="break-words text-sm font-semibold text-[var(--color-text-main)]">{value}</p>
  </div>
  </div>
@@ -124,16 +122,16 @@ export default function SosPanel({
  type="button"
  aria-label="Cerrar"
  onClick={onClose}
- className="absolute inset-0 bg-black/50 backdrop-blur-[2px] cursor-default"
+ className="absolute inset-0 bg-black/60 cursor-default"
  />
 
  <div
  role="dialog"
  aria-label="Emergencia"
- className="relative w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl animate-fade-in"
+ className="relative w-full max-w-md rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
  >
  <div className="flex items-start gap-3 border-b border-[var(--color-border-light)] p-5">
- <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-danger)]" />
+ 
  <div className="min-w-0 flex-1">
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Botón de pánico</h3>
  <p className="text-xs text-[var(--color-text-main)]">
@@ -143,9 +141,9 @@ export default function SosPanel({
  <button
  onClick={onClose}
  aria-label="Cerrar"
- className="cursor-pointer rounded-lg p-1 text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-main)]"
- >
- <X className="h-4 w-4" />
+ className="cursor-pointer rounded p-1 text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-main)]"
+ >Cerrar
+ 
  </button>
  </div>
 
@@ -159,16 +157,15 @@ export default function SosPanel({
  ) : (
  <div className="space-y-4">
  <InfoRow
- icon={User}
  label="Domiciliario"
  value={`${driverName}${alert.driverId?.licensePlate ? ` · ${alert.driverId.licensePlate}` : ''}`}
  />
  {driverPhone ? (
  <div className="flex items-center justify-between gap-3">
- <InfoRow icon={Phone} label="Teléfono" value={driverPhone} />
+ <InfoRow label="Teléfono" value={driverPhone} />
  <a
  href={`tel:${driverPhone}`}
- className="shrink-0 rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
+ className="shrink-0 rounded bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
  >
  Llamar
  </a>
@@ -178,13 +175,12 @@ export default function SosPanel({
  {alert.emergencyContact?.phone ? (
  <div className="flex items-center justify-between gap-3 border-t border-[var(--color-border-light)] pt-4">
  <InfoRow
- icon={Phone}
  label={`Contacto de emergencia${alert.emergencyContact.relationship ? ` · ${alert.emergencyContact.relationship}` : ''}`}
  value={`${alert.emergencyContact.name} · ${alert.emergencyContact.phone}`}
  />
  <a
  href={`tel:${alert.emergencyContact.phone}`}
- className="shrink-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="shrink-0 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Llamar
  </a>
@@ -193,12 +189,12 @@ export default function SosPanel({
 
  {lat != null && lng != null ? (
  <div className="flex items-center justify-between gap-3">
- <InfoRow icon={MapPin} label="Última ubicación" value={`${lat.toFixed(5)}, ${lng.toFixed(5)}`} />
+ <InfoRow label="Última ubicación" value={`${lat.toFixed(5)}, ${lng.toFixed(5)}`} />
  <a
  href={`https://www.google.com/maps?q=${lat},${lng}`}
  target="_blank"
  rel="noreferrer"
- className="shrink-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="shrink-0 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Ver mapa
  </a>
@@ -206,14 +202,13 @@ export default function SosPanel({
  ) : null}
 
  <InfoRow
- icon={Clock}
  label="Declarada"
  value={new Date(alert.createdAt).toLocaleString('es-CO')}
  />
 
  {alert.note ? (
  <div className="border-t border-[var(--color-border-light)] pt-4">
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Nota</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">Nota</p>
  <p className="text-sm text-[var(--color-text-main)]">{alert.note}</p>
  </div>
  ) : null}
@@ -223,7 +218,7 @@ export default function SosPanel({
  {resolving ? (
  <div className="space-y-2 border-t border-[var(--color-border-light)] pt-4">
  <label className="block space-y-1">
- <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <span className="text-xs font-bold text-[var(--color-text-main)]">
  Qué pasó
  </span>
  <textarea
@@ -232,7 +227,7 @@ export default function SosPanel({
  maxLength={500}
  rows={3}
  placeholder="Se comunicó con el domiciliario, estaba bien, se le pinchó una llanta"
- className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-main)]"
+ className="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-main)]"
  />
  </label>
  <label className="flex items-center gap-2 text-xs text-[var(--color-text-main)]">
@@ -246,14 +241,14 @@ export default function SosPanel({
  <div className="flex justify-end gap-2 pt-1">
  <button
  onClick={() => setResolving(false)}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] bg-[var(--color-bg-alt)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Cancelar
  </button>
  <button
  onClick={resolve}
  disabled={busy}
- className="cursor-pointer rounded-lg bg-[var(--color-success)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+ className="cursor-pointer rounded bg-[var(--color-success)] px-3 py-1.5 text-xs font-bold text-[var(--zp-bg)]"
  >
  {busy ? 'Cerrando…' : 'Cerrar emergencia'}
  </button>
@@ -269,18 +264,18 @@ export default function SosPanel({
  <button
  onClick={acknowledge}
  disabled={busy}
- className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+ className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded bg-[var(--color-primary)] px-3 py-2 text-xs font-bold text-white"
  >
  {busy ? 'Marcando…' : 'La estoy atendiendo'}
  </button>
  ) : (
  <span className="flex flex-1 items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-[var(--color-text-main)]">
- <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)]" /> Ya la estás atendiendo
+  Ya la estás atendiendo
  </span>
  )}
  <button
  onClick={() => setResolving(true)}
- className="flex-1 cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs font-semibold text-[var(--color-text-main)]"
+ className="flex-1 cursor-pointer rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Cerrar emergencia
  </button>

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 
@@ -56,7 +55,7 @@ interface Preview {
 
 const cop = (n: number) => `$${(n || 0).toLocaleString('es-CO')}`;
 
-const th = 'px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-surface)] bg-[var(--color-primary-dark)] whitespace-nowrap';
+const th = 'px-3 py-2 text-left text-xs font-bold text-[var(--color-surface)] bg-[var(--color-primary-dark)] whitespace-nowrap';
 const td = 'px-3 py-2 text-xs tabular-nums text-[var(--color-text-main)] whitespace-nowrap align-top border-b border-[var(--color-border)]';
 
 export default function CouponSimulation({
@@ -142,7 +141,7 @@ export default function CouponSimulation({
             ))}
           </select>
         </div>
-        {loading && <span className="text-[11px] font-semibold text-[var(--color-text-main)]">Calculando…</span>}
+        {loading && <span className="text-xs font-semibold text-[var(--color-text-main)]">Calculando…</span>}
       </div>
 
       {!ready && (
@@ -154,7 +153,7 @@ export default function CouponSimulation({
 
       {error && (
         <p className="flex items-start gap-2 text-xs font-semibold text-[var(--color-danger)]">
-          <AlertCircle className="w-4 h-4 shrink-0" />
+          
           {error}
         </p>
       )}
@@ -169,7 +168,7 @@ export default function CouponSimulation({
 
       {shown?.valid && (
         <>
-          <div className="overflow-x-auto rounded-lg border border-[var(--color-border)]">
+          <div className="overflow-x-auto rounded border border-[var(--color-border)]">
             <table className="min-w-full border-collapse">
               <thead>
                 <tr>
@@ -205,7 +204,7 @@ export default function CouponSimulation({
           {shown.scenarios.flatMap((s) =>
             s.warnings.map((w) => (
               <p key={`${s.productSubtotal}-${w.code}`} className="flex items-start gap-2 text-xs font-semibold text-[var(--color-warning)]">
-                <AlertCircle className="w-4 h-4 shrink-0" />
+                
                 <span>{cop(s.productSubtotal)}: {w.message}</span>
               </p>
             ))
@@ -213,7 +212,7 @@ export default function CouponSimulation({
 
           <ul className="space-y-0.5">
             {shown.assumptions.map((a) => (
-              <li key={a} className="text-[11px] font-medium text-[var(--color-text-main)]">{a}</li>
+              <li key={a} className="text-xs font-medium text-[var(--color-text-main)]">{a}</li>
             ))}
           </ul>
         </>

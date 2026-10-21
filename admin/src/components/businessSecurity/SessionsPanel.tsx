@@ -129,18 +129,18 @@ export default function SessionsPanel({ businessId, members, filters, onFiltersC
                 <tr key={s.id}>
                   <td className="table-body-cell max-w-[14rem]"><UserCell user={s.user} /></td>
                   <td className="table-body-cell max-w-[16rem]"><DeviceCell device={s.device} /></td>
-                  <td className="table-body-cell tabular text-[11px]">
+                  <td className="table-body-cell tabular text-xs">
                     {s.ip}
                     {s.lastIp !== s.ip && <p className="text-[var(--color-text-main)]" title="La sesión cambió de red">ahora {s.lastIp}</p>}
                   </td>
-                  <td className="table-body-cell text-[11px]">{dateTime(s.createdAt)}</td>
-                  <td className="table-body-cell text-[11px]">{dateTime(s.lastActivity)}</td>
-                  <td className="table-body-cell text-[11px]">{s.status === 'revoked' ? '—' : dateTime(s.expiresAt)}</td>
+                  <td className="table-body-cell text-xs">{dateTime(s.createdAt)}</td>
+                  <td className="table-body-cell text-xs">{dateTime(s.lastActivity)}</td>
+                  <td className="table-body-cell text-xs">{s.status === 'revoked' ? '—' : dateTime(s.expiresAt)}</td>
                   <td className="table-body-cell">
                     <p className={`text-xs font-bold ${STATUS_STYLES[s.status].text}`}>{STATUS_STYLES[s.status].label}</p>
                     {s.mfa && <MfaMark />}
                     {s.status === 'revoked' && s.revokedReason && (
-                      <p className="text-[11px] text-[var(--color-text-secondary)]">
+                      <p className="text-xs text-[var(--color-text-secondary)]">
                         {s.revokedBy ? `${s.revokedBy.name}` : REASON_LABELS[s.revokedReason] ?? s.revokedReason}
                       </p>
                     )}

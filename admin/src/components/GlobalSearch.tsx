@@ -1,8 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, ShoppingBag, User, Store, Truck, Ticket, RefreshCw } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage, apiStatus } from '../lib/apiError';
 import { useFicha } from '../lib/entityLinks';
@@ -37,7 +35,6 @@ interface Hit {
 interface Group {
  kind: HitKind;
  label: string;
- Icon: LucideIcon;
  hits: Hit[];
  /** Posición del primer resultado del grupo en la lista plana (para el teclado). */
  offset: number;
@@ -71,7 +68,6 @@ function buildGroups(results: AdminSearchResults): Group[] {
  groups.push({
  kind: 'order',
  label: 'Pedidos',
- Icon: ShoppingBag,
  offset: 0,
  hits: results.orders.map((o) => ({
  kind: 'order',
@@ -89,7 +85,6 @@ function buildGroups(results: AdminSearchResults): Group[] {
  groups.push({
  kind: 'user',
  label: 'Clientes y usuarios',
- Icon: User,
  offset: 0,
  hits: results.users.map((u) => ({
  kind: 'user',
@@ -103,7 +98,6 @@ function buildGroups(results: AdminSearchResults): Group[] {
  groups.push({
  kind: 'business',
  label: 'Comercios',
- Icon: Store,
  offset: 0,
  hits: results.businesses.map((b) => ({
  kind: 'business',
@@ -122,7 +116,6 @@ function buildGroups(results: AdminSearchResults): Group[] {
  groups.push({
  kind: 'driver',
  label: 'Domiciliarios',
- Icon: Truck,
  offset: 0,
  hits: results.drivers.map((d) => ({
  kind: 'driver',
@@ -136,7 +129,6 @@ function buildGroups(results: AdminSearchResults): Group[] {
  groups.push({
  kind: 'coupon',
  label: 'Cupones',
- Icon: Ticket,
  offset: 0,
  hits: results.coupons.map((c) => ({
  kind: 'coupon',
@@ -284,7 +276,7 @@ export default function GlobalSearch() {
 
  return (
  <div ref={rootRef} className="relative w-full max-w-2xl">
- <Search className="pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-[var(--color-text-secondary)]" />
+ 
  <input
  ref={inputRef}
  type="text"
@@ -301,12 +293,10 @@ export default function GlobalSearch() {
  onFocus={() => setIsOpen(true)}
  onKeyDown={onKeyDown}
  placeholder="¿Qué quieres encontrar?"
- className="h-12 w-full rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pl-12 pr-14 text-sm font-medium text-[var(--color-text-main)] placeholder:text-[var(--color-text-secondary)] transition-all focus:border-[#D69E26] focus:ring-2 focus:ring-[#D69E26]/20 focus:outline-none"
+ className="h-12 w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] py-2 pl-12 pr-14 text-sm font-medium text-[var(--color-text-main)] placeholder:text-[var(--color-text-secondary)] transition-all focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 focus:outline-none"
  />
- {loading ? (
- <RefreshCw className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-[var(--color-text-main)]" />
- ) : (
- <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 text-[10px] font-semibold text-[var(--color-text-main)] sm:block">
+ {loading ? null : (
+ <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 text-xs font-semibold text-[var(--color-text-main)] sm:block">
  Ctrl K
  </kbd>
  )}
@@ -315,7 +305,7 @@ export default function GlobalSearch() {
  <div
  id="global-search-results"
  role="listbox"
- className="zipp-modal absolute left-0 top-full z-50 mt-2 max-h-[70vh] w-full min-w-[20rem] overflow-y-auto rounded-xl shadow-xl animate-fade-in"
+ className="zipp-modal absolute left-0 top-full z-50 mt-2 max-h-[70vh] w-full min-w-[20rem] overflow-y-auto rounded"
  >
  {error ? (
  <p role="alert" className="px-4 py-3 text-xs font-semibold text-[var(--color-danger)]">
@@ -336,10 +326,10 @@ export default function GlobalSearch() {
  {groups.map((group, gi) => (
  <div
  key={group.kind}
- className={`${gi > 0 ? 'border-t border-[var(--color-border-light)]' : ''} ${stale ? 'opacity-60' : ''}`}
+ className={`${gi > 0 ? 'border-t border-[var(--color-border-light)]' : ''} ${stale ? 'text-[var(--color-text-secondary)]' : ''}`}
  >
- <p className="flex items-center gap-1.5 px-4 pb-1 pt-3 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
- <group.Icon className="h-3 w-3 text-[var(--color-text-main)]" /> {group.label}
+ <p className="flex items-center gap-1.5 px-4 pb-1 pt-3 text-xs font-bold text-[var(--color-text-main)]">
+ {group.label}
  </p>
  {group.hits.map((hit, hi) => {
  const index = group.offset + hi;
@@ -360,7 +350,7 @@ export default function GlobalSearch() {
  {hit.title}
  </span>
  {hit.detail ? (
- <span className="text-[11px] text-[var(--color-text-main)]">{hit.detail}</span>
+ <span className="text-xs text-[var(--color-text-main)]">{hit.detail}</span>
  ) : null}
  </button>
  );

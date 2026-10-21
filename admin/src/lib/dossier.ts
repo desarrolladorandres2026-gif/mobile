@@ -89,7 +89,7 @@ export const indicatorStyles: Record<DocumentIndicator, { label: string; dot: st
     dot: 'border border-[var(--color-text-secondary)] bg-transparent',
     text: 'text-[var(--color-text-secondary)]',
   },
-  in_review: { label: 'En revisión', dot: 'bg-[#2563EB]', text: 'text-[var(--color-text-main)]' },
+  in_review: { label: 'En revisión', dot: 'bg-[var(--accent-fill)]', text: 'text-[var(--color-text-main)]' },
   rejected: { label: 'Rechazado', dot: 'bg-[var(--color-text-main)]', text: 'text-[var(--color-text-main)]' },
 };
 

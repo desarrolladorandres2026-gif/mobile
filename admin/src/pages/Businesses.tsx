@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { Store, Star, X, AlertCircle, Archive, ArchiveRestore, Plus, Search, Power } from 'lucide-react';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
@@ -7,7 +6,6 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import Pagination from '../components/Pagination';
 import { apiMessage } from '../lib/apiError';
 import type { AdminUser } from '../lib/apiTypes';
-import { categoryLogo } from '../components/logos';
 import EntityLink from '../components/EntityLink';
 import { useFicha } from '../lib/entityLinks';
 
@@ -205,9 +203,9 @@ export default function Businesses() {
  }
  };
 
- const inputClass = 'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
- const labelClass = 'block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5';
- const headClass = 'px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[var(--color-surface)] whitespace-nowrap';
+ const inputClass = 'w-full h-10 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
+ const labelClass = 'block text-xs font-bold text-[var(--color-text-main)] mb-1.5';
+ const headClass = 'px-3 py-3 text-left text-xs font-bold text-[var(--color-surface)] whitespace-nowrap';
  const cellClass = 'px-3 py-3.5 text-xs align-middle border-t border-[var(--color-border-light)] text-[var(--color-text-main)]';
 
  const dialog = pending
@@ -245,7 +243,7 @@ export default function Businesses() {
  : null;
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="page-header">
  <div>
  <h1 className="page-title">Comercios aliados</h1>
@@ -255,23 +253,23 @@ export default function Businesses() {
  </div>
  <button
  onClick={() => setShowModal(true)}
- className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
+ className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-xs font-bold text-white rounded transition-all cursor-pointer flex items-center justify-center gap-2"
  >
- <Plus className="w-4 h-4" />
- <span>Nuevo Establecimiento</span>
+ 
+ <span>Nuevo establecimiento</span>
  </button>
  </div>
 
  <div className="space-y-2.5 pb-4 border-b border-[var(--color-border-light)]">
  <div className="flex flex-col md:flex-row gap-2.5 justify-between md:items-center">
  <div className="relative w-full md:w-80">
- <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-main)]" />
+ 
  <input
  type="text"
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- placeholder="Buscar por nombre o ciudad..."
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
+ placeholder="Buscar por nombre o ciudad…"
+ className="field"
  />
  </div>
  <div className="flex gap-1.5">
@@ -312,12 +310,12 @@ export default function Businesses() {
 
  {error && (
  <p className="flex items-start gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
+  {error}
  </p>
  )}
 
  {loading ? (
- <p className="py-16 text-center text-xs font-semibold text-[var(--color-text-main)]">
+ <p className="state-line">
  Cargando comercios...
  </p>
  ) : (
@@ -337,7 +335,6 @@ export default function Businesses() {
  </thead>
  <tbody>
  {businesses.map((b) => {
- const CategoryArt = categoryLogo(b.category);
  const owner = ownerOf(b);
  return (
  <tr
@@ -347,7 +344,6 @@ export default function Businesses() {
  >
  <td className={cellClass}>
  <div className="flex items-center gap-3">
- <CategoryArt size={30} />
  <div className="min-w-0">
  <p className="font-bold truncate max-w-[220px]">
  <EntityLink type="business" id={b._id}>{b.name}</EntityLink>
@@ -367,7 +363,7 @@ export default function Businesses() {
  <td className={cellClass}>
  {b.isArchived ? (
  <>
- <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-main)]">Archivado</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">Archivado</p>
  {b.archiveReason && (
  <p className="text-[var(--color-text-main)] max-w-[200px] truncate" title={b.archiveReason}>
  {b.archiveReason}
@@ -375,10 +371,10 @@ export default function Businesses() {
  )}
  </>
  ) : !b.isApproved ? (
- <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-main)]">Sin aprobar</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">Sin aprobar</p>
  ) : b.isSuspended ? (
  <>
- <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-danger)]">Suspendido por ZIPP</p>
+ <p className="text-xs font-bold text-[var(--color-danger)]">Suspendido por ZIPP</p>
  {b.suspensionReason && (
  <p className="text-[var(--color-text-main)] max-w-[200px] truncate" title={b.suspensionReason}>
  {b.suspensionReason}
@@ -386,17 +382,17 @@ export default function Businesses() {
  )}
  </>
  ) : (
- <p className={`text-[10px] font-bold uppercase tracking-wide ${b.isActive ? 'text-[#047857]' : 'text-[var(--color-text-main)]'}`}>
+ <p className={`text-xs font-bold ${b.isActive ? 'text-[var(--color-success)]' : 'text-[var(--color-text-main)]'}`}>
  {b.isActive ? 'Abierto' : 'Cerrado por el dueño'}
  </p>
  )}
  {b.isFeatured && !b.isArchived && (
- <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--color-text-main)]">Destacado</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">Destacado</p>
  )}
  </td>
  <td className={`${cellClass} whitespace-nowrap`}>
  <span className="inline-flex items-center gap-1 font-medium">
- <Star className="w-3.5 h-3.5 text-[var(--color-text-main)] fill-[var(--color-warning)]" />
+ 
  {b.rating ? b.rating.toFixed(1) : 'S/V'}
  <span className="text-[var(--color-text-main)]">({b.totalReviews ?? 0})</span>
  </span>
@@ -412,9 +408,9 @@ export default function Businesses() {
  <PermissionGate permission={Permission.BUSINESSES_UPDATE_ALL}>
  <button
  onClick={() => setPending({ kind: 'restore', business: b })}
- className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-[var(--color-border)] text-[11px] font-semibold cursor-pointer"
+ className="flex items-center gap-1.5 px-2.5 py-2 rounded border border-[var(--color-border)] text-xs font-semibold cursor-pointer"
  >
- <ArchiveRestore className="w-4 h-4" /> Restaurar
+  Restaurar
  </button>
  </PermissionGate>
  ) : (
@@ -423,25 +419,25 @@ export default function Businesses() {
  <button
  onClick={() => handleToggleFeatured(b)}
  title={b.isFeatured ? 'Quitar de destacados' : 'Destacar'}
- className={`p-2 rounded-lg border border-[var(--color-border)] cursor-pointer ${b.isFeatured ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}
- >
- <Star className={`w-4 h-4 ${b.isFeatured ? 'fill-[var(--color-warning)]' : ''}`} />
+ className={`p-2 rounded border border-[var(--color-border)] cursor-pointer ${b.isFeatured ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}
+ >{b.isFeatured ? 'Quitar de destacados' : 'Destacar'}
+ 
  </button>
  </PermissionGate>
  <button
  onClick={() => setPending({ kind: b.isSuspended ? 'lift' : 'suspend', business: b })}
  title={b.isSuspended ? 'Levantar suspensión' : 'Suspender'}
- className={`p-2 rounded-lg border cursor-pointer ${b.isSuspended ? 'border-[var(--color-primary)] text-[var(--color-text-main)]' : 'border-[var(--color-border)] text-[var(--color-danger)]'}`}
- >
- <Power className="w-4 h-4" />
+ className={`p-2 rounded border cursor-pointer ${b.isSuspended ? 'border-[var(--color-primary)] text-[var(--color-text-main)]' : 'border-[var(--color-border)] text-[var(--color-danger)]'}`}
+ >{b.isSuspended ? 'Levantar suspensión' : 'Suspender'}
+ 
  </button>
  <PermissionGate permission={Permission.BUSINESSES_UPDATE_ALL}>
  <button
  onClick={() => setPending({ kind: 'archive', business: b })}
  title="Archivar"
- className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-danger)] cursor-pointer"
- >
- <Archive className="w-4 h-4" />
+ className="p-2 rounded border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-danger)] cursor-pointer"
+ >Archivar
+ 
  </button>
  </PermissionGate>
  </>
@@ -453,7 +449,7 @@ export default function Businesses() {
  })}
  {businesses.length === 0 && (
  <tr>
- <td colSpan={7} className="px-6 py-14 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <td colSpan={7} className="state-line">
  {archived ? 'No hay comercios archivados.' : 'No hay comercios que coincidan con la búsqueda.'}
  </td>
  </tr>
@@ -478,28 +474,28 @@ export default function Businesses() {
  )}
 
  {showModal && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-xl rounded p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <Store className="w-5 h-5 text-[var(--color-text-main)]" />
- <h3 className="text-base font-bold text-[var(--color-text-main)]">Nuevo Comercio Aliado</h3>
+ 
+ <h3 className="text-base font-bold text-[var(--color-text-main)]">Nuevo comercio aliado</h3>
  </div>
- <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg">
- <X className="w-5 h-5" />
+ <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded">Cerrar
+ 
  </button>
  </div>
 
  <form onSubmit={handleCreateBusiness} className="space-y-2.5">
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
  <div>
- <label className={labelClass}>Nombre del Establecimiento</label>
+ <label className={labelClass}>Nombre del establecimiento</label>
  <input type="text" required value={form.name}
  onChange={(e) => setForm({ ...form, name: e.target.value })}
  className={inputClass} placeholder="Ej. Pollo Frito" />
  </div>
  <div>
- <label className={labelClass}>Usuario Propietario</label>
+ <label className={labelClass}>Usuario propietario</label>
  <select value={form.ownerId}
  onChange={(e) => setForm({ ...form, ownerId: e.target.value })}
  className={inputClass + ' cursor-pointer'}>
@@ -516,13 +512,13 @@ export default function Businesses() {
  <label className={labelClass}>Descripción del Menú / Especialidad</label>
  <textarea value={form.description}
  onChange={(e) => setForm({ ...form, description: e.target.value })}
- className="w-full p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-xs text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none min-h-[60px] placeholder:text-[var(--color-text-main)]"
+ className="w-full p-3 rounded bg-[var(--color-bg)] border border-[var(--color-border)] text-xs text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none min-h-[60px] placeholder:text-[var(--color-text-main)]"
  placeholder="Descripción atractiva para los usuarios" />
  </div>
 
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
  <div>
- <label className={labelClass}>Categoría Principal</label>
+ <label className={labelClass}>Categoría principal</label>
  <select value={form.category}
  onChange={(e) => setForm({ ...form, category: e.target.value })}
  className={inputClass + ' cursor-pointer'}>
@@ -534,7 +530,7 @@ export default function Businesses() {
  </select>
  </div>
  <div>
- <label className={labelClass}>Teléfono de Contacto</label>
+ <label className={labelClass}>Teléfono de contacto</label>
  <input type="tel" required value={form.phone}
  onChange={(e) => setForm({ ...form, phone: e.target.value })}
  className={inputClass} placeholder="3151234567" />
@@ -542,7 +538,7 @@ export default function Businesses() {
  </div>
 
  <div>
- <label className={labelClass}>Dirección Exacta</label>
+ <label className={labelClass}>Dirección exacta</label>
  <input type="text" required value={form.address}
  onChange={(e) => setForm({ ...form, address: e.target.value })}
  className={inputClass} placeholder="Calle 7 # 10-45" />
@@ -565,7 +561,7 @@ export default function Businesses() {
 
  <button
  type="submit"
- className="w-full h-11 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-white font-bold text-xs uppercase tracking-wider rounded-lg shadow-sm cursor-pointer mt-2"
+ className="w-full h-11 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-white font-bold text-xs rounded cursor-pointer mt-2"
  >
  Crear comercio (queda pendiente de aprobación)
  </button>

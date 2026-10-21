@@ -1,10 +1,4 @@
 ﻿import { useEffect, useState } from 'react';
-import {
- X, ShoppingBag, CreditCard, Star, MessageSquareWarning, ShieldAlert,
- Smartphone, ScrollText, AlertTriangle, MapPin, Wallet, Crown, FileCheck,
- FileText, RotateCcw, Ticket, UserCog, StickyNote, Eye, EyeOff,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { Permission } from '../lib/permissions';
@@ -67,20 +61,18 @@ const money = (value: number) => `$${(value || 0).toLocaleString('es-CO')}`;
 const day = (iso?: string) => (iso ? new Date(iso).toLocaleDateString('es-CO') : '—');
 
 function Section({
- icon: Icon,
  title,
  empty,
  children,
 }: {
- icon: LucideIcon;
  title: string;
  empty: boolean;
  children: React.ReactNode;
 }) {
  return (
  <div className="space-y-2 border-t border-[var(--color-border-light)] py-4">
- <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
- <Icon className="h-3 w-3 text-[var(--color-text-main)]" /> {title}
+ <span className="flex items-center gap-1 text-xs font-bold text-[var(--color-text-main)]">
+ {title}
  </span>
  {empty ? <p className="text-[var(--color-text-main)]">Nada por aquí.</p> : children}
  </div>
@@ -135,7 +127,7 @@ export default function UserProfile360({
  const currentView = data?.view ?? 'masked';
 
  return (
- <div className="fixed inset-0 z-50 flex justify-end bg-black/40">
+ <div className="fixed inset-0 z-50 flex justify-end bg-black/60">
  <div className="h-full w-full max-w-xl overflow-y-auto bg-[var(--color-surface)] p-6">
  <div className="mb-4 flex items-start justify-between gap-4">
  <div className="min-w-0">
@@ -147,8 +139,8 @@ export default function UserProfile360({
  {day(data?.user.createdAt)}
  </p>
  {data && (
- <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[11px]">
- <span className="font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <p className="mt-1 flex flex-wrap items-center gap-x-3 text-xs">
+ <span className="font-bold text-[var(--color-text-main)]">
  {currentView === 'full' ? 'Vista: datos completos' : 'Vista: enmascarada'}
  </span>
  {canSeeSensitive && (
@@ -161,9 +153,9 @@ export default function UserProfile360({
  className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]"
  >
  {currentView === 'full' ? (
- <><EyeOff className="h-3 w-3" /> Volver a la vista enmascarada</>
+ <> Volver a la vista enmascarada</>
  ) : (
- <><Eye className="h-3 w-3" /> Ver datos completos</>
+ <> Ver datos completos</>
  )}
  </button>
  )}
@@ -171,22 +163,20 @@ export default function UserProfile360({
  </p>
  )}
  {viewError && (
- <p className="mt-1 flex items-start gap-1.5 text-[11px] font-semibold text-[var(--color-danger)]">
- <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {viewError}
+ <p className="mt-1 flex items-start gap-1.5 text-xs font-semibold text-[var(--color-danger)]">
+  {viewError}
  </p>
  )}
  </div>
  <button
  onClick={onClose}
- className="shrink-0 cursor-pointer rounded-lg border border-[var(--color-border)] p-1.5 text-[var(--color-text-main)]"
- >
- <X className="h-4 w-4" />
- </button>
+ className="shrink-0 cursor-pointer rounded border border-[var(--color-border)] p-1.5 text-[var(--color-text-main)]"
+ >Cerrar</button>
  </div>
 
  {error ? (
  <p className="flex items-center gap-1.5 text-sm text-[var(--color-danger)]">
- <AlertTriangle className="h-4 w-4" /> {error}
+  {error}
  </p>
  ) : !data ? (
  <p className="text-sm text-[var(--color-text-main)]">Cargando…</p>
@@ -196,7 +186,7 @@ export default function UserProfile360({
  cualquier cosa que se vaya a hacer después. */}
  {data.risk.profile?.isBlocked ? (
  <p className="mb-3 flex items-center gap-1.5 text-sm font-bold text-[var(--color-danger)]">
- <ShieldAlert className="h-4 w-4" /> Esta cuenta está bloqueada
+  Esta cuenta está bloqueada
  </p>
  ) : null}
 
@@ -209,7 +199,7 @@ export default function UserProfile360({
  { label: 'Cancelados', value: String(data.totals.cancelled) },
  ].map((kpi) => (
  <div key={kpi.label}>
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <p className="text-xs font-bold text-[var(--color-text-main)]">
  {kpi.label}
  </p>
  <p className="text-sm font-bold text-[var(--color-text-main)]">{kpi.value}</p>
@@ -217,11 +207,11 @@ export default function UserProfile360({
  ))}
  </div>
 
- <Section icon={ShieldAlert} title="Alertas abiertas" empty={!data.risk.openAlerts.length}>
+ <Section title="Alertas abiertas" empty={!data.risk.openAlerts.length}>
  <ul className="space-y-1">
  {data.risk.openAlerts.map((a) => (
  <li key={a._id} className="text-[var(--color-text-main)]">
- <span className="font-bold uppercase text-[var(--color-danger)]">
+ <span className="font-bold text-[var(--color-danger)]">
  {a.riskLevel}
  </span>{' '}
  · {a.description}
@@ -230,7 +220,7 @@ export default function UserProfile360({
  </ul>
  </Section>
 
- <Section icon={ShoppingBag} title="Últimos pedidos" empty={!data.recentOrders.length}>
+ <Section title="Últimos pedidos" empty={!data.recentOrders.length}>
  <ul className="space-y-1">
  {data.recentOrders.map((o) => (
  <li key={o._id} className="flex justify-between gap-3">
@@ -248,7 +238,7 @@ export default function UserProfile360({
  </ul>
  </Section>
 
- <Section icon={CreditCard} title="Pagos" empty={!data.payments.length}>
+ <Section title="Pagos" empty={!data.payments.length}>
  <ul className="space-y-1">
  {data.payments.map((p) => (
  <li key={p._id} className="flex justify-between gap-3">
@@ -263,7 +253,7 @@ export default function UserProfile360({
  </ul>
  </Section>
 
- <Section icon={MessageSquareWarning} title="Reclamos" empty={!data.complaints.length}>
+ <Section title="Reclamos" empty={!data.complaints.length}>
  <ul className="space-y-1">
  {data.complaints.map((c) => (
  <li key={c._id} className="text-[var(--color-text-main)]">
@@ -273,18 +263,18 @@ export default function UserProfile360({
  </ul>
  </Section>
 
- <Section icon={Star} title="Reseñas que escribió" empty={!data.reviews.length}>
+ <Section title="Reseñas que escribió" empty={!data.reviews.length}>
  <ul className="space-y-1">
  {data.reviews.map((r) => (
  <li key={r._id} className="text-[var(--color-text-main)]">
- {r.rating}★ {r.businessId?.name ? `· ${r.businessId.name}` : ''}{' '}
+ {r.rating} de 5 {r.businessId?.name ? `· ${r.businessId.name}` : ''}{' '}
  {r.comment ? `— ${r.comment}` : ''}
  </li>
  ))}
  </ul>
  </Section>
 
- <Section icon={Smartphone} title="Sesiones" empty={!data.sessions.length}>
+ <Section title="Sesiones" empty={!data.sessions.length}>
  <ul className="space-y-1">
  {data.sessions.map((s) => (
  <li key={s._id} className="text-[var(--color-text-main)]">
@@ -294,7 +284,7 @@ export default function UserProfile360({
  </ul>
  </Section>
 
- <Section icon={ScrollText} title="Últimas acciones" empty={!data.recentActions.length}>
+ <Section title="Últimas acciones" empty={!data.recentActions.length}>
  <ul className="space-y-1">
  {data.recentActions.map((a) => (
  <li key={a._id} className="text-[var(--color-text-main)]">
@@ -307,7 +297,7 @@ export default function UserProfile360({
  {/* Secciones nuevas: el servidor las omite o manda null si falta
  el permiso o la versión aún no las trae. */}
  {data.addresses && (
- <Section icon={MapPin} title="Direcciones" empty={!data.addresses.length}>
+ <Section title="Direcciones" empty={!data.addresses.length}>
  <ul className="space-y-1">
  {data.addresses.map((a) => (
  <li key={a._id} className="text-[var(--color-text-main)]">
@@ -324,7 +314,7 @@ export default function UserProfile360({
  )}
 
  {data.savedCards && (
- <Section icon={Wallet} title="Tarjetas guardadas" empty={!data.savedCards.length}>
+ <Section title="Tarjetas guardadas" empty={!data.savedCards.length}>
  <ul className="space-y-1">
  {data.savedCards.map((c) => (
  <li key={c._id} className="text-[var(--color-text-main)]">
@@ -338,7 +328,7 @@ export default function UserProfile360({
  )}
 
  {data.pro !== undefined && (
- <Section icon={Crown} title="Zipp Pro" empty={!data.pro}>
+ <Section title="Zipp Pro" empty={!data.pro}>
  {data.pro && (
  <p className="text-[var(--color-text-main)]">
  <span className="font-semibold text-[var(--color-text-main)]">{data.pro.status ?? '—'}</span>
@@ -355,7 +345,6 @@ export default function UserProfile360({
 
  {data.consents && (
  <Section
- icon={FileCheck}
  title="Consentimientos"
  empty={data.consents.marketingConsent == null && !data.consents.legal?.length}
  >
@@ -377,7 +366,7 @@ export default function UserProfile360({
  )}
 
  {data.dataRequests && (
- <Section icon={FileText} title="Solicitudes de datos" empty={!data.dataRequests.length}>
+ <Section title="Solicitudes de datos" empty={!data.dataRequests.length}>
  <ul className="space-y-1">
  {data.dataRequests.map((r) => (
  <li key={r._id} className="flex justify-between gap-3 text-[var(--color-text-main)]">
@@ -393,7 +382,7 @@ export default function UserProfile360({
  )}
 
  {data.refunds && (
- <Section icon={RotateCcw} title="Reembolsos" empty={!data.refunds.length}>
+ <Section title="Reembolsos" empty={!data.refunds.length}>
  <ul className="space-y-1">
  {data.refunds.map((r) => (
  <li key={r._id} className="flex justify-between gap-3">
@@ -417,7 +406,7 @@ export default function UserProfile360({
  )}
 
  {data.couponRedemptions && (
- <Section icon={Ticket} title="Cupones usados" empty={!data.couponRedemptions.length}>
+ <Section title="Cupones usados" empty={!data.couponRedemptions.length}>
  <ul className="space-y-1">
  {data.couponRedemptions.map((c) => (
  <li key={c._id} className="flex justify-between gap-3 text-[var(--color-text-main)]">
@@ -444,7 +433,7 @@ export default function UserProfile360({
  )}
 
  {data.actionsOnUser && (
- <Section icon={UserCog} title="Acciones sobre la cuenta" empty={!data.actionsOnUser.length}>
+ <Section title="Acciones sobre la cuenta" empty={!data.actionsOnUser.length}>
  <ul className="space-y-1">
  {data.actionsOnUser.map((a) => (
  <li key={a._id} className="text-[var(--color-text-main)]">
@@ -457,7 +446,7 @@ export default function UserProfile360({
  )}
 
  {data.notes !== null && (
- <Section icon={StickyNote} title="Notas internas" empty={false}>
+ <Section title="Notas internas" empty={false}>
  <InternalNotes entityType="user" entityId={userId} />
  </Section>
  )}

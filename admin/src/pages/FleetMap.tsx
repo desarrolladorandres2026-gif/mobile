@@ -4,7 +4,6 @@ import { useLiveReload } from '../hooks/useLiveReload';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, BatteryLow, LocateFixed, MapPin, WifiOff } from 'lucide-react';
 import api from '../services/api';
 import { useThemeStore } from '../stores/themeStore';
 import { useAdminSocketEvents } from '../hooks/useAdminSocket';
@@ -62,14 +61,14 @@ const STATE_LABEL: Record<FleetState, string> = {
  * del build, así que el marcador saldría sin color en producción y perfecto
  * en desarrollo — el peor sitio donde puede aparecer un fallo.
  *
- * Libre y En domicilio eran antes dos dorados casi idénticos (#E5B242 y
- * #D69E26): a golpe de vista sobre el mapa no se distinguían, que es
+ * Libre y En domicilio eran antes dos dorados casi idénticos (var(--color-primary-light) y
+ * var(--color-primary)): a golpe de vista sobre el mapa no se distinguían, que es
  * justamente la pregunta que el mapa tiene que contestar. Libre pasa al
  * verde de éxito del sistema; el dorado de marca queda para quien trabaja.
  */
 const STATE_COLOR: Record<FleetState, string> = {
  available: '#10B981',
- busy: '#D69E26',
+ busy: 'var(--color-primary)',
  stale: '#7C8BA1',
  offline: '#7C8BA1',
 };
@@ -150,7 +149,7 @@ function buildMarker(driver: FleetDriver, onClick: () => void, onHover: () => vo
  ring.dataset.role = 'ring';
  ring.style.cssText = [
  'width:30px', 'height:30px', 'border-radius:15px', 'overflow:hidden',
- 'border-width:3px', 'box-shadow:0 2px 6px rgba(0,0,0,.35)',
+ 'border-width:3px',
  'background:#7C8BA1', 'display:flex', 'align-items:center', 'justify-content:center',
  'transition:transform .15s ease-out',
  ].join(';');
@@ -424,12 +423,12 @@ export default function FleetMap() {
  <div className="animate-fade-in">
  <div className="page-header">
  <div>
- <h1 className="page-title">Flota en Vivo</h1>
+ <h1 className="page-title">Flota en vivo</h1>
  <p className="page-subtitle">Ubicación de los domiciliarios en tiempo real</p>
  </div>
  </div>
- <div className="p-16 text-center">
- <MapPin className="mx-auto mb-4 h-10 w-10 text-[var(--color-text-main)]" />
+ <div className="state-line">
+ 
  <p className="text-base font-bold text-[var(--color-text-main)]">Mapa no configurado</p>
  <p className="mx-auto mt-2 max-w-md text-xs font-semibold text-[var(--color-text-secondary)]">
  Define <code className="font-mono font-bold">MAPBOX_ACCESS_TOKEN</code>{' '}
@@ -442,10 +441,10 @@ export default function FleetMap() {
  }
 
  return (
- <div className="flex h-[calc(100vh-9rem)] flex-col animate-fade-in">
+ <div className="flex h-[calc(100vh-9rem)] flex-col">
  <div className="page-header">
  <div>
- <h1 className="page-title">Flota en Vivo</h1>
+ <h1 className="page-title">Flota en vivo</h1>
  <p className="page-subtitle">
  {counts.all} en operación · {counts.busy} en domicilio · {counts.available} libres
  {counts.stale > 0 ? ` · ${counts.stale} sin señal` : ''}
@@ -471,7 +470,7 @@ export default function FleetMap() {
  >
  {f.key !== 'all' ? (
  <span
- className="h-2 w-2 rounded-full"
+ className="h-2 w-2 rounded"
  style={{
  background: f.key === 'stale' ? 'transparent' : STATE_COLOR[f.key],
  border: f.key === 'stale' ? `1.5px dashed ${STATE_COLOR.stale}` : 'none',
@@ -487,7 +486,7 @@ export default function FleetMap() {
 
  {mapError ? (
  <div className="mb-3 flex items-start gap-3 text-xs text-[var(--color-danger)]">
- <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+ 
  <span className="flex-1 font-semibold">{mapError}</span>
  </div>
  ) : null}
@@ -503,7 +502,7 @@ export default function FleetMap() {
  onCenter={() => focus(selectedDriver)}
  />
  ) : visible.length === 0 ? (
- <p className="p-8 text-center text-xs font-semibold text-[var(--color-text-secondary)]">
+ <p className="state-line">
  {drivers.length === 0
  ? 'No hay domiciliarios en operación ahora mismo.'
  : 'Nadie en este estado ahora mismo.'}
@@ -525,7 +524,7 @@ function Avatar({ driver, size }: { driver: FleetDriver; size: number }) {
  const state = fleetState(driver);
  return (
  <span
- className="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--color-chart-titanium)] font-extrabold text-white"
+ className="flex shrink-0 items-center justify-center overflow-hidden rounded bg-[var(--color-chart-titanium)] font-extrabold text-white"
  style={{
  width: size,
  height: size,
@@ -559,7 +558,7 @@ function DriverRow({ driver, onSelect }: { driver: FleetDriver; onSelect: () => 
  {driver.activeOrder ? ` · #${driver.activeOrder.orderNumber}` : ''}
  </span>
  </span>
- <span className="shrink-0 text-[11px] font-semibold tabular-nums text-[var(--color-text-secondary)]">
+ <span className="shrink-0 text-xs font-semibold tabular-nums text-[var(--color-text-secondary)]">
  {minutesAgo(driver.lastSeenAt)}
  </span>
  </button>
@@ -595,7 +594,7 @@ function DriverDetail({
  'sin datos'
  ) : (
  <span className={`inline-flex items-center gap-1 ${lowBattery ? 'text-[var(--color-danger)]' : ''}`}>
- {lowBattery ? <BatteryLow className="h-3.5 w-3.5" /> : null}
+ 
  {Math.round(driver.batteryLevel)}%
  </span>
  ),
@@ -620,7 +619,7 @@ function DriverDetail({
  onClick={onBack}
  className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]"
  >
- <ArrowLeft className="h-3.5 w-3.5" />
+ 
  Toda la flota
  </button>
 
@@ -631,7 +630,7 @@ function DriverDetail({
  {driver.name}
  </EntityLink>
  <p className="mt-0.5 flex items-center gap-1.5 text-xs font-bold" style={{ color: state === 'stale' || state === 'offline' ? 'var(--color-text-secondary)' : STATE_COLOR[state] }}>
- {state === 'stale' ? <WifiOff className="h-3.5 w-3.5" /> : null}
+ 
  {STATE_LABEL[state]}
  </p>
  </div>
@@ -639,7 +638,7 @@ function DriverDetail({
 
  {driver.activeOrder ? (
  <div className="mt-6">
- <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--color-text-secondary)]">Pedido activo</p>
+ <p className="text-xs font-bold text-[var(--color-text-secondary)]">Pedido activo</p>
  <EntityLink type="order" id={driver.activeOrder.id} className="mt-1 block text-lg font-bold tabular-nums text-[var(--color-text-main)]">
  #{driver.activeOrder.orderNumber}
  </EntityLink>
@@ -664,7 +663,7 @@ function DriverDetail({
  onClick={onCenter}
  className="mt-6 flex cursor-pointer items-center gap-1.5 text-xs font-bold text-[var(--color-primary)] hover:underline"
  >
- <LocateFixed className="h-3.5 w-3.5" />
+ 
  Centrar en el mapa
  </button>
  ) : null}

@@ -1,6 +1,5 @@
 ﻿import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import { AlertCircle } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { PermissionGate } from '../components/PermissionGate';
@@ -102,7 +101,7 @@ export default function AppHealth() {
  const visibleGroups = crashes?.groups.filter((g) => showResolved || g.status !== 'resolved') ?? [];
 
  return (
- <div className="space-y-6 animate-fade-in">
+ <div className="space-y-6">
  <div className="page-header">
  <div>
  <h1 className="page-title">Salud de la app</h1>
@@ -129,12 +128,12 @@ export default function AppHealth() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {error}
+  {error}
  </p>
  )}
 
  {loading && !crashes ? (
- <p className="py-6 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : crashes && (
  <>
  <SummaryGrid
@@ -162,12 +161,12 @@ export default function AppHealth() {
 
  {actionError && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {actionError}
+  {actionError}
  </p>
  )}
 
  {visibleGroups.length === 0 ? (
- <p className="py-6 text-center text-xs font-semibold text-[var(--color-text-main)]">
+ <p className="state-line">
  {crashes.groups.length === 0 ? 'Ningún crash reportado en este periodo.' : 'Todo lo reportado en este periodo está marcado como resuelto.'}
  </p>
  ) : (
@@ -194,7 +193,7 @@ export default function AppHealth() {
  const key = `${g.appVersion}|${g.message}`;
  return (
  <Fragment key={key}>
- <tr className={g.status === 'resolved' ? 'opacity-60' : ''}>
+ <tr className={g.status === 'resolved' ? 'text-[var(--color-text-secondary)]' : ''}>
  <td className="table-body-cell wrap text-[var(--color-text-main)]">
  <span className="break-words">{g.message}</span>
  {g.scope && <span> · {g.scope}</span>}
@@ -223,7 +222,7 @@ export default function AppHealth() {
  <button
  onClick={() => toggleResolved(g)}
  disabled={acting === g.message}
- className="cursor-pointer text-[var(--color-text-main)] disabled:opacity-50"
+ className="cursor-pointer text-[var(--color-text-main)]"
  >
  {g.status === 'resolved' ? 'Reabrir' : 'Marcar resuelto'}
  </button>
@@ -233,7 +232,7 @@ export default function AppHealth() {
  {g.stack && openStack === key && (
  <tr>
  <td colSpan={11} className="table-body-cell wrap">
- <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-[11px] text-[var(--color-text-main)]">{g.stack}</pre>
+ <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-[var(--color-text-main)]">{g.stack}</pre>
  </td>
  </tr>
  )}
@@ -245,7 +244,7 @@ export default function AppHealth() {
  </div>
  </div>
  )}
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  Los reportes se borran solos a los 30 días. Nunca aparecen nombres ni dispositivos, solo cuántas personas.
  Marcar resuelto cubre las versiones donde ya se vio ese error; si aparece en una versión nueva, vuelve como regresión.
  </p>
@@ -260,7 +259,7 @@ export default function AppHealth() {
  </div>
  {imageError && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {imageError}
+  {imageError}
  </p>
  )}
  {images && (
@@ -275,7 +274,7 @@ export default function AppHealth() {
  { label: 'p95', value: images.durationMs.p95 != null ? `${(images.durationMs.p95 / 1000).toFixed(1)} s` : '–' },
  ]}
  />
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  “A cuadrar con la factura” cuenta cada recorte que se pagó: terminado, descartado o inválido. Es la cifra que hay que comparar con el cobro del proveedor.
  </p>
 

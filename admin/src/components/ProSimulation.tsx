@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { AlertCircle } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import NumericInput from './NumericInput';
@@ -41,8 +40,8 @@ const cop = (n: number) => `$${(n || 0).toLocaleString('es-CO')}`;
 const signed = (n: number) => (n < 0 ? `− ${cop(-n)}` : cop(n));
 
 const inputClass =
-  'w-full h-9 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:outline-none';
-const labelClass = 'block text-[11px] font-bold text-[var(--color-text-main)] mb-1';
+  'w-full h-9 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:outline-none';
+const labelClass = 'block text-xs font-bold text-[var(--color-text-main)] mb-1';
 
 export default function ProSimulation() {
   const [subtotal, setSubtotal] = useState(40_000);
@@ -108,14 +107,14 @@ export default function ProSimulation() {
         type="button"
         onClick={run}
         disabled={loading}
-        className="h-9 px-4 rounded-lg bg-[var(--color-primary)] text-white font-bold text-xs cursor-pointer disabled:opacity-60"
+        className="h-9 px-4 rounded bg-[var(--color-primary)] text-white font-bold text-xs cursor-pointer"
       >
         {loading ? 'Calculando…' : 'Simular'}
       </button>
 
       {error && (
         <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
-          <AlertCircle className="h-4 w-4" /> {error}
+           {error}
         </p>
       )}
 

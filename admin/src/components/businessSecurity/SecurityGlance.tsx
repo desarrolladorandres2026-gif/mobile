@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { ShieldAlert } from 'lucide-react';
 import api from '../../services/api';
 import { apiMessage } from '../../lib/apiError';
 import { dateTime } from './labels';
@@ -28,7 +27,7 @@ export default function SecurityGlance({ businessId }: { businessId: string }) {
     <div className="space-y-3">
       {data.unknownActiveSessions > 0 && (
         <p className="flex items-start gap-1.5 font-semibold text-[var(--color-text-main)]">
-          <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          
           {data.unknownActiveSessions === 1
             ? '1 sesión abierta desde un dispositivo nuevo o sin identificar.'
             : `${data.unknownActiveSessions} sesiones abiertas desde dispositivos nuevos o sin identificar.`}

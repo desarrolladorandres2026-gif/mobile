@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import { AlertCircle } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import SummaryGrid from '../components/SummaryGrid';
@@ -65,7 +64,7 @@ export default function Referrals() {
  const rate = s && s.invited > 0 ? Math.round((s.converted / s.invited) * 100) : 0;
 
  return (
- <div className="space-y-6 animate-fade-in">
+ <div className="space-y-6">
  <div className="page-header">
  <div>
  <h1 className="page-title">Referidos</h1>
@@ -75,7 +74,7 @@ export default function Referrals() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {error}
+  {error}
  </p>
  )}
 
@@ -130,9 +129,9 @@ export default function Referrals() {
  </div>
 
  {loading && !data ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : !data || data.invitations.length === 0 ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Sin invitaciones en esta vista.</p>
+ <p className="state-line">Sin invitaciones en esta vista.</p>
  ) : (
  <div className="table-container">
  <div className="overflow-x-auto">

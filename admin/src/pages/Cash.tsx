@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import EntityLink from '../components/EntityLink';
@@ -55,7 +54,7 @@ export default function Cash() {
  const reported = rows.reduce((s, r) => s + r.reportedAmount, 0);
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Efectivo por domiciliario</h1>
@@ -76,14 +75,14 @@ export default function Cash() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+  {error}
  </p>
  )}
 
  {loading ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : rows.length === 0 ? (
- <p className="py-10 text-center text-xs text-[var(--color-text-main)]">Ningún domiciliario tiene efectivo sin rendir.</p>
+ <p className="state-line">Ningún domiciliario tiene efectivo sin rendir.</p>
  ) : (
  <div className="table-container">
  <div className="overflow-x-auto">

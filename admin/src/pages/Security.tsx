@@ -1,8 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import {
- Lock, CheckCircle2, X, ScrollText, MonitorSmartphone, LogOut,
-} from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
@@ -244,7 +241,7 @@ export default function Security() {
 
  const getSeverityBadge = (severity: string) => {
  const map: Record<string, string> = {
- low: 'text-[#8A5D08]',
+ low: 'text-[var(--accent-link)]',
  medium: 'text-[var(--color-text-main)]',
  high: 'text-[var(--color-chart-purple)]',
  critical: 'text-[var(--color-danger)] font-bold'
@@ -253,20 +250,20 @@ export default function Security() {
  };
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  {/* Header */}
  <div className="page-header">
  <div>
- <h1 className="page-title">Consola de Seguridad y Auditoría</h1>
+ <h1 className="page-title">Consola de seguridad y auditoría</h1>
  <p className="page-subtitle">Detección de fraude, sesiones activas y control de acceso</p>
  </div>
  <div className="flex items-center justify-center gap-3">
  <button
  onClick={() => setBlockModalOpen(true)}
- className="px-3.5 py-2 bg-[var(--color-danger-bg)] hover:bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger-bg)] text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-xs"
+ className="px-3.5 py-2 hover:bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger-bg)] text-xs font-bold rounded transition-all cursor-pointer flex items-center gap-2"
  >
- <Lock className="w-4 h-4" />
- <span>Bloqueo Manual</span>
+ 
+ <span>Bloqueo manual</span>
  </button>
  </div>
  </div>
@@ -277,7 +274,7 @@ export default function Security() {
  <button
  key={tab}
  onClick={() => { setActiveTab(tab); setLoading(true); }}
- className={`px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap border-b-2 ${
+ className={`px-3.5 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap border-b-2 ${
  activeTab === tab
  ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
@@ -306,7 +303,7 @@ export default function Security() {
  {/* Table Recent Critical */}
  <div className="table-container">
  <div className="px-5 py-3.5 border-b border-[var(--color-border-light)] bg-[var(--color-bg)]">
- <h3 className="text-sm font-bold text-[var(--color-text-main)]">Eventos de Seguridad Recientes</h3>
+ <h3 className="text-sm font-bold text-[var(--color-text-main)]">Eventos de seguridad recientes</h3>
  </div>
  <div className="overflow-x-auto">
  <table className="data-grid">
@@ -326,7 +323,7 @@ export default function Security() {
  {new Date(ev.timestamp).toLocaleString('es-CO')}
  </td>
  <td className="table-body-cell">
- <span className={`text-[10px] font-bold uppercase ${getSeverityBadge(ev.severity)}`}>
+ <span className={`text-xs font-bold ${getSeverityBadge(ev.severity)}`}>
  {ev.severity}
  </span>
  </td>
@@ -351,7 +348,7 @@ export default function Security() {
  <tr className="text-left">
  <th className="table-header-cell">Fecha</th>
  <th className="table-header-cell">Usuario ID</th>
- <th className="table-header-cell">Nivel Riesgo</th>
+ <th className="table-header-cell">Nivel riesgo</th>
  <th className="table-header-cell">Puntaje</th>
  <th className="table-header-cell">Tipo</th>
  <th className="table-header-cell">Estado</th>
@@ -366,14 +363,14 @@ export default function Security() {
  </td>
  <td className="table-body-cell font-mono text-[var(--color-text-main)] text-xs font-bold">{al.userId}</td>
  <td className="table-body-cell">
- <span className={`text-[10px] font-bold uppercase ${getRiskBadge(al.riskLevel)}`}>
+ <span className={`text-xs font-bold ${getRiskBadge(al.riskLevel)}`}>
  {al.riskLevel}
  </span>
  </td>
  <td className="table-body-cell font-bold text-[var(--color-text-main)]">{al.riskScore} / 100</td>
  <td className="table-body-cell text-xs font-semibold text-[var(--color-text-main)]">{al.type}</td>
  <td className="table-body-cell">
- <span className={`text-[10px] font-bold uppercase ${
+ <span className={`text-xs font-bold ${
  al.status === 'open' ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'
  }`}>
  {al.status === 'open' ? 'Abierta' : 'Resuelta'}
@@ -382,7 +379,7 @@ export default function Security() {
  <td className="table-body-cell">
  <button
  onClick={() => setSelectedAlert(al)}
- className="px-2.5 py-1 rounded-md bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] transition-all cursor-pointer"
+ className="px-2.5 py-1 rounded bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] transition-all cursor-pointer"
  >
  Gestionar
  </button>
@@ -402,7 +399,7 @@ export default function Security() {
  <select
  value={auditFilters.action}
  onChange={(e) => setAuditFilters((f) => ({ ...f, action: e.target.value }))}
- className="h-9 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)]"
+ className="h-9 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)]"
  >
  <option value="">Todas las acciones</option>
  {auditActions.map((a) => <option key={a} value={a}>{a}</option>)}
@@ -410,7 +407,7 @@ export default function Security() {
  <select
  value={auditFilters.severity}
  onChange={(e) => setAuditFilters((f) => ({ ...f, severity: e.target.value }))}
- className="h-9 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)]"
+ className="h-9 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)]"
  >
  <option value="">Toda severidad</option>
  <option value="low">Baja</option>
@@ -422,11 +419,11 @@ export default function Security() {
  value={auditFilters.userId}
  onChange={(e) => setAuditFilters((f) => ({ ...f, userId: e.target.value }))}
  placeholder="ID de usuario"
- className="h-9 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-mono text-[var(--color-text-main)] w-48"
+ className="h-9 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-mono text-[var(--color-text-main)] w-48"
  />
  <button
  onClick={fetchAuditLogs}
- className="px-3.5 py-1.5 bg-[var(--color-primary)] text-white text-xs font-bold rounded-lg cursor-pointer"
+ className="px-3.5 py-1.5 bg-[var(--color-primary)] text-white text-xs font-bold rounded cursor-pointer"
  >
  Filtrar
  </button>
@@ -434,8 +431,8 @@ export default function Security() {
 
  <div className="table-container">
  <div className="px-5 py-3.5 border-b border-[var(--color-border-light)] bg-[var(--color-bg)] flex items-center gap-2">
- <ScrollText className="w-4 h-4 text-[var(--color-text-main)]" />
- <h3 className="text-sm font-bold text-[var(--color-text-main)]">Registro de Auditoría</h3>
+ 
+ <h3 className="text-sm font-bold text-[var(--color-text-main)]">Registro de auditoría</h3>
  </div>
  <div className="overflow-x-auto">
  <table className="data-grid">
@@ -455,7 +452,7 @@ export default function Security() {
  <td className="table-body-cell text-xs font-mono text-[var(--color-text-main)]">{new Date(log.timestamp).toLocaleString('es-CO')}</td>
  <td className="table-body-cell text-xs font-mono text-[var(--color-text-main)]">{log.userId ? `${log.userId.slice(-6)} (${log.role || '—'})` : 'Sistema'}</td>
  <td className="table-body-cell">
- <span className={`text-[10px] font-bold uppercase ${getSeverityBadge(log.severity)}`}>{log.severity}</span>
+ <span className={`text-xs font-bold ${getSeverityBadge(log.severity)}`}>{log.severity}</span>
  </td>
  <td className="table-body-cell font-bold text-[var(--color-text-main)] text-xs">{log.action}</td>
  <td className="table-body-cell text-xs text-[var(--color-text-main)] max-w-xs truncate" title={log.description}>{log.description}</td>
@@ -463,7 +460,7 @@ export default function Security() {
  </tr>
  ))}
  {auditLogs.length === 0 && (
- <tr><td colSpan={6} className="px-6 py-12 text-center text-[var(--color-text-main)] text-xs font-medium">Sin registros para estos filtros.</td></tr>
+ <tr><td colSpan={6} className="state-line">Sin registros para estos filtros.</td></tr>
  )}
  </tbody>
  </table>
@@ -480,17 +477,17 @@ export default function Security() {
  value={sessionUserFilter}
  onChange={(e) => setSessionUserFilter(e.target.value)}
  placeholder="Filtrar por ID de usuario"
- className="h-9 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-mono text-[var(--color-text-main)] w-56"
+ className="h-9 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-mono text-[var(--color-text-main)] w-56"
  />
- <button onClick={fetchSessions} className="px-3.5 py-1.5 bg-[var(--color-primary)] text-white text-xs font-bold rounded-lg cursor-pointer">
+ <button onClick={fetchSessions} className="px-3.5 py-1.5 bg-[var(--color-primary)] text-white text-xs font-bold rounded cursor-pointer">
  Filtrar
  </button>
  </div>
 
  <div className="table-container">
  <div className="px-5 py-3.5 border-b border-[var(--color-border-light)] bg-[var(--color-bg)] flex items-center gap-2">
- <MonitorSmartphone className="w-4 h-4 text-[var(--color-text-main)]" />
- <h3 className="text-sm font-bold text-[var(--color-text-main)]">Sesiones Activas</h3>
+ 
+ <h3 className="text-sm font-bold text-[var(--color-text-main)]">Sesiones activas</h3>
  </div>
  <div className="overflow-x-auto">
  <table className="data-grid">
@@ -513,15 +510,15 @@ export default function Security() {
  <td className="table-body-cell">
  <button
  onClick={() => setConfirmRevoke(s.userId)}
- className="px-2.5 py-1 rounded-md bg-[var(--color-danger-bg)] hover:underline border border-[var(--color-danger-bg)] text-xs font-semibold text-[var(--color-danger)] transition-all cursor-pointer flex items-center gap-1.5"
+ className="px-2.5 py-1 rounded hover:underline border border-[var(--color-danger-bg)] text-xs font-semibold text-[var(--color-danger)] transition-all cursor-pointer flex items-center gap-1.5"
  >
- <LogOut className="w-3 h-3" /> Revocar
+  Revocar
  </button>
  </td>
  </tr>
  ))}
  {sessions.length === 0 && (
- <tr><td colSpan={5} className="px-6 py-12 text-center text-[var(--color-text-main)] text-xs font-medium">No hay sesiones activas para este filtro.</td></tr>
+ <tr><td colSpan={5} className="state-line">No hay sesiones activas para este filtro.</td></tr>
  )}
  </tbody>
  </table>
@@ -543,37 +540,37 @@ export default function Security() {
 
  {/* Manual Block Modal */}
  {blockModalOpen && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-md rounded p-6 space-y-2.5">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-3">
  <div className="flex items-center gap-2">
- <Lock className="w-5 h-5 text-[var(--color-danger)]" />
- <h3 className="text-base font-bold text-[var(--color-text-main)]">Bloqueo Manual de Usuario</h3>
+ 
+ <h3 className="text-base font-bold text-[var(--color-text-main)]">Bloqueo manual de usuario</h3>
  </div>
- <button onClick={() => setBlockModalOpen(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg">
- <X className="w-5 h-5" />
+ <button onClick={() => setBlockModalOpen(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded">Cerrar
+ 
  </button>
  </div>
 
  <div className="space-y-3 text-xs">
  <div>
- <label className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1">ID de Usuario (MongoDB)</label>
+ <label className="block text-xs font-bold text-[var(--color-text-main)] mb-1">ID de Usuario (MongoDB)</label>
  <input
  type="text"
  value={manualBlockUserId}
  onChange={(e) => setManualBlockUserId(e.target.value)}
  placeholder="ID del usuario a suspender"
- className="w-full h-10 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3.5 font-mono font-bold text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none"
+ className="w-full h-10 bg-[var(--color-bg)] border border-[var(--color-border)] rounded px-3.5 font-mono font-bold text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none"
  />
  </div>
 
  <div>
- <label className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1">Motivo del Bloqueo</label>
+ <label className="block text-xs font-bold text-[var(--color-text-main)] mb-1">Motivo del bloqueo</label>
  <textarea
  value={manualBlockReason}
  onChange={(e) => setManualBlockReason(e.target.value)}
- placeholder="Razón de la suspensión de la cuenta..."
- className="w-full h-20 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg p-3 text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none"
+ placeholder="Razón de la suspensión de la cuenta…"
+ className="w-full h-20 bg-[var(--color-bg)] border border-[var(--color-border)] rounded p-3 text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none"
  />
  </div>
  </div>
@@ -581,16 +578,16 @@ export default function Security() {
  <div className="flex gap-2 pt-2">
  <button
  onClick={() => setBlockModalOpen(false)}
- className="flex-1 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)]"
+ className="flex-1 py-2 rounded bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)]"
  >
  Cancelar
  </button>
  <button
  onClick={handleManualBlock}
  disabled={blockingUser || !manualBlockUserId.trim() || !manualBlockReason.trim()}
- className="flex-1 py-2 rounded-lg bg-[var(--color-danger)] hover:bg-[#DC2626] text-white font-bold text-xs uppercase tracking-wider transition-all disabled:opacity-50 cursor-pointer shadow-xs"
+ className="flex-1 py-2 rounded bg-[var(--danger-fill)] hover:brightness-90 text-white font-bold text-xs transition-all cursor-pointer"
  >
- {blockingUser ? 'Bloqueando...' : 'Confirmar Bloqueo'}
+ {blockingUser ? 'Bloqueando…' : 'Confirmar Bloqueo'}
  </button>
  </div>
  </div>
@@ -599,12 +596,12 @@ export default function Security() {
 
  {/* Selected Alert Modal */}
  {selectedAlert && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-md rounded p-6 space-y-2.5">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-3">
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Detalle de Alerta #{selectedAlert._id.slice(-6)}</h3>
- <button onClick={() => setSelectedAlert(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg">
- <X className="w-5 h-5" />
+ <button onClick={() => setSelectedAlert(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded">Cerrar
+ 
  </button>
  </div>
  <div className="space-y-2 text-xs">
@@ -615,7 +612,7 @@ export default function Security() {
  <div className="pt-2 flex justify-end">
  <button
  onClick={() => setSelectedAlert(null)}
- className="px-4 py-2 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] text-xs font-semibold text-[var(--color-text-main)] border border-[var(--color-border)]"
+ className="px-4 py-2 rounded bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] text-xs font-semibold text-[var(--color-text-main)] border border-[var(--color-border)]"
  >
  Cerrar
  </button>
@@ -626,10 +623,10 @@ export default function Security() {
 
  {/* Toast Notification */}
  {toast && (
- <div className={`fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 shadow-lg animate-fade-in ${
+ <div className={`fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded border text-xs font-bold flex items-center gap-2 ${
  toast.type === 'success' ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)] text-[var(--color-text-main)]' : 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)] text-[var(--color-danger)]'
  }`}>
- <CheckCircle2 className="w-4 h-4" />
+ 
  <span>{toast.message}</span>
  </div>
  )}

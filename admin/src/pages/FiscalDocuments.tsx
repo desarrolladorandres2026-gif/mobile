@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { Printer, ShieldAlert, X } from 'lucide-react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
 import { apiMessage } from '../lib/apiError';
@@ -63,7 +62,7 @@ export default function FiscalDocuments() {
  }, [load]);
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header no-print">
  <div>
  <h1 className="page-title">Comprobantes internos</h1>
@@ -74,20 +73,20 @@ export default function FiscalDocuments() {
  value={month}
  onChange={(e) => { setMonth(e.target.value); setPage(1); }}
  aria-label="Mes"
- className="h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs font-semibold text-[var(--color-text-main)]"
+ className="h-9 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs font-semibold text-[var(--color-text-main)]"
  />
  </div>
 
  {error && (
  <p className="no-print flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+  {error}
  </p>
  )}
 
  {loading ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : items.length === 0 ? (
- <p className="py-10 text-center text-xs text-[var(--color-text-main)]">
+ <p className="state-line">
  No hay comprobantes en este mes. Se emiten desde Liquidaciones, en una liquidación ya pagada.
  </p>
  ) : (
@@ -123,15 +122,15 @@ export default function FiscalDocuments() {
  )}
 
  {open && (
- <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-fade-in">
- <div className="print-area zipp-modal max-h-[90vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl p-6">
+ <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+ <div className="print-area zipp-modal max-h-[90vh] w-full max-w-md space-y-3 overflow-y-auto rounded p-6">
  <div className="flex items-start justify-between gap-3">
  <div>
  <p className="font-mono text-lg font-bold text-[var(--color-text-main)]">{open.number}</p>
  <p className="text-xs text-[var(--color-text-main)]">{TYPE_LABEL[open.type]} · {day(open.issuedAt)}</p>
  </div>
- <button onClick={() => setOpen(null)} aria-label="Cerrar" className="no-print cursor-pointer p-1 text-[var(--color-text-main)]">
- <X className="h-4 w-4" />
+ <button onClick={() => setOpen(null)} aria-label="Cerrar" className="no-print cursor-pointer p-1 text-[var(--color-text-main)]">Cerrar
+ 
  </button>
  </div>
 
@@ -158,16 +157,16 @@ export default function FiscalDocuments() {
  </div>
  </div>
 
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  Pagado {day(open.paidAt ?? undefined)} · {open.paymentMethod} · ref. {open.paymentReference}
  </p>
- <p className="text-[11px] font-semibold text-[var(--color-text-main)]">{open.notice}</p>
+ <p className="text-xs font-semibold text-[var(--color-text-main)]">{open.notice}</p>
 
  <button
  onClick={() => window.print()}
- className="no-print flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-[var(--color-primary)] text-xs font-bold uppercase tracking-wider text-white"
+ className="no-print flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded bg-[var(--color-primary)] text-xs font-bold text-white"
  >
- <Printer className="h-4 w-4" /> Imprimir o guardar como PDF
+  Imprimir o guardar como PDF
  </button>
  </div>
  </div>

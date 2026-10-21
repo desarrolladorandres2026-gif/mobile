@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import { AlertCircle, Plus, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
@@ -34,7 +33,7 @@ const CRITICAL: Record<string, string> = {
  rbac_enforce: 'Decide si los permisos bloquean (todos) o solo avisan (staff). Cambiarlo cierra las sesiones de socket de todo el equipo.',
 };
 
-const fieldClass = 'rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
+const fieldClass = 'rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
 
 export default function FeatureFlags() {
  const [flags, setFlags] = useState<Flag[]>([]);
@@ -91,7 +90,7 @@ export default function FeatureFlags() {
  };
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Interruptores</h1>
@@ -101,9 +100,9 @@ export default function FeatureFlags() {
  <PermissionGate permission={Permission.SETTINGS_UPDATE}>
  <button
  onClick={() => setDraft({ key: '', description: '' })}
- className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-[var(--color-on-primary,#000)]"
+ className="flex cursor-pointer items-center gap-2 rounded bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-[var(--color-on-primary,#000)]"
  >
- <Plus className="h-4 w-4" /> Nuevo
+  Nuevo
  </button>
  </PermissionGate>
  </div>
@@ -111,7 +110,7 @@ export default function FeatureFlags() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {error}
+  {error}
  </p>
  )}
 
@@ -135,7 +134,7 @@ export default function FeatureFlags() {
  <button
  onClick={create}
  disabled={!/^[a-z][a-z0-9._-]{1,59}$/.test(draft.key.trim()) || draft.description.trim().length < 3}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-[var(--color-on-primary,#000)] disabled:opacity-50"
+ className="cursor-pointer rounded bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-[var(--color-on-primary,#000)]"
  >
  Crear apagado
  </button>
@@ -145,9 +144,9 @@ export default function FeatureFlags() {
  )}
 
  {loading && flags.length === 0 ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : flags.length === 0 ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">No hay interruptores creados.</p>
+ <p className="state-line">No hay interruptores creados.</p>
  ) : (
  <ul>
  {flags.map((f) => (
@@ -175,8 +174,8 @@ export default function FeatureFlags() {
  .map((a) => <option key={a} value={a}>{AUDIENCE_LABEL[a]}{a === 'percentage' && f.audience === 'percentage' ? ` ${f.percentage}%` : ''}</option>)}
  </select>
  {f.key !== 'rbac_enforce' && (
- <button onClick={() => setToDelete(f)} aria-label={`Eliminar ${f.key}`} className="cursor-pointer text-[var(--color-text-main)]">
- <Trash2 className="h-4 w-4" />
+ <button onClick={() => setToDelete(f)} aria-label={`Eliminar ${f.key}`} className="cursor-pointer text-[var(--color-text-main)]">{`Eliminar ${f.key}`}
+ 
  </button>
  )}
  </PermissionGate>
@@ -187,8 +186,8 @@ export default function FeatureFlags() {
  )}
 
  {pending && (
- <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
- <div className="w-full max-w-sm space-y-3 rounded-xl bg-[var(--color-surface,#fff)] p-5 shadow-xl">
+ <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+ <div className="w-full max-w-sm space-y-3 rounded bg-[var(--color-surface,#fff)] p-5">
  <h3 className="text-sm font-bold text-[var(--color-text-main)]">
  {pending.flag.key} → {AUDIENCE_LABEL[pending.audience]}
  </h3>
@@ -206,7 +205,7 @@ export default function FeatureFlags() {
  <p className="text-xs text-[var(--color-text-main)]">El cambio se nota en unos 10 segundos y queda en la auditoría.</p>
  <div className="flex justify-end gap-3">
  <button onClick={() => setPending(null)} className="cursor-pointer text-xs font-semibold text-[var(--color-text-main)]">Cancelar</button>
- <button onClick={apply} className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-[var(--color-on-primary,#000)]">Aplicar</button>
+ <button onClick={apply} className="cursor-pointer rounded bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-[var(--color-on-primary,#000)]">Aplicar</button>
  </div>
  </div>
  </div>

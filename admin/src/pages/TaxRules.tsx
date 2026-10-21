@@ -189,15 +189,15 @@ export default function TaxRules() {
  const remove = (rule: Rule) =>
  run(() => api.delete(`/finance/tax-rules/${rule._id}`), 'Borrador eliminado.', 'No se pudo eliminar el borrador.');
 
- const inputClass = 'h-8 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none';
- const labelClass = 'block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)] mb-1';
+ const inputClass = 'h-8 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none';
+ const labelClass = 'block text-xs font-bold text-[var(--color-text-main)] mb-1';
 
  if (loading && !readiness) {
- return <div className="p-16 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando reglas tributarias…</div>;
+ return <div className="state-line">Cargando reglas tributarias…</div>;
  }
 
  return (
- <div className="space-y-6 animate-fade-in">
+ <div className="space-y-6">
  <div>
  <h2 className="text-lg font-bold text-[var(--color-text-main)]">Impuestos por concepto</h2>
  <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
@@ -324,7 +324,7 @@ export default function TaxRules() {
  <input className={inputClass} value={draft.conditions} maxLength={500} placeholder="Ej. solo si el comercio es responsable de IVA" onChange={(e) => setDraft({ ...draft, conditions: e.target.value })} />
  </label>
  </div>
- <p className="text-[11px] text-[var(--color-text-secondary)]">
+ <p className="text-xs text-[var(--color-text-secondary)]">
  {checkout
  ? 'En el checkout el impuesto se suma encima del precio.'
  : 'Este cobro no tiene una línea donde sumar el impuesto: se registra como incluido en el precio y solo informa cuánto es impuesto; no cambia lo que se cobra.'}
@@ -332,7 +332,7 @@ export default function TaxRules() {
  <button
  onClick={createDraft}
  disabled={working}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)] disabled:opacity-60"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)]"
  >
  Guardar borrador
  </button>
@@ -379,15 +379,15 @@ export default function TaxRules() {
  maxLength={300}
  onChange={(e) => setRefs({ ...refs, [r._id]: e.target.value })}
  />
- <button onClick={() => validate(r)} disabled={working} className="cursor-pointer rounded-lg bg-[var(--color-success)] px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-60">Aprobar</button>
+ <button onClick={() => validate(r)} disabled={working} className="cursor-pointer rounded bg-[var(--color-success)] px-2.5 py-1 text-xs font-bold text-[var(--zp-bg)]">Aprobar</button>
  </div>
  ) : (
- <p className="text-[11px] text-[var(--color-text-secondary)]">
+ <p className="text-xs text-[var(--color-text-secondary)]">
  Espera la aprobación de otra persona con permiso de aprobación tributaria. Quien propone o edita una regla no la aprueba.
  </p>
  )}
  <PermissionGate permission={Permission.FINANCE_MANAGE}>
- <button onClick={() => remove(r)} disabled={working} className="cursor-pointer rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-main)] disabled:opacity-60">Eliminar</button>
+ <button onClick={() => remove(r)} disabled={working} className="cursor-pointer rounded border border-[var(--color-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-text-main)]">Eliminar</button>
  </PermissionGate>
  </div>
  ) : (

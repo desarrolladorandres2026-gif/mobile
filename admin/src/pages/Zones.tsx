@@ -1,7 +1,4 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import {
- MapPin, Plus, Search, X, AlertCircle, Pencil, Trash2, ArrowUpDown,
-} from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'leaflet-draw';
@@ -142,7 +139,7 @@ export default function Zones() {
  polygon: {
  allowIntersection: false,
  showArea: true,
- shapeOptions: { color: '#D69E26' },
+ shapeOptions: { color: 'var(--color-primary)' },
  },
  marker: false, circle: false, circlemarker: false,
  rectangle: false, polyline: false,
@@ -272,53 +269,53 @@ export default function Zones() {
  z.city.toLowerCase().includes(search.toLowerCase())
  );
 
- const inputClass = 'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
- const labelClass = 'block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5';
+ const inputClass = 'w-full h-10 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
+ const labelClass = 'block text-xs font-bold text-[var(--color-text-main)] mb-1.5';
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="page-header">
  <div>
- <h1 className="page-title">Zonas de Cobertura</h1>
+ <h1 className="page-title">Zonas de cobertura</h1>
  <p className="page-subtitle">Polígonos que definen tarifa y pedido mínimo por sector</p>
  </div>
  <PermissionGate permission={Permission.ZONES_MANAGE}>
  <button
  onClick={openCreate}
- className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
+ className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-xs font-bold text-white rounded transition-all cursor-pointer flex items-center justify-center gap-2"
  >
- <Plus className="w-4 h-4" />
- <span>Nueva Zona</span>
+ 
+ <span>Nueva zona</span>
  </button>
  </PermissionGate>
  </div>
 
  <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
  <div className="relative w-full md:w-80">
- <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-main)]" />
+ 
  <input
  type="text"
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- placeholder="Buscar por nombre o ciudad..."
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
+ placeholder="Buscar por nombre o ciudad…"
+ className="field"
  />
  </div>
- <p className="text-[11px] text-[var(--color-text-main)] font-medium flex items-center gap-1.5">
- <ArrowUpDown className="w-3.5 h-3.5" />
+ <p className="text-xs text-[var(--color-text-main)] font-medium flex items-center gap-1.5">
+ 
  Cuando dos zonas se superponen, gana la de mayor prioridad
  </p>
  </div>
 
  {error && (
  <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
- <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
+ 
  <p className="flex-1 font-semibold">{error}</p>
  </div>
  )}
 
  {loading ? (
- <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <div className="state-line">
  Cargando zonas...
  </div>
  ) : filtered.length === 0 ? (
@@ -370,16 +367,16 @@ export default function Zones() {
  onClick={() => openEdit(z)}
  title="Editar"
  className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-text-main)]"
- >
- <Pencil className="w-4 h-4" />
+ >Editar
+ 
  </button>
  </PermissionGate>
  <button
  onClick={() => setConfirmDelete(z)}
  title="Eliminar"
  className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-danger)]"
- >
- <Trash2 className="w-4 h-4" />
+ >Eliminar
+ 
  </button>
  </div>
  </td>
@@ -392,17 +389,17 @@ export default function Zones() {
  )}
 
  {showModal && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-3xl rounded-2xl p-6 space-y-3 max-h-[92vh] overflow-y-auto">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-3xl rounded p-6 space-y-3 max-h-[92vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <MapPin className="w-5 h-5 text-[var(--color-text-main)]" />
+ 
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
  {editingId ? 'Editar Zona' : 'Nueva Zona de Cobertura'}
  </h3>
  </div>
- <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
- <X className="w-5 h-5" />
+ <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded cursor-pointer">Cerrar
+ 
  </button>
  </div>
 
@@ -411,13 +408,13 @@ export default function Zones() {
  <label className={labelClass}>Dibuja el polígono de la zona</label>
  <div
  ref={mapContainerRef}
- className="w-full h-72 rounded-xl border border-[var(--color-border)] overflow-hidden"
+ className="w-full h-72 rounded border border-[var(--color-border)] overflow-hidden"
  />
- <p className="text-[10px] text-[var(--color-text-main)] mt-1.5">
+ <p className="text-xs text-[var(--color-text-main)] mt-1.5">
  Usa el ícono de polígono de la esquina superior izquierda del mapa. Dibujar uno nuevo reemplaza al anterior.
  </p>
  {polygonError && (
- <p className="text-[11px] text-[var(--color-danger)] font-semibold mt-1.5">{polygonError}</p>
+ <p className="text-xs text-[var(--color-danger)] font-semibold mt-1.5">{polygonError}</p>
  )}
  </div>
 
@@ -459,7 +456,7 @@ export default function Zones() {
  className={inputClass + ' font-mono'} placeholder="0" />
  </div>
  <div>
- <label className={labelClass}>Pedido Mínimo</label>
+ <label className={labelClass}>Pedido mínimo</label>
  <NumericInput value={form.minOrder}
  onValueChange={(d) => setForm({ ...form, minOrder: Number(d) })}
  className={inputClass + ' font-mono'} placeholder="0" />
@@ -490,7 +487,7 @@ export default function Zones() {
 
  <button
  type="submit"
- className="w-full h-11 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-white font-bold text-xs uppercase tracking-wider rounded-lg shadow-sm cursor-pointer mt-2"
+ className="w-full h-11 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-white font-bold text-xs rounded cursor-pointer mt-2"
  >
  {editingId ? 'Guardar Cambios' : 'Crear Zona'}
  </button>
@@ -500,15 +497,15 @@ export default function Zones() {
  )}
 
  {history && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[85vh] overflow-y-auto">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-xl rounded p-6 space-y-3 max-h-[85vh] overflow-y-auto">
  <div className="flex items-start justify-between gap-3 border-b border-[var(--color-border-light)] pb-3">
  <div>
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Historial de tarifas</h3>
  <p className="text-xs text-[var(--color-text-main)]">{history.zone.name} · cada pedido guarda la versión que usó</p>
  </div>
- <button onClick={() => setHistory(null)} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-main)]">
- <X className="w-5 h-5" />
+ <button onClick={() => setHistory(null)} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-main)]">Cerrar
+ 
  </button>
  </div>
  <ul className="divide-y divide-[var(--color-border-light)] text-xs">
@@ -524,7 +521,7 @@ export default function Zones() {
  {v.changeReason && <p className="text-[var(--color-text-main)]">Motivo: {v.changeReason}</p>}
  </li>
  ))}
- {history.versions.length === 0 && <li className="py-6 text-center text-[var(--color-text-main)]">Sin versiones registradas.</li>}
+ {history.versions.length === 0 && <li className="state-line">Sin versiones registradas.</li>}
  </ul>
  </div>
  </div>

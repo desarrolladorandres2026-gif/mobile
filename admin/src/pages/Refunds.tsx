@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
 import EntityLink from '../components/EntityLink';
@@ -98,7 +97,7 @@ export default function Refunds() {
  ];
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Reembolsos y contracargos</h1>
@@ -109,7 +108,7 @@ export default function Refunds() {
  <button
  key={t.id}
  onClick={() => { setFilter(t.id); setPage(1); }}
- className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${
+ className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold transition-all ${
  filter === t.id
  ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
@@ -134,14 +133,14 @@ export default function Refunds() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+  {error}
  </p>
  )}
 
  {loading ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : items.length === 0 ? (
- <p className="py-10 text-center text-xs text-[var(--color-text-main)]">
+ <p className="state-line">
  {filter === 'attention' ? 'Nada requiere atención: no hay reembolsos fallidos ni trabados.' : 'No hay registros con este filtro.'}
  </p>
  ) : (

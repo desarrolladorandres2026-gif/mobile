@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { Permission } from '../lib/permissions';
@@ -141,11 +140,11 @@ export default function BusinessSecurity() {
   const members = summary?.members ?? [];
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-8">
       <div className="page-header">
         <div className="min-w-0">
           <Link to="/businesses" className="mb-2 inline-flex items-center gap-1 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]">
-            <ArrowLeft className="h-3.5 w-3.5" /> Negocios
+             Negocios
           </Link>
           <h1 className="page-title">Seguridad{summary ? ` · ${summary.business.name}` : ''}</h1>
           <p className="page-subtitle">Sesiones, dispositivos e historial de acceso del dueño y su personal</p>
@@ -154,17 +153,17 @@ export default function BusinessSecurity() {
           <button
             type="button"
             onClick={() => setPending({ kind: 'export' })}
-            className="flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-[var(--color-border)] px-4 text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]"
+            className="flex h-9 cursor-pointer items-center gap-2 rounded border border-[var(--color-border)] px-4 text-xs font-bold text-[var(--color-text-main)]"
           >
-            <Download className="h-4 w-4" /> Exportar
+             Exportar
           </button>
           {canManage && (
             <button
               type="button"
               onClick={() => setPending({ kind: 'business' })}
-              className="flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-danger)] px-4 text-xs font-bold uppercase tracking-wider text-white"
+              className="flex h-9 cursor-pointer items-center gap-2 rounded bg-[var(--danger-fill)] px-4 text-xs font-bold text-white"
             >
-              <ShieldOff className="h-4 w-4" /> Cerrar todas las sesiones
+               Cerrar todas las sesiones
             </button>
           )}
         </div>
@@ -183,7 +182,7 @@ export default function BusinessSecurity() {
         <>
           {summary.unknownActiveSessions > 0 && (
             <p className="flex items-start gap-2 text-sm font-semibold text-[var(--color-text-main)]">
-              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              
               <span>
                 {summary.unknownActiveSessions === 1
                   ? 'Hay 1 sesión abierta desde un dispositivo nuevo o sin identificar.'
@@ -200,12 +199,12 @@ export default function BusinessSecurity() {
             <Stat label="Nuevos · 30 días" value={summary.newDevices30d} />
             <Stat label="Accesos fallidos · 7 días" value={summary.failedAttempts7d} warn={summary.failedAttempts7d >= 5} />
             <div className="min-w-0">
-              <dt className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">Último acceso</dt>
+              <dt className="text-xs font-bold text-[var(--color-text-secondary)]">Último acceso</dt>
               <dd className="truncate text-sm font-semibold text-[var(--color-text-main)]">
                 {summary.lastSuccessfulLogin ? dateTime(summary.lastSuccessfulLogin.createdAt) : 'Sin registro'}
               </dd>
               {summary.lastSuccessfulLogin && (
-                <p className="truncate text-[11px] text-[var(--color-text-secondary)]">
+                <p className="truncate text-xs text-[var(--color-text-secondary)]">
                   {summary.lastSuccessfulLogin.user.name} · {deviceLabel(summary.lastSuccessfulLogin.device)}
                 </p>
               )}
@@ -256,9 +255,9 @@ export default function BusinessSecurity() {
                   </span>
                   <span className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[var(--color-text-secondary)]">
                     {m.twoFactorEnabled ? (
-                      <span className="inline-flex items-center gap-1 font-semibold text-[var(--color-success)]"><ShieldCheck className="h-3.5 w-3.5" /> 2FA activo</span>
+                      <span className="inline-flex items-center gap-1 font-semibold text-[var(--color-success)]"> 2FA activo</span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 font-semibold text-[var(--color-text-main)]"><ShieldOff className="h-3.5 w-3.5" /> Sin 2FA</span>
+                      <span className="inline-flex items-center gap-1 font-semibold text-[var(--color-text-main)]"> Sin 2FA</span>
                     )}
                     <span>Contraseña: {m.passwordChangedAt ? `cambiada ${dateTime(m.passwordChangedAt)}` : 'nunca cambiada'}</span>
                     <span>Último acceso: {dateTime(m.lastLoginAt)}</span>
@@ -370,8 +369,8 @@ export default function BusinessSecurity() {
 function Stat({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">{label}</dt>
-      <dd className={`kpi-value text-2xl ${warn ? '!text-[var(--color-text-main)]' : ''}`}>{value}</dd>
+      <dt className="text-xs font-bold text-[var(--color-text-secondary)]">{label}</dt>
+      <dd className={`kpi-value text-lg ${warn ? '!text-[var(--color-text-main)]' : ''}`}>{value}</dd>
     </div>
   );
 }

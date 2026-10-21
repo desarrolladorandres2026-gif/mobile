@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import { AlertCircle } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import SummaryGrid from '../components/SummaryGrid';
@@ -72,7 +71,7 @@ export default function ProMembership() {
  useEffect(() => { load(); }, [load]);
 
  return (
- <div className="space-y-6 animate-fade-in">
+ <div className="space-y-6">
  <div className="page-header">
  <div>
  <h1 className="page-title">Zipp Pro</h1>
@@ -82,12 +81,12 @@ export default function ProMembership() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {error}
+  {error}
  </p>
  )}
 
  {loading && !data ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : data && (
  <>
  <p className="text-xs text-[var(--color-text-main)]">
@@ -195,7 +194,7 @@ export default function ProMembership() {
  <div>
  <h2 className="mb-2 text-sm font-bold text-[var(--color-text-main)]">Últimas suscripciones</h2>
  {data.recent.length === 0 ? (
- <p className="py-8 text-center text-xs font-semibold text-[var(--color-text-main)]">Nadie se ha suscrito todavía.</p>
+ <p className="state-line">Nadie se ha suscrito todavía.</p>
  ) : (
  <div className="table-container">
  <div className="overflow-x-auto">

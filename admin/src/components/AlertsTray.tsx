@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, BellRing, X } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { useFicha } from '../lib/entityLinks';
@@ -191,14 +190,14 @@ export default function AlertsTray() {
  return (
  <div ref={rootRef} className="relative">
  {banner ? (
- <div role="alert" className="fixed right-4 top-20 z-[60] flex w-[calc(100vw-2rem)] max-w-sm items-start gap-3 rounded-2xl border border-[var(--color-warning)]/40 bg-[var(--color-surface)] p-4 shadow-2xl animate-fade-in">
- <span className="rounded-xl bg-[var(--color-warning)]/15 p-2 text-[var(--color-text-main)]"><BellRing className="h-5 w-5" /></span>
+ <div role="alert" className="fixed right-4 top-20 z-[60] flex w-[calc(100vw-2rem)] max-w-sm items-start gap-3 rounded border border-[var(--color-warning)]/40 bg-[var(--color-surface)] p-4">
+ 
  <button type="button" onClick={() => goTo(banner)} className="min-w-0 flex-1 cursor-pointer text-left">
  <span className="block text-sm font-bold text-[var(--color-text-main)]">Nueva alerta: {banner.title}</span>
  <span className="mt-1 block text-xs text-[var(--color-text-main)]">{banner.detail}</span>
- <span className="mt-2 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Abrir y gestionar</span>
+ <span className="mt-2 block text-xs font-bold text-[var(--color-text-main)]">Abrir y gestionar</span>
  </button>
- <button type="button" onClick={() => setBanner(null)} aria-label="Cerrar aviso" className="cursor-pointer rounded-lg p-1 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)]"><X className="h-4 w-4" /></button>
+ <button type="button" onClick={() => setBanner(null)} aria-label="Cerrar aviso" className="cursor-pointer rounded p-1 text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)]">Cerrar aviso</button>
  </div>
  ) : null}
  <button
@@ -207,18 +206,18 @@ export default function AlertsTray() {
  title="Alertas"
  aria-label={unseen > 0 ? `Alertas: ${unseen} sin ver` : 'Alertas'}
  aria-expanded={isOpen}
- className="relative cursor-pointer rounded-lg p-2 text-[var(--color-text-main)] transition-colors hover:bg-[var(--color-bg-alt)]"
+ className="relative cursor-pointer rounded p-2 text-[var(--color-text-main)] transition-colors hover:bg-[var(--color-bg-alt)]"
  >
- <Bell className="h-4 w-4" />
+ 
  {unseen > 0 ? (
- <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--color-danger)] px-1 text-[9px] font-bold leading-none text-white">
+ <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded bg-[var(--danger-fill)] px-1 text-xs font-bold leading-none text-white">
  {unseen > 99 ? '99+' : unseen}
  </span>
  ) : null}
  </button>
 
  {isOpen ? (
- <div className="zipp-modal absolute right-0 z-50 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl shadow-xl animate-fade-in">
+ <div className="zipp-modal absolute right-0 z-50 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded">
  <div className="flex items-center justify-between px-4 py-3">
  <p className="text-xs font-bold text-[var(--color-text-main)]">Alertas</p>
  </div>
@@ -246,7 +245,6 @@ export default function AlertsTray() {
  onClick={() => goTo(item)}
  className="flex w-full cursor-pointer items-start gap-3 border-t border-[var(--color-border-light)] px-4 py-3 text-left transition-colors hover:text-[var(--color-text-main)]"
  >
- <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${severity.dot}`} />
  <span className="min-w-0 flex-1">
  <span
  className={`block text-xs text-[var(--color-text-main)] ${
@@ -255,10 +253,10 @@ export default function AlertsTray() {
  >
  {item.title}
  </span>
- <span className="block break-words text-[11px] text-[var(--color-text-main)]">
+ <span className="block break-words text-xs text-[var(--color-text-main)]">
  {item.detail}
  </span>
- <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-main)]">
+ <span className="mt-0.5 block text-xs font-semibold text-[var(--color-text-main)]">
  <span className={severity.text}>{severity.label}</span> · {ago(item.at)}
  </span>
  </span>
@@ -269,7 +267,7 @@ export default function AlertsTray() {
 
  <div className="border-t border-[var(--color-border-light)] px-4 py-3">
  {data?.truncated ? (
- <p className="pb-2 text-[11px] text-[var(--color-text-main)]">
+ <p className="pb-2 text-xs text-[var(--color-text-main)]">
  Hay más alertas de las que caben aquí.
  </p>
  ) : null}

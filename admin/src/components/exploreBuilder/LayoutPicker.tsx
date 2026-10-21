@@ -33,7 +33,7 @@ function Schematic({ layout }: { layout: ProductLayout }) {
  {Array.from({ length: cols }).map((__, c) => (
  <span
  key={c}
- className={`h-2.5 rounded-[2px] border border-current ${layout.kind === 'carousel' && c === cols - 1 ? 'w-1.5 opacity-50' : 'flex-1'}`}
+ className={`h-2.5 rounded-[2px] border border-current ${layout.kind === 'carousel' && c === cols - 1 ? 'w-1.5' : 'flex-1'}`}
  />
  ))}
  </div>
@@ -75,7 +75,7 @@ export function LayoutPicker({
  type="button"
  onClick={() => pick(option)}
  aria-pressed={active}
- className={`flex flex-col items-center gap-1.5 px-3 py-2 rounded-lg border text-[11px] font-semibold transition-colors cursor-pointer ${
+ className={`flex flex-col items-center gap-1.5 px-3 py-2 rounded border text-xs font-semibold transition-colors cursor-pointer ${
  active
  ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
@@ -94,7 +94,7 @@ export function LayoutPicker({
  <select
  value={value.card}
  onChange={(e) => onChange({ ...value, card: e.target.value as ProductCard })}
- className="h-9 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-2.5 text-xs text-[var(--color-text-main)] cursor-pointer"
+ className="h-9 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-2.5 text-xs text-[var(--color-text-main)] cursor-pointer"
  >
  {(Object.keys(CARD_LABEL) as ProductCard[]).map((card) => (
  <option key={card} value={card}>{CARD_LABEL[card]}</option>
@@ -109,7 +109,7 @@ export function LayoutPicker({
  <select
  value={value.rows}
  onChange={(e) => onChange({ ...value, rows: Number(e.target.value) })}
- className="h-9 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-2.5 text-xs text-[var(--color-text-main)] cursor-pointer"
+ className="h-9 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-2.5 text-xs text-[var(--color-text-main)] cursor-pointer"
  >
  {Array.from({ length: maxGridRows(value.columns, maxItems) }, (_, i) => i + 1).map((rows) => (
  <option key={rows} value={rows}>{rows} {rows === 1 ? 'fila' : 'filas'} · {rows * value.columns} productos</option>

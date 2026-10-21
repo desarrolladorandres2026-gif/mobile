@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { dateTime, relativeTime } from '../lib/drivers';
@@ -142,7 +141,7 @@ export default function InternalNotes({
  >
  {note.body}
  </p>
- <p className="mt-0.5 text-[10px] uppercase tracking-wider text-[var(--color-text-main)]">
+ <p className="mt-0.5 text-xs text-[var(--color-text-main)]">
  {note.author.name} · <span title={dateTime(note.createdAt)}>{relativeTime(note.createdAt)}</span>
  {deleted && ` · eliminada ${relativeTime(note.deletedAt ?? undefined).toLowerCase()}`}
  </p>
@@ -153,8 +152,8 @@ export default function InternalNotes({
  onClick={() => setToDelete(note)}
  aria-label="Eliminar nota"
  className="shrink-0 cursor-pointer p-1 text-[var(--color-text-main)] hover:text-[var(--color-danger)]"
- >
- <Trash2 className="h-3.5 w-3.5" />
+ >Eliminar nota
+ 
  </button>
  )}
  </li>
@@ -178,7 +177,7 @@ export default function InternalNotes({
 
  {(loadError || deleteError) && (
  <p className="flex items-start gap-1.5 font-semibold text-[var(--color-danger)]">
- <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {loadError || deleteError}
+  {loadError || deleteError}
  </p>
  )}
 
@@ -193,19 +192,19 @@ export default function InternalNotes({
  rows={3}
  maxLength={MAX_LENGTH}
  placeholder="Nota interna: solo la ve el equipo"
- className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
+ className="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]"
  />
  <div className="flex items-start justify-between gap-3">
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  No escribas números de tarjeta ni datos sensibles. Las notas no se editan.
  </p>
- <span className="shrink-0 text-[11px] tabular-nums text-[var(--color-text-main)]">
+ <span className="shrink-0 text-xs tabular-nums text-[var(--color-text-main)]">
  {text.length}/{MAX_LENGTH}
  </span>
  </div>
  {postError && (
  <p className="flex items-start gap-1.5 font-semibold text-[var(--color-danger)]">
- <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {postError}
+  {postError}
  </p>
  )}
  <div className="flex justify-end">
@@ -213,7 +212,7 @@ export default function InternalNotes({
  type="button"
  onClick={submit}
  disabled={posting}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3.5 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+ className="cursor-pointer rounded bg-[var(--color-primary)] px-3.5 py-1.5 text-xs font-bold text-white"
  >
  {posting ? 'Guardando…' : 'Añadir nota'}
  </button>

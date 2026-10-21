@@ -1,5 +1,4 @@
 ﻿import { useState } from 'react';
-import { Download } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 
@@ -38,8 +37,8 @@ async function downloadError(err: unknown): Promise<string> {
 }
 
 const input =
- 'h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]';
-const label = 'text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]';
+ 'h-10 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]';
+const label = 'text-xs font-bold text-[var(--color-text-main)]';
 
 export default function Exports() {
  const [kind, setKind] = useState<(typeof KINDS)[number]['id']>('ledger');
@@ -82,7 +81,7 @@ export default function Exports() {
  const current = KINDS.find((k) => k.id === kind)!;
 
  return (
- <div className="max-w-xl space-y-5 animate-fade-in">
+ <div className="max-w-xl space-y-5">
  <div className="page-header">
  <div>
  <h1 className="page-title">Exportes contables</h1>
@@ -95,10 +94,10 @@ export default function Exports() {
  <button
  key={k.id}
  onClick={() => setKind(k.id)}
- className={`block w-full cursor-pointer py-2.5 text-left ${kind === k.id ? '' : 'opacity-70 hover:opacity-100'}`}
+ className={`block w-full cursor-pointer py-2.5 text-left ${kind === k.id ? '' : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]'}`}
  >
  <p className={`text-sm font-bold ${kind === k.id ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}>{k.label}</p>
- {kind === k.id && <p className="text-[11px] text-[var(--color-text-main)]">{current.hint}</p>}
+ {kind === k.id && <p className="text-xs text-[var(--color-text-main)]">{current.hint}</p>}
  </button>
  ))}
  </div>
@@ -128,9 +127,9 @@ export default function Exports() {
  <button
  onClick={download}
  disabled={busy}
- className="flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-primary)] px-5 text-xs font-bold uppercase tracking-wider text-white disabled:opacity-60"
+ className="flex h-10 cursor-pointer items-center gap-2 rounded bg-[var(--color-primary)] px-5 text-xs font-bold text-white"
  >
- <Download className="h-4 w-4" /> {busy ? 'Generando…' : `Descargar ${current.label.toLowerCase()}`}
+  {busy ? 'Generando…' : `Descargar ${current.label.toLowerCase()}`}
  </button>
  </div>
  );

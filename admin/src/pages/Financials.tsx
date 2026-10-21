@@ -372,11 +372,11 @@ export default function Financials() {
  ];
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  {/* Header */}
  <div className="page-header">
  <div>
- <h1 className="page-title">Consola Financiera ZIPP</h1>
+ <h1 className="page-title">Consola financiera ZIPP</h1>
  <p className="page-subtitle">Balance contable, comisiones, pasivos y liquidaciones de efectivo</p>
  </div>
  <div className="flex gap-1">
@@ -384,7 +384,7 @@ export default function Financials() {
  <button
  key={p}
  onClick={() => setPeriod(p)}
- className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all cursor-pointer border-b-2 ${
+ className={`px-3 py-1.5 text-xs font-bold transition-all cursor-pointer border-b-2 ${
  period === p
  ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
@@ -403,7 +403,7 @@ export default function Financials() {
  )}
 
  {loading ? (
- <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <div className="state-line">
  Cargando balance financiero...
  </div>
  ) : (
@@ -416,10 +416,10 @@ export default function Financials() {
  <div className="flex items-center gap-3">
  
  <div>
- <p className="text-xs font-bold uppercase tracking-wider">
+ <p className="text-xs font-bold">
  {ledger.balanced ? 'Libro Contable Cuadrado' : 'Alerta: Libro Contable Descuadrado'}
  </p>
- <p className="text-[11px] opacity-90">
+ <p className="text-xs opacity-90">
  {ledger.balanced ? 'Los débitos y créditos coinciden en cero diferencias.' : 'Existen discrepancias en los registros financieros.'}
  </p>
  </div>
@@ -502,7 +502,7 @@ export default function Financials() {
  */}
  {incidents.length > 0 && (
  <div className="table-container">
- <div className="px-5 py-4 border-b border-[var(--color-border-light)] bg-[#FEF2F2] flex items-center justify-between">
+ <div className="px-5 py-4 border-b border-[var(--color-border-light)] flex items-center justify-between">
  <div>
  <h3 className="text-sm font-bold text-[var(--color-text-main)] flex items-center gap-2">
  Efectivo no recibido
@@ -519,7 +519,7 @@ export default function Financials() {
  </div>
 
  {errorIncidencia && (
- <div className="px-5 py-2.5 bg-[#FEF2F2] border-b border-[#FECACA] text-xs font-semibold text-[var(--color-text-main)]">
+ <div className="px-5 py-2.5 border-b border-[var(--color-danger)] text-xs font-semibold text-[var(--color-text-main)]">
  {errorIncidencia}
  </div>
  )}
@@ -539,18 +539,18 @@ export default function Financials() {
  Pedido #{inc.orderId?.orderNumber ?? 'N/A'}
  </p>
  <span
- className={`text-[10px] font-bold uppercase tracking-wider ${estado.clase}`}
+ className={`text-xs font-bold ${estado.clase}`}
  >
  {estado.texto}
  </span>
  {inc.resolution && (
- <span className="text-[10px] font-semibold text-[var(--color-text-main)]">
+ <span className="text-xs font-semibold text-[var(--color-text-main)]">
  {RESOLUCION_INCIDENCIA[inc.resolution] ?? inc.resolution}
  </span>
  )}
  </div>
 
- <p className="text-[10px] text-[var(--color-text-main)] mt-1">
+ <p className="text-xs text-[var(--color-text-main)] mt-1">
  Domiciliario:{' '}
  <span className="font-semibold text-[var(--color-text-main)]">
  {inc.driverId?.userId?.name ?? 'Sin nombre'}
@@ -563,12 +563,12 @@ export default function Financials() {
  </p>
 
  {inc.driverNote && (
- <p className="text-[11px] text-[var(--color-text-main)] mt-1.5 italic border-l-2 border-[var(--color-border)] pl-2">
+ <p className="text-xs text-[var(--color-text-main)] mt-1.5 italic border-l-2 border-[var(--color-border)] pl-2">
 "{inc.driverNote}"
  </p>
  )}
  {inc.adminNote && (
- <p className="text-[11px] text-[var(--color-text-main)] mt-1.5 pl-2">
+ <p className="text-xs text-[var(--color-text-main)] mt-1.5 pl-2">
  Resolución: {inc.adminNote}
  {inc.resolvedBy?.name ? ` — ${inc.resolvedBy.name}` : ''}
  </p>
@@ -580,7 +580,7 @@ export default function Financials() {
  {canManage && decidible && !abierto && (
  <button
  onClick={() => { setNotaAdmin(''); revisarIncidencia(inc._id); }}
- className="px-3 py-1 rounded-md text-xs font-bold bg-[var(--color-sidebar-hover)] text-white uppercase tracking-wider hover:bg-[#2A3548] cursor-pointer shadow-xs"
+ className="px-3 py-1 rounded text-xs font-bold bg-[var(--color-sidebar-hover)] text-white hover:bg-[var(--color-surface-hover)] cursor-pointer"
  >
  Revisar
  </button>
@@ -602,40 +602,40 @@ export default function Financials() {
  placeholder="Nota de la decisión (queda en la auditoría)"
  maxLength={500}
  rows={2}
- className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] text-xs text-[var(--color-text-main)] resize-none focus:outline-none focus:border-[var(--color-primary)]"
+ className="w-full px-3 py-2 rounded border border-[var(--color-border)] text-xs text-[var(--color-text-main)] resize-none focus:outline-none focus:border-[var(--color-primary)]"
  />
 
  <div className="flex flex-wrap gap-2">
  <button
  onClick={() => resolverIncidencia(inc._id, 'driver_favor')}
- className="px-3 py-1.5 rounded-md text-xs font-bold bg-[#047857] text-white cursor-pointer hover:bg-[#065F46]"
+ className="px-3 py-1.5 rounded text-xs font-bold bg-[var(--color-success)] text-[var(--zp-bg)] cursor-pointer hover:brightness-90"
  title="Anula el saldo pendiente de este pedido"
  >
  Resolver a favor del domiciliario
  </button>
  <button
  onClick={() => resolverIncidencia(inc._id, 'debt_confirmed')}
- className="px-3 py-1.5 rounded-md text-xs font-bold bg-[#B91C1C] text-white cursor-pointer hover:bg-[#991B1B]"
+ className="px-3 py-1.5 rounded text-xs font-bold bg-[var(--danger-fill)] text-white cursor-pointer hover:brightness-90"
  title="El saldo sigue pendiente de liquidación"
  >
  Confirmar deuda
  </button>
  <button
  onClick={() => resolverIncidencia(inc._id, 'closed')}
- className="px-3 py-1.5 rounded-md text-xs font-bold bg-[var(--color-surface)] text-[var(--color-text-main)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-bg-alt)]"
+ className="px-3 py-1.5 rounded text-xs font-bold bg-[var(--color-surface)] text-[var(--color-text-main)] border border-[var(--color-border)] cursor-pointer hover:bg-[var(--color-bg-alt)]"
  title="Cierre sin efecto sobre el saldo"
  >
  Marcar como resuelta
  </button>
  <button
  onClick={() => { setExpandido(null); setNotaAdmin(''); }}
- className="px-3 py-1.5 rounded-md text-xs font-semibold text-[var(--color-text-main)] cursor-pointer hover:bg-[var(--color-bg-alt)]"
+ className="px-3 py-1.5 rounded text-xs font-semibold text-[var(--color-text-main)] cursor-pointer hover:bg-[var(--color-bg-alt)]"
  >
  Cancelar
  </button>
  </div>
 
- <p className="text-[10px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  A favor del domiciliario anula el saldo · Confirmar deuda lo
  mantiene · Marcar como resuelta no lo toca. Las tres quedan auditadas.
  </p>
@@ -681,7 +681,7 @@ export default function Financials() {
  </div>
  <a
  href="/business-approvals"
- className="shrink-0 rounded-md border border-[var(--color-border)] px-3 py-1 text-[11px] font-semibold text-[var(--color-text-main)]"
+ className="shrink-0 rounded border border-[var(--color-border)] px-3 py-1 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Revisar en Verificar Comercios
  </a>
@@ -704,7 +704,7 @@ export default function Financials() {
  <div key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3.5">
  <div>
  <p className="text-xs font-bold text-[var(--color-text-main)]">{c.businessName ?? 'Comercio'}</p>
- <p className="font-mono text-[10px] text-[var(--color-text-main)]">
+ <p className="font-mono text-xs text-[var(--color-text-main)]">
  Pedido #{c.orderNumber ?? 'N/A'} ·{' '}
  <span className={c.daysOpen > 14 ? 'font-bold text-[var(--color-text-main)]' : ''}>
  {c.daysOpen} días abierto
@@ -716,13 +716,13 @@ export default function Financials() {
  {canManage && (<>
  <button
  onClick={() => openClawback(c, 'collect')}
- className="cursor-pointer rounded-md bg-[var(--color-primary)] px-3 py-1 text-xs font-bold uppercase tracking-wider text-white"
+ className="cursor-pointer rounded bg-[var(--color-primary)] px-3 py-1 text-xs font-bold text-white"
  >
  Cobrar
  </button>
  <button
  onClick={() => openClawback(c, 'write-off')}
- className="cursor-pointer rounded-md border border-[var(--color-border)] px-3 py-1 text-xs font-semibold text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Dar por perdido
  </button>
@@ -767,7 +767,7 @@ export default function Financials() {
  <div key={row._id} className="flex items-center justify-between py-3.5 hover:bg-[var(--color-bg)] transition-colors">
  <div>
  <p className="text-xs font-bold text-[var(--color-text-main)]">{row.driverId?.userId?.name || 'Domiciliario'}</p>
- <p className="text-[10px] text-[var(--color-text-main)] font-mono">
+ <p className="text-xs text-[var(--color-text-main)] font-mono">
  Pedido #{row.orderId?.orderNumber ?? 'N/A'} • <span className={`font-semibold ${estado.clase}`}>{estado.texto}</span>
  </p>
  </div>
@@ -777,7 +777,7 @@ export default function Financials() {
  {canManage && (row.status === 'verified' ? (
  <button
  onClick={() => liquidar([row._id])}
- className="px-3 py-1 rounded-md text-xs font-bold bg-[var(--color-primary)] text-white uppercase tracking-wider hover:bg-[#8A5D08] cursor-pointer shadow-xs"
+ className="px-3 py-1 rounded text-xs font-bold bg-[var(--color-primary)] text-white hover:bg-[var(--accent-fill-hover)] cursor-pointer"
  >
  Liquidar
  </button>
@@ -788,7 +788,7 @@ export default function Financials() {
  setVerifyForm({ reference: '', receiptUrl: '' });
  setVerifyError('');
  }}
- className="px-3 py-1 rounded-md text-xs font-bold bg-[var(--color-primary)] text-white uppercase tracking-wider hover:bg-[#8A5D08] cursor-pointer shadow-xs"
+ className="px-3 py-1 rounded text-xs font-bold bg-[var(--color-primary)] text-white hover:bg-[var(--accent-fill-hover)] cursor-pointer"
  >
  Verificar
  </button>
@@ -799,7 +799,7 @@ export default function Financials() {
  })}
 
  {cash.length === 0 && (
- <div className="p-10 text-center text-[var(--color-text-main)] text-xs font-medium">
+ <div className="state-line">
  No hay efectivo en este estado.
  </div>
  )}
@@ -814,8 +814,8 @@ export default function Financials() {
  )}
 
  {clawbackAction && (
- <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-fade-in">
- <div className="zipp-modal w-full max-w-sm space-y-3 rounded-2xl p-6">
+ <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+ <div className="zipp-modal w-full max-w-sm space-y-3 rounded p-6">
  <div className="flex items-start justify-between gap-3">
  <div>
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
@@ -832,42 +832,42 @@ export default function Financials() {
  {clawbackAction.kind === 'collect' ? (
  <>
  <label className="block space-y-1">
- <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Referencia del pago</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">Referencia del pago</span>
  <input
  value={clawbackForm.reference}
  onChange={(e) => setClawbackForm((f) => ({ ...f, reference: e.target.value }))}
  maxLength={120}
- className="h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
+ className="h-10 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
  />
  </label>
  <label className="block space-y-1">
- <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Enlace del comprobante</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">Enlace del comprobante</span>
  <input
  value={clawbackForm.receiptUrl}
  onChange={(e) => setClawbackForm((f) => ({ ...f, receiptUrl: e.target.value }))}
- placeholder="https://..."
- className="h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
+ placeholder="https://…"
+ className="h-10 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
  />
  </label>
  </>
  ) : (
  <label className="block space-y-1">
- <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Motivo (queda en el libro)</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">Motivo (queda en el libro)</span>
  <textarea
  value={clawbackForm.reason}
  onChange={(e) => setClawbackForm((f) => ({ ...f, reason: e.target.value }))}
  rows={2}
  maxLength={500}
  placeholder="Ej. el comercio cerró y no responde desde hace 60 días"
- className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs outline-none focus:border-[var(--color-primary)]"
+ className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs outline-none focus:border-[var(--color-primary)]"
  />
  </label>
  )}
  {clawbackError && <p className="text-xs font-semibold text-[var(--color-text-main)]">{clawbackError}</p>}
  <button
  onClick={runClawback}
- className={`h-10 w-full cursor-pointer rounded-lg text-xs font-bold uppercase tracking-wider text-white ${
- clawbackAction.kind === 'collect' ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-danger)]'
+ className={`h-10 w-full cursor-pointer rounded text-xs font-bold text-white ${
+ clawbackAction.kind === 'collect' ? 'bg-[var(--color-primary)]' : 'bg-[var(--danger-fill)]'
  }`}
  >
  {clawbackAction.kind === 'collect' ? 'Registrar cobro' : 'Registrar pérdida'}
@@ -877,8 +877,8 @@ export default function Financials() {
  )}
 
  {verifying && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-3">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-sm rounded p-6 space-y-3">
  <div className="flex items-start justify-between gap-3">
  <div>
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Verificar efectivo</h3>
@@ -891,31 +891,31 @@ export default function Financials() {
  </button>
  </div>
  <label className="block space-y-1">
- <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Referencia de la consignación</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">Referencia de la consignación</span>
  <input
  value={verifyForm.reference}
  onChange={(e) => setVerifyForm((f) => ({ ...f, reference: e.target.value }))}
  maxLength={120}
  placeholder="Ej. Nequi 123456789"
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
+ className="w-full h-10 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
  />
  </label>
  <label className="block space-y-1">
- <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Enlace del comprobante</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">Enlace del comprobante</span>
  <input
  value={verifyForm.receiptUrl}
  onChange={(e) => setVerifyForm((f) => ({ ...f, receiptUrl: e.target.value }))}
- placeholder="https://..."
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
+ placeholder="https://…"
+ className="w-full h-10 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs outline-none focus:border-[var(--color-primary)]"
  />
  </label>
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  Monto que debe coincidir con la consignación: <strong className="text-[var(--color-text-main)]">{money(verifying.amount)}</strong>. Si no coincide, el servidor lo rechaza.
  </p>
  {verifyError && <p className="text-xs font-semibold text-[var(--color-text-main)]">{verifyError}</p>}
  <button
  onClick={verificar}
- className="w-full h-10 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-white font-bold text-xs uppercase tracking-wider rounded-lg cursor-pointer"
+ className="w-full h-10 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-white font-bold text-xs rounded cursor-pointer"
  >
  Verificar
  </button>

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Archive, ArchiveRestore, Pencil, Plus, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
@@ -87,10 +86,10 @@ export default function HelpArticles() {
  setEditing(null);
  }, 'No se pudo guardar el artículo.');
 
- const fieldClass = 'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
+ const fieldClass = 'w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Centro de ayuda</h1>
@@ -101,16 +100,16 @@ export default function HelpArticles() {
  <PermissionGate permission={Permission.SUPPORT_MANAGE}>
  <button
  onClick={() => startEdit()}
- className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white"
+ className="flex cursor-pointer items-center gap-2 rounded bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white"
  >
- <Plus className="h-4 w-4" /> Nuevo artículo
+  Nuevo artículo
  </button>
  </PermissionGate>
  </div>
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {error}
+  {error}
  </p>
  )}
 
@@ -121,7 +120,7 @@ export default function HelpArticles() {
  value={form.category}
  onChange={(e) => setForm({ ...form, category: e.target.value as Category })}
  aria-label="Categoría"
- className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]"
+ className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]"
  >
  {Object.entries(CATEGORY_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
  </select>
@@ -133,7 +132,7 @@ export default function HelpArticles() {
  max={9999}
  value={form.sortOrder}
  onChange={(e) => setForm({ ...form, sortOrder: Math.max(0, Math.min(9999, Math.trunc(Number(e.target.value) || 0))) })}
- className="w-20 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-2 text-sm text-[var(--color-text-main)]"
+ className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-2 text-sm text-[var(--color-text-main)]"
  />
  </label>
  <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--color-text-main)]">
@@ -164,13 +163,13 @@ export default function HelpArticles() {
  <div className="flex justify-end gap-2">
  <button
  onClick={() => setEditing(null)}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Cancelar
  </button>
  <button
  onClick={save}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
+ className="cursor-pointer rounded bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
  >
  Guardar
  </button>
@@ -179,24 +178,24 @@ export default function HelpArticles() {
  )}
 
  {loading ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : (
  <div className="space-y-5">
  {(Object.keys(CATEGORY_LABEL) as Category[]).map((category) => {
  const items = articles.filter((a) => a.category === category);
  return (
  <section key={category}>
- <h2 className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{CATEGORY_LABEL[category]}</h2>
+ <h2 className="text-xs font-bold text-[var(--color-text-main)]">{CATEGORY_LABEL[category]}</h2>
  {items.length === 0 ? (
- <p className="py-2 text-xs text-[var(--color-text-main)] opacity-70">Pendiente de configuración: sin artículos.</p>
+ <p className="py-2 text-xs text-[var(--color-text-secondary)]">Pendiente de configuración: sin artículos.</p>
  ) : (
  <ul>
  {items.map((article) => (
  <li key={article._id} className="flex flex-wrap items-start gap-3 border-b border-[var(--color-border-light)] py-3">
- <div className={`min-w-0 flex-1 ${article.isPublished ? '' : 'opacity-50'}`}>
+ <div className={`min-w-0 flex-1 ${article.isPublished ? '' : 'text-[var(--color-text-secondary)]'}`}>
  <p className="font-bold text-[var(--color-text-main)]">
  {article.question}
- {!article.isPublished && <span className="ml-2 text-[10px] uppercase tracking-wider text-[var(--color-text-main)]">sin publicar</span>}
+ {!article.isPublished && <span className="ml-2 text-xs text-[var(--color-text-main)]">sin publicar</span>}
  </p>
  <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--color-text-main)]">{article.answer}</p>
  </div>
@@ -205,23 +204,23 @@ export default function HelpArticles() {
  <button
  onClick={() => startEdit(article)}
  title="Editar"
- className="cursor-pointer rounded-lg border border-[var(--color-border)] p-2 text-[var(--color-text-main)]"
- >
- <Pencil className="h-3.5 w-3.5" />
+ className="cursor-pointer rounded border border-[var(--color-border)] p-2 text-[var(--color-text-main)]"
+ >Editar
+ 
  </button>
  <button
  onClick={() => run(() => api.patch(`/help-articles/${article._id}`, { isPublished: !article.isPublished }), 'No se pudo cambiar el estado.')}
  title={article.isPublished ? 'Quitar de publicados' : 'Publicar'}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] p-2 text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] p-2 text-[var(--color-text-main)]"
  >
- {article.isPublished ? <Archive className="h-3.5 w-3.5" /> : <ArchiveRestore className="h-3.5 w-3.5" />}
+ {article.isPublished ? 'Quitar de publicados' : 'Publicar'}
  </button>
  <button
  onClick={() => setToDelete(article)}
  title="Eliminar"
- className="cursor-pointer rounded-lg border border-[var(--color-danger)] p-2 text-[var(--color-danger)]"
- >
- <Trash2 className="h-3.5 w-3.5" />
+ className="cursor-pointer rounded border border-[var(--color-danger)] p-2 text-[var(--color-danger)]"
+ >Eliminar
+ 
  </button>
  </div>
  </PermissionGate>

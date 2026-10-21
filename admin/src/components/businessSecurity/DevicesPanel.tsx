@@ -64,9 +64,9 @@ export default function DevicesPanel({ businessId, members, onOpenDevice }: Prop
                 <tr key={d.id}>
                   <td className="table-body-cell max-w-[16rem]"><DeviceCell device={d} /></td>
                   <td className="table-body-cell max-w-[14rem]"><UserCell user={d.user} /></td>
-                  <td className="table-body-cell text-[11px]">{dateTime(d.firstSeen)}</td>
-                  <td className="table-body-cell text-[11px]">{dateTime(d.lastSeen)}</td>
-                  <td className="table-body-cell tabular text-[11px]">
+                  <td className="table-body-cell text-xs">{dateTime(d.firstSeen)}</td>
+                  <td className="table-body-cell text-xs">{dateTime(d.lastSeen)}</td>
+                  <td className="table-body-cell tabular text-xs">
                     {d.lastIp ?? '—'}
                     {d.firstIp && d.firstIp !== d.lastIp && <p className="text-[var(--color-text-secondary)]">antes {d.firstIp}</p>}
                   </td>

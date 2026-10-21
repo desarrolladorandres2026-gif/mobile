@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, AlertTriangle, History, PenLine, Plus, RefreshCw, Smartphone } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { fetchBusinessOptions } from '../lib/businessOptions';
@@ -269,18 +268,14 @@ export default function ExploreBuilder() {
  const readOnly = !canManage;
 
  if (loading && !options) {
- return (
- <div className="flex items-center justify-center py-24">
- <RefreshCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin" />
- </div>
- );
+ return null;
  }
 
- const buttonGhost = 'h-9 px-3.5 rounded-lg border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] flex items-center gap-1.5 cursor-pointer hover:border-[var(--color-primary)] transition-colors';
- const buttonPrimary = 'h-9 px-4 rounded-lg bg-[var(--color-primary)] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-60';
+ const buttonGhost = 'h-9 px-3.5 rounded border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] flex items-center gap-1.5 cursor-pointer hover:border-[var(--color-primary)] transition-colors';
+ const buttonPrimary = 'h-9 px-4 rounded bg-[var(--color-primary)] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:opacity-90 transition-opacity';
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="page-header">
  <div>
  <h1 className="page-title">Constructor de Explorar</h1>
@@ -293,10 +288,10 @@ export default function ExploreBuilder() {
  </div>
  <div className="flex flex-wrap items-center gap-2">
  <button type="button" className={buttonGhost} onClick={() => setHistoryOpen(true)}>
- <History className="w-3.5 h-3.5" /> Historial
+  Historial
  </button>
  <button type="button" className={buttonGhost} onClick={() => setMode(mode === 'edit' ? 'preview' : 'edit')}>
- {mode === 'edit' ? <><Smartphone className="w-3.5 h-3.5" /> Solo vista previa</> : <><PenLine className="w-3.5 h-3.5" /> Editar</>}
+ {mode === 'edit' ? <> Solo vista previa</> : <> Editar</>}
  </button>
  {canManage ? (
  <>
@@ -305,7 +300,7 @@ export default function ExploreBuilder() {
  ) : null}
  <button type="button" className={buttonGhost} onClick={saveDraft} disabled={saving}>Guardar borrador</button>
  <button type="button" className={buttonPrimary} onClick={askPublish} disabled={saving}>
- {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null} Publicar
+  Publicar
  </button>
  </>
  ) : null}
@@ -314,7 +309,7 @@ export default function ExploreBuilder() {
 
  {error.length ? (
  <div className="flex items-start gap-2.5 text-xs text-[var(--color-danger)]">
- <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+ 
  <div className="space-y-1">{error.map((line, i) => <p key={i} className={i === 0 ? 'font-semibold' : ''}>{line}</p>)}</div>
  </div>
  ) : null}
@@ -326,7 +321,7 @@ export default function ExploreBuilder() {
  <div className={`grid gap-8 ${mode === 'edit' ? 'xl:grid-cols-[320px_minmax(0,1fr)_auto]' : 'lg:grid-cols-[320px_minmax(0,1fr)]'}`}>
  {/* ── El orden ── */}
  <section className="space-y-3 min-w-0">
- <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <p className="text-xs font-bold text-[var(--color-text-main)]">
  Orden de Explorar · {sections.length} {sections.length === 1 ? 'sección' : 'secciones'}
  </p>
  {sections.length ? (
@@ -351,7 +346,7 @@ export default function ExploreBuilder() {
  <li key={type}>
  <button type="button" onClick={() => addSection(type)} className="w-full text-left py-3 cursor-pointer group">
  <span className="block text-sm font-semibold text-[var(--color-text-main)] group-hover:text-[var(--color-text-main)]">{TYPE_LABEL[type]}</span>
- <span className="block text-[11px] text-[var(--color-text-main)] mt-0.5">{TYPE_HINT[type]}</span>
+ <span className="block text-xs text-[var(--color-text-main)] mt-0.5">{TYPE_HINT[type]}</span>
  </button>
  </li>
  ))}
@@ -361,7 +356,7 @@ export default function ExploreBuilder() {
  </ul>
  ) : (
  <button type="button" onClick={() => setAddOpen(true)} className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] cursor-pointer pt-1">
- <Plus className="w-3.5 h-3.5" /> Agregar sección {selected ? 'debajo de la seleccionada' : ''}
+  Agregar sección {selected ? 'debajo de la seleccionada' : ''}
  </button>
  )
  ) : null}
@@ -369,13 +364,13 @@ export default function ExploreBuilder() {
  {preview?.warnings.length || preview?.blockers.length || previewErrors.length ? (
  <div className="space-y-2 pt-4 border-t border-[var(--color-border-light)]">
  {[...previewErrors, ...(preview?.blockers ?? [])].map((line, i) => (
- <p key={`b${i}`} className="flex items-start gap-2 text-[11px] text-[var(--color-danger)]">
- <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" /> {line}
+ <p key={`b${i}`} className="flex items-start gap-2 text-xs text-[var(--color-danger)]">
+  {line}
  </p>
  ))}
  {(preview?.warnings ?? []).map((line, i) => (
- <p key={`w${i}`} className="flex items-start gap-2 text-[11px] text-[var(--color-text-main)]">
- <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" /> {line}
+ <p key={`w${i}`} className="flex items-start gap-2 text-xs text-[var(--color-text-main)]">
+  {line}
  </p>
  ))}
  </div>
@@ -430,27 +425,27 @@ export default function ExploreBuilder() {
  ) : null}
 
  {publishOpen ? (
- <div className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in" onClick={() => setPublishOpen(false)}>
- <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5" onClick={(e) => e.stopPropagation()}>
+ <div className="fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4" onClick={() => setPublishOpen(false)}>
+ <div className="zipp-modal w-full max-w-md rounded p-6 space-y-2.5" onClick={(e) => e.stopPropagation()}>
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Publicar Explorar</h3>
  <p className="text-xs text-[var(--color-text-main)]">
  {dirty ? 'Se guarda el borrador y ' : ''}la app muestra esta versión en menos de un minuto. Siempre podrás volver a una anterior desde el historial.
  </p>
  <label className="block space-y-1.5">
- <span className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Qué cambió (opcional)</span>
+ <span className="block text-xs font-bold text-[var(--color-text-main)]">Qué cambió (opcional)</span>
  <textarea
  value={publishNote}
  onChange={(e) => setPublishNote(e.target.value)}
  maxLength={200}
  rows={2}
  placeholder="Ej. Almuerzos arriba de 11 a 2:30"
- className="w-full rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 py-2.5 text-xs text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:outline-none resize-none"
+ className="w-full rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 py-2.5 text-xs text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:outline-none resize-none"
  />
  </label>
  <div className="flex justify-end gap-2">
  <button type="button" className={buttonGhost} onClick={() => setPublishOpen(false)}>Cancelar</button>
  <button type="button" className={buttonPrimary} onClick={publish} disabled={saving}>
- {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null} Publicar
+  Publicar
  </button>
  </div>
  </div>

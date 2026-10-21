@@ -1,7 +1,6 @@
 import { useLiveReload } from '../hooks/useLiveReload';
 import { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, Printer, RefreshCw, X } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { PermissionGate } from '../components/PermissionGate';
@@ -182,7 +181,7 @@ function Section({ title, hint, children, className = '' }: {
  <section className={className}>
  <div className="mb-2 pb-1.5 border-b border-[var(--color-border)]">
  <h2 className="text-sm font-bold text-[var(--color-text-main)]">{title}</h2>
- {hint ? <p className="text-[10px] text-[var(--color-text-secondary)]">{hint}</p> : null}
+ {hint ? <p className="text-xs text-[var(--color-text-secondary)]">{hint}</p> : null}
  </div>
  {children}
  </section>
@@ -198,7 +197,7 @@ function Line({ label, value, strong, muted, note }: {
  <span className={muted ? 'text-[var(--color-text-secondary)]' : 'text-[var(--color-text-main)]'}>{label}</span>
  <span className={`tabular ${strong ? 'font-bold' : 'font-semibold'} text-[var(--color-text-main)]`}>{value}</span>
  </div>
- {note ? <p className="text-[10px] text-[var(--color-text-secondary)]">{note}</p> : null}
+ {note ? <p className="text-xs text-[var(--color-text-secondary)]">{note}</p> : null}
  </div>
  );
 }
@@ -209,7 +208,7 @@ function Delta({ row, suffix }: { row?: ComparisonRow; suffix: string }) {
  const improved = row.direction === 'flat' ? null : (row.direction === 'up') === row.goodWhenUp;
  const color = improved == null
  ? 'text-[var(--color-text-secondary)]'
- : improved ? 'text-[#059669]' : 'text-[var(--color-danger)]';
+ : improved ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]';
  const text = row.deltaPct == null
  ? (row.deltaAbs === 0 ? '0' : `${row.deltaAbs > 0 ? '+' : ''}${num(row.deltaAbs)}`)
  : `${row.deltaPct > 0 ? '+' : ''}${row.deltaPct}%`;
@@ -221,11 +220,11 @@ function Kpi({ label, value, hint, week, month }: {
 }) {
  return (
  <div className="min-w-0">
- <p className="text-[11px] font-semibold text-[var(--color-text-secondary)] truncate">{label}</p>
- <p className="kpi-value text-xl">{value}</p>
- {hint ? <p className="text-[10px] text-[var(--color-text-secondary)] truncate">{hint}</p> : null}
+ <p className="text-xs font-semibold text-[var(--color-text-secondary)] truncate">{label}</p>
+ <p className="kpi-value text-lg">{value}</p>
+ {hint ? <p className="text-xs text-[var(--color-text-secondary)] truncate">{hint}</p> : null}
  {(week || month) && (
- <p className="text-[10px] flex gap-2 flex-wrap">
+ <p className="text-xs flex gap-2 flex-wrap">
  <Delta row={week} suffix="sem." />
  <Delta row={month} suffix="mes" />
  </p>
@@ -236,13 +235,13 @@ function Kpi({ label, value, hint, week, month }: {
 
 function HealthFlags({ flags }: { flags: HealthFlag[] }) {
  const style: Record<HealthFlag['level'], string> = {
- ok: 'text-[#059669]',
+ ok: 'text-[var(--color-success)]',
  warn: 'text-[var(--color-chart-purple)]',
  critical: 'text-[var(--color-danger)]',
  };
  const shown = flags.filter((f) => f.level !== 'ok');
  if (shown.length === 0) {
- return <p className="text-xs font-semibold text-[#059669]">Nada fuera de lo normal en el cierre del día.</p>;
+ return <p className="text-xs font-semibold text-[var(--color-success)]">Nada fuera de lo normal en el cierre del día.</p>;
  }
  return (
  <div className="flex flex-wrap gap-x-6 gap-y-1">
@@ -283,9 +282,9 @@ function FinanceDetail({ date, onClose }: { date: string; onClose: () => void })
  const pages = data ? Math.max(1, Math.ceil(data.total / data.limit)) : 1;
 
  return createPortal(
- <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4 no-print" onClick={onClose}>
+ <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 no-print" onClick={onClose}>
  <div
- className="zipp-modal w-full max-w-[96vw] max-h-[90vh] flex flex-col rounded-xl shadow-xl bg-[var(--color-bg)] p-5"
+ className="zipp-modal w-full max-w-[96vw] max-h-[90vh] flex flex-col rounded bg-[var(--color-bg)] p-5"
  onClick={(e) => e.stopPropagation()}
  role="dialog"
  aria-label="Detalle financiero del día"
@@ -293,26 +292,26 @@ function FinanceDetail({ date, onClose }: { date: string; onClose: () => void })
  <div className="flex items-start justify-between gap-4 mb-3">
  <div>
  <h2 className="text-base font-bold text-[var(--color-text-main)]">Detalle financiero</h2>
- <p className="text-xs text-[var(--color-text-secondary)] capitalize">
+ <p className="text-xs text-[var(--color-text-secondary)]">
  {longDate(date)} · pedidos entregados y cancelados ese día
  </p>
  </div>
- <button onClick={onClose} className="p-1 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer" aria-label="Cerrar">
- <X className="w-4 h-4" />
+ <button onClick={onClose} className="p-1 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer" aria-label="Cerrar">Cerrar
+ 
  </button>
  </div>
 
  <div className="overflow-auto flex-1 min-h-0">
  {loading && !data ? (
- <p className="py-8 text-center text-xs text-[var(--color-text-secondary)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : error ? (
- <p className="py-8 text-center text-xs text-[var(--color-danger)]">{error}</p>
+ <p className="state-line state-line-error">{error}</p>
  ) : data && data.rows.length === 0 ? (
- <p className="py-8 text-center text-xs text-[var(--color-text-secondary)]">Sin pedidos cerrados este día.</p>
+ <p className="state-line">Sin pedidos cerrados este día.</p>
  ) : data ? (
  <table className="data-grid min-w-[1200px] text-xs">
  <thead className="sticky top-0 bg-[var(--color-bg)]">
- <tr className="text-left text-[10px] uppercase tracking-wider text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
+ <tr className="text-left text-xs text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
  <th className="py-1.5 pr-3 font-semibold">Pedido</th>
  <th className="pr-3 font-semibold">Estado</th>
  <th className="pr-3 font-semibold">Pago</th>
@@ -349,7 +348,7 @@ function FinanceDetail({ date, onClose }: { date: string; onClose: () => void })
  {r.gatewayFee == null ? <span className="text-[var(--color-danger)]">Sin asiento</span> : money(r.gatewayFee)}
  </td>
  <td className="pr-3 text-right tabular">{r.refunded > 0 ? money(r.refunded) : '—'}</td>
- <td className="text-[10px] leading-tight">
+ <td className="text-xs leading-tight">
  <span>Cobro: {r.cashStatus ? label(r.cashStatus) : label(r.paymentStatus)}</span>
  <br />
  <span className="text-[var(--color-text-secondary)]">
@@ -367,8 +366,8 @@ function FinanceDetail({ date, onClose }: { date: string; onClose: () => void })
  <div className="flex items-center justify-between pt-3 mt-2 border-t border-[var(--color-border)] text-xs">
  <span className="text-[var(--color-text-secondary)]">{num(data.total)} pedidos · página {page} de {pages}</span>
  <span className="flex gap-2">
- <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="px-2 py-1 font-semibold text-[var(--color-text-main)] disabled:opacity-40 cursor-pointer">Anterior</button>
- <button disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className="px-2 py-1 font-semibold text-[var(--color-text-main)] disabled:opacity-40 cursor-pointer">Siguiente</button>
+ <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="px-2 py-1 font-semibold text-[var(--color-text-main)] cursor-pointer">Anterior</button>
+ <button disabled={page >= pages} onClick={() => setPage((p) => p + 1)} className="px-2 py-1 font-semibold text-[var(--color-text-main)] cursor-pointer">Siguiente</button>
  </span>
  </div>
  )}
@@ -413,19 +412,19 @@ export default function DailySummary() {
  const pending = data?.pending;
 
  return (
- <div className="flex flex-col gap-3 animate-fade-in lg:-m-4 lg:h-[calc(100vh-7rem)] lg:min-h-[640px] print:h-auto">
+ <div className="flex flex-col gap-3 lg:-m-4 lg:h-[calc(100vh-7rem)] lg:min-h-[640px] print:h-auto">
  <style>{`@media print { aside, header.sticky { display: none !important; } .no-print { display: none !important; } .page-container { padding: 0 !important; } @page { size: A4; margin: 12mm; } html, body, #root { height: auto !important; overflow: visible !important; background: #fff !important; color: #111 !important; } #root > div, main { display: block !important; height: auto !important; overflow: visible !important; background: #fff !important; } * { color-scheme: light !important; box-shadow: none !important; } section { break-inside: avoid; page-break-inside: avoid; } .truncate { overflow: visible !important; white-space: normal !important; } }`}</style>
 
  {/* Encabezado + navegación de fecha */}
  <div className="page-header !mb-0 shrink-0">
  <div>
- <h1 className="page-title">Resumen Diario</h1>
- <p className="page-subtitle capitalize">{longDate(date)}</p>
+ <h1 className="page-title">Resumen diario</h1>
+ <p className="page-subtitle">{longDate(date)}</p>
  </div>
 
  <div className="flex items-center gap-1 no-print">
- <button onClick={() => setDate((d) => shift(d, -1))} className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] transition-colors cursor-pointer" title="Día anterior">
- <ChevronLeft className="w-4 h-4" />
+ <button onClick={() => setDate((d) => shift(d, -1))} className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] transition-colors cursor-pointer" title="Día anterior">Día anterior
+ 
  </button>
  <input
  type="date"
@@ -434,16 +433,16 @@ export default function DailySummary() {
  onChange={(e) => e.target.value && setDate(e.target.value)}
  className="px-2 py-1.5 text-xs text-[var(--color-text-main)] bg-transparent border-b border-[var(--color-border)] focus:outline-none focus:border-[var(--color-primary)] cursor-pointer"
  />
- <button onClick={() => setDate((d) => shift(d, 1))} disabled={isToday} className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" title="Día siguiente">
- <ChevronRight className="w-4 h-4" />
+ <button onClick={() => setDate((d) => shift(d, 1))} disabled={isToday} className="p-2 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] transition-colors cursor-pointer disabled:cursor-not-allowed" title="Día siguiente">Día siguiente
+ 
  </button>
  <PermissionGate permission={Permission.FINANCE_VIEW}>
- <button onClick={() => setShowDetail(true)} className="px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)] hover:text-[#8A5D08] transition-colors cursor-pointer">
+ <button onClick={() => setShowDetail(true)} className="px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)] hover:text-[var(--accent-link)] transition-colors cursor-pointer">
  Ver detalle financiero
  </button>
  </PermissionGate>
- <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)] hover:text-[#8A5D08] transition-colors cursor-pointer">
- <Printer className="w-3.5 h-3.5" />
+ <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)] hover:text-[var(--accent-link)] transition-colors cursor-pointer">
+ 
  Imprimir
  </button>
  </div>
@@ -451,9 +450,9 @@ export default function DailySummary() {
 
  {loading || !t || !data ? (
  <div className="flex flex-col items-center justify-center h-80 text-[var(--color-text-main)] space-y-3">
- <RefreshCw className="w-7 h-7 text-[var(--color-text-main)] animate-spin" />
+ 
  <p className="text-xs font-semibold">
- {loading ? 'Reconstruyendo el día...' : loadError || 'No se pudo cargar el resumen de este día.'}
+ {loading ? 'Reconstruyendo el día…' : loadError || 'No se pudo cargar el resumen de este día.'}
  </p>
  </div>
  ) : (
@@ -537,7 +536,7 @@ export default function DailySummary() {
  <span className="text-[var(--color-text-main)]">{text}</span>
  <span className="tabular font-semibold text-[var(--color-text-main)]">{num(value)}</span>
  </div>
- <p className="text-[10px] flex gap-3">
+ <p className="text-xs flex gap-3">
  <Delta row={week(metric)} suffix="sem." />
  <Delta row={month(metric)} suffix="mes" />
  </p>
@@ -566,10 +565,10 @@ export default function DailySummary() {
  ) : null}
 
  <Section title="Calidad y soporte" hint="Secundario">
- <Line label="Calificación del comercio" value={t.avgBusinessRating ? `${t.avgBusinessRating} ★` : '—'} />
- <Line label="Calificación del domiciliario" value={t.avgDriverRating ? `${t.avgDriverRating} ★` : '—'} />
+ <Line label="Calificación del comercio" value={t.avgBusinessRating ? `${t.avgBusinessRating} de 5` : '–'} />
+ <Line label="Calificación del domiciliario" value={t.avgDriverRating ? `${t.avgDriverRating} de 5` : '–'} />
  <Line label="Reseñas del día" value={num(t.reviewsCount)} />
- <Line label="Reseñas negativas (≤ 2★)" value={num(t.lowRatingsCount)} />
+ <Line label="Reseñas negativas (≤ 2 de 5)" value={num(t.lowRatingsCount)} />
  <Line label="PQRS abiertas" value={num(t.pqrsOpened)}
  note={data.pqrsByType.map((p) => `${PQRS_LABEL[p.type] ?? p.type}: ${p.count}`).join(' · ') || undefined} />
  <Line label="Reembolsos" value={num(t.refundsCount)} />
@@ -577,7 +576,7 @@ export default function DailySummary() {
  </div>
  </div>
 
- <p className="text-[10px] text-[var(--color-text-secondary)] text-right shrink-0">
+ <p className="text-xs text-[var(--color-text-secondary)] text-right shrink-0">
  Generado {new Date(data.generatedAt).toLocaleString('es-CO')}
  </p>
  </>

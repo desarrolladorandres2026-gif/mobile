@@ -1,9 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import {
- Ticket, Plus, Search, X, AlertCircle, Pencil, Percent,
- ToggleLeft, ToggleRight, Banknote, Truck, History, Building2, Landmark,
-} from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
@@ -82,10 +78,10 @@ interface CouponForm {
 
 const DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
-const TIPOS: { id: CouponType; label: string; icon: typeof Percent }[] = [
- { id: 'percentage', label: 'Porcentaje', icon: Percent },
- { id: 'fixed', label: 'Monto fijo', icon: Banknote },
- { id: 'free_delivery', label: 'Envío gratis', icon: Truck },
+const TIPOS: { id: CouponType; label: string}[] = [
+ { id: 'percentage', label: 'Porcentaje' },
+ { id: 'fixed', label: 'Monto fijo' },
+ { id: 'free_delivery', label: 'Envío gratis' },
 ];
 
 const toDateInput = (iso: string) => new Date(iso).toISOString().slice(0, 10);
@@ -120,7 +116,7 @@ function estadoDe(c: Coupon): EstadoFiltro {
 const ESTADO_ESTILO: Record<Exclude<EstadoFiltro, 'all'>, { label: string; bg: string; text: string }> = {
  active: { label: 'Vigente', bg: 'var(--color-primary-bg)', text: 'var(--color-primary)' },
  expired: { label: 'Vencido', bg: 'var(--color-warning-bg)', text: 'var(--color-warning)' },
- inactive: { label: 'Inactivo', bg: 'var(--color-bg-alt)', text: 'var(--color-text-muted)' },
+ inactive: { label: 'Inactivo', bg: 'var(--color-bg-alt)', text: 'var(--color-text-secondary)' },
 };
 
 /** Frase legible del beneficio, con la misma lógica que aplica el backend. */
@@ -360,38 +356,38 @@ export default function Coupons() {
  // dentro de `isActive: true` (ver `fetchAll`).
  const filtered = coupons.filter((c) => estadoFiltro === 'all' || estadoDe(c) === estadoFiltro);
 
- const inputClass = 'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
- const labelClass = 'block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5';
+ const inputClass = 'w-full h-10 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
+ const labelClass = 'block text-xs font-bold text-[var(--color-text-main)] mb-1.5';
 
  const exposicion = exposicionMaxima(form);
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="page-header">
  <div>
- <h1 className="page-title">Cupones y Promociones</h1>
+ <h1 className="page-title">Cupones y promociones</h1>
  <p className="page-subtitle">Códigos de descuento, quién los financia y cuánto pueden costar</p>
  </div>
  <PermissionGate permission={Permission.COUPONS_MANAGE}>
  <button
  onClick={openCreate}
- className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
+ className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-xs font-bold text-white rounded transition-all cursor-pointer flex items-center justify-center gap-2"
  >
- <Plus className="w-4 h-4" />
- <span>Nuevo Cupón</span>
+ 
+ <span>Nuevo cupón</span>
  </button>
  </PermissionGate>
  </div>
 
  <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
  <div className="relative w-full md:w-80">
- <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-main)]" />
+ 
  <input
  type="text"
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- placeholder="Buscar por código..."
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
+ placeholder="Buscar por código…"
+ className="field"
  />
  </div>
 
@@ -418,13 +414,13 @@ export default function Coupons() {
 
  {error && (
  <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
- <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
+ 
  <p className="flex-1 font-semibold">{error}</p>
  </div>
  )}
 
  {loading ? (
- <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <div className="state-line">
  Cargando cupones...
  </div>
  ) : filtered.length === 0 ? (
@@ -481,16 +477,16 @@ export default function Coupons() {
  onClick={() => verHistorial(c)}
  title="Historial de uso"
  className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-text-main)]"
- >
- <History className="w-4 h-4" />
+ >Historial de uso
+ 
  </button>
  <PermissionGate permission={Permission.COUPONS_MANAGE}>
  <button
  onClick={() => openEdit(c)}
  title="Editar"
  className="cursor-pointer text-[var(--color-text-main)] hover:text-[var(--color-text-main)]"
- >
- <Pencil className="w-4 h-4" />
+ >Editar
+ 
  </button>
  </PermissionGate>
  <button
@@ -498,9 +494,7 @@ export default function Coupons() {
  title={c.isActive ? 'Desactivar' : 'Reactivar'}
  className="cursor-pointer text-[var(--color-text-main)]"
  >
- {c.isActive
- ? <ToggleRight className="w-4 h-4" style={{ color: '#000000' }} />
- : <ToggleLeft className="w-4 h-4" style={{ color: 'var(--color-danger)' }} />}
+ {c.isActive ? 'Desactivar' : 'Reactivar'}
  </button>
  </div>
  </td>
@@ -519,37 +513,37 @@ export default function Coupons() {
 
  {/* ── Historial de uso ── */}
  {historial && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-3 max-h-[85vh] overflow-y-auto">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-2xl rounded p-6 space-y-3 max-h-[85vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <History className="w-5 h-5 text-[var(--color-text-main)]" />
+ 
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
  Uso de <span className="font-mono text-[var(--color-text-main)]">{historial.coupon.code}</span>
  </h3>
  </div>
- <button onClick={() => setHistorial(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
- <X className="w-5 h-5" />
+ <button onClick={() => setHistorial(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded cursor-pointer">Cerrar
+ 
  </button>
  </div>
 
  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pb-4 border-b border-[var(--color-border-light)]">
  <div>
- <p className="text-[10px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Canjes</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">Canjes</p>
  <p className="text-lg font-bold text-[var(--color-text-main)] font-mono">{historial.data.usedCount}</p>
  </div>
  <div>
- <p className="text-[10px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Descontado</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">Descontado</p>
  <p className="text-lg font-bold text-[var(--color-text-main)] font-mono">{cop(historial.data.totalDiscounted)}</p>
  </div>
  <div>
- <p className="text-[10px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Presupuesto usado</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">Presupuesto usado</p>
  <p className="text-lg font-bold text-[var(--color-text-main)] font-mono">{cop(historial.data.budgetSpent)}</p>
  </div>
  </div>
 
  {historial.data.redemptions.length === 0 ? (
- <p className="text-xs text-[var(--color-text-main)] text-center py-8 font-semibold">
+ <p className="state-line">
  Este cupón todavía no se ha usado.
  </p>
  ) : (
@@ -560,7 +554,7 @@ export default function Coupons() {
  <p className="text-xs font-bold text-[var(--color-text-main)] truncate">
  {r.userId?.name || 'Usuario eliminado'}
  </p>
- <p className="text-[10px] text-[var(--color-text-main)] font-mono">
+ <p className="text-xs text-[var(--color-text-main)] font-mono">
  Pedido {r.orderId?.orderNumber || '—'} · {new Date(r.createdAt).toLocaleString('es-CO')}
  </p>
  </div>
@@ -577,17 +571,17 @@ export default function Coupons() {
 
  {/* ── Crear / editar ── */}
  {showModal && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-2xl rounded p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <Ticket className="w-5 h-5 text-[var(--color-text-main)]" />
+ 
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
  {editingId ? 'Editar Cupón' : 'Nuevo Cupón'}
  </h3>
  </div>
- <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
- <X className="w-5 h-5" />
+ <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded cursor-pointer">Cerrar
+ 
  </button>
  </div>
 
@@ -629,7 +623,7 @@ export default function Coupons() {
 
  {/* Beneficio */}
  <div className="space-y-2.5 pt-4 border-t border-[var(--color-border-light)]">
- <p className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Beneficio</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">Beneficio</p>
 
  <div className="flex gap-1.5">
  {TIPOS.map((t) => (
@@ -640,13 +634,12 @@ export default function Coupons() {
  type: t.id,
  scope: t.id === 'free_delivery' ? 'delivery' : form.scope,
  })}
- className={`flex-1 flex items-center justify-center gap-1.5 h-10 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${form.type === t.id
+ className={`flex-1 flex items-center justify-center gap-1.5 h-10 rounded text-xs font-semibold transition-all cursor-pointer border ${form.type === t.id
  ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
  : 'bg-[var(--color-bg)] text-[var(--color-text-main)] border-[var(--color-border)] hover:text-[var(--color-text-main)]'
  }`}
  >
- <t.icon className="w-3.5 h-3.5" />
- {t.label}
+  {t.label}
  </button>
  ))}
  </div>
@@ -698,8 +691,8 @@ export default function Coupons() {
  {/* Financiación */}
  <div className="space-y-2.5 pt-4 border-t border-[var(--color-border-light)]">
  <div>
- <p className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Quién lo paga</p>
- <p className="text-[11px] text-[var(--color-text-main)] mt-1">
+ <p className="text-xs font-bold text-[var(--color-text-main)]">Quién lo paga</p>
+ <p className="text-xs text-[var(--color-text-main)] mt-1">
  Determina de qué bolsillo sale el descuento y si la comisión se
  calcula antes o después de aplicarlo.
  </p>
@@ -707,9 +700,9 @@ export default function Coupons() {
 
  <div className="flex gap-1.5">
  {([
- { id: 'platform', label: 'ZIPP', icon: Landmark },
- { id: 'business', label: 'El comercio', icon: Building2 },
- ] as { id: FundedBy; label: string; icon: typeof Landmark }[]).map((f) => (
+ { id: 'platform', label: 'ZIPP' },
+ { id: 'business', label: 'El comercio' },
+ ] as { id: FundedBy; label: string }[]).map((f) => (
  <button
  key={f.id} type="button"
  onClick={() => setForm({
@@ -717,19 +710,18 @@ export default function Coupons() {
  fundedBy: f.id,
  scope: f.id === 'business' ? 'product' : form.scope,
  })}
- className={`flex-1 flex items-center justify-center gap-1.5 h-10 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${form.fundedBy === f.id
+ className={`flex-1 flex items-center justify-center gap-1.5 h-10 rounded text-xs font-semibold transition-all cursor-pointer border ${form.fundedBy === f.id
  ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
  : 'bg-[var(--color-bg)] text-[var(--color-text-main)] border-[var(--color-border)] hover:text-[var(--color-text-main)]'
  }`}
  >
- <f.icon className="w-3.5 h-3.5" />
- {f.label}
+  {f.label}
  </button>
  ))}
  </div>
 
  {form.fundedBy === 'business' && form.type === 'free_delivery' && (
- <div className="text-[var(--color-danger)] text-[11px] font-semibold">
+ <div className="text-[var(--color-danger)] text-xs font-semibold">
  Un comercio no puede financiar envío gratis: esa plata es del
  repartidor y de la plataforma. Cambia el financiador a ZIPP.
  </div>
@@ -759,7 +751,7 @@ export default function Coupons() {
 
  {/* Condiciones */}
  <div className="space-y-2.5 pt-4 border-t border-[var(--color-border-light)]">
- <p className="text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Condiciones de uso</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">Condiciones de uso</p>
 
  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
  <div>
@@ -843,7 +835,7 @@ export default function Coupons() {
  ? form.validDays.filter((x) => x !== i)
  : [...form.validDays, i].sort(),
  })}
- className={`px-3 h-9 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${activo
+ className={`px-3 h-9 rounded text-xs font-semibold transition-all cursor-pointer border ${activo
  ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
  : 'bg-[var(--color-bg)] text-[var(--color-text-main)] border-[var(--color-border)] hover:text-[var(--color-text-main)]'
  }`}
@@ -853,7 +845,7 @@ export default function Coupons() {
  );
  })}
  </div>
- <p className="text-[10px] text-[var(--color-text-main)] mt-1.5">
+ <p className="text-xs text-[var(--color-text-main)] mt-1.5">
  Sin días seleccionados, el cupón vale todos los días.
  </p>
  </div>
@@ -934,7 +926,7 @@ export default function Coupons() {
  ? 'text-[var(--color-chart-purple)]'
  : 'text-[var(--color-text-main)]'
  }`}>
- <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+ 
  <div className="space-y-0.5">
  <p>
  {exposicion === null
@@ -951,7 +943,7 @@ export default function Coupons() {
 
  <button
  type="submit"
- className="w-full h-11 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-white font-bold text-xs uppercase tracking-wider rounded-lg shadow-sm cursor-pointer"
+ className="w-full h-11 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-white font-bold text-xs rounded cursor-pointer"
  >
  {editingId ? 'Guardar Cambios' : 'Crear Cupón'}
  </button>

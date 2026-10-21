@@ -1,8 +1,5 @@
 import { useLiveReload } from '../hooks/useLiveReload';
 import { useCallback, useEffect, useState } from 'react';
-import {
- Inbox, UserCheck, Send, CheckCircle2, AlertTriangle, Timer, Scale, Paperclip,
-} from 'lucide-react';
 import api from '../services/api';
 import SupportMacros from './SupportMacros';
 import HelpArticles from './HelpArticles';
@@ -357,7 +354,7 @@ export default function Support() {
 
  {error ? (
  <p className="flex items-center gap-1.5 text-sm text-[var(--color-danger)]">
- <AlertTriangle className="h-4 w-4" /> {error}
+  {error}
  </p>
  ) : null}
 
@@ -365,14 +362,14 @@ export default function Support() {
  <div className="space-y-1.5">
  <div className="flex flex-wrap items-center gap-2">
  <h2 className="text-lg font-bold text-[var(--color-text-main)]">
- {selected.code ? <span className="mr-2 text-xs font-semibold tracking-wider opacity-70">{selected.code}</span> : null}
+ {selected.code ? <span className="mr-2 text-xs font-semibold">{selected.code}</span> : null}
  {selected.subject}
  </h2>
- <span className={`text-[11px] font-bold uppercase tracking-wider ${PRIORITY[selected.priority].tone}`}>
+ <span className={`text-xs font-bold ${PRIORITY[selected.priority].tone}`}>
  {PRIORITY[selected.priority].label}
  </span>
  </div>
- <p className="text-xs uppercase tracking-wider text-[var(--color-text-main)] opacity-70">
+ <p className="text-xs text-[var(--color-text-secondary)]">
  {selected.category ? `${CATEGORY_LABEL[selected.category]} · ` : ''}{TYPE_LABEL[selected.type]}{selected.reason ? ` (${REASON_LABEL[selected.reason]})` : ''} · {REQUESTER_LABEL[selected.requesterRole ?? 'customer']} ·{' '}
  <EntityLink type="user" id={userIdOf(selected.userId)}>{nameOf(selected.userId) ?? 'Usuario'}</EntityLink> ·{' '}
  {nameOf(selected.assignedTo) ? `lo lleva ${nameOf(selected.assignedTo)}` : 'sin asignar'}
@@ -388,7 +385,7 @@ export default function Support() {
  : 'text-[var(--color-text-main)]'
  }`}
  >
- <Scale className="h-3.5 w-3.5" />
+ 
  {selected.legalOverdue ? 'Plazo legal vencido el ' : 'Plazo legal: '}
  {shortDate(selected.legalDueAt)}
  </span>
@@ -399,7 +396,7 @@ export default function Support() {
  dueLabel(selected.dueAt)!.overdue ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'
  }`}
  >
- <Timer className="h-3.5 w-3.5" /> SLA {dueLabel(selected.dueAt)!.text}
+  SLA {dueLabel(selected.dueAt)!.text}
  </span>
  ) : null}
  </div>
@@ -452,7 +449,7 @@ export default function Support() {
  type="user"
  id={userIdOf(selected.userId)}
  hideWhenDenied
- className="rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] hover:no-underline"
+ className="rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] hover:no-underline"
  >
  Ver cuenta
  </EntityLink>
@@ -461,9 +458,9 @@ export default function Support() {
  <button
  onClick={() => assignToMe(selected._id)}
  disabled={busy}
- className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- <UserCheck className="h-3.5 w-3.5" /> {nameOf(selected.assignedTo) ? 'Tomarlo yo' : 'Asignármelo'}
+  {nameOf(selected.assignedTo) ? 'Tomarlo yo' : 'Asignármelo'}
  </button>
  </PermissionGate>
  )}
@@ -472,7 +469,7 @@ export default function Support() {
  <button
  onClick={() => reopen(selected._id)}
  disabled={busy}
- className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Reabrir caso
  </button>
@@ -485,7 +482,7 @@ export default function Support() {
  value={selected.priority}
  disabled={busy}
  onChange={(e) => changePriority(selected._id, e.target.value)}
- className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
  >
  {Object.entries(PRIORITY).map(([key, { label }]) => <option key={key} value={key}>{label}</option>)}
  </select>
@@ -501,7 +498,7 @@ export default function Support() {
  <ul className="space-y-1 text-xs">
  {selected.evidence.map((item) => (
  <li key={item._id} className="flex items-center gap-1.5 text-[var(--color-text-main)]">
- <Paperclip className="h-3.5 w-3.5 shrink-0" />
+ 
  <button onClick={() => openEvidence(selected._id, item._id)} className="cursor-pointer truncate underline underline-offset-2">
  {item.name}
  </button>
@@ -519,7 +516,7 @@ export default function Support() {
  r.from === 'requester' ? 'border-l-2 border-[var(--color-border)]' : 'border-l-2 border-[var(--color-primary)]'
  }`}
  >
- <span className="block text-[11px] font-semibold opacity-70">
+ <span className="block text-xs font-semibold">
  {r.from === 'requester' ? (nameOf(selected.userId) ?? 'Solicitante') : 'ZIPP'} ·{' '}
  {new Date(r.createdAt).toLocaleString('es-CO')}
  </span>
@@ -537,7 +534,7 @@ export default function Support() {
  const macro = macros.find((m) => m._id === e.target.value);
  if (macro) setReply(fillMacro(macro.body, selected, agentName));
  }}
- className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
  >
  <option value="">Insertar respuesta predefinida…</option>
  {macros
@@ -550,23 +547,23 @@ export default function Support() {
  onChange={(e) => setReply(e.target.value)}
  rows={4}
  placeholder="Lamentamos lo ocurrido. Ya le reembolsamos el pedido completo."
- className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]"
+ className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]"
  />
 
  <div className="flex justify-end gap-2">
  <button
  onClick={() => respond(selected._id)}
  disabled={busy}
- className="flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ className="flex cursor-pointer items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- <Send className="h-3.5 w-3.5" /> Responder
+  Responder
  </button>
  <button
  onClick={() => close(selected._id)}
  disabled={busy}
- className="flex cursor-pointer items-center gap-1 rounded-lg bg-[var(--color-success)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+ className="flex cursor-pointer items-center gap-1 rounded bg-[var(--color-success)] px-3 py-1.5 text-xs font-bold text-[var(--zp-bg)]"
  >
- <CheckCircle2 className="h-3.5 w-3.5" /> Responder y cerrar
+  Responder y cerrar
  </button>
  </div>
  </PermissionGate>
@@ -583,7 +580,7 @@ export default function Support() {
  </p>
  {selected.contactException.status === 'pending' ? (
  <PermissionGate permission={Permission.SUPPORT_MANAGE}>
- <p className="text-xs text-[var(--color-text-main)] opacity-70">
+ <p className="text-xs text-[var(--color-text-secondary)]">
  Hasta decidir no se puede responder este caso ni contactar al cliente. Autorizar no le da el número al comercio: ZIPP hace de puente.
  </p>
  <input
@@ -591,20 +588,20 @@ export default function Support() {
  onChange={(e) => setExceptionNote(e.target.value)}
  maxLength={500}
  placeholder="Por qué se autoriza o se niega"
- className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
  />
  <div className="flex gap-2">
  <button
  onClick={() => decideException(selected._id, 'authorize')}
  disabled={busy}
- className="cursor-pointer rounded-lg bg-[var(--color-success)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+ className="cursor-pointer rounded bg-[var(--color-success)] px-3 py-1.5 text-xs font-bold text-[var(--zp-bg)]"
  >
  Autorizar contacto
  </button>
  <button
  onClick={() => decideException(selected._id, 'deny')}
  disabled={busy}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ className="cursor-pointer rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Negar y cerrar
  </button>
@@ -631,7 +628,7 @@ export default function Support() {
  ) : null}
  {selected.refundRequest?.status !== 'pending' && selected.status !== 'closed' ? (
  <PermissionGate permission={Permission.SUPPORT_MANAGE}>
- <p className="text-xs text-[var(--color-text-main)] opacity-70">
+ <p className="text-xs text-[var(--color-text-secondary)]">
  Soporte no reembolsa: la solicitud llega a Finanzas, que decide en la ficha del pedido.
  </p>
  <input
@@ -639,12 +636,12 @@ export default function Support() {
  onChange={(e) => setRefundReason(e.target.value)}
  maxLength={500}
  placeholder="Por qué se debe reembolsar"
- className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
  />
  <button
  onClick={() => requestRefund(selected._id)}
  disabled={busy}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ className="cursor-pointer rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Solicitar reembolso a Finanzas
  </button>
@@ -701,7 +698,7 @@ export default function Support() {
  ] as const).map(([label, value, alert]) => (
  <div key={label} className="flex items-baseline gap-1.5">
  <dd className={`text-sm font-bold ${alert ? 'text-[var(--color-danger)]' : ''}`}>{value}</dd>
- <dt className="opacity-70">{label}</dt>
+ <dt className="text-[var(--color-text-secondary)]">{label}</dt>
  </div>
  ))}
  </dl>
@@ -721,7 +718,7 @@ export default function Support() {
  >
  {label}
  {view === key && tickets.length > 0 ? (
- <span className="ml-1.5 font-normal text-[var(--color-text-main)] opacity-70">{tickets.length}</span>
+ <span className="ml-1.5 font-normal text-[var(--color-text-secondary)]">{tickets.length}</span>
  ) : null}
  </button>
  ))}
@@ -730,7 +727,7 @@ export default function Support() {
  value={scope}
  onChange={(e) => { setScope(e.target.value as typeof scope); setLimit(PAGE); }}
  aria-label="De quién son los casos"
- className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
  >
  <option value="all">Todos los casos</option>
  <option value="mine">Mis casos</option>
@@ -740,7 +737,7 @@ export default function Support() {
  <select
  value={type}
  onChange={(e) => setType(e.target.value)}
- className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
  >
  <option value="">Todos los tipos</option>
  {Object.entries(TYPE_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
@@ -749,7 +746,7 @@ export default function Support() {
  value={category}
  onChange={(e) => setCategory(e.target.value)}
  aria-label="Categoría"
- className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
  >
  <option value="">Todas las categorías</option>
  {Object.entries(CATEGORY_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
@@ -757,7 +754,7 @@ export default function Support() {
  <select
  value={requester}
  onChange={(e) => setRequester(e.target.value)}
- className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
  >
  <option value="">Quien lo abrió: todos</option>
  {Object.entries(REQUESTER_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
@@ -766,7 +763,7 @@ export default function Support() {
  value={search}
  onChange={(e) => setSearch(e.target.value)}
  placeholder="Asunto, SOP-000123, nombre, teléfono o pedido"
- className="w-56 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="w-56 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
  />
  <button
  onClick={() => setPanel('macros')}
@@ -810,7 +807,7 @@ export default function Support() {
 
  {error ? (
  <p className="mt-2 flex shrink-0 items-center gap-1.5 text-sm text-[var(--color-danger)]">
- <AlertTriangle className="h-4 w-4" /> {error}
+  {error}
  </p>
  ) : null}
 
@@ -818,7 +815,7 @@ export default function Support() {
  <p className="mt-3 text-sm text-[var(--color-text-main)]">Cargando…</p>
  ) : tickets.length === 0 ? (
  <div className="flex flex-col items-center gap-2 py-16">
- <Inbox className="h-8 w-8 text-[var(--color-success)]" />
+ 
  <p className="font-semibold text-[var(--color-text-main)]">La bandeja está vacía</p>
  </div>
  ) : (
@@ -851,7 +848,7 @@ export default function Support() {
  >
  <td className={`table-body-cell ${unanswered ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}>{from}</td>
  <td className="table-body-cell text-[var(--color-text-main)]">
- {ticket.code ? <span className="mr-2 text-[11px] opacity-70">{ticket.code}</span> : null}
+ {ticket.code ? <span className="mr-2 text-xs">{ticket.code}</span> : null}
  {ticket.subject}
  </td>
  <td className="table-body-cell text-[var(--color-text-main)]">{ticket.category ? CATEGORY_LABEL[ticket.category] : TYPE_LABEL[ticket.type]}</td>

@@ -1,8 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import {
- Search, RotateCw, Plus, X, CheckCircle2, ShieldCheck, Lock, Pencil, Trash2, Users as UsersIcon,
-} from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { PermissionGate } from '../components/PermissionGate';
@@ -184,7 +181,7 @@ function RolesList() {
  const canGrant = (perm: string) => myPermissions.includes(perm);
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="page-header">
  <div>
  <h1 className="page-title">Roles</h1>
@@ -194,10 +191,10 @@ function RolesList() {
  <PermissionGate permission={Permission.ROLES_CREATE}>
  <button
  onClick={openCreate}
- className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[var(--color-chart-purple)] text-white text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-2 shadow-lg shadow-[var(--color-primary)]/25"
+ className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[var(--color-chart-purple)] text-white text-xs font-bold rounded transition-all cursor-pointer flex items-center gap-2"
  >
- <Plus className="w-4 h-4" />
- <span>Nuevo Rol</span>
+ 
+ <span>Nuevo rol</span>
  </button>
  </PermissionGate>
  </div>
@@ -205,20 +202,20 @@ function RolesList() {
 
  <div className="zipp-card p-4 flex items-center gap-3">
  <div className="relative w-full md:w-80">
- <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-main)]" />
+ 
  <input
  type="text"
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- placeholder="Buscar rol..."
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none transition-all"
+ placeholder="Buscar rol…"
+ className="field"
  />
  </div>
  </div>
 
  {loading ? (
- <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
- <RotateCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin mx-auto mb-2" />
+ <div className="state-line">
+ 
  Cargando roles...
  </div>
  ) : (
@@ -238,32 +235,25 @@ function RolesList() {
  <tr key={role._id} className="hover:bg-[var(--color-bg)] transition-colors">
  <td className="table-body-cell">
  <div className="flex items-center gap-2">
- {role.isSystem ? (
- <span title="Rol de sistema: no editable">
- <Lock className="w-3.5 h-3.5 text-[var(--color-text-main)]" />
- </span>
- ) : (
- <ShieldCheck className="w-3.5 h-3.5 text-[var(--color-text-main)]" />
- )}
+ 
  <div>
  <p className="text-xs font-bold text-[var(--color-text-main)]">{role.name}</p>
- {role.description && <p className="text-[10px] text-[var(--color-text-main)]">{role.description}</p>}
+ {role.description && <p className="text-xs text-[var(--color-text-main)]">{role.description}</p>}
  </div>
  </div>
  </td>
  <td className="table-body-cell">
  <button
  onClick={() => openUsers(role)}
- className="text-[11px] font-semibold text-[var(--color-text-main)] hover:underline cursor-pointer"
+ className="text-xs font-semibold text-[var(--color-text-main)] hover:underline cursor-pointer"
  >
  {role.permissions.length} permiso{role.permissions.length !== 1 ? 's' : ''}
  </button>
  </td>
  <td className="table-body-cell">
- <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide ${
+ <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${
  role.isActive ? 'text-[var(--color-text-main)]' : 'text-[var(--color-danger)]'
  }`}>
- <span className={`w-1.5 h-1.5 rounded-full ${role.isActive ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-danger)]'}`} />
  {role.isActive ? 'Activo' : 'Inactivo'}
  </span>
  </td>
@@ -272,18 +262,18 @@ function RolesList() {
  <button
  onClick={() => openUsers(role)}
  title="Ver usuarios con este rol"
- className="p-1.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] transition-all cursor-pointer"
- >
- <UsersIcon className="w-3.5 h-3.5" />
+ className="p-1.5 rounded bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] transition-all cursor-pointer"
+ >Ver usuarios con este rol
+ 
  </button>
  {!role.isSystem && (
  <PermissionGate permission={Permission.ROLES_UPDATE}>
  <button
  onClick={() => openEdit(role)}
  title="Editar"
- className="p-1.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] transition-all cursor-pointer"
- >
- <Pencil className="w-3.5 h-3.5" />
+ className="p-1.5 rounded bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] transition-all cursor-pointer"
+ >Editar
+ 
  </button>
  </PermissionGate>
  )}
@@ -291,7 +281,7 @@ function RolesList() {
  <PermissionGate permission={Permission.ROLES_UPDATE}>
  <button
  onClick={() => setConfirmToggle(role)}
- className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase border bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] cursor-pointer"
+ className="px-2 py-1 rounded text-xs font-bold border bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] cursor-pointer"
  >
  {role.isActive ? 'Desactivar' : 'Activar'}
  </button>
@@ -302,9 +292,9 @@ function RolesList() {
  <button
  onClick={() => setConfirmDelete(role)}
  title="Eliminar"
- className="p-1.5 rounded-lg bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] hover:underline transition-all cursor-pointer"
- >
- <Trash2 className="w-3.5 h-3.5" />
+ className="p-1.5 rounded border border-[var(--color-danger-bg)] text-[var(--color-danger)] hover:underline transition-all cursor-pointer"
+ >Eliminar
+ 
  </button>
  </PermissionGate>
  )}
@@ -314,7 +304,7 @@ function RolesList() {
  ))}
  {filteredRoles.length === 0 && (
  <tr>
- <td colSpan={4} className="px-6 py-12 text-center text-[var(--color-text-main)] text-xs font-medium">
+ <td colSpan={4} className="state-line">
  No hay roles que coincidan con la búsqueda.
  </td>
  </tr>
@@ -327,49 +317,47 @@ function RolesList() {
 
  {/* ── Crear / Editar rol ── */}
  {(creating || editing) && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-2xl rounded-2xl p-6 space-y-2.5 max-h-[90vh] overflow-y-auto">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-2xl rounded p-6 space-y-2.5 max-h-[90vh] overflow-y-auto">
  <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
  <div className="flex items-center gap-2">
- <ShieldCheck className="w-5 h-5 text-[var(--color-text-main)]" />
+ 
  <h3 className="text-base font-bold text-[var(--color-text-main)]">{editing ? 'Editar Rol' : 'Nuevo Rol'}</h3>
  </div>
- <button onClick={closeModal} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
- <X className="w-5 h-5" />
- </button>
+ <button onClick={closeModal} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded cursor-pointer">Cerrar</button>
  </div>
 
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
  <div>
- <label className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5">Nombre</label>
+ <label className="block text-xs font-bold text-[var(--color-text-main)] mb-1.5">Nombre</label>
  <input
  type="text"
  value={form.name}
  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none"
+ className="w-full h-10 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none"
  placeholder="Ej. Soporte Nivel 1"
  />
  </div>
  <div>
- <label className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5">Descripción</label>
+ <label className="block text-xs font-bold text-[var(--color-text-main)] mb-1.5">Descripción</label>
  <input
  type="text"
  value={form.description}
  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none"
+ className="w-full h-10 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none"
  placeholder="Opcional"
  />
  </div>
  </div>
 
  <div className="flex items-center justify-between">
- <label className="block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">
+ <label className="block text-xs font-bold text-[var(--color-text-main)]">
  Permisos ({form.permissions.length})
  </label>
  <div className="flex gap-2">
- <button onClick={selectAll} className="text-[11px] font-semibold text-[var(--color-text-main)] hover:underline cursor-pointer">Seleccionar todos</button>
+ <button onClick={selectAll} className="text-xs font-semibold text-[var(--color-text-main)] hover:underline cursor-pointer">Seleccionar todos</button>
  <span className="text-[var(--color-border)]">|</span>
- <button onClick={deselectAll} className="text-[11px] font-semibold text-[var(--color-text-main)] hover:underline cursor-pointer">Deseleccionar todos</button>
+ <button onClick={deselectAll} className="text-xs font-semibold text-[var(--color-text-main)] hover:underline cursor-pointer">Deseleccionar todos</button>
  </div>
  </div>
 
@@ -405,9 +393,9 @@ function RolesList() {
  <label
  key={key}
  title={!grantable ? 'No posees este permiso: no puedes otorgarlo' : undefined}
- className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border cursor-pointer select-none text-[11px] font-medium ${
- checked ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary)]/40 text-[#8A5D08]' : 'bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-main)]'
- } ${!grantable ? 'opacity-40 cursor-not-allowed' : 'hover:border-[var(--color-primary)]/50'}`}
+ className={`flex items-center gap-1.5 px-2.5 py-1 rounded border cursor-pointer select-none text-xs font-medium ${
+ checked ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary)]/40 text-[var(--accent-link)]' : 'bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-main)]'
+ } ${!grantable ? 'text-[var(--color-text-secondary)] cursor-not-allowed' : 'hover:border-[var(--color-primary)]/50'}`}
  >
  <input
  type="checkbox"
@@ -433,16 +421,16 @@ function RolesList() {
  <div className="flex gap-2 pt-2">
  <button
  onClick={closeModal}
- className="flex-1 py-2 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] transition-colors cursor-pointer"
+ className="flex-1 py-2 rounded bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] transition-colors cursor-pointer"
  >
  Cancelar
  </button>
  <button
  onClick={handleSave}
  disabled={saving}
- className="flex-1 py-2 rounded-lg bg-[var(--color-primary)] text-white text-xs font-bold uppercase tracking-wider disabled:opacity-50 transition-all cursor-pointer"
+ className="flex-1 py-2 rounded bg-[var(--color-primary)] text-white text-xs font-bold transition-all cursor-pointer"
  >
- {saving ? 'Guardando...' : editing ? 'Guardar Cambios' : 'Crear Rol'}
+ {saving ? 'Guardando…' : editing ? 'Guardar Cambios' : 'Crear Rol'}
  </button>
  </div>
  </div>
@@ -451,26 +439,26 @@ function RolesList() {
 
  {/* ── Usuarios con este rol ── */}
  {usersOfRole && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-2.5">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-md rounded p-6 space-y-2.5">
  <div className="flex items-center justify-between border-b border-[var(--color-border-light)] pb-3">
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Usuarios con"{usersOfRole.role.name}"</h3>
- <button onClick={() => setUsersOfRole(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
- <X className="w-5 h-5" />
+ <button onClick={() => setUsersOfRole(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded cursor-pointer">Cerrar
+ 
  </button>
  </div>
  <div className="space-y-2 max-h-80 overflow-y-auto">
  {usersOfRole.users.length === 0 && (
- <p className="text-xs text-[var(--color-text-main)] text-center py-6">Ningún usuario tiene este rol asignado directamente.</p>
+ <p className="state-line">Ningún usuario tiene este rol asignado directamente.</p>
  )}
  {usersOfRole.users.map((u) => (
- <div key={u._id} className="flex items-center gap-3 p-2 rounded-lg bg-[var(--color-bg)]">
- <div className="w-7 h-7 rounded-full bg-[var(--color-sidebar-hover)] flex items-center justify-center text-[10px] font-bold text-white">
+ <div key={u._id} className="flex items-center gap-3 p-2 rounded bg-[var(--color-bg)]">
+ <div className="w-7 h-7 rounded bg-[var(--color-sidebar-hover)] flex items-center justify-center text-xs font-bold text-white">
  {u.name?.charAt(0)?.toUpperCase()}
  </div>
  <div>
  <p className="text-xs font-bold text-[var(--color-text-main)]">{u.name}</p>
- <p className="text-[10px] text-[var(--color-text-main)] font-mono">{u.phone}</p>
+ <p className="text-xs text-[var(--color-text-main)] font-mono">{u.phone}</p>
  </div>
  </div>
  ))}
@@ -502,10 +490,10 @@ function RolesList() {
  )}
 
  {toast && (
- <div className={`fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 shadow-lg animate-fade-in ${
+ <div className={`fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded border text-xs font-bold flex items-center gap-2 ${
  toast.type === 'success' ? 'bg-[var(--color-primary-bg)] border-[var(--color-primary-bg)] text-[var(--color-text-main)]' : 'bg-[var(--color-danger-bg)] border-[var(--color-danger-bg)] text-[var(--color-danger)]'
  }`}>
- <CheckCircle2 className="w-4 h-4" />
+ 
  <span>{toast.message}</span>
  </div>
  )}

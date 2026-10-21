@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { X, AlertTriangle, CheckCircle, Ban, PlayCircle, Eye, EyeOff, Camera } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from './ConfirmDialog';
 import DriverFichaTabs, { FichaHeader } from './DriverFichaTabs';
@@ -195,12 +194,12 @@ export default function DriverProfile360({
  return (
  <>
  {/* Pantalla completa dentro del área de contenido: deja a la vista la
- cabecera (h-20) y la barra lateral (w-30, fija desde lg). */}
- <div className="fixed bottom-0 left-0 right-0 top-20 z-30 lg:left-30">
+ la barra lateral (200 px, fija desde lg). */}
+ <div className="fixed bottom-0 left-0 right-0 top-0 z-30 lg:left-[var(--zp-sidebar-w)]">
  <div className="h-full w-full overflow-y-auto bg-[var(--color-bg)] p-6 lg:p-8">
  <div className="flex items-start justify-between gap-4">
  <div className="flex min-w-0 items-center gap-4">
- <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--color-border)] text-lg font-bold uppercase text-[var(--color-text-main)]">
+ <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded border border-[var(--color-border)] text-lg font-bold text-[var(--color-text-main)]">
  {d?.userId?.avatar ? (
  <img src={d.userId.avatar} alt="" className="h-full w-full object-cover" />
  ) : (
@@ -212,17 +211,16 @@ export default function DriverProfile360({
  {d?.userId?.name ?? 'Perfil del domiciliario'}
  </h2>
  {d && account && availability && (
- <p className="flex flex-wrap items-center gap-x-3 text-[11px] font-bold uppercase tracking-wide">
+ <p className="flex flex-wrap items-center gap-x-3 text-xs font-bold">
  <span className={accountStateStyles[account].text}>{accountStateStyles[account].label}</span>
  <span className={`inline-flex items-center gap-1.5 ${availability.text}`}>
- <span className={`h-1.5 w-1.5 rounded-full ${availability.dot}`} />
  {availability.label}
  </span>
  </p>
  )}
  {data && (
- <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[11px]">
- <span className="font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <p className="mt-1 flex flex-wrap items-center gap-x-3 text-xs">
+ <span className="font-bold text-[var(--color-text-main)]">
  {currentView === 'full' ? 'Vista: datos completos' : 'Vista: enmascarada'}
  </span>
  {canSeeSensitive && (
@@ -235,9 +233,9 @@ export default function DriverProfile360({
  className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]"
  >
  {currentView === 'full' ? (
- <><EyeOff className="h-3 w-3" /> Volver a la vista enmascarada</>
+ <> Volver a la vista enmascarada</>
  ) : (
- <><Eye className="h-3 w-3" /> Ver datos completos</>
+ <> Ver datos completos</>
  )}
  </button>
  )}
@@ -245,8 +243,8 @@ export default function DriverProfile360({
  </p>
  )}
  {viewError && (
- <p className="mt-1 flex items-start gap-1.5 text-[11px] font-semibold text-[var(--color-danger)]">
- <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {viewError}
+ <p className="mt-1 flex items-start gap-1.5 text-xs font-semibold text-[var(--color-danger)]">
+  {viewError}
  </p>
  )}
  </div>
@@ -254,15 +252,15 @@ export default function DriverProfile360({
  <button
  onClick={onClose}
  aria-label="Cerrar"
- className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]"
+ className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-bold text-[var(--color-text-main)]"
  >
- <X className="h-4 w-4" /> Volver a domiciliarios
+  Volver a domiciliarios
  </button>
  </div>
 
  {error ? (
  <p className="mt-6 flex items-center gap-1.5 text-sm text-[var(--color-danger)]">
- <AlertTriangle className="h-4 w-4" /> {error}
+  {error}
  </p>
  ) : !data || !d || !account ? (
  <p className="mt-6 text-sm text-[var(--color-text-main)]">Cargando…</p>
@@ -274,9 +272,9 @@ export default function DriverProfile360({
  <PermissionGate permission={Permission.DRIVERS_APPROVE}>
  <button
  onClick={() => runAction(`/drivers/${d._id}/approve`, 'No se pudo aprobar al domiciliario.')}
- className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-white"
+ className="flex cursor-pointer items-center gap-1.5 rounded bg-[var(--color-primary)] px-3.5 py-2 text-xs font-bold text-white"
  >
- <CheckCircle className="h-4 w-4" /> Aprobar
+  Aprobar
  </button>
  </PermissionGate>
  )}
@@ -284,16 +282,16 @@ export default function DriverProfile360({
  <PermissionGate permission={Permission.DRIVERS_SUSPEND}>
  <button
  onClick={() => setConfirmSuspend(true)}
- className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-3.5 py-2 text-xs font-bold uppercase tracking-wider ${
+ className={`flex cursor-pointer items-center gap-1.5 rounded border px-3.5 py-2 text-xs font-bold ${
  account === 'active'
  ? 'border-[var(--color-danger)] text-[var(--color-danger)]'
  : 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  }`}
  >
  {account === 'active' ? (
- <><Ban className="h-4 w-4" /> Suspender</>
+ <> Suspender</>
  ) : (
- <><PlayCircle className="h-4 w-4" /> Reactivar</>
+ <> Reactivar</>
  )}
  </button>
  </PermissionGate>
@@ -302,16 +300,16 @@ export default function DriverProfile360({
  <PermissionGate permission={Permission.DRIVERS_APPROVE}>
  <button
  onClick={() => requestSelfie(d._id)}
- className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]"
+ className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-border)] px-3.5 py-2 text-xs font-bold text-[var(--color-text-main)]"
  >
- <Camera className="h-4 w-4" /> Pedir selfie
+  Pedir selfie
  </button>
  </PermissionGate>
  )}
  {actionNote && <p className="font-semibold text-[var(--color-success)]">{actionNote}</p>}
  {actionError && (
  <p className="flex items-center gap-1.5 font-semibold text-[var(--color-danger)]">
- <AlertTriangle className="h-4 w-4 shrink-0" /> {actionError}
+  {actionError}
  </p>
  )}
  </div>

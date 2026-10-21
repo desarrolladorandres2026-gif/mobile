@@ -1,9 +1,4 @@
 ﻿import { useEffect, useState } from 'react';
-import {
- Megaphone, Plus, Search, X, AlertCircle, AlertTriangle, Trash2, Pencil, Eye,
- ToggleLeft, ToggleRight, ImagePlus, Store, Ban, MousePointerClick,
- XOctagon, BarChart3, Clock, Wallet, Rocket, Compass,
-} from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
@@ -137,7 +132,7 @@ const STATUS_STYLES: Record<AdStatus, { label: string; bg: string; text: string 
  scheduled: { label: 'Programada', bg: 'var(--color-primary-bg)', text: 'var(--color-primary)' },
  active: { label: 'Activa', bg: 'var(--color-success-bg)', text: 'var(--color-success)' },
  paused: { label: 'Pausada', bg: 'var(--color-warning-bg)', text: 'var(--color-warning)' },
- finished: { label: 'Finalizada', bg: 'var(--color-bg-alt)', text: 'var(--color-text-muted)' },
+ finished: { label: 'Finalizada', bg: 'var(--color-bg-alt)', text: 'var(--color-text-secondary)' },
  cancelled: { label: 'Cancelada', bg: 'var(--color-danger-bg)', text: 'var(--color-danger)' },
 };
 
@@ -397,23 +392,23 @@ export default function Campaigns() {
  return matchesSearch && matchesStatus;
  });
 
- const inputClass = 'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
- const labelClass = 'block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5';
+ const inputClass = 'w-full h-10 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
+ const labelClass = 'block text-xs font-bold text-[var(--color-text-main)] mb-1.5';
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="page-header">
  <div>
- <h1 className="page-title">Publicidad Patrocinada</h1>
+ <h1 className="page-title">Publicidad patrocinada</h1>
  <p className="page-subtitle">Campañas patrocinadas: pantalla de carga al abrir la app, o intercaladas en Explorar</p>
  </div>
  <PermissionGate permission={Permission.ADS_MANAGE}>
  <button
  onClick={openCreate}
- className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
+ className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-xs font-bold text-white rounded transition-all cursor-pointer flex items-center justify-center gap-2"
  >
- <Plus className="w-4 h-4" />
- <span>Nueva Campaña</span>
+ 
+ <span>Nueva campaña</span>
  </button>
  </PermissionGate>
  </div>
@@ -431,13 +426,13 @@ export default function Campaigns() {
 
  <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
  <div className="relative w-full md:w-80">
- <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-main)]" />
+ 
  <input
  type="text"
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- placeholder="Buscar por campaña o anunciante..."
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
+ placeholder="Buscar por campaña o anunciante…"
+ className="field"
  />
  </div>
 
@@ -459,13 +454,13 @@ export default function Campaigns() {
 
  {error && (
  <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
- <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
+ 
  <p className="flex-1 font-semibold">{error}</p>
  </div>
  )}
 
  {loading ? (
- <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <div className="state-line">
  Cargando campañas...
  </div>
  ) : (
@@ -477,7 +472,7 @@ export default function Campaigns() {
  <div className="flex items-start gap-2.5 min-w-0">
  <button
  onClick={() => setPreviewCampaign(c)}
- className="w-20 h-14 rounded-lg overflow-hidden bg-[var(--color-bg)] border border-[var(--color-border)] flex-shrink-0 cursor-pointer"
+ className="w-20 h-14 rounded overflow-hidden bg-[var(--color-bg)] border border-[var(--color-border)] flex-shrink-0 cursor-pointer"
  title="Vista previa del flyer"
  >
  <img src={sizedImage(c.flyerUrl, 640)} alt={c.campaignName} loading="lazy" decoding="async" className="w-full h-full object-cover" />
@@ -487,13 +482,13 @@ export default function Campaigns() {
  <div className="flex flex-wrap items-center gap-2.5">
  <h3 className="text-base font-bold text-[var(--color-text-main)] truncate">{c.campaignName}</h3>
  <span
- className="text-[10px] font-bold uppercase tracking-wider"
+ className="text-xs font-bold"
  style={{ color: st.text }}
  >
  {st.label}
  </span>
- <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
- {c.placement === 'explore' ? <Compass className="w-3 h-3" /> : <Rocket className="w-3 h-3" />}
+ <span className="flex items-center gap-1 text-xs font-bold text-[var(--color-text-main)]">
+ 
  {PLACEMENT_LABEL[c.placement ?? 'splash']}
  </span>
  </div>
@@ -519,24 +514,24 @@ export default function Campaigns() {
  ) : null}
  <div className="flex flex-wrap items-center gap-2.5 text-xs text-[var(--color-text-main)]">
  <span>{new Date(c.startDate).toLocaleDateString('es-CO')} — {new Date(c.endDate).toLocaleDateString('es-CO')}</span>
- <span className="text-[var(--color-text-main)] font-mono font-bold text-[11px]">
+ <span className="text-[var(--color-text-main)] font-mono font-bold text-xs">
  Prioridad: {c.priority}
  </span>
  <span className="flex items-center gap-1">
- <Eye className="w-3.5 h-3.5 text-[var(--color-text-main)]" />
+ 
  {c.impressionCount}{c.maxImpressions > 0 ? ` / ${c.maxImpressions}` : ''}
  </span>
  <span className="flex items-center gap-1">
- <MousePointerClick className="w-3.5 h-3.5 text-[var(--color-text-main)]" />
+ 
  {c.clickCount}
  </span>
  <span className="flex items-center gap-1">
- <Clock className="w-3.5 h-3.5 text-[var(--color-text-main)]" />
+ 
  {c.durationSeconds}s
  </span>
  {c.pricePaid > 0 && (
  <span className="flex items-center gap-1">
- <Wallet className="w-3.5 h-3.5 text-[var(--color-text-main)]" />
+ 
  ${c.pricePaid.toLocaleString('es-CO')}
  </span>
  )}
@@ -550,14 +545,14 @@ export default function Campaigns() {
  <PermissionGate permission={Permission.ADS_MANAGE}>
  <button
  onClick={() => handleApprove(c)}
- className="px-3 py-1.5 rounded-lg bg-[var(--color-primary)] text-white text-[11px] font-bold uppercase tracking-wider cursor-pointer"
+ className="px-3 py-1.5 rounded bg-[var(--color-primary)] text-white text-xs font-bold cursor-pointer"
  >
  Aprobar
  </button>
  </PermissionGate>
  <button
  onClick={() => handleReject(c)}
- className="px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-main)] text-[11px] font-bold uppercase tracking-wider cursor-pointer"
+ className="px-3 py-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-main)] text-xs font-bold cursor-pointer"
  >
  Rechazar
  </button>
@@ -570,7 +565,7 @@ export default function Campaigns() {
  <PermissionGate permission={Permission.ADS_MANAGE}>
  <button
  onClick={() => handleClose(c)}
- className="px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-main)] text-[11px] font-bold uppercase tracking-wider cursor-pointer"
+ className="px-3 py-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-text-main)] text-xs font-bold cursor-pointer"
  title="Cerrar la campaña y registrar su cobro"
  >
  Cerrar y cobrar
@@ -579,19 +574,19 @@ export default function Campaigns() {
  ) : null}
  <button
  onClick={() => openStats(c)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Ver estadísticas"
- >
- <BarChart3 className="w-4 h-4" />
+ >Ver estadísticas
+ 
  </button>
 
  <PermissionGate permission={Permission.ADS_MANAGE}>
  <button
  onClick={() => openEdit(c)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Editar campaña"
- >
- <Pencil className="w-4 h-4" />
+ >Editar campaña
+ 
  </button>
  </PermissionGate>
 
@@ -602,11 +597,7 @@ export default function Campaigns() {
  className="cursor-pointer hover:scale-105 transition-transform"
  title={c.isActive ? 'Pausar campaña' : 'Reactivar campaña'}
  >
- {c.isActive ? (
- <ToggleRight className="w-8 h-8" style={{ color: '#000000' }} />
- ) : (
- <ToggleLeft className="w-8 h-8" style={{ color: 'var(--color-danger)' }} />
- )}
+ {c.isActive ? 'Pausar campaña' : 'Reactivar campaña'}
  </button>
  </PermissionGate>
  )}
@@ -615,10 +606,10 @@ export default function Campaigns() {
  <PermissionGate permission={Permission.ADS_MANAGE}>
  <button
  onClick={() => setConfirmCancel(c)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded text-[var(--color-text-main)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Cancelar campaña"
- >
- <XOctagon className="w-4 h-4" />
+ >Cancelar campaña
+ 
  </button>
  </PermissionGate>
  )}
@@ -626,10 +617,10 @@ export default function Campaigns() {
  <PermissionGate permission={Permission.ADS_MANAGE}>
  <button
  onClick={() => setConfirmDelete(c)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded text-[var(--color-text-main)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Eliminar campaña"
- >
- <Trash2 className="w-4 h-4" />
+ >Eliminar campaña
+ 
  </button>
  </PermissionGate>
  </div>
@@ -638,7 +629,7 @@ export default function Campaigns() {
  })}
 
  {filtered.length === 0 && (
- <div className="zipp-card p-12 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <div className="state-line">
  No hay campañas que coincidan con la búsqueda.
  </div>
  )}
@@ -669,22 +660,22 @@ export default function Campaigns() {
 
  {statsCampaign && (
  <div
- className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in"
+ className="fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4"
  onClick={() => setStatsCampaign(null)}
  >
- <div className="zipp-modal w-full max-w-sm rounded-2xl p-6 space-y-3" onClick={(e) => e.stopPropagation()}>
+ <div className="zipp-modal w-full max-w-sm rounded p-6 space-y-3" onClick={(e) => e.stopPropagation()}>
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <BarChart3 className="w-5 h-5 text-[var(--color-text-main)]" />
+ 
  <h3 className="text-base font-bold text-[var(--color-text-main)]">{statsCampaign.campaignName}</h3>
  </div>
- <button onClick={() => setStatsCampaign(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
- <X className="w-5 h-5" />
+ <button onClick={() => setStatsCampaign(null)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded cursor-pointer">Cerrar
+ 
  </button>
  </div>
 
  {statsLoading || !statsData ? (
- <p className="text-xs font-semibold text-[var(--color-text-main)] text-center py-8">Cargando estadísticas...</p>
+ <p className="state-line">Cargando estadísticas…</p>
  ) : (
  <div className="grid grid-cols-2 gap-3">
  {[
@@ -694,8 +685,8 @@ export default function Campaigns() {
  { label: 'Clics Hoy', value: statsData.todayClicks },
  ].map((kpi) => (
  <div key={kpi.label} className="border-b border-[var(--color-border)] py-2">
- <p className="text-[10px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">{kpi.label}</p>
- <p className="text-xl font-bold text-[var(--color-text-main)] mt-1">{kpi.value.toLocaleString('es-CO')}</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">{kpi.label}</p>
+ <p className="text-lg font-bold text-[var(--color-text-main)] mt-1">{kpi.value.toLocaleString('es-CO')}</p>
  </div>
  ))}
  </div>
@@ -706,17 +697,17 @@ export default function Campaigns() {
 
  {previewCampaign && (
  <div
- className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in"
+ className="fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4"
  onClick={() => setPreviewCampaign(null)}
  >
  <div className="relative w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
  <button
  onClick={() => setPreviewCampaign(null)}
  className="absolute -top-10 right-0 text-white/80 hover:text-white cursor-pointer"
- >
- <X className="w-6 h-6" />
+ >Cerrar
+ 
  </button>
- <div className="rounded-2xl overflow-hidden bg-[var(--color-surface)] shadow-xl">
+ <div className="rounded overflow-hidden bg-[var(--color-surface)]">
  {/* Misma composición que la app: recorte proporcional (cover),
  nunca deformado, en el ratio de la superficie de la campaña.
  El recuadro punteado es la zona segura — ahí deben quedar
@@ -732,10 +723,10 @@ export default function Campaigns() {
  alt={previewCampaign.campaignName}
  className="absolute inset-0 w-full h-full object-cover"
  />
- <div className="absolute inset-x-6 inset-y-10 border-2 border-dashed border-white/70 rounded-lg pointer-events-none" />
+ <div className="absolute inset-x-6 inset-y-10 border-2 border-dashed border-white/70 rounded pointer-events-none" />
  </div>
  <div className="p-4">
- <span className="text-[10px] font-bold text-[var(--color-text-main)] uppercase tracking-wider">Publicidad</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">Publicidad</span>
  <h3 className="text-sm font-bold text-[var(--color-text-main)] mt-0.5">{previewCampaign.campaignName}</h3>
  <p className="text-xs text-[var(--color-text-main)]">{previewCampaign.advertiserName}</p>
  </div>
@@ -745,25 +736,25 @@ export default function Campaigns() {
  )}
 
  {showModal && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-xl rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-xl rounded p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <Megaphone className="w-5 h-5 text-[var(--color-text-main)]" />
+ 
  <h3 className="text-base font-bold text-[var(--color-text-main)]">{editingId ? 'Editar Campaña' : 'Nueva Campaña Publicitaria'}</h3>
  </div>
- <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
- <X className="w-5 h-5" />
+ <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded cursor-pointer">Cerrar
+ 
  </button>
  </div>
 
  <form onSubmit={handleSubmit} className="space-y-2.5">
  <div>
- <label className={labelClass}>Dónde Aparece</label>
+ <label className={labelClass}>Dónde aparece</label>
  <div className="flex gap-1.5">
  {[
- { id: 'splash' as const, label: 'Arranque', icon: Rocket },
- { id: 'explore' as const, label: 'Explorar', icon: Compass },
+ { id: 'splash' as const, label: 'Arranque' },
+ { id: 'explore' as const, label: 'Explorar' },
  ].map((opt) => (
  <button
  key={opt.id}
@@ -774,30 +765,29 @@ export default function Campaigns() {
  setAspectWarning('');
  }}
  title={editingId ? 'La superficie no se puede cambiar una vez creada la campaña' : undefined}
- className={`flex-1 flex items-center justify-center gap-1.5 h-10 rounded-lg text-xs font-semibold transition-all border disabled:opacity-50 disabled:cursor-not-allowed ${form.placement === opt.id
+ className={`flex-1 flex items-center justify-center gap-1.5 h-10 rounded text-xs font-semibold transition-all border disabled:cursor-not-allowed ${form.placement === opt.id
  ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
  : 'bg-[var(--color-bg)] text-[var(--color-text-main)] border-[var(--color-border)] hover:text-[var(--color-text-main)]'
  } ${editingId ? '' : 'cursor-pointer'}`}
  >
- <opt.icon className="w-3.5 h-3.5" />
- {opt.label}
+  {opt.label}
  </button>
  ))}
  </div>
  {form.placement === 'explore' ? (
- <p className="text-[11px] text-[var(--color-text-main)] mt-1.5">
+ <p className="text-xs text-[var(--color-text-main)] mt-1.5">
  Se intercala entre las colecciones de Explorar, mezclada con los banners gratuitos.
  </p>
  ) : (
- <p className="text-[11px] text-[var(--color-text-main)] mt-1.5">
+ <p className="text-xs text-[var(--color-text-main)] mt-1.5">
  Pantalla completa al abrir la app.
  </p>
  )}
  </div>
 
  <div>
- <label className={labelClass}>Flyer Publicitario</label>
- <p className="text-[11px] text-[var(--color-text-main)] mb-2">
+ <label className={labelClass}>Flyer publicitario</label>
+ <p className="text-xs text-[var(--color-text-main)] mb-2">
  {RATIO_BY_PLACEMENT[form.placement].label} · recomendado {RATIO_BY_PLACEMENT[form.placement].w}×{RATIO_BY_PLACEMENT[form.placement].h} px.
  {form.placement === 'splash'
  ? ' Se muestra a pantalla completa; el sobrante de los bordes se recorta, la imagen nunca se deforma.'
@@ -805,15 +795,15 @@ export default function Campaigns() {
  </p>
  {form.flyerUrl ? (
  <div
- className="relative mx-auto w-full max-w-xs rounded-xl overflow-hidden border border-[var(--color-border)] group"
+ className="relative mx-auto w-full max-w-xs rounded overflow-hidden border border-[var(--color-border)] group"
  style={{ aspectRatio: `${RATIO_BY_PLACEMENT[form.placement].w} / ${RATIO_BY_PLACEMENT[form.placement].h}` }}
  >
  <img src={form.flyerUrl} alt="Flyer" className="absolute inset-0 w-full h-full object-cover" />
  {/* Zona segura: título, precio y logo deben quedar dentro de este recuadro. */}
- <div className="absolute inset-x-2.5 inset-y-4 border-2 border-dashed border-white/70 rounded-md pointer-events-none" />
+ <div className="absolute inset-x-2.5 inset-y-4 border-2 border-dashed border-white/70 rounded pointer-events-none" />
  <label
  htmlFor="flyer-upload"
- className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer text-white text-xs font-bold text-center px-2"
+ className="absolute inset-0 bg-black/0 group-hover:bg-black/60 flex items-center justify-center invisible group-hover:visible transition-all cursor-pointer text-white text-xs font-bold text-center px-2"
  >
  Cambiar imagen
  </label>
@@ -821,16 +811,16 @@ export default function Campaigns() {
  ) : (
  <label
  htmlFor="flyer-upload"
- className="flex flex-col items-center justify-center h-40 rounded-xl border-2 border-dashed border-[var(--color-border)] text-[var(--color-text-main)] cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-text-main)] transition-colors"
+ className="flex flex-col items-center justify-center h-40 rounded border-2 border-dashed border-[var(--color-border)] text-[var(--color-text-main)] cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-text-main)] transition-colors"
  >
- <ImagePlus className="w-6 h-6 mb-1.5" />
- <span className="text-xs font-semibold">{uploading ? 'Subiendo...' : 'Selecciona una imagen (JPG, PNG, WEBP · máx. 5MB)'}</span>
+ 
+ <span className="text-xs font-semibold">{uploading ? 'Subiendo…' : 'Selecciona una imagen (JPG, PNG, WEBP · máx. 5MB)'}</span>
  </label>
  )}
  <input id="flyer-upload" type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} className="hidden" disabled={uploading} />
  {aspectWarning && (
- <div className="mt-2 flex items-start gap-2 text-[11px] font-medium text-[var(--color-text-main)]">
- <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+ <div className="mt-2 flex items-start gap-2 text-xs font-medium text-[var(--color-text-main)]">
+ 
  <span>{aspectWarning} Puedes continuar y usarla igual.</span>
  </div>
  )}
@@ -844,7 +834,7 @@ export default function Campaigns() {
  className={inputClass} placeholder="Ej. Lanzamiento Verano" />
  </div>
  <div>
- <label className={labelClass}>Nombre del Anunciante</label>
+ <label className={labelClass}>Nombre del anunciante</label>
  <input type="text" required value={form.advertiserName}
  onChange={(e) => setForm({ ...form, advertiserName: e.target.value })}
  className={inputClass} placeholder="Ej. Pollo Frito" />
@@ -853,13 +843,13 @@ export default function Campaigns() {
 
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
  <div>
- <label className={labelClass}>Fecha de Inicio</label>
+ <label className={labelClass}>Fecha de inicio</label>
  <input type="datetime-local" required value={form.startDate}
  onChange={(e) => setForm({ ...form, startDate: e.target.value })}
  className={inputClass} />
  </div>
  <div>
- <label className={labelClass}>Fecha de Finalización</label>
+ <label className={labelClass}>Fecha de finalización</label>
  <input type="datetime-local" required value={form.endDate}
  onChange={(e) => setForm({ ...form, endDate: e.target.value })}
  className={inputClass} />
@@ -874,7 +864,7 @@ export default function Campaigns() {
  className={inputClass} />
  </div>
  <div>
- <label className={labelClass}>Máximo de Impresiones</label>
+ <label className={labelClass}>Máximo de impresiones</label>
  <NumericInput value={form.maxImpressions}
  onValueChange={(d) => setForm({ ...form, maxImpressions: Number(d) })}
  className={inputClass} placeholder="0 = sin límite" />
@@ -897,14 +887,14 @@ export default function Campaigns() {
  </div>
 
  <div>
- <label className={labelClass}>Descripción Interna</label>
+ <label className={labelClass}>Descripción interna</label>
  <textarea
  value={form.internalNotes}
  onChange={(e) => setForm({ ...form, internalNotes: e.target.value })}
  maxLength={500}
  rows={2}
  placeholder="Notas del equipo comercial — nunca visibles para el anunciante ni la app."
- className="w-full rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)] resize-none"
+ className="w-full rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 py-2.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)] resize-none"
  />
  </div>
 
@@ -912,20 +902,19 @@ export default function Campaigns() {
  <label className={labelClass}>Acción al Tocar el Anuncio</label>
  <div className="flex gap-1.5">
  {[
- { id: 'none', label: 'Ninguna', icon: Ban },
- { id: 'business', label: 'Ir a Negocio', icon: Store },
+ { id: 'none', label: 'Ninguna' },
+ { id: 'business', label: 'Ir a Negocio' },
  ].map((opt) => (
  <button
  key={opt.id}
  type="button"
  onClick={() => setForm({ ...form, actionType: opt.id as ActionType })}
- className={`flex-1 flex items-center justify-center gap-1.5 h-10 rounded-lg text-xs font-semibold transition-all cursor-pointer border ${form.actionType === opt.id
+ className={`flex-1 flex items-center justify-center gap-1.5 h-10 rounded text-xs font-semibold transition-all cursor-pointer border ${form.actionType === opt.id
  ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
  : 'bg-[var(--color-bg)] text-[var(--color-text-main)] border-[var(--color-border)] hover:text-[var(--color-text-main)]'
  }`}
  >
- <opt.icon className="w-3.5 h-3.5" />
- {opt.label}
+  {opt.label}
  </button>
  ))}
  </div>
@@ -933,7 +922,7 @@ export default function Campaigns() {
 
  {form.actionType === 'business' && (
  <div>
- <label className={labelClass}>Negocio de Destino</label>
+ <label className={labelClass}>Negocio de destino</label>
  <select required value={form.businessId}
  onChange={(e) => setForm({ ...form, businessId: e.target.value })}
  className={inputClass + ' cursor-pointer'}>
@@ -955,7 +944,7 @@ export default function Campaigns() {
  <button
  type="submit"
  disabled={uploading}
- className="w-full h-11 bg-[var(--color-primary)] hover:bg-[#8A5D08] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-wider rounded-lg shadow-sm cursor-pointer mt-2"
+ className="w-full h-11 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] disabled:cursor-not-allowed text-white font-bold text-xs rounded cursor-pointer mt-2"
  >
  {editingId ? 'Guardar Cambios' : 'Crear Campaña'}
  </button>

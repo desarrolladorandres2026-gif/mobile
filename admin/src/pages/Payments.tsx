@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { ShieldAlert } from 'lucide-react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
 import EntityLink from '../components/EntityLink';
@@ -94,10 +93,10 @@ export default function Payments() {
  }, [load]);
 
  const select =
- 'h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs font-semibold text-[var(--color-text-main)]';
+ 'h-9 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-xs font-semibold text-[var(--color-text-main)]';
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Pagos en línea</h1>
@@ -108,7 +107,7 @@ export default function Payments() {
  <button
  key={t}
  onClick={() => { setTab(t); setPage(1); }}
- className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${
+ className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold transition-all ${
  tab === t
  ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
@@ -122,7 +121,7 @@ export default function Payments() {
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+  {error}
  </p>
  )}
 
@@ -150,9 +149,9 @@ export default function Payments() {
  </div>
 
  {loading ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : items.length === 0 ? (
- <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay pagos con este filtro.</p>
+ <p className="state-line">No hay pagos con este filtro.</p>
  ) : (
  <>
  <div className="table-container">
@@ -196,7 +195,7 @@ export default function Payments() {
  )}
  </>
  ) : loading || !daily ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : (
  <>
  {!daily.feeConfigured && (
@@ -212,13 +211,13 @@ export default function Payments() {
  { label: 'Depósito esperado', value: money(daily.totals.expectedDeposit) },
  ].map((k) => (
  <div key={k.label}>
- <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{k.label}</p>
- <p className="kpi-value mt-1 text-xl text-[var(--color-text-main)]">{k.value}</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">{k.label}</p>
+ <p className="kpi-value mt-1 text-lg text-[var(--color-text-main)]">{k.value}</p>
  </div>
  ))}
  </div>
  {daily.items.length === 0 ? (
- <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hubo cobros aprobados en este periodo.</p>
+ <p className="state-line">No hubo cobros aprobados en este periodo.</p>
  ) : (
  <div className="table-container">
  <div className="overflow-x-auto">
@@ -251,7 +250,7 @@ export default function Payments() {
  </div>
  </div>
  )}
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  Compara el depósito esperado de cada día con el reporte de desembolsos de Wompi. Una diferencia es una tarifa mal cargada o un cobro que Wompi no liquidó.
  </p>
  </>

@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, Archive, ArchiveRestore, Pencil, Plus, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
@@ -83,10 +82,10 @@ export default function SupportMacros() {
  appliesTo: f.appliesTo.includes(type) ? f.appliesTo.filter((t) => t !== type) : [...f.appliesTo, type],
  }));
 
- const fieldClass = 'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
+ const fieldClass = 'w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-main)]';
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Respuestas predefinidas</h1>
@@ -98,16 +97,16 @@ export default function SupportMacros() {
  <PermissionGate permission={Permission.SUPPORT_MANAGE}>
  <button
  onClick={() => startEdit()}
- className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white"
+ className="flex cursor-pointer items-center gap-2 rounded bg-[var(--color-primary)] px-4 py-2 text-xs font-bold text-white"
  >
- <Plus className="h-4 w-4" /> Nueva respuesta
+  Nueva respuesta
  </button>
  </PermissionGate>
  </div>
 
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4" /> {error}
+  {error}
  </p>
  )}
 
@@ -148,13 +147,13 @@ export default function SupportMacros() {
  <div className="flex justify-end gap-2">
  <button
  onClick={() => setEditing(null)}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Cancelar
  </button>
  <button
  onClick={save}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
+ className="cursor-pointer rounded bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
  >
  Guardar
  </button>
@@ -163,21 +162,21 @@ export default function SupportMacros() {
  )}
 
  {loading ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : macros.length === 0 ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">
+ <p className="state-line">
  Aún no hay respuestas predefinidas.
  </p>
  ) : (
  <ul>
  {macros.map((macro) => (
  <li key={macro._id} className="flex flex-wrap items-start gap-3 border-b border-[var(--color-border-light)] py-4">
- <div className={`min-w-0 flex-1 ${macro.isActive ? '' : 'opacity-50'}`}>
+ <div className={`min-w-0 flex-1 ${macro.isActive ? '' : 'text-[var(--color-text-secondary)]'}`}>
  <p className="font-bold text-[var(--color-text-main)]">
  {macro.title}
- {!macro.isActive && <span className="ml-2 text-[10px] uppercase tracking-wider text-[var(--color-text-main)]">archivada</span>}
+ {!macro.isActive && <span className="ml-2 text-xs text-[var(--color-text-main)]">archivada</span>}
  </p>
- <p className="text-[11px] uppercase tracking-wider text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  {macro.appliesTo.length ? macro.appliesTo.map((t) => TYPE_LABEL[t]).join(' · ') : 'Todos los tipos'}
  </p>
  <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--color-text-main)]">{macro.body}</p>
@@ -187,23 +186,23 @@ export default function SupportMacros() {
  <button
  onClick={() => startEdit(macro)}
  title="Editar"
- className="cursor-pointer rounded-lg border border-[var(--color-border)] p-2 text-[var(--color-text-main)]"
- >
- <Pencil className="h-3.5 w-3.5" />
+ className="cursor-pointer rounded border border-[var(--color-border)] p-2 text-[var(--color-text-main)]"
+ >Editar
+ 
  </button>
  <button
  onClick={() => run(() => api.patch(`/pqrs/macros/${macro._id}`, { isActive: !macro.isActive }), 'No se pudo cambiar el estado.')}
  title={macro.isActive ? 'Archivar' : 'Restaurar'}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] p-2 text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] p-2 text-[var(--color-text-main)]"
  >
- {macro.isActive ? <Archive className="h-3.5 w-3.5" /> : <ArchiveRestore className="h-3.5 w-3.5" />}
+ {macro.isActive ? 'Archivar' : 'Restaurar'}
  </button>
  <button
  onClick={() => setToDelete(macro)}
  title="Eliminar"
- className="cursor-pointer rounded-lg border border-[var(--color-danger)] p-2 text-[var(--color-danger)]"
- >
- <Trash2 className="h-3.5 w-3.5" />
+ className="cursor-pointer rounded border border-[var(--color-danger)] p-2 text-[var(--color-danger)]"
+ >Eliminar
+ 
  </button>
  </div>
  </PermissionGate>

@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, Eye } from 'lucide-react';
 import EntityLink from './EntityLink';
 import InternalNotes from './InternalNotes';
 import DriverDossier from './DriverDossier';
@@ -44,7 +43,6 @@ function Indicator({ value, label }: { value: DocumentIndicator; label?: string 
   const s = indicatorStyles[value];
   return (
     <span className={`inline-flex items-center gap-2 ${s.text}`}>
-      <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
       {label ?? s.label}
     </span>
   );
@@ -58,7 +56,7 @@ export function FichaHeader({ data }: { data: Profile360 }) {
   const d = data.driver;
   const op = operationalLabel(f.operation.account, f.operation.status);
   const opColor =
-    op.tone === 'ok' ? 'text-[#047857]' : op.tone === 'danger' ? 'text-[var(--color-danger)]' : op.tone === 'busy' ? 'text-[#B45309]' : 'text-[var(--color-text-main)]';
+    op.tone === 'ok' ? 'text-[var(--color-success)]' : op.tone === 'danger' ? 'text-[var(--color-danger)]' : op.tone === 'busy' ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-main)]';
 
   const quick: Array<[string, DocumentIndicator]> = [
     ['Identidad', f.summary.quick.identity],
@@ -72,7 +70,7 @@ export function FichaHeader({ data }: { data: Profile360 }) {
       <p className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[var(--color-text-main)]">
         <span className={`font-bold ${opColor}`}>{op.label}</span>
         <span>{vehicleLabel(d.vehicleType)}{d.licensePlate ? ` · ${d.licensePlate}` : ''}</span>
-        <span>{d.rating > 0 ? `${d.rating.toFixed(1)} ★ (${d.totalReviews ?? 0})` : 'Sin calificaciones'}</span>
+        <span>{d.rating > 0 ? `${d.rating.toFixed(1)} de 5 (${d.totalReviews ?? 0})` : 'Sin calificaciones'}</span>
         <span>{d.totalDeliveries ?? 0} entregas</span>
         <span className={f.summary.docsUpToDate ? '' : 'font-bold text-[var(--color-danger)]'}>
           {f.summary.docsUpToDate ? 'Documentación al día' : 'Documentación con pendientes'}
@@ -80,15 +78,10 @@ export function FichaHeader({ data }: { data: Profile360 }) {
       </p>
       <ul className="flex flex-wrap gap-x-6 gap-y-1">
         {quick.map(([label, ind]) => {
-          const ok = ind === 'valid';
           const bad = ind === 'expired' || ind === 'rejected';
           return (
             <li key={label} className={`flex items-center gap-1.5 ${bad ? 'font-bold text-[var(--color-danger)]' : 'text-[var(--color-text-main)]'}`}>
-              {ok ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)]" />
-              ) : (
-                <AlertTriangle className={`h-3.5 w-3.5 ${bad ? '' : 'text-[var(--color-text-main)]'}`} />
-              )}
+              
               {label}: {indicatorStyles[ind].label}
             </li>
           );
@@ -149,7 +142,7 @@ export default function DriverFichaTabs({
         }}
         className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]"
       >
-        <Eye className="h-3.5 w-3.5" /> Ver documento
+         Ver documento
       </button>
     ) : (
       ''
@@ -168,7 +161,7 @@ export default function DriverFichaTabs({
             role="tab"
             aria-selected={tab === id}
             onClick={() => setTab(id)}
-            className={`-mb-px cursor-pointer border-b-2 pb-2 text-xs font-bold uppercase tracking-wider ${
+            className={`-mb-px cursor-pointer border-b-2 pb-2 text-xs font-bold ${
               tab === id
                 ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
                 : 'border-transparent text-[var(--color-text-secondary)]'
@@ -181,7 +174,7 @@ export default function DriverFichaTabs({
 
       {fileError && (
         <p className="mb-4 flex items-center gap-1.5 font-semibold text-[var(--color-danger)]">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {fileError}
+           {fileError}
         </p>
       )}
 
@@ -372,7 +365,7 @@ export default function DriverFichaTabs({
                 head={['Fecha', 'Comentario', 'Nota']}
                 empty="Sin calificaciones todavía."
                 right={[2]}
-                rows={data.activity.reviews.map((r) => [day(r.createdAt), r.comment ?? '', `${r.rating}★`])}
+                rows={data.activity.reviews.map((r) => [day(r.createdAt), r.comment ?? '', `${r.rating} de 5`])}
               />
             </div>
           </div>

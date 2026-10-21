@@ -120,15 +120,15 @@ export default function EventsPanel({ businessId, members, filters, onFiltersCha
             <tbody>
               {data?.events.map((e) => (
                 <tr key={e.id}>
-                  <td className="table-body-cell whitespace-nowrap text-[11px]">{dateTime(e.createdAt)}</td>
+                  <td className="table-body-cell whitespace-nowrap text-xs">{dateTime(e.createdAt)}</td>
                   <td className={`table-body-cell text-xs font-bold ${RESULT_TEXT[e.result] ?? ''}`}>{EVENT_LABELS[e.type] ?? e.type}</td>
                   <td className="table-body-cell text-xs">{e.user.name}</td>
-                  <td className="table-body-cell tabular text-[11px]">{e.ip}</td>
-                  <td className="table-body-cell text-[11px]">
+                  <td className="table-body-cell tabular text-xs">{e.ip}</td>
+                  <td className="table-body-cell text-xs">
                     {deviceLabel(e.device)}
                     {e.deviceShortId && <span className="tabular text-[var(--color-text-secondary)]"> · {e.deviceShortId}</span>}
                   </td>
-                  <td className="table-body-cell max-w-[22rem] text-[11px] text-[var(--color-text-secondary)]">{detailOf(e) || '—'}</td>
+                  <td className="table-body-cell max-w-[22rem] text-xs text-[var(--color-text-secondary)]">{detailOf(e) || '—'}</td>
                 </tr>
               ))}
             </tbody>

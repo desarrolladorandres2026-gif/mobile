@@ -1,8 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import {
- AlertCircle, ArrowLeft, CheckCircle, X, FileText, Eye,
-} from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import { PermissionGate } from '../components/PermissionGate';
@@ -84,23 +81,23 @@ function Thumb({ url, label }: { url?: string; label: string }) {
  if (!url) {
  return (
  <div className="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 border border-dashed border-[var(--color-border)] text-[var(--color-text-main)]">
- <FileText className="h-5 w-5" />
- <span className="text-[9px] font-bold uppercase tracking-wider">Sin foto</span>
+ 
+ <span className="text-xs font-bold">Sin foto</span>
  </div>
  );
  }
  if (isPdf(url)) {
  return (
  <a href={url} target="_blank" rel="noreferrer" title={`Abrir ${label} (PDF)`} className="flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 border border-[var(--color-border)] text-[var(--color-text-main)]">
- <FileText className="h-5 w-5" />
- <span className="text-[9px] font-bold uppercase tracking-wider">PDF</span>
+ 
+ <span className="text-xs font-bold">PDF</span>
  </a>
  );
  }
  return (
  <a href={url} target="_blank" rel="noreferrer" title={`Abrir ${label} en tamaño completo`} className="shrink-0">
  <img src={url} alt={label} loading="lazy" className="h-16 w-16 object-cover" />
- <span className="mt-1 block text-center text-[9px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <span className="mt-1 block text-center text-xs font-bold text-[var(--color-text-main)]">
  {label}
  </span>
  </a>
@@ -128,10 +125,10 @@ function RejectForm({
  onChange={(e) => setReason(e.target.value)}
  maxLength={300}
  placeholder="Motivo que verá el domiciliario (p. ej. foto borrosa)"
- className="h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs text-[var(--color-text-main)] outline-none focus:border-[var(--color-danger)]"
+ className="h-9 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs text-[var(--color-text-main)] outline-none focus:border-[var(--color-danger)]"
  />
  {tried && !valid && (
- <p className="text-[11px] font-semibold text-[var(--color-danger)]">Escribe el motivo (mínimo 5 caracteres).</p>
+ <p className="text-xs font-semibold text-[var(--color-danger)]">Escribe el motivo (mínimo 5 caracteres).</p>
  )}
  <div className="flex justify-end gap-2">
  <button onClick={onCancel} className="cursor-pointer px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]">
@@ -139,7 +136,7 @@ function RejectForm({
  </button>
  <button
  onClick={() => (valid && !busy ? onConfirm(reason.trim()) : setTried(true))}
- className="cursor-pointer rounded-lg bg-[var(--color-danger)] px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-white"
+ className="cursor-pointer rounded bg-[var(--danger-fill)] px-3 py-1.5 text-xs font-bold text-white"
  >
  {busy ? 'Guardando…' : 'Confirmar rechazo'}
  </button>
@@ -206,9 +203,9 @@ export default function DriverDocuments() {
  <PermissionGate permission={Permission.DRIVERS_APPROVE}>
  <button
  onClick={() => { setRejecting(null); setReviewing(id); }}
- className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-[#1A1409]"
+ className="flex cursor-pointer items-center gap-1.5 rounded bg-[var(--color-primary)] px-3.5 py-2 text-xs font-bold text-[var(--accent-ink)]"
  >
- <Eye className="h-4 w-4" /> Revisar
+  Revisar
  </button>
  </PermissionGate>
  );
@@ -217,7 +214,7 @@ export default function DriverDocuments() {
 
  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
  <div>
- <dt className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{label}</dt>
+ <dt className="text-xs font-bold text-[var(--color-text-main)]">{label}</dt>
  <dd className="text-sm font-semibold text-[var(--color-text-main)]">{children}</dd>
  </div>
  );
@@ -225,14 +222,14 @@ export default function DriverDocuments() {
  /** Bloque de datos: título + cuadrícula de 2 columnas, separado por una línea fina. */
  const DataGrid = ({ title, children }: { title: string; children: React.ReactNode }) => (
  <section className="space-y-3 border-t border-[var(--color-border)] pt-4">
- <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-main)]">{title}</h2>
+ <h2 className="text-xs font-bold text-[var(--color-text-main)]">{title}</h2>
  <dl className="grid grid-cols-2 gap-x-6 gap-y-4">{children}</dl>
  </section>
  );
 
  const BigImage = ({ url, label }: { url?: string; label: string }) => (
  <div className="space-y-1">
- <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">{label}</p>
+ <p className="text-xs font-bold text-[var(--color-text-main)]">{label}</p>
  {isPdf(url) ? (
  <div className="space-y-2">
  <iframe src={url} title={label} className="h-[70vh] w-full border border-[var(--color-border)]" />
@@ -245,7 +242,7 @@ export default function DriverDocuments() {
  <img src={url} alt={label} className="max-h-96 w-full object-contain" />
  </a>
  ) : (
- <p className="py-8 text-center text-xs font-semibold text-[var(--color-text-main)]">Sin archivo</p>
+ <p className="state-line">Sin archivo</p>
  )}
  </div>
  );
@@ -263,7 +260,7 @@ export default function DriverDocuments() {
  <div className="flex items-start justify-between gap-4">
  <div>
  <button onClick={closeReview} className="mb-2 flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)]">
- <ArrowLeft className="h-4 w-4" /> Volver a la verificación
+  Volver a la verificación
  </button>
  <h1 className="page-title">{title}</h1>
  </div>
@@ -276,16 +273,16 @@ export default function DriverDocuments() {
  <div className="flex items-center gap-2">
  <button
  onClick={onApprove}
- className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3.5 py-2 text-xs font-bold uppercase tracking-wider text-[#1A1409]"
+ className="flex cursor-pointer items-center gap-1.5 rounded bg-[var(--color-primary)] px-3.5 py-2 text-xs font-bold text-[var(--accent-ink)]"
  >
- <CheckCircle className="h-4 w-4" />
+ 
  {working === id ? 'Guardando…' : 'Aprobar'}
  </button>
  <button
  onClick={() => setRejecting(id)}
- className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3.5 py-2 text-xs font-semibold text-[var(--color-danger)]"
+ className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-border)] px-3.5 py-2 text-xs font-semibold text-[var(--color-danger)]"
  >
- <X className="h-4 w-4" /> Rechazar
+  Rechazar
  </button>
  </div>
  )}
@@ -443,7 +440,7 @@ export default function DriverDocuments() {
  const section = (title: string, hint: string, rows: React.ReactNode[], headers: string[]) =>
   rows.length ? (
    <section className="space-y-1">
-    <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+    <h2 className="text-sm font-bold text-[var(--color-text-main)]">
      {title} <span className="text-[var(--color-text-main)]">({rows.length})</span>
     </h2>
     <p className="pb-2 text-xs font-medium text-[var(--color-text-main)]">{hint}</p>
@@ -487,20 +484,20 @@ export default function DriverDocuments() {
  value={search}
  onChange={(e) => setSearch(e.target.value)}
  placeholder="Buscar por domiciliario o placa"
- className="w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="w-64 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
  />
 
  {error && (
  <p className="flex items-start gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+  {error}
  </p>
  )}
 
  {loading ? (
- <p className="py-16 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando verificaciones...</p>
+ <p className="state-line">Cargando verificaciones…</p>
  ) : total === 0 ? (
  <div className="space-y-2 py-16 text-center">
- <CheckCircle className="mx-auto h-8 w-8 text-[var(--color-success)]" />
+ 
  <p className="text-sm font-bold text-[var(--color-text-main)]">No hay nada pendiente</p>
  <p className="text-xs font-medium text-[var(--color-text-main)]">
  Ningún documento ni verificación espera revisión, y nada vence en los próximos 30 días.

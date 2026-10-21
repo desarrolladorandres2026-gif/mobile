@@ -1,5 +1,4 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Download, Eye, FileDown, Pencil, Upload } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from './ConfirmDialog';
 import { PermissionGate } from './PermissionGate';
@@ -38,7 +37,6 @@ function Indicator({ value }: { value: keyof typeof indicatorStyles }) {
   const s = indicatorStyles[value];
   return (
     <span className={`inline-flex items-center gap-2 ${s.text}`}>
-      <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
       {s.label}
     </span>
   );
@@ -182,7 +180,7 @@ function DocumentDetail({
 
       {error && (
         <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-danger)]">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {error}
+           {error}
         </p>
       )}
 
@@ -258,10 +256,10 @@ function DocumentTable({
                         {doc.hasFile && (
                           <>
                             <button type="button" onClick={() => file(doc, 'inline')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]">
-                              <Eye className="h-3.5 w-3.5" /> Ver
+                               Ver
                             </button>
                             <button type="button" onClick={() => file(doc, 'attachment')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]">
-                              <Download className="h-3.5 w-3.5" /> Descargar
+                               Descargar
                             </button>
                           </>
                         )}
@@ -375,7 +373,7 @@ function VehicleEditor({ dossier, onDone }: { dossier: Dossier; onDone: () => vo
             <Definition label="Categoría de licencia">{dossier.licenseCategory}</Definition>
           </dl>
           <button type="button" onClick={() => setEditing(true)} className={actionButtonClass}>
-            <Pencil className="h-3.5 w-3.5" /> Editar vehículo
+             Editar vehículo
           </button>
         </>
       )}
@@ -447,10 +445,10 @@ function ContractSection({ dossier, onDone, onFileError }: { dossier: Dossier; o
       <td>
         <div className="flex items-center gap-1">
           <button type="button" onClick={() => openFile(f, 'inline')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]">
-            <Eye className="h-3.5 w-3.5" /> Ver
+             Ver
           </button>
           <button type="button" onClick={() => openFile(f, 'attachment')} className="flex cursor-pointer items-center gap-1 font-semibold text-[var(--color-text-main)]">
-            <Download className="h-3.5 w-3.5" /> Descargar
+             Descargar
           </button>
           {removable && (
             <button type="button" onClick={() => setRemoving(f)} className="cursor-pointer font-semibold text-[var(--color-danger)]">
@@ -502,7 +500,7 @@ function ContractSection({ dossier, onDone, onFileError }: { dossier: Dossier; o
             <Definition label="Fecha de finalización">{c.endDate ? dossierDay(c.endDate) : 'No aplica'}</Definition>
           </dl>
           <button type="button" onClick={() => setEditing(true)} className={actionButtonClass}>
-            <Pencil className="h-3.5 w-3.5" /> {c.status ? 'Editar contrato' : 'Registrar contrato'}
+             {c.status ? 'Editar contrato' : 'Registrar contrato'}
           </button>
         </>
       )}
@@ -531,8 +529,8 @@ function ContractSection({ dossier, onDone, onFileError }: { dossier: Dossier; o
           </div>
 
           <div className="flex flex-wrap items-end gap-6 pt-2">
-            <label className={`${actionButtonClass} ${busy ? 'opacity-60' : ''}`}>
-              <Upload className="h-3.5 w-3.5" /> {c.file ? 'Reemplazar contrato' : 'Cargar contrato firmado'}
+            <label className={`${actionButtonClass} ${busy ? 'text-[var(--color-text-secondary)]' : ''}`}>
+               {c.file ? 'Reemplazar contrato' : 'Cargar contrato firmado'}
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp,application/pdf"
@@ -551,8 +549,8 @@ function ContractSection({ dossier, onDone, onFileError }: { dossier: Dossier; o
                 <label className={fieldLabelClass} htmlFor="extra-name">Documento adicional</label>
                 <input id="extra-name" value={extraName} onChange={(e) => setExtraName(e.target.value)} placeholder="Ej. Otrosí, acta de entrega" className={`${inputClass} w-64`} />
               </div>
-              <label className={`${actionButtonClass} ${busy || extraName.trim().length < 2 ? 'opacity-60' : ''}`}>
-                <Upload className="h-3.5 w-3.5" /> Adjuntar
+              <label className={`${actionButtonClass} ${busy || extraName.trim().length < 2 ? 'text-[var(--color-text-secondary)]' : ''}`}>
+                 Adjuntar
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,application/pdf"
@@ -572,7 +570,7 @@ function ContractSection({ dossier, onDone, onFileError }: { dossier: Dossier; o
 
       {error && (
         <p className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-danger)]">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {error}
+           {error}
         </p>
       )}
 
@@ -632,7 +630,7 @@ export default function DriverDossier({ driverId, onChanged }: { driverId: strin
   if (error) {
     return (
       <p className="flex items-center gap-1.5 text-sm text-[var(--color-danger)]">
-        <AlertTriangle className="h-4 w-4" /> {error}
+         {error}
       </p>
     );
   }
@@ -664,7 +662,6 @@ export default function DriverDossier({ driverId, onChanged }: { driverId: strin
       <div className="flex flex-wrap items-start justify-between gap-6 pb-6">
         <div className="space-y-2">
           <p className={`flex items-center gap-2 text-base font-bold ${compliance.upToDate ? 'text-[var(--color-text-main)]' : 'text-[var(--color-danger)]'}`}>
-            <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${compliance.upToDate ? 'bg-[var(--color-success)]' : 'bg-[var(--color-danger)]'}`} />
             {compliance.upToDate ? 'Documentación al día' : 'La documentación requiere atención'}
           </p>
           {compliance.issues.length > 0 && (
@@ -676,15 +673,15 @@ export default function DriverDossier({ driverId, onChanged }: { driverId: strin
           )}
         </div>
         <PermissionGate permission={Permission.DRIVERS_APPROVE}>
-          <button type="button" onClick={exportPdf} disabled={exporting} className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white disabled:opacity-60">
-            <FileDown className="h-4 w-4" /> {exporting ? 'Generando expediente…' : 'Descargar expediente completo'}
+          <button type="button" onClick={exportPdf} disabled={exporting} className="flex cursor-pointer items-center gap-2 rounded bg-[var(--color-primary)] px-4 py-2.5 text-xs font-bold text-white">
+             {exporting ? 'Generando expediente…' : 'Descargar expediente completo'}
           </button>
         </PermissionGate>
       </div>
 
       {fileError && (
         <p className="flex items-center gap-1.5 pb-4 font-semibold text-[var(--color-danger)]">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {fileError}
+           {fileError}
         </p>
       )}
 

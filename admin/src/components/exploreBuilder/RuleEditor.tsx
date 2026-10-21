@@ -1,5 +1,4 @@
-﻿import { Plus, X } from 'lucide-react';
-import NumericInput from '../NumericInput';
+﻿import NumericInput from '../NumericInput';
 import type { BuilderOptions, Rule, RuleDSL, RuleSource } from './types';
 import { CATEGORY_LABEL, SALES_LABEL, SORT_LABEL, SOURCE_LABEL, defaultRule } from './sections';
 
@@ -16,7 +15,7 @@ const SOURCES: RuleSource[] = [
  'discount', 'price', 'tags', 'sales', 'new', 'featured', 'businessCategory', 'businessRating', 'prepTime', 'nearby',
 ];
 
-const inputClass = 'h-9 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-2.5 text-xs text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:outline-none';
+const inputClass = 'h-9 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-2.5 text-xs text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:outline-none';
 
 /** Selección múltiple: el estado se lee por el borde dorado, no por un símbolo en el texto. */
 export function Chips({ values, selected, onToggle, label }: {
@@ -35,7 +34,7 @@ export function Chips({ values, selected, onToggle, label }: {
  type="button"
  onClick={() => onToggle(value)}
  aria-pressed={on}
- className={`px-2.5 py-1 rounded-full border text-[11px] font-semibold cursor-pointer transition-colors ${
+ className={`px-2.5 py-1 rounded border text-xs font-semibold cursor-pointer transition-colors ${
  on
  ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
@@ -181,8 +180,8 @@ export function RuleEditor({ value, onChange, options, minSize, targetSize, onSi
  className="p-1.5 text-[var(--color-text-main)] hover:text-[var(--color-danger)] cursor-pointer"
  title="Quitar condición"
  aria-label="Quitar condición"
- >
- <X className="w-4 h-4" />
+ >Quitar condición
+ 
  </button>
  </div>
  <RuleFields rule={rule} onChange={(next) => update(index, next)} options={options} />
@@ -195,10 +194,10 @@ export function RuleEditor({ value, onChange, options, minSize, targetSize, onSi
  onClick={() => onChange({ ...value, all: [...value.all, defaultRule('discount')] })}
  className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] cursor-pointer"
  >
- <Plus className="w-3.5 h-3.5" /> Agregar condición
+  Agregar condición
  </button>
  ) : (
- <p className="text-[11px] text-[var(--color-text-main)]">Máximo {maxRules} condiciones.</p>
+ <p className="text-xs text-[var(--color-text-main)]">Máximo {maxRules} condiciones.</p>
  )}
 
  <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-text-main)]">

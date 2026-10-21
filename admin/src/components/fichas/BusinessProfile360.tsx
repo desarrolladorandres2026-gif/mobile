@@ -1,8 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import {
- X, AlertTriangle, Ban, PlayCircle, Archive, ArchiveRestore, Percent, FileSearch, ChevronDown, ChevronRight,
-} from 'lucide-react';
 import api from '../../services/api';
 import { apiMessage } from '../../lib/apiError';
 import { dateTime, day, money } from '../../lib/drivers';
@@ -51,7 +48,7 @@ const documentLabels: Record<string, string> = {
 
 const documentStatusStyles: Record<string, { label: string; text: string }> = {
  pending: { label: 'Por revisar', text: 'text-[var(--color-text-main)]' },
- approved: { label: 'Aprobado', text: 'text-[#047857]' },
+ approved: { label: 'Aprobado', text: 'text-[var(--color-success)]' },
  rejected: { label: 'Rechazado', text: 'text-[var(--color-danger)]' },
  expired: { label: 'Vencido', text: 'text-[var(--color-danger)]' },
 };
@@ -105,7 +102,7 @@ function Deferred<T>({
  onClick={toggle}
  className="flex cursor-pointer items-center gap-1.5 text-sm font-bold text-[var(--color-text-main)]"
  >
- {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+ 
  {title}
  </button>
  {open &&
@@ -291,7 +288,7 @@ export default function BusinessProfile360({
  ? { text: 'Suspendido', tone: 'text-[var(--color-danger)]' }
  : !b.isApproved
  ? { text: 'Pendiente de aprobación', tone: 'text-[var(--color-text-main)]' }
- : { text: 'Activo', tone: 'text-[#047857]' }
+ : { text: 'Activo', tone: 'text-[var(--color-success)]' }
  : null;
  const commissionText =
  b?.commissionRateBps == null
@@ -303,8 +300,8 @@ export default function BusinessProfile360({
  return (
  <>
  {/* Pantalla completa dentro del área de contenido: deja a la vista la
- cabecera (h-20) y la barra lateral (w-30, fija desde lg). */}
- <div className="fixed bottom-0 left-0 right-0 top-20 z-30 lg:left-30">
+ la barra lateral (200 px, fija desde lg). */}
+ <div className="fixed bottom-0 left-0 right-0 top-0 z-30 lg:left-[var(--zp-sidebar-w)]">
  <div className="h-full w-full overflow-y-auto bg-[var(--color-bg)] p-6 lg:p-8">
  <div className="flex items-start justify-between gap-4">
  <div className="min-w-0">
@@ -312,7 +309,7 @@ export default function BusinessProfile360({
  {b?.name ?? 'Ficha del comercio'}
  </h2>
  {stateLabel && (
- <p className="text-[11px] font-bold uppercase tracking-wide">
+ <p className="text-xs font-bold">
  <span className={stateLabel.tone}>{stateLabel.text}</span>
  {b?.isSuspended && b.suspensionReason ? (
  <span className="font-medium normal-case tracking-normal text-[var(--color-text-main)]">
@@ -326,15 +323,15 @@ export default function BusinessProfile360({
  <button
  onClick={onClose}
  aria-label="Cerrar"
- className="shrink-0 cursor-pointer rounded-lg border border-[var(--color-border)] p-1.5 text-[var(--color-text-main)]"
- >
- <X className="h-4 w-4" />
+ className="shrink-0 cursor-pointer rounded border border-[var(--color-border)] p-1.5 text-[var(--color-text-main)]"
+ >Cerrar
+ 
  </button>
  </div>
 
  {error ? (
  <p className="mt-6 flex items-center gap-1.5 text-sm text-[var(--color-danger)]">
- <AlertTriangle className="h-4 w-4" /> {error}
+  {error}
  </p>
  ) : !data || !b ? (
  <p className="mt-6 text-sm text-[var(--color-text-main)]">Cargando…</p>
@@ -345,23 +342,23 @@ export default function BusinessProfile360({
  <PermissionGate permission={Permission.BUSINESSES_UPDATE_ALL}>
  {b.isSuspended ? (
  <button onClick={() => setDialog('lift')} className={actionButtonClass}>
- <PlayCircle className="h-4 w-4" /> Levantar suspensión
+  Levantar suspensión
  </button>
  ) : (
  <button
  onClick={() => setDialog('suspend')}
  className={`${actionButtonClass} !border-[var(--color-danger)] !text-[var(--color-danger)]`}
  >
- <Ban className="h-4 w-4" /> Suspender
+  Suspender
  </button>
  )}
  {b.isArchived ? (
  <button onClick={() => setDialog('restore')} className={actionButtonClass}>
- <ArchiveRestore className="h-4 w-4" /> Restaurar
+  Restaurar
  </button>
  ) : (
  <button onClick={() => setDialog('archive')} className={actionButtonClass}>
- <Archive className="h-4 w-4" /> Archivar
+  Archivar
  </button>
  )}
  </PermissionGate>
@@ -370,12 +367,12 @@ export default function BusinessProfile360({
  onClick={() => setCommissionOpen((v) => !v)}
  className={actionButtonClass}
  >
- <Percent className="h-4 w-4" /> Comisión
+  Comisión
  </button>
  </PermissionGate>
  <PermissionGate permission={Permission.BUSINESSES_APPROVE}>
  <button onClick={() => setRequestOpen((v) => !v)} className={actionButtonClass}>
- <FileSearch className="h-4 w-4" /> Pedir documentos
+  Pedir documentos
  </button>
  </PermissionGate>
  </div>
@@ -386,7 +383,7 @@ export default function BusinessProfile360({
  {b.suspendedAt ? ` el ${day(b.suspendedAt)}` : ''}.
  </p>
  )}
- {notice && <p className="font-semibold text-[#047857]">{notice}</p>}
+ {notice && <p className="font-semibold text-[var(--color-success)]">{notice}</p>}
  {actionError && <ErrorLine>{actionError}</ErrorLine>}
 
  {commissionOpen && (
@@ -448,7 +445,7 @@ export default function BusinessProfile360({
  className={inputClass}
  />
  </label>
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  Le llega un aviso al dueño. No cambia el estado de los documentos que ya envió.
  </p>
  {requestError && <ErrorLine>{requestError}</ErrorLine>}
@@ -551,7 +548,7 @@ export default function BusinessProfile360({
  type="button"
  onClick={() => openDocument(doc)}
  disabled={openingDoc === doc._id}
- className="cursor-pointer text-[11px] font-bold text-[var(--color-text-main)] disabled:opacity-60"
+ className="cursor-pointer text-xs font-bold text-[var(--color-text-main)]"
  >
  {openingDoc === doc._id ? 'Abriendo…' : 'Abrir'}
  </button>
@@ -728,7 +725,7 @@ export default function BusinessProfile360({
  : 'Sin calificaciones.'
  }
  right={[2]}
- rows={data.reputation.reviews.map((r) => [day(r.createdAt), r.comment ?? '', `${r.rating}★`])}
+ rows={data.reputation.reviews.map((r) => [day(r.createdAt), r.comment ?? '', `${r.rating} de 5`])}
  />
  </div>
  )}

@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { RotateCcw, AlertTriangle, Check } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage } from '../lib/apiError';
 import NumericInput from './NumericInput';
@@ -200,19 +199,19 @@ export default function RefundPanel({
  };
 
  const inputClass =
- 'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-main)]';
+ 'w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-main)]';
 
  return (
  <div className="space-y-3 py-4">
- <span className="text-[10px] font-bold text-[var(--color-text-main)] uppercase tracking-wider flex items-center gap-1">
- <RotateCcw className="w-3 h-3 text-[var(--color-text-main)]" /> Reembolsos
+ <span className="text-xs font-bold text-[var(--color-text-main)] flex items-center gap-1">
+  Reembolsos
  </span>
 
  {loading ? (
  <p className="text-[var(--color-text-main)]">Cargando…</p>
  ) : loadError ? (
  <p className="flex items-start gap-1.5 text-[var(--color-danger)]">
- <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {loadError}
+  {loadError}
  </p>
  ) : refunds.length === 0 ? (
  <p className="text-[var(--color-text-main)]">Este pedido no tiene reembolsos.</p>
@@ -223,12 +222,12 @@ export default function RefundPanel({
  <div className="min-w-0">
  <p className="font-bold text-[var(--color-text-main)]">{money(r.amount)}</p>
  <p className="text-[var(--color-text-main)] break-words">{r.reason}</p>
- <p className="text-[10px] text-[var(--color-text-main)] uppercase tracking-wider">
+ <p className="text-xs text-[var(--color-text-main)]">
  {KIND_LABEL[r.kind] ?? r.kind} · {new Date(r.createdAt).toLocaleDateString('es-CO')}
  {r.status !== 'completed' ? ` · ${r.status}` : ''}
  </p>
  {r.driverPay && r.driverPay.policy !== 'none' ? (
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  {r.driverPay.retained > 0
  ? `El domiciliario conserva ${money(r.driverPay.retained)} de su pago${r.driverPay.costBearer === 'platform' ? ' (lo asume ZIPP)' : ''}.`
  : 'Se le retiró su pago al domiciliario.'}
@@ -236,7 +235,7 @@ export default function RefundPanel({
  ) : null}
  {r.driverPay?.review?.status === 'pending' ? (
  <div className="mt-1 space-y-1 border border-[var(--color-border-light)] p-2">
- <p className="text-[11px] font-semibold text-[var(--color-text-main)]">
+ <p className="text-xs font-semibold text-[var(--color-text-main)]">
  Posible responsabilidad del domiciliario: su pago no se retiró. Decide qué hacer.
  </p>
  <input
@@ -247,26 +246,22 @@ export default function RefundPanel({
  className={inputClass}
  />
  <div className="flex gap-2">
- <button onClick={() => resolveReview(r._id, 'keep')} className="cursor-pointer rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-main)]">
+ <button onClick={() => resolveReview(r._id, 'keep')} className="cursor-pointer rounded border border-[var(--color-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-text-main)]">
  Conserva su pago
  </button>
- <button onClick={() => resolveReview(r._id, 'escalate')} className="cursor-pointer rounded-lg border border-[var(--color-border)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-text-main)]">
+ <button onClick={() => resolveReview(r._id, 'escalate')} className="cursor-pointer rounded border border-[var(--color-border)] px-2.5 py-1 text-xs font-semibold text-[var(--color-text-main)]">
  Escalar a operaciones
  </button>
  </div>
  </div>
  ) : r.driverPay?.review ? (
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  Revisión: {r.driverPay.review.status === 'kept' ? 'conserva su pago' : 'escalada a operaciones'}
  {r.driverPay.review.note ? ` — ${r.driverPay.review.note}` : ''}
  </p>
  ) : null}
  </div>
- {r.status === 'completed' ? (
- <Check className="w-4 h-4 shrink-0 text-[var(--color-success)]" />
- ) : (
- <AlertTriangle className="w-4 h-4 shrink-0 text-[var(--color-text-main)]" />
- )}
+ 
  </li>
  ))}
  </ul>
@@ -280,7 +275,7 @@ export default function RefundPanel({
  <button
  key={m.id}
  onClick={() => { setMode(m.id); setError(''); }}
- className={`cursor-pointer rounded-lg border px-2.5 py-1 text-[11px] font-semibold ${
+ className={`cursor-pointer rounded border px-2.5 py-1 text-xs font-semibold ${
  mode === m.id
  ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-[var(--color-border)] text-[var(--color-text-main)]'
@@ -290,10 +285,10 @@ export default function RefundPanel({
  </button>
  ))}
  </div>
- <p className="text-[11px] text-[var(--color-text-main)]">{MODES.find((m) => m.id === mode)?.hint}</p>
+ <p className="text-xs text-[var(--color-text-main)]">{MODES.find((m) => m.id === mode)?.hint}</p>
 
  <label className="block space-y-1">
- <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <span className="text-xs font-bold text-[var(--color-text-main)]">
  {mode === 'external' ? 'Monto devuelto' : `Monto — vacío es el total que queda (${money(remaining)})`}
  </span>
  <NumericInput
@@ -306,7 +301,7 @@ export default function RefundPanel({
 
  {mode !== 'chargeback' && (
  <label className="block space-y-1">
- <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Motivo</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">Motivo</span>
  <input
  value={reason}
  onChange={(e) => { setReason(e.target.value); setError(''); }}
@@ -319,13 +314,13 @@ export default function RefundPanel({
 
  {mode !== 'chargeback' && (
  <label className="block space-y-1">
- <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <span className="text-xs font-bold text-[var(--color-text-main)]">
  De quién fue el problema
  </span>
  <select value={cause} onChange={(e) => setCause(e.target.value)} className={inputClass}>
  {CAUSES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
  </select>
- <span className="block text-[11px] text-[var(--color-text-main)]">
+ <span className="block text-xs text-[var(--color-text-main)]">
  Si el pedido ya se entregó, el domiciliario conserva su pago y lo asume ZIPP. Marcar «domiciliario» no se lo retira: queda en revisión.
  </span>
  </label>
@@ -333,7 +328,7 @@ export default function RefundPanel({
 
  {mode !== 'gateway' && (
  <label className="block space-y-1">
- <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">
+ <span className="text-xs font-bold text-[var(--color-text-main)]">
  {mode === 'chargeback' ? 'Referencia del contracargo' : 'Referencia en Wompi o del banco'}
  </span>
  <input
@@ -347,7 +342,7 @@ export default function RefundPanel({
 
  {error ? (
  <p className="flex items-start gap-1.5 text-[var(--color-danger)]">
- <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+ 
  <span>{error}</span>
  </p>
  ) : null}
@@ -355,14 +350,14 @@ export default function RefundPanel({
  <div className="flex justify-end gap-2 pt-1">
  <button
  onClick={reset}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Cancelar
  </button>
  <button
  onClick={submit}
  disabled={submitting}
- className="cursor-pointer rounded-lg bg-[var(--color-warning)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-60"
+ className="cursor-pointer rounded bg-[var(--color-warning)] px-3 py-1.5 text-xs font-bold text-[var(--zp-bg)]"
  >
  {submitting ? 'Procesando…' : mode === 'gateway' ? 'Reembolsar' : 'Registrar'}
  </button>
@@ -371,9 +366,9 @@ export default function RefundPanel({
  ) : (
  <button
  onClick={() => setOpen(true)}
- className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
+ className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- <RotateCcw className="w-3.5 h-3.5 text-[var(--color-text-main)]" />
+ 
  Reembolso o contracargo {alreadyRefunded > 0 ? `(quedan ${money(remaining)})` : ''}
  </button>
  )

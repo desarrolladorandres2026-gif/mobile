@@ -30,16 +30,6 @@
   --font-mono: var(--zp-font);
 }
 
-/**
- * Solo en admin: el texto "muted" pasa a negro en modo claro (pedido
- * explícito, 2026-09-22). No se toca colores.css porque lo comparten
- * business y web. En modo oscuro se conserva el gris-azulado de
- * colores.css: negro puro sobre obsidiana sería ilegible.
- */
-:root:not(.dark) {
-  --color-text-muted: #000000;
-}
-
 /* Admin conserva el dorado de la identidad ZIPP; Business usa verde. */
 :root {
   --color-primary: #D69E26;
@@ -84,7 +74,6 @@
 
   --color-text-main: var(--zp-text);
   --color-text-secondary: var(--zp-text-secondary);
-  --color-text-muted: var(--zp-text-secondary);
 
   --color-primary: var(--zp-accent);
   --color-primary-light: var(--zp-accent-hover);
@@ -97,7 +86,6 @@
   --color-chart-emerald: var(--zp-success);
   --color-chart-orange: var(--zp-warning);
   --color-chart-purple: var(--zp-accent-pressed);
-  --color-chart-gold: var(--zp-accent-text);
   --color-chart-titanium: var(--zp-text-secondary);
 
   --color-success: var(--zp-success);
@@ -404,7 +392,6 @@
   background-color: transparent;
   border: 0;
   border-radius: 0;
-  box-shadow: none;
   padding: 0.125rem 0.25rem;
 }
 /* Campos dentro de la cuadrícula: sin caja. La celda ya es el contenedor;
@@ -416,7 +403,6 @@
   border: 0;
   border-bottom: 1px solid transparent;
   border-radius: 0;
-  box-shadow: none;
 }
 .data-grid td input:not([type='checkbox']):not([type='radio']):hover,
 .data-grid td select:hover,
@@ -451,14 +437,13 @@
   background: var(--color-surface);
   border: 1px solid var(--dialog-border);
   border-radius: var(--zp-radius);
-  box-shadow: none;
 }
 
 /* Un comprobante interno se imprime solo, sin la barra lateral ni la página de atrás. */
 @media print {
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
-  .print-area { position: absolute; inset: 0 auto auto 0; width: 100%; max-height: none; box-shadow: none; }
+  .print-area { position: absolute; inset: 0 auto auto 0; width: 100%; max-height: none; }
   .no-print { display: none !important; }
 }
 

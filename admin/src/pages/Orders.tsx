@@ -1,5 +1,4 @@
 import { useLiveReload } from '../hooks/useLiveReload';
-import { Search, RotateCw, Eye, AlertCircle, Filter } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../services/api';
@@ -39,28 +38,26 @@ interface OrderType {
  * `cash_not_received` es justamente el caso que alguien tiene que ver.
  */
 const paymentStatusMap: Record<string, { label: string; text: string }> = {
- pending: { label: 'Pago pendiente', text: 'text-[var(--color-text-main)]' },
+ pending: { label: 'Pago pendiente', text: 'text-[var(--color-warning)]' },
  pending_cash: { label: 'Cobra al entregar', text: 'text-[var(--color-text-main)]' },
- cash_received: { label: 'Efectivo recibido', text: 'text-[var(--color-text-main)]' },
- paid: { label: 'Pagado', text: 'text-[var(--color-text-main)]' },
- cash_not_received: { label: 'Efectivo NO recibido', text: 'text-[var(--color-text-main)]' },
- failed: { label: 'Cobro fallido', text: 'text-[var(--color-text-main)]' },
+ cash_received: { label: 'Efectivo recibido', text: 'text-[var(--color-success)]' },
+ paid: { label: 'Pagado', text: 'text-[var(--color-success)]' },
+ cash_not_received: { label: 'Efectivo no recibido', text: 'text-[var(--color-danger)]' },
+ failed: { label: 'Cobro fallido', text: 'text-[var(--color-danger)]' },
  refunded: { label: 'Reembolsado', text: 'text-[var(--color-text-main)]' },
 };
 
-// Espejo del esquema `orderStatus` de mobile/theme/tokens.ts: espera/cocina en
-// ámbar, aceptado/listo en oro claro, en-camino en oro, entregado en esmeralda
-// (señal de cierre distinta) y cancelado en coral. El texto usa el tono
-// hermano más oscuro para legibilidad sobre el chip pálido.
-const statusMap: Record<string, { label: string; text: string; dot: string }> = {
- pending: { label: 'Pendiente', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-muted)]' },
- accepted: { label: 'Aceptado', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-muted)]' },
- preparing: { label: 'Preparando', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-muted)]' },
- ready: { label: 'Listo', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-muted)]' },
- picked_up: { label: 'En camino', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-muted)]' },
- on_way: { label: 'En camino', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-muted)]' },
- delivered: { label: 'Entregado', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-muted)]' },
- cancelled: { label: 'Cancelado', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-muted)]' },
+// El estado es la palabra en su color, sin píldoras ni puntos: pendiente en
+// ámbar, entregado en verde, cancelado en rojo y el resto en el color de texto.
+const statusMap: Record<string, { label: string; text: string }> = {
+ pending: { label: 'Pendiente', text: 'text-[var(--color-warning)]' },
+ accepted: { label: 'Aceptado', text: 'text-[var(--color-text-main)]' },
+ preparing: { label: 'Preparando', text: 'text-[var(--color-text-main)]' },
+ ready: { label: 'Listo', text: 'text-[var(--color-text-main)]' },
+ picked_up: { label: 'En camino', text: 'text-[var(--color-text-main)]' },
+ on_way: { label: 'En camino', text: 'text-[var(--color-text-main)]' },
+ delivered: { label: 'Entregado', text: 'text-[var(--color-success)]' },
+ cancelled: { label: 'Cancelado', text: 'text-[var(--color-danger)]' },
 };
 
 // El cliente y el comercio hablan de `orderNumber`, y es por lo que busca el servidor.
@@ -169,51 +166,44 @@ export default function Orders() {
  }, [fetchOrders]);
 
  return (
- <div className="space-y-3 animate-fade-in">
- {/* Header */}
+ <div className="space-y-3">
  <div className="page-header">
  <div>
- <h1 className="page-title">Monitoreo de Pedidos</h1>
+ <h1 className="page-title">Pedidos</h1>
  <p className="page-subtitle">Historial en tiempo real de todas las solicitudes procesadas</p>
  </div>
  </div>
 
- {/* Filter & Search Bar */}
- <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
- {/* Search */}
- <div className="relative w-full md:w-80">
- <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-main)]" />
+ <div className="flex flex-col md:flex-row gap-2 justify-between items-center pb-3 border-b border-[var(--color-border)]">
+ <div className="w-full md:w-80">
  <input
  type="text"
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- placeholder="Buscar por número de pedido..."
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
+ placeholder="Buscar por número de pedido…"
+ aria-label="Buscar por número de pedido"
+ className="field"
  />
  </div>
 
- {/* Filtros */}
  <div ref={filterRef} className="relative w-full md:w-auto">
  <button
  onClick={() => setFilterOpen((v) => !v)}
  aria-haspopup="menu"
  aria-expanded={filterOpen}
- className="h-10 px-4 w-full md:w-auto bg-[var(--color-surface)] hover:bg-[var(--color-bg)] border border-[var(--color-border)] text-xs font-semibold text-[var(--color-text-main)] rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+ className="btn btn-secondary w-full md:w-auto"
  >
- <Filter className="w-4 h-4 text-[var(--color-text-main)]" />
- <span>Filtros{statusFilter !== 'all' ? `: ${filterOptions.find((f) => f.key === statusFilter)?.label}` : ''}</span>
+ Filtros{statusFilter !== 'all' ? `: ${filterOptions.find((f) => f.key === statusFilter)?.label}` : ''}
  </button>
  {filterOpen && (
- <div role="menu" className="absolute right-0 top-full mt-1 z-20 min-w-52 py-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg shadow-lg">
+ <div role="menu" className="absolute right-0 top-full mt-1 z-20 min-w-52 py-1 bg-[var(--color-surface)] border border-[var(--dialog-border)] rounded">
  {filterOptions.map((f) => (
  <button
  key={f.key}
  role="menuitem"
  onClick={() => { setStatusFilter(f.key); setFilterOpen(false); }}
- className={`w-full text-left px-4 py-2 text-xs cursor-pointer hover:bg-[var(--color-bg)] ${
- statusFilter === f.key
- ? 'text-[var(--color-text-main)] font-bold'
- : 'text-[var(--color-text-main)] font-semibold'
+ className={`w-full text-left h-8 px-3 text-sm cursor-pointer text-[var(--color-text-main)] hover:bg-[var(--color-surface-hover)] ${
+ statusFilter === f.key ? 'font-semibold' : 'font-normal'
  }`}
  >
  {f.label}
@@ -225,28 +215,25 @@ export default function Orders() {
  </div>
 
  {error && (
- <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+ <p className="state-line state-line-error">
+ {error}{' '}
+ <button onClick={fetchOrders} className="btn btn-text">Reintentar</button>
  </p>
  )}
 
- {/* Table */}
  {loading ? (
- <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
- <RotateCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin mx-auto mb-2" />
- Cargando listado de pedidos...
- </div>
+ <p className="state-line min-h-32">Cargando…didos…</p>
  ) : (
  <div className="table-container">
  <div className="overflow-x-auto">
  <table className="data-grid">
  <thead>
  <tr className="text-left">
- <th className="table-header-cell">ID Pedido</th>
+ <th className="table-header-cell">ID pedido</th>
  <th className="table-header-cell">Negocio</th>
  <th className="table-header-cell">Cliente</th>
  <th className="table-header-cell">Domiciliario</th>
- <th className="table-header-cell">Total</th>
+ <th className="table-header-cell num">Total</th>
  <th className="table-header-cell">Pago</th>
  <th className="table-header-cell">Estado</th>
  <th className="table-header-cell">Acción</th>
@@ -254,17 +241,19 @@ export default function Orders() {
  </thead>
  <tbody>
  {orders.map((o) => {
- const sc = statusMap[o.status] || { label: o.status, text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-muted)]' };
+ const sc = statusMap[o.status] || { label: o.status, text: 'text-[var(--color-text-main)]' };
+ const selected = current?.type === 'order' && current.id === o._id;
  return (
  <tr
  key={o._id}
+ aria-selected={selected}
  onClick={() => openFicha('order', o._id)}
- className="cursor-pointer hover:!bg-[var(--color-bg-alt)] transition-colors"
+ className="cursor-pointer"
  >
- <td className="table-body-cell font-mono text-[var(--color-text-main)] font-bold text-xs">
+ <td className="table-body-cell font-semibold text-[var(--color-text-main)]">
  <EntityLink type="order" id={o._id}>#{orderLabel(o)}</EntityLink>
  </td>
- <td className="table-body-cell font-semibold text-[var(--color-text-main)]">
+ <td className="table-body-cell text-[var(--color-text-main)]">
  {o.kind === 'errand' ? (
  `Mandado · ${o.errand?.pickupAddress ?? ''}`
  ) : (
@@ -273,36 +262,29 @@ export default function Orders() {
  </EntityLink>
  )}
  </td>
- <td className="table-body-cell text-[var(--color-text-main)] text-xs">
+ <td className="table-body-cell text-[var(--color-text-main)]">
  <EntityLink type="user" id={o.clientId?._id}>{o.clientId?.name || 'Cliente'}</EntityLink>
  </td>
- <td className="table-body-cell text-[var(--color-text-main)] text-xs">
+ <td className="table-body-cell text-[var(--color-text-main)]">
  {o.driverId?.userId?.name ? (
  <EntityLink type="driver" id={o.driverId._id}>{o.driverId.userId.name}</EntityLink>
  ) : (
  'Sin asignar'
  )}
  </td>
- <td className="table-body-cell font-normal text-[var(--color-text-main)]">
- ${(o.total || 0).toLocaleString('es-CO')}
+ <td className="table-body-cell num text-[var(--color-text-main)]">
+ $ {(o.total || 0).toLocaleString('es-CO')}
  </td>
- <td className="table-body-cell">
- <span className={`text-[10px] font-normal uppercase ${
- 'text-[var(--color-text-main)]'
- }`}>
+ <td className="table-body-cell text-[var(--color-text-main)]">
  {o.paymentMethod === 'online' ? 'Digital' : 'Efectivo'}
- </span>
  {o.paymentStatus && paymentStatusMap[o.paymentStatus] ? (
- <p className={`text-[10px] font-normal ${paymentStatusMap[o.paymentStatus].text}`}>
+ <span className={`ml-2 font-semibold ${paymentStatusMap[o.paymentStatus].text}`}>
  {paymentStatusMap[o.paymentStatus].label}
- </p>
+ </span>
  ) : null}
  </td>
  <td className="table-body-cell">
- <span className={`inline-flex items-center gap-1.5 text-[10px] font-normal uppercase tracking-wide ${sc.text}`}>
- <span className={`w-1.5 h-1.5 rounded-full ${sc.dot} flex-shrink-0`} />
- {sc.label}
- </span>
+ <span className={`font-semibold ${sc.text}`}>{sc.label}</span>
  </td>
  <td className="table-body-cell">
  <button
@@ -310,10 +292,9 @@ export default function Orders() {
  e.stopPropagation();
  openFicha('order', o._id);
  }}
- className="p-1.5 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:text-[var(--color-text-main)] transition-all cursor-pointer"
- title="Ver detalle del pedido"
+ className="btn btn-text"
  >
- <Eye className="w-4 h-4" />
+ Ver detalle
  </button>
  </td>
  </tr>
@@ -321,8 +302,14 @@ export default function Orders() {
  })}
  {orders.length === 0 && (
  <tr>
- <td colSpan={8} className="px-6 py-12 text-center text-[var(--color-text-main)] text-xs font-medium">
- No hay pedidos que coincidan con el filtro seleccionado.
+ <td colSpan={8} className="state-line">
+ No hay pedidos con estos filtros.{' '}
+ <button
+ onClick={() => { setSearch(''); setStatusFilter('all'); }}
+ className="btn btn-text"
+ >
+ Limpiar filtros
+ </button>
  </td>
  </tr>
  )}
@@ -332,8 +319,6 @@ export default function Orders() {
  <Pagination page={page} totalPages={meta.totalPages} total={meta.total} limit={meta.limit} onPageChange={setPage} />
  </div>
  )}
-
  </div>
  );
 }
-

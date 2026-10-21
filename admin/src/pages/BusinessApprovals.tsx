@@ -1,6 +1,5 @@
 ﻿import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useLiveReload } from '../hooks/useLiveReload';
-import { AlertCircle, CheckCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import api from '../services/api';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
@@ -87,7 +86,7 @@ const DOCUMENT_LABELS: Record<DocumentType, string> = {
 };
 
 const STATUS_STYLES: Record<BusinessDoc['status'], { label: string; className: string }> = {
- approved: { label: 'Aprobado', className: 'text-[#047857]' },
+ approved: { label: 'Aprobado', className: 'text-[var(--color-success)]' },
  pending: { label: 'Por revisar', className: 'text-[var(--color-text-main)]' },
  rejected: { label: 'Rechazado', className: 'text-[var(--color-danger)]' },
  expired: { label: 'Vencido', className: 'text-[var(--color-danger)]' },
@@ -228,7 +227,7 @@ export default function BusinessApprovals() {
 
  {error && (
  <p className="flex items-start gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
+  {error}
  </p>
  )}
 
@@ -238,12 +237,12 @@ export default function BusinessApprovals() {
  value={search}
  onChange={(e) => setSearch(e.target.value)}
  placeholder="Buscar por comercio, ciudad o dueño"
- className="w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="w-64 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5 text-xs text-[var(--color-text-main)]"
  />
  <select
  value={order}
  onChange={(e) => setOrder(e.target.value as typeof order)}
- className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
+ className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-text-main)]"
  >
  <option value="oldest">Los que más esperan primero</option>
  <option value="newest">Los más recientes primero</option>
@@ -253,10 +252,10 @@ export default function BusinessApprovals() {
  )}
 
  {loading ? (
- <p className="py-16 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando comercios...</p>
+ <p className="state-line">Cargando comercios…</p>
  ) : pending.length === 0 ? (
  <div className="space-y-2 py-16 text-center">
- <CheckCircle className="w-8 h-8 text-[var(--color-success)] mx-auto" />
+ 
  <p className="text-sm font-bold text-[var(--color-text-main)]">No hay comercios esperando</p>
  <p className="text-xs text-[var(--color-text-main)] font-medium">Todos los negocios registrados están aprobados.</p>
  </div>
@@ -296,7 +295,7 @@ export default function BusinessApprovals() {
  <tr>
  <td className="table-body-cell">
  <button onClick={() => openBusiness(business._id)} className="flex cursor-pointer items-center gap-1 text-left text-[var(--color-text-main)]">
- {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+ 
  {business.name}
  </button>
  </td>
@@ -323,7 +322,7 @@ export default function BusinessApprovals() {
  <td colSpan={7} className="table-body-cell wrap">
  <div className="space-y-6 py-2">
  <section className="space-y-2">
- <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Datos fiscales</h4>
+ <h4 className="text-xs font-bold text-[var(--color-text-main)]">Datos fiscales</h4>
  {l ? (
  <p className="text-xs text-[var(--color-text-main)]">
  <strong className="text-[var(--color-text-main)]">{l.legalName}</strong> · {l.documentType} {l.documentNumber}
@@ -338,7 +337,7 @@ export default function BusinessApprovals() {
  </section>
 
  <section className="space-y-2">
- <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Cuenta de pago</h4>
+ <h4 className="text-xs font-bold text-[var(--color-text-main)]">Cuenta de pago</h4>
  {p ? (
  <div className="space-y-2 text-xs text-[var(--color-text-main)]">
  <p>
@@ -351,7 +350,7 @@ export default function BusinessApprovals() {
  {p.holderMatchesLegal === false && (
  <p className="font-semibold text-[var(--color-text-main)]">El titular no coincide con el documento fiscal del comercio.</p>
  )}
- <p className={p.verificationStatus === 'verified' ? 'font-bold text-[#047857]' : 'font-bold text-[var(--color-text-main)]'}>
+ <p className={p.verificationStatus === 'verified' ? 'font-bold text-[var(--color-success)]' : 'font-bold text-[var(--color-text-main)]'}>
  {p.verificationStatus === 'verified' ? 'Verificada por finanzas' : 'Pendiente de verificación'}
  </p>
  {(canProcessPayouts || canRevealAccount) && (
@@ -359,7 +358,7 @@ export default function BusinessApprovals() {
  {canRevealAccount && !p.accountNumber && (
  <button
  onClick={() => revealAccount(business._id)}
- className="cursor-pointer rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[11px] font-semibold text-[var(--color-text-main)]"
+ className="cursor-pointer rounded border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
  Ver cuenta completa (queda auditado)
  </button>
@@ -367,7 +366,7 @@ export default function BusinessApprovals() {
  {canProcessPayouts && p.verificationStatus !== 'verified' && (
  <button
  onClick={() => verifyAccount(business._id)}
- className="cursor-pointer rounded-lg bg-[var(--color-primary)] px-3 py-1.5 text-[11px] font-bold text-white"
+ className="cursor-pointer rounded bg-[var(--color-primary)] px-3 py-1.5 text-xs font-bold text-white"
  >
  {working === business._id ? 'Verificando…' : 'Verificar cuenta'}
  </button>
@@ -381,7 +380,7 @@ export default function BusinessApprovals() {
  </section>
 
  <section className="space-y-1">
- <h4 className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">Documentos</h4>
+ <h4 className="text-xs font-bold text-[var(--color-text-main)]">Documentos</h4>
  {business.documents.length === 0 ? (
  <p className="py-2 text-xs font-medium text-[var(--color-text-main)]">El comercio todavía no ha enviado ningún documento.</p>
  ) : (
@@ -427,7 +426,7 @@ export default function BusinessApprovals() {
  <td className="table-body-cell">
  <div className="flex items-center gap-3">
  {doc.status !== 'approved' && (
- <button onClick={() => reviewDocument(doc, 'approved')} className="cursor-pointer text-[#047857]">
+ <button onClick={() => reviewDocument(doc, 'approved')} className="cursor-pointer text-[var(--color-success)]">
  {working === doc._id ? '…' : 'Aprobar'}
  </button>
  )}

@@ -1,5 +1,4 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { Save, AlertTriangle, Lock, CheckCircle2 } from 'lucide-react';
 import api from '../services/api';
 import { apiMessage, apiStatus } from '../lib/apiError';
 import NumericInput from '../components/NumericInput';
@@ -176,7 +175,7 @@ export default function Pricing() {
 
  if (loading) {
  return (
- <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <div className="state-line">
  Cargando tarifas y motor de precios...
  </div>
  );
@@ -184,14 +183,14 @@ export default function Pricing() {
 
  if (!config) {
  return (
- <div className="p-16 text-center text-[var(--color-danger)] text-xs font-semibold">
+ <div className="state-line state-line-error">
  {error || 'No hay configuración de precios disponible.'}
  </div>
  );
  }
 
  const inputBase =
- 'h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md text-xs font-mono font-bold text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none transition-all';
+ 'h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded text-xs font-mono font-bold text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] outline-none transition-all';
 
  const ctrlMoneda = (campo: keyof PricingConfig) => (
  <div className="relative">
@@ -227,7 +226,7 @@ export default function Pricing() {
  onValueChange={(d) => set(campo as string, Number(d))}
  className={`${inputBase} pl-2 pr-7`}
  />
- <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[var(--color-text-main)] uppercase">{unidad}</span>
+ <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-[var(--color-text-main)]">{unidad}</span>
  </div>
  );
 
@@ -247,7 +246,7 @@ export default function Pricing() {
  <select
  value={valor<boolean>(campo) ? 'on' : 'off'}
  onChange={(e) => set(campo as string, e.target.value === 'on')}
- className="h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none cursor-pointer"
+ className="h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none cursor-pointer"
  >
  <option value="off">Apagado</option>
  <option value="on">Activado</option>
@@ -255,7 +254,7 @@ export default function Pricing() {
  );
 
  const selectClass =
- 'h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none cursor-pointer';
+ 'h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none cursor-pointer';
 
  const ctrlVatBase = () => (
  <select
@@ -381,21 +380,21 @@ export default function Pricing() {
  };
 
  return (
- <div className="space-y-3 animate-fade-in pb-28">
+ <div className="space-y-3 pb-28">
  {/* Header */}
  <div className="page-header">
  <div>
- <h1 className="page-title">Tarifas y Monetización</h1>
+ <h1 className="page-title">Tarifas y monetización</h1>
  <p className="page-subtitle">Parámetros de cobro de domicilios, comisiones e incentivos. Pasa el cursor sobre un parámetro para ver su explicación completa.</p>
  </div>
  <div className="text-right">
- <p className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider">Versión activa</p>
+ <p className="text-xs font-semibold text-[var(--color-text-secondary)]">Versión activa</p>
  <p className="text-sm font-bold text-[var(--color-text-main)] font-mono">v{config.version}</p>
  </div>
  </div>
 
  <div className="text-[var(--color-text-main)] text-xs flex items-center gap-2.5">
- <AlertTriangle className="w-4 h-4 shrink-0" />
+ 
  <p className="font-medium">
  Toda modificación publica una <strong>nueva versión con auditoría</strong>. Los pedidos en curso no se ven afectados por cambios de tarifas.
  </p>
@@ -412,7 +411,7 @@ export default function Pricing() {
  <select
  value={valor<boolean>('commissionAfterMerchantDiscount') ? 'after' : 'before'}
  onChange={(e) => set('commissionAfterMerchantDiscount', e.target.value === 'after')}
- className="h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-md px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none cursor-pointer"
+ className="h-7 w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded px-2 text-xs font-semibold text-[var(--color-text-main)] focus:border-[var(--color-primary)] outline-none cursor-pointer"
  >
  <option value="after">Subtotal con descuento</option>
  <option value="before">Precio bruto de menú</option>
@@ -554,33 +553,33 @@ export default function Pricing() {
  ))}
 
  {/* Floating Action Bar */}
- <div className="fixed bottom-6 left-6 lg:left-72 right-6 z-40 bg-[var(--color-surface)] p-3.5 rounded-2xl border border-[var(--color-border)] flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xl">
+ <div className="fixed bottom-6 left-6 lg:left-[calc(var(--zp-sidebar-w)+1rem)] right-6 z-40 bg-[var(--color-surface)] p-3.5 rounded border border-[var(--color-border)] flex flex-col sm:flex-row items-center justify-between gap-3">
  <input
  value={motivo}
  onChange={(e) => setMotivo(e.target.value)}
- placeholder="Escribe la justificación del cambio de precios..."
- className="w-full sm:flex-1 h-10 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3.5 text-xs font-medium text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)]"
+ placeholder="Escribe la justificación del cambio de precios…"
+ className="w-full sm:flex-1 h-10 bg-[var(--color-bg)] border border-[var(--color-border)] rounded px-3.5 text-xs font-medium text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)]"
  />
 
  <button
  onClick={guardar}
  disabled={guardando || cambios === 0 || sinPermiso}
- className="w-full sm:w-auto h-10 px-5 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-white font-bold text-xs uppercase tracking-wider rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+ className="w-full sm:w-auto h-10 px-5 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-white font-bold text-xs rounded transition-all cursor-pointer flex items-center justify-center gap-2"
  >
- {sinPermiso ? <Lock className="w-4 h-4" /> : <Save className="w-4 h-4" />}
- <span>{guardando ? 'Publicando...' : 'Publicar Tarifas'}</span>
+ 
+ <span>{guardando ? 'Publicando…' : 'Publicar Tarifas'}</span>
  </button>
  </div>
 
  {error && (
- <div className="fixed bottom-24 right-6 z-50 p-3.5 rounded-xl bg-[var(--color-danger-bg)] border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs font-bold animate-fade-in shadow-lg">
+ <div className="fixed bottom-24 right-6 z-50 p-3.5 rounded border border-[var(--color-danger-bg)] text-[var(--color-danger)] text-xs font-bold">
  {error}
  </div>
  )}
 
  {ok && (
- <div className="fixed bottom-24 right-6 z-50 p-3.5 rounded-xl bg-[var(--color-primary-bg)] border border-[var(--color-primary-bg)] text-[var(--color-text-main)] text-xs font-bold animate-fade-in flex items-center gap-2 shadow-lg">
- <CheckCircle2 className="w-4 h-4" />
+ <div className="fixed bottom-24 right-6 z-50 p-3.5 rounded bg-[var(--color-primary-bg)] border border-[var(--color-primary-bg)] text-[var(--color-text-main)] text-xs font-bold flex items-center gap-2">
+ 
  <span>{ok}</span>
  </div>
  )}

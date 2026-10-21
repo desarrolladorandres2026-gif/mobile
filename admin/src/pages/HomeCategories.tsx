@@ -1,8 +1,4 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import {
- LayoutGrid, Plus, Search, X, AlertCircle, Trash2, Pencil, GripVertical,
- ToggleLeft, ToggleRight, ImagePlus,
-} from 'lucide-react';
 import api from '../services/api';
 import { Permission } from '../lib/permissions';
 import { PermissionGate } from '../components/PermissionGate';
@@ -10,7 +6,6 @@ import { useAuthStore } from '../stores/authStore';
 import { sizedImage } from '../lib/cloudinary';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { apiMessage } from '../lib/apiError';
-import { categoryLogo } from '../components/logos';
 
 type CategoryStatus = 'active' | 'inactive';
 
@@ -196,14 +191,14 @@ export default function HomeCategories() {
  // Reordenar escribe: sin `content:manage` el backend respondería 403.
  const canDrag = search === '' && canManage;
 
- const inputClass = 'w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
- const labelClass = 'block text-[11px] font-bold text-[var(--color-text-main)] uppercase tracking-wider mb-1.5';
+ const inputClass = 'w-full h-10 rounded bg-[var(--color-bg)] border border-[var(--color-border)] px-3.5 text-xs font-medium text-[var(--color-text-main)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all placeholder:text-[var(--color-text-main)]';
+ const labelClass = 'block text-xs font-bold text-[var(--color-text-main)] mb-1.5';
 
  return (
- <div className="space-y-3 animate-fade-in">
+ <div className="space-y-3">
  <div className="page-header">
  <div>
- <h1 className="page-title">Categorías de Inicio</h1>
+ <h1 className="page-title">Categorías de inicio</h1>
  <p className="page-subtitle">
  Las tarjetas de categoría que aparecen en el Home de la app
  </p>
@@ -211,9 +206,9 @@ export default function HomeCategories() {
  <PermissionGate permission={Permission.CONTENT_MANAGE}>
  <button
  onClick={openCreate}
- className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[#8A5D08] text-xs font-bold text-white rounded-lg transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
+ className="px-4 py-2 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] text-xs font-bold text-white rounded transition-all cursor-pointer flex items-center justify-center gap-2"
  >
- <Plus className="w-4 h-4" />
+ 
  <span>Crear categoría</span>
  </button>
  </PermissionGate>
@@ -221,26 +216,26 @@ export default function HomeCategories() {
 
  <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center pb-4 border-b border-[var(--color-border-light)]">
  <div className="relative w-full md:w-80">
- <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-main)]" />
+ 
  <input
  type="text"
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- placeholder="Buscar por nombre o clave..."
- className="w-full h-10 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] pl-9 pr-4 text-xs font-medium text-[var(--color-text-main)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-primary)] focus:bg-[var(--color-surface)] focus:outline-none transition-all"
+ placeholder="Buscar por nombre o clave…"
+ className="field"
  />
  </div>
  </div>
 
  {error && (
  <div className="text-[var(--color-danger)] text-xs flex items-start gap-3">
- <AlertCircle className="w-4 h-4 text-[var(--color-danger)] shrink-0 mt-0.5" />
+ 
  <p className="flex-1 font-semibold">{error}</p>
  </div>
  )}
 
  {loading ? (
- <div className="table-container p-16 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <div className="state-line">
  Cargando categorías...
  </div>
  ) : (
@@ -259,7 +254,6 @@ export default function HomeCategories() {
  </thead>
  <tbody>
  {filtered.map((c) => {
- const CategoryArt = categoryLogo(c.key);
  return (
  <tr
  key={c._id}
@@ -273,19 +267,17 @@ export default function HomeCategories() {
  }`}
  >
  <td className="table-body-cell">
- <GripVertical
- className={`w-4 h-4 ${canDrag ? 'text-[var(--color-text-main)] cursor-grab' : 'text-[var(--color-border)]'}`}
- />
+ 
  </td>
  <td className="table-body-cell">
  <div
- className="w-10 h-10 rounded-lg overflow-hidden bg-[var(--color-bg)] border border-[var(--color-border)] flex items-center justify-center"
+ className="w-10 h-10 rounded overflow-hidden bg-[var(--color-bg)] border border-[var(--color-border)] flex items-center justify-center"
  style={c.imageUrl || !c.color ? undefined : { backgroundColor: c.color }}
  >
  {c.imageUrl ? (
  <img src={sizedImage(c.imageUrl, 240)} alt={c.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
  ) : (
- <CategoryArt size={28} />
+ <span className="text-xs">–</span>
  )}
  </div>
  </td>
@@ -293,12 +285,12 @@ export default function HomeCategories() {
  <p className="text-xs font-bold text-[var(--color-text-main)]">{c.name}</p>
  </td>
  <td className="table-body-cell">
- <span className="text-[var(--color-text-main)] font-mono text-[11px]">
+ <span className="text-[var(--color-text-main)] font-mono text-xs">
  {c.key}
  </span>
  </td>
  <td className="table-body-cell">
- <span className="text-[var(--color-text-main)] font-mono font-bold text-[11px]">
+ <span className="text-[var(--color-text-main)] font-mono font-bold text-xs">
  {c.order}
  </span>
  </td>
@@ -309,11 +301,7 @@ export default function HomeCategories() {
  className="cursor-pointer hover:scale-105 transition-transform"
  title={c.status === 'active' ? 'Desactivar categoría' : 'Activar categoría'}
  >
- {c.status === 'active' ? (
- <ToggleRight className="w-8 h-8" style={{ color: '#000000' }} />
- ) : (
- <ToggleLeft className="w-8 h-8" style={{ color: 'var(--color-danger)' }} />
- )}
+ {c.status === 'active' ? 'Desactivar categoría' : 'Activar categoría'}
  </button>
  </PermissionGate>
  </td>
@@ -322,18 +310,18 @@ export default function HomeCategories() {
  <PermissionGate permission={Permission.CONTENT_MANAGE}>
  <button
  onClick={() => openEdit(c)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded text-[var(--color-text-main)] hover:text-[var(--color-text-main)] hover:bg-[var(--color-primary-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Editar categoría"
- >
- <Pencil className="w-4 h-4" />
+ >Editar categoría
+ 
  </button>
  </PermissionGate>
  <button
  onClick={() => setConfirmDelete(c)}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
+ className="p-2 rounded text-[var(--color-text-main)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)] border border-[var(--color-border)] transition-colors cursor-pointer"
  title="Eliminar categoría"
- >
- <Trash2 className="w-4 h-4" />
+ >Eliminar categoría
+ 
  </button>
  </div>
  </td>
@@ -344,7 +332,7 @@ export default function HomeCategories() {
  </table>
 
  {filtered.length === 0 && (
- <div className="p-12 text-center text-[var(--color-text-main)] text-xs font-semibold">
+ <div className="state-line">
  {categories.length === 0
  ? 'Todavía no hay categorías. Crea la primera y aparecerá en el Home de la app.'
  : 'No hay categorías que coincidan con la búsqueda.'}
@@ -352,7 +340,7 @@ export default function HomeCategories() {
  )}
 
  {!canDrag && categories.length > 1 && (
- <p className="px-5 py-3 text-[11px] text-[var(--color-text-main)] border-t border-[var(--color-border-light)]">
+ <p className="px-5 py-3 text-xs text-[var(--color-text-main)] border-t border-[var(--color-border-light)]">
  Quita la búsqueda para reordenar arrastrando.
  </p>
  )}
@@ -371,17 +359,17 @@ export default function HomeCategories() {
  )}
 
  {showModal && (
- <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
- <div className="zipp-modal w-full max-w-md rounded-2xl p-6 space-y-3 max-h-[90vh] overflow-y-auto">
+ <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+ <div className="zipp-modal w-full max-w-md rounded p-6 space-y-3 max-h-[90vh] overflow-y-auto">
  <div className="flex justify-between items-center border-b border-[var(--color-border-light)] pb-4">
  <div className="flex items-center gap-2">
- <LayoutGrid className="w-5 h-5 text-[var(--color-text-main)]" />
+ 
  <h3 className="text-base font-bold text-[var(--color-text-main)]">
  {editingId ? 'Editar Categoría' : 'Nueva Categoría de Inicio'}
  </h3>
  </div>
- <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded-lg cursor-pointer">
- <X className="w-5 h-5" />
+ <button onClick={() => setShowModal(false)} className="text-[var(--color-text-main)] hover:text-[var(--color-text-main)] p-1 rounded cursor-pointer">Cerrar
+ 
  </button>
  </div>
 
@@ -389,11 +377,11 @@ export default function HomeCategories() {
  <div>
  <label className={labelClass}>Imagen (opcional)</label>
  {form.imageUrl ? (
- <div className="relative rounded-xl overflow-hidden border border-[var(--color-border)] group w-24 h-24 mx-auto">
+ <div className="relative rounded overflow-hidden border border-[var(--color-border)] group w-24 h-24 mx-auto">
  <img src={form.imageUrl} alt={form.name} className="w-full h-full object-cover" />
  <label
  htmlFor="category-upload"
- className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all cursor-pointer text-white text-[10px] font-bold text-center"
+ className="absolute inset-0 bg-black/0 group-hover:bg-black/60 flex items-center justify-center invisible group-hover:visible transition-all cursor-pointer text-white text-xs font-bold text-center"
  >
  Cambiar
  </label>
@@ -401,11 +389,11 @@ export default function HomeCategories() {
  ) : (
  <label
  htmlFor="category-upload"
- className="flex flex-col items-center justify-center h-24 rounded-xl border-2 border-dashed border-[var(--color-border)] text-[var(--color-text-main)] cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-text-main)] transition-colors"
+ className="flex flex-col items-center justify-center h-24 rounded border-2 border-dashed border-[var(--color-border)] text-[var(--color-text-main)] cursor-pointer hover:border-[var(--color-primary)] hover:text-[var(--color-text-main)] transition-colors"
  >
- <ImagePlus className="w-5 h-5 mb-1" />
- <span className="text-[11px] font-semibold text-center px-2">
- {uploading ? 'Subiendo...' : 'Sube una mini-ilustración (JPG, PNG, WEBP)'}
+ 
+ <span className="state-line">
+ {uploading ? 'Subiendo…' : 'Sube una mini-ilustración (JPG, PNG, WEBP)'}
  </span>
  </label>
  )}
@@ -413,7 +401,7 @@ export default function HomeCategories() {
  id="category-upload" type="file" accept="image/jpeg,image/png,image/webp"
  onChange={handleFileChange} className="hidden" disabled={uploading}
  />
- <p className="mt-1.5 text-[11px] text-[var(--color-text-main)] text-center">
+ <p className="mt-1.5 text-xs text-[var(--color-text-main)] text-center">
  Sin imagen, la app usa un icono de respaldo local.
  </p>
  </div>
@@ -430,29 +418,29 @@ export default function HomeCategories() {
  <div className="flex items-center gap-3">
  <input
  type="color"
- value={form.color || '#D69E26'}
+ value={form.color || 'var(--color-primary)'}
  onChange={(e) => setForm({ ...form, color: e.target.value })}
- className="h-10 w-14 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] cursor-pointer"
+ className="h-10 w-14 rounded border border-[var(--color-border)] bg-[var(--color-bg)] cursor-pointer"
  aria-label="Color de respaldo de la categoría"
  />
  <input
  type="text" maxLength={7} value={form.color}
  onChange={(e) => setForm({ ...form, color: e.target.value })}
  className={inputClass + ' flex-1 font-mono'}
- placeholder="#D69E26"
+ placeholder="var(--color-primary)"
  />
  {form.color ? (
  <button
  type="button"
  onClick={() => setForm({ ...form, color: '' })}
- className="p-2 rounded-lg text-[var(--color-text-main)] hover:text-[var(--color-danger)] border border-[var(--color-border)] cursor-pointer"
+ className="p-2 rounded text-[var(--color-text-main)] hover:text-[var(--color-danger)] border border-[var(--color-border)] cursor-pointer"
  title="Quitar el color"
- >
- <X className="w-4 h-4" />
+ >Quitar el color
+ 
  </button>
  ) : null}
  </div>
- <p className="mt-1.5 text-[11px] text-[var(--color-text-main)]">
+ <p className="mt-1.5 text-xs text-[var(--color-text-main)]">
  Solo se ve cuando no hay imagen: tiñe el cuadro detrás del icono de
  respaldo, para que una categoría nueva no quede en gris.
  </p>
@@ -463,9 +451,9 @@ export default function HomeCategories() {
  <input type="text" required maxLength={40} value={form.key}
  disabled={!!editingId}
  onChange={(e) => setForm({ ...form, key: e.target.value })}
- className={inputClass + (editingId ? ' opacity-60 cursor-not-allowed' : '')}
+ className={inputClass + (editingId ? ' cursor-not-allowed' : '')}
  placeholder="Ej. restaurant" />
- <p className="mt-1 text-[11px] text-[var(--color-text-main)]">
+ <p className="mt-1 text-xs text-[var(--color-text-main)]">
  Debe coincidir con la clave que usa la app. No se puede cambiar después de creada.
  </p>
  </div>
@@ -480,7 +468,7 @@ export default function HomeCategories() {
  <button
  type="submit"
  disabled={uploading}
- className="w-full h-11 bg-[var(--color-primary)] hover:bg-[#8A5D08] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs uppercase tracking-wider rounded-lg shadow-sm cursor-pointer mt-2"
+ className="w-full h-11 bg-[var(--color-primary)] hover:bg-[var(--accent-fill-hover)] disabled:cursor-not-allowed text-white font-bold text-xs rounded cursor-pointer mt-2"
  >
  {editingId ? 'Guardar Cambios' : 'Crear Categoría'}
  </button>

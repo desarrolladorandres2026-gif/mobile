@@ -1,5 +1,4 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
-import { X, ShieldAlert, Eye, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
 import EntityLink from '../components/EntityLink';
@@ -72,9 +71,9 @@ const BENEFICIARY_LABEL = { business: 'Comercio', driver: 'Domiciliario' } as co
 
 type Tab = 'payables' | 'history';
 
-const label = 'text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-main)]';
+const label = 'text-xs font-bold text-[var(--color-text-main)]';
 const input =
- 'h-10 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]';
+ 'h-10 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs outline-none focus:border-[var(--color-primary)]';
 
 export default function Settlements() {
  const canProcess = useAuthStore((s) => s.hasPermission(Permission.PAYOUTS_PROCESS));
@@ -246,7 +245,7 @@ export default function Settlements() {
  <button
  key={id}
  onClick={() => { setTab(id); setPage(1); setNotice(''); }}
- className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${
+ className={`cursor-pointer border-b-2 px-3 py-1.5 text-xs font-bold transition-all ${
  tab === id
  ? 'border-[var(--color-primary)] text-[var(--color-text-main)]'
  : 'border-transparent text-[var(--color-text-main)] hover:text-[var(--color-text-main)]'
@@ -257,7 +256,7 @@ export default function Settlements() {
  );
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="page-header">
  <div>
  <h1 className="page-title">Liquidaciones</h1>
@@ -273,7 +272,7 @@ export default function Settlements() {
  <select
  value={beneficiary}
  onChange={(e) => { setBeneficiary(e.target.value as typeof beneficiary); setPage(1); }}
- className="h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 font-semibold text-[var(--color-text-main)]"
+ className="h-9 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 font-semibold text-[var(--color-text-main)]"
  aria-label="Beneficiario"
  >
  <option value="">Comercios y domiciliarios</option>
@@ -284,7 +283,7 @@ export default function Settlements() {
  <select
  value={status}
  onChange={(e) => { setStatus(e.target.value as typeof status); setPage(1); }}
- className="h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 font-semibold text-[var(--color-text-main)]"
+ className="h-9 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 font-semibold text-[var(--color-text-main)]"
  aria-label="Estado del pago"
  >
  <option value="pending">Pendientes de pago</option>
@@ -302,15 +301,15 @@ export default function Settlements() {
  {notice && <p className="text-xs font-semibold text-[var(--color-text-main)]">{notice}</p>}
  {error && (
  <p className="flex items-center gap-2 text-xs font-semibold text-[var(--color-danger)]">
- <ShieldAlert className="h-4 w-4 shrink-0" /> {error}
+  {error}
  </p>
  )}
 
  {loading ? (
- <p className="py-10 text-center text-xs font-semibold text-[var(--color-text-main)]">Cargando…</p>
+ <p className="state-line">Cargando…</p>
  ) : tab === 'payables' ? (
  payables.length === 0 ? (
- <p className="py-10 text-center text-xs text-[var(--color-text-main)]">
+ <p className="state-line">
  No hay nada pendiente de liquidar. Los pagos aparecen aquí cuando el pedido se entrega y se cobra.
  </p>
  ) : (
@@ -361,7 +360,7 @@ export default function Settlements() {
  </div>
  )
  ) : items.length === 0 ? (
- <p className="py-10 text-center text-xs text-[var(--color-text-main)]">No hay liquidaciones con este filtro.</p>
+ <p className="state-line">No hay liquidaciones con este filtro.</p>
  ) : (
  <>
  <div className="table-container">
@@ -444,8 +443,8 @@ export default function Settlements() {
  )}
 
  {toSettle && (
- <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-fade-in">
- <div className="zipp-modal w-full max-w-sm space-y-3 rounded-2xl p-6">
+ <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+ <div className="zipp-modal w-full max-w-sm space-y-3 rounded p-6">
  <div className="flex items-start justify-between gap-3">
  <div>
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Liquidar a {toSettle.name ?? 'beneficiario'}</h3>
@@ -453,11 +452,11 @@ export default function Settlements() {
  {toSettle.count} {toSettle.count === 1 ? 'pago' : 'pagos'} · neto {money(toSettle.net)}
  </p>
  </div>
- <button onClick={() => setToSettle(null)} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-main)]">
- <X className="h-4 w-4" />
+ <button onClick={() => setToSettle(null)} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-main)]">Cerrar
+ 
  </button>
  </div>
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  Esto reclama los pagos y fija el neto (con la publicidad y los saldos en contra ya descontados). No mueve dinero: el pago se registra después, con su comprobante.
  {toSettle.beneficiary === 'business' && ' La cuenta del comercio debe estar verificada.'}
  </p>
@@ -465,7 +464,7 @@ export default function Settlements() {
  <button
  onClick={runSettle}
  disabled={settling}
- className="h-10 w-full cursor-pointer rounded-lg bg-[var(--color-primary)] text-xs font-bold uppercase tracking-wider text-white disabled:opacity-60"
+ className="h-10 w-full cursor-pointer rounded bg-[var(--color-primary)] text-xs font-bold text-white"
  >
  {settling ? 'Liquidando…' : 'Crear liquidación'}
  </button>
@@ -474,8 +473,8 @@ export default function Settlements() {
  )}
 
  {paying && (
- <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-fade-in">
- <div className="zipp-modal max-h-[90vh] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl p-6">
+ <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+ <div className="zipp-modal max-h-[90vh] w-full max-w-md space-y-3 overflow-y-auto rounded p-6">
  <div className="flex items-start justify-between gap-3">
  <div>
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Registrar pago</h3>
@@ -483,8 +482,8 @@ export default function Settlements() {
  {(paying.beneficiary === 'business' ? paying.businessName : paying.driverName) ?? 'Beneficiario'} · {money(paying.netAmount)}
  </p>
  </div>
- <button onClick={closePay} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-main)]">
- <X className="h-4 w-4" />
+ <button onClick={closePay} aria-label="Cerrar" className="cursor-pointer p-1 text-[var(--color-text-main)]">Cerrar
+ 
  </button>
  </div>
 
@@ -498,28 +497,28 @@ export default function Settlements() {
  {account.holderDocument && (
  <div className="flex justify-between gap-3"><dt className="text-[var(--color-text-main)]">Documento</dt><dd className="font-mono font-semibold text-[var(--color-text-main)]">{account.holderDocument}</dd></div>
  )}
- <p className="pt-1 text-[10px] text-[var(--color-text-main)]">Esta es la cuenta verificada al liquidar. Cada consulta queda auditada.</p>
+ <p className="pt-1 text-xs text-[var(--color-text-main)]">Esta es la cuenta verificada al liquidar. Cada consulta queda auditada.</p>
  </dl>
  ) : (
  <button
  onClick={reveal}
  disabled={busy}
- className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- <Eye className="h-3.5 w-3.5" /> Ver la cuenta a la que se paga
+  Ver la cuenta a la que se paga
  </button>
  )}
  {needsRefresh && (
  <div className="space-y-1">
- <p className="text-[11px] font-semibold text-[var(--color-text-main)]">
+ <p className="text-xs font-semibold text-[var(--color-text-main)]">
  La cuenta cambió o falta el registro de la cuenta de esta liquidación. Refréscala con la cuenta verificada actual antes de pagar.
  </p>
  <button
  onClick={refreshAccount}
  disabled={busy}
- className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)] disabled:opacity-60"
+ className="flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-[var(--color-text-main)]"
  >
- <RefreshCw className="h-3.5 w-3.5" /> Refrescar cuenta
+  Refrescar cuenta
  </button>
  </div>
  )}
@@ -540,21 +539,21 @@ export default function Settlements() {
  </label>
  <label className="block space-y-1">
  <span className={label}>Enlace del comprobante</span>
- <input value={form.receiptUrl} onChange={(e) => setForm((f) => ({ ...f, receiptUrl: e.target.value }))} placeholder="https://..." className={input} />
+ <input value={form.receiptUrl} onChange={(e) => setForm((f) => ({ ...f, receiptUrl: e.target.value }))} placeholder="https://…" className={input} />
  </label>
  <label className="block space-y-1">
  <span className={label}>Nota (opcional)</span>
  <input value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} maxLength={500} className={input} />
  </label>
 
- <p className="text-[11px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  Al registrar, la liquidación queda pagada y el libro asienta el desembolso. No se puede deshacer ni pagar dos veces.
  </p>
  {payError && <p className="text-xs font-semibold text-[var(--color-danger)]">{payError}</p>}
  <button
  onClick={submitPay}
  disabled={busy}
- className="h-10 w-full cursor-pointer rounded-lg bg-[var(--color-primary)] text-xs font-bold uppercase tracking-wider text-white disabled:opacity-60"
+ className="h-10 w-full cursor-pointer rounded bg-[var(--color-primary)] text-xs font-bold text-white"
  >
  {busy ? 'Registrando…' : `Registrar pago de ${money(paying.netAmount)}`}
  </button>

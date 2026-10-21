@@ -35,14 +35,14 @@ export function driverAccountState(d: Pick<DriverListItem, 'isApproved' | 'isAct
 
 export const accountStateStyles: Record<DriverAccountState, { label: string; text: string }> = {
  pending: { label: 'Pendiente de aprobación', text: 'text-[var(--color-text-main)]' },
- active: { label: 'Activo', text: 'text-[#047857]' },
+ active: { label: 'Activo', text: 'text-[var(--color-success)]' },
  suspended: { label: 'Suspendido', text: 'text-[var(--color-danger)]' },
 };
 
 export const availabilityStyles: Record<string, { label: string; text: string; dot: string }> = {
- available: { label: 'Disponible', text: 'text-[#047857]', dot: 'bg-[var(--color-success)]' },
- busy: { label: 'Ocupado', text: 'text-[#B45309]', dot: 'bg-[var(--color-warning)]' },
- offline: { label: 'Desconectado', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-muted)]' },
+ available: { label: 'Disponible', text: 'text-[var(--color-success)]', dot: 'bg-[var(--color-success)]' },
+ busy: { label: 'Ocupado', text: 'text-[var(--color-warning)]', dot: 'bg-[var(--color-warning)]' },
+ offline: { label: 'Desconectado', text: 'text-[var(--color-text-main)]', dot: 'bg-[var(--color-text-secondary)]' },
 };
 
 export const vehicleLabel = (type?: string) =>

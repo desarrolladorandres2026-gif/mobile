@@ -1,5 +1,4 @@
 ﻿import { useEffect, useState } from 'react';
-import { RefreshCw, X } from 'lucide-react';
 import api from '../../services/api';
 import { apiMessage } from '../../lib/apiError';
 import type { VersionRow } from './types';
@@ -30,7 +29,7 @@ export function VersionHistory({ onClose, onRestore, canManage }: {
  }, []);
 
  return (
- <div className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-xs flex justify-end animate-fade-in" onClick={onClose}>
+ <div className="fixed inset-0 z-[80] bg-black/60 flex justify-end" onClick={onClose}>
  <aside
  className="zipp-modal h-full w-full max-w-md p-6 overflow-y-auto space-y-5"
  onClick={(e) => e.stopPropagation()}
@@ -38,15 +37,15 @@ export function VersionHistory({ onClose, onRestore, canManage }: {
  >
  <div className="flex items-center justify-between pb-4 border-b border-[var(--color-border-light)]">
  <h3 className="text-base font-bold text-[var(--color-text-main)]">Historial de publicaciones</h3>
- <button onClick={onClose} className="p-1 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer" aria-label="Cerrar">
- <X className="w-5 h-5" />
+ <button onClick={onClose} className="p-1 text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer" aria-label="Cerrar">Cerrar
+ 
  </button>
  </div>
 
  {error ? <p className="text-xs text-[var(--color-danger)]">{error}</p> : null}
  {!rows && !error ? (
  <p className="flex items-center gap-2 text-xs text-[var(--color-text-main)]">
- <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Cargando…
+  Cargando…
  </p>
  ) : null}
  {rows && rows.length === 0 ? (
@@ -61,9 +60,9 @@ export function VersionHistory({ onClose, onRestore, canManage }: {
  <div className="flex items-baseline gap-2">
  <span className="font-mono text-sm font-bold text-[var(--color-text-main)]">v{row.version}</span>
  {row.version === current ? (
- <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-main)]">En la app</span>
+ <span className="text-xs font-bold text-[var(--color-text-main)]">En la app</span>
  ) : null}
- <span className="ml-auto text-[11px] text-[var(--color-text-main)]">
+ <span className="ml-auto text-xs text-[var(--color-text-main)]">
  {new Date(row.publishedAt).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })}
  </span>
  </div>

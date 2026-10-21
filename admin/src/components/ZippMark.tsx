@@ -27,13 +27,13 @@ export function ZippMark({
  >
  <path
  d="M12 13 H36 L12 35 H36"
- stroke={mono ?? '#E5B242'}
+ stroke={mono ?? 'var(--color-primary-light)'}
  strokeWidth={6}
  strokeLinecap="round"
  strokeLinejoin="round"
  fill="none"
  />
- <circle cx={36} cy={35} r={5} fill={mono ?? '#F3CE72'} />
+ <circle cx={36} cy={35} r={5} fill={mono ?? 'var(--color-primary-light)'} />
  </svg>
  );
 }
@@ -60,7 +60,7 @@ export function ZippWordmark({
  className="w-auto object-contain select-none"
  />
  {label ? (
- <span className="text-[10px] text-[var(--color-text-main)] font-bold tracking-[0.14em] uppercase px-1.5 py-0.5 rounded bg-primary/15 border border-primary/30">
+ <span className="text-xs text-[var(--color-text-main)] font-bold px-1.5 py-0.5 rounded bg-primary/15 border border-primary/30">
  {label}
  </span>
  ) : null}

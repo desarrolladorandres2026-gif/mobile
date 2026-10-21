@@ -1,6 +1,5 @@
 ﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldCheck, Copy, Check, AlertCircle, LogOut } from 'lucide-react';
 import api from '../services/api';
 import { apiErrorCode, apiMessage } from '../lib/apiError';
 import { useAuthStore } from '../stores/authStore';
@@ -101,7 +100,7 @@ export default function TwoFactorSetup() {
  <div className="min-h-screen bg-[var(--color-surface)] flex items-center justify-center px-6 py-12">
  <div className="w-full max-w-sm">
  <div className="flex flex-col items-center text-center mb-8">
- <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+ <h1 className="text-lg font-bold text-slate-900">
  Activa la verificación en dos pasos
  </h1>
  <p className="text-sm text-slate-900 mt-1">
@@ -111,7 +110,7 @@ export default function TwoFactorSetup() {
 
  {loadError && (
  <div className="flex items-start gap-2.5 mb-6">
- <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+ 
  <p className="flex-1 text-xs font-medium text-rose-600 leading-relaxed">{loadError}</p>
  </div>
  )}
@@ -119,7 +118,7 @@ export default function TwoFactorSetup() {
  {!data && (
  <form onSubmit={handleUnlock} className="space-y-4">
  <div>
- <label className="block text-[11px] font-bold text-slate-900 uppercase tracking-wider mb-1.5">
+ <label className="block text-xs font-bold text-slate-900 mb-1.5">
  Confirma tu contraseña
  </label>
  <input
@@ -129,16 +128,16 @@ export default function TwoFactorSetup() {
  placeholder="••••••••••"
  autoComplete="current-password"
  autoFocus
- className="w-full h-12 rounded-xl bg-slate-50 border border-slate-200 px-4 text-sm text-slate-900 placeholder-slate-300 focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/15 outline-none transition-all"
+ className="w-full h-12 rounded bg-slate-50 border border-slate-200 px-4 text-sm text-slate-900 placeholder-slate-300 focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/15 outline-none transition-all"
  />
  </div>
  <button
  type="submit"
  disabled={unlocking}
- className="w-full h-12 rounded-xl bg-[var(--color-primary)] hover:bg-[var(--color-chart-purple)] text-white font-bold text-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
+ className="w-full h-12 rounded bg-[var(--color-primary)] hover:bg-[var(--color-chart-purple)] text-white font-bold text-sm transition-all duration-200 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
  >
- <ShieldCheck className="w-4 h-4" />
- {unlocking ? 'Generando código...' : 'Continuar'}
+ 
+ {unlocking ? 'Generando código…' : 'Continuar'}
  </button>
  </form>
  )}
@@ -159,13 +158,13 @@ export default function TwoFactorSetup() {
  onClick={handleCopy}
  className="flex items-center gap-1.5 text-xs font-mono font-semibold text-[var(--color-text-main)] hover:underline cursor-pointer"
  >
- {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+ 
  {copied ? 'Copiado' : data.secret}
  </button>
  </div>
 
  <div className="border-t border-slate-200 pt-5">
- <p className="text-[11px] font-bold text-slate-900 uppercase tracking-wider mb-2">
+ <p className="text-xs font-bold text-slate-900 mb-2">
  Códigos de recuperación
  </p>
  <p className="text-xs text-slate-900 mb-3">
@@ -180,7 +179,7 @@ export default function TwoFactorSetup() {
 
  <form onSubmit={handleVerify} className="border-t border-slate-200 pt-5 space-y-4">
  <div>
- <label className="block text-[11px] font-bold text-slate-900 uppercase tracking-wider mb-1.5">
+ <label className="block text-xs font-bold text-slate-900 mb-1.5">
  Código de 6 dígitos
  </label>
  <input
@@ -192,13 +191,13 @@ export default function TwoFactorSetup() {
  onChange={(e) => { setCode(e.target.value.replace(/\D/g, '')); setVerifyError(''); }}
  placeholder="000000"
  autoFocus
- className="w-full h-12 rounded-xl bg-slate-50 border border-slate-200 px-4 text-center text-lg font-bold tracking-[0.3em] text-slate-900 placeholder-slate-300 focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/15 outline-none transition-all"
+ className="w-full h-12 rounded bg-slate-50 border border-slate-200 px-4 text-center text-lg font-bold text-slate-900 placeholder-slate-300 focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/15 outline-none transition-all"
  />
  </div>
 
  {verifyError && (
  <div className="flex items-start gap-2.5">
- <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+ 
  <p className="flex-1 text-xs font-medium text-rose-600 leading-relaxed">{verifyError}</p>
  </div>
  )}
@@ -206,10 +205,10 @@ export default function TwoFactorSetup() {
  <button
  type="submit"
  disabled={code.length !== 6 || verifying}
- className="w-full h-12 rounded-xl bg-[var(--color-primary)] hover:bg-[var(--color-chart-purple)] text-white font-bold text-sm transition-all duration-200 shadow-lg shadow-[var(--color-primary)]/25 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
+ className="w-full h-12 rounded bg-[var(--color-primary)] hover:bg-[var(--color-chart-purple)] text-white font-bold text-sm transition-all duration-200 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
  >
- <ShieldCheck className="w-4 h-4" />
- {verifying ? 'Verificando...' : 'Activar y continuar'}
+ 
+ {verifying ? 'Verificando…' : 'Activar y continuar'}
  </button>
  </form>
  </div>
@@ -220,7 +219,7 @@ export default function TwoFactorSetup() {
  onClick={handleLogout}
  className="w-full flex items-center justify-center gap-1.5 mt-8 text-xs font-semibold text-slate-900 hover:text-rose-600 transition-colors cursor-pointer"
  >
- <LogOut className="w-3.5 h-3.5" />
+ 
  Cerrar sesión
  </button>
  </div>

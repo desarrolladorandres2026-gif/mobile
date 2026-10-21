@@ -67,7 +67,7 @@ export default function AccessReview() {
  const enforcing = data?.mode === 'enforce';
 
  return (
- <div className="space-y-4 animate-fade-in">
+ <div className="space-y-4">
  <div className="flex items-start justify-between gap-4">
  <div>
  <h2 className="text-sm font-bold text-[var(--color-text-main)]">Revisión de accesos</h2>
@@ -79,7 +79,7 @@ export default function AccessReview() {
  {data && (
  <button
  onClick={() => setConfirm(enforcing ? 'disable' : 'enable')}
- className={`px-3 py-2 text-xs font-bold rounded-lg cursor-pointer ${
+ className={`px-3 py-2 text-xs font-bold rounded cursor-pointer ${
  enforcing ? 'border border-[var(--color-border)] text-[var(--color-text-main)]' : 'bg-[var(--color-primary)] text-white'
  }`}
  >
@@ -155,7 +155,7 @@ function GroupRows({ group }: { group: ReturnType<typeof groupShadowByUser>[numb
  {i === 0 && (
  <>
  <p className="text-xs font-bold text-[var(--color-text-main)]">{group.userName}</p>
- <p className="text-[10px] text-[var(--color-text-main)]">
+ <p className="text-xs text-[var(--color-text-main)]">
  {group.email ? `${group.email} · ` : ''}
  {group.roleSlugs.length ? group.roleSlugs.join(', ') : 'sin rol'}
  </p>
@@ -163,11 +163,11 @@ function GroupRows({ group }: { group: ReturnType<typeof groupShadowByUser>[numb
  )}
  </td>
  <td className="table-body-cell text-xs">{permissionLabel(r.permission)}</td>
- <td className="table-body-cell text-[11px] text-[var(--color-text-main)]">
+ <td className="table-body-cell text-xs text-[var(--color-text-main)]">
  {r.method} {r.route}
  </td>
  <td className="table-body-cell text-xs">{r.count}</td>
- <td className="table-body-cell text-[11px] text-[var(--color-text-main)]">{fmt(r.lastSeen)}</td>
+ <td className="table-body-cell text-xs text-[var(--color-text-main)]">{fmt(r.lastSeen)}</td>
  </tr>
  ))}
  </>

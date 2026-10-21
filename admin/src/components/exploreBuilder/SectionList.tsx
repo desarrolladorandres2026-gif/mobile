@@ -1,12 +1,11 @@
 ﻿import { useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Copy, Eye, EyeOff, GripVertical, Trash2 } from 'lucide-react';
 import { sectionSummary, sectionTitle, TYPE_LABEL } from './sections';
 import type { BuilderOptions, Section } from './types';
 
 /**
  * El orden de Explorar, de arriba a abajo: 01, 02, 03…
  *
- * Se reordena arrastrando (mismo patrón nativo que Banners de Inicio) o con
+ * Se reordena arrastrando (mismo patrón nativo que Banners de inicio) o con
  * las flechas, que son las que sirven con teclado. Filas separadas por una
  * línea fina; la seleccionada se marca con el color de marca, sin fondo.
  */
@@ -44,7 +43,7 @@ export function SectionList({
  const toggleHidden = (id: string) =>
  onChange(sections.map((s) => (s.id === id ? { ...s, hidden: !s.hidden } : s)));
 
- const iconButton = 'p-1.5 rounded-md text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer disabled:opacity-30 disabled:cursor-default';
+ const iconButton = 'p-1.5 rounded text-[var(--color-text-main)] hover:text-[var(--color-text-main)] cursor-pointer disabled:cursor-default';
 
  return (
  <ol className="divide-y divide-[var(--color-border-light)]">
@@ -62,9 +61,7 @@ export function SectionList({
  selected ? 'border-[var(--color-primary)]' : 'border-transparent'
  } ${dragOverId === section.id ? 'border-t-2 border-t-[var(--color-primary)]' : ''}`}
  >
- {!readOnly ? (
- <GripVertical className="w-4 h-4 mt-0.5 shrink-0 text-[var(--color-text-main)] cursor-grab" aria-hidden />
- ) : null}
+ 
  <button type="button" onClick={() => onSelect(section.id)} className="flex-1 min-w-0 text-left cursor-pointer">
  <div className="flex items-baseline gap-2">
  <span className={`font-mono text-xs ${selected ? 'text-[var(--color-text-main)]' : 'text-[var(--color-text-main)]'}`}>
@@ -74,19 +71,19 @@ export function SectionList({
  {sectionTitle(section, options)}
  </span>
  </div>
- <p className="text-[11px] text-[var(--color-text-main)] truncate mt-0.5 pl-7">
+ <p className="text-xs text-[var(--color-text-main)] truncate mt-0.5 pl-7">
  {TYPE_LABEL[section.type]} · {sectionSummary(section, options)}
  </p>
  </button>
  {!readOnly ? (
- <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100">
- <button type="button" className={iconButton} onClick={() => move(index, index - 1)} disabled={index === 0} title="Subir" aria-label="Subir"><ArrowUp className="w-3.5 h-3.5" /></button>
- <button type="button" className={iconButton} onClick={() => move(index, index + 1)} disabled={index === sections.length - 1} title="Bajar" aria-label="Bajar"><ArrowDown className="w-3.5 h-3.5" /></button>
+ <div className="flex items-center gap-0.5">
+ <button type="button" className={iconButton} onClick={() => move(index, index - 1)} disabled={index === 0} title="Subir" aria-label="Subir">Subir</button>
+ <button type="button" className={iconButton} onClick={() => move(index, index + 1)} disabled={index === sections.length - 1} title="Bajar" aria-label="Bajar">Bajar</button>
  <button type="button" className={iconButton} onClick={() => toggleHidden(section.id)} title={section.hidden ? 'Mostrar' : 'Ocultar'} aria-label={section.hidden ? 'Mostrar' : 'Ocultar'}>
- {section.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+ {section.hidden ? 'Mostrar' : 'Ocultar'}
  </button>
- <button type="button" className={iconButton} onClick={() => onDuplicate(section.id)} title="Duplicar" aria-label="Duplicar"><Copy className="w-3.5 h-3.5" /></button>
- <button type="button" className={`${iconButton} hover:text-[var(--color-danger)]`} onClick={() => onDelete(section.id)} title="Eliminar" aria-label="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+ <button type="button" className={iconButton} onClick={() => onDuplicate(section.id)} title="Duplicar" aria-label="Duplicar">Duplicar</button>
+ <button type="button" className={`${iconButton} hover:text-[var(--color-danger)]`} onClick={() => onDelete(section.id)} title="Eliminar" aria-label="Eliminar">Eliminar</button>
  </div>
  ) : null}
  </li>

@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { X } from 'lucide-react';
 import api from '../../services/api';
 import { apiMessage } from '../../lib/apiError';
 import { Permission } from '../../lib/permissions';
@@ -36,7 +35,7 @@ export default function DeviceDetail({ businessId, recordId, onClose, onRevoke }
 
   return (
     <div className="fixed inset-0 z-[70] flex justify-end">
-      <button type="button" aria-label="Cerrar" onClick={onClose} className="absolute inset-0 cursor-default bg-black/40" />
+      <button type="button" aria-label="Cerrar" onClick={onClose} className="absolute inset-0 cursor-default bg-black/60" />
       <aside role="dialog" aria-label="Detalle del dispositivo" className="zipp-modal relative h-full w-full max-w-xl overflow-y-auto p-6">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
@@ -50,8 +49,8 @@ export default function DeviceDetail({ businessId, recordId, onClose, onRevoke }
               )}
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="cursor-pointer text-[var(--color-text-muted)] hover:text-[var(--color-text-main)]">
-            <X className="h-5 w-5" />
+          <button type="button" onClick={onClose} aria-label="Cerrar" className="cursor-pointer text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)]">Cerrar
+            
           </button>
         </div>
 
@@ -76,8 +75,8 @@ export default function DeviceDetail({ businessId, recordId, onClose, onRevoke }
             </dl>
             {data.device.userAgent && (
               <div className="space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">User-Agent</p>
-                <p className="tabular break-all text-[11px] text-[var(--color-text-secondary)]">{data.device.userAgent}</p>
+                <p className="text-xs font-bold text-[var(--color-text-secondary)]">User-Agent</p>
+                <p className="tabular break-all text-xs text-[var(--color-text-secondary)]">{data.device.userAgent}</p>
               </div>
             )}
 
@@ -91,7 +90,7 @@ export default function DeviceDetail({ businessId, recordId, onClose, onRevoke }
                         <span className={`font-bold ${STATUS_STYLES[s.status].text}`}>{STATUS_STYLES[s.status].label}</span>
                         {' · '}desde {dateTime(s.createdAt)} · IP {s.lastIp}
                       </p>
-                      <p className="text-[11px] text-[var(--color-text-secondary)]">
+                      <p className="text-xs text-[var(--color-text-secondary)]">
                         Última actividad {dateTime(s.lastActivity)} {s.mfa && <MfaMark />}
                         {s.status === 'revoked' && s.revokedReason && ` · ${s.revokedBy ? `cerrada por ${s.revokedBy.name}` : REASON_LABELS[s.revokedReason] ?? s.revokedReason}`}
                       </p>
@@ -111,7 +110,7 @@ export default function DeviceDetail({ businessId, recordId, onClose, onRevoke }
                 {data.events.map((e) => (
                   <li key={e.id} className="flex justify-between gap-3 py-2">
                     <span className={e.result === 'failure' ? 'font-semibold text-[var(--color-danger)]' : ''}>{EVENT_LABELS[e.type] ?? e.type}</span>
-                    <span className="tabular shrink-0 text-[11px] text-[var(--color-text-secondary)]">{dateTime(e.createdAt)} · {e.ip}</span>
+                    <span className="tabular shrink-0 text-xs text-[var(--color-text-secondary)]">{dateTime(e.createdAt)} · {e.ip}</span>
                   </li>
                 ))}
                 {data.events.length === 0 && <li className="py-2 text-[var(--color-text-secondary)]">Sin eventos registrados.</li>}
@@ -127,7 +126,7 @@ export default function DeviceDetail({ businessId, recordId, onClose, onRevoke }
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">{label}</dt>
+      <dt className="text-xs font-bold text-[var(--color-text-secondary)]">{label}</dt>
       <dd className="tabular truncate text-sm font-semibold">{value}</dd>
     </div>
   );
