@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { DAY_MS, dayOf, parseDay as parseCalendarDay } from '../core/dates.js';
+import { normalizeCenter, requireCostCenters, sumByAccountAndCenter } from '../core/dims.js';
 import { assertMinorUnits } from '../core/money.js';
 import { vatRatesFor } from '../countries/index.js';
 import { COLLECTIONS } from '../data/db.js';
@@ -110,7 +111,9 @@ export function createPosService({ client, db, ledger, accounts, parties, settin
       const name = text(input.name, 'el nombre de la caja', { required: true, max: 100 });
       const accountCodes = await checkPaymentAccounts(tenantId, input.accounts);
       const warehouse = input.warehouseId ? await inventory.resolveWarehouse(tenantId, input.warehouseId) : null;
-      const doc = { code, name, accounts: accountCodes, ...(warehouse ? { warehouseId: warehouse._id } : {}), active: true, lastSale: 0, createdAt: now() };
+      const costCenter = normalizeCenter(input.costCenter);
+      await requireCostCenters(db, tenantId, [costCenter], fail);
+      const doc = { code, name, accounts: accountCodes, ...(warehouse ? { warehouseId: warehouse._id } : {}), ...(costCenter ? { costCenter } : {}), active: true, lastSale: 0, createdAt: now() };
       return withTransaction(client, async (session) => {
         try {
           const { insertedId } = await registersOf(tenantId).insertOne({ ...doc }, session);
@@ -129,6 +132,7 @@ export function createPosService({ client, db, ledger, accounts, parties, settin
       if (!register) fail('la caja no existe', 'NOT_FOUND');
       const open = await shiftsOf(tenantId).findOne({ registerId: register._id, status: 'open' });
       const set = {};
+      const unset = {};
       if ('name' in changes) set.name = text(changes.name, 'el nombre de la caja', { required: true, max: 100 });
       if ('accounts' in changes) {
         if (open) fail('la caja tiene un turno abierto: ciérralo antes de cambiar sus cuentas', 'SHIFT_OPEN');
@@ -138,13 +142,19 @@ export function createPosService({ client, db, ledger, accounts, parties, settin
         if (!changes.active && open) fail('la caja tiene un turno abierto: ciérralo antes de desactivarla', 'SHIFT_OPEN');
         set.active = Boolean(changes.active);
       }
+      if ('costCenter' in changes) {
+        const costCenter = normalizeCenter(changes.costCenter);
+        await requireCostCenters(db, tenantId, [costCenter], fail);
+        if (costCenter) set.costCenter = costCenter;
+        else unset.costCenter = '';
+      }
       if ('warehouseId' in changes) {
         if (open) fail('la caja tiene un turno abierto: ciérralo antes de cambiar su bodega', 'SHIFT_OPEN');
         set.warehouseId = (await inventory.resolveWarehouse(tenantId, changes.warehouseId))._id;
       }
-      if (Object.keys(set).length) {
+      if (Object.keys(set).length || Object.keys(unset).length) {
         await withTransaction(client, async (session) => {
-          await registersOf(tenantId).updateOne({ _id: register._id }, { $set: set }, { session });
+          await registersOf(tenantId).updateOne({ _id: register._id }, { ...(Object.keys(set).length ? { $set: set } : {}), ...(Object.keys(unset).length ? { $unset: unset } : {}) }, { session });
           if (inTx) await inTx(session, { id });
         });
       }
@@ -371,6 +381,7 @@ export function createPosService({ client, db, ledger, accounts, parties, settin
           discountBps: l.discountBps ?? 0,
           vatBps,
           accountId,
+          ...(register.costCenter ? { costCenter: register.costCenter } : {}),
           ...(item ? { itemId: item._id, warehouseId: warehouse._id, inventoryAccount: item.inventoryAccount, cogsAccount: item.cogsAccount } : {}),
           ...computed,
         };
@@ -422,25 +433,28 @@ export function createPosService({ client, db, ledger, accounts, parties, settin
           group.quantity -= line.quantity;
           group.value -= stockCost[index];
         }
-        const cogs = new Map();
         const stock = new Map();
+        const cogsItems = [];
         for (const { line, index } of stockLines) {
           if (stockCost[index] <= 0) continue;
-          addTo(cogs, line.cogsAccount, stockCost[index]);
+          cogsItems.push({ accountId: line.cogsAccount, costCenter: line.costCenter, cost: stockCost[index] });
           addTo(stock, line.inventoryAccount, stockCost[index]);
         }
         return {
           stockCost,
-          lines: [...[...cogs].map(([accountId, debit]) => ({ accountId, debit })), ...[...stock].map(([accountId, credit]) => ({ accountId, credit }))],
+          lines: [
+            ...sumByAccountAndCenter(cogsItems, (c) => c.cost).map(({ accountId, costCenter, amount }) => ({ accountId, debit: amount, ...(costCenter ? { costCenter } : {}) })),
+            ...[...stock].map(([accountId, credit]) => ({ accountId, credit })),
+          ],
           apply: (session) => inventory.applyOut(tenantId, plan, session, { type: 'pos_sale', date, source: { kind: 'pos_sale', id: String(saleId) }, userId }),
         };
       };
 
-      const income = new Map();
-      for (const l of lines) addTo(income, l.accountId, l.net);
       const baseLines = [
         ...payments.map((p) => ({ accountId: p.account, debit: p.amount })),
-        ...[...income].filter(([, amount]) => amount > 0).map(([accountId, credit]) => ({ accountId, credit })),
+        ...sumByAccountAndCenter(lines, (l) => l.net)
+          .filter(({ amount }) => amount > 0)
+          .map(({ accountId, costCenter, amount }) => ({ accountId, credit: amount, ...(costCenter ? { costCenter } : {}) })),
         ...(totals.tax > 0 ? [{ accountId: cfg.accounts.vatPayable, credit: totals.tax }] : []),
       ];
 

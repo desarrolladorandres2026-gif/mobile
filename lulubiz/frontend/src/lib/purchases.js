@@ -57,6 +57,7 @@ export function validatePurchase({ supplierId, supplierDocNumber, issueDate, due
       ...(discountBps ? { discountBps } : {}),
       vatBps: line.vatBps,
       ...(line.item ? { itemId: line.item._id, ...(warehouseId ? { warehouseId } : {}) } : { accountId: line.accountId.trim() }),
+      ...(line.costCenter ? { costCenter: line.costCenter } : {}),
     });
   });
   if (prepared.length === 0) errors.form.push('Agrega al menos una línea.');

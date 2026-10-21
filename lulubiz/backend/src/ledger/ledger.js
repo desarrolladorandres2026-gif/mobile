@@ -14,7 +14,7 @@ export const MAX_JOURNAL_PAGE = 50;
  * Tipos de documento que generan los módulos (facturas, cobros, compras…). Un asiento manual no puede usarlos:
  * consumiría su consecutivo y dejaría huecos, y un asiento a mano sobre sus cuentas no actualiza el documento.
  */
-export const MODULE_DOC_TYPES = ['FV', 'NC', 'RC', 'FC', 'CE', 'NP', 'MI', 'PV', 'CJ', 'CA'];
+export const MODULE_DOC_TYPES = ['FV', 'NC', 'RC', 'FC', 'CE', 'NP', 'MI', 'PV', 'CJ', 'CA', 'AA', 'CB', 'NDP', 'DP', 'BF'];
 const PERIOD_PATTERN = /^[0-9]{4}-(0[1-9]|1[0-2])$/;
 
 export class LedgerValidationError extends Error {
@@ -85,6 +85,8 @@ export function assertPeriod(period) {
   return period;
 }
 
+const COST_CENTER = /^[A-Z0-9][A-Z0-9_-]{0,9}$/;
+
 /** Valida y normaliza las líneas. Cada línea tiene débito o crédito, nunca ambos. */
 function normalizeLines(lines) {
   if (!Array.isArray(lines) || lines.length < 2) {
@@ -109,11 +111,22 @@ function normalizeLines(lines) {
     }
     totalDebit = addMinor(totalDebit, debit);
     totalCredit = addMinor(totalCredit, credit);
+    // Dimensiones opcionales: el centro de costo (su código) y el tercero.
+    const costCenter = line.costCenter ? String(line.costCenter).trim().toUpperCase() : undefined;
+    if (costCenter && !COST_CENTER.test(costCenter)) throw new LedgerValidationError(`línea ${i + 1}: el centro de costo ${costCenter} no es un código válido`);
+    let partyId;
+    if (line.partyId) {
+      const hex = String(line.partyId);
+      if (!/^[a-f0-9]{24}$/.test(hex)) throw new LedgerValidationError(`línea ${i + 1}: el tercero no es válido`);
+      partyId = new ObjectId(hex);
+    }
     return {
       accountId: line.accountId.trim(),
       debit,
       credit,
       ...(line.description ? { description: line.description } : {}),
+      ...(costCenter ? { costCenter } : {}),
+      ...(partyId ? { partyId } : {}),
     };
   });
   if (totalDebit !== totalCredit) throw new LedgerImbalanceError(totalDebit, totalCredit);
@@ -202,7 +215,39 @@ export function createLedger(client, db, options = {}) {
         { upsert: true, session },
       );
     }
+    // Saldos por dimensión (centro de costo y tercero), en la misma transacción: el mismo recorrido, solo de las líneas que las traen.
+    const dims = new Map();
+    for (const line of draft.lines) {
+      for (const [dimension, key] of [['costCenter', line.costCenter], ['party', line.partyId ? String(line.partyId) : undefined]]) {
+        if (!key) continue;
+        const id = `${dimension}|${key}|${line.accountId}`;
+        const acc = dims.get(id) ?? { dimension, key, accountId: line.accountId, debit: 0, credit: 0 };
+        acc.debit = addMinor(acc.debit, line.debit);
+        acc.credit = addMinor(acc.credit, line.credit);
+        dims.set(id, acc);
+      }
+    }
+    const dimBalances = new TenantCollection(db.collection(COLLECTIONS.dimBalances), tenantId);
+    for (const { dimension, key, accountId, debit, credit } of dims.values()) {
+      await dimBalances.updateOne({ dimension, key, accountId, period: draft.period, currency: draft.currency }, { $inc: { debit, credit } }, { upsert: true, session });
+    }
     return { ...journal, tenantId };
+  }
+
+  /** Los centros de costo de las líneas existen y están activos, y los terceros son de la empresa. */
+  async function checkDimensions(tenantId, lines) {
+    const codes = [...new Set(lines.map((l) => l.costCenter).filter(Boolean))];
+    if (codes.length) {
+      const found = await db.collection(COLLECTIONS.costCenters).find({ tenantId, code: { $in: codes }, active: true }, { projection: { code: 1 } }).toArray();
+      const ok = new Set(found.map((c) => c.code));
+      const missing = codes.filter((c) => !ok.has(c));
+      if (missing.length) throw new LedgerValidationError(`el centro de costo ${missing.join(', ')} no existe o está inactivo`);
+    }
+    const parties = [...new Map(lines.filter((l) => l.partyId).map((l) => [String(l.partyId), l.partyId])).values()];
+    if (parties.length) {
+      const found = await db.collection(COLLECTIONS.parties).countDocuments({ tenantId, _id: { $in: parties } });
+      if (found !== parties.length) throw new LedgerValidationError('un tercero de las líneas no existe en esta empresa');
+    }
   }
 
   const api = {
@@ -212,6 +257,7 @@ export function createLedger(client, db, options = {}) {
       const currency = assertCurrency(input.currency);
       const period = periodOf(input.date);
       const { lines, totalDebit, totalCredit } = normalizeLines(input.lines);
+      await checkDimensions(tenantId, lines);
 
       await ensureCounter(tenantId, input.docType);
       await ensurePeriod(tenantId, period);
@@ -285,6 +331,8 @@ export function createLedger(client, db, options = {}) {
                 debit: l.credit,
                 credit: l.debit,
                 ...(l.description ? { description: l.description } : {}),
+                ...(l.costCenter ? { costCenter: l.costCenter } : {}),
+                ...(l.partyId ? { partyId: l.partyId } : {}),
               })),
               totalDebit: original.totalCredit,
               totalCredit: original.totalDebit,

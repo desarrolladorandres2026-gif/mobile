@@ -13,7 +13,7 @@ Software contable y administrativo. React + Node.js + MongoDB, en JavaScript. Di
 Cada paquete es independiente: `npm install` en cada carpeta.
 
 ```
-cd backend  && npm test       # 527 pruebas (descarga un MongoDB de pruebas la primera vez)
+cd backend  && npm test       # 540 pruebas (descarga un MongoDB de pruebas la primera vez)
 cd frontend && npm test       # 169 pruebas
 cd e2e      && npm test       # compila la interfaz y corre el recorrido en Chrome
 cd backend  && npm run bench  # medición de rendimiento contra un MongoDB local

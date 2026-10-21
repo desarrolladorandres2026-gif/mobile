@@ -4,6 +4,11 @@ import { api } from '../lib/api.js';
 import { Link, Redirect, useRouter } from '../lib/router.jsx';
 import { useSession } from '../lib/session.jsx';
 import { AccountsScreen } from './Accounts.jsx';
+import { CustomerAdvancesScreen, SupplierAdvancesScreen } from './Advances.jsx';
+import { BankScreen } from './Bank.jsx';
+import { BooksScreen } from './Books.jsx';
+import { PurchaseOrdersScreen, QuotesScreen, RecurringScreen } from './Commercial.jsx';
+import { CostCentersScreen } from './CostCenters.jsx';
 import { AuditScreen, MembersScreen } from './Admin.jsx';
 import { ApiKeysScreen } from './ApiKeys.jsx';
 import { InvoicingSettingsScreen } from './InvoicingSettings.jsx';
@@ -33,7 +38,10 @@ const GROUPS = [
     sections: [
       { path: 'asientos', label: 'Asientos', permission: 'journals:read', Screen: JournalsScreen },
       { path: 'cuentas', label: 'Plan de cuentas', permission: 'accounts:read', Screen: AccountsScreen },
+      { path: 'conciliacion', label: 'Conciliación bancaria', permission: 'bank:read', Screen: BankScreen },
+      { path: 'centros-costo', label: 'Centros de costo', permission: 'accounts:read', Screen: CostCentersScreen },
       { path: 'informes', label: 'Informes', permission: 'reports:read', Screen: FinancialReportsScreen },
+      { path: 'libros', label: 'Libros y estados de cuenta', permission: 'reports:read', Screen: BooksScreen },
       { path: 'saldos', label: 'Saldos', permission: 'reports:read', Screen: BalancesScreen },
       { path: 'periodos', label: 'Períodos', permission: 'journals:read', Screen: PeriodsScreen },
       { path: 'cierre', label: 'Cierre de ejercicio', permission: 'reports:read', Screen: YearEndScreen },
@@ -50,19 +58,24 @@ const GROUPS = [
   {
     label: 'Ventas',
     sections: [
+      { path: 'cotizaciones', label: 'Cotizaciones', permission: 'invoices:read', Screen: QuotesScreen },
       { path: 'facturas', label: 'Facturas', permission: 'invoices:read', Screen: InvoicesScreen },
+      { path: 'facturas-recurrentes', label: 'Facturas recurrentes', permission: 'invoices:read', Screen: RecurringScreen },
       { path: 'notas-credito', label: 'Notas crédito', permission: 'invoices:read', Screen: CreditNotesScreen },
       { path: 'cartera', label: 'Cartera', permission: 'invoices:read', Screen: ReceivablesScreen },
       { path: 'recibos', label: 'Recibos de caja', permission: 'invoices:read', Screen: ReceiptsScreen },
+      { path: 'anticipos-clientes', label: 'Anticipos de clientes', permission: 'invoices:read', Screen: CustomerAdvancesScreen },
     ],
   },
   {
     label: 'Compras',
     sections: [
+      { path: 'ordenes-compra', label: 'Órdenes de compra', permission: 'purchases:read', Screen: PurchaseOrdersScreen },
       { path: 'compras', label: 'Compras', permission: 'purchases:read', Screen: PurchasesScreen },
       { path: 'notas-proveedor', label: 'Notas de proveedor', permission: 'purchases:read', Screen: SupplierNotesScreen },
       { path: 'por-pagar', label: 'Cuentas por pagar', permission: 'purchases:read', Screen: PayablesScreen },
       { path: 'pagos', label: 'Pagos', permission: 'purchases:read', Screen: PaymentsScreen },
+      { path: 'anticipos-proveedores', label: 'Anticipos a proveedores', permission: 'purchases:read', Screen: SupplierAdvancesScreen },
     ],
   },
   {

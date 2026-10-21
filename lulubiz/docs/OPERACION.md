@@ -8,7 +8,7 @@ Manual para desplegar Lulubiz, vigilarlo, respaldarlo y dar de alta a un cliente
 - **MongoDB como conjunto de réplicas** (MongoDB Atlas lo es siempre; uno propio también). Un MongoDB de un solo nodo sin réplica no sirve: toda operación contable es una transacción. Para un cliente real, un clúster de pago (M10 o más): el nivel gratuito no trae copia de seguridad continua ni el almacenamiento que hace falta.
 - **Un dominio con HTTPS** delante de la API y la interfaz, **del mismo origen**: la sesión es una cookie `SameSite=Strict` y no hay CORS. Un proxy inverso (Nginx, Caddy, un balanceador) que reenvíe `/v1/*`, `/healthz`, `/readyz` y `/metrics` a la API y sirva `frontend/dist` para el resto, con la ruta de respaldo a `index.html`.
 - **Un servidor SMTP** (Brevo, Amazon SES, Google Workspace…): sin él no llegan la verificación del correo, las invitaciones ni la recuperación de contraseña.
-- **Un proveedor de facturación electrónica** autorizado por la DIAN para facturar de verdad. Mientras no esté conectado, el sistema solo tiene el simulador y **sus documentos no valen ante la DIAN**. Ver §8.
+- **Un proveedor de facturación electrónica** autorizado por la DIAN para facturar de verdad. Mientras no esté conectado, el sistema solo tiene el simulador y **sus documentos no valen ante la DIAN**. Ver §11.
 
 ## 2. Primer despliegue, paso a paso
 
@@ -27,7 +27,7 @@ Manual para desplegar Lulubiz, vigilarlo, respaldarlo y dar de alta a un cliente
 4. **Compila la interfaz**: `cd frontend && npm ci && npm run build`. Sirve la carpeta `dist`.
 5. **Arranca la API** con el usuario de la aplicación y las variables de la tabla de abajo: `cd backend && npm start`. En producción, faltar una variable obligatoria impide arrancar (es a propósito).
 6. **Comprueba**: `GET /healthz` responde 200 (la API vive) y `GET /readyz` responde 200 (la base responde).
-7. **Registra la primera empresa** desde la interfaz y recorre «Primeros pasos» (§7).
+7. **Registra la primera empresa** desde la interfaz y recorre «Primeros pasos» (§9).
 
 ## 3. Variables de entorno
 
@@ -65,10 +65,46 @@ Es lo más importante de esta página: **un software contable sin una restauraci
 - **Qué respaldar**: la base de datos (todo está ahí) y, **por separado**, `MFA_ENCRYPTION_KEY`. Si se pierde la clave, los dos pasos de todos los usuarios dejan de funcionar y hay que desactivarlos desde la base. Si se guarda junto a la copia de la base, quien robe la copia puede descifrar los secretos de los dos pasos.
 - **Cómo**: en Atlas, activa **Cloud Backup** con instantáneas diarias y, para un cliente real, **restauración a un punto en el tiempo** (continuous backup). Define la retención con tu contador: los libros contables se conservan años.
 - **Qué garantiza el diseño**: el libro de asientos, los movimientos de inventario y la auditoría solo se agregan; los saldos, consecutivos e inventario se actualizan dentro de la misma transacción que el asiento. Una instantánea de Atlas es consistente entre colecciones, así que restaurarla no deja saldos a medias.
-- **Pruébala antes de la primera empresa real y después cada trimestre**: restaura una instantánea en un clúster aparte, apunta una API de prueba a él y comprueba tres cosas: que inicias sesión, que el balance de prueba cuadra (`/reports/trial-balance` con `balanced: true`) y que el inventario cuadra con su cuenta («Existencias», tabla de cuadre). Anota la fecha y cuánto tardó.
+- **Pruébala antes de la primera empresa real y después cada trimestre**: restaura una instantánea en un clúster aparte y corre sobre él el verificador de integridad (§6): `MONGODB_URI=... MONGODB_DB=... npm run verify` en `backend/`. Además, apunta una API de prueba a ese clúster y comprueba que se puede iniciar sesión. Anota la fecha y cuánto tardó.
 - **Esto no está probado todavía** con un clúster real de Atlas: las pruebas automáticas usan una base en memoria.
 
-## 6. Vigilancia
+## 6. Verificador de integridad
+
+`npm run verify` (en `backend/`) recalcula, desde lo que no se puede editar (los asientos), lo que el sistema mantiene aparte, y avisa de cualquier diferencia. Solo lee: basta la conexión de la aplicación. Sale con código 1 si algo no cuadra. Con `TENANT_ID=...` revisa una sola empresa.
+
+```
+MONGODB_URI=... MONGODB_DB=lulubiz npm run verify
+```
+
+Comprueba, por empresa:
+
+1. Los saldos por cuenta y período coinciden con la suma de los asientos.
+2. Todo asiento cuadra (débitos iguales a créditos).
+3. La numeración de cada serie de asientos es consecutiva, sin saltos ni repetidos.
+4. Las existencias coinciden con el kardex y ninguna es negativa.
+5. El valor del inventario coincide con el saldo de su cuenta en el libro.
+6. Todo documento contabilizado (facturas, notas, recibos, compras, pagos, ventas de mostrador) apunta a un asiento que existe.
+7. Los totales de cada turno de caja coinciden con sus ventas.
+8. Los ejercicios cerrados tienen sus cuentas de resultados en cero.
+9. El saldo de cada anticipo es su importe menos sus aplicaciones vigentes.
+10. Los saldos por centro de costo y por tercero coinciden con los asientos.
+11. Cada conciliación bancaria vigente une importes iguales de la misma cuenta, y su línea del libro y la del extracto existen.
+
+Cuándo correrlo: **después de restaurar una copia**, antes y después de cada despliegue que toque datos, y como vigilancia (una vez al día, desde un programador de tareas, con la alerta en un código de salida distinto de cero). Una diferencia **no se corrige a mano**: detén el ingreso de datos y revisa la auditoría y los registros para ver qué pasó. Recorre toda la empresa, así que en una base grande tarda; córrelo fuera de las horas de más uso.
+
+No comprueba que la cartera y las cuentas por pagar sumen lo mismo que sus cuentas del libro: un asiento manual sobre esas cuentas es legítimo y las separaría.
+
+## 7. Facturas recurrentes
+
+Las plantillas de facturas recurrentes se pueden generar desde la interfaz («Generar las vencidas»), pero conviene programar la tarea una vez al día para que no dependa de que alguien entre:
+
+```
+MONGODB_URI=... MONGODB_DB=lulubiz npm run recurring
+```
+
+Emite las facturas vencidas de todas las empresas (`TENANT_ID=...` limita a una). Es segura de repetir: cada período lleva una clave de idempotencia propia. Sale con código 1 si alguna plantilla falló (cliente inactivo, período cerrado, rechazo del proveedor); esa plantilla queda detenida en ese período con su error visible en la pantalla, y las demás siguen. Necesita las mismas variables de entorno que la API (incluido el proveedor de facturación electrónica). No deja evento de auditoría de sesión: las facturas quedan sin usuario.
+
+## 8. Vigilancia
 
 - `GET /healthz` (la API responde) y `GET /readyz` (la base responde): configúralos en tu monitor de disponibilidad, cada minuto.
 - `GET /metrics` (con `METRICS_TOKEN`): formato Prometheus, con peticiones y latencias por ruta (por patrón de ruta, no por URL real).
@@ -76,7 +112,7 @@ Es lo más importante de esta página: **un software contable sin una restauraci
 - Alertas mínimas: `readyz` fallando 2 minutos; más de unos pocos 500 por hora; respuestas 503 sostenidas.
 - Los registros salen por la salida estándar en JSON, sin cookies ni cabeceras de autorización. Guárdalos donde tu plataforma los conserve.
 
-## 7. Dar de alta un cliente piloto
+## 9. Dar de alta un cliente piloto
 
 Lista de verificación, en orden. «Primeros pasos» (Administración) calcula casi todo esto solo y dice qué falta.
 
@@ -102,7 +138,7 @@ Lista de verificación, en orden. «Primeros pasos» (Administración) calcula c
 - Con el contador: cuadre de caja, balance de prueba y cartera contra su sistema anterior.
 - Antes de cerrar el primer año: «Cierre de ejercicio» con una vista previa; ensáyalo con el contador.
 
-## 8. Incidentes frecuentes
+## 10. Incidentes frecuentes
 
 | Síntoma | Causa y salida |
 |---|---|
@@ -111,15 +147,15 @@ Lista de verificación, en orden. «Primeros pasos» (Administración) calcula c
 | `409 SHIFT_CLOSED`, `NO_SHIFT` | La caja no tiene turno abierto, o se cerró mientras se vendía. Abre un turno. |
 | `409 INSUFFICIENT_STOCK` | No hay existencias suficientes. Revisa «Existencias» y el kardex. |
 | `409` al registrar un asiento en un período | El período (o su ejercicio) está cerrado. Reabrirlo requiere permiso y queda en la auditoría. |
-| `503` con `Retry-After` | Cola de escritura de una empresa llena: demasiadas operaciones a la vez. Reintenta. Si es sostenido, mira la carga (§9). |
+| `503` con `Retry-After` | Cola de escritura de una empresa llena: demasiadas operaciones a la vez. Reintenta. Si es sostenido, mira la carga (§11). |
 | Una clave de API se filtró | Revócala en Administración → Claves de API: deja de servir al instante. Revisa en la auditoría qué hizo. |
 | Un usuario perdió su teléfono de dos pasos | Usa sus códigos de recuperación. Si no los tiene, hay que desactivar sus dos pasos desde la base, tras verificar su identidad. |
-| El balance de prueba no cuadra o el inventario no cuadra con el libro | No debería pasar: es una alerta seria. No corrijas a mano; detén el ingreso de datos y revisa la auditoría y los registros. |
+| `npm run verify` reporta diferencias, o el balance de prueba o el inventario no cuadran | No debería pasar: es una alerta seria. No corrijas a mano; detén el ingreso de datos y revisa la auditoría y los registros. |
 
-## 9. Lo que todavía no existe
+## 11. Lo que todavía no existe
 
 - **Proveedor de facturación electrónica real**: el contrato está definido y probado con un simulador; falta el adaptador de un proveedor concreto.
-- **Restauración probada en Atlas** y **medición de carga en Atlas**: lo medido es de un solo nodo local (≈130 asientos por segundo por empresa, estables).
+- **Restauración probada en Atlas** y **medición de carga en Atlas**: lo medido es de un solo nodo local (≈130 asientos por segundo por empresa, estables). El verificador de integridad está probado contra alteraciones simuladas, no contra una base restaurada real.
 - **Varias instancias de la API**: el límite de peticiones por IP y el límite de escrituras por empresa viven en la memoria de cada proceso. Con una sola instancia no hay problema; con varias, el límite por IP debe aplicarse también en el proxy o balanceador.
 - **Rotación de `MFA_ENCRYPTION_KEY`**: no está implementada. Cambiar la clave invalida los dos pasos activos.
 - **Exportación completa de los datos de una empresa** (para entregarlos al cliente que se va) y **borrado definitivo** de una empresa: no existen todavía.

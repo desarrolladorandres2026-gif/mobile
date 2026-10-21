@@ -121,7 +121,7 @@ export function createReceivablesService({ client, db, ledger, accounts, parties
         idempotencyKey: `receipt-${idempotencyKey}`,
         description: `Recibo de caja de ${party.name}`,
         source: { kind: 'receipt', id: idempotencyKey },
-        lines: [{ accountId: deposit, debit: total }, ...[...credits].map(([accountId, credit]) => ({ accountId, credit }))],
+        lines: [{ accountId: deposit, debit: total }, ...[...credits].map(([accountId, credit]) => ({ accountId, credit, partyId: party._id }))],
       };
 
       const result = await ledger

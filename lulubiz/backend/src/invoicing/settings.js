@@ -27,13 +27,14 @@ const text = (value, label, { required = false, max = 200 } = {}) => {
 /*
  * Configuración de facturación de una empresa (referencia, sin tipos):
  * { tenantId, issuer { name, taxIdType, taxId, checkDigit?, regime, email?, phone?, address { line, city, region, country } },
- *   accounts { receivable, income, vatPayable, cash?, payable?, vatDeductible? }, updatedAt }
+ *   accounts { receivable, income, vatPayable, cash?, payable?, vatDeductible?, customerAdvance?, supplierAdvance? }, updatedAt }
  *
  * - `issuer` es quien emite las facturas: sin él no se puede emitir ninguna.
  * - Un emisor `no_responsable` de IVA no puede facturar con IVA: se exige tarifa 0 en cada línea.
  * - `accounts` dice a qué cuentas contabiliza cada factura: por cobrar (o caja si se paga de contado y hay `cash`),
  *   ingresos (cuenta por defecto, cada línea puede traer otra) e IVA por pagar. `payable` (proveedores) y
  *   `vatDeductible` (IVA descontable) son de las compras y solo se exigen para registrar facturas de compra.
+ *   `customerAdvance` (pasivo) y `supplierAdvance` (activo) son de los anticipos y solo se exigen para registrarlos.
  */
 export function createSettingsService(client, db, accounts) {
   const settingsOf = (tenantId) => new TenantCollection(db.collection(COLLECTIONS.settings), tenantId);
@@ -81,6 +82,8 @@ export function createSettingsService(client, db, accounts) {
         ['cash', 'la cuenta de caja', false],
         ['payable', 'la cuenta de proveedores', false],
         ['vatDeductible', 'la cuenta de IVA descontable', false],
+        ['customerAdvance', 'la cuenta de anticipos de clientes', false],
+        ['supplierAdvance', 'la cuenta de anticipos a proveedores', false],
       ]) {
         const code = String(accountsInput[key] ?? '').trim();
         if (!code) {

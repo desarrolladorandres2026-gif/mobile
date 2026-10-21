@@ -5,8 +5,13 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify from 'fastify';
 import { ObjectId } from 'mongodb';
 import { createAccountService } from '../accounts/accounts.js';
+import { createAdvancesService } from '../advances/advances.js';
+import { createBankService } from '../bank/bank.js';
+import { createFixedAssetService } from '../fixedAssets/fixedAssets.js';
+import { createCommercialService } from '../commercial/commercial.js';
 import { createAuditService } from '../audit/audit.js';
 import { createYearEndService } from '../closing/yearEnd.js';
+import { createCostCenterService } from '../costCenters/costCenters.js';
 import { GRANTABLE_SCOPES, createApiKeyService } from '../auth/apiKeys.js';
 import { createAuthService } from '../auth/auth.js';
 import { parseKey } from '../auth/secretbox.js';
@@ -23,6 +28,8 @@ import { createInventoryService } from '../inventory/inventory.js';
 import { can } from '../auth/permissions.js';
 import { createOnboardingService } from '../onboarding/onboarding.js';
 import { createPosService } from '../pos/pos.js';
+import { createBooksService } from '../reports/books.js';
+import { createDimensionReports } from '../reports/dimensions.js';
 import { createReportService } from '../reports/reports.js';
 import { errorHandler } from './errors.js';
 import { createMetrics } from './metrics.js';
@@ -108,6 +115,9 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
   const ledger = createLedger(client, db);
   const auditLog = createAuditService(db);
   const reports = createReportService(db, accounts);
+  const books = createBooksService(db);
+  const dimensionReports = createDimensionReports(db, accounts);
+  const costCenters = createCostCenterService({ client, db, ...(now ? { now } : {}) });
   const yearEnd = createYearEndService({ client, db, ledger, accounts, ...(now ? { now } : {}) });
   const metrics = createMetrics();
   const settingsService = createSettingsService(client, db, accounts);
@@ -117,8 +127,13 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
   const invoicing = createInvoicingService({ client, db, ledger, accounts, parties, settings: settingsService, resolutions: resolutionService, provider, inventory });
   const receivables = createReceivablesService({ client, db, ledger, accounts, parties });
   const pos = createPosService({ client, db, ledger, accounts, parties, settings: settingsService, inventory });
+  const advances = createAdvancesService({ client, db, ledger, accounts, parties, settings: settingsService, ...(now ? { now } : {}) });
+  const bank = createBankService({ client, db, ledger, accounts, ...(now ? { now } : {}) });
   const purchases = createPurchasesService({ client, db, ledger, accounts, parties, settings: settingsService, inventory });
   const payables = createPayablesService({ db, ledger, accounts, parties });
+  const commercial = createCommercialService({ db, invoicing, purchases, parties, ...(now ? { now } : {}) });
+  app.decorate('commercial', commercial);
+  const fixedAssets = createFixedAssetService({ client, db, ledger, accounts, ...(now ? { now } : {}) });
   const onboarding = createOnboardingService({ db, invoicing, purchases });
 
   /** Contexto de una operación de facturación: la clave de idempotencia, quién la hace y cómo auditar dentro de su transacción. */
@@ -679,6 +694,8 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
                   debit: money,
                   credit: money,
                   description: { type: 'string', maxLength: 200 },
+                  costCenter: { type: 'string', maxLength: 10 },
+                  partyId: OBJECT_ID,
                 },
                 ['accountId'],
               ),
@@ -870,6 +887,8 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
         body: bodyOf(
           {
             supplierId: OBJECT_ID,
+            kind: { type: 'string', enum: ['purchase', 'debit_note'] },
+            relatedPurchaseId: OBJECT_ID,
             supplierDocNumber: { type: 'string', minLength: 1, maxLength: 40 },
             issueDate: DAY,
             dueDate: DAY,
@@ -888,6 +907,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
                   accountId: { type: 'string', pattern: '^[0-9]{1,12}$' },
                   itemId: OBJECT_ID,
                   warehouseId: OBJECT_ID,
+                  costCenter: { type: 'string', maxLength: 10 },
                 },
                 ['description', 'quantity', 'unitPrice'],
               ),
@@ -1247,7 +1267,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
       schema: {
         params: tenantParams,
         body: bodyOf(
-          { code: { type: 'string', minLength: 1, maxLength: 10 }, name: { type: 'string', minLength: 1, maxLength: 100 }, warehouseId: OBJECT_ID, accounts: registerAccounts },
+          { code: { type: 'string', minLength: 1, maxLength: 10 }, name: { type: 'string', minLength: 1, maxLength: 100 }, warehouseId: OBJECT_ID, costCenter: { type: 'string', maxLength: 10 }, accounts: registerAccounts },
           ['code', 'name', 'accounts'],
         ),
       },
@@ -1268,7 +1288,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
           type: 'object',
           additionalProperties: false,
           minProperties: 1,
-          properties: { name: { type: 'string', minLength: 1, maxLength: 100 }, active: { type: 'boolean' }, warehouseId: OBJECT_ID, accounts: registerAccounts },
+          properties: { name: { type: 'string', minLength: 1, maxLength: 100 }, active: { type: 'boolean' }, warehouseId: OBJECT_ID, costCenter: { type: 'string', maxLength: 10 }, accounts: registerAccounts },
         },
       },
     },
@@ -1375,6 +1395,339 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     async (request) => pos.voidSale(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request)),
   );
 
+  // ---- Anticipos de clientes y a proveedores ----
+  for (const [kind, path, perms] of [
+    ['customer', 'customer-advances', { read: 'invoices:read', write: 'receipts:create', void: 'receipts:void' }],
+    ['supplier', 'supplier-advances', { read: 'purchases:read', write: 'payments:create', void: 'payments:void' }],
+  ]) {
+    app.get(
+      `${base}/${path}`,
+      {
+        preValidation: guard(perms.read),
+        schema: { params: tenantParams, querystring: bodyOf({ partyId: OBJECT_ID, open: { type: 'string', enum: ['true', 'false'] }, status: { type: 'string', enum: ['posted', 'void'] }, ...pageQuery }) },
+      },
+      async (request) => advances.list(request.ctx.tenantId, kind, request.query),
+    );
+    app.get(`${base}/${path}/:id`, { preValidation: guard(perms.read), schema: { params: idParams } }, async (request, reply) => {
+      const advance = await advances.get(request.ctx.tenantId, kind, request.params.id);
+      return advance ?? reply.status(404).send({ error: 'NOT_FOUND', message: 'el anticipo no existe' });
+    });
+    app.post(
+      `${base}/${path}`,
+      {
+        preValidation: guard(perms.write),
+        schema: {
+          params: tenantParams,
+          headers: idempotencyHeader,
+          body: bodyOf(
+            { partyId: OBJECT_ID, date: DAY, amount: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER }, account: { type: 'string', pattern: '^[0-9]{1,12}$' }, currency: { type: 'string', minLength: 3, maxLength: 3 }, notes: { type: 'string', maxLength: 500 } },
+            ['partyId', 'date', 'amount', 'account'],
+          ),
+        },
+      },
+      async (request, reply) => {
+        const { advance, replayed } = await advances.create(request.ctx.tenantId, kind, request.body, invoicingContext(request));
+        return reply.status(replayed ? 200 : 201).send({ replayed, advance });
+      },
+    );
+    app.post(
+      `${base}/${path}/:id/applications`,
+      {
+        preValidation: guard(perms.write),
+        schema: {
+          params: idParams,
+          headers: idempotencyHeader,
+          body: bodyOf(
+            {
+              date: DAY,
+              allocations: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 200,
+                items: bodyOf({ documentId: OBJECT_ID, amount: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER } }, ['documentId', 'amount']),
+              },
+            },
+            ['date', 'allocations'],
+          ),
+        },
+      },
+      async (request, reply) => {
+        const result = await advances.apply(request.ctx.tenantId, kind, request.params.id, request.body, invoicingContext(request));
+        return reply.status(result.replayed ? 200 : 201).send(result);
+      },
+    );
+    app.post(
+      `${base}/${path}/:id/void`,
+      { preValidation: [guard(perms.void), optionalBody], schema: { params: idParams, body: bodyOf({ date: DAY }) } },
+      async (request) => advances.void(request.ctx.tenantId, kind, request.params.id, request.body, invoicingContext(request)),
+    );
+    app.post(
+      `${base}/${path}/applications/:id/void`,
+      { preValidation: [guard(perms.void), optionalBody], schema: { params: idParams, body: bodyOf({ date: DAY }) } },
+      async (request) => advances.voidApplication(request.ctx.tenantId, kind, request.params.id, request.body, invoicingContext(request)),
+    );
+  }
+
+  // ---- Conciliación bancaria ----
+  const bankAccountField = { type: 'string', pattern: '^[0-9]{1,12}$' };
+  const bankCurrency = { type: 'string', minLength: 3, maxLength: 3 };
+  const lineIndexField = { type: 'integer', minimum: 0, maximum: 999 };
+  const signedInt = { type: 'integer', minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER };
+  app.get(
+    `${base}/bank/lines`,
+    { preValidation: guard('bank:read'), schema: { params: tenantParams, querystring: bodyOf({ account: bankAccountField, currency: bankCurrency, from: DAY, to: DAY, status: { type: 'string', enum: ['all', 'open', 'matched'] } }, ['account', 'from', 'to']) } },
+    async (request) => bank.listLines(request.ctx.tenantId, request.query),
+  );
+  app.post(
+    `${base}/bank/lines`,
+    {
+      preValidation: guard('bank:manage'),
+      schema: {
+        params: tenantParams,
+        body: bodyOf(
+          {
+            account: bankAccountField,
+            currency: bankCurrency,
+            lines: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 500,
+              items: bodyOf({ date: DAY, description: { type: 'string', minLength: 1, maxLength: 200 }, reference: { type: 'string', maxLength: 60 }, amount: signedInt }, ['date', 'description', 'amount']),
+            },
+          },
+          ['account', 'lines'],
+        ),
+      },
+    },
+    async (request, reply) => reply.status(201).send(await bank.importLines(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.delete(`${base}/bank/lines/:id`, { preValidation: guard('bank:manage'), schema: { params: idParams } }, async (request) => bank.removeLine(request.ctx.tenantId, request.params.id, invoicingContext(request)));
+  app.get(
+    `${base}/bank/lines/:id/candidates`,
+    { preValidation: guard('bank:read'), schema: { params: idParams, querystring: bodyOf({ days: { type: 'string', pattern: '^[0-9]{1,2}$' } }) } },
+    async (request) => bank.candidates(request.ctx.tenantId, request.params.id, request.query.days === undefined ? {} : { days: Number(request.query.days) }),
+  );
+  app.post(
+    `${base}/bank/lines/:id/book`,
+    {
+      preValidation: guard('bank:manage'),
+      schema: { params: idParams, body: bodyOf({ counterAccount: bankAccountField, description: { type: 'string', maxLength: 200 }, costCenter: { type: 'string', maxLength: 10 }, partyId: OBJECT_ID }, ['counterAccount']) },
+    },
+    async (request, reply) => reply.status(201).send(await bank.bookLine(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request))),
+  );
+  app.post(
+    `${base}/bank/matches`,
+    { preValidation: guard('bank:manage'), schema: { params: tenantParams, body: bodyOf({ bankLineId: OBJECT_ID, journalId: OBJECT_ID, lineIndex: lineIndexField }, ['bankLineId', 'journalId', 'lineIndex']) } },
+    async (request, reply) => reply.status(201).send(await bank.match(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.post(
+    `${base}/bank/matches/manual`,
+    {
+      preValidation: guard('bank:manage'),
+      schema: { params: tenantParams, body: bodyOf({ account: bankAccountField, currency: bankCurrency, journalId: OBJECT_ID, lineIndex: lineIndexField, reason: { type: 'string', minLength: 1, maxLength: 200 } }, ['account', 'journalId', 'lineIndex', 'reason']) },
+    },
+    async (request, reply) => reply.status(201).send(await bank.matchManual(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.post(
+    `${base}/bank/matches/auto`,
+    { preValidation: guard('bank:manage'), schema: { params: tenantParams, body: bodyOf({ account: bankAccountField, currency: bankCurrency, days: { type: 'integer', minimum: 0, maximum: 60 } }, ['account']) } },
+    async (request) => bank.autoMatch(request.ctx.tenantId, request.body, invoicingContext(request)),
+  );
+  app.delete(`${base}/bank/matches/:id`, { preValidation: guard('bank:manage'), schema: { params: idParams } }, async (request) => bank.unmatch(request.ctx.tenantId, request.params.id, invoicingContext(request)));
+  app.get(
+    `${base}/bank/reconciliation`,
+    {
+      preValidation: guard('bank:read'),
+      schema: { params: tenantParams, querystring: bodyOf({ account: bankAccountField, currency: bankCurrency, asOf: DAY, statementBalance: { type: 'string', pattern: '^-?[0-9]{1,16}$' } }, ['account', 'asOf', 'statementBalance']) },
+    },
+    async (request) => bank.reconciliation(request.ctx.tenantId, { ...request.query, statementBalance: Number(request.query.statementBalance) }),
+  );
+  app.get(
+    `${base}/bank/reconciliations`,
+    { preValidation: guard('bank:read'), schema: { params: tenantParams, querystring: bodyOf({ account: bankAccountField, currency: bankCurrency }, ['account']) } },
+    async (request) => bank.listReconciliations(request.ctx.tenantId, request.query),
+  );
+  app.post(
+    `${base}/bank/reconciliations`,
+    {
+      preValidation: guard('bank:manage'),
+      schema: { params: tenantParams, body: bodyOf({ account: bankAccountField, currency: bankCurrency, asOf: DAY, statementBalance: signedInt }, ['account', 'asOf', 'statementBalance']) },
+    },
+    async (request, reply) => reply.status(201).send(await bank.close(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.post(`${base}/bank/reconciliations/:id/reopen`, { preValidation: guard('bank:manage'), schema: { params: idParams } }, async (request) => bank.reopen(request.ctx.tenantId, request.params.id, invoicingContext(request)));
+
+  // ---- Cotizaciones, órdenes de compra y facturas recurrentes ----
+  const docLines = {
+    type: 'array',
+    minItems: 1,
+    maxItems: 200,
+    items: bodyOf(
+      {
+        description: { type: 'string', minLength: 1, maxLength: 200 },
+        quantity: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+        unitPrice: money53,
+        discountBps: { type: 'integer', minimum: 0, maximum: 10_000 },
+        vatBps: { type: 'integer', minimum: 0, maximum: 10_000 },
+        accountId: { type: 'string', pattern: '^[0-9]{1,12}$' },
+        itemId: OBJECT_ID,
+        warehouseId: OBJECT_ID,
+        costCenter: { type: 'string', maxLength: 10 },
+      },
+      ['description', 'quantity', 'unitPrice'],
+    ),
+  };
+  const notesField = { type: 'string', maxLength: 500 };
+  const found = (doc, what) => doc ?? Promise.reject(Object.assign(new Error(`${what} no existe`), { code: 'NOT_FOUND' }));
+
+  app.get(
+    `${base}/quotes`,
+    { preValidation: guard('invoices:read'), schema: { params: tenantParams, querystring: bodyOf({ customerId: OBJECT_ID, status: { type: 'string', enum: ['open', 'accepted', 'rejected', 'invoicing', 'invoiced', 'void'] }, ...pageQuery }) } },
+    async (request) => commercial.listQuotes(request.ctx.tenantId, request.query),
+  );
+  app.post(
+    `${base}/quotes`,
+    { preValidation: guard('invoices:issue'), schema: { params: tenantParams, body: bodyOf({ customerId: OBJECT_ID, issueDate: DAY, validUntil: DAY, notes: notesField, lines: docLines }, ['customerId', 'validUntil', 'lines']) } },
+    async (request, reply) => reply.status(201).send(await commercial.createQuote(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.get(`${base}/quotes/:id`, { preValidation: guard('invoices:read'), schema: { params: idParams } }, async (request) => found(await commercial.getQuote(request.ctx.tenantId, request.params.id), 'la cotización'));
+  for (const action of ['accept', 'reject', 'void']) {
+    app.post(`${base}/quotes/:id/${action}`, { preValidation: guard('invoices:issue'), schema: { params: idParams } }, async (request) =>
+      commercial.setQuoteStatus(request.ctx.tenantId, request.params.id, action, invoicingContext(request)),
+    );
+  }
+  app.post(
+    `${base}/quotes/:id/invoice`,
+    { preValidation: guard('invoices:issue'), schema: { params: idParams, body: bodyOf({ paymentMethod: { type: 'string', enum: ['cash', 'credit'] }, issueDate: DAY, dueDate: DAY }, ['paymentMethod']) } },
+    async (request, reply) => {
+      const result = await commercial.invoiceQuote(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request));
+      return reply.status(result.pending ? 202 : 201).send(result);
+    },
+  );
+
+  app.get(
+    `${base}/purchase-orders`,
+    { preValidation: guard('purchases:read'), schema: { params: tenantParams, querystring: bodyOf({ supplierId: OBJECT_ID, status: { type: 'string', enum: ['open', 'receiving', 'received', 'void'] }, ...pageQuery }) } },
+    async (request) => commercial.listOrders(request.ctx.tenantId, request.query),
+  );
+  app.post(
+    `${base}/purchase-orders`,
+    { preValidation: guard('purchases:create'), schema: { params: tenantParams, body: bodyOf({ supplierId: OBJECT_ID, issueDate: DAY, expectedDate: DAY, notes: notesField, lines: docLines }, ['supplierId', 'lines']) } },
+    async (request, reply) => reply.status(201).send(await commercial.createOrder(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.get(`${base}/purchase-orders/:id`, { preValidation: guard('purchases:read'), schema: { params: idParams } }, async (request) => found(await commercial.getOrder(request.ctx.tenantId, request.params.id), 'la orden'));
+  app.post(`${base}/purchase-orders/:id/void`, { preValidation: guard('purchases:void'), schema: { params: idParams } }, async (request) => commercial.voidOrder(request.ctx.tenantId, request.params.id, invoicingContext(request)));
+  app.post(
+    `${base}/purchase-orders/:id/receive`,
+    { preValidation: guard('purchases:create'), schema: { params: idParams, body: bodyOf({ supplierDocNumber: { type: 'string', minLength: 1, maxLength: 40 }, issueDate: DAY, dueDate: DAY }, ['supplierDocNumber']) } },
+    async (request, reply) => reply.status(201).send(await commercial.receiveOrder(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request))),
+  );
+
+  app.get(
+    `${base}/recurring-invoices`,
+    { preValidation: guard('invoices:read'), schema: { params: tenantParams, querystring: bodyOf({ active: { type: 'string', enum: ['true', 'false'] }, ...pageQuery }) } },
+    async (request) => commercial.listRecurring(request.ctx.tenantId, request.query),
+  );
+  app.post(
+    `${base}/recurring-invoices`,
+    {
+      preValidation: guard('invoices:issue'),
+      schema: {
+        params: tenantParams,
+        body: bodyOf(
+          {
+            name: { type: 'string', minLength: 1, maxLength: 100 },
+            customerId: OBJECT_ID,
+            frequency: { type: 'string', enum: ['weekly', 'monthly', 'quarterly', 'yearly'] },
+            startDate: DAY,
+            endDate: DAY,
+            paymentMethod: { type: 'string', enum: ['cash', 'credit'] },
+            dueDays: { type: 'integer', minimum: 0, maximum: 365 },
+            notes: notesField,
+            lines: docLines,
+          },
+          ['name', 'customerId', 'frequency', 'startDate', 'paymentMethod', 'lines'],
+        ),
+      },
+    },
+    async (request, reply) => reply.status(201).send(await commercial.createRecurring(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  // Va antes de «:id» por claridad; las rutas estáticas ya tienen prioridad sobre las de parámetro.
+  app.post(
+    `${base}/recurring-invoices/run`,
+    { preValidation: [guard('invoices:issue'), optionalBody], schema: { params: tenantParams, body: bodyOf({ asOf: DAY, templateId: OBJECT_ID }) } },
+    async (request) => commercial.runRecurring(request.ctx.tenantId, request.body ?? {}, invoicingContext(request)),
+  );
+  app.get(`${base}/recurring-invoices/:id`, { preValidation: guard('invoices:read'), schema: { params: idParams } }, async (request) => found(await commercial.getRecurring(request.ctx.tenantId, request.params.id), 'la plantilla'));
+  app.patch(
+    `${base}/recurring-invoices/:id`,
+    { preValidation: guard('invoices:issue'), schema: { params: idParams, body: bodyOf({ active: { type: 'boolean' }, endDate: { type: 'string', pattern: '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$' }, notes: { type: 'string', maxLength: 500 } }) } },
+    async (request) => commercial.updateRecurring(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request)),
+  );
+  app.post(`${base}/recurring-invoices/:id/skip`, { preValidation: guard('invoices:issue'), schema: { params: idParams } }, async (request) => commercial.skipRecurring(request.ctx.tenantId, request.params.id, invoicingContext(request)));
+
+  // ---- Activos fijos y depreciación ----
+  const assetAccount = { type: 'string', pattern: '^[0-9]{1,12}$' };
+  app.get(
+    `${base}/fixed-assets`,
+    { preValidation: guard('assets:read'), schema: { params: tenantParams, querystring: bodyOf({ status: { type: 'string', enum: ['active', 'disposed'] }, ...pageQuery }) } },
+    async (request) => fixedAssets.list(request.ctx.tenantId, request.query),
+  );
+  app.post(
+    `${base}/fixed-assets`,
+    {
+      preValidation: guard('assets:manage'),
+      schema: {
+        params: tenantParams,
+        body: bodyOf(
+          {
+            code: { type: 'string', minLength: 1, maxLength: 20 },
+            name: { type: 'string', minLength: 1, maxLength: 200 },
+            description: { type: 'string', maxLength: 500 },
+            acquisitionDate: DAY,
+            cost: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+            salvageValue: money53,
+            usefulLifeMonths: { type: 'integer', minimum: 1, maximum: 600 },
+            depreciationStart: { type: 'string', pattern: '^[0-9]{4}-[0-9]{2}$' },
+            costCenter: { type: 'string', maxLength: 10 },
+            purchaseId: OBJECT_ID,
+            accounts: bodyOf({ asset: assetAccount, accumulated: assetAccount, expense: assetAccount }, ['asset', 'accumulated', 'expense']),
+          },
+          ['code', 'name', 'acquisitionDate', 'cost', 'usefulLifeMonths', 'accounts'],
+        ),
+      },
+    },
+    async (request, reply) => reply.status(201).send(await fixedAssets.create(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.get(`${base}/fixed-assets/reconciliation`, { preValidation: guard('assets:read'), schema: { params: tenantParams, querystring: bodyOf({ currency: { type: 'string', minLength: 3, maxLength: 3 } }) } }, async (request) =>
+    fixedAssets.reconciliation(request.ctx.tenantId, request.query),
+  );
+  app.get(`${base}/fixed-assets/depreciation-runs`, { preValidation: guard('assets:read'), schema: { params: tenantParams, querystring: bodyOf({ limit: { type: 'string', pattern: '^[0-9]{1,3}$' } }) } }, async (request) =>
+    fixedAssets.listRuns(request.ctx.tenantId, request.query),
+  );
+  app.post(
+    `${base}/fixed-assets/depreciation`,
+    { preValidation: guard('assets:manage'), schema: { params: tenantParams, body: bodyOf({ period: PERIOD }, ['period']) } },
+    async (request, reply) => reply.status(201).send(await fixedAssets.depreciate(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.get(`${base}/fixed-assets/:id`, { preValidation: guard('assets:read'), schema: { params: idParams } }, async (request, reply) => {
+    const asset = await fixedAssets.get(request.ctx.tenantId, request.params.id);
+    return asset ?? reply.status(404).send({ error: 'NOT_FOUND', message: 'el activo no existe' });
+  });
+  app.patch(
+    `${base}/fixed-assets/:id`,
+    { preValidation: guard('assets:manage'), schema: { params: idParams, body: bodyOf({ name: { type: 'string', minLength: 1, maxLength: 200 }, description: { type: 'string', maxLength: 500 }, costCenter: { type: 'string', maxLength: 10 } }) } },
+    async (request) => fixedAssets.update(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request)),
+  );
+  app.post(
+    `${base}/fixed-assets/:id/dispose`,
+    {
+      preValidation: guard('assets:manage'),
+      schema: { params: idParams, body: bodyOf({ date: DAY, proceeds: money53, proceedsAccount: assetAccount, gainAccount: assetAccount, lossAccount: assetAccount }, ['date']) },
+    },
+    async (request, reply) => reply.status(201).send(await fixedAssets.dispose(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request))),
+  );
+
   // ---- Reportes contables ----
   const CURRENCY = { type: 'string', minLength: 3, maxLength: 3 };
   const reportRoute = (path, query, required, run) =>
@@ -1398,6 +1751,42 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     },
     ['account', 'from', 'to', 'currency'],
     (t, q) => reports.generalLedger(t, q),
+  );
+
+  // ---- Libros y estados de cuenta ----
+  const bookQuery = (extra = {}, required = []) => bodyOf({ from: DAY, to: DAY, currency: { type: 'string', minLength: 3, maxLength: 3 }, ...extra }, ['from', 'to', 'currency', ...required]);
+  for (const [path, run] of [
+    ['sales-book', (q, tenantId) => books.salesBook(tenantId, q)],
+    ['purchases-book', (q, tenantId) => books.purchasesBook(tenantId, q)],
+  ]) {
+    app.get(`${base}/reports/${path}`, { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bookQuery() } }, async (request) => run(request.query, request.ctx.tenantId));
+  }
+  app.get(
+    `${base}/reports/customer-statement`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bookQuery({ partyId: OBJECT_ID }, ['partyId']) } },
+    async (request) => books.customerStatement(request.ctx.tenantId, request.query),
+  );
+  app.get(
+    `${base}/reports/supplier-statement`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bookQuery({ partyId: OBJECT_ID }, ['partyId']) } },
+    async (request) => books.supplierStatement(request.ctx.tenantId, request.query),
+  );
+  app.get(
+    `${base}/reports/sales-summary`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bookQuery({ by: { type: 'string', enum: ['customer', 'month'] } }, ['by']) } },
+    async (request) => books.salesSummary(request.ctx.tenantId, request.query),
+  );
+
+  // ---- Reportes por dimensión: centro de costo y tercero ----
+  app.get(
+    `${base}/reports/cost-center-result`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bodyOf({ from: PERIOD, to: PERIOD, currency: { type: 'string', minLength: 3, maxLength: 3 } }, ['from', 'to', 'currency']) } },
+    async (request) => dimensionReports.costCenterResult(request.ctx.tenantId, request.query),
+  );
+  app.get(
+    `${base}/reports/party-ledger`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bodyOf({ partyId: OBJECT_ID, from: PERIOD, to: PERIOD, currency: { type: 'string', minLength: 3, maxLength: 3 } }, ['partyId', 'from', 'to', 'currency']) } },
+    async (request) => dimensionReports.partyLedger(request.ctx.tenantId, request.query),
   );
 
   // ---- Períodos contables ----
@@ -1551,7 +1940,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
               ['name', 'taxIdType', 'taxId', 'regime', 'address'],
             ),
             accounts: bodyOf(
-              { receivable: { type: 'string', maxLength: 12 }, income: { type: 'string', maxLength: 12 }, vatPayable: { type: 'string', maxLength: 12 }, cash: { type: 'string', maxLength: 12 }, payable: { type: 'string', maxLength: 12 }, vatDeductible: { type: 'string', maxLength: 12 } },
+              { receivable: { type: 'string', maxLength: 12 }, income: { type: 'string', maxLength: 12 }, vatPayable: { type: 'string', maxLength: 12 }, cash: { type: 'string', maxLength: 12 }, payable: { type: 'string', maxLength: 12 }, vatDeductible: { type: 'string', maxLength: 12 }, customerAdvance: { type: 'string', maxLength: 12 }, supplierAdvance: { type: 'string', maxLength: 12 } },
               ['receivable', 'income', 'vatPayable'],
             ),
           },
@@ -1644,6 +2033,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
                   accountId: { type: 'string', maxLength: 12 },
                   itemId: OBJECT_ID,
                   warehouseId: OBJECT_ID,
+                  costCenter: { type: 'string', maxLength: 10 },
                 },
                 ['description', 'quantity', 'unitPrice'],
               ),
@@ -1714,6 +2104,32 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
 
   // ---- Primeros pasos ----
   app.get(`${base}/onboarding`, { preValidation: guard('reports:read'), schema: { params: tenantParams } }, async (request) => onboarding.get(request.ctx.tenantId));
+
+  // ---- Centros de costo ----
+  app.get(
+    `${base}/cost-centers`,
+    { preValidation: guard('accounts:read'), schema: { params: tenantParams, querystring: bodyOf({ activeOnly: { type: 'string', enum: ['true', 'false'] } }) } },
+    async (request) => ({ items: await costCenters.list(request.ctx.tenantId, { activeOnly: request.query.activeOnly === 'true' }) }),
+  );
+  app.post(
+    `${base}/cost-centers`,
+    {
+      preValidation: guard('accounts:manage'),
+      schema: { params: tenantParams, body: bodyOf({ code: { type: 'string', minLength: 1, maxLength: 10 }, name: { type: 'string', minLength: 1, maxLength: 100 } }, ['code', 'name']) },
+    },
+    async (request, reply) => reply.status(201).send(await costCenters.create(request.ctx.tenantId, request.body, { inTx: tx(request, 'cost_center.create', (c) => ({ target: c.code })) })),
+  );
+  app.patch(
+    `${base}/cost-centers/:code`,
+    {
+      preValidation: guard('accounts:manage'),
+      schema: {
+        params: { type: 'object', required: ['tenantId', 'code'], properties: { tenantId: OBJECT_ID, code: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,9}$' } } },
+        body: { type: 'object', additionalProperties: false, minProperties: 1, properties: { name: { type: 'string', minLength: 1, maxLength: 100 }, active: { type: 'boolean' } } },
+      },
+    },
+    async (request) => costCenters.update(request.ctx.tenantId, request.params.code, request.body, { inTx: tx(request, 'cost_center.update', () => ({ target: request.params.code })) }),
+  );
 
   // ---- Claves de API ----
   app.get(`${base}/api-keys/scopes`, { preValidation: guard('apikeys:manage'), schema: { params: tenantParams } }, async (request) => ({

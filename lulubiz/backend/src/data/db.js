@@ -25,6 +25,19 @@ export const COLLECTIONS = {
   posShifts: 'posShifts',
   posSales: 'posSales',
   apiKeys: 'apiKeys',
+  advances: 'advances',
+  costCenters: 'costCenters',
+  dimBalances: 'dimBalances',
+  bankLines: 'bankLines',
+  quotes: 'quotes',
+  fixedAssets: 'fixedAssets',
+  depreciationRuns: 'depreciationRuns',
+  purchaseOrders: 'purchaseOrders',
+  recurringInvoices: 'recurringInvoices',
+  docCounters: 'docCounters',
+  bankMatches: 'bankMatches',
+  bankReconciliations: 'bankReconciliations',
+  advanceApplications: 'advanceApplications',
   journals: 'journals',
   balances: 'balances',
   counters: 'counters',
@@ -109,7 +122,8 @@ export async function ensureIndexes(db) {
   ]);
   await db.collection(COLLECTIONS.purchases).createIndexes([
     { key: { tenantId: 1, idempotencyKey: 1 }, name: 'tenant_purchase_idempotency', unique: true },
-    { key: { tenantId: 1, number: 1 }, name: 'tenant_purchase_number', unique: true },
+    // El número completo (FC1, NDP1): las facturas y las notas débito del proveedor llevan series propias.
+    { key: { tenantId: 1, fullNumber: 1 }, name: 'tenant_purchase_fullnumber', unique: true },
     // La misma factura del proveedor no se registra dos veces, salvo que la anterior se haya anulado.
     {
       key: { tenantId: 1, 'supplier.partyId': 1, supplierDocNumber: 1 },
@@ -125,6 +139,10 @@ export async function ensureIndexes(db) {
       partialFilterExpression: { status: 'posted', balance: { $gt: 0 } },
     },
   ]);
+  // Índice anterior, sustituido por el de número completo: solo servía mientras había una serie de compras.
+  await db.collection(COLLECTIONS.purchases).dropIndex('tenant_purchase_number').catch((err) => {
+    if (err?.codeName !== 'IndexNotFound') throw err;
+  });
   await db.collection(COLLECTIONS.supplierNotes).createIndexes([
     { key: { tenantId: 1, idempotencyKey: 1 }, name: 'tenant_supplier_note_idempotency', unique: true },
     { key: { tenantId: 1, number: 1 }, name: 'tenant_supplier_note_number', unique: true },
@@ -180,6 +198,69 @@ export async function ensureIndexes(db) {
     { key: { tenantId: 1, registerId: 1, number: 1 }, name: 'tenant_possale_number', unique: true },
     { key: { tenantId: 1, shiftId: 1, _id: -1 }, name: 'tenant_possale_shift' },
     { key: { tenantId: 1, _id: -1 }, name: 'tenant_possale_recent' },
+  ]);
+  // Libros y estados de cuenta: documentos de una empresa por fecha.
+  await db.collection(COLLECTIONS.invoices).createIndexes([
+    { key: { tenantId: 1, currency: 1, issueDate: 1 }, name: 'tenant_invoice_date' },
+    { key: { tenantId: 1, 'customer.partyId': 1, issueDate: 1 }, name: 'tenant_invoice_customer_date' },
+  ]);
+  await db.collection(COLLECTIONS.purchases).createIndexes([
+    { key: { tenantId: 1, currency: 1, issueDate: 1 }, name: 'tenant_purchase_date' },
+    { key: { tenantId: 1, 'supplier.partyId': 1, issueDate: 1 }, name: 'tenant_purchase_supplier_date' },
+  ]);
+  await db.collection(COLLECTIONS.creditNotes).createIndexes([{ key: { tenantId: 1, currency: 1, issueDate: 1 }, name: 'tenant_note_date' }]);
+  await db.collection(COLLECTIONS.supplierNotes).createIndexes([{ key: { tenantId: 1, currency: 1, issueDate: 1 }, name: 'tenant_supplier_note_date' }]);
+  await db.collection(COLLECTIONS.advances).createIndexes([
+    { key: { tenantId: 1, idempotencyKey: 1 }, name: 'tenant_advance_idempotency', unique: true },
+    { key: { tenantId: 1, kind: 1, _id: -1 }, name: 'tenant_advance_recent' },
+    { key: { tenantId: 1, kind: 1, partyId: 1, _id: -1 }, name: 'tenant_advance_party' },
+    { key: { tenantId: 1, kind: 1, currency: 1, partyId: 1 }, name: 'tenant_advance_open', partialFilterExpression: { status: 'posted', balance: { $gt: 0 } } },
+  ]);
+  await db.collection(COLLECTIONS.advanceApplications).createIndexes([
+    { key: { tenantId: 1, idempotencyKey: 1 }, name: 'tenant_advance_application_idempotency', unique: true },
+    { key: { tenantId: 1, advanceId: 1, _id: 1 }, name: 'tenant_advance_application_advance' },
+  ]);
+  await db.collection(COLLECTIONS.costCenters).createIndexes([{ key: { tenantId: 1, code: 1 }, name: 'tenant_costcenter_code', unique: true }]);
+  // Saldos por centro de costo o por tercero, con la misma forma que los saldos por cuenta: los actualiza el libro en la transacción del asiento.
+  await db.collection(COLLECTIONS.dimBalances).createIndexes([
+    { key: { tenantId: 1, dimension: 1, key: 1, accountId: 1, period: 1, currency: 1 }, name: 'tenant_dim_balance', unique: true },
+    { key: { tenantId: 1, dimension: 1, period: 1, currency: 1 }, name: 'tenant_dim_period' },
+  ]);
+  await db.collection(COLLECTIONS.journals).createIndexes([{ key: { tenantId: 1, 'lines.partyId': 1, date: 1 }, name: 'tenant_journal_party', partialFilterExpression: { 'lines.partyId': { $exists: true } } }]);
+  // Conciliación bancaria. Los índices únicos parciales son los que impiden conciliar dos veces la misma línea.
+  await db.collection(COLLECTIONS.bankLines).createIndexes([
+    { key: { tenantId: 1, accountId: 1, dedupeKey: 1 }, name: 'tenant_bankline_dedupe', unique: true, partialFilterExpression: { status: 'active' } },
+    { key: { tenantId: 1, accountId: 1, currency: 1, date: 1 }, name: 'tenant_bankline_account_date' },
+  ]);
+  await db.collection(COLLECTIONS.bankMatches).createIndexes([
+    { key: { tenantId: 1, journalId: 1, lineIndex: 1 }, name: 'tenant_bankmatch_book', unique: true, partialFilterExpression: { active: true } },
+    { key: { tenantId: 1, bankLineId: 1 }, name: 'tenant_bankmatch_line', unique: true, partialFilterExpression: { active: true, bankLineId: { $type: 'objectId' } } },
+  ]);
+  await db.collection(COLLECTIONS.bankReconciliations).createIndexes([
+    { key: { tenantId: 1, accountId: 1, currency: 1, asOf: 1 }, name: 'tenant_bankrec_closed', unique: true, partialFilterExpression: { status: 'closed' } },
+  ]);
+  // Activos fijos y sus corridas de depreciación.
+  await db.collection(COLLECTIONS.fixedAssets).createIndexes([
+    { key: { tenantId: 1, code: 1 }, name: 'tenant_fixedasset_code', unique: true },
+    { key: { tenantId: 1, status: 1, depreciationStart: 1 }, name: 'tenant_fixedasset_status' },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_fixedasset_recent' },
+  ]);
+  await db.collection(COLLECTIONS.depreciationRuns).createIndexes([{ key: { tenantId: 1, period: 1, _id: 1 }, name: 'tenant_depreciation_period' }]);
+  // Documentos comerciales sin efecto contable: cotizaciones, órdenes de compra y plantillas de facturas recurrentes.
+  await db.collection(COLLECTIONS.docCounters).createIndexes([{ key: { tenantId: 1, kind: 1 }, name: 'tenant_doc_counter', unique: true }]);
+  await db.collection(COLLECTIONS.quotes).createIndexes([
+    { key: { tenantId: 1, number: 1 }, name: 'tenant_quote_number', unique: true },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_quote_recent' },
+    { key: { tenantId: 1, 'customer.partyId': 1, _id: -1 }, name: 'tenant_quote_customer' },
+  ]);
+  await db.collection(COLLECTIONS.purchaseOrders).createIndexes([
+    { key: { tenantId: 1, number: 1 }, name: 'tenant_order_number', unique: true },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_order_recent' },
+    { key: { tenantId: 1, 'supplier.partyId': 1, _id: -1 }, name: 'tenant_order_supplier' },
+  ]);
+  await db.collection(COLLECTIONS.recurringInvoices).createIndexes([
+    { key: { tenantId: 1, active: 1, nextDate: 1 }, name: 'tenant_recurring_due' },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_recurring_recent' },
   ]);
   await db.collection(COLLECTIONS.receipts).createIndexes([
     { key: { tenantId: 1, idempotencyKey: 1 }, name: 'tenant_receipt_idempotency', unique: true },

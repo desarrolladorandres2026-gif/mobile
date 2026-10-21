@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { DAY_MS, dayOf, parseDay as parseCalendarDay } from '../core/dates.js';
 import { vatRatesFor } from '../countries/index.js';
+import { normalizeCenter, requireCostCenters, sumByAccountAndCenter } from '../core/dims.js';
 import { COLLECTIONS } from '../data/db.js';
 import { TenantCollection } from '../data/tenantCollection.js';
 import { isDuplicate } from '../data/tx.js';
@@ -123,6 +124,7 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
       const where = `línea ${i + 1}`;
       const description = text(l?.description, `la descripción de la ${where}`, { required: true });
       const stock = stockInfo[i];
+      const costCenter = normalizeCenter(l?.costCenter);
       const accountId = stock ? stock.item.inventoryAccount : String(l?.accountId ?? '').trim();
       if (!/^[0-9]{1,12}$/.test(accountId)) fail(`${where}: indica la cuenta del gasto, costo o activo`);
       const vatBps = l.vatBps ?? 0;
@@ -136,6 +138,7 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
           discountBps: l.discountBps ?? 0,
           vatBps,
           accountId,
+          ...(costCenter ? { costCenter } : {}),
           ...(stock ? { itemId: stock.item._id, warehouseId: stock.warehouse._id } : {}),
           ...computed,
         };
@@ -190,20 +193,23 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
     });
   }
 
+  const docTypeOf = (doc) => (doc.kind === 'debit_note' ? 'NDP' : 'FC');
+
   function purchaseJournal(doc, description) {
-    const debits = new Map();
-    for (const line of doc.lines) debits.set(line.accountId, (debits.get(line.accountId) ?? 0) + line.net);
-    const lines = [...debits].filter(([, amount]) => amount > 0).map(([accountId, debit]) => ({ accountId, debit }));
+    const lines = sumByAccountAndCenter(doc.lines, (l) => l.net)
+      .filter(({ amount }) => amount > 0)
+      .map(({ accountId, costCenter, amount }) => ({ accountId, debit: amount, ...(costCenter ? { costCenter } : {}) }));
     if (doc.totals.tax > 0) lines.push({ accountId: doc.accountsUsed.vat, debit: doc.totals.tax });
-    lines.push({ accountId: doc.accountsUsed.payable, credit: doc.payable });
+    // El proveedor va en la línea de la cuenta por pagar: así el auxiliar por tercero habla del mismo proveedor.
+    lines.push({ accountId: doc.accountsUsed.payable, credit: doc.payable, partyId: doc.supplier.partyId });
     for (const w of doc.withholdings) if (w.amount > 0) lines.push({ accountId: w.accountId, credit: w.amount });
     return {
-      docType: 'FC',
+      docType: docTypeOf(doc),
       date: doc.issueDate,
       currency: doc.currency,
       idempotencyKey: `purchase-${doc.idempotencyKey}`,
       description,
-      source: { kind: 'purchase', id: doc.idempotencyKey },
+      source: { kind: doc.kind === 'debit_note' ? 'supplier_debit_note' : 'purchase', id: doc.idempotencyKey },
       lines,
     };
   }
@@ -231,8 +237,23 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
       const dueDate = input.dueDate ? parseDay(input.dueDate, 'la fecha de vencimiento') : issueDate;
       if (dueDate < issueDate) fail('el vencimiento no puede ser anterior a la fecha de la factura');
       const notes = text(input.notes, 'las notas', { max: 500 });
+      const kind = input.kind === 'debit_note' ? 'debit_note' : 'purchase';
+      let related;
+      if (kind === 'debit_note') {
+        // Una nota débito del proveedor aumenta lo que se le debe (intereses, ajustes de precio, fletes): es un documento
+        // propio con su saldo, que se paga como una factura. No mueve existencias.
+        if (!input.relatedPurchaseId) fail('indica la factura de compra a la que corresponde la nota débito');
+        if ((Array.isArray(input.lines) ? input.lines : []).some((l) => l?.itemId)) fail('una nota débito no mueve existencias: registra el cargo con una cuenta de gasto o costo');
+        related = await purchasesOf(tenantId).findOne({ _id: new ObjectId(input.relatedPurchaseId) });
+        if (!related) fail('la factura de compra no existe', 'NOT_FOUND');
+        if (related.kind === 'debit_note') fail('una nota débito no corresponde a otra nota débito');
+        if (related.status !== 'posted') fail('la factura de compra no está vigente', 'INVALID_STATE');
+        if (String(related.supplier.partyId) !== String(supplier._id)) fail('la nota débito es de otro proveedor distinto al de la factura');
+        if (dayOf(issueDate) < dayOf(related.issueDate)) fail('la nota débito no puede ser anterior a la factura');
+      }
 
       const lines = prepareLines(input.lines, vatRatesFor(tenant.country), await resolveStock(tenantId, input.lines));
+      await requireCostCenters(db, tenantId, lines.map((l) => l.costCenter), fail);
       const totals = computeTotals(lines);
       if (totals.total <= 0) fail('el total de la factura debe ser mayor que cero');
       const withholdings = prepareWithholdings(input.withholdings, totals);
@@ -249,6 +270,8 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
       const doc = {
         idempotencyKey,
         status: 'posted',
+        kind,
+        ...(related ? { relatedPurchaseId: related._id, relatedNumber: related.fullNumber } : {}),
         supplier: supplierSnapshot(supplier),
         supplierDocNumber,
         issueDate,
@@ -272,17 +295,17 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
 
       let replayed = false;
       try {
-        const posted = await ledger.postJournal(tenantId, purchaseJournal(doc, `Compra ${supplierDocNumber} de ${supplier.name}`), {
+        const posted = await ledger.postJournal(tenantId, purchaseJournal(doc, kind === 'debit_note' ? `Nota débito ${supplierDocNumber} de ${supplier.name} sobre ${related.fullNumber}` : `Compra ${supplierDocNumber} de ${supplier.name}`), {
           inTx: async (session, { journal }) => {
             const { insertedId } = await purchasesOf(tenantId).insertOne(
-              { ...doc, _id: purchaseId, number: journal.number, fullNumber: `FC${journal.number}`, journalId: journal._id },
+              { ...doc, _id: purchaseId, number: journal.number, fullNumber: `${docTypeOf(doc)}${journal.number}`, journalId: journal._id },
               session,
             );
             const entries = stockEntries(lines);
             if (entries.length) {
               await inventory.applyIn(tenantId, entries, session, { type: 'purchase_in', date: issueDate, source: { kind: 'purchase', id: String(purchaseId) }, userId });
             }
-            await ctx.auditTx?.(session, { action: 'purchase.create', target: insertedId, details: { number: `FC${journal.number}`, supplierDocNumber, total: totals.total } });
+            await ctx.auditTx?.(session, { action: kind === 'debit_note' ? 'supplier_debit_note.create' : 'purchase.create', target: insertedId, details: { number: `${docTypeOf(doc)}${journal.number}`, supplierDocNumber, total: totals.total } });
           },
         });
         replayed = posted.replayed;
@@ -302,6 +325,7 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
       if (!purchase) fail('la factura de compra no existe', 'NOT_FOUND');
       if (purchase.status === 'void') return { purchase: present(purchase), replayed: true };
       if (purchase.paidTotal !== 0 || purchase.creditedTotal !== 0) fail('la factura tiene pagos o notas de proveedor: anúlalos primero', 'INVALID_STATE');
+      if (await purchasesOf(tenantId).findOne({ relatedPurchaseId: purchase._id, status: 'posted' })) fail('la factura tiene notas débito del proveedor: anúlalas primero', 'INVALID_STATE');
       const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : now();
       if (dayOf(date) < dayOf(purchase.issueDate)) fail('la anulación no puede ser anterior a la factura');
 
@@ -362,6 +386,7 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
         const purchase = await purchasesOf(tenantId).findOne({ _id: new ObjectId(purchaseId) });
         if (!purchase) fail('la factura de compra no existe', 'NOT_FOUND');
         if (purchase.status !== 'posted') fail('solo se acreditan facturas de compra vigentes', 'INVALID_STATE');
+        if (purchase.kind === 'debit_note') fail('una nota débito no se acredita: anúlala si fue un error', 'INVALID_STATE');
         if (dayOf(issueDate) < dayOf(purchase.issueDate)) fail('la nota no puede ser anterior a la factura');
 
         const wanted = input.all
@@ -391,6 +416,7 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
             quantity: w.quantity,
             vatBps: line.vatBps,
             accountId: line.accountId,
+            ...(line.costCenter ? { costCenter: line.costCenter } : {}),
             ...(line.itemId ? { itemId: line.itemId, warehouseId: line.warehouseId } : {}),
             discount: 0,
             ...share,
@@ -410,13 +436,13 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
         const effect = totals.total - withheldShare;
         if (effect <= 0) fail('la nota no tiene valor por reducir de la deuda');
 
-        const debitLines = [{ accountId: purchase.accountsUsed.payable, debit: effect }];
+        const debitLines = [{ accountId: purchase.accountsUsed.payable, debit: effect, partyId: purchase.supplier.partyId }];
         purchase.withholdings.forEach((w, i) => {
           if (shares[i] > 0) debitLines.push({ accountId: w.accountId, debit: shares[i] });
         });
-        const credits = new Map();
-        for (const l of noteLines) credits.set(l.accountId, (credits.get(l.accountId) ?? 0) + l.net);
-        const creditLines = [...credits].filter(([, amount]) => amount > 0).map(([accountId, credit]) => ({ accountId, credit }));
+        const creditLines = sumByAccountAndCenter(noteLines, (l) => l.net)
+          .filter(({ amount }) => amount > 0)
+          .map(({ accountId, costCenter, amount }) => ({ accountId, credit: amount, ...(costCenter ? { costCenter } : {}) }));
         if (totals.tax > 0) creditLines.push({ accountId: purchase.accountsUsed.vat, credit: totals.tax });
 
         const guard = { _id: purchase._id, status: 'posted' };
@@ -469,12 +495,13 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
                     reason,
                     issueDate,
                     currency: purchase.currency,
-                    lines: noteLines.map(({ lineIndex, description, quantity, vatBps, accountId, itemId, warehouseId, net, tax, total }) => ({
+                    lines: noteLines.map(({ lineIndex, description, quantity, vatBps, accountId, costCenter, itemId, warehouseId, net, tax, total }) => ({
                       lineIndex,
                       description,
                       quantity,
                       vatBps,
                       accountId,
+                      ...(costCenter ? { costCenter } : {}),
                       ...(itemId ? { itemId, warehouseId } : {}),
                       net,
                       tax,

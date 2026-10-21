@@ -117,7 +117,7 @@ export function createPayablesService({ db, ledger, accounts, parties, now = () 
             idempotencyKey: `payment-${idempotencyKey}`,
             description: `Pago a ${party.name}`,
             source: { kind: 'payment', id: idempotencyKey },
-            lines: [...[...debits].map(([accountId, debit]) => ({ accountId, debit })), { accountId: paymentAccount, credit: total }],
+            lines: [...[...debits].map(([accountId, debit]) => ({ accountId, debit, partyId: party._id })), { accountId: paymentAccount, credit: total }],
           },
           {
             inTx: async (session, { journal }) => {

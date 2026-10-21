@@ -32,6 +32,8 @@ function IssuerForm({ settings, accounts, canEdit, country, onSaved }) {
     cash: mapping?.cash ?? '',
     payable: mapping?.payable ?? '',
     vatDeductible: mapping?.vatDeductible ?? '',
+    customerAdvance: mapping?.customerAdvance ?? '',
+    supplierAdvance: mapping?.supplierAdvance ?? '',
   });
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const isNit = form.taxIdType === 'NIT';
@@ -56,6 +58,8 @@ function IssuerForm({ settings, accounts, canEdit, country, onSaved }) {
         ...(form.cash.trim() ? { cash: form.cash.trim() } : {}),
         ...(form.payable.trim() ? { payable: form.payable.trim() } : {}),
         ...(form.vatDeductible.trim() ? { vatDeductible: form.vatDeductible.trim() } : {}),
+        ...(form.customerAdvance.trim() ? { customerAdvance: form.customerAdvance.trim() } : {}),
+        ...(form.supplierAdvance.trim() ? { supplierAdvance: form.supplierAdvance.trim() } : {}),
       },
     };
     await api.put(`${base}/invoicing/settings`, body);
@@ -107,6 +111,8 @@ function IssuerForm({ settings, accounts, canEdit, country, onSaved }) {
           ['cash', 'Caja (opcional, para ventas de contado)'],
           ['payable', 'Proveedores (para registrar compras)'],
           ['vatDeductible', 'IVA descontable (para registrar compras)'],
+          ['customerAdvance', 'Anticipos de clientes (un pasivo)'],
+          ['supplierAdvance', 'Anticipos a proveedores (un activo)'],
         ].map(([key, label]) => (
           <TextField
             key={key}

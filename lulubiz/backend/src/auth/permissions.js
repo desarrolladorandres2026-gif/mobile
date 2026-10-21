@@ -30,15 +30,19 @@ export const PERMISSIONS = [
   'pos:void',
   'pos:manage',
   'apikeys:manage',
+  'bank:read',
+  'bank:manage',
+  'assets:read',
+  'assets:manage',
 ];
 
-const READ = ['accounts:read', 'parties:read', 'journals:read', 'reports:read', 'invoices:read', 'purchases:read', 'inventory:read', 'pos:read'];
+const READ = ['accounts:read', 'parties:read', 'journals:read', 'reports:read', 'invoices:read', 'purchases:read', 'inventory:read', 'pos:read', 'bank:read', 'assets:read'];
 
 /** Permisos por rol. Lo no listado está denegado. */
 export const ROLE_PERMISSIONS = {
   owner: [...PERMISSIONS],
   admin: PERMISSIONS.filter((p) => p !== 'tenant:manage'),
-  accountant: [...READ, 'accounts:manage', 'parties:manage', 'journals:post', 'journals:reverse', 'periods:manage', 'invoices:issue', 'receipts:create', 'receipts:void', 'purchases:create', 'purchases:void', 'payments:create', 'payments:void', 'inventory:manage', 'inventory:adjust', 'pos:sell', 'pos:void', 'pos:manage'],
+  accountant: [...READ, 'accounts:manage', 'parties:manage', 'journals:post', 'journals:reverse', 'periods:manage', 'invoices:issue', 'receipts:create', 'receipts:void', 'purchases:create', 'purchases:void', 'payments:create', 'payments:void', 'inventory:manage', 'inventory:adjust', 'pos:sell', 'pos:void', 'pos:manage', 'bank:manage', 'assets:manage'],
   // El cajero vende y cierra su turno; no ve la contabilidad ni anula ventas.
   cashier: ['pos:read', 'pos:sell', 'inventory:read', 'parties:read'],
   viewer: [...READ],

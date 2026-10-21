@@ -118,6 +118,65 @@ La tabla se genera desde las rutas registradas y una prueba falla si una ruta nu
 | POST | `/v1/tenants/{tenantId}/accounts/:code/deactivate` | `accounts:manage` |
 | POST | `/v1/tenants/{tenantId}/accounts/:code/activate` | `accounts:manage` |
 
+### Centros de costo
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/cost-centers` | `accounts:read` |
+| POST | `/v1/tenants/{tenantId}/cost-centers` | `accounts:manage` |
+| PATCH | `/v1/tenants/{tenantId}/cost-centers/:code` | `accounts:manage` |
+
+### Conciliación bancaria
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/bank/lines` | `bank:read` |
+| POST | `/v1/tenants/{tenantId}/bank/lines` | `bank:manage` |
+| DELETE | `/v1/tenants/{tenantId}/bank/lines/:id` | `bank:manage` |
+| GET | `/v1/tenants/{tenantId}/bank/lines/:id/candidates` | `bank:read` |
+| POST | `/v1/tenants/{tenantId}/bank/lines/:id/book` | `bank:manage` |
+| POST | `/v1/tenants/{tenantId}/bank/matches` | `bank:manage` |
+| POST | `/v1/tenants/{tenantId}/bank/matches/manual` | `bank:manage` |
+| POST | `/v1/tenants/{tenantId}/bank/matches/auto` | `bank:manage` |
+| DELETE | `/v1/tenants/{tenantId}/bank/matches/:id` | `bank:manage` |
+| GET | `/v1/tenants/{tenantId}/bank/reconciliation` | `bank:read` |
+| GET | `/v1/tenants/{tenantId}/bank/reconciliations` | `bank:read` |
+| POST | `/v1/tenants/{tenantId}/bank/reconciliations` | `bank:manage` |
+| POST | `/v1/tenants/{tenantId}/bank/reconciliations/:id/reopen` | `bank:manage` |
+
+### Cotizaciones
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/quotes` | `invoices:read` |
+| POST | `/v1/tenants/{tenantId}/quotes` | `invoices:issue` |
+| GET | `/v1/tenants/{tenantId}/quotes/:id` | `invoices:read` |
+| POST | `/v1/tenants/{tenantId}/quotes/:id/accept` | `invoices:issue` |
+| POST | `/v1/tenants/{tenantId}/quotes/:id/reject` | `invoices:issue` |
+| POST | `/v1/tenants/{tenantId}/quotes/:id/void` | `invoices:issue` |
+| POST | `/v1/tenants/{tenantId}/quotes/:id/invoice` | `invoices:issue` |
+
+### Órdenes de compra
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/purchase-orders` | `purchases:read` |
+| POST | `/v1/tenants/{tenantId}/purchase-orders` | `purchases:create` |
+| GET | `/v1/tenants/{tenantId}/purchase-orders/:id` | `purchases:read` |
+| POST | `/v1/tenants/{tenantId}/purchase-orders/:id/void` | `purchases:void` |
+| POST | `/v1/tenants/{tenantId}/purchase-orders/:id/receive` | `purchases:create` |
+
+### Facturas recurrentes
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/recurring-invoices` | `invoices:read` |
+| POST | `/v1/tenants/{tenantId}/recurring-invoices` | `invoices:issue` |
+| POST | `/v1/tenants/{tenantId}/recurring-invoices/run` | `invoices:issue` |
+| GET | `/v1/tenants/{tenantId}/recurring-invoices/:id` | `invoices:read` |
+| PATCH | `/v1/tenants/{tenantId}/recurring-invoices/:id` | `invoices:issue` |
+| POST | `/v1/tenants/{tenantId}/recurring-invoices/:id/skip` | `invoices:issue` |
+
 ### Terceros
 
 | Método | Ruta | Permiso |
@@ -163,6 +222,13 @@ La tabla se genera desde las rutas registradas y una prueba falla si una ruta nu
 | GET | `/v1/tenants/{tenantId}/reports/income-statement` | `reports:read` |
 | GET | `/v1/tenants/{tenantId}/reports/balance-sheet` | `reports:read` |
 | GET | `/v1/tenants/{tenantId}/reports/general-ledger` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/sales-book` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/purchases-book` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/customer-statement` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/supplier-statement` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/sales-summary` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/cost-center-result` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/party-ledger` | `reports:read` |
 
 ### Facturación electrónica
 
@@ -184,6 +250,23 @@ La tabla se genera desde las rutas registradas y una prueba falla si una ruta nu
 | GET | `/v1/tenants/{tenantId}/credit-notes/:id` | `invoices:read` |
 | POST | `/v1/tenants/{tenantId}/credit-notes/:id/sync` | `invoices:issue` |
 | POST | `/v1/tenants/{tenantId}/credit-notes/:id/account` | `invoices:issue` |
+
+### Anticipos
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/customer-advances` | `invoices:read` |
+| GET | `/v1/tenants/{tenantId}/customer-advances/:id` | `invoices:read` |
+| POST | `/v1/tenants/{tenantId}/customer-advances` | `receipts:create` |
+| POST | `/v1/tenants/{tenantId}/customer-advances/:id/applications` | `receipts:create` |
+| POST | `/v1/tenants/{tenantId}/customer-advances/:id/void` | `receipts:void` |
+| POST | `/v1/tenants/{tenantId}/customer-advances/applications/:id/void` | `receipts:void` |
+| GET | `/v1/tenants/{tenantId}/supplier-advances` | `purchases:read` |
+| GET | `/v1/tenants/{tenantId}/supplier-advances/:id` | `purchases:read` |
+| POST | `/v1/tenants/{tenantId}/supplier-advances` | `payments:create` |
+| POST | `/v1/tenants/{tenantId}/supplier-advances/:id/applications` | `payments:create` |
+| POST | `/v1/tenants/{tenantId}/supplier-advances/:id/void` | `payments:void` |
+| POST | `/v1/tenants/{tenantId}/supplier-advances/applications/:id/void` | `payments:void` |
 
 ### Cartera y recibos de caja
 

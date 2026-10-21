@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ItemPicker } from '../components/ItemPicker.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
+import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
 import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
@@ -14,7 +15,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const STATUS = { posted: 'Vigente', void: 'Anulada' };
 const CREDIT = { partial: 'acreditada en parte', full: 'acreditada del todo' };
 
-const blankLine = (vatBps) => ({ description: '', quantity: '1', unitPrice: '', discount: '', vatBps, accountId: '', itemText: '', item: null });
+const blankLine = (vatBps) => ({ description: '', quantity: '1', unitPrice: '', discount: '', vatBps, accountId: '', itemText: '', item: null, costCenter: '' });
 const blankWithholding = () => ({ name: '', accountId: '', basis: 'subtotal', rate: '' });
 
 function usePurchasingStatus() {
@@ -50,6 +51,7 @@ function PurchaseForm({ status, onCreated, onCancel }) {
   const [showErrors, setShowErrors] = useState(false);
   const [key, setKey] = useState(newIdempotencyKey);
   const accounts = useLoad(() => api.get(`${base}/accounts?activeOnly=true`), [base]);
+  const centers = useCostCenters(base);
   const warehouses = useLoad(() => api.get(`${base}/warehouses`).catch(() => ({ items: [] })), [base]);
   const activeWarehouses = (warehouses.data?.items ?? []).filter((w) => w.active);
   const postable = (accounts.data?.items ?? []).filter((a) => a.postable);
@@ -134,6 +136,7 @@ function PurchaseForm({ status, onCreated, onCancel }) {
               <th scope="col" className="px-2 py-2 text-right font-semibold">Descuento %</th>
               <th scope="col" className="px-2 py-2 font-semibold">IVA</th>
               <th scope="col" className="px-2 py-2 font-semibold">Cuenta de gasto, costo o activo</th>
+              {centers.length ? <th scope="col" className="px-2 py-2 font-semibold">Centro de costo</th> : null}
               <th scope="col" className="px-2 py-2 text-right font-semibold">Total de la línea</th>
               <th scope="col" className="px-2 py-2"><span className="sr-only">Acciones</span></th>
             </tr>
@@ -186,6 +189,11 @@ function PurchaseForm({ status, onCreated, onCancel }) {
                       </>
                     )}
                   </td>
+                  {centers.length ? (
+                    <td className="px-2 py-2">
+                      <CostCenterSelect centers={centers} label={`Centro de costo de la línea ${i + 1}`} value={line.costCenter} onChange={setLine(i, 'costCenter')} />
+                    </td>
+                  ) : null}
                   <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-tinta">{preview ? formatAmount(preview.total, currency) : ''}</td>
                   <td className="px-2 py-2">{lines.length > 1 ? <TextButton danger onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</TextButton> : null}</td>
                 </tr>
@@ -370,6 +378,78 @@ function SupplierNoteForm({ purchase, currency, onDone, onCancel }) {
   );
 }
 
+function DebitNoteForm({ purchase, rates, currency, onDone, onCancel }) {
+  const base = useTenantApi();
+  const centers = useCostCenters(base);
+  const accounts = useLoad(() => api.get(`${base}/accounts?activeOnly=true`), [base]);
+  const chargeAccounts = (accounts.data?.items ?? []).filter((a) => a.postable && ['asset', 'expense', 'cost'].includes(a.type));
+  const defaultRate = rates.includes(0) ? 0 : rates[0];
+  const [docNumber, setDocNumber] = useState('');
+  const [issueDate, setIssueDate] = useState(today());
+  const [dueDate, setDueDate] = useState('');
+  const [line, setLine] = useState({ description: '', quantity: '1', unitPrice: '', discount: '', vatBps: defaultRate, accountId: '', itemText: '', item: null, costCenter: '' });
+  const [showErrors, setShowErrors] = useState(false);
+  const [key, setKey] = useState(newIdempotencyKey);
+  const set = (field) => (e) => setLine((l) => ({ ...l, [field]: field === 'vatBps' ? Number(e.target.value) : e.target.value }));
+  const result = validatePurchase({ supplierId: String(purchase.supplier.partyId), supplierDocNumber: docNumber, issueDate, dueDate, lines: [line], withholdings: [], currency });
+  const lineErrors = (showErrors && result.errors.lines[0]) || {};
+
+  const submit = useSubmit(async () => {
+    setShowErrors(true);
+    if (!result.ok) return;
+    const outcome = await api.post(
+      `${base}/purchases`,
+      { kind: 'debit_note', relatedPurchaseId: purchase._id, supplierId: String(purchase.supplier.partyId), supplierDocNumber: docNumber.trim(), issueDate, ...(dueDate ? { dueDate } : {}), lines: result.prepared },
+      { 'idempotency-key': key },
+    );
+    setKey(newIdempotencyKey());
+    onDone(outcome.purchase);
+  });
+
+  return (
+    <form
+      className="mt-3 max-w-3xl border-t border-borde pt-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit.run();
+      }}
+    >
+      <h3 className="mb-2 font-semibold text-tinta">Nota débito del proveedor a la compra {purchase.fullNumber}</h3>
+      <p className="mb-3 text-sm text-tinta">Un cargo adicional que te hace el proveedor después de la factura: intereses de mora, ajuste de precio, flete. Aumenta lo que le debes y se paga como una factura. No mueve existencias.</p>
+      {submit.error ? <Notice kind="error">{errorMessage(submit.error)}</Notice> : null}
+      <datalist id="cuentas-nota-debito">
+        {chargeAccounts.map((a) => (
+          <option key={a.code} value={a.code}>{a.name}</option>
+        ))}
+      </datalist>
+      <div className="grid gap-x-4 sm:grid-cols-3">
+        <TextField label="Número de la nota del proveedor" value={docNumber} onChange={(e) => setDocNumber(e.target.value)} maxLength={40} error={showErrors && !docNumber.trim() ? 'Escribe el número.' : undefined} />
+        <TextField label="Fecha de la nota" type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} required />
+        <TextField label="Vencimiento (opcional)" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+      </div>
+      <div className="grid gap-x-4 sm:grid-cols-3">
+        <TextField className="sm:col-span-2" label="Concepto" value={line.description} onChange={set('description')} maxLength={200} error={lineErrors.description} hint="Por ejemplo: intereses de mora de octubre." />
+        <TextField label={`Valor antes de IVA (${currency})`} value={line.unitPrice} onChange={set('unitPrice')} inputMode="decimal" error={lineErrors.unitPrice} />
+        <TextField label="Cuenta del gasto, costo o activo" list="cuentas-nota-debito" value={line.accountId} onChange={set('accountId')} error={showErrors && lineErrors.accountId ? lineErrors.accountId : undefined} hint={chargeAccounts.find((a) => a.code === line.accountId.trim())?.name} />
+        <SelectField label="IVA" value={line.vatBps} onChange={set('vatBps')} options={rates.map((r) => ({ value: r, label: formatPercent(r) }))} />
+        {centers.length ? (
+          <SelectField label="Centro de costo" value={line.costCenter} onChange={set('costCenter')} options={[{ value: '', label: 'Sin centro' }, ...centers.map((c) => ({ value: c.code, label: `${c.code} · ${c.name}` }))]} />
+        ) : null}
+      </div>
+      <p className="mb-3 text-sm text-tinta">Total de la nota: {formatAmount(result.totals.total, currency)}.</p>
+      {showErrors && result.errors.form.length ? (
+        <Notice kind="error">
+          {result.errors.form.map((m) => (
+            <p key={m}>{m}</p>
+          ))}
+        </Notice>
+      ) : null}
+      <Button type="submit" variant="primary" busy={submit.busy}>Registrar nota débito</Button>
+      <Button className="ml-2" onClick={onCancel}>Cancelar</Button>
+    </form>
+  );
+}
+
 function PurchaseDetail({ purchase, currency }) {
   return (
     <div className="my-2 text-sm text-tinta">
@@ -402,6 +482,7 @@ function PurchaseDetail({ purchase, currency }) {
         <p key={`${w.name}-${w.accountId}`}>{w.name}: {formatAmount(w.amount, currency)} ({formatPercent(w.rateBps)} del {w.basis === 'vat' ? 'IVA' : 'subtotal'}, cuenta {w.accountId})</p>
       ))}
       <p className="font-semibold">A pagar al proveedor {formatAmount(purchase.payable, currency)} · Pagado {formatAmount(purchase.paidTotal, currency)} · Falta {formatAmount(purchase.balance, currency)}</p>
+      {purchase.relatedNumber ? <p>Nota débito sobre la compra {purchase.relatedNumber}.</p> : null}
       {purchase.notes ? <p>Notas: {purchase.notes}</p> : null}
     </div>
   );
@@ -415,6 +496,7 @@ export function PurchasesScreen() {
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState(null);
   const [crediting, setCrediting] = useState(null);
+  const [debiting, setDebiting] = useState(null);
   const [confirming, setConfirming] = useState(null);
   const [notice, setNotice] = useState(null);
   const [filter, setFilter] = useState('');
@@ -465,8 +547,11 @@ export function PurchasesScreen() {
         return (
           <span className="flex flex-wrap gap-3">
             <TextButton onClick={() => setOpen(open === p._id ? null : p._id)}>{open === p._id ? 'Ocultar detalle' : 'Ver detalle'}</TextButton>
-            {can('purchases:create') && p.status === 'posted' && p.creditStatus !== 'full' ? (
-              <TextButton onClick={() => { setOpen(p._id); setCrediting(crediting === p._id ? null : p._id); }}>Acreditar</TextButton>
+            {can('purchases:create') && p.status === 'posted' && p.kind !== 'debit_note' ? (
+              <TextButton onClick={() => { setOpen(p._id); setCrediting(null); setDebiting(debiting === p._id ? null : p._id); }}>Nota débito</TextButton>
+            ) : null}
+            {can('purchases:create') && p.status === 'posted' && p.kind !== 'debit_note' && p.creditStatus !== 'full' ? (
+              <TextButton onClick={() => { setOpen(p._id); setDebiting(null); setCrediting(crediting === p._id ? null : p._id); }}>Acreditar</TextButton>
             ) : null}
             {can('purchases:void') && p.status === 'posted' && p.paidTotal === 0 && p.creditedTotal === 0 ? (
               <TextButton onClick={() => { setConfirming(p._id); act.clearError(); }}>Anular</TextButton>
@@ -518,6 +603,19 @@ export function PurchasesScreen() {
             open === p._id ? (
               <>
                 <PurchaseDetail purchase={p} currency={currency} />
+                {debiting === p._id && status.data ? (
+                  <DebitNoteForm
+                    purchase={p}
+                    rates={status.data.vatRatesBps}
+                    currency={currency}
+                    onCancel={() => setDebiting(null)}
+                    onDone={(note) => {
+                      setDebiting(null);
+                      setNotice(`Nota débito ${note.fullNumber} registrada: la deuda con el proveedor sube ${formatAmount(note.payable, note.currency)}.`);
+                      reset();
+                    }}
+                  />
+                ) : null}
                 {crediting === p._id ? (
                   <SupplierNoteForm
                     purchase={p}

@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.js';
 import { SelectField, TextField, useLoad } from './ui.jsx';
 
-const NOUN = { customer: { one: 'cliente', many: 'clientes', article: 'un' }, supplier: { one: 'proveedor', many: 'proveedores', article: 'un' } };
+const NOUN = { customer: { one: 'cliente', many: 'clientes', article: 'un' }, supplier: { one: 'proveedor', many: 'proveedores', article: 'un' }, any: { one: 'tercero', many: 'terceros', article: 'un' } };
 
 /**
- * Elige un tercero por nombre o número de documento. `role` es `customer` o `supplier`. `initial` es uno ya elegido
+ * Elige un tercero por nombre o número de documento. `role` es `customer`, `supplier` o `any` (cualquier tercero). `initial` es uno ya elegido
  * (por ejemplo desde un informe): se ofrece aunque no salga en la primera página de resultados.
  */
 export function PartyPicker({ base, role = 'customer', value, onChange, error, initial = null }) {
@@ -18,7 +18,7 @@ export function PartyPicker({ base, role = 'customer', value, onChange, error, i
     return () => clearTimeout(t);
   }, [search]);
   const found = useLoad(
-    () => api.get(`${base}/parties?role=${role}&activeOnly=true&limit=20${debounced ? `&search=${encodeURIComponent(debounced)}` : ''}`),
+    () => api.get(`${base}/parties?${role === 'any' ? '' : `role=${role}&`}activeOnly=true&limit=20${debounced ? `&search=${encodeURIComponent(debounced)}` : ''}`),
     [base, role, debounced],
   );
   const options = useMemo(() => {

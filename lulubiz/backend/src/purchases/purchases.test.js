@@ -130,7 +130,7 @@ describe('factura de compra', () => {
     expect(journal.lines).toEqual([
       { accountId: '519595', debit: 1_000_000, credit: 0 },
       { accountId: '240810', debit: 190_000, credit: 0 },
-      { accountId: '220505', debit: 0, credit: 1_165_000 },
+      { accountId: '220505', debit: 0, credit: 1_165_000, partyId: supplier._id },
       { accountId: '236540', debit: 0, credit: 25_000 },
     ]);
     expect(await ledgerNet('220505')).toBe(-1_165_000);
@@ -145,7 +145,7 @@ describe('factura de compra', () => {
     expect(journal.lines).toEqual([
       { accountId: '143505', debit: 300_000, credit: 0 },
       { accountId: '519595', debit: 300_000, credit: 0 },
-      { accountId: '220505', debit: 0, credit: 600_000 },
+      { accountId: '220505', debit: 0, credit: 600_000, partyId: supplier._id },
     ]);
   });
 
@@ -384,7 +384,7 @@ describe('pagos a proveedores', () => {
     const { payment: ce } = await payment([pay(a, 1_190_000), pay(b, 100_000)]);
     const journal = await ledger.getJournal(tenant, ce.journalId);
     expect(journal.lines).toEqual([
-      { accountId: '220505', debit: 1_290_000, credit: 0 },
+      { accountId: '220505', debit: 1_290_000, credit: 0, partyId: supplier._id },
       { accountId: '110505', debit: 0, credit: 1_290_000 },
     ]);
     expect((await reload(b)).balance).toBe(495_000);
@@ -494,5 +494,104 @@ describe('coherencia con el libro', () => {
     await payables.voidPayment(tenant, String(first._id), {}, ctx('x'));
     const open = await db.collection(COLLECTIONS.purchases).find({ tenantId: tenant, status: 'posted' }).toArray();
     expect(-(await ledgerNet('220505'))).toBe(open.reduce((acc, p) => acc + p.balance, 0));
+  });
+});
+
+describe('nota débito del proveedor', () => {
+  const debitInput = (original, patch = {}) => ({
+    kind: 'debit_note',
+    relatedPurchaseId: String(original._id),
+    supplierId: String(supplier._id),
+    supplierDocNumber: 'nd-77',
+    issueDate: '2026-10-10',
+    lines: [line({ description: 'Intereses de mora', unitPrice: 100_000, vatBps: 0 })],
+    ...patch,
+  });
+  const debit = async (original, patch = {}, key = fresh('nd')) => (await purchases.createPurchase(tenant, debitInput(original, patch), ctx(key))).purchase;
+
+  it('aumenta lo que se le debe al proveedor sin tocar la factura original', async () => {
+    const original = await buy();
+    const note = await debit(original);
+    expect(note).toMatchObject({ kind: 'debit_note', fullNumber: 'NDP1', status: 'posted', relatedNumber: original.fullNumber, payable: 100_000, balance: 100_000, supplierDocNumber: 'ND-77' });
+    expect(String(note.relatedPurchaseId)).toBe(String(original._id));
+    expect((await reload(original)).balance).toBe(1_190_000);
+    const journal = await ledger.getJournal(tenant, note.journalId);
+    expect(journal).toMatchObject({ docType: 'NDP', totalDebit: 100_000, totalCredit: 100_000, source: { kind: 'supplier_debit_note' } });
+    expect(journal.lines).toEqual([
+      { accountId: '519595', debit: 100_000, credit: 0 },
+      { accountId: '220505', debit: 0, credit: 100_000, partyId: supplier._id },
+    ]);
+    expect(await ledgerNet('220505')).toBe(-1_290_000);
+  });
+
+  it('lleva IVA descontable y retenciones como una factura', async () => {
+    const original = await buy();
+    const note = await debit(original, { lines: [line({ unitPrice: 100_000, vatBps: 1900 })], withholdings: [rete()] });
+    expect(note.totals).toMatchObject({ subtotal: 100_000, tax: 19_000, total: 119_000 });
+    expect(note).toMatchObject({ withheld: 2_500, payable: 116_500, balance: 116_500 });
+  });
+
+  it('se paga con un pago, solo o junto con la factura', async () => {
+    const original = await buy();
+    const note = await debit(original);
+    const created = await payables.createPayment(
+      tenant,
+      { partyId: String(supplier._id), date: TODAY, paymentAccount: '110505', allocations: [{ purchaseId: String(original._id), amount: 1_190_000 }, { purchaseId: String(note._id), amount: 100_000 }] },
+      ctx(fresh('pay')),
+    );
+    expect(created.payment.total).toBe(1_290_000);
+    expect((await reload(note)).balance).toBe(0);
+    expect((await reload(original)).balance).toBe(0);
+    expect(await ledgerNet('220505')).toBe(0);
+  });
+
+  it('exige factura de compra del mismo proveedor, vigente y anterior a la nota', async () => {
+    const original = await buy();
+    const theirs = await buy({ supplierId: String(other._id), supplierDocNumber: 'O-1' });
+    expect(await code(purchases.createPurchase(tenant, debitInput(original, { relatedPurchaseId: undefined }), ctx(fresh('nd'))))).toBe('VALIDATION');
+    expect(await code(purchases.createPurchase(tenant, debitInput(original, { relatedPurchaseId: String(new ObjectId()) }), ctx(fresh('nd'))))).toBe('NOT_FOUND');
+    expect(await code(purchases.createPurchase(tenant, debitInput(theirs), ctx(fresh('nd'))))).toBe('VALIDATION');
+    expect(await code(purchases.createPurchase(tenant, debitInput(original, { issueDate: '2026-10-04' }), ctx(fresh('nd'))))).toBe('VALIDATION');
+    const note = await debit(original);
+    expect(await code(purchases.createPurchase(tenant, debitInput(note, { supplierDocNumber: 'ND-78' }), ctx(fresh('nd'))))).toBe('VALIDATION'); // nota sobre nota
+    await purchases.voidPurchase(tenant, String(note._id), {}, {});
+    await purchases.voidPurchase(tenant, String(original._id), {}, {});
+    expect(await code(purchases.createPurchase(tenant, debitInput(original, { supplierDocNumber: 'ND-79' }), ctx(fresh('nd'))))).toBe('INVALID_STATE');
+  });
+
+  it('no mueve existencias ni lleva su número repetido para el mismo proveedor', async () => {
+    const original = await buy();
+    expect(await code(purchases.createPurchase(tenant, debitInput(original, { lines: [{ ...line(), itemId: String(new ObjectId()) }] }), ctx(fresh('nd'))))).toBe('VALIDATION');
+    await debit(original);
+    expect(await code(purchases.createPurchase(tenant, debitInput(original), ctx(fresh('nd'))))).toBe('DUPLICATE');
+    expect(await code(purchases.createPurchase(tenant, debitInput(original, { supplierDocNumber: 'SA-1001' }), ctx(fresh('nd'))))).toBe('DUPLICATE'); // el número de la factura original
+  });
+
+  it('repetir la misma clave devuelve la misma nota', async () => {
+    const original = await buy();
+    const first = await purchases.createPurchase(tenant, debitInput(original), ctx('nd-fixed-key-1'));
+    const again = await purchases.createPurchase(tenant, debitInput(original), ctx('nd-fixed-key-1'));
+    expect(again.replayed).toBe(true);
+    expect(String(again.purchase._id)).toBe(String(first.purchase._id));
+    expect(await db.collection(COLLECTIONS.purchases).countDocuments({ tenantId: tenant, kind: 'debit_note' })).toBe(1);
+  });
+
+  it('no se acredita con una nota de proveedor; la factura original no se anula mientras tenga notas débito', async () => {
+    const original = await buy();
+    const note = await debit(original);
+    expect(await code(purchases.createSupplierNote(tenant, String(note._id), { reason: 'x', supplierDocNumber: 'NC-1', all: true }, ctx(fresh('sn'))))).toBe('INVALID_STATE');
+    expect(await code(purchases.voidPurchase(tenant, String(original._id), {}, {}))).toBe('INVALID_STATE');
+    const voided = await purchases.voidPurchase(tenant, String(note._id), {}, {});
+    expect(voided.purchase.status).toBe('void');
+    expect(await ledgerNet('220505')).toBe(-1_190_000);
+    await purchases.voidPurchase(tenant, String(original._id), {}, {});
+    expect(await ledgerNet('220505')).toBe(0);
+  });
+
+  it('una nota con pagos no se anula', async () => {
+    const original = await buy();
+    const note = await debit(original);
+    await payables.createPayment(tenant, { partyId: String(supplier._id), date: TODAY, paymentAccount: '110505', allocations: [{ purchaseId: String(note._id), amount: 40_000 }] }, ctx(fresh('pay')));
+    expect(await code(purchases.voidPurchase(tenant, String(note._id), {}, {}))).toBe('INVALID_STATE');
   });
 });

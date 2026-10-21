@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
 import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
@@ -11,7 +12,7 @@ const DOC_TYPES = [
 ];
 
 const today = () => new Date().toISOString().slice(0, 10);
-const emptyLine = () => ({ accountId: '', debit: '', credit: '', description: '' });
+const emptyLine = () => ({ accountId: '', debit: '', credit: '', description: '', costCenter: '' });
 
 /** Valida el formulario completo y devuelve las líneas listas para enviar, o los errores por campo. */
 export function validateJournal({ date, lines, currency, accountsByCode }) {
@@ -35,7 +36,7 @@ export function validateJournal({ date, lines, currency, accountsByCode }) {
       else {
         debits += debit;
         credits += credit;
-        prepared.push({ accountId: line.accountId.trim(), ...(debit ? { debit } : { credit }), ...(line.description.trim() ? { description: line.description.trim() } : {}) });
+        prepared.push({ accountId: line.accountId.trim(), ...(debit ? { debit } : { credit }), ...(line.description.trim() ? { description: line.description.trim() } : {}), ...(line.costCenter ? { costCenter: line.costCenter } : {}) });
       }
     }
   });
@@ -53,6 +54,7 @@ function JournalForm({ currency, accounts, onCreated, onCancel }) {
   const [lines, setLines] = useState([emptyLine(), emptyLine()]);
   const [showErrors, setShowErrors] = useState(false);
   const [key, setKey] = useState(newIdempotencyKey);
+  const centers = useCostCenters(base);
 
   const postable = useMemo(() => accounts.filter((a) => a.postable && a.active), [accounts]);
   const accountsByCode = useMemo(() => new Map(postable.map((a) => [a.code, a])), [postable]);
@@ -103,6 +105,7 @@ function JournalForm({ currency, accounts, onCreated, onCancel }) {
             <tr className="border-b border-borde-fuerte text-left">
               <th scope="col" className="px-2 py-2 font-semibold">Cuenta</th>
               <th scope="col" className="px-2 py-2 font-semibold">Detalle de la línea</th>
+              {centers.length ? <th scope="col" className="px-2 py-2 font-semibold">Centro de costo</th> : null}
               <th scope="col" className="px-2 py-2 text-right font-semibold">Débito ({currency})</th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">Crédito ({currency})</th>
               <th scope="col" className="px-2 py-2"><span className="sr-only">Acciones</span></th>
@@ -133,6 +136,11 @@ function JournalForm({ currency, accounts, onCreated, onCancel }) {
                       className="w-full min-w-40 rounded-sm border border-borde-fuerte bg-papel px-2 py-1.5 text-sm focus:outline-2 focus:outline-azul"
                     />
                   </td>
+                  {centers.length ? (
+                    <td className="px-2 py-2">
+                      <CostCenterSelect centers={centers} label={`Centro de costo de la línea ${i + 1}`} value={line.costCenter} onChange={setLine(i, 'costCenter')} />
+                    </td>
+                  ) : null}
                   {['debit', 'credit'].map((field) => (
                     <td key={field} className="px-2 py-2 text-right">
                       <input
@@ -158,7 +166,7 @@ function JournalForm({ currency, accounts, onCreated, onCancel }) {
           </tbody>
           <tfoot>
             <tr>
-              <td className="px-2 py-2" colSpan={2}>
+              <td className="px-2 py-2" colSpan={centers.length ? 3 : 2}>
                 <TextButton onClick={() => setLines((ls) => [...ls, emptyLine()])}>Agregar línea</TextButton>
               </td>
               <td className="px-2 py-2 text-right font-semibold tabular-nums">{formatAmount(result.debits, currency)}</td>

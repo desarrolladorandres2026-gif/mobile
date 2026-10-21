@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
 import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { ItemPicker } from '../components/ItemPicker.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
@@ -104,6 +105,7 @@ export function validateInvoice({ customerId, issueDate, paymentMethod, dueDate,
       ...(discountBps ? { discountBps } : {}),
       vatBps: line.vatBps,
       ...(line.accountId.trim() ? { accountId: line.accountId.trim() } : {}),
+      ...(line.costCenter ? { costCenter: line.costCenter } : {}),
       ...(line.item ? { itemId: line.item._id, ...(warehouseId ? { warehouseId } : {}) } : {}),
       _preview: result,
     });
@@ -115,7 +117,7 @@ export function validateInvoice({ customerId, issueDate, paymentMethod, dueDate,
   return { ok: !errors.form.length && !hasLineErrors, errors, prepared, totals };
 }
 
-const blankLine = (vatBps) => ({ description: '', quantity: '1', unitPrice: '', discount: '', vatBps, accountId: '', itemText: '', item: null });
+const blankLine = (vatBps) => ({ description: '', quantity: '1', unitPrice: '', discount: '', vatBps, accountId: '', itemText: '', item: null, costCenter: '' });
 
 function InvoiceForm({ status, onCreated, onCancel }) {
   const base = useTenantApi();
@@ -133,6 +135,7 @@ function InvoiceForm({ status, onCreated, onCancel }) {
   const [showErrors, setShowErrors] = useState(false);
   const [key, setKey] = useState(newIdempotencyKey);
   const accounts = useLoad(() => api.get(`${base}/accounts?activeOnly=true`), [base]);
+  const centers = useCostCenters(base);
   const warehouses = useLoad(() => api.get(`${base}/warehouses`).catch(() => ({ items: [] })), [base]);
   const activeWarehouses = (warehouses.data?.items ?? []).filter((w) => w.active);
   const postable = (accounts.data?.items ?? []).filter((a) => a.postable);
@@ -217,6 +220,7 @@ function InvoiceForm({ status, onCreated, onCancel }) {
               <th scope="col" className="px-2 py-2 text-right font-semibold">Descuento %</th>
               <th scope="col" className="px-2 py-2 font-semibold">IVA</th>
               <th scope="col" className="px-2 py-2 font-semibold">Cuenta de ingreso</th>
+              {centers.length ? <th scope="col" className="px-2 py-2 font-semibold">Centro de costo</th> : null}
               <th scope="col" className="px-2 py-2 text-right font-semibold">Total de la línea</th>
               <th scope="col" className="px-2 py-2"><span className="sr-only">Acciones</span></th>
             </tr>
@@ -274,6 +278,11 @@ function InvoiceForm({ status, onCreated, onCancel }) {
                     {field('accountId', 'Cuenta de ingreso', { className: 'w-28', props: { list: 'cuentas-ingreso', ...(line.item?.incomeAccount ? { placeholder: line.item.incomeAccount } : {}) } })}
                     {e.accountId ? <p role="alert" className="text-xs font-semibold text-rojo">{e.accountId}</p> : null}
                   </td>
+                  {centers.length ? (
+                    <td className="px-2 py-2">
+                      <CostCenterSelect centers={centers} label={`Centro de costo de la línea ${i + 1}`} value={line.costCenter} onChange={setLine(i, 'costCenter')} />
+                    </td>
+                  ) : null}
                   <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-tinta">{preview ? formatAmount(preview.total, currency) : ''}</td>
                   <td className="px-2 py-2">
                     {lines.length > 1 ? <TextButton danger onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</TextButton> : null}

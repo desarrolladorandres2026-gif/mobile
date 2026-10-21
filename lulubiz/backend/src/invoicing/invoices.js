@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { creditNoteReasonsFor, vatRatesFor } from '../countries/index.js';
+import { normalizeCenter, requireCostCenters, sumByAccountAndCenter } from '../core/dims.js';
 import { COLLECTIONS } from '../data/db.js';
 import { TenantCollection } from '../data/tenantCollection.js';
 import { isDuplicate, withTransaction } from '../data/tx.js';
@@ -101,7 +102,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
   });
 
   /** Lo que el proveedor no necesita ni debe ver: el inventario y su costo son internos. */
-  const withoutStock = ({ itemId, warehouseId, inventoryAccount, cogsAccount, stockCost, ...visible }) => visible;
+  const withoutStock = ({ itemId, warehouseId, inventoryAccount, cogsAccount, stockCost, costCenter, ...visible }) => visible;
 
   function providerDocument(kind, doc, cfg) {
     return {
@@ -124,10 +125,11 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
 
   /** Asiento de una factura: débito a por cobrar (o caja), créditos a ingresos por cuenta y a IVA por pagar. */
   function invoiceJournal(invoice) {
-    const income = new Map();
-    for (const line of invoice.lines) income.set(line.accountId, (income.get(line.accountId) ?? 0) + line.net);
-    const lines = [{ accountId: invoice.accountsUsed.debit, debit: invoice.totals.total }];
-    for (const [accountId, amount] of income) if (amount > 0) lines.push({ accountId, credit: amount });
+    // El cliente va en la línea de la cuenta por cobrar: así el auxiliar por tercero y la cartera hablan del mismo cliente.
+    const lines = [{ accountId: invoice.accountsUsed.debit, debit: invoice.totals.total, ...(invoice.collectible ? { partyId: invoice.customer.partyId } : {}) }];
+    for (const { accountId, costCenter, amount } of sumByAccountAndCenter(invoice.lines, (l) => l.net)) {
+      if (amount > 0) lines.push({ accountId, credit: amount, ...(costCenter ? { costCenter } : {}) });
+    }
     if (invoice.totals.tax > 0) lines.push({ accountId: invoice.accountsUsed.vat, credit: invoice.totals.tax });
     return {
       docType: 'FV',
@@ -142,12 +144,12 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
 
   /** Asiento de una nota crédito: el inverso proporcional, con los importes de la nota. */
   function noteJournal(note, invoice) {
-    const income = new Map();
-    for (const line of note.lines) income.set(line.accountId, (income.get(line.accountId) ?? 0) + line.net);
     const lines = [];
-    for (const [accountId, amount] of income) if (amount > 0) lines.push({ accountId, debit: amount });
+    for (const { accountId, costCenter, amount } of sumByAccountAndCenter(note.lines, (l) => l.net)) {
+      if (amount > 0) lines.push({ accountId, debit: amount, ...(costCenter ? { costCenter } : {}) });
+    }
     if (note.totals.tax > 0) lines.push({ accountId: invoice.accountsUsed.vat, debit: note.totals.tax });
-    lines.push({ accountId: invoice.accountsUsed.debit, credit: note.totals.total });
+    lines.push({ accountId: invoice.accountsUsed.debit, credit: note.totals.total, ...(invoice.collectible ? { partyId: invoice.customer.partyId } : {}) });
     return {
       docType: 'NC',
       date: note.issueDate,
@@ -169,11 +171,15 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
     const stock = new Map();
     for (const e of entries) {
       if (e.cost <= 0) continue;
-      addTo(cogs, e.cogsAccount, e.cost);
       addTo(stock, e.inventoryAccount, e.cost);
+      const key = `${e.cogsAccount}|${e.costCenter ?? ''}`;
+      const cur = cogs.get(key) ?? { accountId: e.cogsAccount, costCenter: e.costCenter, amount: 0 };
+      cur.amount += e.cost;
+      cogs.set(key, cur);
     }
-    const lines = (map, side) => [...map].map(([accountId, amount]) => ({ accountId, [side]: amount }));
-    return returning ? [...lines(stock, 'debit'), ...lines(cogs, 'credit')] : [...lines(cogs, 'debit'), ...lines(stock, 'credit')];
+    const stockLines = (side) => [...stock].map(([accountId, amount]) => ({ accountId, [side]: amount }));
+    const cogsLines = (side) => [...cogs.values()].map(({ accountId, costCenter, amount }) => ({ accountId, [side]: amount, ...(costCenter ? { costCenter } : {}) }));
+    return returning ? [...stockLines('debit'), ...cogsLines('credit')] : [...cogsLines('debit'), ...stockLines('credit')];
   }
 
   /**
@@ -196,7 +202,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
     }
     return {
       set: { stockCost },
-      lines: costLines(stockLines.map(({ line, index }) => ({ cost: stockCost[index], cogsAccount: line.cogsAccount, inventoryAccount: line.inventoryAccount })), false),
+      lines: costLines(stockLines.map(({ line, index }) => ({ cost: stockCost[index], cogsAccount: line.cogsAccount, inventoryAccount: line.inventoryAccount, costCenter: line.costCenter })), false),
       apply: (session) =>
         inventory.applyOut(tenantId, plan, session, { type: 'sale_out', date: invoice.issueDate, source: { kind: 'invoice', id: String(invoice._id) }, userId: ctx.userId }),
     };
@@ -209,7 +215,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
     if (!inventory) throw new InvoicingError('el inventario no está disponible');
     return {
       set: {},
-      lines: costLines(lines.map((l) => ({ cost: l.stockCost, cogsAccount: l.cogsAccount, inventoryAccount: l.inventoryAccount })), true),
+      lines: costLines(lines.map((l) => ({ cost: l.stockCost, cogsAccount: l.cogsAccount, inventoryAccount: l.inventoryAccount, costCenter: l.costCenter })), true),
       apply: (session) =>
         inventory.applyIn(
           tenantId,
@@ -330,6 +336,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
         throw new InvoicingError(`línea ${n}: ${error.message}`);
       }
       const stock = stockInfo[i];
+      const costCenter = normalizeCenter(line.costCenter);
       const accountId = String(line.accountId ?? stock?.item.incomeAccount ?? defaultAccount).trim();
       return {
         description,
@@ -338,6 +345,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
         discountBps: line.discountBps ?? 0,
         vatBps,
         accountId,
+        ...(costCenter ? { costCenter } : {}),
         ...(stock
           ? { itemId: stock.item._id, warehouseId: stock.warehouse._id, inventoryAccount: stock.item.inventoryAccount, cogsAccount: stock.item.cogsAccount }
           : {}),
@@ -409,6 +417,9 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
 
     const stockInfo = await resolveStock(tenantId, input.lines);
     const lines = prepareLines(input.lines, { country: tenant.country, regime: cfg.issuer.regime, defaultAccount: cfg.accounts.income, stockInfo });
+    await requireCostCenters(db, tenantId, lines.map((l) => l.costCenter), (message) => {
+      throw new InvoicingError(message);
+    });
     const totals = computeTotals(lines);
     if (totals.total <= 0) throw new InvoicingError('el total de la factura debe ser mayor que cero');
 
@@ -609,6 +620,7 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
           discountBps: line.discountBps,
           vatBps: line.vatBps,
           accountId: line.accountId,
+          ...(line.costCenter ? { costCenter: line.costCenter } : {}),
           discount: 0,
           net: share.net,
           tax: share.tax,

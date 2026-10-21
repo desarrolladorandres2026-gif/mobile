@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ItemPicker } from '../components/ItemPicker.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
+import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
 import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
@@ -513,6 +514,8 @@ function RegisterForm({ register, onDone, onCancel }) {
   const [code, setCode] = useState(register?.code ?? '');
   const [name, setName] = useState(register?.name ?? '');
   const [warehouseId, setWarehouseId] = useState(register?.warehouseId ?? '');
+  const centers = useCostCenters(base);
+  const [costCenter, setCostCenter] = useState(register?.costCenter ?? '');
   const [fields, setFields] = useState(() => Object.fromEntries(ACCOUNT_FIELDS.map(([key]) => [key, register?.accounts?.[key] ?? ''])));
   const [error, setError] = useState(null);
 
@@ -523,8 +526,8 @@ function RegisterForm({ register, onDone, onCancel }) {
     if (!fields.cash.trim()) return setError('La caja necesita su cuenta de efectivo.');
     const accountsBody = Object.fromEntries(Object.entries(fields).filter(([, v]) => v.trim()).map(([k, v]) => [k, v.trim()]));
     const saved = editing
-      ? await api.patch(`${base}/pos/registers/${register._id}`, { name: name.trim(), accounts: accountsBody, ...(warehouseId ? { warehouseId } : {}) })
-      : await api.post(`${base}/pos/registers`, { code: code.trim(), name: name.trim(), accounts: accountsBody, ...(warehouseId ? { warehouseId } : {}) });
+      ? await api.patch(`${base}/pos/registers/${register._id}`, { name: name.trim(), accounts: accountsBody, costCenter, ...(warehouseId ? { warehouseId } : {}) })
+      : await api.post(`${base}/pos/registers`, { code: code.trim(), name: name.trim(), accounts: accountsBody, ...(costCenter ? { costCenter } : {}), ...(warehouseId ? { warehouseId } : {}) });
     return onDone(saved, editing);
   });
 
@@ -561,6 +564,15 @@ function RegisterForm({ register, onDone, onCancel }) {
           options={[{ value: '', label: 'Principal' }, ...(warehouses.data?.items ?? []).filter((w) => w.active && !w.isDefault).map((w) => ({ value: w._id, label: `${w.code} — ${w.name}` }))]}
         />
       </div>
+      {centers.length || costCenter ? (
+        <SelectField
+          label="Centro de costo de la caja"
+          value={costCenter}
+          onChange={(e) => setCostCenter(e.target.value)}
+          options={[{ value: '', label: 'Sin centro de costo' }, ...centers.map((c) => ({ value: c.code, label: `${c.code} · ${c.name}` }))]}
+          hint="Sus ventas y su costo se asignan a este centro."
+        />
+      ) : null}
       <Button type="submit" variant="primary" busy={save.busy}>
         {editing ? 'Guardar cambios' : 'Crear caja'}
       </Button>

@@ -168,7 +168,7 @@ describe('recibo de caja', () => {
     const journal = await ledger.getJournal(tenant, rc.journalId);
     expect(journal.lines).toEqual([
       { accountId: '110505', debit: 120_000, credit: 0 },
-      { accountId: '130505', debit: 0, credit: 120_000 },
+      { accountId: '130505', debit: 0, credit: 120_000, partyId: customer._id },
     ]);
     expect((await reload(b)).balance).toBe(30_000);
   });
