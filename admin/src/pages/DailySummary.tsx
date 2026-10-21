@@ -412,7 +412,7 @@ export default function DailySummary() {
  const pending = data?.pending;
 
  return (
- <div className="flex flex-col gap-3 lg:-m-4 lg:h-[calc(100vh-7rem)] lg:min-h-[640px] print:h-auto">
+ <div className="flex flex-col gap-3 lg:h-[calc(100vh-2rem)] lg:min-h-[640px] print:h-auto">
  <style>{`@media print { aside, header.sticky { display: none !important; } .no-print { display: none !important; } .page-container { padding: 0 !important; } @page { size: A4; margin: 12mm; } html, body, #root { height: auto !important; overflow: visible !important; background: #fff !important; color: #111 !important; } #root > div, main { display: block !important; height: auto !important; overflow: visible !important; background: #fff !important; } * { color-scheme: light !important; box-shadow: none !important; } section { break-inside: avoid; page-break-inside: avoid; } .truncate { overflow: visible !important; white-space: normal !important; } }`}</style>
 
  {/* Encabezado + navegación de fecha */}
