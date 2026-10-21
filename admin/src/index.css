@@ -16,6 +16,18 @@
  * única para admin, business y mobile). No dupliques valores hex aquí.
  */
 @import "../../variables de color/colores.css";
+@import "./styles/tokens.css";
+
+/**
+ * Tipografía del rediseño: Source Sans 3, 400 y 600. Reemplaza a Segoe UI
+ * Variable en los dos temas; los `--font-*` de colores.css siguen intactos
+ * para business, web y mobile.
+ */
+:root {
+  --font-display: var(--zp-font);
+  --font-sans: var(--zp-font);
+  --font-mono: var(--zp-font);
+}
 
 /**
  * Solo en admin: el texto "muted" pasa a negro en modo claro (pedido
@@ -42,6 +54,61 @@
   --color-primary-bg: rgba(229, 178, 66, 0.12);
 }
 
+/**
+ * Tema oscuro del rediseño: los `--color-*` que ya leen las páginas pasan a
+ * los tokens `--zp-*` (styles/tokens.css). Solo bajo `.dark`: el tema claro
+ * conserva la paleta de colores.css. Va después del bloque `.dark` de
+ * colores.css y sin capa, así que gana por orden.
+ *
+ * El texto "muted" no existe aquí: apunta a --zp-text-secondary, el gris más
+ * tenue permitido. Los fondos de estado quedan sin relleno de color (un
+ * estado es la palabra en su color, no una pastilla).
+ */
+.dark {
+  --color-bg: var(--zp-bg);
+  --color-bg-alt: var(--zp-surface);
+  --color-surface: var(--zp-surface);
+  --color-surface-hover: var(--zp-surface-hover);
+  --color-border: var(--zp-divider);
+  --color-border-light: var(--zp-divider);
+  --color-border-strong: var(--zp-dialog-border);
+
+  --color-sidebar: var(--zp-surface);
+  --color-sidebar-deep: var(--zp-bg);
+  --color-sidebar-hover: var(--zp-surface-hover);
+  --color-sidebar-glow: var(--zp-bg);
+  --color-sidebar-border: var(--zp-divider);
+  --color-sidebar-text: var(--zp-text-secondary);
+  --color-sidebar-text-active: var(--zp-text);
+
+  --color-text-main: var(--zp-text);
+  --color-text-secondary: var(--zp-text-secondary);
+  --color-text-muted: var(--zp-text-secondary);
+
+  --color-primary: var(--zp-accent);
+  --color-primary-light: var(--zp-accent-hover);
+  --color-primary-dark: var(--zp-accent-pressed);
+  --color-primary-bg: var(--zp-selected);
+  --color-accent: var(--zp-surface-active);
+
+  --color-chart-blue: var(--zp-accent-text);
+  --color-chart-lime: var(--zp-accent);
+  --color-chart-emerald: var(--zp-success);
+  --color-chart-orange: var(--zp-warning);
+  --color-chart-purple: var(--zp-accent-pressed);
+  --color-chart-gold: var(--zp-accent-text);
+  --color-chart-titanium: var(--zp-text-secondary);
+
+  --color-success: var(--zp-success);
+  --color-success-bg: transparent;
+  --color-warning: var(--zp-warning);
+  --color-warning-bg: transparent;
+  --color-danger: var(--zp-danger);
+  --color-danger-bg: transparent;
+  --color-info: var(--zp-accent-text);
+  --color-info-bg: var(--zp-selected);
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -49,6 +116,7 @@
 
   body {
     font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
     background-color: var(--color-bg);
     color: var(--color-text-main);
     min-height: 100dvh;
@@ -62,7 +130,7 @@
   h4 {
     font-family: var(--font-display);
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: normal;
     color: var(--color-text-main);
   }
 
@@ -121,7 +189,7 @@
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: #232E46;
+  background: var(--zp-dialog-border);
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -129,7 +197,7 @@
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: #2E3D5C;
+  background: var(--zp-field-border);
 }
 
 .sidebar-scroll::-webkit-scrollbar {
@@ -137,12 +205,12 @@
 }
 
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  background: #232E46;
+  background: var(--zp-dialog-border);
   border-radius: 4px;
 }
 
 .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background: #2E3D5C;
+  background: var(--zp-field-border);
 }
 
 /* Delgada: en la barra de dos columnas cada píxel de ancho cuenta. */
@@ -180,7 +248,7 @@
 .kpi-value {
   font-family: var(--font-sans);
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: normal;
   line-height: 1.1;
   color: var(--color-text-main);
 }
@@ -236,8 +304,13 @@
   font-size: 1.35rem;
   font-weight: 700;
   color: #FF441F;
-  letter-spacing: -0.02em;
+  letter-spacing: normal;
   line-height: 1.2;
+}
+
+/* Un solo acento y ningún naranja suelto: el título va en el color de texto. */
+.dark .page-title {
+  color: var(--zp-text);
 }
 
 .page-subtitle {
@@ -267,6 +340,17 @@
      de la tabla, y ese es justo el token que existe para eso. */
   background-color: var(--color-primary-dark);
   border-bottom: 0;
+}
+
+/* Transitorio hasta la Fase 3 (componente tabla): con --color-primary-dark
+   ahora azul, el texto oscuro de la cabecera quedaría ilegible. */
+.dark .table-header-cell,
+.dark .data-grid th,
+.dark .data-grid-black th,
+.dark .data-grid-black th * {
+  background-color: var(--zp-surface-active);
+  border-color: var(--zp-divider);
+  color: var(--zp-text);
 }
 
 .table-body-cell {

@@ -1,0 +1,71 @@
+/**
+ * Tokens del rediseño del panel admin (tema oscuro, estilo Premiere Pro 25).
+ *
+ * Fuente única de los valores `--zp-*`. Solo admin los importa: business, web
+ * y mobile siguen con `variables de color/colores.css`, que no se toca. El
+ * mapeo a los `--color-*` que ya leen las páginas vive en index.css, bajo
+ * `.dark`, para que el tema claro conserve su paleta.
+ *
+ * Los grises de superficie, el fondo de campo y el azul de acento se midieron
+ * sobre capturas de Premiere Pro 25. Todo el texto cumple WCAG AA (4,5:1)
+ * sobre cualquier fondo en que aparezca; no existe un gris de texto más tenue
+ * que --zp-text-secondary.
+ */
+:root {
+  /* Superficies */
+  --zp-bg: #0A0A0A; /* fondo de la app y canaletas entre paneles */
+  --zp-surface: #1D1D1D; /* paneles, barra superior, diálogos */
+  --zp-surface-hover: #262626; /* hover de filas y de ítems del menú */
+  --zp-surface-active: #2E2E2E; /* ítem activo del menú, encabezado de tabla */
+  --zp-selected: #1A2F4A; /* fila seleccionada */
+  --zp-field: #0E0E0E; /* campos y selects, hundidos */
+  --zp-field-border: #6B6B6B; /* borde de campos y botón secundario (3,2:1) */
+  --zp-divider: #2B2B2B; /* separadores de 1 px entre filas y secciones */
+  --zp-dialog-border: #3A3A3A;
+
+  /* Texto */
+  --zp-text: #EDEDED; /* 14,4:1 */
+  --zp-text-secondary: #C8C8C8; /* 10,1:1 */
+  --zp-text-on-accent: #FFFFFF;
+
+  /* Acento: el único color de marca de la interfaz */
+  --zp-accent: #0A6CE8; /* botón primario y selección; blanco encima 4,9:1 */
+  --zp-accent-hover: #0B63D6; /* blanco encima 5,6:1 */
+  --zp-accent-pressed: #0A5BC4; /* blanco encima 6,4:1 */
+  --zp-accent-text: #5A9AE1; /* enlaces y columna ordenada, 5,7:1 */
+  --zp-focus: #5A9AE1; /* anillo de foco */
+
+  /* Estados: siempre acompañados de la palabra */
+  --zp-success: #3DB57A; /* 6,5:1 */
+  --zp-warning: #E8A33D; /* 7,8:1 */
+  --zp-danger: #FF6B6E; /* 6,1:1; texto y borde de acciones destructivas */
+  --zp-danger-fill: #D7373F; /* botón de confirmación destructiva; blanco encima 4,7:1 */
+
+  /* Tipografía */
+  --zp-font: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --zp-fs-12: 12px; /* encabezados de columna, barra de estado, etiquetas de formulario */
+  --zp-fs-13: 13px; /* títulos de panel y de sección del inspector */
+  --zp-fs-14: 14px; /* texto base, celdas, botones, menú */
+  --zp-fs-16: 16px; /* título de diálogo, nombre del elemento en el inspector */
+  --zp-fs-18: 18px; /* máximo absoluto en toda la interfaz */
+  --zp-lh: 20px;
+  --zp-fw-regular: 400;
+  --zp-fw-semibold: 600;
+
+  /* Medidas */
+  --zp-radius: 4px; /* campos, botones, diálogos */
+  --zp-gap: 2px; /* canaleta entre paneles */
+  --zp-space-1: 4px;
+  --zp-space-2: 8px;
+  --zp-space-3: 12px;
+  --zp-space-4: 16px;
+  --zp-space-6: 24px;
+  --zp-topbar-h: 40px;
+  --zp-statusbar-h: 24px;
+  --zp-sidebar-w: 200px;
+  --zp-inspector-w: 360px;
+  --zp-panel-header-h: 32px;
+  --zp-row-h: 32px;
+  --zp-control-h: 28px;
+  --zp-control-h-lg: 32px; /* diálogos y acción principal del inspector */
+}

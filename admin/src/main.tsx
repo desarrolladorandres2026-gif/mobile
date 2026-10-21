@@ -1,10 +1,10 @@
 ﻿import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
-// Segoe UI Variable no se empaqueta: es propietaria de Microsoft y solo
-// viene instalada de fábrica en Windows 11. El stack de `--font-sans` (ver
-// colores.css) cae a la fuente nativa del sistema visitante si no está, sin
-// pedir nada a un CDN.
+// Source Sans 3 (OFL) se empaqueta con @fontsource: sale del mismo origen, sin
+// pedir nada a un CDN. Solo los pesos 400 y 600 que fija el sistema de diseño.
+import '@fontsource/source-sans-3/400.css'
+import '@fontsource/source-sans-3/600.css'
 
 import './index.css'
 import App from './App.tsx'
