@@ -1,11 +1,28 @@
 ﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Eye, EyeOff, AlertCircle, ArrowRight, Activity } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '../stores/authStore';
 import { apiMessage } from '../lib/apiError';
 
-const fieldClass = 'field field-lg';
-const buttonClass = 'btn btn-lg btn-primary w-full';
+// Marca aproximada de Google Authenticator: anillo abierto con el punto de
+// verificación. No es el asset oficial; sustituir por el SVG de Google si hay uno.
+function AuthenticatorMark({ className = 'w-5 h-5' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path d="M12 2a10 10 0 0 1 8.66 5L12 12z" fill="#EA4335" />
+      <path d="M20.66 7A10 10 0 0 1 20.66 17L12 12z" fill="#FBBC04" />
+      <path d="M20.66 17A10 10 0 0 1 3.34 17L12 12z" fill="#34A853" />
+      <path d="M3.34 17A10 10 0 0 1 12 2v10z" fill="#4285F4" />
+      <circle cx="12" cy="12" r="4.2" fill="var(--color-surface)" />
+    </svg>
+  );
+}
+
+const fieldClass =
+  'w-full h-12 bg-transparent border-0 border-b border-[var(--color-border-strong)] px-0 text-sm text-[var(--color-text-main)] placeholder:text-[var(--color-text-main)]/45 focus:border-[var(--color-primary)] outline-none transition-colors';
+const buttonClass =
+  'w-full h-12 rounded-md bg-[var(--color-text-main)] text-[var(--color-surface)] font-semibold text-sm tracking-wide transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2';
 
 export default function Login() {
  const navigate = useNavigate();
@@ -129,22 +146,27 @@ export default function Login() {
  };
 
  return (
- <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text-main)] flex flex-col items-center justify-center p-4">
- <main className="w-full max-w-[360px] border border-[var(--dialog-border)] bg-[var(--color-surface)] rounded p-6">
- <p className="text-sm font-semibold">ZIPP Admin</p>
- <h1 className="mt-4 text-base font-semibold">
+ <div className="min-h-screen bg-[var(--color-surface)] text-[var(--color-text-main)] flex flex-col items-center px-6 select-none">
+ <header className="w-full max-w-sm pt-14 flex items-baseline gap-3">
+ <span className="text-xl font-black tracking-tight">zipp</span>
+ <span className="text-[10px] font-semibold tracking-[0.3em] text-[var(--color-text-main)]">ADMINISTRACIÓN</span>
+ </header>
+
+ <main className="w-full max-w-sm flex-1 flex flex-col justify-center py-12">
+ <h1 className="text-2xl font-semibold tracking-tight">
  {challengeToken ? 'Verificación en dos pasos' : 'Acceso restringido'}
  </h1>
- <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+ <p className="mt-2 text-sm leading-relaxed text-[var(--color-text-main)]/70">
  {challengeToken
  ? `${mfaName ? `${mfaName.split(' ')[0]}, tu` : 'Tu'} cuenta está protegida, por eso te pediremos el código de Google Authenticator.`
  : 'Solo personal autorizado. Toda actividad queda registrada.'}
  </p>
+ <div className="mt-6 h-px bg-[var(--color-border)]" />
 
  {challengeToken ? (
- <form onSubmit={handleMfaSubmit} className="mt-4 space-y-3">
- <label className="block">
- <span className="field-label">Código</span>
+ <form onSubmit={handleMfaSubmit} className="mt-8 space-y-6">
+ <div className="flex items-center gap-3">
+ <AuthenticatorMark className="w-7 h-7 shrink-0" />
  <input
  type="text"
  inputMode="numeric"
@@ -154,31 +176,46 @@ export default function Login() {
  onChange={(e) => { setMfaCode(e.target.value); setMfaError(''); }}
  placeholder="Código de 6 dígitos o de recuperación"
  autoFocus
- className={fieldClass}
+ className={fieldClass + ' text-lg font-semibold tracking-[0.2em] placeholder:text-xs placeholder:tracking-normal placeholder:font-normal'}
  />
- </label>
+ </div>
 
- {mfaError && <p className="field-error-msg">{mfaError}</p>}
+ {mfaError && (
+ <p className="flex items-start gap-2 text-xs font-medium leading-relaxed text-rose-600">
+ <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {mfaError}
+ </p>
+ )}
 
  <button type="submit" disabled={mfaVerifying} className={buttonClass}>
- {mfaVerifying ? 'Verificando…' : 'Verificar'}
+ {mfaVerifying ? (
+ <>
+ <Activity className="w-4 h-4 animate-spin" />
+ <span>Verificando...</span>
+ </>
+ ) : (
+ <span>Verificar</span>
+ )}
  </button>
 
  <button
  type="button"
  onClick={() => { setChallengeToken(''); setMfaCode(''); setMfaError(''); setPassword(''); }}
- className="btn btn-text"
+ className="text-xs font-semibold text-[var(--color-text-main)]/70 hover:text-[var(--color-text-main)] transition-colors cursor-pointer"
  >
  Volver a intentar con otra cuenta
  </button>
  </form>
  ) : (
  <>
- {error && <p className="field-error-msg mt-3">{error}</p>}
+ {error && (
+ <p className="mt-6 flex items-start gap-2 text-xs font-medium leading-relaxed text-rose-600">
+ <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
+ </p>
+ )}
 
- <form onSubmit={handleLogin} className="mt-4 space-y-3">
+ <form onSubmit={handleLogin} className="mt-8 space-y-6">
  <label className="block">
- <span className="field-label">Correo</span>
+ <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--color-text-main)]/60">Correo</span>
  <input
  type="email"
  value={email}
@@ -191,42 +228,58 @@ export default function Login() {
  </label>
 
  <label className="block">
- <span className="field-label">Contraseña</span>
- <div className="flex gap-2">
+ <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--color-text-main)]/60">Contraseña</span>
+ <div className="relative">
  <input
  type={showPassword ? 'text' : 'password'}
  value={password}
  onChange={(e) => setPassword(e.target.value)}
- className={fieldClass}
+ placeholder="••••••••••"
+ className={fieldClass + ' pr-8'}
  autoComplete="current-password"
  required
  />
  <button
  type="button"
  onClick={() => setShowPassword(!showPassword)}
- className="btn btn-lg btn-secondary"
+ className="absolute right-0 top-1/2 -translate-y-1/2 text-[var(--color-text-main)]/60 hover:text-[var(--color-text-main)] transition-colors cursor-pointer"
+ title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
  >
- {showPassword ? 'Ocultar' : 'Mostrar'}
+ {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
  </button>
  </div>
  </label>
 
  <button type="submit" disabled={loading} className={buttonClass}>
- {loading ? 'Autenticando…' : 'Continuar'}
+ {loading ? (
+ <>
+ <Activity className="w-4 h-4 animate-spin" />
+ <span>Autenticando...</span>
+ </>
+ ) : (
+ <>
+ <span>Continuar</span>
+ <ArrowRight className="w-4 h-4" />
+ </>
+ )}
  </button>
  </form>
+
  </>
  )}
  </main>
 
+ <footer className="w-full max-w-sm pb-8">
+ <div className="h-px bg-[var(--color-border)] mb-4" />
  <a
  href="https://github.com/twitter/twemoji"
  target="_blank"
  rel="noopener noreferrer"
- className="mt-4 text-xs text-[var(--color-text-secondary)] hover:underline"
+ className="block text-[10px] text-[var(--color-text-main)]/50 hover:text-[var(--color-text-main)]"
  >
  Ilustraciones: Twemoji © Twitter, Inc. y colaboradores — CC-BY 4.0
  </a>
+ </footer>
  </div>
  );
 }
