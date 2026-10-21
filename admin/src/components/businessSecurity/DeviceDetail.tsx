@@ -4,7 +4,7 @@ import api from '../../services/api';
 import { apiMessage } from '../../lib/apiError';
 import { Permission } from '../../lib/permissions';
 import { useAuthStore } from '../../stores/authStore';
-import { MfaMark, PlatformIcon } from './shared';
+import { MfaMark } from './shared';
 import { EVENT_LABELS, PLATFORM_LABELS, REASON_LABELS, STATUS_STYLES, dangerLink, dateTime, deviceLabel } from './labels';
 import type { DeviceRow, SecurityEventRow, SessionRow } from './types';
 
@@ -40,7 +40,6 @@ export default function DeviceDetail({ businessId, recordId, onClose, onRevoke }
       <aside role="dialog" aria-label="Detalle del dispositivo" className="zipp-modal relative h-full w-full max-w-xl overflow-y-auto p-6">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
-            <PlatformIcon platform={d?.platform} className="mt-1 h-5 w-5" />
             <div className="min-w-0">
               <h2 className="text-base font-bold text-[var(--color-text-main)]">{d ? deviceLabel(d) : 'Dispositivo'}</h2>
               {d && (

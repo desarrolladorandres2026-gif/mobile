@@ -1,0 +1,264 @@
+/**
+ * Componentes base del panel admin: botones, campos, pestañas, tabla, estados
+ * y avisos. Sin íconos, sin sombras, sin degradados, sin escalas; las
+ * transiciones duran 100 ms y solo cambian color de fondo o de borde.
+ *
+ * Los colores salen de alias semánticos (`--ctl-*`, `--accent-*`...) y no de
+ * `--zp-*` directos: en el tema claro apuntan a la paleta que ya tenía el
+ * panel, y bajo `.dark` a los tokens del rediseño (styles/tokens.css).
+ */
+:root {
+  --ctl-bg: var(--color-bg);
+  --ctl-border: var(--color-border-strong);
+  --ctl-focus: var(--color-primary);
+  --accent-fill: var(--color-primary);
+  --accent-fill-hover: var(--color-primary-dark);
+  --accent-fill-pressed: var(--color-primary-dark);
+  --accent-ink: #FFFFFF;
+  --accent-link: var(--color-primary-dark);
+  --danger-fill: var(--color-danger);
+  --row-selected: var(--color-primary-bg);
+  --head-bg: var(--color-bg-alt);
+  --head-ink: var(--color-text-main);
+  --toast-bg: var(--color-surface);
+  --dialog-border: var(--color-border);
+}
+
+.dark {
+  --ctl-bg: var(--zp-field);
+  --ctl-border: var(--zp-field-border);
+  --ctl-focus: var(--zp-focus);
+  --accent-fill: var(--zp-accent);
+  --accent-fill-hover: var(--zp-accent-hover);
+  --accent-fill-pressed: var(--zp-accent-pressed);
+  --accent-ink: var(--zp-text-on-accent);
+  --accent-link: var(--zp-accent-text);
+  --danger-fill: var(--zp-danger-fill);
+  --row-selected: var(--zp-selected);
+  --head-bg: var(--zp-surface-active);
+  --toast-bg: var(--zp-surface-active);
+  --dialog-border: var(--zp-dialog-border);
+}
+
+/* Foco: contorno de 2 px con separación de 2 px, nunca un resplandor. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--ctl-focus);
+  outline-offset: 2px;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-fill);
+}
+
+/* ── Botones ── verbo + objeto: «Asignar repartidor», «Guardar cambios» */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: var(--zp-control-h);
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--zp-radius);
+  background: transparent;
+  color: var(--color-text-main);
+  font-size: var(--zp-fs-14);
+  font-weight: var(--zp-fw-semibold);
+  line-height: var(--zp-lh);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 100ms, border-color 100ms;
+}
+
+.btn-lg {
+  height: var(--zp-control-h-lg);
+}
+
+.btn-primary {
+  background-color: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--accent-ink);
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--accent-fill-hover);
+  border-color: var(--accent-fill-hover);
+}
+.btn-primary:active:not(:disabled) {
+  background-color: var(--accent-fill-pressed);
+  border-color: var(--accent-fill-pressed);
+}
+
+.btn-secondary {
+  border-color: var(--ctl-border);
+  color: var(--color-text-main);
+}
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--color-surface-hover);
+}
+
+.btn-text {
+  height: auto;
+  padding: 0 4px;
+  color: var(--accent-link);
+}
+.btn-text:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.btn-danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--color-surface-hover);
+}
+
+.btn-danger-fill {
+  background-color: var(--danger-fill);
+  border-color: var(--danger-fill);
+  color: #FFFFFF;
+}
+.btn-danger-fill:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+/* No disponible: nunca con opacidad. El motivo va al lado, en texto. */
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  background-color: var(--color-surface-hover);
+  border-color: var(--color-border-light);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+}
+
+/* ── Campos, selects, áreas de texto ── */
+.field {
+  display: block;
+  width: 100%;
+  height: var(--zp-control-h);
+  padding: 0 8px;
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--zp-radius);
+  background-color: var(--ctl-bg);
+  color: var(--color-text-main);
+  font-size: var(--zp-fs-14);
+  line-height: var(--zp-lh);
+  transition: border-color 100ms;
+}
+textarea.field {
+  height: auto;
+  padding: 4px 8px;
+}
+.field-lg {
+  height: var(--zp-control-h-lg);
+}
+.field::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 1;
+}
+/* Foco: borde de 2 px, sin resplandor. */
+.field:focus,
+.field:focus-visible {
+  outline: none;
+  border-color: var(--ctl-focus);
+  box-shadow: inset 0 0 0 1px var(--ctl-focus);
+}
+.field-error {
+  border-color: var(--color-danger);
+}
+.field:disabled {
+  background-color: var(--color-surface-hover);
+  border-color: var(--color-border-light);
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--color-text-main);
+  font-size: var(--zp-fs-12);
+  font-weight: var(--zp-fw-semibold);
+}
+.field-error-msg {
+  margin-top: 4px;
+  color: var(--color-danger);
+  font-size: var(--zp-fs-12);
+}
+
+/* ── Pestañas ── texto plano, la activa subrayada */
+.tabs {
+  display: flex;
+  gap: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+.tab {
+  height: 32px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--zp-fs-14);
+  font-weight: var(--zp-fw-regular);
+  cursor: pointer;
+}
+.tab:hover {
+  color: var(--color-text-main);
+}
+.tab[aria-selected='true'],
+.tab.is-active {
+  border-bottom-color: var(--accent-fill);
+  color: var(--color-text-main);
+  font-weight: var(--zp-fw-semibold);
+}
+
+/* ── Estado: la palabra en su color, sin píldoras ni puntos ── */
+.state-ok,
+.state-warn,
+.state-bad,
+.state-info {
+  font-weight: var(--zp-fw-semibold);
+}
+.state-ok { color: var(--color-success); }
+.state-warn { color: var(--color-warning); }
+.state-bad { color: var(--color-danger); }
+.state-info { color: var(--color-text-main); }
+
+/* ── Carga, vacío y error: una línea de texto ── */
+.state-line {
+  padding: 8px 0;
+  color: var(--color-text-main);
+  font-size: var(--zp-fs-14);
+}
+.state-line-error {
+  color: var(--color-danger);
+}
+
+/* ── Diálogos ── 480 px (640 px en formularios largos), borde fino, sin sombra */
+.zipp-backdrop {
+  background-color: rgba(0, 0, 0, 0.6);
+}
+
+/* ── Avisos ── abajo a la derecha, 360 px, borde izquierdo del color del estado */
+.toast {
+  width: min(360px, calc(100vw - 2rem));
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--accent-fill);
+  border-radius: 0;
+  background-color: var(--toast-bg);
+  color: var(--color-text-main);
+  font-size: var(--zp-fs-14);
+}
+.toast-error {
+  border-left-color: var(--color-danger);
+}
+
+/* El botón de texto no disponible conserva solo el color: sin caja gris. */
+.btn-text:disabled {
+  background-color: transparent;
+  border-color: transparent;
+  text-decoration: none;
+}

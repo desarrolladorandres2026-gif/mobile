@@ -17,6 +17,7 @@
  */
 @import "../../variables de color/colores.css";
 @import "./styles/tokens.css";
+@import "./styles/components.css";
 
 /**
  * Tipografía del rediseño: Source Sans 3, 400 y 600. Reemplaza a Segoe UI
@@ -139,12 +140,9 @@
     font-weight: 600;
   }
 
+  /* Solo color de fondo y de borde, 100 ms; nada de escalas ni rebotes. */
   button:not(:disabled) {
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  button:not(:disabled):active {
-    transform: scale(0.98);
+    transition: background-color 100ms, border-color 100ms, color 100ms;
   }
 }
 
@@ -220,28 +218,17 @@
 
 .admin-sidebar-scroll::-webkit-scrollbar-thumb {
   background: #bdbdbd;
-  border-radius: 999px;
+  border-radius: 2px;
 }
 
 .admin-sidebar-scroll::-webkit-scrollbar-thumb:hover {
   background: #9a9a9a;
 }
 
-/* ── Animations ── */
-@keyframes fadeUp {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
+/* Sin animaciones de entrada: el panel responde con cambios de color de 100 ms
+   como máximo. La clase se conserva porque ~100 pantallas la nombran. */
 .animate-fade-in {
-  animation: fadeUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: none;
 }
 
 /* KPI Numbers */
@@ -320,66 +307,52 @@
 }
 
 /* Tablas Zipp */
-/* Diseño "orden de pedido": recuadro redondeado, cabecera dorada sólida con
-   texto claro y filas lisas. Lo heredan todas las tablas del panel. */
+/* Densidad de lista: filas de 32 px, separador de 1 px, sin celdas
+   enmarcadas ni rayas de cebra. Cabecera en tipo oración, 12 px. */
 .table-container {
-  border: 1px solid var(--color-border);
-  border-radius: 0.5rem;
+  border-block: 1px solid var(--color-border);
+  border-radius: 0;
   overflow: hidden;
   background-color: var(--color-surface);
 }
 
 .table-header-cell {
-  padding: 0.5rem 0.75rem;
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: var(--color-surface);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  /* `bg-alt` y no `bg`: la cabecera tiene que separarse de la superficie
-     de la tabla, y ese es justo el token que existe para eso. */
-  background-color: var(--color-primary-dark);
+  padding: 0 0.5rem;
+  height: 32px;
+  font-size: var(--zp-fs-12);
+  font-weight: var(--zp-fw-semibold);
+  color: var(--head-ink);
+  background-color: var(--head-bg);
   border-bottom: 0;
 }
 
-/* Transitorio hasta la Fase 3 (componente tabla): con --color-primary-dark
-   ahora azul, el texto oscuro de la cabecera quedaría ilegible. */
-.dark .table-header-cell,
-.dark .data-grid th,
-.dark .data-grid-black th,
-.dark .data-grid-black th * {
-  background-color: var(--zp-surface-active);
-  border-color: var(--zp-divider);
-  color: var(--zp-text);
-}
-
 .table-body-cell {
-  padding: 0.5rem 0.75rem;
-  font-size: 0.78rem;
+  padding: 0 0.5rem;
+  height: var(--zp-row-h);
+  font-size: var(--zp-fs-14);
   vertical-align: middle;
   color: var(--color-text-main);
   border-bottom: 1px solid var(--color-border);
 }
 
-/* Cuadrícula de datos: el diseño de Pedidos, para toda tabla del panel.
-   Celdas con borde, relleno compacto y cabecera dorada; filas lisas. */
 .data-grid {
   width: 100%;
   border-collapse: collapse;
 }
 .data-grid th,
 .data-grid td {
-  border: 1px solid var(--color-border);
-  padding: 0.25rem 0.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 0.5rem;
+  height: var(--zp-row-h);
   white-space: nowrap;
 }
-/* Una sola tipografía para todo el texto de las celdas: mismo tamaño, peso
-   y familia, sin negritas, cursivas ni monoespaciada. Solo el color y las
-   mayúsculas distinguen; la cabecera conserva su propio estilo. */
+/* Una sola tipografía en las celdas: 14 px, peso 400, sin cursivas ni
+   monoespaciada. Solo el color distingue; la cabecera conserva su estilo. */
 .data-grid td,
 .data-grid td * {
   font-family: inherit;
-  font-size: 0.78rem;
+  font-size: var(--zp-fs-14);
   font-weight: 400;
   font-style: normal;
   letter-spacing: normal;
@@ -387,24 +360,46 @@
 .data-grid td.wrap {
   white-space: normal;
 }
+.data-grid tbody tr:hover td {
+  background-color: var(--color-surface-hover);
+}
+/* Fila seleccionada: fondo propio y barra de 2 px de acento a la izquierda. */
+.data-grid tbody tr[aria-selected='true'] td {
+  background-color: var(--row-selected);
+}
+.data-grid tbody tr[aria-selected='true'] td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent-fill);
+}
+/* Cantidades, dinero y porcentajes a la derecha, con cifras tabulares. */
+.data-grid th.num,
+.data-grid td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Columna ordenada: completa y en color de enlace, con «(asc.)» o «(desc.)». */
+.data-grid th[aria-sort='ascending'],
+.data-grid th[aria-sort='descending'] {
+  color: var(--accent-link);
+}
 /* Fila de sección dentro de una tabla unificada: separa bloques por
    tipografía y una línea, nunca por una caja de color. */
 .data-grid td.section-row {
-  padding-top: 0.6rem;
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: var(--zp-fs-12);
+  font-weight: var(--zp-fw-semibold);
   color: var(--color-text-secondary);
   background-color: var(--color-bg-alt);
 }
 .data-grid th {
-  background-color: var(--color-primary-dark);
-  border-color: var(--color-primary-dark);
-  color: var(--color-surface);
-  font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--head-bg);
+  color: var(--head-ink);
+  font-size: var(--zp-fs-12);
+  font-weight: var(--zp-fw-semibold);
+  text-align: left;
 }
-/* Los botones dentro de la cuadrícula van sin superficie: solo texto o icono. */
+/* Los botones dentro de la cuadrícula van sin superficie: solo texto. */
 .data-grid td button {
   background-color: transparent;
   border: 0;
@@ -413,7 +408,7 @@
   padding: 0.125rem 0.25rem;
 }
 /* Campos dentro de la cuadrícula: sin caja. La celda ya es el contenedor;
-   solo una línea inferior tenue al pasar el cursor y dorada al editar. */
+   solo una línea inferior al pasar el cursor y de acento al editar. */
 .data-grid td input:not([type='checkbox']):not([type='radio']),
 .data-grid td select,
 .data-grid td textarea {
@@ -432,7 +427,7 @@
 .data-grid td select:focus,
 .data-grid td textarea:focus {
   background-color: transparent;
-  border-bottom-color: var(--color-primary);
+  border-bottom-color: var(--ctl-focus);
   outline: none;
 }
 /* Variante de tinta: todo el texto de la cuadrícula en negro, sin colores de
@@ -442,10 +437,9 @@
 .data-grid-black td * {
   color: #000000;
 }
-/* La cabecera dorada lleva texto claro también en la variante de tinta. */
 .data-grid-black th,
 .data-grid-black th * {
-  color: var(--color-surface);
+  color: var(--head-ink);
 }
 .dark .data-grid-black td,
 .dark .data-grid-black td * {
@@ -455,15 +449,9 @@
 /* Modal Zipp */
 .zipp-modal {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  /* La sombra sí se queda con su regla `.dark`: no es un color de la
-     paleta sino una opacidad, y en oscuro necesita ser mucho más densa
-     para leerse contra el obsidiana. */
-  box-shadow: 0 25px 50px -12px rgba(8, 11, 17, 0.12);
-}
-
-.dark .zipp-modal {
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75);
+  border: 1px solid var(--dialog-border);
+  border-radius: var(--zp-radius);
+  box-shadow: none;
 }
 
 /* Un comprobante interno se imprime solo, sin la barra lateral ni la página de atrás. */
@@ -483,10 +471,10 @@
   flex-shrink: 0;
   width: 2rem;
   height: 1.125rem;
-  border-radius: 9999px;
+  border-radius: var(--zp-radius);
   background-color: var(--color-danger);
   cursor: pointer;
-  transition: background-color 0.15s;
+  transition: background-color 100ms;
 }
 .switch-activo::after {
   content: '';
@@ -495,9 +483,9 @@
   left: 0.125rem;
   width: 0.875rem;
   height: 0.875rem;
-  border-radius: 9999px;
+  border-radius: 2px;
   background-color: #ffffff;
-  transition: transform 0.15s;
+  transition: transform 100ms;
 }
 .switch-activo:checked {
   background-color: #000000;

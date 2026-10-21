@@ -84,11 +84,10 @@ export const PLATFORM_LABELS: Record<string, string> = {
   unknown: 'Tipo desconocido',
 };
 
-export const filterInput =
-  'h-9 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-xs text-[var(--color-text-main)] outline-none focus:border-[var(--color-primary)]';
-export const filterLabel = 'text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]';
-export const linkButton = 'cursor-pointer text-xs font-bold text-[var(--color-text-main)] hover:underline disabled:opacity-60';
-export const dangerLink = 'cursor-pointer text-xs font-bold text-[var(--color-danger)] hover:underline disabled:opacity-60';
+export const filterInput = 'field w-auto';
+export const filterLabel = 'field-label';
+export const linkButton = 'btn btn-text';
+export const dangerLink = 'btn btn-text text-[var(--color-danger)]!';
 
 export const dateTime = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';

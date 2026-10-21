@@ -1,4 +1,3 @@
-﻿import { RefreshCw } from 'lucide-react';
 import { useUpdateAvailable } from '../lib/checkForUpdates';
 
 /**
@@ -14,13 +13,9 @@ export default function UpdateBanner() {
  if (!updateAvailable) return null;
 
  return (
- <div className="fixed inset-x-0 top-0 z-[100] flex items-center justify-center gap-3 px-4 py-2.5 bg-[var(--color-primary)] text-white text-xs font-semibold shadow-lg animate-fade-in">
- <RefreshCw className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />
+ <div className="fixed inset-x-0 top-0 z-[100] flex items-center justify-center gap-3 border-b border-[var(--color-border)] bg-[var(--toast-bg)] px-4 py-1 text-sm text-[var(--color-text-main)]">
  <span>Hay una nueva actualización disponible.</span>
- <button
- onClick={applyUpdate}
- className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 border border-white/30 font-bold uppercase tracking-wide text-[10px] transition-colors cursor-pointer"
- >
+ <button onClick={applyUpdate} className="btn btn-primary">
  Actualizar ahora
  </button>
  </div>

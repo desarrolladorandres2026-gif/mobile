@@ -1,5 +1,3 @@
-﻿import { ChevronLeft, ChevronRight } from 'lucide-react';
-
 interface PaginationProps {
  page: number;
  totalPages: number;
@@ -7,6 +5,8 @@ interface PaginationProps {
  limit: number;
  onPageChange: (page: number) => void;
 }
+
+const fmt = (n: number) => n.toLocaleString('es-CO');
 
 /**
  * Paginación numerada para listados de admin.
@@ -31,42 +31,40 @@ export default function Pagination({ page, totalPages, total, limit, onPageChang
  for (let p = start; p <= end; p++) pages.push(p);
 
  return (
- <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-[var(--color-border-light)]">
- <p className="text-[11px] text-[var(--color-text-main)] font-medium">
- Mostrando <span className="font-bold text-[var(--color-text-main)]">{from}-{to}</span> de{' '}
- <span className="font-bold text-[var(--color-text-main)]">{total}</span>
+ <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-2 py-1 border-t border-[var(--color-border)]">
+ <p className="text-xs text-[var(--color-text-main)]">
+ {fmt(from)}–{fmt(to)} de {fmt(total)}
  </p>
  <div className="flex items-center gap-1">
  <button
  onClick={() => onPageChange(page - 1)}
  disabled={page <= 1}
- className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
- aria-label="Página anterior"
+ className="btn btn-text"
  >
- <ChevronLeft className="w-3.5 h-3.5" />
+ Anterior
  </button>
- {start > 1 && <span className="text-[11px] text-[var(--color-text-main)] px-1">…</span>}
+ {start > 1 && <span className="text-xs text-[var(--color-text-main)] px-1">…</span>}
  {pages.map((p) => (
  <button
  key={p}
  onClick={() => onPageChange(p)}
- className={`min-w-[28px] h-7 px-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+ aria-current={p === page ? 'page' : undefined}
+ className={`min-w-6 px-1 text-xs cursor-pointer hover:underline ${
  p === page
- ? 'bg-[var(--color-primary)] text-white shadow-xs'
- : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)]'
+ ? 'font-semibold text-[var(--color-text-main)] underline decoration-2 underline-offset-4 decoration-[var(--accent-fill)]'
+ : 'font-normal text-[var(--color-text-main)]'
  }`}
  >
- {p}
+ {fmt(p)}
  </button>
  ))}
- {end < totalPages && <span className="text-[11px] text-[var(--color-text-main)] px-1">…</span>}
+ {end < totalPages && <span className="text-xs text-[var(--color-text-main)] px-1">…</span>}
  <button
  onClick={() => onPageChange(page + 1)}
  disabled={page >= totalPages}
- className="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-main)] hover:bg-[var(--color-bg-alt)] disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
- aria-label="Página siguiente"
+ className="btn btn-text"
  >
- <ChevronRight className="w-3.5 h-3.5" />
+ Siguiente
  </button>
  </div>
  </div>
