@@ -30,19 +30,25 @@
   --font-mono: var(--zp-font);
 }
 
-/* Admin conserva el dorado de la identidad ZIPP; Business usa verde. */
+/* Tema claro: el azul del rediseño reemplaza al dorado de la identidad
+   anterior. Un solo acento; los valores oscuros viven en el bloque `.dark`. */
 :root {
-  --color-primary: #D69E26;
-  --color-primary-light: #E5B242;
-  --color-primary-dark: #9C6E0E;
-  --color-primary-bg: #FDF7E7;
-}
-
-.dark {
-  --color-primary: #E5B242;
-  --color-primary-light: #F3CE72;
-  --color-primary-dark: #D69E26;
-  --color-primary-bg: rgba(229, 178, 66, 0.12);
+  --color-primary: #0A6CE8;
+  --color-primary-light: #5A9AE1;
+  --color-primary-dark: #0A5BC4;
+  --color-primary-bg: #E8F1FC;
+  --color-info: #0A5BC4;
+  --color-info-bg: #E8F1FC;
+  --color-accent: #E2E8F0;
+  --color-chart-blue: #0A6CE8;
+  --color-chart-lime: #5A9AE1;
+  --color-chart-purple: #0A5BC4;
+  --color-chart-gold: #5A9AE1;
+  --color-sidebar-text-active: #0A5BC4;
+  /* Estados legibles sobre blanco (4,5:1 o más): la palabra lleva el color. */
+  --color-success: #047857;
+  --color-warning: #B45309;
+  --color-danger: #DC2626;
 }
 
 /**
@@ -278,14 +284,9 @@
 .page-title {
   font-size: 18px;
   font-weight: 600;
-  color: #FF441F;
+  color: var(--color-text-main);
   letter-spacing: normal;
   line-height: 1.2;
-}
-
-/* Un solo acento y ningún naranja suelto: el título va en el color de texto. */
-.dark .page-title {
-  color: var(--zp-text);
 }
 
 .page-subtitle {
