@@ -1,5 +1,4 @@
 ﻿import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Menu, RefreshCw } from 'lucide-react';
 import { Suspense, useEffect, useState } from 'react';
 import ConfirmDialog from './ConfirmDialog';
 import OrderNotifications from './OrderNotifications';
@@ -7,13 +6,11 @@ import FichaHost from './fichas/FichaHost';
 import { useAuthStore } from '../stores/authStore';
 import { NAV_GROUPS } from '../lib/navigation';
 import { preloadOn } from '../lib/lazyPage';
-import { ZippMark } from './ZippMark';
+import { useAdminSocketStatus } from '../hooks/useAdminSocket';
 /** Lo que se ve el instante en que llega el archivo de una página. */
 function PageLoading() {
  return (
- <div className="flex items-center justify-center py-24">
- <RefreshCw className="w-6 h-6 text-[var(--color-text-main)] animate-spin" />
- </div>
+ <p className="px-1 py-1 text-sm text-[var(--color-text-main)]">Cargando…</p>
  );
 }
 
@@ -44,6 +41,7 @@ export default function Layout() {
  const [showLogoutModal, setShowLogoutModal] = useState(false);
  const [idleWarning, setIdleWarning] = useState(false);
  const { user, hasPermission, refresh, clear, logout, authzMode, observedPermissions } = useAuthStore();
+ const socketStatus = useAdminSocketStatus();
 
  useEffect(() => {
  const token = localStorage.getItem('admin_token');
@@ -108,19 +106,18 @@ export default function Layout() {
  };
 
  return (
- <div className="flex h-screen bg-[var(--color-bg)] dark:bg-[#080B11] text-[var(--color-text-main)] overflow-hidden font-sans transition-colors duration-200">
+ <div className="flex h-screen bg-[var(--color-bg)] text-[var(--color-text-main)] overflow-hidden font-sans">
  {/* ── Navegación compacta, compartida con Business ── */}
  <aside className={`
- admin-sidebar fixed inset-y-0 left-0 z-50 w-30 bg-[var(--color-bg-alt)] border-r border-[var(--color-border)] flex flex-col shadow-[1px_0_3px_rgba(0,0,0,0.08)]
- transform transition-transform duration-300 ease-out
+ admin-sidebar fixed inset-y-0 left-0 z-50 w-[var(--zp-sidebar-w)] bg-[var(--color-bg-alt)] border-r border-[var(--color-border)] flex flex-col
+ transform transition-transform duration-100 ease-out
  lg:translate-x-0 lg:static lg:inset-0
  ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
  `}>
- <div className="relative h-14 shrink-0 border-b border-[var(--color-border)] flex items-center justify-center gap-2">
- <ZippMark size={25} mono="#D69E26" />
- <span className="text-[15px] font-semibold tracking-tight text-[var(--color-text-secondary)]">ZIPP</span>
- <button aria-label="Cerrar menú" className="absolute right-2 top-2 p-1 text-[var(--color-text-secondary)] hover:text-[var(--color-text-main)] lg:hidden" onClick={() => setSidebarOpen(false)}>
- <Menu className="w-4 h-4" />
+ <div className="relative h-10 shrink-0 border-b border-[var(--color-border)] flex items-center px-4">
+ <span className="text-sm font-semibold text-[var(--color-text-main)]">ZIPP Admin</span>
+ <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 px-1 text-sm text-[var(--color-text-main)] hover:underline lg:hidden" onClick={() => setSidebarOpen(false)}>
+ Cerrar
  </button>
  </div>
  {/* Navigation Categories */}
@@ -130,8 +127,8 @@ export default function Layout() {
  const items = group.items.filter((item) => !item.hidden && hasPermission(item.permission));
  if (items.length === 0) return null;
  return (
- <section key={group.category} aria-label={group.category} className="border-b border-[var(--color-border)] pb-1">
- <h2 className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-secondary)]">{group.category}</h2>
+ <section key={group.category} aria-label={group.category} className="pb-1">
+ <h2 className="px-4 pb-1 pt-3 text-xs font-semibold text-[var(--color-text-secondary)]">{group.category}</h2>
  {items.map((item) => {
  const isActive = item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path);
  return (
@@ -147,12 +144,12 @@ export default function Layout() {
  title={item.label}
  aria-label={item.label}
  aria-current={isActive ? 'page' : undefined}
- className={`relative flex min-w-0 items-center px-3 py-1.5 text-[12.5px] leading-tight text-[var(--color-text-main)] transition-colors duration-150 hover:bg-[var(--color-surface-hover)] ${isActive
- ? 'bg-[var(--color-surface-hover)] font-semibold before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[#D69E26]'
- : 'font-medium'
+ className={`relative flex h-8 min-w-0 items-center px-4 text-sm text-[var(--color-text-main)] transition-colors duration-100 hover:bg-[var(--color-surface-hover)] ${isActive
+ ? 'bg-[var(--color-surface-hover)] dark:bg-[var(--zp-surface-active)] font-semibold before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-[var(--color-primary)]'
+ : 'font-normal'
  }`}
  >
- <span className="w-full break-words">{item.label}</span>
+ <span className="w-full truncate">{item.label}</span>
  </NavLink>
  );
  })}
@@ -162,13 +159,16 @@ export default function Layout() {
  </nav>
 
  {/* Sidebar Footer */}
- <div className="px-2 py-2 border-t border-[var(--color-border)]">
+ <div className="border-t border-[var(--color-border)] px-4 py-2 text-sm">
+ {user?.name && <p className="truncate font-semibold text-[var(--color-text-main)]" title={user.name}>{user.name}</p>}
+ {socketStatus && (
+ <p className="text-xs text-[var(--color-text-secondary)]">{socketStatus === 'live' ? 'Conectado' : 'Reconectando…'}</p>
+ )}
  <button
  onClick={() => setShowLogoutModal(true)}
- title="Cerrar sesión"
- className="group flex flex-col items-center gap-1 w-full py-1 text-[var(--color-text-main)] hover:text-[var(--color-danger)] cursor-pointer"
+ className="mt-1 cursor-pointer text-sm font-semibold text-[var(--color-text-main)] hover:underline"
  >
- <span className="text-[12.5px] font-medium">Salir</span>
+ Cerrar sesión
  </button>
  </div>
  </aside>
@@ -176,31 +176,31 @@ export default function Layout() {
  {/* Mobile overlay */}
  {sidebarOpen && (
  <div
- className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs lg:hidden animate-fade-in"
+ className="fixed inset-0 z-40 bg-black/60 lg:hidden"
  onClick={() => setSidebarOpen(false)}
  />
  )}
 
  {/* ── Main Content Area ── */}
- <main className="flex-1 overflow-y-auto flex flex-col min-w-0 bg-[var(--color-bg)] dark:bg-[#080B11] transition-colors duration-200">
+ <main className="flex-1 overflow-y-auto flex flex-col min-w-0 bg-[var(--color-bg)]">
  <OrderNotifications />
  {/* Sin barra superior: en pantallas sin barra lateral fija queda solo el botón del menú. */}
  <button
  aria-label="Abrir menú"
- className="lg:hidden fixed top-3 left-3 z-30 p-2 rounded-full bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-[var(--color-text-main)] shadow-sm cursor-pointer"
+ className="lg:hidden fixed top-3 left-3 z-30 h-8 px-3 rounded bg-[var(--color-bg-alt)] border border-[var(--color-border)] text-sm text-[var(--color-text-main)] cursor-pointer"
  onClick={() => setSidebarOpen(true)}
  >
- <Menu className="w-5 h-5" />
+ Menú
  </button>
 
  {authzMode === 'observe' && observedPermissions.length > 0 && (
- <p className="px-6 lg:px-8 pt-3 text-xs font-semibold text-[var(--color-text-main)]">
+ <p className="px-4 pt-3 text-xs font-semibold text-[var(--color-text-main)]">
  Modo observación: hoy conservas accesos que perderás al activar el bloqueo.
  </p>
  )}
 
  {/* Page Outlet */}
- <div className="p-6 lg:p-8 flex-1">
+ <div className="p-4 flex-1">
  <div className="page-container">
  {/* La barra lateral y la cabecera siguen en pantalla mientras
  llega el archivo de la página (ver lazyPage en App.tsx). */}
