@@ -103,6 +103,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         photosPermission: `${APP.name} usa tus fotos para que elijas una imagen de perfil.`,
         cameraPermission: `${APP.name} usa la cámara para que tomes tu foto de perfil.`,
+        // La app no graba audio ni video; sin esto el plugin añade RECORD_AUDIO y Play pide justificarlo.
+        microphonePermission: false,
       },
     ],
     [

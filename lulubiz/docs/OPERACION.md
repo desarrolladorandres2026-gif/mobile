@@ -89,6 +89,8 @@ Comprueba, por empresa:
 9. El saldo de cada anticipo es su importe menos sus aplicaciones vigentes.
 10. Los saldos por centro de costo y por tercero coinciden con los asientos.
 11. Cada conciliación bancaria vigente une importes iguales de la misma cuenta, y su línea del libro y la del extracto existen.
+12. La depreciación acumulada de cada activo fijo coincide con su calendario y con la suma de sus corridas, y cada baja tiene su asiento.
+13. Cada nómina y prestación liquidada coincide con su asiento, sus empleados suman sus totales y sus pagos tienen asiento.
 
 Cuándo correrlo: **después de restaurar una copia**, antes y después de cada despliegue que toque datos, y como vigilancia (una vez al día, desde un programador de tareas, con la alerta en un código de salida distinto de cero). Una diferencia **no se corrige a mano**: detén el ingreso de datos y revisa la auditoría y los registros para ver qué pasó. Recorre toda la empresa, así que en una base grande tarda; córrelo fuera de las horas de más uso.
 
@@ -158,6 +160,6 @@ Lista de verificación, en orden. «Primeros pasos» (Administración) calcula c
 - **Restauración probada en Atlas** y **medición de carga en Atlas**: lo medido es de un solo nodo local (≈130 asientos por segundo por empresa, estables). El verificador de integridad está probado contra alteraciones simuladas, no contra una base restaurada real.
 - **Varias instancias de la API**: el límite de peticiones por IP y el límite de escrituras por empresa viven en la memoria de cada proceso. Con una sola instancia no hay problema; con varias, el límite por IP debe aplicarse también en el proxy o balanceador.
 - **Rotación de `MFA_ENCRYPTION_KEY`**: no está implementada. Cambiar la clave invalida los dos pasos activos.
-- **Exportación completa de los datos de una empresa** (para entregarlos al cliente que se va) y **borrado definitivo** de una empresa: no existen todavía.
+- **Borrado definitivo de una empresa contra Atlas:** el paso `npm run tenant:delete` existe y está probado en memoria, no contra Atlas (ver ARQUITECTURA §10.19). La exportación completa ya existe (`GET /export`, pantalla «Datos de la empresa»).
 - **Webhooks, OpenAPI y cuotas por clave de API** (ver `API.md`).
 - **Alertas y paneles**: hay métricas y un destino de errores, pero ningún panel ni regla de alerta configurados.

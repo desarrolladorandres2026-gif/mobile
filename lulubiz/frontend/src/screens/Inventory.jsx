@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ItemPicker } from '../components/ItemPicker.jsx';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { Button, DataTable, Notice, PageHeader, SearchField, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { formatPercent, formatQuantity } from '../lib/invoicing.js';
@@ -123,8 +123,8 @@ export function ItemsScreen() {
   const { navigate } = useRouter();
   const [editing, setEditing] = useState(null); // null | 'new' | artículo
   const [notice, setNotice] = useState(null);
-  const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
+  const [debounced, setDebounced] = useState(() => (new URLSearchParams(window.location.search).get('q') ?? '').trim());
   const [type, setType] = useState('');
   const [active, setActive] = useState('');
   const [extra, setExtra] = useState([]);
@@ -200,7 +200,7 @@ export function ItemsScreen() {
         />
       ) : null}
       <div className="mb-4 grid gap-x-4 sm:grid-cols-3">
-        <TextField label="Buscar" value={search} onChange={(e) => { setSearch(e.target.value); setExtra([]); setCursor(undefined); }} hint="Por código o por nombre." />
+        <SearchField label="Buscar" value={search} onChange={(e) => { setSearch(e.target.value); setExtra([]); setCursor(undefined); }} hint="Por código o por nombre." />
         <SelectField label="Tipo" value={type} onChange={(e) => { setType(e.target.value); setExtra([]); setCursor(undefined); }} options={[{ value: '', label: 'Todos' }, { value: 'goods', label: 'Bienes' }, { value: 'service', label: 'Servicios' }]} />
         <SelectField label="Estado" value={active} onChange={(e) => { setActive(e.target.value); setExtra([]); setCursor(undefined); }} options={[{ value: '', label: 'Todos' }, { value: 'true', label: 'Activos' }, { value: 'false', label: 'Inactivos' }]} />
       </div>

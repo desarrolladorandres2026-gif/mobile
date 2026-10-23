@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ItemPicker } from '../components/ItemPicker.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { computeLine, formatPercent, formatQuantity, parsePercent, parseQuantity } from '../lib/invoicing.js';
@@ -52,6 +52,8 @@ function PurchaseForm({ status, onCreated, onCancel }) {
   const [key, setKey] = useState(newIdempotencyKey);
   const accounts = useLoad(() => api.get(`${base}/accounts?activeOnly=true`), [base]);
   const centers = useCostCenters(base);
+  // Quien no puede leer la configuración (otro rol) simplemente no ve la lista de predefinidas.
+  const presets = useLoad(() => api.get(`${base}/invoicing/settings`).then((r) => r.settings?.withholdingPresets ?? []).catch(() => []), [base]);
   const warehouses = useLoad(() => api.get(`${base}/warehouses`).catch(() => ({ items: [] })), [base]);
   const activeWarehouses = (warehouses.data?.items ?? []).filter((w) => w.active);
   const postable = (accounts.data?.items ?? []).filter((a) => a.postable);
@@ -132,12 +134,12 @@ function PurchaseForm({ status, onCreated, onCancel }) {
               <th scope="col" className="px-2 py-2 font-semibold">Artículo (opcional)</th>
               <th scope="col" className="px-2 py-2 font-semibold">Descripción</th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">Cantidad</th>
-              <th scope="col" className="px-2 py-2 text-right font-semibold">Precio unitario ({currency})</th>
+              <th scope="col" className="px-2 py-2 text-right font-semibold">Precio ({currency})</th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">Descuento %</th>
               <th scope="col" className="px-2 py-2 font-semibold">IVA</th>
-              <th scope="col" className="px-2 py-2 font-semibold">Cuenta de gasto, costo o activo</th>
+              <th scope="col" className="px-2 py-2 font-semibold">Cuenta</th>
               {centers.length ? <th scope="col" className="px-2 py-2 font-semibold">Centro de costo</th> : null}
-              <th scope="col" className="px-2 py-2 text-right font-semibold">Total de la línea</th>
+              <th scope="col" className="px-2 py-2 text-right font-semibold">Total</th>
               <th scope="col" className="px-2 py-2"><span className="sr-only">Acciones</span></th>
             </tr>
           </thead>
@@ -185,6 +187,7 @@ function PurchaseForm({ status, onCreated, onCancel }) {
                     ) : (
                       <>
                         {field('accountId', 'Cuenta', 'w-28', { list: 'cuentas-compra' })}
+                        {expenseAccounts.find((a) => a.code === line.accountId.trim()) ? <p className="max-w-28 text-xs text-tinta">{expenseAccounts.find((a) => a.code === line.accountId.trim()).name}</p> : null}
                         {e.accountId ? <p role="alert" className="text-xs font-semibold text-rojo">{e.accountId}</p> : null}
                       </>
                     )}
@@ -195,7 +198,7 @@ function PurchaseForm({ status, onCreated, onCancel }) {
                     </td>
                   ) : null}
                   <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-tinta">{preview ? formatAmount(preview.total, currency) : ''}</td>
-                  <td className="px-2 py-2">{lines.length > 1 ? <TextButton danger onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</TextButton> : null}</td>
+                  <td className="px-2 py-2">{lines.length > 1 ? <DeleteButton onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</DeleteButton> : null}</td>
                 </tr>
               );
             })}
@@ -231,6 +234,7 @@ function PurchaseForm({ status, onCreated, onCancel }) {
                     </td>
                     <td className="px-2 py-2">
                       <input aria-label={`Cuenta de la retención ${i + 1}`} list="cuentas-retencion" value={w.accountId} onChange={setWithholding(i, 'accountId')} className={`${cell} w-28 ${e.accountId ? 'border-rojo' : 'border-borde-fuerte'}`} />
+                      {liabilityAccounts.find((a) => a.code === w.accountId.trim()) ? <p className="max-w-28 text-xs text-tinta">{liabilityAccounts.find((a) => a.code === w.accountId.trim()).name}</p> : null}
                       {e.accountId ? <p role="alert" className="text-xs font-semibold text-rojo">{e.accountId}</p> : null}
                     </td>
                     <td className="px-2 py-2">
@@ -245,7 +249,7 @@ function PurchaseForm({ status, onCreated, onCancel }) {
                       {e.rate ? <p role="alert" className="text-left text-xs font-semibold text-rojo">{e.rate}</p> : null}
                     </td>
                     <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-tinta">{prepared ? formatAmount(prepared.amount, currency) : ''}</td>
-                    <td className="px-2 py-2"><TextButton danger onClick={() => setWithholdings((ws) => ws.filter((_, n) => n !== i))}>Quitar</TextButton></td>
+                    <td className="px-2 py-2"><DeleteButton onClick={() => setWithholdings((ws) => ws.filter((_, n) => n !== i))}>Quitar</DeleteButton></td>
                   </tr>
                 );
               })}
@@ -253,7 +257,28 @@ function PurchaseForm({ status, onCreated, onCancel }) {
           </table>
         </div>
       ) : null}
-      <TextButton onClick={() => setWithholdings((ws) => [...ws, blankWithholding()])}>Agregar retención</TextButton>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        <TextButton onClick={() => setWithholdings((ws) => [...ws, blankWithholding()])}>Agregar retención</TextButton>
+        {presets.data?.length ? (
+          <label className="flex items-center gap-2 text-sm text-tinta">
+            <span className="font-semibold">Predefinida</span>
+            <select
+              aria-label="Agregar retención predefinida"
+              value=""
+              onChange={(e) => {
+                const chosen = presets.data[Number(e.target.value)];
+                if (chosen) setWithholdings((ws) => [...ws, { name: chosen.name, accountId: chosen.accountId, basis: chosen.basis, rate: formatPercent(chosen.rateBps).replace(/\s*%/, '') }]);
+              }}
+              className="rounded-sm border border-borde-fuerte bg-papel px-2 py-1.5 text-sm text-tinta focus:outline-2 focus:outline-azul"
+            >
+              <option value="">Elige una…</option>
+              {presets.data.map((p, i) => (
+                <option key={p.name} value={i}>{p.name}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
 
       <dl className="mb-4 mt-4 ml-auto grid max-w-sm grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm text-tinta">
         <dt>Subtotal</dt>
@@ -582,6 +607,8 @@ export function PurchasesScreen() {
           }}
         />
       ) : null}
+      {/* Mientras se elabora un documento la lista se oculta (sin perder filtros ni páginas cargadas). */}
+      <div hidden={creating}>
       <div className="mb-4 grid gap-x-4 sm:grid-cols-3">
         <SelectField
           label="Estado"
@@ -639,6 +666,7 @@ export function PurchasesScreen() {
           <Button busy={more.busy} onClick={() => more.run()}>Cargar más compras</Button>
         </div>
       ) : null}
+      </div>
     </>
   );
 }

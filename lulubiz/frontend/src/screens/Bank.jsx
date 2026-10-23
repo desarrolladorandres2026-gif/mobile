@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { CHUNK, DECIMALS, chunk, differenceText, parseSignedAmount, parseStatement } from '../lib/bank.js';
 import { monthRange } from '../lib/books.js';
@@ -216,7 +216,7 @@ function LinesView({ base, account, currency, manage, accounts }) {
           <span className="flex flex-wrap gap-3">
             <TextButton onClick={() => setOpen(open?.id === l._id && open.mode === 'candidates' ? null : { id: l._id, mode: 'candidates' })}>Buscar en el libro</TextButton>
             <TextButton onClick={() => setOpen(open?.id === l._id && open.mode === 'book' ? null : { id: l._id, mode: 'book' })}>Contabilizar</TextButton>
-            <TextButton danger onClick={() => remove.run(l._id)}>Quitar</TextButton>
+            <DeleteButton onClick={() => remove.run(l._id)}>Quitar</DeleteButton>
           </span>
         );
       },

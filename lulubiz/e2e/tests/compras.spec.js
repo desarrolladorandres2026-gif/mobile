@@ -1,11 +1,10 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav } from './helpers.js';
 
 const OWNER = 'hugo@almacen.co';
 
 let shared;
 const test = base.extend({ page: async ({}, use) => use(shared) });
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name });
 const heading = (page, name) => page.getByRole('heading', { name, level: 1 });
 
 async function bootstrap(page, request) {
@@ -45,9 +44,7 @@ async function bootstrap(page, request) {
 }
 
 async function fillPurchase(page, docNumber) {
-  await page.getByLabel('Buscar proveedor').fill('aseo');
-  await expect(page.getByLabel('Proveedor', { exact: true }).getByRole('option', { name: /Aseo Total SAS/ })).toBeAttached();
-  await page.getByLabel('Proveedor', { exact: true }).selectOption({ label: 'Aseo Total SAS — NIT 900123456' });
+  await page.getByLabel('Proveedor', { exact: true }).fill('Aseo Total SAS — NIT 900123456');
   await page.getByLabel('Número de la factura del proveedor').fill(docNumber);
   await page.getByLabel('Descripción de la línea 1').fill('Servicio de aseo mensual');
   await page.getByLabel('Precio unitario de la línea 1').fill('10.000');

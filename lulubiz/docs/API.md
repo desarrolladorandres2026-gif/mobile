@@ -11,7 +11,7 @@ Authorization: Bearer lbk_1a2b3c4d_<secreto de 43 caracteres>
 ```
 
 - El token completo **se muestra una sola vez**, al crearla. Lulubiz guarda únicamente una huella del secreto: una copia de la base de datos no permite usar ninguna clave. Si se pierde, se revoca y se crea otra.
-- Cada clave pertenece a **una empresa** y lleva sus propios **permisos** (columna «Permiso» de la tabla de rutas). Es un subconjunto de los de quien la crea; nunca incluye administrar la empresa, sus miembros ni sus claves, cambiar la configuración de facturación ni reabrir períodos.
+- Cada clave pertenece a **una empresa** y lleva sus propios **permisos** (columna «Permiso» de la tabla de rutas). Es un subconjunto de los de quien la crea; nunca incluye administrar la empresa, sus miembros ni sus claves, cambiar la configuración de facturación, reabrir períodos ni ver o manejar la nómina (los salarios son datos sensibles: solo con sesión de una persona).
 - Cada ruta exige su permiso: con uno que falta, `403`. Una clave inexistente, equivocada, vencida, revocada o de otra empresa responde igual, `401 INVALID_CREDENTIALS`, sin decir cuál de los casos fue.
 - Una clave puede vencer (fecha opcional, vale hasta el final de ese día) y se revoca al instante. Sigue valiendo aunque quien la creó deje la empresa: es de la empresa, no de la persona.
 - Lo que hace una clave queda en la auditoría a nombre de la clave. Hay un máximo de 20 claves activas por empresa.
@@ -144,6 +144,68 @@ La tabla se genera desde las rutas registradas y una prueba falla si una ruta nu
 | POST | `/v1/tenants/{tenantId}/bank/reconciliations` | `bank:manage` |
 | POST | `/v1/tenants/{tenantId}/bank/reconciliations/:id/reopen` | `bank:manage` |
 
+### Activos fijos
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/fixed-assets` | `assets:read` |
+| POST | `/v1/tenants/{tenantId}/fixed-assets` | `assets:manage` |
+| GET | `/v1/tenants/{tenantId}/fixed-assets/reconciliation` | `assets:read` |
+| GET | `/v1/tenants/{tenantId}/fixed-assets/depreciation-runs` | `assets:read` |
+| POST | `/v1/tenants/{tenantId}/fixed-assets/depreciation` | `assets:manage` |
+| GET | `/v1/tenants/{tenantId}/fixed-assets/:id` | `assets:read` |
+| PATCH | `/v1/tenants/{tenantId}/fixed-assets/:id` | `assets:manage` |
+| POST | `/v1/tenants/{tenantId}/fixed-assets/:id/dispose` | `assets:manage` |
+
+### Presupuesto
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/budgets/:year` | `reports:read` |
+| PUT | `/v1/tenants/{tenantId}/budgets/:year` | `budgets:manage` |
+
+### Nómina
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/payroll/config` | `payroll:read` |
+| PUT | `/v1/tenants/{tenantId}/payroll/config/accounts` | `payroll:manage` |
+| PUT | `/v1/tenants/{tenantId}/payroll/config/years/:year` | `payroll:manage` |
+| GET | `/v1/tenants/{tenantId}/payroll/employees` | `payroll:read` |
+| POST | `/v1/tenants/{tenantId}/payroll/employees` | `payroll:manage` |
+| GET | `/v1/tenants/{tenantId}/payroll/employees/:id` | `payroll:read` |
+| PATCH | `/v1/tenants/{tenantId}/payroll/employees/:id` | `payroll:manage` |
+| POST | `/v1/tenants/{tenantId}/payroll/preview` | `payroll:read` |
+| GET | `/v1/tenants/{tenantId}/payroll/runs` | `payroll:read` |
+| POST | `/v1/tenants/{tenantId}/payroll/runs` | `payroll:manage` |
+| GET | `/v1/tenants/{tenantId}/payroll/runs/:id` | `payroll:read` |
+| POST | `/v1/tenants/{tenantId}/payroll/runs/:id/void` | `payroll:manage` |
+| POST | `/v1/tenants/{tenantId}/payroll/runs/:id/pay` | `payroll:manage` |
+| POST | `/v1/tenants/{tenantId}/payroll/runs/:id/pay-contributions` | `payroll:manage` |
+| POST | `/v1/tenants/{tenantId}/payroll/benefits/preview` | `payroll:read` |
+| POST | `/v1/tenants/{tenantId}/payroll/benefits` | `payroll:manage` |
+| GET | `/v1/tenants/{tenantId}/payroll/benefits` | `payroll:read` |
+| GET | `/v1/tenants/{tenantId}/payroll/benefits/:id` | `payroll:read` |
+| POST | `/v1/tenants/{tenantId}/payroll/benefits/:id/pay` | `payroll:manage` |
+| GET | `/v1/tenants/{tenantId}/payroll/reports/contributions` | `payroll:read` |
+| GET | `/v1/tenants/{tenantId}/payroll/reports/provisions` | `payroll:read` |
+| GET | `/v1/tenants/{tenantId}/payroll/runs/:id/payslips/:employeeId` | `payroll:read` |
+| POST | `/v1/tenants/{tenantId}/payroll/terminations/preview` | `payroll:read` |
+| POST | `/v1/tenants/{tenantId}/payroll/terminations` | `payroll:manage` |
+| GET | `/v1/tenants/{tenantId}/payroll/terminations` | `payroll:read` |
+| GET | `/v1/tenants/{tenantId}/payroll/terminations/:id` | `payroll:read` |
+| POST | `/v1/tenants/{tenantId}/payroll/terminations/:id/pay` | `payroll:manage` |
+| POST | `/v1/tenants/{tenantId}/payroll/terminations/:id/void` | `payroll:manage` |
+
+### Impuestos
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/taxes/vat-close/preview` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/taxes/vat-closes` | `reports:read` |
+| POST | `/v1/tenants/{tenantId}/taxes/vat-closes` | `taxes:manage` |
+| POST | `/v1/tenants/{tenantId}/taxes/vat-closes/:id/void` | `taxes:manage` |
+
 ### Cotizaciones
 
 | Método | Ruta | Permiso |
@@ -218,6 +280,14 @@ La tabla se genera desde las rutas registradas y una prueba falla si una ruta nu
 
 | Método | Ruta | Permiso |
 |---|---|---|
+| GET | `/v1/tenants/{tenantId}/reports/cash-flow` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/budget-execution` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/vat` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/exogena` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/ica` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/withholdings` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/withholdings-suffered` | `reports:read` |
+| GET | `/v1/tenants/{tenantId}/reports/withholding-certificate` | `reports:read` |
 | GET | `/v1/tenants/{tenantId}/reports/trial-balance` | `reports:read` |
 | GET | `/v1/tenants/{tenantId}/reports/income-statement` | `reports:read` |
 | GET | `/v1/tenants/{tenantId}/reports/balance-sheet` | `reports:read` |
@@ -236,6 +306,7 @@ La tabla se genera desde las rutas registradas y una prueba falla si una ruta nu
 |---|---|---|
 | GET | `/v1/tenants/{tenantId}/invoicing/status` | `invoices:read` |
 | GET | `/v1/tenants/{tenantId}/invoicing/settings` | `invoices:read` |
+| PUT | `/v1/tenants/{tenantId}/invoicing/withholding-presets` | `settings:manage` |
 | PUT | `/v1/tenants/{tenantId}/invoicing/settings` | `settings:manage` |
 | GET | `/v1/tenants/{tenantId}/invoicing/resolutions` | `invoices:read` |
 | POST | `/v1/tenants/{tenantId}/invoicing/resolutions` | `settings:manage` |
@@ -357,6 +428,12 @@ La tabla se genera desde las rutas registradas y una prueba falla si una ruta nu
 | Método | Ruta | Permiso |
 |---|---|---|
 | GET | `/v1/tenants/{tenantId}/audit` | `audit:read` |
+
+### Datos de la empresa
+
+| Método | Ruta | Permiso |
+|---|---|---|
+| GET | `/v1/tenants/{tenantId}/export` | `tenant:manage` |
 
 ### Primeros pasos
 

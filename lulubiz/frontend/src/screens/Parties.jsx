@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { Button, DataTable, Notice, PageHeader, SearchField, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { nitCheckDigit, taxIdTypesFor } from '../lib/nit.js';
 import { useSession, useTenantApi } from '../lib/session.jsx';
@@ -110,8 +110,8 @@ function PartyForm({ country, party, onSaved, onCancel }) {
 export function PartiesScreen() {
   const base = useTenantApi();
   const { tenant, can } = useSession();
-  const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
+  const [debounced, setDebounced] = useState(() => (new URLSearchParams(window.location.search).get('q') ?? '').trim());
   const [role, setRole] = useState('');
   const [activeOnly, setActiveOnly] = useState(false);
   const [form, setForm] = useState(null); // null | 'new' | party
@@ -207,7 +207,7 @@ export function PartiesScreen() {
       ) : null}
 
       <div className="mb-4 grid gap-x-4 sm:grid-cols-3">
-        <TextField label="Buscar" value={search} onChange={(e) => setSearch(e.target.value)} hint="Por nombre o por número de documento." />
+        <SearchField label="Buscar" value={search} onChange={(e) => setSearch(e.target.value)} hint="Por nombre o por número de documento." />
         <SelectField label="Mostrar" value={role} onChange={(e) => setRole(e.target.value)} options={[{ value: '', label: 'Clientes y proveedores' }, { value: 'customer', label: 'Solo clientes' }, { value: 'supplier', label: 'Solo proveedores' }]} />
         <label className="mb-4 flex items-center gap-2 pt-7 text-sm text-tinta">
           <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} className="size-4 accent-azul" />

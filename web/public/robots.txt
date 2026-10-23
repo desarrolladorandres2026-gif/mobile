@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+
+# Cuentas y flujos privados: no aportan nada a un buscador.
+Disallow: /cuenta
+Disallow: /pedido
+Disallow: /pedidos
+Disallow: /pago
+
+# El deploy sustituye REEMPLAZAR_DOMINIO por el dominio real (ver deploy/README.md).
+Sitemap: https://REEMPLAZAR_DOMINIO/sitemap.xml

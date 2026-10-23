@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { Order, IOrder, IOrderFinance, Business, Commission, Driver, Product, User, Payout, Payment, BusinessDocument, BusinessPermission, BusinessRole } from '../models';
 import { AppError } from '../middlewares';
@@ -22,7 +23,7 @@ import {
   RefundCause,
 } from '../types';
 import { OrderSecurity } from '../security/orderSecurity';
-import { getIO, emitToUser } from '../sockets/emitter';
+import { getIO, emitToUser, evictClientFromDriverTracking } from '../sockets/emitter';
 import { logSystemAudit, AuditAction, AuditSeverity } from '../security';
 import { notificationService } from './notification.service';
 import { merchantOrderView, merchantStaffOrderView } from './profileMasking';
@@ -120,6 +121,37 @@ interface CreateOrderInput {
   scheduledFor?: Date | string;
   /** Solo en efectivo: si necesita vuelto y con cuánto paga. */
   cashPayment?: { needsChange: boolean; payingWith?: number };
+}
+
+/**
+ * Huella estable (sha256) de lo que el cliente pidió. Misma `idempotencyKey` + otra huella = otro
+ * pedido disfrazado de reintento. No incluye `expectedTotal` (el precio puede cambiar entre
+ * reintentos legítimos) ni la propia clave.
+ */
+export function hashOrderPayload(input: CreateOrderInput): string {
+  const canonical = {
+    b: String(input.businessId),
+    i: (input.items ?? []).map((item) => ({
+      p: String(item.productId),
+      q: item.quantity,
+      n: item.notes ?? null,
+      x: (item.selectedExtras ?? [])
+        .map((e) => [e.groupId ?? null, e.optionId ?? null, e.name ?? null, e.quantity ?? 1])
+        .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    })),
+    m: input.paymentMethod,
+    a: input.deliveryAddress,
+    d: input.deliveryDetails ?? null,
+    lo: input.deliveryLongitude,
+    la: input.deliveryLatitude,
+    c: input.couponCode ? String(input.couponCode).trim().toUpperCase() : null,
+    t: input.tip ?? 0,
+    s: input.scheduledFor ? new Date(input.scheduledFor).toISOString() : null,
+    r: input.recipient ? [input.recipient.name, input.recipient.phone, input.recipient.note ?? null] : null,
+    cp: input.cashPayment ? [!!input.cashPayment.needsChange, input.cashPayment.payingWith ?? null] : null,
+    nt: input.notes ?? null,
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
 /** Unidades apartadas para un pedido que todavía se está creando. */
@@ -414,8 +446,8 @@ export class OrderService {
    * de `create`, para que el controlador no vuelva a anunciar en la cocina,
    * a los domiciliarios y al panel un pedido que ya anunció.
    */
-  private async findReplay(idempotencyKey: string, clientId: string): Promise<IOrder | null> {
-    const existing = await Order.findOne({ idempotencyKey });
+  private async findReplay(idempotencyKey: string, clientId: string, payloadHash?: string): Promise<IOrder | null> {
+    const existing = await Order.findOne({ idempotencyKey }).select('+idempotencyHash');
     if (!existing) return null;
 
     if (existing.clientId.toString() !== clientId) {
@@ -423,6 +455,17 @@ export class OrderService {
         'Esta solicitud ya no es válida. Vuelve a abrir el pago para intentarlo de nuevo.',
         409,
         'IDEMPOTENCY_KEY_CONFLICT'
+      );
+    }
+
+    // Misma clave con otro contenido: no se devuelve el pedido viejo como si fuera el nuevo. Los
+    // pedidos anteriores a este control no guardaron huella y cuentan como coincidencia.
+    if (payloadHash && existing.idempotencyHash && existing.idempotencyHash !== payloadHash) {
+      throw new AppError(
+        'Ya hay un pedido creado con esta solicitud y es distinto al que intentas hacer ahora. Revísalo antes de pedir de nuevo.',
+        409,
+        'IDEMPOTENCY_MISMATCH',
+        { orderId: existing._id.toString() }
       );
     }
 
@@ -443,8 +486,9 @@ export class OrderService {
   }
 
   async create(input: CreateOrderInput): Promise<IOrder> {
+    const idempotencyHash = input.idempotencyKey ? hashOrderPayload(input) : undefined;
     if (input.idempotencyKey) {
-      const existing = await this.findReplay(input.idempotencyKey, input.clientId);
+      const existing = await this.findReplay(input.idempotencyKey, input.clientId, idempotencyHash);
       if (existing) return existing;
     }
 
@@ -661,6 +705,7 @@ export class OrderService {
         notes: input.notes,
         city: business.city,
         idempotencyKey: input.idempotencyKey,
+        idempotencyHash,
       });
     } catch (error: any) {
       // Lo apartado vuelve antes de cualquier otra cosa. En la carrera de
@@ -672,7 +717,7 @@ export class OrderService {
       await this.undoReservation(reservedStock);
 
       if (error.code === 11000 && input.idempotencyKey) {
-        const existing = await this.findReplay(input.idempotencyKey, input.clientId);
+        const existing = await this.findReplay(input.idempotencyKey, input.clientId, idempotencyHash);
         if (existing) return existing;
       }
       throw error;
@@ -1375,6 +1420,17 @@ export class OrderService {
       import('./dispatch.service')
         .then(({ startDispatch }) => startDispatch(claimed._id.toString()))
         .catch((err) => console.error('[Order] No se pudo iniciar el reparto:', err));
+    }
+
+    // El seguimiento del repartidor se autorizó al unirse; al terminar el pedido el cliente deja de
+    // recibir su posición (si no, vería el siguiente pedido, que es de otro). Si tiene otro pedido
+    // activo con el mismo repartidor, la app vuelve a suscribirse y el servidor lo revalida.
+    if ((status === OrderStatus.DELIVERED || status === OrderStatus.CANCELLED) && claimed.driverId) {
+      Driver.findById(claimed.driverId)
+        .select('userId')
+        .lean()
+        .then((d) => (d?.userId ? evictClientFromDriverTracking(String(d.userId), String(claimed.clientId)) : undefined))
+        .catch((err) => console.error('[Socket] No se pudo retirar al cliente del seguimiento:', err));
     }
 
     if (status === OrderStatus.DELIVERED) {

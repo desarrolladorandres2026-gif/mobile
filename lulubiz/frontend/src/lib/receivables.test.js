@@ -44,3 +44,27 @@ describe('validación del cobro', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe('retenciones del cliente en el recibo', () => {
+  const invoices = [{ _id: 'i1', fullNumber: 'FE1', balance: 1_190_000 }];
+  const base = { partyId: 'p1', date: '2026-10-20', depositAccount: '110505', invoices, amounts: { i1: '11.900,00' }, currency: 'COP' };
+  const row = (patch = {}) => ({ name: 'Retefuente 2,5 %', accountId: '135595', amount: '250,00', ...patch });
+
+  it('suma lo retenido y dice cuánto entra a caja', () => {
+    const r = validateReceipt({ ...base, withholdingRows: [row(), row({ name: 'ReteIVA', accountId: '135596', amount: '285,00' }), { name: '', accountId: '', amount: '' }] });
+    expect(r.ok).toBe(true);
+    expect(r.withholdings).toEqual([{ name: 'Retefuente 2,5 %', accountId: '135595', amount: 25_000 }, { name: 'ReteIVA', accountId: '135596', amount: 28_500 }]);
+    expect(r).toMatchObject({ total: 1_190_000, withheld: 53_500, received: 1_136_500 });
+  });
+
+  it('sin retenciones todo entra a caja', () => {
+    expect(validateReceipt(base)).toMatchObject({ ok: true, withheld: 0, received: 1_190_000, withholdings: [] });
+  });
+
+  it('señala el nombre, la cuenta y el valor, y que algo tiene que entrar a caja', () => {
+    expect(validateReceipt({ ...base, withholdingRows: [row({ name: ' ' })] }).errors.form).toEqual(['Retención 1: escribe su nombre.']);
+    expect(validateReceipt({ ...base, withholdingRows: [row({ accountId: 'x' })] }).errors.form).toEqual(['Retención 1: indica la cuenta de activo donde queda a favor.']);
+    expect(validateReceipt({ ...base, withholdingRows: [row({ amount: '0' })] }).errors.form).toEqual(['Retención 1: valor no válido.']);
+    expect(validateReceipt({ ...base, withholdingRows: [row({ amount: '11.900,00' })] }).errors.form).toEqual(['Las retenciones deben ser menores que el cobro: algo tiene que entrar a caja o bancos.']);
+  });
+});

@@ -474,6 +474,12 @@ describe('Endurecimiento de pagos', () => {
       expect(isAllowedRedirectUrl('http://localhost:3000/payment-result')).toBe(true);
     });
 
+    it('acepta el sitio público (WEB_URL) como destino de retorno', () => {
+      const webOrigin = new URL(config.webUrl).origin;
+      expect(config.cors.origins).toContain(webOrigin);
+      expect(isAllowedRedirectUrl(`${webOrigin}/pago/retorno`)).toBe(true);
+    });
+
     it('rechaza un destino externo', () => {
       expect(isAllowedRedirectUrl('https://evil.com/phish')).toBe(false);
       expect(isAllowedRedirectUrl('http://evil.com')).toBe(false);

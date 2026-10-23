@@ -127,6 +127,25 @@ deploy_spa() {
   npm ci
   npm run build
 
+  # robots.txt de la web lleva el marcador del dominio; se saca de VITE_API_URL
+  # (https://api.<dominio>/api/v1) para no mantener el dominio en otro sitio.
+  if [[ "$app" == "web" && -f dist/robots.txt ]]; then
+    local api_url host
+    api_url="$(grep -E '^VITE_API_URL=' .env.production | head -1 | cut -d= -f2-)"
+    host="${api_url#https://api.}"; host="${host%%/*}"
+    [[ -n "$host" ]] && sed -i "s/REEMPLAZAR_DOMINIO/$host/g" dist/robots.txt
+  fi
+
+  # La web guarda sesión y hace pedidos: su CSP es la defensa del refresh token. Avisa si sigue en solo-informe.
+  if [[ "$app" == "web" ]]; then
+    csp=/etc/nginx/snippets/zipp-csp-web.conf
+    if [[ ! -f "$csp" ]]; then
+      log "AVISO: falta $csp; la web sale sin CSP (deploy/nginx/csp-web.conf)"
+    elif grep -q 'Report-Only' "$csp"; then
+      log "AVISO: la CSP de la web sigue en Report-Only; pásala a bloqueo antes del lanzamiento"
+    fi
+  fi
+
   # Las raíces las creó provision.sh como zipp:www-data (755): zipp escribe
   # su contenido sin sudo y Nginx (www-data) lo lee. swap-spa.sh coloca el
   # build sin dejar huecos y conserva los chunks del build anterior para las

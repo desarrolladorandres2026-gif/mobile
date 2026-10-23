@@ -104,7 +104,7 @@ describe('claves de API: creación', () => {
     const c = await company();
     const scopes = (await call('GET', `${c.base}/api-keys/scopes`, { cookie: c.cookie })).json().scopes;
     expect(scopes).toEqual(GRANTABLE_SCOPES);
-    for (const forbidden of ['tenant:manage', 'users:manage', 'apikeys:manage', 'periods:reopen', 'settings:manage']) expect(scopes).not.toContain(forbidden);
+    for (const forbidden of ['tenant:manage', 'users:manage', 'apikeys:manage', 'periods:reopen', 'settings:manage', 'payroll:read', 'payroll:manage']) expect(scopes).not.toContain(forbidden);
     expect(scopes).toContain('invoices:issue');
   });
 

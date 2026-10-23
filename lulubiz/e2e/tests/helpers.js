@@ -120,3 +120,18 @@ export async function login(page, email, password = PASSWORD) {
   await page.getByLabel('Contraseña').fill(password);
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
 }
+
+/** Va a una sección con «Buscar en Lulubiz», sin depender de en qué módulo del menú lateral esté. */
+export async function goToSection(page, name) {
+  await page.getByLabel('Ir a una sección').fill(name);
+  await page.getByRole('listbox', { name: 'Resultados de la búsqueda' }).getByRole('option', { name, exact: true }).click();
+}
+
+/** Estilo de los specs: `nav(page, 'Facturas').click()` lleva a esa sección. */
+export const nav = (page, name) => ({ click: () => goToSection(page, name) });
+
+/** La sección aparece (o no) en «Buscar en Lulubiz»: así se comprueba qué ve cada rol. */
+export async function sectionListed(page, name) {
+  await page.getByLabel('Ir a una sección').fill(name);
+  return page.getByRole('listbox', { name: 'Resultados de la búsqueda' }).getByRole('option', { name, exact: true });
+}

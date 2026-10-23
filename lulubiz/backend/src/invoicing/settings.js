@@ -11,6 +11,8 @@ export class InvoicingError extends Error {
   }
 }
 
+export const WITHHOLDING_BASES = ['subtotal', 'vat'];
+export const MAX_WITHHOLDING_PRESETS = 20;
 export const REGIMES = ['responsable_iva', 'no_responsable'];
 const ACCOUNT_CODE = /^[0-9]{1,12}$/;
 
@@ -97,10 +99,38 @@ export function createSettingsService(client, db, accounts) {
       if (accountProblems.length) throw new InvoicingError(accountProblems.join('; '));
 
       return withTransaction(client, async (session) => {
+        // Las retenciones predefinidas no se tocan aquí: tienen su propia operación.
         const doc = { issuer, accounts: mapping, updatedAt: new Date() };
         await settingsOf(tenantId).updateOne({}, { $set: doc }, { upsert: true, session });
         if (inTx) await inTx(session, doc);
         return doc;
+      });
+    },
+
+    /**
+     * Retenciones que la empresa usa a menudo, para elegirlas al registrar una compra en vez de escribirlas cada vez:
+     * [{ name, accountId, basis: 'subtotal'|'vat', rateBps }]. Reemplaza la lista completa. Exige la configuración creada.
+     */
+    async saveWithholdingPresets(tenantId, input, { inTx } = {}) {
+      if (!Array.isArray(input) || input.length > MAX_WITHHOLDING_PRESETS) throw new InvoicingError(`admite como máximo ${MAX_WITHHOLDING_PRESETS} retenciones predefinidas`);
+      const presets = input.map((p, i) => {
+        const n = i + 1;
+        const accountId = String(p?.accountId ?? '').trim();
+        if (!ACCOUNT_CODE.test(accountId)) throw new InvoicingError(`la retención ${n}: la cuenta debe ser un código numérico`);
+        if (!WITHHOLDING_BASES.includes(p?.basis)) throw new InvoicingError(`la retención ${n}: la base debe ser subtotal o IVA`);
+        if (!Number.isInteger(p?.rateBps) || p.rateBps < 1 || p.rateBps > 10000) throw new InvoicingError(`la retención ${n}: la tarifa debe estar entre 0,01 % y 100 %`);
+        return { name: text(p?.name, `el nombre de la retención ${n}`, { required: true, max: 60 }), accountId, basis: p.basis, rateBps: p.rateBps };
+      });
+      const names = new Set(presets.map((p) => p.name.toLowerCase()));
+      if (names.size !== presets.length) throw new InvoicingError('hay dos retenciones con el mismo nombre');
+      const accountProblems = await accounts.postingProblems(tenantId, [...new Set(presets.map((p) => p.accountId))]);
+      if (accountProblems.length) throw new InvoicingError(accountProblems.join('; '));
+
+      return withTransaction(client, async (session) => {
+        const result = await settingsOf(tenantId).updateOne({}, { $set: { withholdingPresets: presets, updatedAt: new Date() } }, { session });
+        if (result.matchedCount === 0) throw new InvoicingError('configura primero los datos del emisor y las cuentas', 'NOT_FOUND');
+        if (inTx) await inTx(session, { count: presets.length });
+        return presets;
       });
     },
   };

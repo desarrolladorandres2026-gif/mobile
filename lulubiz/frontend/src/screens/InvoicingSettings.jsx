@@ -5,6 +5,7 @@ import { formatDay } from '../lib/format.js';
 import { nitCheckDigit, taxIdTypesFor } from '../lib/nit.js';
 import { useSession, useTenantApi } from '../lib/session.jsx';
 import { SandboxNotice, useInvoicingStatus } from './Invoices.jsx';
+import { WithholdingPresets } from './WithholdingPresets.jsx';
 
 const REGIMES = [
   { value: 'responsable_iva', label: 'Responsable de IVA' },
@@ -254,6 +255,10 @@ export function InvoicingSettingsScreen() {
       ) : (
         <p className="text-sm text-tinta">Cargando la configuración…</p>
       )}
+
+      {settings.data?.settings && accounts.data ? (
+        <WithholdingPresets presets={settings.data.settings.withholdingPresets ?? []} accounts={accounts.data.items} canEdit={canEdit} onSaved={() => settings.reload()} />
+      ) : null}
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-t border-borde pt-6">
         <h2 className="text-lg font-semibold text-tinta">Resoluciones de numeración</h2>

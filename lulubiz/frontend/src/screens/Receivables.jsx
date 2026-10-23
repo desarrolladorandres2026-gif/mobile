@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { PartyPicker } from '../components/PartyPicker.jsx';
-import { Button, DataTable, Notice, PageHeader, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { DeleteButton, Button, DataTable, Notice, PageHeader, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { formatAmount } from '../lib/money.js';
@@ -19,12 +19,13 @@ function ReceiptForm({ initial, onDone, onCancel }) {
   const [depositAccount, setDepositAccount] = useState('');
   const [notes, setNotes] = useState('');
   const [amounts, setAmounts] = useState({});
+  const [withholdingRows, setWithholdingRows] = useState([]);
   const [showErrors, setShowErrors] = useState(false);
   const [key, setKey] = useState(newIdempotencyKey);
 
   const open = useLoad(() => (partyId ? api.get(`${base}/receivables/open?partyId=${partyId}&currency=${currency}`) : Promise.resolve({ items: [] })), [base, partyId, currency]);
   const invoices = open.data?.items ?? [];
-  const result = validateReceipt({ partyId, date, depositAccount, invoices, amounts, currency });
+  const result = validateReceipt({ partyId, date, depositAccount, invoices, amounts, currency, withholdingRows });
   const postable = (accounts.data?.items ?? []).filter((a) => a.postable && a.type === 'asset');
   const known = postable.find((a) => a.code === depositAccount);
 
@@ -33,7 +34,7 @@ function ReceiptForm({ initial, onDone, onCancel }) {
     if (!result.ok) return;
     const outcome = await api.post(
       `${base}/receipts`,
-      { partyId, date, depositAccount, allocations: result.allocations, ...(notes.trim() ? { notes: notes.trim() } : {}) },
+      { partyId, date, depositAccount, allocations: result.allocations, ...(result.withholdings.length ? { withholdings: result.withholdings } : {}), ...(notes.trim() ? { notes: notes.trim() } : {}) },
       { 'idempotency-key': key },
     );
     setKey(newIdempotencyKey());
@@ -115,7 +116,29 @@ function ReceiptForm({ initial, onDone, onCancel }) {
         />
       ) : null}
 
-      <p className="my-3 text-sm font-semibold text-tinta">Total del recibo: {formatAmount(result.total, currency)}</p>
+      <h3 className="mb-1 mt-4 font-semibold text-tinta">Retenciones que practicó el cliente (opcional)</h3>
+      <p className="mb-2 text-sm text-tinta">Retención en la fuente, ReteIVA o ReteICA que el cliente descontó al pagar. Bajan la factura igual que el cobro, pero no entran como dinero: quedan como un impuesto a favor en la cuenta de activo que indiques.</p>
+      {withholdingRows.map((w, i) => (
+        <div key={i} className="grid items-start gap-x-4 sm:grid-cols-4">
+          <TextField label={`Nombre de la retención ${i + 1}`} value={w.name} onChange={(e) => setWithholdingRows((rs) => rs.map((r, n) => (n === i ? { ...r, name: e.target.value } : r)))} maxLength={60} />
+          <TextField label={`Cuenta de la retención ${i + 1}`} list="cuentas-retencion-favor" value={w.accountId} onChange={(e) => setWithholdingRows((rs) => rs.map((r, n) => (n === i ? { ...r, accountId: e.target.value.replace(/\D/g, '') } : r)))} hint={accounts.data?.items.find((a) => a.code === w.accountId)?.name} />
+          <TextField label={`Valor de la retención ${i + 1}`} value={w.amount} onChange={(e) => setWithholdingRows((rs) => rs.map((r, n) => (n === i ? { ...r, amount: e.target.value } : r)))} inputMode="decimal" />
+          <div className="pt-7">
+            <DeleteButton onClick={() => setWithholdingRows((rs) => rs.filter((_, n) => n !== i))}>Quitar</DeleteButton>
+          </div>
+        </div>
+      ))}
+      <datalist id="cuentas-retencion-favor">
+        {postable.map((a) => (
+          <option key={a.code} value={a.code}>{a.name}</option>
+        ))}
+      </datalist>
+      <TextButton onClick={() => setWithholdingRows((rs) => [...rs, { name: '', accountId: '', amount: '' }])}>Agregar retención</TextButton>
+
+      <p className="my-3 text-sm font-semibold text-tinta">
+        Total del recibo: {formatAmount(result.total, currency)}
+        {result.withheld > 0 ? `. Retenciones: ${formatAmount(result.withheld, currency)}. Entra a caja o bancos: ${formatAmount(result.received, currency)}.` : ''}
+      </p>
       {showErrors && result.errors.form.length ? (
         <Notice kind="error">
           {result.errors.form.map((m) => (
@@ -284,7 +307,7 @@ export function ReceiptsScreen() {
           expandedRow={(r) =>
             open === r._id ? (
               <p className="text-sm text-tinta">
-                Cuenta de caja o bancos {r.depositAccount}. {r.notes ? `Notas: ${r.notes}. ` : ''}
+                Cuenta de caja o bancos {r.depositAccount}. {r.withholdings?.length ? `Retenciones del cliente: ${r.withholdings.map((w) => `${w.name} ${formatAmount(w.amount, r.currency)}`).join(', ')}. ` : ''}{r.notes ? `Notas: ${r.notes}. ` : ''}
                 {r.allocations.map((a) => `${a.invoiceFullNumber}: ${formatAmount(a.amount, r.currency)}`).join(' · ')}
               </p>
             ) : null

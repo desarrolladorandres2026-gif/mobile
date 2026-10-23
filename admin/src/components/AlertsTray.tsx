@@ -45,6 +45,8 @@ const KIND_ROUTE: Record<string, string> = {
  business_document_expiring: '/business-approvals',
  driver_document_expiring: '/driver-documents',
  ad_uninvoiced: '/campaigns',
+ contact_request_new: '/solicitudes',
+ partner_application_new: '/solicitudes',
 };
 
 function ago(iso: string): string {

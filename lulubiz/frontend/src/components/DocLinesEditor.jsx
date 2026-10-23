@@ -4,7 +4,7 @@ import { computeLine, formatPercent, parsePercent, parseQuantity } from '../lib/
 import { formatAmount, parseAmount } from '../lib/money.js';
 import { CostCenterSelect } from './CostCenterSelect.jsx';
 import { ItemPicker } from './ItemPicker.jsx';
-import { TextButton } from './ui.jsx';
+import { DeleteButton, TextButton } from './ui.jsx';
 
 const cell = 'w-full rounded-sm border bg-papel px-2 py-1.5 text-sm text-tinta focus:outline-2 focus:outline-azul';
 
@@ -48,12 +48,12 @@ export function DocLinesEditor({ base, lines, setLines, rates, currency, errors 
               <th scope="col" className="px-2 py-2 font-semibold">Artículo (opcional)</th>
               <th scope="col" className="px-2 py-2 font-semibold">Descripción</th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">Cantidad</th>
-              <th scope="col" className="px-2 py-2 text-right font-semibold">Precio unitario ({currency})</th>
+              <th scope="col" className="px-2 py-2 text-right font-semibold">Precio ({currency})</th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">Descuento %</th>
               <th scope="col" className="px-2 py-2 font-semibold">IVA</th>
-              {accountMode ? <th scope="col" className="px-2 py-2 font-semibold">{accountMode === 'income' ? 'Cuenta de ingreso' : 'Cuenta de gasto, costo o activo'}</th> : null}
+              {accountMode ? <th scope="col" className="px-2 py-2 font-semibold">{accountMode === 'income' ? 'Cuenta' : 'Cuenta'}</th> : null}
               {centers.length ? <th scope="col" className="px-2 py-2 font-semibold">Centro de costo</th> : null}
-              <th scope="col" className="px-2 py-2 text-right font-semibold">Total de la línea</th>
+              <th scope="col" className="px-2 py-2 text-right font-semibold">Total</th>
               <th scope="col" className="px-2 py-2"><span className="sr-only">Acciones</span></th>
             </tr>
           </thead>
@@ -103,6 +103,7 @@ export function DocLinesEditor({ base, lines, setLines, rates, currency, errors 
                       ) : (
                         <>
                           {field('accountId', 'Cuenta', 'w-28', { list: listId, ...(accountMode === 'income' && line.item?.incomeAccount ? { placeholder: line.item.incomeAccount } : {}) })}
+                          {accountsForMode.find((a) => a.code === line.accountId.trim()) ? <p className="max-w-28 text-xs text-tinta">{accountsForMode.find((a) => a.code === line.accountId.trim()).name}</p> : null}
                           {error('accountId')}
                         </>
                       )}
@@ -114,7 +115,7 @@ export function DocLinesEditor({ base, lines, setLines, rates, currency, errors 
                     </td>
                   ) : null}
                   <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-tinta">{preview ? formatAmount(preview.total, currency) : ''}</td>
-                  <td className="px-2 py-2">{lines.length > 1 ? <TextButton danger onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</TextButton> : null}</td>
+                  <td className="px-2 py-2">{lines.length > 1 ? <DeleteButton onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</DeleteButton> : null}</td>
                 </tr>
               );
             })}

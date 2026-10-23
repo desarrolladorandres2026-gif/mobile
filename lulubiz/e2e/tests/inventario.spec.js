@@ -1,5 +1,5 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav } from './helpers.js';
 
 const OWNER = 'lucia@ferreteria.co';
 const nextYear = new Date().getUTCFullYear() + 1;
@@ -7,7 +7,6 @@ const lastYear = new Date().getUTCFullYear() - 1;
 
 let shared;
 const test = base.extend({ page: async ({}, use) => use(shared) });
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name });
 const heading = (page, name) => page.getByRole('heading', { name, level: 1 });
 
 async function bootstrap(page, request) {
@@ -69,13 +68,20 @@ test.describe.serial('inventario de punta a punta', () => {
     await shared?.close();
   });
 
-  test('la barra lateral agrupa las secciones', async ({ page }) => {
+  test('el menú lateral despliega las secciones del módulo hacia abajo', async ({ page }) => {
     await page.goto('/app/articulos');
     await expect(heading(page, 'Artículos')).toBeVisible();
     const sidebar = page.getByRole('navigation', { name: 'Principal' });
-    for (const group of ['Contabilidad', 'Ventas', 'Compras', 'Inventario', 'Administración']) await expect(sidebar.locator('p', { hasText: new RegExp(`^${group}$`) })).toBeVisible();
-    await expect(nav(page, 'Existencias')).toBeVisible();
-    await expect(nav(page, 'Ajustes y traspasos')).toBeVisible();
+    for (const group of ['Contabilidad', 'Ventas', 'Compras', 'Inventario', 'Administración']) await expect(sidebar.getByRole('button', { name: group, exact: true })).toBeVisible();
+    const flyout = sidebar.getByRole('list', { name: 'Inventario' });
+    await expect(flyout).toBeVisible();
+    await expect(flyout.getByRole('link', { name: 'Existencias', exact: true })).toBeVisible();
+    await expect(flyout.getByRole('link', { name: 'Ajustes y traspasos', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('list', { name: 'Ventas' })).toHaveCount(0);
+    await sidebar.getByRole('button', { name: 'Ventas', exact: true }).click();
+    await expect(sidebar.getByRole('list', { name: 'Ventas' }).getByRole('link', { name: 'Facturas', exact: true })).toBeVisible();
+    await sidebar.getByRole('button', { name: 'Ventas', exact: true }).click();
+    await expect(sidebar.getByRole('list', { name: 'Ventas' })).toHaveCount(0);
     await expect(page.getByText('No hay artículos con este filtro.')).toBeVisible();
     await checkDesign(page, 'artículos vacío');
     await shot(page, 'articulos-vacio');
@@ -141,9 +147,7 @@ test.describe.serial('inventario de punta a punta', () => {
   test('una compra con artículo mete la mercancía al inventario sin pedir cuenta', async ({ page }) => {
     await nav(page, 'Compras').click();
     await page.getByRole('button', { name: 'Registrar compra' }).click();
-    await page.getByLabel('Buscar proveedor').fill('tornillos');
-    await expect(page.getByLabel('Proveedor', { exact: true }).getByRole('option', { name: /Tornillos del Sur SAS/ })).toBeAttached();
-    await page.getByLabel('Proveedor', { exact: true }).selectOption({ label: 'Tornillos del Sur SAS — NIT 900123456' });
+    await page.getByLabel('Proveedor', { exact: true }).fill('Tornillos del Sur SAS — NIT 900123456');
     await page.getByLabel('Número de la factura del proveedor').fill('ts-501');
 
     // Un código que no está en la lista se señala; el elegido propone su nombre y fija la cuenta de inventario.
@@ -164,9 +168,7 @@ test.describe.serial('inventario de punta a punta', () => {
   test('una venta con artículo propone precio e IVA, descuenta al costo promedio y registra el costo de ventas', async ({ page }) => {
     await nav(page, 'Facturas').click();
     await page.getByRole('button', { name: 'Nueva factura' }).click();
-    await page.getByLabel('Buscar cliente').fill('andes');
-    await expect(page.getByLabel('Cliente', { exact: true }).getByRole('option', { name: /Droguería Los Andes/ })).toBeAttached();
-    await page.getByLabel('Cliente', { exact: true }).selectOption({ label: 'Droguería Los Andes — NIT 800197268' });
+    await page.getByLabel('Cliente', { exact: true }).fill('Droguería Los Andes — NIT 800197268');
 
     await pickItem(page, 'Artículo de la línea 1', 'TORN-1', 'hay 15 UND');
     await expect(page.getByLabel('Descripción de la línea 1')).toHaveValue('Tornillo 1/2 pulgada');
@@ -181,9 +183,7 @@ test.describe.serial('inventario de punta a punta', () => {
 
   test('sin existencias suficientes la factura se rechaza con la cantidad que hay', async ({ page }) => {
     await page.getByRole('button', { name: 'Nueva factura' }).click();
-    await page.getByLabel('Buscar cliente').fill('andes');
-    await expect(page.getByLabel('Cliente', { exact: true }).getByRole('option', { name: /Droguería Los Andes/ })).toBeAttached();
-    await page.getByLabel('Cliente', { exact: true }).selectOption({ label: 'Droguería Los Andes — NIT 800197268' });
+    await page.getByLabel('Cliente', { exact: true }).fill('Droguería Los Andes — NIT 800197268');
     await pickItem(page, 'Artículo de la línea 1', 'TORN-1', 'hay 12 UND');
     await page.getByLabel('Cantidad de la línea 1').fill('100');
     await page.getByRole('button', { name: 'Emitir factura' }).click();

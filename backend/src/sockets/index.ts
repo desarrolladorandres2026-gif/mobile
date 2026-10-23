@@ -174,6 +174,7 @@ export const initializeSocket = (httpServer: HttpServer): SocketServer => {
         throw new Error('Verificación en dos pasos requerida');
       }
       (socket as any).userId = identity.userId;
+      socket.data.userId = identity.userId;
       (socket as any).userRole = identity.role;
       (socket as any).sessionId = identity.sessionId;
       (socket as any).sessionScope = identity.scope;

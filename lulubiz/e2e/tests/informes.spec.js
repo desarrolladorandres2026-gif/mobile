@@ -1,5 +1,5 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav } from './helpers.js';
 
 const OWNER = 'marta@contadores.co';
 const MONTH = new Date().toISOString().slice(0, 7);
@@ -7,7 +7,6 @@ const DAY = `${MONTH}-10T12:00:00Z`;
 
 let shared;
 const test = base.extend({ page: async ({}, use) => use(shared) });
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name });
 let counter = 0;
 
 async function bootstrap(page, request) {

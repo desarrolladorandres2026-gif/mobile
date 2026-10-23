@@ -11,6 +11,7 @@ import adminSearchRouter from './adminSearch.routes';
 import adminOrdersRouter from './adminOrders.routes';
 import adminBusinessesRouter from './adminBusinesses.routes';
 import adminGrowthRouter from './adminGrowth.routes';
+import { contactRequestsRouter, partnerApplicationsRouter } from './adminPublicForms.routes';
 
 const router = Router();
 
@@ -134,5 +135,7 @@ router.use('/notes', adminNotesRouter);
 router.use('/alerts', adminAlertsRouter);
 router.use('/search', adminSearchRouter);
 router.use('/growth', adminGrowthRouter);
+router.use('/contact-requests', contactRequestsRouter);
+router.use('/partner-applications', partnerApplicationsRouter);
 
 export default router;

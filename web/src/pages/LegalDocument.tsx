@@ -3,12 +3,9 @@ import { useParams } from 'react-router-dom';
 import { getLegalDocuments, type LegalDocument as LegalDocumentType } from '../lib/api';
 import { supportWhatsAppUrl } from '../lib/contact';
 import { LinkButton } from '../components/Button';
+import { legalTitle } from '../lib/legal';
+import { setPageMeta } from '../lib/meta';
 
-const KIND_TITLE: Record<string, string> = {
-  terms: 'Términos y condiciones',
-  privacy: 'Política de privacidad',
-  habeas_data: 'Autorización de tratamiento de datos',
-};
 
 /**
  * Igual que `mobile/app/(client)/legal-document.tsx`: si el documento existe
@@ -28,13 +25,17 @@ export default function LegalDocument() {
     return () => { cancelled = true; };
   }, []);
 
-  const title = KIND_TITLE[kind] ?? 'Documento legal';
+  const title = legalTitle(kind);
+
+  useEffect(() => {
+    setPageMeta({ title: `${title} | ZIPP`, path: `/legal/${kind}` });
+  }, [title, kind]);
   const document = documents?.find((d) => d.kind === kind);
 
   return (
     <div className="bg-bg text-text-main px-6 sm:px-10 py-20 sm:py-24 min-h-[60vh]">
       <div className="mx-auto max-w-2xl">
-        <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">{title}</h1>
+        <h1 className="text-2xl font-semibold">{title}</h1>
 
         {documents === null && !error && (
           <p className="mt-8 text-sm text-text-secondary">Cargando…</p>
@@ -48,11 +49,11 @@ export default function LegalDocument() {
 
         {document && (
           <div className="mt-10 pt-8 border-t border-border">
-            <p className="text-xs text-text-muted">
+            <p className="text-xs text-text-secondary">
               Versión {document.version} · vigente desde{' '}
               {new Date(document.effectiveAt).toLocaleDateString('es-CO')}
             </p>
-            <p className="mt-6 text-[15px] text-text-secondary leading-relaxed whitespace-pre-line">
+            <p className="mt-6 text-base text-text-secondary leading-relaxed whitespace-pre-line">
               {document.content}
             </p>
           </div>

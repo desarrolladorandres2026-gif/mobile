@@ -1,12 +1,11 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav } from './helpers.js';
 
 const OWNER = 'paula@papeleria.co';
 
 let shared;
 let tenantId;
 const test = base.extend({ page: async ({}, use) => use(shared) });
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name, exact: true });
 const heading = (page, name) => page.getByRole('heading', { name, level: 1 });
 
 async function bootstrap(page, request) {

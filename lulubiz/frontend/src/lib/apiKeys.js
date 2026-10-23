@@ -12,6 +12,10 @@ export const AREAS = [
   ['payments', 'Pagos a proveedores'],
   ['inventory', 'Inventario'],
   ['pos', 'Punto de venta'],
+  ['bank', 'Conciliación bancaria'],
+  ['assets', 'Activos fijos'],
+  ['budgets', 'Presupuesto'],
+  ['taxes', 'Impuestos'],
 ];
 
 export const SCOPE_LABELS = {
@@ -41,6 +45,12 @@ export const SCOPE_LABELS = {
   'pos:sell': 'Abrir turnos, vender y cerrar turnos',
   'pos:void': 'Anular ventas de mostrador',
   'pos:manage': 'Crear y editar cajas',
+  'bank:read': 'Consultar el extracto y las conciliaciones',
+  'bank:manage': 'Cargar extractos, conciliar y cerrar conciliaciones',
+  'assets:read': 'Consultar activos fijos y su depreciación',
+  'assets:manage': 'Registrar, depreciar y dar de baja activos fijos',
+  'budgets:manage': 'Guardar el presupuesto',
+  'taxes:manage': 'Cerrar el IVA de un período',
 };
 
 export const scopeLabel = (scope) => SCOPE_LABELS[scope] ?? scope;

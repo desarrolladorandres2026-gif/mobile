@@ -1,2 +1,132 @@
 @import "tailwindcss";
 @config "../tailwind.config.js";
+
+/* Botón de eliminar: círculo con papelera que se ensancha y muestra su texto al pasar el cursor. */
+.btn-eliminar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  border: none;
+  border-radius: 50%;
+  background-color: #1a2230;
+  box-shadow: 0 0 14px rgba(0, 0, 0, 0.16);
+  cursor: pointer;
+  transition-duration: 0.3s;
+}
+.btn-eliminar svg {
+  width: 9px;
+  transition-duration: 0.3s;
+}
+.btn-eliminar svg path {
+  fill: #fff;
+}
+.btn-eliminar::before {
+  content: attr(data-label);
+  position: absolute;
+  top: -14px;
+  color: #fff;
+  font-size: 2px;
+  font-weight: 600;
+  transition-duration: 0.3s;
+}
+.btn-eliminar:hover,
+.btn-eliminar:focus-visible {
+  width: 100px;
+  border-radius: 50px;
+  background-color: #b3261e;
+}
+.btn-eliminar:hover svg,
+.btn-eliminar:focus-visible svg {
+  width: 36px;
+  transform: translateY(60%);
+}
+.btn-eliminar:hover::before,
+.btn-eliminar:focus-visible::before {
+  font-size: 12px;
+  transform: translateY(22px);
+}
+.btn-eliminar:focus-visible {
+  outline: 2px solid #1b4f9c;
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-eliminar,
+  .btn-eliminar svg,
+  .btn-eliminar::before {
+    transition-duration: 0s;
+  }
+}
+
+/* Accesos de «Crear»: salen desde el círculo central hacia su lugar, uno tras otro. */
+@keyframes crear-sale {
+  from {
+    opacity: 0;
+    transform: translateX(var(--desde)) scale(0.6);
+  }
+}
+.crear-sale {
+  animation: crear-sale 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .crear-sale {
+    animation: none;
+  }
+}
+
+/* Botón de configuración: círculo con engranaje; al apuntarlo se ensancha y el icono sube para dejar ver el texto. */
+.btn-ajustes {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  border-radius: 50%;
+  background-color: #1b4f9c;
+  box-shadow: 0 0 0 4px rgba(27, 79, 156, 0.25);
+  transition-duration: 0.3s;
+}
+.btn-ajustes svg {
+  width: 16px;
+  transition-duration: 0.3s;
+}
+.btn-ajustes::before {
+  content: attr(data-label);
+  position: absolute;
+  bottom: -20px;
+  color: #fff;
+  font-size: 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.btn-ajustes:hover,
+.btn-ajustes:focus-visible {
+  width: 120px;
+  border-radius: 50px;
+  background-color: #143c78;
+}
+.btn-ajustes:hover svg,
+.btn-ajustes:focus-visible svg {
+  transform: translateY(-200%);
+}
+.btn-ajustes:hover::before,
+.btn-ajustes:focus-visible::before {
+  bottom: unset;
+  font-size: 12px;
+  transition-duration: 0.3s;
+}
+.btn-ajustes:focus-visible {
+  outline: 2px solid #1b4f9c;
+  outline-offset: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-ajustes,
+  .btn-ajustes svg {
+    transition-duration: 0s;
+  }
+}

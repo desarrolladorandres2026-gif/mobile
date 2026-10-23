@@ -41,6 +41,10 @@ const startOfDay = (date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUT
  * recibo mismo se confirman en una sola transacción. La baja del saldo es una operación condicionada
  * (`balance >= importe`): dos cobros simultáneos a la misma factura no pueden dejarla en negativo.
  *
+ * Retenciones que el cliente practicó (retención en la fuente, ReteIVA, ReteICA): se escriben aparte, cada una con su nombre y su
+ * cuenta de activo (impuesto a favor). Bajan la cartera igual que el cobro pero no entran como dinero: el asiento debita la
+ * cuenta de caja o bancos por lo recibido y cada retención por su valor, y acredita la cuenta por cobrar por el total aplicado.
+ *
  * Límites: el recibo debe aplicarse por completo a facturas (no hay anticipos de clientes todavía) y la cartera
  * por edades se calcula con el saldo de hoy, no a una fecha pasada.
  */
@@ -64,6 +68,20 @@ export function createReceivablesService({ client, db, ledger, accounts, parties
     });
   }
 
+  /** Retenciones que el cliente practicó al pagar: nombre, cuenta de activo y valor. */
+  function cleanWithholdings(raw) {
+    if (raw === undefined) return [];
+    if (!Array.isArray(raw) || raw.length > 10) throw new ReceivablesError('un recibo admite hasta 10 retenciones');
+    return raw.map((w, i) => {
+      const name = String(w?.name ?? '').trim();
+      if (!name || name.length > 60) throw new ReceivablesError(`retención ${i + 1}: escribe su nombre (hasta 60 caracteres)`);
+      const accountId = String(w?.accountId ?? '').trim();
+      if (!/^[0-9]{1,12}$/.test(accountId)) throw new ReceivablesError(`retención ${i + 1}: indica la cuenta de activo donde queda la retención a favor`);
+      if (!Number.isSafeInteger(w.amount) || w.amount <= 0) throw new ReceivablesError(`retención ${i + 1}: el valor debe ser un entero positivo`);
+      return { name, accountId, amount: w.amount };
+    });
+  }
+
   const api = {
     async createReceipt(tenantId, input, ctx = {}) {
       const { idempotencyKey, userId } = ctx;
@@ -74,6 +92,7 @@ export function createReceivablesService({ client, db, ledger, accounts, parties
       const date = parseDay(input.date, 'la fecha del recibo');
       const allocations = cleanAllocations(input.allocations);
       const notes = String(input.notes ?? '').trim().slice(0, 500) || undefined;
+      const withholdings = cleanWithholdings(input.withholdings);
 
       const party = await parties.get(tenantId, input.partyId);
       if (!party) throw new ReceivablesError('el cliente no existe', 'NOT_FOUND');
@@ -113,6 +132,16 @@ export function createReceivablesService({ client, db, ledger, accounts, parties
         credits.set(account, (credits.get(account) ?? 0) + a.amount);
       }
       if (credits.has(deposit)) throw new ReceivablesError('la cuenta de caja o bancos no puede ser la misma cuenta por cobrar');
+      const withheld = withholdings.reduce((acc, w) => assertMinorUnits(acc + w.amount, 'las retenciones'), 0);
+      if (withheld >= total) throw new ReceivablesError('las retenciones deben ser menores que el cobro: algo tiene que entrar a caja o bancos');
+      if (withholdings.length) {
+        const wProblems = await accounts.postingProblems(tenantId, withholdings.map((w) => w.accountId));
+        if (wProblems.length) throw new ReceivablesError(wProblems.join('; '));
+        for (const w of withholdings) {
+          if ((await accounts.get(tenantId, w.accountId)).type !== 'asset') throw new ReceivablesError(`la retención «${w.name}» queda como un impuesto a favor: su cuenta debe ser de activo`);
+          if (w.accountId === deposit || credits.has(w.accountId)) throw new ReceivablesError(`la cuenta de la retención «${w.name}» no puede ser la de caja o bancos ni la cuenta por cobrar`);
+        }
+      }
 
       const journalInput = {
         docType: 'RC',
@@ -121,7 +150,7 @@ export function createReceivablesService({ client, db, ledger, accounts, parties
         idempotencyKey: `receipt-${idempotencyKey}`,
         description: `Recibo de caja de ${party.name}`,
         source: { kind: 'receipt', id: idempotencyKey },
-        lines: [{ accountId: deposit, debit: total }, ...[...credits].map(([accountId, credit]) => ({ accountId, credit, partyId: party._id }))],
+        lines: [{ accountId: deposit, debit: total - withheld }, ...withholdings.map((w) => ({ accountId: w.accountId, debit: w.amount })), ...[...credits].map(([accountId, credit]) => ({ accountId, credit, partyId: party._id }))],
       };
 
       const result = await ledger
@@ -148,6 +177,7 @@ export function createReceivablesService({ client, db, ledger, accounts, parties
               depositAccount: deposit,
               allocations: allocations.map((a) => ({ invoiceId: a.invoiceId, invoiceFullNumber: byId.get(String(a.invoiceId)).fullNumber, amount: a.amount })),
               total,
+              ...(withholdings.length ? { withholdings, withheld, received: total - withheld } : {}),
               ...(notes ? { notes } : {}),
               journalId: journal._id,
               createdBy: userId ?? null,

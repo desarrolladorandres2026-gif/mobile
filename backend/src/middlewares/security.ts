@@ -292,6 +292,75 @@ export const pqrsCreateRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/** Formulario de contacto público: 5 por hora por IP. Sin sesión, es la única barrera contra quien llena la bandeja. */
+export const contactCreateRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(5),
+  message: { success: false, message: 'Has enviado muchos mensajes seguidos. Espera un rato antes de escribir de nuevo.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/** Clave por celular del cuerpo: 10 dígitos si es válido, si no la IP (no se puede esquivar mandando basura). */
+const phoneKey = (prefix: string) => (req: Request) => {
+  const raw = (req.body as { phone?: unknown } | undefined)?.phone;
+  const digits = typeof raw === 'string' ? raw.replace(/\D/g, '').slice(-10) : '';
+  return digits.length === 10 ? `${prefix}:${digits}` : `${prefix}-ip:${req.ip}`;
+};
+
+/**
+ * Eliminación de cuenta sin sesión. Dos topes independientes porque la ruta
+ * es pública y manda WhatsApp: por IP (3 códigos por hora) y por celular
+ * (3 por hora, aunque cambien de IP; evita acosar a un número ajeno).
+ */
+export const deletionOtpIpRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(3),
+  message: { success: false, message: 'Demasiadas solicitudes. Intenta más tarde.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+export const deletionOtpPhoneRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(3),
+  message: { success: false, message: 'Demasiadas solicitudes. Intenta más tarde.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: phoneKey('del'),
+});
+/** Confirmar la eliminación: 10 intentos por hora por IP. */
+export const deletionConfirmRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(10),
+  message: { success: false, message: 'Demasiados intentos. Intenta más tarde.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/** Solicitudes de aliados: 5 por hora por IP (código y envío por separado), y 3 códigos por hora por celular. */
+export const partnerOtpIpRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(5),
+  message: { success: false, message: 'Demasiadas solicitudes de código. Intenta más tarde.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+export const partnerOtpPhoneRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(3),
+  message: { success: false, message: 'Demasiadas solicitudes de código para este número. Intenta más tarde.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: phoneKey('partner'),
+});
+export const partnerApplyRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: limitFor(5),
+  message: { success: false, message: 'Has enviado muchas solicitudes seguidas. Espera un rato antes de intentar de nuevo.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 /** Adjuntos de un caso: suben a Cloudinary, así que cuestan. 20 por hora por IP. */
 export const pqrsEvidenceRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,

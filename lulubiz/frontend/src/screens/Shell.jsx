@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Button, Notice, TextButton, errorMessage, useSubmit } from '../components/ui.jsx';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Notice, SearchBox, TextButton, errorMessage, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { Link, Redirect, useRouter } from '../lib/router.jsx';
 import { useSession } from '../lib/session.jsx';
@@ -8,7 +8,14 @@ import { CustomerAdvancesScreen, SupplierAdvancesScreen } from './Advances.jsx';
 import { BankScreen } from './Bank.jsx';
 import { BooksScreen } from './Books.jsx';
 import { PurchaseOrdersScreen, QuotesScreen, RecurringScreen } from './Commercial.jsx';
+import { CompanyDataScreen } from './CompanyData.jsx';
 import { CostCentersScreen } from './CostCenters.jsx';
+import { FixedAssetsScreen } from './FixedAssets.jsx';
+import { EmployeesScreen, PayrollRunsScreen, PayrollSettingsScreen } from './Payroll.jsx';
+import { BenefitsScreen, PayrollReportsScreen } from './PayrollExtras.jsx';
+import { TaxesScreen } from './Taxes.jsx';
+import { TerminationsScreen } from './Terminations.jsx';
+import { BudgetScreen, CashFlowScreen } from './Planning.jsx';
 import { AuditScreen, MembersScreen } from './Admin.jsx';
 import { ApiKeysScreen } from './ApiKeys.jsx';
 import { InvoicingSettingsScreen } from './InvoicingSettings.jsx';
@@ -17,6 +24,7 @@ import { CreditNotesScreen, InvoicesScreen } from './Invoices.jsx';
 import { FinancialReportsScreen } from './FinancialReports.jsx';
 import { GettingStartedScreen } from './GettingStarted.jsx';
 import { ImportScreen } from './Import.jsx';
+import { OpeningBalancesScreen } from './OpeningBalances.jsx';
 import { JournalsScreen } from './Journals.jsx';
 import { PayablesScreen, PaymentsScreen } from './Payables.jsx';
 import { PartiesScreen } from './Parties.jsx';
@@ -38,13 +46,22 @@ const GROUPS = [
     sections: [
       { path: 'asientos', label: 'Asientos', permission: 'journals:read', Screen: JournalsScreen },
       { path: 'cuentas', label: 'Plan de cuentas', permission: 'accounts:read', Screen: AccountsScreen },
-      { path: 'conciliacion', label: 'Conciliación bancaria', permission: 'bank:read', Screen: BankScreen },
       { path: 'centros-costo', label: 'Centros de costo', permission: 'accounts:read', Screen: CostCentersScreen },
+      { path: 'impuestos', label: 'Impuestos', permission: 'reports:read', Screen: TaxesScreen },
       { path: 'informes', label: 'Informes', permission: 'reports:read', Screen: FinancialReportsScreen },
       { path: 'libros', label: 'Libros y estados de cuenta', permission: 'reports:read', Screen: BooksScreen },
       { path: 'saldos', label: 'Saldos', permission: 'reports:read', Screen: BalancesScreen },
       { path: 'periodos', label: 'Períodos', permission: 'journals:read', Screen: PeriodsScreen },
       { path: 'cierre', label: 'Cierre de ejercicio', permission: 'reports:read', Screen: YearEndScreen },
+    ],
+  },
+  {
+    label: 'Tesorería y planeación',
+    sections: [
+      { path: 'conciliacion', label: 'Conciliación bancaria', permission: 'bank:read', Screen: BankScreen },
+      { path: 'flujo-efectivo', label: 'Flujo de efectivo', permission: 'reports:read', Screen: CashFlowScreen },
+      { path: 'presupuesto', label: 'Presupuesto', permission: 'reports:read', Screen: BudgetScreen },
+      { path: 'activos-fijos', label: 'Activos fijos', permission: 'assets:read', Screen: FixedAssetsScreen },
     ],
   },
   {
@@ -87,14 +104,27 @@ const GROUPS = [
     ],
   },
   {
+    label: 'Nómina',
+    sections: [
+      { path: 'nomina', label: 'Nómina', permission: 'payroll:read', Screen: PayrollRunsScreen },
+      { path: 'liquidacion-contrato', label: 'Liquidación de contrato', permission: 'payroll:read', Screen: TerminationsScreen },
+      { path: 'prestaciones', label: 'Prestaciones sociales', permission: 'payroll:read', Screen: BenefitsScreen },
+      { path: 'reportes-nomina', label: 'Reportes de nómina', permission: 'payroll:read', Screen: PayrollReportsScreen },
+      { path: 'empleados', label: 'Empleados', permission: 'payroll:read', Screen: EmployeesScreen },
+      { path: 'parametros-nomina', label: 'Parámetros de nómina', permission: 'payroll:manage', Screen: PayrollSettingsScreen },
+    ],
+  },
+  {
     label: 'Administración',
     sections: [
       { path: 'primeros-pasos', label: 'Primeros pasos', permission: 'reports:read', Screen: GettingStartedScreen },
       { path: 'terceros', label: 'Terceros', permission: 'parties:read', Screen: PartiesScreen },
       { path: 'importar', label: 'Importar', permission: 'parties:manage', Screen: ImportScreen },
+      { path: 'saldos-iniciales', label: 'Saldos iniciales', permission: 'journals:post', Screen: OpeningBalancesScreen },
       { path: 'facturacion', label: 'Facturación', permission: 'invoices:read', Screen: InvoicingSettingsScreen },
       { path: 'miembros', label: 'Miembros', permission: 'users:manage', Screen: MembersScreen },
       { path: 'claves-api', label: 'Claves de API', permission: 'apikeys:manage', Screen: ApiKeysScreen },
+      { path: 'datos-empresa', label: 'Datos de la empresa', permission: 'tenant:manage', Screen: CompanyDataScreen },
       { path: 'auditoria', label: 'Auditoría', permission: 'audit:read', Screen: AuditScreen },
       { path: 'cuenta', label: 'Mi cuenta', permission: null, Screen: SecurityScreen },
     ],
@@ -119,77 +149,292 @@ function VerifyEmailBanner() {
   );
 }
 
+/** Accesos del botón «Crear»: cada uno lleva a la pantalla donde se elabora el documento. */
+const CREATE = [
+  { label: 'Factura de venta', path: 'facturas' },
+  { label: 'Cotización', path: 'cotizaciones' },
+  { label: 'Recibo de caja', path: 'recibos' },
+  { label: 'Venta de mostrador', path: 'vender' },
+  { label: 'Factura de compra', path: 'compras' },
+  { label: 'Orden de compra', path: 'ordenes-compra' },
+  { label: 'Pago a proveedor', path: 'pagos' },
+  { label: 'Asiento contable', path: 'asientos' },
+  { label: 'Tercero', path: 'terceros' },
+  { label: 'Artículo', path: 'articulos' },
+];
+
+/** Cierra un panel al pulsar fuera de él o la tecla Escape. */
+function useDismiss(ref, open, onClose) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [ref, open, onClose]);
+}
+
+const panel = 'absolute z-10 border border-borde-fuerte bg-papel';
+const panelLink = 'block px-4 py-2 text-sm text-tinta no-underline hover:bg-azul-suave hover:text-azul-oscuro';
+
+/** «Buscar en Lulubiz»: localiza una sección por su nombre o por el de su módulo. */
+function SectionSearch({ groups, go }) {
+  const [text, setText] = useState('');
+  const ref = useRef(null);
+  const close = () => setText('');
+  useDismiss(ref, text !== '', close);
+  const results = useMemo(() => {
+    const q = text.trim().toLowerCase();
+    if (!q) return [];
+    return groups.flatMap((g) => g.sections.filter((s) => s.label.toLowerCase().includes(q) || g.label.toLowerCase().includes(q)).map((s) => ({ ...s, group: g.label }))).slice(0, 12);
+  }, [groups, text]);
+  const pick = (s) => {
+    close();
+    go(s.query ? `${s.path}?q=${encodeURIComponent(s.query)}` : s.path);
+  };
+  // Además de las secciones, lo escrito se puede buscar entre terceros y artículos (si tienes acceso a esas pantallas).
+  const entityResults = useMemo(() => {
+    const q = text.trim();
+    if (q.length < 2) return [];
+    const paths = new Set(groups.flatMap((g) => g.sections.map((s) => s.path)));
+    return [
+      { path: 'terceros', label: `Terceros que contengan «${q}»`, group: 'Buscar', query: q },
+      { path: 'articulos', label: `Artículos que contengan «${q}»`, group: 'Buscar', query: q },
+    ].filter((r) => paths.has(r.path));
+  }, [groups, text]);
+  const all = [...results, ...entityResults];
+  return (
+    <div ref={ref} className="relative w-full max-w-sm">
+      <SearchBox
+        compact
+        className="max-w-sm"
+        aria-label="Ir a una sección"
+        placeholder="Ir a una sección, tercero o artículo   ( / )"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onSubmit={() => {
+          if (all[0]) pick(all[0]);
+        }}
+      />
+      {text.trim() ? (
+        <ul role="listbox" aria-label="Resultados de la búsqueda" className={`${panel} left-0 right-0 top-full mt-1 max-h-80 overflow-y-auto`}>
+          {all.length === 0 ? <li className="px-4 py-2 text-sm text-tinta">Nada coincide con esa búsqueda.</li> : null}
+          {all.map((s) => (
+            <li key={`${s.path}${s.query ?? ''}`} role="presentation">
+              <button type="button" role="option" aria-selected="false" aria-label={s.label} onClick={() => pick(s)} className={`${panelLink} flex w-full justify-between gap-4 text-left`}>
+                <span>{s.label}</span>
+                <span className="text-tinta-segundo">{s.group}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+/** Iconos de trazo (24×24) de cada acceso del botón «Crear», en el mismo orden de `CREATE`. */
+const CREATE_ICONS = {
+  facturas: 'M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M9 13h6M9 17h6',
+  cotizaciones: 'M9 4h6v3H9zM7 5H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1M9 12h6M9 16h4',
+  recibos: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z',
+  vender: 'M6 7h12l1 13H5zM9 7a3 3 0 016 0',
+  compras: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
+  'ordenes-compra': 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9',
+  pagos: 'M7 17L17 7M8 7h9v9',
+  asientos: 'M5 4h12a2 2 0 012 2v14H7a2 2 0 01-2-2zM5 18a2 2 0 012-2h12',
+  terceros: 'M16 8a4 4 0 11-8 0 4 4 0 018 0zM4 21a8 8 0 0116 0',
+  articulos: 'M3 12V4h8l10 10-8 8zM7.5 8.5h.01',
+};
+const SLOT = 68; // px entre accesos; las animaciones parten del centro con este paso
+
+/**
+ * Botón «Crear»: al apuntarlo o pulsarlo, los accesos se abren hacia la izquierda y el «+» se queda donde está.
+ * La fila crece en el flujo de la barra (la búsqueda se encoge si hace falta): nada se superpone.
+ */
+function CreateMenu({ visiblePaths, open, setOpen }) {
+  const ref = useRef(null);
+  const close = () => setOpen(false);
+  useDismiss(ref, open, close);
+  const items = CREATE.filter((c) => visiblePaths.has(c.path));
+  if (items.length === 0) return null;
+  return (
+    <div ref={ref} className="flex items-center gap-x-1" onMouseEnter={() => setOpen(true)} onMouseLeave={close}>
+      {open ? (
+        <ul aria-label="Crear" className="flex items-center gap-x-1">
+          {items.map((c, k) => {
+            const dist = items.length - k;
+            const move = { '--desde': `${dist * SLOT}px`, animationDelay: `${dist * 30}ms` };
+            return (
+              <li key={c.path} style={move} className="crear-sale w-16">
+                <Link href={`/app/${c.path}`} onClick={close} className="group flex flex-col items-center gap-0.5 text-center text-[10px] font-semibold leading-3 text-tinta! no-underline!">
+                  <span className="flex size-7 items-center justify-center rounded-full border border-borde bg-papel text-tinta-segundo shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:bg-azul-suave group-hover:text-azul group-focus-visible:outline-2 group-focus-visible:outline-azul">
+                    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d={CREATE_ICONS[c.path]} />
+                    </svg>
+                  </span>
+                  {c.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="true"
+        aria-label="Crear"
+        onClick={() => setOpen(!open)}
+        className="flex size-10 items-center justify-center rounded-full bg-azul text-white shadow-xl transition-all duration-300 hover:scale-110 hover:bg-azul-oscuro focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-azul motion-reduce:transition-none"
+      >
+        <svg className={`size-6 transition-transform duration-500 ease-in-out motion-reduce:transition-none ${open ? 'rotate-45' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 export function Shell() {
   const { account, memberships, tenant, can, logout, selectTenant } = useSession();
-  const { pathname } = useRouter();
+  const { pathname, navigate } = useRouter();
+  const [expanded, setExpanded] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  // Atajos: Ctrl+Enter envía el formulario donde estás; «/» salta a la búsqueda.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        const form = document.activeElement?.closest?.('form');
+        if (form) {
+          e.preventDefault();
+          form.requestSubmit();
+        }
+      } else if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? '') && !document.activeElement?.isContentEditable) {
+        const box = document.querySelector('input[aria-label="Ir a una sección"]');
+        if (box) {
+          e.preventDefault();
+          box.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+  // Al cambiar de pantalla vuelve a quedar desplegado el módulo donde estás.
+  useEffect(() => {
+    setExpanded(null);
+    setMenuOpen(false);
+    setCreateOpen(false);
+  }, [pathname]);
 
   const groups = GROUPS.map((g) => ({ ...g, sections: g.sections.filter((s) => !s.permission || can(s.permission)) })).filter((g) => g.sections.length > 0);
   const visible = groups.flatMap((g) => g.sections);
   const active = visible.find((s) => pathname === `/app/${s.path}`) ?? null;
+  const visiblePaths = useMemo(() => new Set(visible.map((s) => s.path)), [visible]);
 
   // La ruta no existe o no tienes acceso: se vuelve a la primera sección disponible.
   if (!active) return <Redirect to={`/app/${visible[0].path}`} />;
 
   const Screen = active.Screen;
+  const activeGroup = groups.find((g) => g.sections.includes(active));
+  // Mientras no toques el menú queda desplegado el módulo de la pantalla actual; al tocarlo manda tu elección.
+  const open = expanded === null ? activeGroup : groups.find((g) => g.label === expanded) ?? null;
+  const canConfigure = visiblePaths.has('facturacion');
 
   return (
     <div className="flex min-h-screen flex-col bg-papel-fondo">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-borde bg-papel px-6 py-3">
-        <div className="flex items-center gap-4">
-          <span className="text-lg font-semibold tracking-tight text-azul">Lulubiz</span>
-          {memberships.length > 1 ? (
-            <label className="flex items-center gap-2 text-sm text-tinta">
-              <span className="font-semibold">Empresa</span>
-              <select
-                value={tenant.tenantId}
-                onChange={(e) => selectTenant(e.target.value)}
-                className="rounded-sm border border-borde-fuerte bg-papel px-2 py-1 text-sm focus:outline-2 focus:outline-azul"
-              >
-                {memberships.map((m) => (
-                  <option key={m.tenantId} value={m.tenantId}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <span className="text-sm font-semibold text-tinta">{tenant.name}</span>
-          )}
+      <header className="print:hidden relative flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-borde bg-papel px-4 py-2 md:px-6">
+        <span className="text-lg font-semibold tracking-tight text-azul">Lulubiz</span>
+        {memberships.length > 1 ? (
+          <label className="flex items-center gap-2 text-sm text-tinta">
+            <span className="font-semibold">Empresa</span>
+            <select value={tenant.tenantId} onChange={(e) => selectTenant(e.target.value)} className="rounded-sm border border-borde-fuerte bg-papel px-2 py-1 text-sm focus:outline-2 focus:outline-azul">
+              {memberships.map((m) => (
+                <option key={m.tenantId} value={m.tenantId}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <span className="text-sm font-semibold text-tinta">{tenant.name}</span>
+        )}
+        <div className="order-last w-full md:order-none md:w-auto md:min-w-0 md:flex-1">
+          <SectionSearch groups={groups} go={(path) => navigate(`/app/${path}`)} />
         </div>
-        <div className="flex items-center gap-4 text-sm text-tinta">
-          <span>{account.email}</span>
+        <div className="ml-auto flex flex-wrap items-center gap-4 text-sm text-tinta md:ml-0">
+          <CreateMenu visiblePaths={visiblePaths} open={createOpen} setOpen={setCreateOpen} />
+          {canConfigure ? (
+            <Link href="/app/facturacion" aria-label="Configuración" data-label="Configuración" className="btn-ajustes">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </Link>
+          ) : null}
           <Button onClick={logout}>Cerrar sesión</Button>
         </div>
       </header>
 
       <div className="flex flex-1 flex-col md:flex-row">
-        <nav aria-label="Principal" className="shrink-0 border-b border-borde bg-papel py-2 md:w-56 md:border-b-0 md:border-r md:py-4">
-          <div className="flex flex-wrap md:block">
-            {groups.map((g) => (
-              <div key={g.label} className="md:mb-3">
-                <p className="px-5 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-tinta">{g.label}</p>
-                <ul className="flex flex-wrap md:block">
-                  {g.sections.map((s) => {
-                    const isActive = s === active;
-                    return (
-                      <li key={s.path}>
-                        <Link
-                          href={`/app/${s.path}`}
-                          aria-current={isActive ? 'page' : undefined}
-                          className={`block border-l-4 px-5 py-2 text-sm no-underline ${isActive ? 'border-azul bg-azul-suave font-semibold text-azul-oscuro' : 'border-transparent text-tinta hover:bg-papel-fondo'}`}
-                        >
-                          {s.label}
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
-          </div>
+        <button
+          type="button"
+          aria-expanded={menuOpen}
+          aria-controls="menu-principal"
+          onClick={() => setMenuOpen((v) => !v)}
+          className="border-b border-azul bg-azul-oscuro px-4 py-3 text-left text-sm font-semibold text-papel md:hidden print:hidden"
+        >
+          {menuOpen ? 'Cerrar menú' : `Menú: ${active.label}`}
+        </button>
+        <nav id="menu-principal" aria-label="Principal" className={`shrink-0 bg-azul-oscuro md:block md:w-56 ${menuOpen ? 'block' : 'hidden'} print:hidden`}>
+          <ul>
+            {groups.map((g) => {
+              const isOpen = open === g;
+              const isCurrent = g === activeGroup;
+              return (
+                <li key={g.label}>
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    aria-current={isCurrent ? 'true' : undefined}
+                    onClick={() => setExpanded(isOpen ? '' : g.label)}
+                    className={`flex w-full items-center justify-between gap-2 border-l-4 px-4 py-3 text-left text-sm text-papel hover:bg-azul focus:outline-2 focus:outline-offset-[-2px] focus:outline-papel ${isCurrent ? 'border-papel font-semibold' : 'border-transparent'}`}
+                  >
+                    <span>{g.label}</span>
+                    <span aria-hidden="true">{isOpen ? '⌄' : '›'}</span>
+                  </button>
+                  {isOpen ? (
+                    <ul aria-label={g.label} className="bg-azul">
+                      {g.sections.map((s) => (
+                        <li key={s.path}>
+                          <Link
+                            href={`/app/${s.path}`}
+                            aria-current={s === active ? 'page' : undefined}
+                            className={`block py-2 pl-8 pr-4 text-sm text-papel no-underline! hover:bg-azul-oscuro hover:text-papel ${s === active ? 'bg-azul-oscuro font-semibold' : ''}`}
+                          >
+                            {s.label}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
         </nav>
 
-        <main className="min-w-0 flex-1 px-6 py-5">
+        <main className="min-w-0 flex-1 px-4 py-5 md:px-6">
           {!account.emailVerified && active.path !== 'cuenta' ? <VerifyEmailBanner /> : null}
           <Screen />
         </main>

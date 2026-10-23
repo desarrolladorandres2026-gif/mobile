@@ -1,5 +1,5 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav } from './helpers.js';
 
 const OWNER = 'rosa@minimercado.co';
 const CASHIER = 'camilo@minimercado.co';
@@ -7,7 +7,6 @@ const CASHIER = 'camilo@minimercado.co';
 let shared;
 let tenantId;
 const test = base.extend({ page: async ({}, use) => use(shared) });
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name });
 const heading = (page, name) => page.getByRole('heading', { name, level: 1 });
 
 async function bootstrap(page, request) {
@@ -218,10 +217,16 @@ test.describe.serial('punto de venta de punta a punta', () => {
       await cashier.goto('/app/vender');
       await expect(heading(cashier, 'Venta de mostrador')).toBeVisible();
       const sidebar = cashier.getByRole('navigation', { name: 'Principal' });
-      await expect(sidebar.getByRole('link', { name: 'Vender' })).toBeVisible();
-      await expect(sidebar.getByRole('link', { name: 'Turnos y ventas' })).toBeVisible();
-      await expect(sidebar.getByRole('link', { name: 'Artículos' })).toBeVisible();
-      for (const hidden of ['Cajas', 'Asientos', 'Informes', 'Facturas', 'Compras', 'Miembros']) await expect(sidebar.getByRole('link', { name: hidden, exact: true })).toHaveCount(0);
+      for (const shown of ['Vender', 'Turnos y ventas', 'Artículos']) {
+        await cashier.getByLabel('Ir a una sección').fill(shown);
+        await expect(cashier.getByRole('listbox', { name: 'Resultados de la búsqueda' }).getByRole('option', { name: shown, exact: true })).toBeVisible();
+      }
+      for (const hidden of ['Cajas', 'Asientos', 'Informes', 'Facturas', 'Compras', 'Miembros']) {
+        await cashier.getByLabel('Ir a una sección').fill(hidden);
+        await expect(cashier.getByRole('listbox', { name: 'Resultados de la búsqueda' }).getByRole('option', { name: hidden, exact: true })).toHaveCount(0);
+      }
+      await cashier.getByLabel('Ir a una sección').fill('');
+      await expect(sidebar.getByRole('button', { name: 'Contabilidad', exact: true })).toHaveCount(0);
       await checkDesign(cashier, 'vender como cajero');
       await shot(cashier, 'pos-cajero');
     } finally {

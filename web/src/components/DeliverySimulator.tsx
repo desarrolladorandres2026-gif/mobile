@@ -12,10 +12,10 @@ export default function DeliverySimulator() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-text-main max-w-lg">
+      <h2 className="text-2xl font-semibold text-text-main max-w-lg">
         Así se calcula tu envío
       </h2>
-      <p className="mt-3 text-[15px] text-text-secondary max-w-lg">
+      <p className="mt-3 text-base text-text-secondary max-w-lg">
         Base fija por el primer kilómetro, más una tarifa por cada kilómetro extra. Nada más.
       </p>
 
@@ -24,15 +24,16 @@ export default function DeliverySimulator() {
           <div className="flex items-baseline justify-between">
             <span className="text-sm text-text-secondary">Distancia hasta tu dirección</span>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-4xl font-bold tabular-nums tracking-tight text-text-main">
+              <span className="text-2xl font-semibold tabular-nums text-text-main">
                 {distanceKm.toFixed(1)}
               </span>
-              <span className="text-sm text-primary font-medium">km</span>
+              <span className="text-sm text-primary-text font-medium">km</span>
             </div>
           </div>
 
           <input
             type="range"
+            aria-label="Distancia hasta tu dirección, en kilómetros"
             min="0.8"
             max="12.0"
             step="0.1"
@@ -40,30 +41,30 @@ export default function DeliverySimulator() {
             onChange={(e) => setDistanceKm(parseFloat(e.target.value))}
             className="w-full h-px bg-border appearance-none cursor-pointer accent-primary mt-5"
           />
-          <div className="flex justify-between text-xs text-text-muted mt-2">
+          <div className="flex justify-between text-xs text-text-secondary mt-2">
             <span>0.8 km</span>
             <span>12 km</span>
           </div>
 
           <div className="mt-10 pt-6 border-t border-border grid grid-cols-2 gap-6 max-w-sm">
             <div>
-              <span className="text-xs text-text-muted block mb-1">Base (primer km)</span>
+              <span className="text-xs text-text-secondary block mb-1">Base (primer km)</span>
               <span className="text-text-main text-sm font-medium">${baseRate.toLocaleString('es-CO')}</span>
             </div>
             <div>
-              <span className="text-xs text-text-muted block mb-1">Cada km extra</span>
+              <span className="text-xs text-text-secondary block mb-1">Cada km extra</span>
               <span className="text-text-main text-sm font-medium">${perKm.toLocaleString('es-CO')}</span>
             </div>
           </div>
         </div>
 
         <div className="lg:col-span-5 lg:border-l lg:border-border lg:pl-12">
-          <span className="text-xs text-text-muted">Total a pagar por el envío</span>
+          <span className="text-xs text-text-secondary">Total a pagar por el envío</span>
           <div className="flex items-baseline gap-2 mt-1">
-            <span className="text-4xl font-bold tracking-tight tabular-nums text-text-main">
+            <span className="text-2xl font-semibold tabular-nums text-text-main">
               ${totalCharge.toLocaleString('es-CO')}
             </span>
-            <span className="text-xs text-primary font-medium">COP</span>
+            <span className="text-xs text-primary-text font-medium">COP</span>
           </div>
 
           <div className="mt-8 space-y-4">
@@ -84,7 +85,7 @@ export default function DeliverySimulator() {
                     onClick={() => setTip(val)}
                     className={`px-2.5 py-1 text-xs font-medium rounded-sm transition-colors ${
                       tip === val
-                        ? 'bg-primary text-bg'
+                        ? 'bg-primary text-text-main'
                         : 'text-text-secondary hover:text-text-main'
                     }`}
                   >
@@ -95,8 +96,11 @@ export default function DeliverySimulator() {
             </div>
           </div>
 
-          <p className="mt-8 text-xs text-text-muted leading-relaxed">
+          <p className="mt-8 text-xs text-text-secondary leading-relaxed">
             La propina que elijas llega completa al domiciliario, sin descuentos.
+          </p>
+          <p className="mt-3 text-sm text-text-secondary leading-relaxed">
+            Ejemplo de cálculo. La tarifa final depende de la zona y se confirma en la app antes de pagar.
           </p>
         </div>
       </div>

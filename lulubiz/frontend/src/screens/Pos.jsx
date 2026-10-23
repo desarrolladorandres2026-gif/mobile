@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ItemPicker } from '../components/ItemPicker.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { formatPercent } from '../lib/invoicing.js';
@@ -237,7 +237,7 @@ function SaleForm({ register, rates, onSold }) {
                         )}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">{preview ? formatAmount(preview.total, currency) : ''}</td>
-                      <td className="px-2 py-2"><TextButton danger onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</TextButton></td>
+                      <td className="px-2 py-2"><DeleteButton onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</DeleteButton></td>
                     </tr>
                   );
                 })

@@ -334,7 +334,7 @@ export function createFixedAssetService({ client, db, ledger, accounts, now = ()
       const active = await assetsOf(tenantId).find({ status: 'active', currency: cur }).toArray();
       const wanted = new Map();
       const add = (code, field, amount) => {
-        const row = wanted.get(code) ?? { code, assets: 0, accumulated: 0 };
+        const row = wanted.get(code) ?? { code, assets: 0, accumulated: 0, kind: field === 'assets' ? 'cost' : 'accumulated' };
         row[field] += amount;
         wanted.set(code, row);
       };
@@ -353,7 +353,7 @@ export function createFixedAssetService({ client, db, ledger, accounts, now = ()
       const lines = [...wanted.values()].map((row) => {
         // Una cuenta de activo suma por el débito; la depreciación acumulada, por el crédito.
         const ledgerCost = net.get(row.code) ?? 0;
-        const isAccumulated = row.accumulated > 0 && row.assets === 0;
+        const isAccumulated = row.kind === 'accumulated';
         const subledger = isAccumulated ? row.accumulated : row.assets;
         const ledgerBalance = isAccumulated ? 0 - ledgerCost : ledgerCost;
         return { code: row.code, name: named.get(row.code) ?? null, kind: isAccumulated ? 'accumulated' : 'cost', subledger, ledger: ledgerBalance, difference: ledgerBalance - subledger };

@@ -8,7 +8,7 @@ Plataforma de domicilios. Monorepo con seis aplicaciones:
 | [mobile/](mobile/) | App de clientes y domiciliarios | Expo Router 55 · React Native · Zustand · React Query | `8081` |
 | [business/](business/) | Panel de comercios | Vite · React 19 · Tailwind 4 | `3002` |
 | [admin/](admin/) | Panel de administración | Vite · React 19 · Tailwind 4 · Recharts | `3001` |
-| [web/](web/) | Sitio público (landing) | Vite · React 19 · Tailwind 4 | `3003` |
+| [web/](web/) | Sitio público y cliente web de pedidos | Vite · React 19 · Tailwind 4 | `3003` |
 | [desktop/](desktop/) | Zipp Negocios: contenedor de escritorio de `business/` para Windows | Electron · TypeScript | — |
 
 ---
@@ -78,9 +78,31 @@ Ambos leen `VITE_API_URL` (por defecto `http://localhost:3000/api/v1`).
 cd web && npm install && npm run dev          # http://localhost:3003
 ```
 
-Es la landing de ZIPP: explica el producto y enlaza al portal de comercios.
-No habla con el backend — el único dato externo que usa es la URL de ese
-portal, en `VITE_BUSINESS_URL` (por defecto `http://localhost:3002`).
+Es el sitio de ZIPP y un cliente completo del producto: catálogo por ciudad, cuenta
+(celular, Google, 2FA), carrito, pedido con efectivo o pago en línea por Wompi,
+historial y seguimiento con mapa en tiempo real. Además tiene soporte sin sesión
+(`/soporte`), solicitud de comercio y de repartidor (`/unete-comercio`,
+`/repartidores`), el Centro legal completo y `/eliminar-cuenta` (la URL pública
+que pide Google Play).
+
+Variables (`web/.env.example`): `VITE_API_URL`, `VITE_SOCKET_URL`,
+`VITE_BUSINESS_URL` y `VITE_GOOGLE_CLIENT_ID` (vacío = sin botón de Google).
+
+Decisiones que conviene conocer:
+
+- **Todo el dinero lo calcula el servidor.** El carrito guarda precios solo para
+  mostrar; cada total sale de `POST /orders/quote`.
+- **Sesión:** el access token vive en memoria y el refresh token en `localStorage`
+  (`web/src/lib/session.ts`). Es una decisión consciente frente a la cookie
+  httpOnly; la mitigación es la CSP de `deploy/nginx/csp-web.conf`, que arranca en
+  solo-informe y debe pasarse a bloqueo tras recorrer el sitio.
+- **Pago en línea** por redirección al Web Checkout de Wompi: la tarjeta nunca
+  pasa por este sitio. El pago nativo en el navegador (tokenizar tarjeta aquí)
+  está sin hacer a propósito: ampliaría el alcance PCI a SAQ A-EP y exige la CSP
+  en modo bloqueo antes.
+- **CORS:** el origen de `WEB_URL` entra en `config.cors.origins` del backend
+  (fetch, Socket.IO y `redirectUrl` de pago).
+- **Pruebas:** `cd web && npm test` (vitest).
 
 ---
 
@@ -168,7 +190,7 @@ En el resto de aplicaciones:
 ```bash
 cd admin     && npm run lint && npm run build
 cd business  && npm run lint && npm run build
-cd web       && npm run lint && npm run build
+cd web       && npm run lint && npx tsc -b && npm test && npm run build
 cd mobile    && npm run typecheck && npx expo-doctor
 ```
 

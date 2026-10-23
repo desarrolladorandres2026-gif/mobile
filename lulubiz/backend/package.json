@@ -5,11 +5,14 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.js",
+    "seed:demo": "node --env-file-if-exists=.env src/scripts/seedDemo.js",
+    "dev:user": "node --env-file-if-exists=.env src/scripts/devUser.js",
     "db:setup": "node --env-file-if-exists=.env src/scripts/db-setup.js",
     "bench": "node src/scripts/bench.js",
     "test": "vitest run",
     "verify": "node --env-file-if-exists=.env src/scripts/verify.js",
-    "recurring": "node --env-file-if-exists=.env src/scripts/recurring.js"
+    "recurring": "node --env-file-if-exists=.env src/scripts/recurring.js",
+    "tenant:delete": "node --env-file-if-exists=.env src/scripts/delete-tenant.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",

@@ -416,6 +416,8 @@ export interface IOrder extends Document {
   itemShortage?: IItemShortage;
   city: string;
   idempotencyKey?: string;
+  /** sha256 de lo pedido (ver `hashOrderPayload`). Ausente en pedidos anteriores al control. */
+  idempotencyHash?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -748,8 +750,13 @@ const orderSchema = new Schema<IOrder>(
     itemShortage: { type: itemShortageSchema, default: undefined },
     city: { type: String, default: 'Garzón' },
     idempotencyKey: { type: String, unique: true, sparse: true },
+    idempotencyHash: { type: String, select: false },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    // La huella de idempotencia es interna: no sale en ninguna respuesta.
+    toJSON: { transform: (_doc, ret) => { delete (ret as Record<string, unknown>).idempotencyHash; return ret; } },
+  }
 );
 
 orderSchema.pre('save', async function (next) {

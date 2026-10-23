@@ -261,7 +261,46 @@ async function fixedAssetsAreConsistent(db, tenantId) {
   return { name, ok: problems.length === 0, detail: problems.length ? `${problems.length} activos: ${sample(problems, 3).join('; ')}` : `${assets.length} activos revisados.` };
 }
 
-const CHECKS = [balancesMatchJournals, journalsBalanced, consecutives, stockMatchesKardex, inventoryMatchesLedger, documentsHaveJournals, openShiftsMatchSales, closedYearsAreZero, advancesMatchApplications, dimensionsMatchJournals, bankMatchesAreConsistent, fixedAssetsAreConsistent];
+async function payrollMatchesJournals(db, tenantId) {
+  const name = 'Cada nómina y prestación liquidada coincide con su asiento';
+  const [runs, benefits, terminations] = await Promise.all([
+    db.collection(COLLECTIONS.payrollRuns).find({ tenantId, status: 'posted' }).toArray(),
+    db.collection(COLLECTIONS.payrollBenefits).find({ tenantId, status: 'posted' }).toArray(),
+    db.collection(COLLECTIONS.payrollTerminations).find({ tenantId, status: 'posted' }).toArray(),
+  ]);
+  if (!runs.length && !benefits.length && !terminations.length) return { name, ok: true, detail: 'No hay nóminas.' };
+  const ids = [...runs.flatMap((r) => [r.journalId, r.payment?.journalId, r.contributionsPayment?.journalId]), ...benefits.flatMap((b) => [b.journalId, b.payment?.journalId]), ...terminations.flatMap((t) => [t.journalId, t.payment?.journalId])].filter(Boolean);
+  const journals = new Map((await db.collection(COLLECTIONS.journals).find({ tenantId, _id: { $in: ids } }, { projection: { totalDebit: 1 } }).toArray()).map((j) => [String(j._id), j]));
+  const sum = (list, pick) => list.reduce((acc, item) => acc + pick(item), 0);
+  const problems = [];
+  for (const r of runs) {
+    const label = `nómina ${r.period}`;
+    const journal = journals.get(String(r.journalId));
+    if (!journal) problems.push(`${label}: no tiene asiento`);
+    else if (journal.totalDebit !== r.totals.gross + r.totals.employerTotal + r.totals.provisionsTotal) problems.push(`${label}: el asiento no coincide con los totales`);
+    if (sum(r.items, (i) => i.net) !== r.totals.net || sum(r.items, (i) => i.gross) !== r.totals.gross) problems.push(`${label}: los empleados no suman los totales`);
+    if (r.payment && (!journals.has(String(r.payment.journalId)) || r.payment.total !== r.totals.net)) problems.push(`${label}: el pago no coincide`);
+    if (r.contributionsPayment && !journals.has(String(r.contributionsPayment.journalId))) problems.push(`${label}: el pago de aportes no tiene asiento`);
+  }
+  for (const b of benefits) {
+    const label = `${b.kind} ${b.label}`;
+    const journal = journals.get(String(b.journalId));
+    const owed = sum(b.items, (i) => i.amount + (i.interest ?? 0));
+    if (!journal) problems.push(`${label}: no tiene asiento`);
+    else if (owed !== b.total) problems.push(`${label}: los empleados no suman el total`);
+    if (b.payment && (!journals.has(String(b.payment.journalId)) || b.payment.total !== b.total)) problems.push(`${label}: el pago no coincide`);
+  }
+  for (const t of terminations) {
+    const label = `liquidación de ${t.employee?.name}`;
+    if (!journals.has(String(t.journalId))) problems.push(`${label}: no tiene asiento`);
+    const gross = t.lines.prima.amount + t.lines.cesantias.amount + t.lines.interest.amount + t.lines.vacations.amount + t.lines.severance.amount;
+    if (gross !== t.gross || t.gross - t.withholding !== t.net) problems.push(`${label}: los renglones no suman el total`);
+    if (t.payment && (!journals.has(String(t.payment.journalId)) || t.payment.total !== t.net)) problems.push(`${label}: el pago no coincide`);
+  }
+  return { name, ok: problems.length === 0, detail: problems.length ? `${problems.length} diferencias: ${sample(problems, 3).join('; ')}` : `${runs.length} nóminas, ${benefits.length} prestaciones y ${terminations.length} liquidaciones de contrato revisadas.` };
+}
+
+const CHECKS = [balancesMatchJournals, journalsBalanced, consecutives, stockMatchesKardex, inventoryMatchesLedger, documentsHaveJournals, openShiftsMatchSales, closedYearsAreZero, advancesMatchApplications, dimensionsMatchJournals, bankMatchesAreConsistent, fixedAssetsAreConsistent, payrollMatchesJournals];
 
 /** Revisa una empresa (o todas, si no se indica). Una comprobación que falla por un error propio cuenta como no superada. */
 export async function verifyIntegrity(db, { tenantId } = {}) {

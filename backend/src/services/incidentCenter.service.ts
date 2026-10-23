@@ -1,6 +1,7 @@
 import {
   CashPaymentIncident, SosAlert, SosStatus, Pqrs, Order, DataRequest, Payout,
   CashReconciliation, BusinessDocument, DriverDocument, Advertisement, AdInvoice, Refund, Payment,
+  ContactRequest, PartnerApplication,
 } from '../models';
 import { AdApprovalStatus } from '../models/Advertisement';
 import {
@@ -31,6 +32,8 @@ export const INCIDENT_PERMISSION: Record<string, Permission> = {
   payment_review: Permission.REFUNDS_VIEW,
   order_unaccepted: Permission.ORDERS_VIEW_ALL,
   refund_requested: Permission.REFUNDS_CREATE,
+  contact_request_new: Permission.SUPPORT_VIEW,
+  partner_application_new: Permission.SUPPORT_VIEW,
 };
 
 /** `allows(permiso)`: normalmente `(p) => can(req, p)`. Sin él, se niega todo (falla cerrado): quien quiera todo debe decirlo con `() => true`. */
@@ -52,7 +55,7 @@ export type PermissionCheck = (permission: Permission) => boolean;
 export type IncidentKind =
   | 'sos' | 'fraud' | 'cash' | 'complaint' | 'stalled_order' | 'pqrs_legal' | 'data_request_legal' | 'clawback_overdue'
   | 'unassigned_order' | 'cash_overdue' | 'business_document_expiring' | 'driver_document_expiring' | 'ad_uninvoiced' | 'refund_failed'
-  | 'payment_review' | 'order_unaccepted' | 'refund_requested';
+  | 'payment_review' | 'order_unaccepted' | 'refund_requested' | 'contact_request_new' | 'partner_application_new';
 export type IncidentSeverity = 'critical' | 'high' | 'medium';
 
 export interface Incident {
@@ -82,6 +85,9 @@ const UNASSIGNED_AFTER_MS = 10 * 60 * 1000;
 /** Cuántos días antes de caducar un documento aprobado entra a la bandeja. */
 const DOCUMENT_EXPIRY_WINDOW_DAYS = 15;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Id fijo de las alertas agregadas (una por tipo, con conteo): la clave exige 24 hex. */
+const AGGREGATE_ID = '000000000000000000000000';
 
 const makeKey = (kind: IncidentKind, id: string, stage: string) => `${kind}:${id}:${stage}`;
 
@@ -149,7 +155,7 @@ export class IncidentCenterService {
     const [
       sos, fraud, cash, complaints, stalled, legalPqrs, legalDataRequests, overdueClawbacks,
       unassigned, cashOverdue, businessDocs, driverDocs, endedAds, failedRefunds,
-      paymentsOnHold, unaccepted, refundRequests,
+      paymentsOnHold, unaccepted, refundRequests, newContacts, newPartners,
     ] = await Promise.all([
       gated('sos', () =>
         SosAlert.find({ status: { $in: [SosStatus.ACTIVE, SosStatus.ACKNOWLEDGED] } })
@@ -357,6 +363,24 @@ export class IncidentCenterService {
           .select('subject orderId userId businessId refundRequest')
           .lean()
       ),
+
+      // Mensajes del formulario público sin atender: UNA alerta con el conteo.
+      // La clave lleva el conteo (`c<N>`), así que si llegan más vuelve a contar como "sin ver".
+      gated('contact_request_new', async () => {
+        const [count, oldest] = await Promise.all([
+          ContactRequest.countDocuments({ status: 'new' }),
+          ContactRequest.findOne({ status: 'new' }).sort({ createdAt: 1 }).select('createdAt').lean(),
+        ]);
+        return count ? [{ count, at: oldest?.createdAt ?? new Date() }] : [];
+      }),
+
+      gated('partner_application_new', async () => {
+        const [count, oldest] = await Promise.all([
+          PartnerApplication.countDocuments({ status: 'new' }),
+          PartnerApplication.findOne({ status: 'new' }).sort({ createdAt: 1 }).select('createdAt').lean(),
+        ]);
+        return count ? [{ count, at: oldest?.createdAt ?? new Date() }] : [];
+      }),
     ]);
 
     const incidents: Incident[] = [
@@ -593,6 +617,26 @@ export class IncidentCenterService {
         userId: String(p.userId),
         orderId: p.orderId ? String(p.orderId) : undefined,
         businessId: p.businessId ? String(p.businessId) : undefined,
+      })),
+
+      ...newContacts.map((c: any) => ({
+        kind: 'contact_request_new' as const,
+        severity: 'medium' as IncidentSeverity,
+        id: AGGREGATE_ID,
+        key: makeKey('contact_request_new', AGGREGATE_ID, `c${c.count}`),
+        title: c.count === 1 ? 'Mensaje nuevo del sitio web' : 'Mensajes nuevos del sitio web',
+        detail: `${c.count} sin atender en el formulario de contacto`,
+        at: c.at,
+      })),
+
+      ...newPartners.map((c: any) => ({
+        kind: 'partner_application_new' as const,
+        severity: 'medium' as IncidentSeverity,
+        id: AGGREGATE_ID,
+        key: makeKey('partner_application_new', AGGREGATE_ID, `c${c.count}`),
+        title: c.count === 1 ? 'Solicitud nueva de aliado' : 'Solicitudes nuevas de aliados',
+        detail: `${c.count} solicitud${c.count === 1 ? '' : 'es'} de comercio o repartidor por revisar`,
+        at: c.at,
       })),
     ];
 

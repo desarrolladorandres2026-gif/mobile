@@ -5,7 +5,7 @@ import { formatAmount, parseAmount } from './money.js';
  * se escribió por factura (clave: id). Una factura sin texto no se cobra. Nada se redondea: un importe con más
  * decimales de los que admite la moneda es un error, no un cobro de otro valor.
  */
-export function validateReceipt({ partyId, date, depositAccount, invoices, amounts, currency }) {
+export function validateReceipt({ partyId, date, depositAccount, invoices, amounts, currency, withholdingRows = [] }) {
   const form = [];
   const rows = {};
   if (!partyId) form.push('Elige el cliente.');
@@ -27,7 +27,19 @@ export function validateReceipt({ partyId, date, depositAccount, invoices, amoun
     }
   }
   if (!Object.keys(rows).length && allocations.length === 0) form.push('Indica cuánto se cobra en al menos una factura.');
-  return { ok: form.length === 0 && Object.keys(rows).length === 0, errors: { form, rows }, allocations, total };
+  const withholdings = [];
+  withholdingRows.forEach((w, i) => {
+    if (!w.name.trim() && !w.accountId.trim() && !w.amount.trim()) return;
+    const where = `Retención ${i + 1}`;
+    const amount = parseAmount(w.amount, currency);
+    if (!w.name.trim()) form.push(`${where}: escribe su nombre.`);
+    else if (!/^\d{1,12}$/.test(w.accountId.trim())) form.push(`${where}: indica la cuenta de activo donde queda a favor.`);
+    else if (amount === null || amount <= 0) form.push(`${where}: valor no válido.`);
+    else withholdings.push({ name: w.name.trim(), accountId: w.accountId.trim(), amount });
+  });
+  const withheld = withholdings.reduce((acc, w) => acc + w.amount, 0);
+  if (withheld > 0 && total > 0 && withheld >= total) form.push('Las retenciones deben ser menores que el cobro: algo tiene que entrar a caja o bancos.');
+  return { ok: form.length === 0 && Object.keys(rows).length === 0, errors: { form, rows }, allocations, total, withholdings, withheld, received: total - withheld };
 }
 
 /** Texto de un importe en unidades menores para rellenar un campo: "1.190.000,50". */

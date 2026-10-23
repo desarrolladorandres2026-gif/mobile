@@ -7,9 +7,18 @@ import { ObjectId } from 'mongodb';
 import { createAccountService } from '../accounts/accounts.js';
 import { createAdvancesService } from '../advances/advances.js';
 import { createBankService } from '../bank/bank.js';
+import { createBenefitsService } from '../payroll/benefits.js';
+import { createPayrollService } from '../payroll/payroll.js';
+import { createPayrollReports } from '../payroll/reports.js';
+import { createTerminationService } from '../payroll/terminations.js';
+import { createTaxService } from '../taxes/taxes.js';
+import { createBudgetService } from '../budgets/budgets.js';
+import { createCashFlowReport } from '../reports/cashflow.js';
 import { createFixedAssetService } from '../fixedAssets/fixedAssets.js';
 import { createCommercialService } from '../commercial/commercial.js';
+import { Readable } from 'node:stream';
 import { createAuditService } from '../audit/audit.js';
+import { createExportService } from '../exporting/tenantExport.js';
 import { createYearEndService } from '../closing/yearEnd.js';
 import { createCostCenterService } from '../costCenters/costCenters.js';
 import { GRANTABLE_SCOPES, createApiKeyService } from '../auth/apiKeys.js';
@@ -121,6 +130,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
   const yearEnd = createYearEndService({ client, db, ledger, accounts, ...(now ? { now } : {}) });
   const metrics = createMetrics();
   const settingsService = createSettingsService(client, db, accounts);
+  const exporter = createExportService({ db, ...(now ? { now } : {}) });
   const resolutionService = createResolutionService(client, db);
   const provider = invoicingProvider !== undefined ? invoicingProvider : config.invoicingProvider === 'sandbox' ? createSandboxProvider() : null;
   const inventory = createInventoryService({ client, db, ledger, accounts });
@@ -133,6 +143,13 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
   const payables = createPayablesService({ db, ledger, accounts, parties });
   const commercial = createCommercialService({ db, invoicing, purchases, parties, ...(now ? { now } : {}) });
   app.decorate('commercial', commercial);
+  const budgets = createBudgetService({ db, accounts, ...(now ? { now } : {}) });
+  const cashFlowReport = createCashFlowReport(db, accounts);
+  const payroll = createPayrollService({ client, db, ledger, accounts, ...(now ? { now } : {}) });
+  const benefits = createBenefitsService({ db, ledger, accounts, payroll, ...(now ? { now } : {}) });
+  const payrollReports = createPayrollReports({ db, accounts, payroll });
+  const terminations = createTerminationService({ db, ledger, accounts, payroll, ...(now ? { now } : {}) });
+  const taxes = createTaxService({ db, ledger, accounts, settings: settingsService, ...(now ? { now } : {}) });
   const fixedAssets = createFixedAssetService({ client, db, ledger, accounts, ...(now ? { now } : {}) });
   const onboarding = createOnboardingService({ db, invoicing, purchases });
 
@@ -804,6 +821,11 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
               minItems: 1,
               maxItems: 200,
               items: bodyOf({ invoiceId: OBJECT_ID, amount: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER } }, ['invoiceId', 'amount']),
+            },
+            withholdings: {
+              type: 'array',
+              maxItems: 10,
+              items: bodyOf({ name: { type: 'string', minLength: 1, maxLength: 60 }, accountId: { type: 'string', pattern: '^[0-9]{1,12}$' }, amount: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER } }, ['name', 'accountId', 'amount']),
             },
           },
           ['partyId', 'date', 'depositAccount', 'allocations'],
@@ -1728,6 +1750,289 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     async (request, reply) => reply.status(201).send(await fixedAssets.dispose(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request))),
   );
 
+  // ---- Flujo de efectivo y presupuesto ----
+  app.get(
+    `${base}/reports/cash-flow`,
+    {
+      preValidation: guard('reports:read'),
+      schema: {
+        params: tenantParams,
+        querystring: bodyOf({ from: DAY, to: DAY, currency: { type: 'string', minLength: 3, maxLength: 3 }, cash: { type: 'string', maxLength: 200 }, investing: { type: 'string', maxLength: 200 }, financing: { type: 'string', maxLength: 200 } }, ['from', 'to', 'currency']),
+      },
+    },
+    async (request) => cashFlowReport.cashFlow(request.ctx.tenantId, request.query),
+  );
+  app.get(
+    `${base}/reports/budget-execution`,
+    {
+      preValidation: guard('reports:read'),
+      schema: { params: tenantParams, querystring: bodyOf({ from: PERIOD, to: PERIOD, currency: { type: 'string', minLength: 3, maxLength: 3 }, costCenter: { type: 'string', maxLength: 10 } }, ['from', 'to', 'currency']) },
+    },
+    async (request) => budgets.execution(request.ctx.tenantId, request.query),
+  );
+  const yearParams = { type: 'object', required: ['tenantId', 'year'], properties: { tenantId: OBJECT_ID, year: { type: 'string', pattern: '^[0-9]{4}$' } } };
+  app.get(
+    `${base}/budgets/:year`,
+    { preValidation: guard('reports:read'), schema: { params: yearParams, querystring: bodyOf({ currency: { type: 'string', minLength: 3, maxLength: 3 } }) } },
+    async (request) => budgets.list(request.ctx.tenantId, Number(request.params.year), request.query),
+  );
+  app.put(
+    `${base}/budgets/:year`,
+    {
+      preValidation: guard('budgets:manage'),
+      schema: {
+        params: yearParams,
+        body: bodyOf(
+          {
+            currency: { type: 'string', minLength: 3, maxLength: 3 },
+            lines: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 300,
+              items: bodyOf(
+                { accountId: { type: 'string', pattern: '^[0-9]{1,12}$' }, costCenter: { type: 'string', maxLength: 10 }, months: { type: 'array', minItems: 12, maxItems: 12, items: money53 } },
+                ['accountId', 'months'],
+              ),
+            },
+          },
+          ['lines'],
+        ),
+      },
+    },
+    async (request) => budgets.saveLines(request.ctx.tenantId, Number(request.params.year), request.body, invoicingContext(request)),
+  );
+
+  // ---- Nómina ----
+  const payrollYear = { type: 'object', required: ['tenantId', 'year'], properties: { tenantId: OBJECT_ID, year: { type: 'string', pattern: '^[0-9]{4}$' } } };
+  const rateField = { type: 'integer', minimum: 0, maximum: 10_000 };
+  const novelty = bodyOf(
+    {
+      employeeId: OBJECT_ID,
+      daysWorked: { type: 'integer', minimum: 0, maximum: 30 },
+      salaryExtras: money53,
+      nonSalaryExtras: money53,
+      otherDeductions: money53,
+      withholding: money53,
+    },
+    ['employeeId'],
+  );
+  const runBody = bodyOf({ period: PERIOD, novelties: { type: 'array', maxItems: 500, items: novelty } }, ['period']);
+  app.get(`${base}/payroll/config`, { preValidation: guard('payroll:read'), schema: { params: tenantParams } }, async (request) => payroll.getConfig(request.ctx.tenantId));
+  app.put(
+    `${base}/payroll/config/accounts`,
+    { preValidation: guard('payroll:manage'), schema: { params: tenantParams, body: bodyOf({ accounts: { type: 'object', additionalProperties: { type: 'string', pattern: '^[0-9]{1,12}$' }, maxProperties: 40 } }, ['accounts']) } },
+    async (request) => payroll.saveAccounts(request.ctx.tenantId, request.body, invoicingContext(request)),
+  );
+  app.put(
+    `${base}/payroll/config/years/:year`,
+    {
+      preValidation: guard('payroll:manage'),
+      schema: {
+        params: payrollYear,
+        body: bodyOf(
+          {
+            params: bodyOf(
+              {
+                smmlv: money53,
+                transportAid: money53,
+                uvt: money53,
+                exonerated: { type: 'boolean' },
+                withholding: { type: 'boolean' },
+                aidLimitSmmlv: { type: 'integer', minimum: 1, maximum: 10 },
+                ibcMaxSmmlv: { type: 'integer', minimum: 1, maximum: 100 },
+                integralMinSmmlv: { type: 'integer', minimum: 1, maximum: 100 },
+                rates: bodyOf({ employeeHealth: rateField, employeePension: rateField, employerHealth: rateField, employerPension: rateField, caja: rateField, sena: rateField, icbf: rateField, cesantias: rateField, cesantiasInterest: rateField, prima: rateField, vacations: rateField }),
+                arl: { type: 'array', minItems: 5, maxItems: 5, items: { type: 'integer', minimum: 0, maximum: 100_000 } },
+                solidarity: { type: 'array', maxItems: 12, items: bodyOf({ fromSmmlv: { type: 'integer', minimum: 1, maximum: 100 }, rateBps: rateField }, ['fromSmmlv', 'rateBps']) },
+              },
+              ['smmlv', 'transportAid', 'uvt'],
+            ),
+          },
+          ['params'],
+        ),
+      },
+    },
+    async (request) => payroll.saveParams(request.ctx.tenantId, request.params.year, request.body, invoicingContext(request)),
+  );
+  const employeeFields = {
+    name: { type: 'string', minLength: 1, maxLength: 200 },
+    baseSalary: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+    salaryType: { type: 'string', enum: ['ordinary', 'integral'] },
+    contractType: { type: 'string', enum: ['indefinite', 'fixed', 'service'] },
+    transportAid: { type: 'boolean' },
+    arlRiskLevel: { type: 'integer', minimum: 1, maximum: 5 },
+    costCenter: { type: 'string', maxLength: 10 },
+    position: { type: 'string', maxLength: 100 },
+    email: { type: 'string', maxLength: 200 },
+  };
+  app.get(
+    `${base}/payroll/employees`,
+    { preValidation: guard('payroll:read'), schema: { params: tenantParams, querystring: bodyOf({ active: { type: 'string', enum: ['true', 'false'] }, ...pageQuery }) } },
+    async (request) => payroll.listEmployees(request.ctx.tenantId, request.query),
+  );
+  app.post(
+    `${base}/payroll/employees`,
+    {
+      preValidation: guard('payroll:manage'),
+      schema: {
+        params: tenantParams,
+        body: bodyOf({ ...employeeFields, documentType: { type: 'string', enum: ['CC', 'CE', 'TI', 'PASSPORT', 'PEP', 'PPT'] }, documentNumber: { type: 'string', minLength: 1, maxLength: 20 }, hireDate: DAY, endDate: DAY }, ['documentType', 'documentNumber', 'name', 'hireDate', 'baseSalary']),
+      },
+    },
+    async (request, reply) => reply.status(201).send(await payroll.createEmployee(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.get(`${base}/payroll/employees/:id`, { preValidation: guard('payroll:read'), schema: { params: idParams } }, async (request) => found(await payroll.getEmployee(request.ctx.tenantId, request.params.id), 'el empleado'));
+  app.patch(
+    `${base}/payroll/employees/:id`,
+    {
+      preValidation: guard('payroll:manage'),
+      schema: { params: idParams, body: bodyOf({ ...employeeFields, active: { type: 'boolean' }, endDate: { type: 'string', pattern: '^([0-9]{4}-[0-9]{2}-[0-9]{2})?$' } }) },
+    },
+    async (request) => payroll.updateEmployee(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request)),
+  );
+  app.post(`${base}/payroll/preview`, { preValidation: guard('payroll:read'), schema: { params: tenantParams, body: runBody } }, async (request) => payroll.preview(request.ctx.tenantId, request.body));
+  app.get(
+    `${base}/payroll/runs`,
+    { preValidation: guard('payroll:read'), schema: { params: tenantParams, querystring: bodyOf({ ...pageQuery }) } },
+    async (request) => payroll.listRuns(request.ctx.tenantId, request.query),
+  );
+  app.post(
+    `${base}/payroll/runs`,
+    { preValidation: guard('payroll:manage'), schema: { params: tenantParams, headers: idempotencyHeader, body: runBody } },
+    async (request, reply) => {
+      const result = await payroll.createRun(request.ctx.tenantId, request.body, invoicingContext(request));
+      return reply.status(result.replayed ? 200 : 201).send(result);
+    },
+  );
+  app.get(`${base}/payroll/runs/:id`, { preValidation: guard('payroll:read'), schema: { params: idParams } }, async (request) => found(await payroll.getRun(request.ctx.tenantId, request.params.id), 'la corrida'));
+  app.post(`${base}/payroll/runs/:id/void`, { preValidation: guard('payroll:manage'), schema: { params: idParams } }, async (request) => payroll.voidRun(request.ctx.tenantId, request.params.id, invoicingContext(request)));
+  for (const [path, method] of [['pay', 'pay'], ['pay-contributions', 'payContributions']]) {
+    app.post(
+      `${base}/payroll/runs/:id/${path}`,
+      { preValidation: guard('payroll:manage'), schema: { params: idParams, body: bodyOf({ date: DAY, account: { type: 'string', pattern: '^[0-9]{1,12}$' } }, ['date', 'account']) } },
+      async (request) => payroll[method](request.ctx.tenantId, request.params.id, request.body, invoicingContext(request)),
+    );
+  }
+
+  // Prestaciones sociales: prima y cesantías.
+  const benefitKind = { type: 'string', enum: ['prima', 'cesantias'] };
+  const benefitLabel = { type: 'string', pattern: '^[0-9]{4}(-[12])?$' };
+  app.post(
+    `${base}/payroll/benefits/preview`,
+    { preValidation: guard('payroll:read'), schema: { params: tenantParams, body: bodyOf({ kind: benefitKind, label: benefitLabel }, ['kind', 'label']) } },
+    async (request) => benefits.preview(request.ctx.tenantId, request.body),
+  );
+  app.post(
+    `${base}/payroll/benefits`,
+    { preValidation: guard('payroll:manage'), schema: { params: tenantParams, body: bodyOf({ kind: benefitKind, label: benefitLabel }, ['kind', 'label']) } },
+    async (request, reply) => reply.status(201).send(await benefits.settle(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.get(
+    `${base}/payroll/benefits`,
+    { preValidation: guard('payroll:read'), schema: { params: tenantParams, querystring: bodyOf({ limit: { type: 'string', pattern: '^[0-9]{1,3}$' } }) } },
+    async (request) => benefits.list(request.ctx.tenantId, request.query),
+  );
+  app.get(`${base}/payroll/benefits/:id`, { preValidation: guard('payroll:read'), schema: { params: idParams } }, async (request) => found(await benefits.get(request.ctx.tenantId, request.params.id), 'la liquidación'));
+  app.post(
+    `${base}/payroll/benefits/:id/pay`,
+    { preValidation: guard('payroll:manage'), schema: { params: idParams, body: bodyOf({ date: DAY, account: { type: 'string', pattern: '^[0-9]{1,12}$' } }, ['date', 'account']) } },
+    async (request) => benefits.pay(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request)),
+  );
+
+  // Reportes de nómina.
+  app.get(
+    `${base}/payroll/reports/contributions`,
+    { preValidation: guard('payroll:read'), schema: { params: tenantParams, querystring: bodyOf({ from: PERIOD, to: PERIOD }, ['from', 'to']) } },
+    async (request) => payrollReports.contributions(request.ctx.tenantId, request.query),
+  );
+  app.get(`${base}/payroll/reports/provisions`, { preValidation: guard('payroll:read'), schema: { params: tenantParams } }, async (request) => payrollReports.provisions(request.ctx.tenantId));
+  app.get(
+    `${base}/payroll/runs/:id/payslips/:employeeId`,
+    { preValidation: guard('payroll:read'), schema: { params: { type: 'object', required: ['tenantId', 'id', 'employeeId'], properties: { tenantId: OBJECT_ID, id: OBJECT_ID, employeeId: OBJECT_ID } } } },
+    async (request) => payrollReports.payslip(request.ctx.tenantId, request.params.id, request.params.employeeId),
+  );
+
+  // Liquidación de contrato.
+  const terminationBody = bodyOf(
+    {
+      employeeId: OBJECT_ID,
+      endDate: DAY,
+      vacationDaysPending: { type: 'number', minimum: 0, maximum: 400 },
+      severance: money53,
+      withholding: money53,
+    },
+    ['employeeId', 'endDate'],
+  );
+  app.post(`${base}/payroll/terminations/preview`, { preValidation: guard('payroll:read'), schema: { params: tenantParams, body: terminationBody } }, async (request) =>
+    terminations.preview(request.ctx.tenantId, request.body),
+  );
+  app.post(
+    `${base}/payroll/terminations`,
+    { preValidation: guard('payroll:manage'), schema: { params: tenantParams, body: terminationBody } },
+    async (request, reply) => reply.status(201).send(await terminations.settle(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.get(
+    `${base}/payroll/terminations`,
+    { preValidation: guard('payroll:read'), schema: { params: tenantParams, querystring: bodyOf({ limit: { type: 'string', pattern: '^[0-9]{1,3}$' } }) } },
+    async (request) => terminations.list(request.ctx.tenantId, request.query),
+  );
+  app.get(`${base}/payroll/terminations/:id`, { preValidation: guard('payroll:read'), schema: { params: idParams } }, async (request) => found(await terminations.get(request.ctx.tenantId, request.params.id), 'la liquidación'));
+  app.post(
+    `${base}/payroll/terminations/:id/pay`,
+    { preValidation: guard('payroll:manage'), schema: { params: idParams, body: bodyOf({ date: DAY, account: { type: 'string', pattern: '^[0-9]{1,12}$' } }, ['date', 'account']) } },
+    async (request) => terminations.pay(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request)),
+  );
+  app.post(`${base}/payroll/terminations/:id/void`, { preValidation: guard('payroll:manage'), schema: { params: idParams } }, async (request) =>
+    terminations.void(request.ctx.tenantId, request.params.id, invoicingContext(request)),
+  );
+
+  // ---- Impuestos ----
+  const taxRange = { from: DAY, to: DAY, currency: { type: 'string', minLength: 3, maxLength: 3 } };
+  app.get(`${base}/reports/vat`, { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bodyOf(taxRange, ['from', 'to', 'currency']) } }, async (request) => taxes.vat(request.ctx.tenantId, request.query));
+  app.get(
+    `${base}/reports/exogena`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bodyOf({ year: { type: 'string', pattern: '^[0-9]{4}$' }, currency: { type: 'string', minLength: 3, maxLength: 3 }, minAmount: { type: 'string', pattern: '^[0-9]{1,15}$' } }, ['year', 'currency']) } },
+    async (request) => taxes.exogena(request.ctx.tenantId, { ...request.query, minAmount: Number(request.query.minAmount ?? 0) }),
+  );
+  app.get(
+    `${base}/reports/ica`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bodyOf({ ...taxRange, ratePpm: { type: 'string', pattern: '^[0-9]{1,6}$' }, excludeAccounts: { type: 'string', pattern: '^[0-9,]{0,200}$' } }, ['from', 'to', 'currency', 'ratePpm']) } },
+    async (request) => {
+      const { ratePpm, excludeAccounts, ...rest } = request.query;
+      return taxes.ica(request.ctx.tenantId, { ...rest, ratePpm: Number(ratePpm), excludeAccounts: (excludeAccounts ?? '').split(',').filter(Boolean) });
+    },
+  );
+  app.get(
+    `${base}/reports/withholdings`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bodyOf({ ...taxRange, supplierId: OBJECT_ID }, ['from', 'to', 'currency']) } },
+    async (request) => taxes.withholdings(request.ctx.tenantId, request.query),
+  );
+  app.get(
+    `${base}/reports/withholdings-suffered`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bodyOf({ ...taxRange, customerId: OBJECT_ID }, ['from', 'to', 'currency']) } },
+    async (request) => taxes.withholdingsSuffered(request.ctx.tenantId, request.query),
+  );
+  app.get(
+    `${base}/reports/withholding-certificate`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bodyOf({ supplierId: OBJECT_ID, year: { type: 'string', pattern: '^[0-9]{4}$' }, currency: { type: 'string', minLength: 3, maxLength: 3 } }, ['supplierId', 'year', 'currency']) } },
+    async (request) => taxes.certificate(request.ctx.tenantId, request.query),
+  );
+  app.get(`${base}/taxes/vat-close/preview`, { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bodyOf(taxRange, ['from', 'to', 'currency']) } }, async (request) => taxes.previewClose(request.ctx.tenantId, request.query));
+  app.get(
+    `${base}/taxes/vat-closes`,
+    { preValidation: guard('reports:read'), schema: { params: tenantParams, querystring: bodyOf({ limit: { type: 'string', pattern: '^[0-9]{1,3}$' } }) } },
+    async (request) => taxes.listCloses(request.ctx.tenantId, request.query),
+  );
+  app.post(
+    `${base}/taxes/vat-closes`,
+    {
+      preValidation: guard('taxes:manage'),
+      schema: { params: tenantParams, body: bodyOf({ ...taxRange, dueAccount: { type: 'string', pattern: '^[0-9]{1,12}$' }, creditAccount: { type: 'string', pattern: '^[0-9]{1,12}$' } }, ['from', 'to', 'currency']) },
+    },
+    async (request, reply) => reply.status(201).send(await taxes.close(request.ctx.tenantId, request.body, invoicingContext(request))),
+  );
+  app.post(`${base}/taxes/vat-closes/:id/void`, { preValidation: guard('taxes:manage'), schema: { params: idParams } }, async (request) => taxes.voidClose(request.ctx.tenantId, request.params.id, invoicingContext(request)));
+
   // ---- Reportes contables ----
   const CURRENCY = { type: 'string', minLength: 3, maxLength: 3 };
   const reportRoute = (path, query, required, run) =>
@@ -1917,6 +2222,32 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
   app.get(`${base}/invoicing/settings`, { preValidation: guard('invoices:read'), schema: { params: tenantParams } }, async (request) => ({
     settings: await settingsService.get(request.ctx.tenantId),
   }));
+
+  app.put(
+    `${base}/invoicing/withholding-presets`,
+    {
+      preValidation: guard('settings:manage'),
+      schema: {
+        params: tenantParams,
+        body: bodyOf(
+          {
+            presets: {
+              type: 'array',
+              maxItems: 20,
+              items: bodyOf(
+                { name: { type: 'string', maxLength: 60 }, accountId: { type: 'string', maxLength: 12 }, basis: { type: 'string', maxLength: 10 }, rateBps: { type: 'integer', minimum: 1, maximum: 10000 } },
+                ['name', 'accountId', 'basis', 'rateBps'],
+              ),
+            },
+          },
+          ['presets'],
+        ),
+      },
+    },
+    async (request) => ({
+      presets: await settingsService.saveWithholdingPresets(request.ctx.tenantId, request.body.presets, { inTx: tx(request, 'invoicing.withholding_presets_update', (r) => r) }),
+    }),
+  );
 
   app.put(
     `${base}/invoicing/settings`,
@@ -2178,6 +2509,24 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
       return auditLog.list(request.ctx.tenantId, { ...(limit ? { limit: Number(limit) } : {}), ...(cursor ? { cursor } : {}) });
     },
   );
+
+  // ---- Datos de la empresa ----
+  // Solo el propietario (`tenant:manage`); las claves de API no pueden tener ese permiso. Queda en la auditoría.
+  app.get(`${base}/export`, { preValidation: guard('tenant:manage'), schema: { params: tenantParams } }, async (request, reply) => {
+    const { lines, release } = exporter.start(request.ctx.tenantId);
+    try {
+      await auditLog.record({ tenantId: request.ctx.tenantId, userId: request.ctx.userId, action: 'tenant.export', ip: request.ip, requestId: request.id });
+    } catch (error) {
+      release();
+      throw error;
+    }
+    reply.raw.on('close', release);
+    const day = new Date().toISOString().slice(0, 10);
+    return reply
+      .header('content-type', 'application/x-ndjson; charset=utf-8')
+      .header('content-disposition', `attachment; filename="lulubiz-${request.ctx.tenantId}-${day}.ndjson"`)
+      .send(Readable.from(lines));
+  });
 
   return app;
 }

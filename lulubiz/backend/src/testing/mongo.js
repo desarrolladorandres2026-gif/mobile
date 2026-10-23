@@ -1,6 +1,9 @@
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { MongoClient } from 'mongodb';
 
+/** En equipos lentos el arranque de mongod pasa de los 10 s por omisión (la recolección de diagnóstico tarda). */
+const SLOW_START = { launchTimeout: 60_000, args: ['--setParameter', 'diagnosticDataCollectionEnabled=false'] };
+
 /**
  * Réplica en memoria con autenticación activada y un usuario administrador. Sirve para probar
  * los permisos reales de la base de datos: `connectAs` abre un cliente con las credenciales dadas.
@@ -10,6 +13,7 @@ export async function startMongoWithAuth() {
   const rootPassword = 'clave-root-de-prueba-1234';
   // `auth` va dentro de `replSet`: al nivel superior se ignora y la base arranca sin autenticación.
   const replSet = await MongoMemoryReplSet.create({
+    instanceOpts: [SLOW_START],
     replSet: { count: 1, auth: { enable: true, customRootName: rootUser, customRootPwd: rootPassword } },
   });
   const uri = replSet.getUri();
@@ -28,7 +32,7 @@ export async function startMongoWithAuth() {
 
 /** Réplica en memoria: las transacciones de MongoDB exigen un conjunto de réplicas. */
 export async function startMongo(dbName = 'lulubiz_test') {
-  const replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+  const replSet = await MongoMemoryReplSet.create({ instanceOpts: [SLOW_START], replSet: { count: 1 } });
   const client = await MongoClient.connect(replSet.getUri());
   return {
     client,

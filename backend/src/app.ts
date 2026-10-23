@@ -17,6 +17,7 @@ import {
 } from './middlewares';
 import routes from './routes';
 import businessShareRoutes from './routes/businessShare.routes';
+import { sitemapController } from './controllers/sitemap.controller';
 import { initializeSocket } from './sockets';
 import { setIO } from './sockets/emitter';
 import { startDispatchSweeper, stopDispatchSweeper } from './services/dispatch.service';
@@ -159,6 +160,9 @@ app.use('/api/v1', routes);
 // `/api/`), así que lleva el mismo limitador a mano — sin él, esta ruta
 // quedaría sin ningún tope de peticiones.
 app.use('/negocio', globalLimiter, businessShareRoutes);
+
+// Mapa del sitio para buscadores: también fuera de `/api/`, así que lleva el limitador a mano.
+app.get('/sitemap.xml', globalLimiter, (req, res, next) => sitemapController.get(req, res, next));
 
 // ── Health check ──
 app.get('/health', async (_req, res) => {

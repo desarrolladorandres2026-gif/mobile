@@ -1,12 +1,11 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav } from './helpers.js';
 
 const OWNER = 'sofia@distribuciones.co';
 const month = new Date().toISOString().slice(0, 7);
 const nextYear = new Date().getUTCFullYear() + 1;
 const lastYear = new Date().getUTCFullYear() - 1;
 
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name });
 const heading = (page, name) => page.getByRole('heading', { name, level: 1 });
 
 let tenantId;
@@ -38,9 +37,7 @@ async function bootstrap(page, request) {
 }
 
 async function chooseCustomer(page, search, optionName) {
-  await page.getByLabel('Buscar cliente').fill(search);
-  await expect(page.getByLabel('Cliente', { exact: true }).getByRole('option', { name: optionName })).toBeAttached();
-  await page.getByLabel('Cliente', { exact: true }).selectOption({ label: optionName });
+  await page.getByLabel('Cliente', { exact: true }).fill(optionName);
 }
 
 async function fillLine(page, n, { description, quantity, unitPrice, discount, vat }) {
@@ -151,6 +148,22 @@ test.describe.serial('facturación electrónica de punta a punta', () => {
     await expect(page.getByText(/simulado: sin validez ante la DIAN/)).toBeVisible();
     await checkDesign(page, 'facturas con detalle');
     await shot(page, 'factura-detalle');
+  });
+
+  test('la vista de impresión muestra la factura como documento para entregar', async ({ page }) => {
+    await page.goto('/app/facturas');
+    await page.getByRole('row', { name: /^FE1 / }).getByRole('button', { name: 'Vista de impresión' }).click();
+    const doc = page.getByRole('article', { name: 'Factura FE1' });
+    await expect(doc).toContainText('Factura electrónica de venta');
+    await expect(doc).toContainText('Droguería Los Andes');
+    await expect(doc).toContainText('Consultoría');
+    await expect(doc).toContainText('Documento de pruebas');
+    await expect(doc).toContainText('137.900,00');
+    await expect(doc).toContainText('SANDBOX-');
+    await checkDesign(page, 'factura para imprimir');
+    await shot(page, 'factura-impresion');
+    await page.getByRole('button', { name: 'Volver a las facturas' }).click();
+    await expect(page.getByRole('row', { name: /^FE1 / })).toBeVisible();
   });
 
   test('notas crédito: por cantidades, luego por lo que queda; la factura refleja cada paso', async ({ page }) => {

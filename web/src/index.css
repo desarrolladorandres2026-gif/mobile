@@ -3,38 +3,132 @@
 /**
  * ZIPP — Sitio público
  *
- * Las variables base vienen de /variables de color/colores.css (fuente única
- * para admin, business, mobile y este sitio) — no dupliques esos valores.
- * Este bloque solo sobreescribe la paleta para *este* sitio con los hex de
- * marca exactos que pidió el usuario para la identidad pública de ZIPP
- * (Obsidian/Champagne Gold). No toca el archivo compartido: admin y business
- * siguen leyendo sus propios valores sin cambios.
+ * Reglas de diseño: fondo blanco liso, dos colores de texto y un único
+ * acento dorado (champagne). Tema claro. Los valores viven en las
+ * variables --zp-*; Tailwind las lee a través de @theme. Este sitio no
+ * importa variables de color/colores.css: la paleta es propia.
  */
-@import "../../variables de color/colores.css";
+
+/* Solo el subconjunto latino (cubre el español) y con `block`: con `swap` el
+   texto se pintaba en la fuente del sistema y saltaba al llegar la nuestra
+   (CLS 0,48 en el inicio). */
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('../node_modules/@fontsource/source-sans-3/files/source-sans-3-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url('../node_modules/@fontsource/source-sans-3/files/source-sans-3-latin-600-normal.woff2') format('woff2');
+}
+
+/* Fuente de reserva con las métricas de Source Sans 3 sobre Arial: el texto
+   ocupa el mismo espacio antes y después de que llegue la fuente real. */
+@font-face {
+  font-family: 'Source Sans 3 Fallback';
+  src: local('Arial');
+  size-adjust: 92.3%;
+  ascent-override: 110.9%;
+  descent-override: 43.3%;
+  line-gap-override: 0%;
+}
+
+:root {
+  --zp-bg: #FFFFFF;
+  --zp-bg-alt: #F7F5EF;
+  --zp-hover: #EFEBDF;
+  --zp-line: #E0DCCF;
+  --zp-line-strong: #7D7766;
+  --zp-text: #1A1A1A;
+  --zp-text-2: #3D3D3D;
+  --zp-accent: #DDA73A;
+  --zp-accent-light: #ECC158;
+  --zp-accent-dark: #8A6100;
+  --zp-accent-bg: rgba(221, 167, 58, 0.14);
+  --zp-ok: #1E7D4F;
+  --zp-warn: #9A5B00;
+  --zp-error: #C62828;
+}
 
 @theme {
-  --color-bg: #0A0D14;
-  --color-bg-alt: #121722;
-  --color-surface: #121722;
-  --color-surface-hover: #1B2232;
-  --color-border: #1B2232;
-  --color-border-light: #161B28;
-  --color-border-strong: #262E42;
+  --color-bg: var(--zp-bg);
+  --color-bg-alt: var(--zp-bg-alt);
+  --color-surface: var(--zp-bg-alt);
+  --color-surface-hover: var(--zp-hover);
+  --color-border: var(--zp-line);
+  --color-border-light: var(--zp-line);
+  --color-border-strong: var(--zp-line-strong);
 
-  --color-text-main: #F2F4F7;
-  --color-text-secondary: #8D95A8;
-  --color-text-muted: #5B6478;
+  --color-text-main: var(--zp-text);
+  --color-text-secondary: var(--zp-text-2);
 
-  --color-primary: #DDA73A;
-  --color-primary-light: #ECC158;
-  --color-primary-dark: #B8851B;
-  --color-primary-bg: rgba(221, 167, 58, 0.08);
+  --color-error: var(--zp-error);
+  --color-ok: var(--zp-ok);
+  --color-warn: var(--zp-warn);
+
+  --color-primary: var(--zp-accent);
+  --color-primary-light: var(--zp-accent-light);
+  --color-primary-dark: var(--zp-accent-dark);
+  --color-primary-bg: var(--zp-accent-bg);
+  /* Dorado oscuro para texto y foco: el champagne sobre blanco no llega a 4,5:1. */
+  --color-primary-text: var(--zp-accent-dark);
+
+  /* Tipografía: una sola familia (Source Sans 3, la misma de admin), pesos
+     400 y 600. Los tres nombres apuntan a ella para que ningún utilitario
+     de Tailwind (font-sans, font-mono) caiga a otra. */
+  --font-display: 'Source Sans 3', 'Source Sans 3 Fallback', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-sans: 'Source Sans 3', 'Source Sans 3 Fallback', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-mono: 'Source Sans 3', 'Source Sans 3 Fallback', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-weight-normal: 400;
+  --font-weight-medium: 400;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 600;
+
+  /* Escala 14 / 16 / 20 / 26. Todo lo que Tailwind ofrece por encima de 26
+     se encoge a 26; el único titular de 32 px es el del inicio en escritorio. */
+  --text-xs: 0.875rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.625rem;
+  --text-3xl: 1.625rem;
+  --text-4xl: 1.625rem;
+  --text-5xl: 1.625rem;
+  --text-6xl: 1.625rem;
+  --text-hero: 2rem;
+
+  /* Forma: radio de 4 px, sin sombras. */
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.25rem;
+  --radius-2xl: 0.25rem;
+  --radius-3xl: 0.25rem;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
 }
 
 @layer base {
   html {
-    scroll-behavior: smooth;
     background-color: var(--color-bg);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
   }
 
   body {
@@ -49,16 +143,20 @@
   h1, h2, h3, h4 {
     font-family: var(--font-display);
     font-weight: 600;
-    letter-spacing: -0.02em;
   }
 
   button, label {
     font-weight: 600;
   }
 
+  :focus-visible {
+    outline: 2px solid var(--color-primary-text);
+    outline-offset: 2px;
+  }
+
   ::selection {
     background-color: var(--color-primary);
-    color: var(--color-bg);
+    color: var(--color-text-main);
   }
 }
 
@@ -66,37 +164,12 @@
 ::-webkit-scrollbar {
   width: 10px;
 }
-/* Flechitas arriba/abajo en toda barra de desplazamiento vertical: avisan de
-   que hay más contenido en esa dirección. */
-::-webkit-scrollbar-button:vertical:start:decrement,
-::-webkit-scrollbar-button:vertical:end:increment {
-  display: block;
-  height: 12px;
-  background-color: transparent;
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: 8px 8px;
-}
-
-::-webkit-scrollbar-button:vertical:start:decrement {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 6.5 5 3.5 8 6.5' fill='none' stroke='%237C8BA1' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-
-::-webkit-scrollbar-button:vertical:end:increment {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5 5 6.5 8 3.5' fill='none' stroke='%237C8BA1' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-
-::-webkit-scrollbar-button:vertical:start:increment,
-::-webkit-scrollbar-button:vertical:end:decrement {
-  display: none;
-}
-
 ::-webkit-scrollbar-track {
   background: var(--color-bg);
 }
 ::-webkit-scrollbar-thumb {
   background: var(--color-border-strong);
-  border-radius: 9999px;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-primary);

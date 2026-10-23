@@ -1,5 +1,5 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav } from './helpers.js';
 
 const OWNER = 'carla@constructora.co';
 const DAY_MS = 86_400_000;
@@ -9,7 +9,6 @@ const YEAR = new Date().getUTCFullYear();
 let shared;
 let api;
 const test = base.extend({ page: async ({}, use) => use(shared) });
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name, exact: true });
 const heading = (page, name) => page.getByRole('heading', { name, level: 1 });
 
 async function bootstrap(page, request) {
@@ -57,9 +56,7 @@ async function report(page, name, { party } = {}) {
   await page.getByLabel('Informe', { exact: true }).selectOption({ label: name });
   await page.getByLabel('Desde').fill(`${YEAR}-01-01`);
   if (party) {
-    await page.getByLabel(/^Buscar /).fill(party.search);
-    await expect(page.getByLabel('Tercero', { exact: true }).getByRole('option', { name: party.option })).toBeAttached();
-    await page.getByLabel('Tercero', { exact: true }).selectOption({ label: party.text });
+    await page.getByLabel('Tercero', { exact: true }).fill(party.text);
   }
   await page.getByRole('button', { name: 'Ver informe' }).click();
 }

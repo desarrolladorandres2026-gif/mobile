@@ -140,9 +140,9 @@ function parseTotpCutoff(name: string): Date | null {
 const EXPO_DEV_PORTS = ['8081', '8082', '19000', '19006'];
 
 /**
- * El sitio público (`web/`). Constante aparte porque lo leen dos secciones
- * de la configuración: los enlaces para compartir y la dirección de regreso
- * de PSE.
+ * El sitio público (`web/`). Constante aparte porque lo leen varias secciones
+ * de la configuración: los enlaces para compartir, la dirección de regreso
+ * de PSE y la allowlist de CORS (el sitio hace pedidos).
  */
 const WEB_URL = (process.env.WEB_URL || 'https://45-93-100-122.sslip.io').replace(/\/+$/, '');
 
@@ -153,6 +153,16 @@ function buildCorsOrigins(): string[] {
     process.env.ADMIN_URL || 'http://localhost:3001',
     process.env.BUSINESS_URL || 'http://localhost:3002',
   ];
+
+  // `web/` también hace pedidos: llama a la API, abre el socket y es destino
+  // de `redirectUrl` en los pagos. Todo eso se valida contra esta lista.
+  // `URL.origin` quita la ruta, por si `WEB_URL` trae una.
+  try {
+    const webOrigin = new URL(WEB_URL).origin;
+    if (!origins.includes(webOrigin)) origins.push(webOrigin);
+  } catch {
+    // WEB_URL malformada: la validación de arranque ya la reporta; aquí no se suma.
+  }
 
   if (isDev) {
     // Add common Expo/React Native ports on localhost and LAN IP

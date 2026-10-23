@@ -31,6 +31,7 @@ const BusinessApprovals = lazyPage(() => import('./pages/BusinessApprovals'), '/
 const ReviewModeration = lazyPage(() => import('./pages/ReviewModeration'), '/reviews');
 const Incidents = lazyPage(() => import('./pages/Incidents'), '/incidents');
 const Support = lazyPage(() => import('./pages/Support'), '/support');
+const PublicForms = lazyPage(() => import('./pages/PublicForms'), '/solicitudes');
 const Drivers = lazyPage(() => import('./pages/Drivers'), '/drivers');
 const DriverDocuments = lazyPage(() => import('./pages/DriverDocuments'), '/driver-documents');
 const FleetMap = lazyPage(() => import('./pages/FleetMap'), '/fleet');
@@ -155,6 +156,7 @@ function App() {
  <Route path="security" element={guard('/security', <Security />)} />
  <Route path="incidents" element={guard('/incidents', <Incidents />)} />
  <Route path="support" element={guard('/support', <Support />)} />
+ <Route path="solicitudes" element={guard('/solicitudes', <PublicForms />)} />
  <Route path="legal" element={guard('/legal', <Legal />)} />
  <Route path="legal-documents" element={<Navigate to="/legal?tab=documentos" replace />} />
  <Route path="campaigns" element={guard('/campaigns', <Campaigns />)} />

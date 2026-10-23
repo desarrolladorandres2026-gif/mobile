@@ -8,7 +8,8 @@ import { PERMISSIONS, can } from './permissions.js';
 export const MAX_ACTIVE_KEYS = 20;
 export const TOKEN_PATTERN = /^lbk_([a-f0-9]{8})_([A-Za-z0-9_-]{43})$/;
 /** Lo que una clave nunca puede hacer, la tenga quien la tenga: administrar la empresa, sus usuarios, sus claves ni reabrir períodos. */
-export const FORBIDDEN_SCOPES = ['tenant:manage', 'users:manage', 'apikeys:manage', 'periods:reopen', 'settings:manage'];
+/** Los salarios son datos personales sensibles: la nómina solo se ve y se maneja con sesión de una persona, no con una clave. */
+export const FORBIDDEN_SCOPES = ['tenant:manage', 'users:manage', 'apikeys:manage', 'periods:reopen', 'settings:manage', 'payroll:read', 'payroll:manage'];
 export const GRANTABLE_SCOPES = PERMISSIONS.filter((p) => !FORBIDDEN_SCOPES.includes(p));
 
 export class ApiKeyError extends Error {

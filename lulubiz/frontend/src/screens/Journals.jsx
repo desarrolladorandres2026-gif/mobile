@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { formatAmount, parseAmount } from '../lib/money.js';
@@ -155,9 +155,7 @@ function JournalForm({ currency, accounts, onCreated, onCancel }) {
                   ))}
                   <td className="px-2 py-2">
                     {lines.length > 2 ? (
-                      <TextButton danger onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>
-                        Quitar
-                      </TextButton>
+                      <DeleteButton onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</DeleteButton>
                     ) : null}
                   </td>
                 </tr>
@@ -313,6 +311,8 @@ export function JournalsScreen() {
         />
       ) : null}
 
+      {/* Mientras se elabora un documento la lista se oculta (sin perder filtros ni páginas cargadas). */}
+      <div hidden={creating}>
       <div className="mb-4 grid gap-x-4 sm:grid-cols-3">
         <TextField label="Período" type="month" value={period} onChange={(e) => { setPeriod(e.target.value); reset(); }} />
         <SelectField
@@ -368,6 +368,7 @@ export function JournalsScreen() {
           </Button>
         </div>
       ) : null}
+      </div>
     </>
   );
 }

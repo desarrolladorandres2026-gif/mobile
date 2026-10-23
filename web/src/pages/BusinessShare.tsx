@@ -1,175 +1,183 @@
+import { setPageMeta } from '../lib/meta';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Star, MapPin, Phone, Clock, ShoppingBag, Percent } from 'lucide-react';
-import { getSharedBusiness, type SharedBusiness } from '../lib/api';
-import { StoreLogo } from '../components/logos';
+import { getStorefrontBySlug, type MenuProduct, type Storefront } from '../lib/api';
 import { LinkButton } from '../components/Button';
+import { CartBar } from '../components/CartBar';
+import { ProductSheet } from '../components/ProductSheet';
+import { ProductRow } from '../components/ProductRow';
+import { StateMessage } from '../components/StateMessage';
 import { sizedImage } from '../lib/cloudinary';
+import { categoryLabel, freeDeliveryText, money, ratingText } from '../lib/format';
+import { isOpenNow, todayHoursText } from '../lib/hours';
 
-/** Mismas etiquetas que `mobile/constants/config.ts` — BUSINESS_CATEGORIES. */
-const CATEGORY_LABEL: Record<string, string> = {
-  restaurant: 'Restaurante',
-  fast_food: 'Comida rápida',
-  pharmacy: 'Droguería',
-  cafe: 'Cafetería',
-  supermarket: 'Mercado',
-};
-
-const money = (value: number) => `$${Math.round(value).toLocaleString('es-CO')}`;
+type Load = { slug: string; data: Storefront | null } | { slug: string; failed: true };
 
 /**
- * Lo que abre alguien que toca un enlace compartido desde la app —el botón
- * "Compartir" de la ficha de un negocio manda aquí, no un mensaje de texto.
+ * La página pública de un comercio: ficha, carta y una sola salida real,
+ * "Abrir en la app".
  *
- * Sin sesión, sin carrito, sin nada que solo tenga sentido dentro de la app:
- * es una tarjeta de presentación con una sola salida real, "Abrir en la
- * app". Ese botón usa el esquema `zipp://` — funciona si quien lo toca ya
- * tiene Zipp instalada (el sistema operativo la abre directo, sin pedir
- * permiso ni verificar dominio) y no hace nada visible si no la tiene. No
- * hay enlace de tienda de aplicaciones todavía porque Zipp no está
- * publicada: prometerlo sería un enlace roto.
+ * Es también a donde llega el enlace del botón "Compartir" de la app. No hay
+ * carrito en la web: el pedido exige sesión de cliente y se hace en la app.
+ * El botón usa el esquema `zipp://` — funciona si la app ya está instalada y
+ * no hace nada visible si no. No hay enlace de tienda de aplicaciones porque
+ * ZIPP no está publicada: prometerlo sería un enlace roto.
  */
 export default function BusinessShare() {
   const { slug = '' } = useParams<{ slug: string }>();
-  const [business, setBusiness] = useState<SharedBusiness | null | undefined>(undefined);
-  const [error, setError] = useState(false);
+  const [load, setLoad] = useState<Load | null>(null);
+  const [selected, setSelected] = useState<MenuProduct | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setBusiness(undefined);
-    setError(false);
-    getSharedBusiness(slug)
-      .then((b) => { if (!cancelled) setBusiness(b); })
-      .catch(() => { if (!cancelled) setError(true); });
+    getStorefrontBySlug(slug)
+      .then((data) => { if (!cancelled) setLoad({ slug, data }); })
+      .catch(() => { if (!cancelled) setLoad({ slug, failed: true }); });
     return () => { cancelled = true; };
   }, [slug]);
 
-  if (business === undefined && !error) {
+  const current = load?.slug === slug ? load : null;
+  const data = current && 'data' in current ? current.data : undefined;
+  const business = data?.business;
+
+  useEffect(() => {
+    if (business) {
+      setPageMeta({
+        title: `${business.name} en ${business.city} | ZIPP`,
+        description: business.description || `Pide en ${business.name}, ${business.city}. Mira la carta, el horario y el tiempo de entrega.`,
+        path: `/negocio/${business.slug}`,
+      });
+    }
+  }, [business]);
+
+  if (!current) {
     return (
-      <div className="px-6 sm:px-10 py-24 text-center text-sm text-text-secondary">
-        Cargando…
+      <div className="mx-auto max-w-3xl px-6 sm:px-10">
+        <StateMessage kind="loading" title="Cargando comercio" />
       </div>
     );
   }
 
-  if (error || business === null) {
+  if ('failed' in current) {
     return (
-      <div className="px-6 sm:px-10 py-24 text-center max-w-md mx-auto">
-        <h1 className="text-2xl font-bold tracking-tight">No encontramos este negocio</h1>
-        <p className="mt-3 text-sm text-text-secondary">
-          El enlace puede estar mal escrito o el negocio ya no está disponible en Zipp.
-        </p>
-        <LinkButton href="/" variant="secondary" className="mt-8">
-          Ir al inicio
-        </LinkButton>
+      <div className="mx-auto max-w-3xl px-6 sm:px-10">
+        <StateMessage kind="error" title="No pudimos cargar este comercio">
+          Revisa tu conexión y recarga la página.
+        </StateMessage>
       </div>
     );
   }
 
-  // Inalcanzable en la práctica: los dos `return` de arriba ya cubren
-  // `undefined` y `null`. TypeScript no cruza los dos `if` para deducirlo,
-  // así que queda explícito en vez de un `!` que oculte el caso real.
-  if (!business) return null;
+  if (!business || !data) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 sm:px-10">
+        <StateMessage kind="empty" title="No encontramos este comercio">
+          El enlace puede estar mal escrito o el comercio ya no está en ZIPP.
+          <LinkButton href="/comercios" variant="secondary" className="mt-6">Ver comercios</LinkButton>
+        </StateMessage>
+      </div>
+    );
+  }
 
-  const appLink = `zipp://business/${business._id}`;
-  const backdrop = business.brandColor || '#141B2A';
+  const open = isOpenNow(business.schedule);
+  const rating = ratingText(business.rating, business.totalReviews);
+  const free = freeDeliveryText(business.freeDeliveryThreshold, business.showPromoBanner);
+  const hours = todayHoursText(business.schedule);
+
+  const categories = [...data.categories].sort((a, b) => a.sortOrder - b.sortOrder);
+  const sections = categories
+    .map((c) => ({ id: c._id, name: c.name, items: data.products.filter((p) => p.categoryId === c._id) }))
+    .filter((s) => s.items.length > 0);
+  const known = new Set(categories.map((c) => c._id));
+  const orphans: MenuProduct[] = data.products.filter((p) => !known.has(p.categoryId));
+  if (orphans.length > 0) sections.push({ id: 'otros', name: 'Otros', items: orphans });
+
+  const facts: [string, string][] = [
+    ['Tipo', categoryLabel(business.category)],
+    ['Tiempo estimado', `${business.deliveryTime} min`],
+    ['Domicilio', business.deliveryFeeFrom ? `Desde ${money(business.deliveryFeeFrom)}` : 'Se calcula con tu dirección'],
+    ['Pedido mínimo', business.minOrder > 0 ? money(business.minOrder) : 'Sin mínimo'],
+  ];
+  if (rating) facts.push(['Calificación', rating]);
 
   return (
-    <div>
-      {/* ── Portada ── */}
-      <div
-        className="relative h-56 sm:h-72 flex items-end justify-center overflow-hidden"
-        style={{ backgroundColor: backdrop }}
-      >
-        {business.coverImage ? (
-          <img
-            src={sizedImage(business.coverImage, 1200)}
-            alt=""
-            fetchPriority="high"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : null}
-        <div
-          className="absolute inset-0"
-          style={{
-            background: 'linear-gradient(to bottom, rgba(10,13,20,0.1), rgba(10,13,20,0.85))',
-          }}
+    <div className="mx-auto max-w-3xl px-6 pt-10 pb-28 sm:px-10">
+      {business.coverImage && (
+        <img
+          src={sizedImage(business.coverImage, 1200)}
+          alt={`Portada de ${business.name}`}
+          width={1200}
+          height={450}
+          fetchPriority="high"
+          className="mb-8 aspect-[8/3] w-full rounded-sm object-cover"
         />
+      )}
 
-        <div className="relative flex flex-col items-center gap-2 pb-6 px-6 text-center">
-          <div className="h-20 w-20 rounded-full border-2 border-white/80 bg-surface overflow-hidden grid place-items-center shadow-lg">
-            {business.logo ? (
-              <img src={sizedImage(business.logo, 240)} alt="" width={80} height={80} className="h-full w-full object-cover" />
-            ) : (
-              <StoreLogo size={40} />
-            )}
+      <h1 className="text-2xl font-semibold text-text-main">{business.name}</h1>
+      {business.description && <p className="mt-2 max-w-xl text-base text-text-secondary">{business.description}</p>}
+
+      <p className="mt-4 text-base text-text-main">
+        {open ? 'Abierto ahora' : 'Cerrado ahora'}
+        {hours ? ` · ${hours}` : ''}
+      </p>
+      {free && <p className="text-base text-text-main">{free}</p>}
+
+      <dl className="mt-6 grid grid-cols-2 gap-x-8 gap-y-4 border-y border-border py-4 sm:grid-cols-4">
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt className="text-sm text-text-secondary">{label}</dt>
+            <dd className="text-base font-semibold text-text-main">{value}</dd>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-            {business.name}
-          </h1>
-          {business.description && (
-            <p className="max-w-sm text-sm text-white/85">{business.description}</p>
-          )}
-        </div>
-      </div>
+        ))}
+      </dl>
 
-      {/* ── Datos ── */}
-      <div className="mx-auto max-w-xl px-6 sm:px-10 py-8 space-y-6">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-text-secondary">
-          <span className="flex items-center gap-1.5">
-            <Star className="h-4 w-4 text-primary" fill="currentColor" />
-            <span className="font-semibold text-text-main">{business.rating.toFixed(1)}</span>
-            <span>({business.totalReviews} reseñas)</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Clock className="h-4 w-4" />
-            {business.deliveryTime} min
-          </span>
-          <span>{CATEGORY_LABEL[business.category] ?? business.category}</span>
-        </div>
+      {business.address && <p className="mt-4 text-base text-text-secondary">{business.address}</p>}
+      {business.phone && (
+        <a href={`tel:${business.phone}`} className="inline-flex min-h-11 items-center text-base text-text-main underline underline-offset-4">
+          {business.phone}
+        </a>
+      )}
 
-        {business.address && (
-          <div className="flex items-start gap-2 text-sm text-text-secondary">
-            <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
-            <span>{business.address}</span>
-          </div>
-        )}
+      {!open && (
+        <p className="mt-6 text-base text-text-main">
+          Este comercio está cerrado ahora. Puedes ver la carta; volverás a poder pedir cuando abra.
+        </p>
+      )}
 
-        {business.phone && (
-          <a
-            href={`tel:${business.phone}`}
-            className="flex items-center gap-2 text-sm text-text-secondary hover:text-text-main transition-colors w-fit"
-          >
-            <Phone className="h-4 w-4 shrink-0" />
-            {business.phone}
-          </a>
-        )}
-
-        <div className="flex flex-wrap gap-2">
-          {business.minOrder > 0 && (
-            <span className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary">
-              <ShoppingBag className="h-3.5 w-3.5" />
-              Pedido mínimo {money(business.minOrder)}
-            </span>
-          )}
-          {business.showPromoBanner && business.freeDeliveryThreshold > 0 && (
-            <span className="flex items-center gap-1.5 rounded-full bg-primary-bg text-primary px-3 py-1.5 text-xs font-semibold">
-              <Percent className="h-3.5 w-3.5" />
-              Envío gratis desde {money(business.freeDeliveryThreshold)}
-            </span>
-          )}
-        </div>
-
-        <div className="pt-4 border-t border-border">
-          <LinkButton href={appLink} variant="primary" className="w-full sm:w-auto">
-            Abrir en la app Zipp
-          </LinkButton>
-          <p className="mt-3 text-xs text-text-muted">
-            Necesitas tener Zipp instalada. Si el botón no hace nada, es que todavía no la
-            tienes en este dispositivo.
-          </p>
-        </div>
-      </div>
+      <h2 className="mt-12 text-xl font-semibold text-text-main">Carta</h2>
+      {sections.length === 0 ? (
+        <StateMessage kind="empty" title="Este comercio todavía no tiene productos publicados">
+          Vuelve más tarde.
+        </StateMessage>
+      ) : (
+        <>
+          <nav aria-label="Secciones de la carta" className="sticky top-16 z-10 mt-2 flex gap-x-6 overflow-x-auto border-b border-border bg-bg">
+            {sections.map((s) => (
+              <a
+                key={s.id}
+                href={`#seccion-${s.id}`}
+                className="inline-flex min-h-11 shrink-0 items-center text-base text-text-secondary transition-colors duration-100 hover:text-text-main"
+              >
+                {s.name}
+              </a>
+            ))}
+          </nav>
+          {sections.map((s) => (
+            <section key={s.id} id={`seccion-${s.id}`} className="scroll-mt-32">
+              <h3 className="mt-8 text-lg font-semibold text-text-main">{s.name}</h3>
+              <ul>{s.items.map((p) => <ProductRow key={p._id} product={p} onAdd={open ? setSelected : undefined} />)}</ul>
+            </section>
+          ))}
+        </>
+      )}
+      {selected && (
+        <ProductSheet
+          product={selected}
+          business={{ id: business._id, name: business.name, slug: business.slug }}
+          onClose={() => setSelected(null)}
+        />
+      )}
+      <CartBar />
     </div>
   );
 }

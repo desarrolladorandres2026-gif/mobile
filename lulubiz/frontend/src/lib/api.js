@@ -39,7 +39,26 @@ async function request(method, path, { body, headers } = {}) {
   return data;
 }
 
+/** Descarga un archivo (GET). Devuelve el contenido como Blob y el nombre sugerido por el servidor, si lo manda. */
+async function download(path) {
+  let response;
+  try {
+    response = await fetch(path, { credentials: 'same-origin' });
+  } catch {
+    throw new ApiError(0, 'NETWORK', 'No hay conexión con el servidor. Revisa tu red e inténtalo de nuevo.');
+  }
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    const error = new ApiError(response.status, data?.error ?? 'ERROR', data?.message ?? `Error ${response.status}`);
+    if (response.status === 401 && error.code === 'INVALID_SESSION') onUnauthorized(error);
+    throw error;
+  }
+  const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1] ?? null;
+  return { blob: await response.blob(), name };
+}
+
 export const api = {
+  download,
   get: (path) => request('GET', path),
   post: (path, body, headers) => request('POST', path, { body: body ?? {}, headers }),
   put: (path, body) => request('PUT', path, { body }),

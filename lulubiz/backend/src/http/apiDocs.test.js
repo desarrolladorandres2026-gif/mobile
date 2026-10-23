@@ -22,6 +22,9 @@ const GROUPS = [
   ['Centros de costo', (p) => p.startsWith('/cost-centers')],
   ['Conciliación bancaria', (p) => p.startsWith('/bank')],
   ['Activos fijos', (p) => p.startsWith('/fixed-assets')],
+  ['Presupuesto', (p) => p.startsWith('/budgets')],
+  ['Nómina', (p) => p.startsWith('/payroll')],
+  ['Impuestos', (p) => p.startsWith('/taxes')],
   ['Cotizaciones', (p) => p.startsWith('/quotes')],
   ['Órdenes de compra', (p) => p.startsWith('/purchase-orders')],
   ['Facturas recurrentes', (p) => p.startsWith('/recurring-invoices')],
@@ -39,6 +42,7 @@ const GROUPS = [
   ['Miembros', (p) => p.startsWith('/members')],
   ['Claves de API', (p) => p.startsWith('/api-keys')],
   ['Auditoría', (p) => p.startsWith('/audit')],
+  ['Datos de la empresa', (p) => p.startsWith('/export')],
   ['Primeros pasos', (p) => p.startsWith('/onboarding')],
 ];
 

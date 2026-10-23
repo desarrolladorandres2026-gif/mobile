@@ -31,6 +31,13 @@ export const COLLECTIONS = {
   bankLines: 'bankLines',
   quotes: 'quotes',
   fixedAssets: 'fixedAssets',
+  budgets: 'budgets',
+  employees: 'employees',
+  payrollConfig: 'payrollConfig',
+  payrollRuns: 'payrollRuns',
+  payrollBenefits: 'payrollBenefits',
+  payrollTerminations: 'payrollTerminations',
+  taxCloses: 'taxCloses',
   depreciationRuns: 'depreciationRuns',
   purchaseOrders: 'purchaseOrders',
   recurringInvoices: 'recurringInvoices',
@@ -238,6 +245,31 @@ export async function ensureIndexes(db) {
   ]);
   await db.collection(COLLECTIONS.bankReconciliations).createIndexes([
     { key: { tenantId: 1, accountId: 1, currency: 1, asOf: 1 }, name: 'tenant_bankrec_closed', unique: true, partialFilterExpression: { status: 'closed' } },
+  ]);
+  await db.collection(COLLECTIONS.budgets).createIndexes([{ key: { tenantId: 1, year: 1, currency: 1, accountId: 1, costCenter: 1 }, name: 'tenant_budget_line', unique: true }]);
+  // Nómina: empleados, configuración (cuentas y parámetros del año) y corridas mensuales.
+  await db.collection(COLLECTIONS.employees).createIndexes([
+    { key: { tenantId: 1, documentType: 1, documentNumber: 1 }, name: 'tenant_employee_document', unique: true },
+    { key: { tenantId: 1, active: 1, name: 1 }, name: 'tenant_employee_active' },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_employee_recent' },
+  ]);
+  await db.collection(COLLECTIONS.payrollConfig).createIndexes([{ key: { tenantId: 1 }, name: 'tenant_payroll_config', unique: true }]);
+  await db.collection(COLLECTIONS.payrollRuns).createIndexes([
+    { key: { tenantId: 1, idempotencyKey: 1 }, name: 'tenant_payroll_idempotency', unique: true },
+    { key: { tenantId: 1, period: 1 }, name: 'tenant_payroll_period', unique: true, partialFilterExpression: { status: 'posted' } },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_payroll_recent' },
+  ]);
+  await db.collection(COLLECTIONS.payrollBenefits).createIndexes([
+    { key: { tenantId: 1, kind: 1, label: 1 }, name: 'tenant_benefit_period', unique: true, partialFilterExpression: { status: 'posted' } },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_benefit_recent' },
+  ]);
+  await db.collection(COLLECTIONS.payrollTerminations).createIndexes([
+    { key: { tenantId: 1, employeeId: 1 }, name: 'tenant_termination_employee', unique: true, partialFilterExpression: { status: 'posted' } },
+    { key: { tenantId: 1, _id: -1 }, name: 'tenant_termination_recent' },
+  ]);
+  await db.collection(COLLECTIONS.taxCloses).createIndexes([
+    { key: { tenantId: 1, currency: 1, from: 1, to: 1 }, name: 'tenant_taxclose_range', unique: true, partialFilterExpression: { status: 'posted' } },
+    { key: { tenantId: 1, to: -1 }, name: 'tenant_taxclose_recent' },
   ]);
   // Activos fijos y sus corridas de depreciación.
   await db.collection(COLLECTIONS.fixedAssets).createIndexes([

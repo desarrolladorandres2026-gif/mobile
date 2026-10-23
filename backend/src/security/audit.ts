@@ -227,6 +227,12 @@ export enum AuditAction {
   BUSINESS_SUSPENSION_SET = 'business_suspension_set',
   ORDER_ITEM_SHORTAGE_REPORTED = 'order_item_shortage_reported',
   ORDER_ITEM_SHORTAGE_RESPONDED = 'order_item_shortage_responded',
+
+  // ── Formularios públicos del sitio ──
+  ACCOUNT_DELETION_REQUESTED = 'account_deletion_requested',
+  CONTACT_REQUEST_HANDLED = 'contact_request_handled',
+  PARTNER_APPLICATION_UPDATED = 'partner_application_updated',
+  PARTNER_APPLICATION_APPROVED = 'partner_application_approved',
 }
 
 export enum AuditSeverity {

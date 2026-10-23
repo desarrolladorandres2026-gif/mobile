@@ -154,6 +154,47 @@ describe('estado y configuración', () => {
   });
 });
 
+
+describe('retenciones predefinidas', () => {
+  const preset = { name: 'Retefuente 2,5 %', accountId: '240805', basis: 'subtotal', rateBps: 250 };
+
+  it('se guardan, se leen con la configuración y guardar la configuración no las borra', async () => {
+    const c = await company();
+    await configure(c);
+    const put = (presets) => call('PUT', `${c.base}/invoicing/withholding-presets`, { cookie: c.cookie, body: { presets } });
+    const saved = await put([preset, { name: 'ReteIVA', accountId: '240805', basis: 'vat', rateBps: 1500 }]);
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().presets).toHaveLength(2);
+    expect((await call('PUT', `${c.base}/invoicing/settings`, { cookie: c.cookie, body: SETTINGS })).statusCode).toBe(200);
+    const read = (await call('GET', `${c.base}/invoicing/settings`, { cookie: c.cookie })).json().settings;
+    expect(read.withholdingPresets.map((p) => p.name)).toEqual(['Retefuente 2,5 %', 'ReteIVA']);
+    expect((await put([])).statusCode).toBe(200);
+  });
+
+  it('rechaza cuentas inexistentes, tarifas fuera de rango, nombres repetidos y campos extra', async () => {
+    const c = await company();
+    await configure(c);
+    const put = (presets) => call('PUT', `${c.base}/invoicing/withholding-presets`, { cookie: c.cookie, body: { presets } });
+    expect((await put([{ ...preset, accountId: '999999' }])).statusCode).toBe(400);
+    expect((await put([{ ...preset, rateBps: 0 }])).statusCode).toBe(400);
+    expect((await put([{ ...preset, rateBps: 10_001 }])).statusCode).toBe(400);
+    expect((await put([{ ...preset, basis: 'total' }])).statusCode).toBe(400);
+    expect((await put([preset, { ...preset, name: 'RETEFUENTE 2,5 %' }])).statusCode).toBe(400);
+    expect((await put([{ ...preset, extra: 1 }])).statusCode).toBe(400);
+    expect((await put(Array.from({ length: 21 }, (_, i) => ({ ...preset, name: `R${i}` })))).statusCode).toBe(400);
+  });
+
+  it('exige la configuración creada y solo la cambian quienes administran', async () => {
+    const c = await company();
+    const url = `${c.base}/invoicing/withholding-presets`;
+    expect((await call('PUT', url, { cookie: c.cookie, body: { presets: [preset] } })).statusCode).toBe(404);
+    await configure(c);
+    const accountant = await joinAs(c, 'conta@andina.co', 'accountant');
+    expect((await call('PUT', url, { cookie: accountant, body: { presets: [preset] } })).statusCode).toBe(403);
+    expect((await call('PUT', url, { cookie: c.cookie, body: { presets: [preset] } })).statusCode).toBe(200);
+  });
+});
+
 describe('facturas', () => {
   it('emite con el simulador, marcada como de pruebas; repetir la clave devuelve la misma (200)', async () => {
     const c = await company();

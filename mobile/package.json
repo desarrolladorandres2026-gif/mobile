@@ -11,6 +11,7 @@
     "android:client": "cross-env APP_VARIANT=client expo run:android --variant clientDebug",
     "android:driver": "cross-env APP_VARIANT=driver expo run:android --variant driverDebug --app-id com.zipp.driver",
     "release:android": "cd android && gradlew assembleClientRelease assembleDriverRelease",
+    "bundle:android": "cd android && gradlew bundleClientRelease bundleDriverRelease",
     "ios": "npm run ios:client",
     "ios:client": "cross-env APP_VARIANT=client expo run:ios",
     "ios:driver": "cross-env APP_VARIANT=driver expo run:ios",

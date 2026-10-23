@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     port: 3100,
     // Mismo origen para el navegador: la cookie de sesión es SameSite=Strict y no hace falta CORS.
-    proxy: { '/v1': 'http://localhost:3000' },
+    proxy: { '/v1': 'http://localhost:3200' },
   },
   test: {
     environment: 'jsdom',

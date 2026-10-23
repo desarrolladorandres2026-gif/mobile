@@ -4,12 +4,24 @@ import Header from './components/Header';
 import Footer from './components/Footer';
 import Home from './pages/Home';
 import { lazyPage } from './lib/lazyPage';
+import { RequireAuth } from './components/RequireAuth';
 
 // La portada va en el archivo principal: es lo que abre casi todo el mundo
 // y no debe esperar una segunda descarga. El resto se baja al entrar.
 const LegalDocument = lazyPage(() => import('./pages/LegalDocument'));
+const Businesses = lazyPage(() => import('./pages/Businesses'));
 const BusinessShare = lazyPage(() => import('./pages/BusinessShare'));
 const PaymentReturn = lazyPage(() => import('./pages/PaymentReturn'));
+const Ingresar = lazyPage(() => import('./pages/Ingresar'));
+const Recuperar = lazyPage(() => import('./pages/Recuperar'));
+const Cuenta = lazyPage(() => import('./pages/Cuenta'));
+const Pedido = lazyPage(() => import('./pages/Pedido'));
+const Pedidos = lazyPage(() => import('./pages/Pedidos'));
+const PedidoDetalle = lazyPage(() => import('./pages/PedidoDetalle'));
+const Soporte = lazyPage(() => import('./pages/Soporte'));
+const UneComercio = lazyPage(() => import('./pages/UneComercio'));
+const Repartidores = lazyPage(() => import('./pages/Repartidores'));
+const EliminarCuenta = lazyPage(() => import('./pages/EliminarCuenta'));
 
 /**
  * React Router no reproduce el scroll nativo del navegador a un `#id`: en una
@@ -60,13 +72,24 @@ function App() {
     <div className="flex min-h-dvh flex-col">
       <ScrollToHash />
       <Header />
-      <main className="flex-1">
+      <main className="min-h-[calc(100dvh-4rem)] flex-1">
         <Suspense fallback={null}>
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/comercios" element={<Businesses />} />
             <Route path="/legal/:kind" element={<LegalDocument />} />
             <Route path="/negocio/:slug" element={<BusinessShare />} />
             <Route path="/pago/retorno" element={<PaymentReturn />} />
+            <Route path="/ingresar" element={<Ingresar />} />
+            <Route path="/pedido" element={<RequireAuth><Pedido /></RequireAuth>} />
+            <Route path="/pedidos" element={<RequireAuth><Pedidos /></RequireAuth>} />
+            <Route path="/pedidos/:id" element={<RequireAuth><PedidoDetalle /></RequireAuth>} />
+            <Route path="/recuperar" element={<Recuperar />} />
+            <Route path="/cuenta" element={<RequireAuth><Cuenta /></RequireAuth>} />
+            <Route path="/soporte" element={<Soporte />} />
+            <Route path="/unete-comercio" element={<UneComercio />} />
+            <Route path="/repartidores" element={<Repartidores />} />
+            <Route path="/eliminar-cuenta" element={<EliminarCuenta />} />
           </Routes>
         </Suspense>
       </main>

@@ -1,5 +1,5 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav } from './helpers.js';
 
 const OWNER = 'rosa@distribuidora.co';
 const day = (offset) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
@@ -8,7 +8,6 @@ const LAST_YEAR = `${new Date().getUTCFullYear() - 1}-01-01`;
 
 let shared;
 const test = base.extend({ page: async ({}, use) => use(shared) });
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name });
 let counter = 0;
 
 async function bootstrap(page, request) {

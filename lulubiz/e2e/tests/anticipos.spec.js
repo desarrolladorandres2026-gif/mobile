@@ -1,5 +1,5 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav } from './helpers.js';
 
 const OWNER = 'diana@ferreteria.co';
 const DAY_MS = 86_400_000;
@@ -10,7 +10,6 @@ let shared;
 let tenantId;
 let invoiceId;
 const test = base.extend({ page: async ({}, use) => use(shared) });
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name, exact: true });
 const heading = (page, name) => page.getByRole('heading', { name, level: 1 });
 
 async function bootstrap(page, request) {
@@ -81,9 +80,7 @@ test.describe.serial('anticipos de clientes y a proveedores', () => {
     await expect(page.getByText('Importe no válido. Ejemplo: 500.000')).toBeVisible();
     await expect(page.getByText('Indica la cuenta de caja o bancos donde entra el dinero.')).toBeVisible();
 
-    await page.getByLabel('Buscar cliente').fill('andes');
-    await expect(page.getByLabel('Cliente', { exact: true }).getByRole('option', { name: /Droguería Los Andes/ })).toBeAttached();
-    await page.getByLabel('Cliente', { exact: true }).selectOption({ label: 'Droguería Los Andes — NIT 800197268' });
+    await page.getByLabel('Cliente', { exact: true }).fill('Droguería Los Andes — NIT 800197268');
     await page.getByLabel('Importe (COP)').fill('5.000');
     await page.getByLabel('Cuenta de caja o bancos').fill('110505');
     await checkDesign(page, 'registrar anticipo');
@@ -145,9 +142,7 @@ test.describe.serial('anticipos de clientes y a proveedores', () => {
     await nav(page, 'Anticipos a proveedores').click();
     await expect(heading(page, 'Anticipos a proveedores')).toBeVisible();
     await page.getByRole('button', { name: 'Registrar anticipo' }).click();
-    await page.getByLabel('Buscar proveedor').fill('aseo');
-    await expect(page.getByLabel('Proveedor', { exact: true }).getByRole('option', { name: /Aseo Total SAS/ })).toBeAttached();
-    await page.getByLabel('Proveedor', { exact: true }).selectOption({ label: 'Aseo Total SAS — NIT 900123456' });
+    await page.getByLabel('Proveedor', { exact: true }).fill('Aseo Total SAS — NIT 900123456');
     await page.getByLabel('Importe (COP)').fill('4.000');
     await page.getByLabel('Cuenta de caja o bancos').fill('110505');
     await page.getByRole('button', { name: 'Registrar anticipo' }).last().click();
@@ -172,9 +167,7 @@ test.describe.serial('anticipos de clientes y a proveedores', () => {
     expect(res.status()).toBe(200);
     await nav(page, 'Anticipos de clientes').click();
     await page.getByRole('button', { name: 'Registrar anticipo' }).click();
-    await page.getByLabel('Buscar cliente').fill('andes');
-    await expect(page.getByLabel('Cliente', { exact: true }).getByRole('option', { name: /Droguería Los Andes/ })).toBeAttached();
-    await page.getByLabel('Cliente', { exact: true }).selectOption({ label: 'Droguería Los Andes — NIT 800197268' });
+    await page.getByLabel('Cliente', { exact: true }).fill('Droguería Los Andes — NIT 800197268');
     await page.getByLabel('Importe (COP)').fill('1.000');
     await page.getByLabel('Cuenta de caja o bancos').fill('110505');
     await page.getByRole('button', { name: 'Registrar anticipo' }).last().click();

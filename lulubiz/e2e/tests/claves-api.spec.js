@@ -1,5 +1,5 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav, sectionListed } from './helpers.js';
 
 const OWNER = 'ines@tienda.co';
 
@@ -7,7 +7,6 @@ let shared;
 let tenantId;
 let token;
 const test = base.extend({ page: async ({}, use) => use(shared) });
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name, exact: true });
 const heading = (page, name) => page.getByRole('heading', { name, level: 1 });
 const bearer = () => ({ authorization: `Bearer ${token}` });
 
@@ -31,7 +30,7 @@ test.describe.serial('claves de API de punta a punta', () => {
     await page.goto('/app/claves-api');
     await expect(heading(page, 'Claves de API')).toBeVisible();
     await expect(page.getByText('Todavía no hay claves.')).toBeVisible();
-    await expect(nav(page, 'Claves de API')).toBeVisible();
+    await expect(await sectionListed(page, 'Claves de API')).toBeVisible();
     await checkDesign(page, 'claves de API vacío');
     await shot(page, 'claves-vacio');
   });
@@ -133,7 +132,8 @@ test.describe.serial('claves de API de punta a punta', () => {
       await other.goto('/app');
       await other.evaluate((id) => window.localStorage.setItem('lulubiz.tenant', id), tenantId);
       await other.goto('/app/claves-api');
-      await expect(other.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Claves de API', exact: true })).toHaveCount(0);
+      await other.getByLabel('Ir a una sección').fill('Claves de API');
+      await expect(other.getByRole('listbox', { name: 'Resultados de la búsqueda' }).getByRole('option', { name: 'Claves de API', exact: true })).toHaveCount(0);
       await expect(heading(other, 'Claves de API')).toHaveCount(0);
     } finally {
       await other.close();

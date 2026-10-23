@@ -99,6 +99,34 @@ export const emitDriverLocation = (
   };
 
   io.to(adminRoom('fleet')).emit('driver:location:update', payload);
-  io.to(`driver:tracking:${userId}`).emit('driver:location:update', payload);
-  if (ping.orderId) io.to(`order:${ping.orderId}`).emit('driver:location:update', payload);
+  // La sala `driver:tracking` no valida el pedido en cada ping, solo al unirse. Por eso lleva lo
+  // mínimo para dibujar al repartidor: sin `orderId` (podría ser el de otro cliente) ni batería.
+  const slim = {
+    driverId: payload.driverId,
+    location: payload.location,
+    heading: payload.heading,
+    speed: payload.speed,
+    recordedAt: payload.recordedAt,
+  };
+  io.to(`driver:tracking:${userId}`).emit('driver:location:update', slim);
+  // La sala del pedido sí está validada contra ese pedido: lleva su `orderId`, pero tampoco la batería.
+  if (ping.orderId) io.to(`order:${ping.orderId}`).emit('driver:location:update', { ...slim, orderId: payload.orderId });
+};
+
+/**
+ * Saca de `driver:tracking:<repartidor>` a los sockets de un cliente. Se llama cuando su
+ * pedido termina (entregado o cancelado): la autorización se comprobó solo al unirse, y sin
+ * esto seguiría viendo al repartidor en su siguiente pedido, que es de otro cliente.
+ */
+export const evictClientFromDriverTracking = async (driverUserId: string, clientId: string): Promise<void> => {
+  if (!io) return;
+  const room = `driver:tracking:${driverUserId}`;
+  try {
+    const sockets = await io.in(room).fetchSockets();
+    for (const s of sockets) {
+      if (String((s.data as { userId?: string } | undefined)?.userId) === String(clientId)) s.leave(room);
+    }
+  } catch (err) {
+    console.error('[Socket] No se pudo retirar al cliente del seguimiento:', err);
+  }
 };

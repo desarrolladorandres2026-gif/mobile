@@ -104,11 +104,11 @@ beforeEach(async () => {
 });
 
 describe('una base sana', () => {
-  it('pasa las doce comprobaciones, con inventario, mostrador, anulación y cierre de ejercicio', async () => {
+  it('pasa las trece comprobaciones, con inventario, mostrador, anulación y cierre de ejercicio', async () => {
     const report = await verifyIntegrity(db, { tenantId: tenant });
     expect(report.ok).toBe(true);
     expect(report.tenants).toHaveLength(1);
-    expect(report.tenants[0].checks).toHaveLength(12);
+    expect(report.tenants[0].checks).toHaveLength(13);
     expect(failing(report)).toEqual([]);
     expect(check(report, 'saldos por cuenta').detail).toMatch(/saldos revisados/);
     expect(check(report, 'ejercicios cerrados').detail).toBe('1 ejercicios cerrados revisados.');
@@ -240,6 +240,18 @@ describe('detecta lo que se altera por fuera del sistema', () => {
     await db.collection(COLLECTIONS.depreciationRuns).deleteMany({ tenantId: tenant });
     expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'activo fijo').ok).toBe(false);
     await db.collection(COLLECTIONS.fixedAssets).deleteMany({ tenantId: tenant });
+  });
+
+  it('una nómina cuyos totales ya no coinciden con su asiento ni con sus empleados', async () => {
+    const journal = await db.collection(COLLECTIONS.journals).findOne({ tenantId: tenant });
+    const totals = { gross: journal.totalDebit, employerTotal: 0, provisionsTotal: 0, net: 0 };
+    const { insertedId } = await db.collection(COLLECTIONS.payrollRuns).insertOne({ tenantId: tenant, period: '2026-01', status: 'posted', journalId: journal._id, totals, items: [{ net: 0, gross: journal.totalDebit }] });
+    expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'nómina').ok).toBe(true);
+    await db.collection(COLLECTIONS.payrollRuns).updateOne({ _id: insertedId }, { $set: { 'totals.gross': journal.totalDebit + 1 } });
+    const report = await verifyIntegrity(db, { tenantId: tenant });
+    expect(check(report, 'nómina').ok).toBe(false);
+    expect(check(report, 'nómina').detail).toMatch(/2026-01/);
+    await db.collection(COLLECTIONS.payrollRuns).deleteMany({ tenantId: tenant });
   });
 
   it('un ejercicio reabierto ya no se exige en cero', async () => {

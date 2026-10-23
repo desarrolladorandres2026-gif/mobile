@@ -1,5 +1,5 @@
 import { expect, test as base } from '@playwright/test';
-import { PASSWORD, checkDesign, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, shot, tokenFromMail, nav } from './helpers.js';
 
 const OWNER = 'diana@servicios.co';
 const DAY_MS = 86_400_000;
@@ -8,7 +8,6 @@ const YEAR = new Date().getUTCFullYear();
 
 let shared;
 const test = base.extend({ page: async ({}, use) => use(shared) });
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name, exact: true });
 const heading = (page, name) => page.getByRole('heading', { name, level: 1 });
 
 async function bootstrap(page, request) {
@@ -55,9 +54,7 @@ async function bootstrap(page, request) {
 }
 
 async function pickParty(page, { label, search, option, text }) {
-  await page.getByLabel(/^Buscar /).fill(search);
-  await expect(page.getByLabel(label, { exact: true }).getByRole('option', { name: option })).toBeAttached();
-  await page.getByLabel(label, { exact: true }).selectOption({ label: text });
+  await page.getByLabel(label, { exact: true }).fill(text);
 }
 
 const CUSTOMER = { label: 'Cliente', search: 'andes', option: /Droguería Los Andes/, text: 'Droguería Los Andes — NIT 800197268' };

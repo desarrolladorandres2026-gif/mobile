@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { ItemPicker } from '../components/ItemPicker.jsx';
+import { InvoiceDocument } from '../components/InvoiceDocument.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
@@ -285,7 +286,7 @@ function InvoiceForm({ status, onCreated, onCancel }) {
                   ) : null}
                   <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-tinta">{preview ? formatAmount(preview.total, currency) : ''}</td>
                   <td className="px-2 py-2">
-                    {lines.length > 1 ? <TextButton danger onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</TextButton> : null}
+                    {lines.length > 1 ? <DeleteButton onClick={() => setLines((ls) => ls.filter((_, n) => n !== i))}>Quitar</DeleteButton> : null}
                   </td>
                 </tr>
               );
@@ -483,6 +484,25 @@ function InvoiceDetail({ invoice, currency }) {
   );
 }
 
+/** La factura como documento para entregar: se imprime o se guarda como PDF desde el diálogo de impresión del navegador. */
+function InvoicePrintView({ invoice, onClose }) {
+  const base = useTenantApi();
+  const settings = useLoad(() => api.get(`${base}/invoicing/settings`), [base]);
+  return (
+    <>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-borde pb-3 print:hidden">
+        <h1 className="text-xl font-semibold text-tinta">Factura {invoice.fullNumber}</h1>
+        <div className="flex gap-2">
+          <Button variant="primary" onClick={() => window.print()}>Imprimir o guardar como PDF</Button>
+          <Button onClick={onClose}>Volver a las facturas</Button>
+        </div>
+      </div>
+      {settings.error ? <Notice kind="error">{errorMessage(settings.error)}</Notice> : null}
+      {settings.loading ? <p className="text-sm text-tinta">Cargando…</p> : <InvoiceDocument invoice={invoice} issuer={settings.data?.settings?.issuer} />}
+    </>
+  );
+}
+
 export function InvoicesScreen() {
   const base = useTenantApi();
   const { tenant, can } = useSession();
@@ -491,6 +511,7 @@ export function InvoicesScreen() {
   const [filter, setFilter] = useState('');
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState(null);
+  const [printing, setPrinting] = useState(null);
   const [crediting, setCrediting] = useState(null);
   const [notice, setNotice] = useState(null);
   const [extra, setExtra] = useState([]);
@@ -553,6 +574,7 @@ export function InvoicesScreen() {
       render: (i) => (
         <span className="flex flex-wrap gap-3">
           <TextButton onClick={() => setOpen(open === i._id ? null : i._id)}>{open === i._id ? 'Ocultar detalle' : 'Ver detalle'}</TextButton>
+          {i.status === 'issued' ? <TextButton onClick={() => setPrinting(i)}>Vista de impresión</TextButton> : null}
           {can('invoices:issue') && i.status !== 'issued' ? <TextButton onClick={() => act.run(i, 'sync')}>Reintentar envío</TextButton> : null}
           {can('invoices:issue') && i.status === 'issued' && i.accounting?.status === 'pending' ? <TextButton onClick={() => act.run(i, 'account')}>Contabilizar</TextButton> : null}
           {can('invoices:issue') && status.data?.ready && i.status === 'issued' && i.creditStatus !== 'full' ? (
@@ -562,6 +584,8 @@ export function InvoicesScreen() {
       ),
     },
   ];
+
+  if (printing) return <InvoicePrintView invoice={printing} onClose={() => setPrinting(null)} />;
 
   return (
     <>
@@ -590,6 +614,8 @@ export function InvoicesScreen() {
         />
       ) : null}
 
+      {/* Mientras se elabora un documento la lista se oculta (sin perder filtros ni páginas cargadas). */}
+      <div hidden={creating}>
       <div className="mb-4 grid gap-x-4 sm:grid-cols-3">
         <SelectField
           label="Estado"
@@ -636,6 +662,7 @@ export function InvoicesScreen() {
           <Button busy={loadingMore} onClick={loadMore}>Cargar más facturas</Button>
         </div>
       ) : null}
+      </div>
     </>
   );
 }

@@ -26,6 +26,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: '/orders', label: 'Pedidos', permission: Permission.ORDERS_VIEW_ALL },
       { path: '/fleet', label: 'Flota en vivo', permission: Permission.DRIVERS_TRACK },
       { path: '/support', label: 'Soporte', permission: Permission.SUPPORT_VIEW },
+      { path: '/solicitudes', label: 'Solicitudes del sitio', permission: Permission.SUPPORT_VIEW },
     ],
   },
   {

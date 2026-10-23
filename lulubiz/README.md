@@ -4,7 +4,7 @@ Software contable y administrativo. React + Node.js + MongoDB, en JavaScript. Di
 
 | Carpeta | Qué es |
 |---|---|
-| `backend/` | API (Fastify), libro contable, informes, cartera, compras, inventario, punto de venta, facturación electrónica, autenticación, auditoría |
+| `backend/` | API (Fastify), libro contable con centros de costo, informes, cartera, anticipos, compras, inventario, punto de venta, conciliación bancaria, activos fijos, presupuesto, nómina, documentos comerciales, facturación electrónica, autenticación, auditoría |
 | `frontend/` | Interfaz (React 19, Vite, Tailwind 4) |
 | `e2e/` | Recorrido completo en un navegador real |
 
@@ -13,8 +13,8 @@ Software contable y administrativo. React + Node.js + MongoDB, en JavaScript. Di
 Cada paquete es independiente: `npm install` en cada carpeta.
 
 ```
-cd backend  && npm test       # 540 pruebas (descarga un MongoDB de pruebas la primera vez)
-cd frontend && npm test       # 169 pruebas
+cd backend  && npm test       # 736 pruebas (descarga un MongoDB de pruebas la primera vez)
+cd frontend && npm test       # 238 pruebas
 cd e2e      && npm test       # compila la interfaz y corre el recorrido en Chrome
 cd backend  && npm run bench  # medición de rendimiento contra un MongoDB local
 ```

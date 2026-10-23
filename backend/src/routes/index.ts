@@ -38,6 +38,8 @@ import exploreRoutes from './explore.routes';
 import exploreLayoutRoutes from './exploreLayout.routes';
 import cartRoutes from './cart.routes';
 import proRoutes from './pro.routes';
+import contactRoutes from './contact.routes';
+import partnerRoutes from './partner.routes';
 
 const router = Router();
 
@@ -80,5 +82,7 @@ router.use('/explore', exploreRoutes);
 router.use('/explore-layout', exploreLayoutRoutes);
 router.use('/cart', cartRoutes);
 router.use('/pro', proRoutes);
+router.use('/contact', contactRoutes);
+router.use('/partners', partnerRoutes);
 
 export default router;

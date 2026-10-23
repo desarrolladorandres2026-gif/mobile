@@ -1,13 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { totpAt } from '../../backend/src/auth/totp.js';
-import { PASSWORD, checkDesign, login, shot, tokenFromMail } from './helpers.js';
+import { PASSWORD, checkDesign, login, shot, tokenFromMail, nav, sectionListed } from './helpers.js';
 
 const OWNER = 'marta@andina.co';
 const READER = 'lector@andina.co';
 const NEW_PASSWORD = 'clave-nueva-muy-larga-77';
 const month = new Date().toISOString().slice(0, 7);
 
-const nav = (page, name) => page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name });
 const heading = (page, name) => page.getByRole('heading', { name, level: 1 });
 
 let recoveryCodes = [];
@@ -53,7 +52,7 @@ test.describe.serial('recorrido completo de Lulubiz', () => {
     await expect(page.getByText('Comercial Andina SAS')).toBeVisible();
     await expect(page.getByText('No hay asientos con estos filtros.')).toBeVisible();
     for (const name of ['Asientos', 'Plan de cuentas', 'Terceros', 'Saldos', 'Períodos', 'Miembros', 'Auditoría', 'Mi cuenta']) {
-      await expect(nav(page, name)).toBeVisible();
+      await expect(await sectionListed(page, name)).toBeVisible();
     }
     await checkDesign(page, 'asientos vacío');
     await shot(page, 'asientos-vacio');
@@ -253,8 +252,8 @@ test.describe.serial('recorrido completo de Lulubiz', () => {
     await guest.getByRole('button', { name: 'Iniciar sesión' }).click();
     await expect(guest).toHaveURL(/\/app\/asientos$/);
     await expect(guest.getByRole('button', { name: 'Nuevo asiento' })).toHaveCount(0);
-    for (const hidden of ['Miembros', 'Auditoría']) await expect(nav(guest, hidden)).toHaveCount(0);
-    await expect(nav(guest, 'Plan de cuentas')).toBeVisible();
+    for (const hidden of ['Miembros', 'Auditoría']) await expect(await sectionListed(guest, hidden)).toHaveCount(0);
+    await expect(await sectionListed(guest, 'Plan de cuentas')).toBeVisible();
     await expect(guest.getByRole('row', { name: /CC-1/ }).getByRole('button', { name: 'Revertir' })).toHaveCount(0);
     await checkDesign(guest, 'vista de lector');
     await shot(guest, 'vista-lector');

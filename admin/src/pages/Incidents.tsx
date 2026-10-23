@@ -97,6 +97,8 @@ const KIND: Record<string, { label: string }> = {
  business_document_expiring: { label: 'Documento de comercio por vencer' },
  driver_document_expiring: { label: 'Documento de domiciliario por vencer' },
  ad_uninvoiced: { label: 'Publicidad sin cobrar' },
+ contact_request_new: { label: 'Mensaje del sitio web' },
+ partner_application_new: { label: 'Solicitud de aliado' },
  refund_failed: { label: 'Reembolso fallido' },
  payment_review: { label: 'Cobro en revisión' },
  order_unaccepted: { label: 'Pedido sin aceptar' },

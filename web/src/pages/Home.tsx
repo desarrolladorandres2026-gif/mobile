@@ -1,193 +1,166 @@
-import { useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import DeliverySimulator from '../components/DeliverySimulator';
 import { LinkButton } from '../components/Button';
-import { CustomerLogo, StoreLogo, DeliveryLogo } from '../components/logos';
+import { BusinessRow } from '../components/BusinessRow';
+import { StateMessage } from '../components/StateMessage';
+import { TEXT_LINK } from '../components/ui';
+import { listBusinesses, type BusinessListItem } from '../lib/api';
+import { CitySelect } from '../components/CitySelect';
+import { useCity } from '../lib/city';
+import { CATEGORIES, freeDeliveryText } from '../lib/format';
 import { supportWhatsAppUrl } from '../lib/contact';
+import { BUSINESS_URL } from '../lib/config';
+import { setPageMeta } from '../lib/meta';
 
-const BUSINESS_URL = import.meta.env.VITE_BUSINESS_URL || 'http://localhost:3002';
-
-type RoleTab = 'clientes' | 'comercios' | 'domiciliarios';
-
-const ROLES: Record<RoleTab, {
-  label: string;
-  Illustration: typeof CustomerLogo;
-  title: string;
-  body: string;
-  facts: [string, string][];
-  cta: { label: string; href: string; external?: boolean };
-}> = {
-  clientes: {
-    label: 'Clientes',
-    Illustration: CustomerLogo,
-    title: 'Sin sorpresas cuando llega la cuenta',
-    body: 'Cada pedido muestra la distancia real entre el comercio y tu dirección. Si llueve o es hora pico, tu tarifa no cambia por eso.',
-    facts: [
-      ['Seguimiento', 'Ves al domiciliario en el mapa desde que sale'],
-      ['Propina', '100% llega a quien te la trae'],
-    ],
-    cta: { label: 'Obtener la app', href: '#descargar' },
-  },
-  comercios: {
-    label: 'Comercios',
-    Illustration: StoreLogo,
-    title: 'Vende a domicilio sin regalar tu margen',
-    body: 'Las plataformas grandes descuentan hasta el 30% por pedido. Zipp cobra menos, despacha rápido y te avisa al instante en tu panel de cocina.',
-    facts: [
-      ['Alertas', 'Suenan apenas entra el pedido'],
-      ['Repartidores', 'Los más cercanos, ya disponibles'],
-    ],
-    cta: { label: 'Acceder al portal de comercios', href: BUSINESS_URL, external: true },
-  },
-  domiciliarios: {
-    label: 'Domiciliarios',
-    Illustration: DeliveryLogo,
-    title: 'Tu kilometraje vale y la propina es tuya',
-    body: 'Ves el valor de la carrera y la propina antes de aceptar. Rutas directas, sin penalizaciones raras y sin que nadie te descuente de la propina.',
-    facts: [
-      ['Propina', '0% de comisión, la recibes completa'],
-      ['Pagos', 'Liquidación clara de cada carrera'],
-    ],
-    cta: { label: 'Quiero repartir con Zipp', href: supportWhatsAppUrl('Hola, quiero repartir con Zipp. ¿Cómo empiezo?'), external: true },
-  },
-};
-
-const ROLE_ORDER: RoleTab[] = ['clientes', 'comercios', 'domiciliarios'];
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<RoleTab>('clientes');
-  const role = ROLES[activeTab];
-  const reduceMotion = useReducedMotion();
+  const { city } = useCity();
+  const [loaded, setLoaded] = useState<{ city: string; rows: BusinessListItem[] } | null>(null);
+  const [failedCity, setFailedCity] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPageMeta({
+      title: `ZIPP | Domicilios en ${city}`,
+      description: `Pide en los comercios de ${city} con precio claro y seguimiento en tiempo real.`,
+      path: '/',
+    });
+  }, [city]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listBusinesses({ city })
+      .then((rows) => { if (!cancelled) setLoaded({ city, rows }); })
+      .catch(() => { if (!cancelled) setFailedCity(city); });
+    return () => { cancelled = true; };
+  }, [city]);
+
+  const businesses = loaded?.city === city ? loaded.rows : null;
+  const error = failedCity === city;
+
+  const promos = (businesses ?? []).filter((b) => freeDeliveryText(b.freeDeliveryThreshold, b.showPromoBanner));
 
   return (
-    <div className="bg-bg text-text-main selection:bg-primary selection:text-bg">
-      {/* ── HERO ── */}
-      {/* El hero se pinta ya, sin fundido: arrancaba invisible y no aparecía
-          hasta que cargaba y corría el JavaScript de la animación, que es
-          justo lo primero que alguien ve al entrar. El resto de secciones
-          conserva sus animaciones. */}
-      <section id="inicio" className="px-6 sm:px-10 pt-16 pb-20 sm:pt-24 sm:pb-28">
-        <div className="mx-auto max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-14 items-center">
-          <div className="lg:col-span-7 min-w-0">
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.1] text-text-main max-w-xl">
-              Pide en tus negocios de siempre. Paga justo por el domicilio.
-            </h1>
-
-            <p className="mt-6 text-lg text-text-secondary max-w-md leading-relaxed">
-              La tarifa se calcula por distancia real — sin recargos por lluvia ni por demanda.
-              El 100% de la propina llega a quien te lo trae.
-            </p>
-
-            <div className="mt-10 flex flex-wrap items-center gap-3">
-              <LinkButton href="#descargar" variant="primary">
-                Obtener la app
-              </LinkButton>
-              <LinkButton href={BUSINESS_URL} target="_blank" rel="noopener noreferrer" variant="secondary">
-                Portal de comercios
-              </LinkButton>
-            </div>
+    <div className="bg-bg text-text-main">
+      {/* Primer bloque: qué se puede pedir y cómo empezar. Sin imagen decorativa. */}
+      <section id="inicio" className="px-6 pb-12 pt-12 sm:px-10 sm:pb-16 sm:pt-20">
+        <div className="mx-auto max-w-6xl">
+          <h1 className="max-w-xl text-2xl font-semibold leading-tight text-text-main lg:text-hero">
+            Pide en los comercios de {city}
+          </h1>
+          <CitySelect />
+          <p className="mt-4 max-w-lg text-base text-text-secondary">
+            Mira comercios, precios y tiempos de entrega sin crear cuenta. El domicilio se
+            calcula por la distancia real a tu dirección.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <LinkButton href="/comercios" variant="primary">Ver comercios</LinkButton>
+            <LinkButton href="#descargar" variant="secondary">Cómo pedir</LinkButton>
           </div>
 
-          <div className="lg:col-span-5 min-w-0">
-            <img
-              src="/zipp-phone-mockup.webp"
-              alt="La app de Zipp en un teléfono"
-              width={900}
-              height={900}
-              fetchPriority="high"
-              className="w-full h-auto rounded-lg"
-            />
-          </div>
+          <nav aria-label="Categorías" className="mt-10 flex gap-x-6 overflow-x-auto border-t border-border pt-2">
+            {CATEGORIES.map((c) => (
+              <Link key={c.key} to={`/comercios?categoria=${c.key}`} className={`${TEXT_LINK} shrink-0`}>
+                {c.label}
+              </Link>
+            ))}
+          </nav>
         </div>
       </section>
 
-      {/* ── CALCULADORA DE TARIFA ── */}
-      <section id="simulador" className="bg-bg-alt px-6 sm:px-10 py-20 sm:py-24">
+      <section id="comercios" className="px-6 pb-16 sm:px-10">
+        <div className="mx-auto max-w-6xl">
+          <h2 className="text-xl font-semibold text-text-main">Comercios en {city}</h2>
+          {error ? (
+            <StateMessage kind="error" title="No pudimos cargar los comercios">
+              Revisa tu conexión y recarga la página.
+            </StateMessage>
+          ) : businesses === null ? (
+            <div className="min-h-[30rem]">
+              <StateMessage kind="loading" title="Cargando comercios" />
+            </div>
+          ) : businesses.length === 0 ? (
+            <StateMessage kind="empty" title="Todavía no hay comercios en esta ciudad">
+              Vuelve pronto o escríbenos para sumar el tuyo.
+            </StateMessage>
+          ) : (
+            <>
+              <ul className="mt-2">{businesses.slice(0, 8).map((b) => <BusinessRow key={b._id} business={b} />)}</ul>
+              <Link to="/comercios" className={`${TEXT_LINK} mt-2 font-semibold`}>
+                Ver los {businesses.length} comercios
+              </Link>
+            </>
+          )}
+        </div>
+      </section>
+
+      {promos.length > 0 && (
+        <section id="promociones" className="px-6 pb-16 sm:px-10">
+          <div className="mx-auto max-w-6xl">
+            <h2 className="text-xl font-semibold text-text-main">Envío gratis</h2>
+            <p className="mt-2 max-w-lg text-base text-text-secondary">
+              Condiciones de cada comercio, vigentes hoy.
+            </p>
+            <ul className="mt-2">
+              {promos.map((b) => (
+                <li key={b._id} className="border-b border-border">
+                  <Link
+                    to={`/negocio/${b.slug}`}
+                    className="flex min-h-11 flex-wrap items-center justify-between gap-x-6 py-2 text-base text-text-main hover:text-primary-text"
+                  >
+                    <span className="font-semibold">{b.name}</span>
+                    <span>{freeDeliveryText(b.freeDeliveryThreshold, b.showPromoBanner)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      <section id="simulador" className="bg-bg-alt px-6 py-16 sm:px-10">
         <DeliverySimulator />
       </section>
 
-      {/* ── ROLES ── */}
-      <section id="operaciones" className="px-6 sm:px-10 py-20 sm:py-24">
-        <div className="max-w-6xl mx-auto">
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-text-main max-w-lg">
-            Hecho para clientes, comercios y domiciliarios
-          </h2>
-
-          <div className="mt-10 flex gap-8 border-b border-border">
-            {ROLE_ORDER.map((tab) => {
-              const active = activeTab === tab;
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`pb-4 -mb-px text-sm font-medium border-b-2 transition-colors ${
-                    active
-                      ? 'border-primary text-text-main'
-                      : 'border-transparent text-text-secondary hover:text-text-main'
-                  }`}
-                >
-                  {ROLES[tab].label}
-                </button>
-              );
-            })}
+      <section className="px-6 py-16 sm:px-10">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-12 md:grid-cols-2">
+          <div id="vende" className="scroll-mt-24">
+            <h2 className="text-xl font-semibold text-text-main">Vende en ZIPP</h2>
+            <p className="mt-2 max-w-md text-base text-text-secondary">
+              Recibe los pedidos en tu panel de cocina, con aviso sonoro apenas entran, y despacha
+              con los repartidores disponibles más cerca de tu local.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <LinkButton href="/unete-comercio" variant="primary">Registrar mi comercio</LinkButton>
+              <LinkButton href={BUSINESS_URL} target="_blank" rel="noopener noreferrer" variant="secondary">
+                Acceder al portal
+              </LinkButton>
+            </div>
           </div>
-
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: reduceMotion ? 0 : 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: reduceMotion ? 0 : -6 }}
-              transition={{ duration: reduceMotion ? 0 : 0.3, ease: [0.16, 1, 0.3, 1] as const }}
-              className="mt-14 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center"
-            >
-              <div className="lg:col-span-4 flex justify-center lg:justify-start">
-                <role.Illustration size={140} />
-              </div>
-
-              <div className="lg:col-span-8">
-                <h3 className="text-xl sm:text-2xl font-bold tracking-tight text-text-main">{role.title}</h3>
-                <p className="mt-3 text-[15px] text-text-secondary leading-relaxed max-w-xl">
-                  {role.body}
-                </p>
-
-                <div className="mt-8 pt-6 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-xl">
-                  {role.facts.map(([label, value]) => (
-                    <div key={label}>
-                      <span className="text-xs text-text-muted block mb-1">{label}</span>
-                      <span className="text-text-main text-sm font-medium">{value}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <LinkButton
-                  href={role.cta.href}
-                  {...(role.cta.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                  variant="primary"
-                  className="mt-8"
-                >
-                  {role.cta.label}
-                </LinkButton>
-              </div>
-            </motion.div>
-          </AnimatePresence>
+          <div id="reparte" className="scroll-mt-24">
+            <h2 className="text-xl font-semibold text-text-main">Reparte con ZIPP</h2>
+            <p className="mt-2 max-w-md text-base text-text-secondary">
+              Ves el valor de la carrera y la propina antes de aceptar. La propina llega completa
+              a quien entrega, sin comisión.
+            </p>
+            <LinkButton href="/repartidores" variant="primary" className="mt-6">
+              Quiero repartir
+            </LinkButton>
+          </div>
         </div>
       </section>
 
-      {/* ── DESCARGA ── */}
-      <section id="descargar" className="bg-bg-alt px-6 sm:px-10 py-20 sm:py-24">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-end sm:justify-between gap-8">
+      <section id="descargar" className="bg-bg-alt px-6 py-16 sm:px-10">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-text-main">
-              ZIPP está en fase piloto
-            </h2>
-            <p className="mt-3 text-[15px] text-text-secondary leading-relaxed max-w-md">
-              Todavía no está publicada en App Store ni Google Play. Escríbenos y te avisamos
-              apenas esté disponible para descargar.
+            <h2 className="text-xl font-semibold text-text-main">Los pedidos se hacen en la app</h2>
+            <p className="mt-2 max-w-md text-base text-text-secondary">
+              La app de ZIPP está en fase piloto y todavía no está en App Store ni Google Play.
+              Escríbenos y te avisamos cuando esté disponible.
             </p>
           </div>
           <LinkButton
-            href={supportWhatsAppUrl('Hola, quiero que me avisen cuando la app de Zipp esté disponible.')}
+            href={supportWhatsAppUrl('Hola, quiero que me avisen cuando la app de ZIPP esté disponible.')}
             target="_blank"
             rel="noopener noreferrer"
             variant="primary"
@@ -195,6 +168,21 @@ export default function Home() {
           >
             Avísenme cuando esté disponible
           </LinkButton>
+        </div>
+      </section>
+
+      <section className="px-6 py-16 sm:px-10" aria-labelledby="atajos">
+        <div className="mx-auto max-w-6xl">
+          <h2 id="atajos" className="text-xl font-semibold text-text-main">Qué pedir en {city}</h2>
+          <ul className="mt-2 grid grid-cols-1 gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
+            {CATEGORIES.map((c) => (
+              <li key={c.key}>
+                <Link to={`/comercios?categoria=${c.key}`} className={TEXT_LINK}>
+                  {c.label} en {city}
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
     </div>
