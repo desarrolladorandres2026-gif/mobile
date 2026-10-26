@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ViewButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { monthRange } from '../lib/books.js';
 import { formatDay } from '../lib/format.js';
@@ -68,7 +68,7 @@ export function CashFlowScreen() {
       ) : null}
       {error ? <Notice kind="error">{error}</Notice> : null}
       {run.error ? <Notice kind="error">{errorMessage(run.error)}</Notice> : null}
-      <Button variant="primary" busy={run.busy} onClick={() => run.run()}>Ver flujo de efectivo</Button>
+      <ViewButton busy={run.busy} onClick={() => run.run()}>Ver flujo de efectivo</ViewButton>
       {result ? (
         <div className="mt-6">
           <p className="mb-2 text-sm text-tinta">
@@ -261,7 +261,7 @@ function Execution({ year, currency, centers, version }) {
       </div>
       {error ? <Notice kind="error">{error}</Notice> : null}
       {run.error ? <Notice kind="error">{errorMessage(run.error)}</Notice> : null}
-      <Button variant="primary" busy={run.busy} onClick={() => run.run()}>Ver ejecución</Button>
+      <ViewButton busy={run.busy} onClick={() => run.run()}>Ver ejecución</ViewButton>
       {result ? (
         <div className="mt-4">
           <DataTable caption="Ejecución del presupuesto" columns={columns} rows={rows} rowKey={(r) => r.code} empty="No hay presupuesto ni movimiento en este rango." />

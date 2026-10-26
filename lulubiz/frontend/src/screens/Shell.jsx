@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Notice, SearchBox, TextButton, errorMessage, useSubmit } from '../components/ui.jsx';
+import { Notice, SearchBox, TextButton, errorMessage, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { Link, Redirect, useRouter } from '../lib/router.jsx';
+import { TASK_ICONS as CREATE_ICONS } from '../lib/taskIcons.js';
 import { useSession } from '../lib/session.jsx';
 import { AccountsScreen } from './Accounts.jsx';
 import { CustomerAdvancesScreen, SupplierAdvancesScreen } from './Advances.jsx';
@@ -23,6 +24,7 @@ import { ItemsScreen, StockScreen } from './Inventory.jsx';
 import { CreditNotesScreen, InvoicesScreen } from './Invoices.jsx';
 import { FinancialReportsScreen } from './FinancialReports.jsx';
 import { GettingStartedScreen } from './GettingStarted.jsx';
+import { HomeScreen } from './Home.jsx';
 import { ImportScreen } from './Import.jsx';
 import { OpeningBalancesScreen } from './OpeningBalances.jsx';
 import { JournalsScreen } from './Journals.jsx';
@@ -130,6 +132,9 @@ const GROUPS = [
     ],
   },
 ];
+
+/** La pantalla de inicio no pertenece a ningún módulo: siempre está, para todos, y es donde se aterriza. */
+const HOME = { path: 'inicio', label: 'Inicio', permission: null, Screen: HomeScreen };
 
 function VerifyEmailBanner() {
   const { account } = useSession();
@@ -241,19 +246,6 @@ function SectionSearch({ groups, go }) {
   );
 }
 
-/** Iconos de trazo (24×24) de cada acceso del botón «Crear», en el mismo orden de `CREATE`. */
-const CREATE_ICONS = {
-  facturas: 'M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M9 13h6M9 17h6',
-  cotizaciones: 'M9 4h6v3H9zM7 5H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1M9 12h6M9 16h4',
-  recibos: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z',
-  vender: 'M6 7h12l1 13H5zM9 7a3 3 0 016 0',
-  compras: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
-  'ordenes-compra': 'M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9',
-  pagos: 'M7 17L17 7M8 7h9v9',
-  asientos: 'M5 4h12a2 2 0 012 2v14H7a2 2 0 01-2-2zM5 18a2 2 0 012-2h12',
-  terceros: 'M16 8a4 4 0 11-8 0 4 4 0 018 0zM4 21a8 8 0 0116 0',
-  articulos: 'M3 12V4h8l10 10-8 8zM7.5 8.5h.01',
-};
 const SLOT = 68; // px entre accesos; las animaciones parten del centro con este paso
 
 /**
@@ -267,7 +259,7 @@ function CreateMenu({ visiblePaths, open, setOpen }) {
   const items = CREATE.filter((c) => visiblePaths.has(c.path));
   if (items.length === 0) return null;
   return (
-    <div ref={ref} className="flex items-center gap-x-1" onMouseEnter={() => setOpen(true)} onMouseLeave={close}>
+    <div ref={ref} className="flex h-10 items-center gap-x-1" onMouseEnter={() => setOpen(true)} onMouseLeave={close}>
       {open ? (
         <ul aria-label="Crear" className="flex items-center gap-x-1">
           {items.map((c, k) => {
@@ -339,11 +331,11 @@ export function Shell() {
 
   const groups = GROUPS.map((g) => ({ ...g, sections: g.sections.filter((s) => !s.permission || can(s.permission)) })).filter((g) => g.sections.length > 0);
   const visible = groups.flatMap((g) => g.sections);
-  const active = visible.find((s) => pathname === `/app/${s.path}`) ?? null;
+  const active = [HOME, ...visible].find((s) => pathname === `/app/${s.path}`) ?? null;
   const visiblePaths = useMemo(() => new Set(visible.map((s) => s.path)), [visible]);
 
   // La ruta no existe o no tienes acceso: se vuelve a la primera sección disponible.
-  if (!active) return <Redirect to={`/app/${visible[0].path}`} />;
+  if (!active) return <Redirect to="/app/inicio" />;
 
   const Screen = active.Screen;
   const activeGroup = groups.find((g) => g.sections.includes(active));
@@ -352,8 +344,8 @@ export function Shell() {
   const canConfigure = visiblePaths.has('facturacion');
 
   return (
-    <div className="flex min-h-screen flex-col bg-papel-fondo">
-      <header className="print:hidden relative flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-borde bg-papel px-4 py-2 md:px-6">
+    <div className="flex h-screen flex-col bg-papel-fondo print:h-auto">
+      <header className="print:hidden relative z-20 flex shrink-0 flex-wrap items-center gap-x-5 gap-y-2 border-b border-borde bg-papel px-4 py-2 md:px-6">
         <span className="text-lg font-semibold tracking-tight text-azul">Lulubiz</span>
         {memberships.length > 1 ? (
           <label className="flex items-center gap-2 text-sm text-tinta">
@@ -382,11 +374,15 @@ export function Shell() {
               </svg>
             </Link>
           ) : null}
-          <Button onClick={logout}>Cerrar sesión</Button>
+          <button type="button" onClick={logout} aria-label="Cerrar sesión" data-label="Cerrar sesión" className="btn-ajustes">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+            </svg>
+          </button>
         </div>
       </header>
 
-      <div className="flex flex-1 flex-col md:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-hidden print:overflow-visible">
         <button
           type="button"
           aria-expanded={menuOpen}
@@ -396,8 +392,17 @@ export function Shell() {
         >
           {menuOpen ? 'Cerrar menú' : `Menú: ${active.label}`}
         </button>
-        <nav id="menu-principal" aria-label="Principal" className={`shrink-0 bg-azul-oscuro md:block md:w-56 ${menuOpen ? 'block' : 'hidden'} print:hidden`}>
+        <nav id="menu-principal" aria-label="Principal" className={`shrink-0 bg-azul-oscuro md:block md:w-56 md:overflow-y-auto ${menuOpen ? 'block' : 'hidden'} print:hidden`}>
           <ul>
+            <li>
+              <Link
+                href="/app/inicio"
+                aria-current={active === HOME ? 'page' : undefined}
+                className={`block border-l-4 px-4 py-3 text-sm text-papel no-underline! hover:bg-azul hover:text-papel ${active === HOME ? 'border-papel font-semibold' : 'border-transparent'}`}
+              >
+                Inicio
+              </Link>
+            </li>
             {groups.map((g) => {
               const isOpen = open === g;
               const isCurrent = g === activeGroup;
@@ -434,7 +439,7 @@ export function Shell() {
           </ul>
         </nav>
 
-        <main className="min-w-0 flex-1 px-4 py-5 md:px-6">
+        <main className="min-w-0 flex-1 px-4 py-5 md:overflow-y-auto md:px-6 print:overflow-visible">
           {!account.emailVerified && active.path !== 'cuenta' ? <VerifyEmailBanner /> : null}
           <Screen />
         </main>

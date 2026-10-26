@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { PartyPicker } from '../components/PartyPicker.jsx';
-import { Button, DataTable, Notice, PageHeader, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { Button, DataTable, ExportInfo, Notice, PageHeader, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
-import { formatDay } from '../lib/format.js';
+import { formatDay, todayText } from '../lib/format.js';
 import { formatAmount } from '../lib/money.js';
 import { AGING_COLUMNS, amountText, validatePayment } from '../lib/payables.js';
 import { useSession, useTenantApi } from '../lib/session.jsx';
@@ -163,12 +163,13 @@ export function PayablesScreen() {
       {aging.error ? <Notice kind="error">{errorMessage(aging.error)}</Notice> : null}
       {aging.loading && !data ? <p className="text-sm text-tinta">Cargando cuentas por pagar…</p> : null}
       {data ? (
-        <>
+        <ExportInfo filters={[['Corte', todayText()]]}>
           <DataTable
             caption="Cuentas por pagar por edades"
             empty="No hay saldos por pagar."
             rows={rows}
             rowKey={(r) => r.partyId}
+            rowMeta={(r) => (r.isTotal ? { kind: 'total' } : null)}
             columns={[
               { key: 'supplier', title: 'Proveedor', render: (r) => (r.isTotal ? <strong>Total</strong> : `${r.name} · ${r.taxId}`) },
               ...AGING_COLUMNS.map(([key, title]) => ({ key, title, align: 'right', render: (r) => money(r, key) })),
@@ -184,7 +185,7 @@ export function PayablesScreen() {
             ]}
           />
           {data.truncated ? <p className="mt-3 text-sm text-tinta">Se muestran los {data.rows.length} proveedores con más saldo de {data.suppliers}. Los totales incluyen a todos.</p> : null}
-        </>
+        </ExportInfo>
       ) : null}
     </>
   );

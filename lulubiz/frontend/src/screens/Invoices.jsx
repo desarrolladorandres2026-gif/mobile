@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ActionButton, DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { ItemPicker } from '../components/ItemPicker.jsx';
 import { InvoiceDocument } from '../components/InvoiceDocument.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
@@ -493,7 +493,7 @@ function InvoicePrintView({ invoice, onClose }) {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-borde pb-3 print:hidden">
         <h1 className="text-xl font-semibold text-tinta">Factura {invoice.fullNumber}</h1>
         <div className="flex gap-2">
-          <Button variant="primary" onClick={() => window.print()}>Imprimir o guardar como PDF</Button>
+          <ActionButton kind="print" label="Imprimir o guardar como PDF" onClick={() => window.print()} />
           <Button onClick={onClose}>Volver a las facturas</Button>
         </div>
       </div>

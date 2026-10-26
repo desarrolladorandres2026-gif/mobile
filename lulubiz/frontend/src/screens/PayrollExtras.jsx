@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ViewButton, ActionButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { formatAmount } from '../lib/money.js';
@@ -53,7 +53,7 @@ export function Payslip({ runId, employeeId, onClose }) {
       </p>
       <p className="mt-2 text-tinta-segundo">{data.paid ? `Pagado el ${formatDay(data.paid)}.` : 'Pendiente de pago.'}</p>
       <div className="mt-3 flex gap-3">
-        <Button onClick={() => window.print()}>Imprimir</Button>
+        <ActionButton kind="print" label="Imprimir" onClick={() => window.print()} />
         <Button onClick={onClose}>Cerrar</Button>
       </div>
     </section>
@@ -278,7 +278,7 @@ export function PayrollReportsScreen() {
       </div>
       {error ? <Notice kind="error">{error}</Notice> : null}
       {run.error ? <Notice kind="error">{errorMessage(run.error)}</Notice> : null}
-      <Button variant="primary" busy={run.busy} onClick={() => run.run()}>Ver aportes</Button>
+      <ViewButton busy={run.busy} onClick={() => run.run()}>Ver aportes</ViewButton>
       {contrib ? (
         <div className="mt-4">
           <DataTable caption="Aportes por mes" columns={monthColumns} rows={contrib.months} rowKey={(m) => m.period} empty="No hay nóminas liquidadas en este rango." />

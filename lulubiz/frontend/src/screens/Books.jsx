@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { PartyPicker } from '../components/PartyPicker.jsx';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextField, errorMessage, useSubmit } from '../components/ui.jsx';
+import { Button, DataTable, ExportInfo, Notice, PageHeader, SelectField, TextField, errorMessage, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { REPORTS, KIND_LABELS, buildQuery, monthRange, rateLabel } from '../lib/books.js';
-import { formatDay } from '../lib/format.js';
+import { formatDay, rangeText } from '../lib/format.js';
 import { formatAmount } from '../lib/money.js';
 import { useSession, useTenantApi } from '../lib/session.jsx';
 
@@ -192,7 +192,7 @@ export function BooksScreen() {
       return;
     }
     setErrors([]);
-    setResult({ report, data: await api.get(`${base}/${built.path}?${built.query}`) });
+    setResult({ report, range, data: await api.get(`${base}/${built.path}?${built.query}`) });
   });
 
   return (
@@ -221,6 +221,11 @@ export function BooksScreen() {
       </Button>
 
       {result ? (
+        <ExportInfo
+          period={rangeText(result.data.from ?? result.range.from, result.data.to ?? result.range.to)}
+          filters={result.data.party ? [['Tercero', partyText(result.data.party)]] : undefined}
+          currency={result.data.currency}
+        >
         <div className="mt-6">
           {result.report === 'sales-book' ? <BookResult data={result.data} currency={result.data.currency} /> : null}
           {result.report === 'purchases-book' ? <BookResult data={result.data} currency={result.data.currency} purchases /> : null}
@@ -230,6 +235,7 @@ export function BooksScreen() {
           {result.report === 'party-ledger' ? <PartyLedgerResult data={result.data} currency={result.data.currency} /> : null}
           {result.report === 'sales-by-customer' || result.report === 'sales-by-month' ? <SummaryResult data={result.data} currency={result.data.currency} /> : null}
         </div>
+        </ExportInfo>
       ) : null}
     </>
   );

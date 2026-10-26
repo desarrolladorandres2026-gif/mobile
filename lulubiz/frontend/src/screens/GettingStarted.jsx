@@ -1,6 +1,5 @@
-import { DataTable, Notice, PageHeader, errorMessage, useLoad } from '../components/ui.jsx';
+import { ViewLink, DataTable, Notice, PageHeader, errorMessage, useLoad } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
-import { Link } from '../lib/router.jsx';
 import { useTenantApi } from '../lib/session.jsx';
 
 const state = (step) => (step.done ? 'Hecho' : step.required ? 'Pendiente · obligatorio' : 'Pendiente · recomendado');
@@ -13,7 +12,7 @@ export function GettingStartedScreen() {
     { key: 'title', title: 'Paso', render: (s) => s.title },
     { key: 'state', title: 'Estado', nowrap: true, render: state },
     { key: 'detail', title: 'Qué hay', render: (s) => s.detail },
-    { key: 'go', title: 'Ir a', nowrap: true, render: (s) => <Link href={`/app/${s.path}`}>{s.done ? 'Revisar' : 'Hacerlo ahora'}</Link> },
+    { key: 'go', title: 'Ir a', nowrap: true, render: (s) => <ViewLink href={`/app/${s.path}`}>{s.done ? 'Revisar' : 'Hacerlo ahora'}</ViewLink> },
   ];
 
   return (

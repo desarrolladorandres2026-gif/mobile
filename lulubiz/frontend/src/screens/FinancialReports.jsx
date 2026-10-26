@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { Button, DataTable, ExportInfo, Notice, PageHeader, SelectField, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
+import { monthLabel } from '../lib/home.js';
 import { CURRENCY_EXPONENT, formatAmount } from '../lib/money.js';
 import { balanceNotice, ledgerRows, withDepth } from '../lib/reports.js';
 import { useSession, useTenantApi } from '../lib/session.jsx';
@@ -9,6 +10,8 @@ import { useSession, useTenantApi } from '../lib/session.jsx';
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 const yearStart = () => `${new Date().getUTCFullYear()}-01`;
 const INDENT = ['pl-0', 'pl-4', 'pl-8', 'pl-12', 'pl-16', 'pl-20'];
+// Para el Excel: sangría por nivel, cuentas no imputables como grupo y la fila de totales.
+const accountMeta = (r) => (r.total ? { kind: 'total' } : { depth: r.depth, kind: r.postable === false ? 'group' : undefined });
 
 const REPORTS = [
   { value: 'trial-balance', label: 'Balance de prueba', needs: ['from', 'to'] },
@@ -33,6 +36,7 @@ function TrialBalance({ report }) {
       empty="No hay movimientos en este rango."
       rows={[...rows, ...(rows.length ? [{ code: 'TOTAL', total: true }] : [])]}
       rowKey={(r) => r.code}
+      rowMeta={accountMeta}
       columns={[
         { key: 'account', title: 'Cuenta', render: (r) => (r.total ? <strong>Totales</strong> : <Name row={r} />) },
         { key: 'opening', title: 'Saldo inicial', align: 'right', render: (r) => (r.total ? '' : strong(r, r.opening)) },
@@ -54,6 +58,7 @@ function Section({ title, rows, currency, total, totalLabel }) {
         empty="Sin cuentas con movimiento."
         rows={rows.length ? list : []}
         rowKey={(r) => r.code}
+        rowMeta={accountMeta}
         columns={[
           { key: 'account', title: 'Cuenta', render: (r) => (r.total ? <strong>{totalLabel}</strong> : <Name row={r} />) },
           {
@@ -117,8 +122,9 @@ function GeneralLedger({ query, base, first }) {
         empty="Sin movimientos."
         rows={rows}
         rowKey={(r) => r.id}
+        rowMeta={(r) => (r.kind === 'entry' ? null : { kind: 'group' })}
         columns={[
-          { key: 'date', title: 'Fecha', nowrap: true, render: (r) => (r.kind === 'entry' ? formatDay(r.date) : '') },
+          { key: 'date', title: 'Fecha', type: 'date', nowrap: true, render: (r) => (r.kind === 'entry' ? formatDay(r.date) : '') },
           {
             key: 'doc',
             title: 'Documento',
@@ -140,6 +146,14 @@ function GeneralLedger({ query, base, first }) {
     </>
   );
 }
+
+/** Período del informe ya generado, para el encabezado del Excel. */
+const reportPeriod = ({ query }) => (query.from ? `${monthLabel(query.from)} a ${monthLabel(query.to)}` : `Al cierre de ${monthLabel(query.to)}`);
+const reportFilters = ({ query }, accounts) => {
+  if (!query.account) return undefined;
+  const name = accounts?.find((a) => a.code === query.account)?.name;
+  return [['Cuenta', name ? `${query.account} · ${name}` : query.account]];
+};
 
 export function FinancialReportsScreen() {
   const base = useTenantApi();
@@ -190,13 +204,13 @@ export function FinancialReportsScreen() {
       </form>
       {run.error ? <Notice kind="error">{errorMessage(run.error)}</Notice> : null}
       {shown ? (
-        <>
+        <ExportInfo period={reportPeriod(shown)} filters={reportFilters(shown, accounts.data?.items)} currency={shown.query.currency}>
           {shown.data.balanced !== undefined ? <Notice kind={balanceNotice(shown.data).kind}>{balanceNotice(shown.data).text}</Notice> : null}
           {shown.kind === 'trial-balance' ? <TrialBalance report={shown.data} /> : null}
           {shown.kind === 'income-statement' ? <IncomeStatement report={shown.data} /> : null}
           {shown.kind === 'balance-sheet' ? <BalanceSheet report={shown.data} /> : null}
           {shown.kind === 'general-ledger' ? <GeneralLedger key={shown.key} query={shown.query} base={base} first={shown.data} /> : null}
-        </>
+        </ExportInfo>
       ) : null}
     </>
   );

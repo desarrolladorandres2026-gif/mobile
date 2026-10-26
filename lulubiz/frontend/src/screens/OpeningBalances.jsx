@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useCostCenters } from '../components/CostCenterSelect.jsx';
-import { Button, DataTable, Notice, PageHeader, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ViewButton, Button, DataTable, Notice, PageHeader, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { CsvError, parseCsv } from '../lib/csv.js';
 import { formatAmount } from '../lib/money.js';
@@ -135,7 +135,7 @@ export function OpeningBalancesScreen() {
         rows={6}
         className="mb-3 w-full rounded-sm border border-borde-fuerte bg-papel px-2.5 py-1.5 text-sm text-tinta focus:outline-2 focus:outline-azul"
       />
-      <Button variant="primary" busy={check.busy} disabled={!accounts.data} onClick={() => check.run()}>Revisar archivo</Button>
+      <ViewButton busy={check.busy} disabled={!accounts.data} onClick={() => check.run()}>Revisar archivo</ViewButton>
 
       {error ? <div className="mt-4"><Notice kind="error">{error}</Notice></div> : null}
 

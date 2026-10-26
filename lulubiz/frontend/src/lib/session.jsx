@@ -94,6 +94,11 @@ export function useSession() {
   return value;
 }
 
+/** La sesión, o `null` fuera de `SessionProvider`: para componentes de uso general que también viven sin ella. */
+export function useOptionalSession() {
+  return useContext(SessionContext);
+}
+
 /** Ruta base de la API para la empresa actual: `/v1/tenants/:id`. */
 export function useTenantApi() {
   const { tenant } = useSession();

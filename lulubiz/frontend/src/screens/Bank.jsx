@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ViewButton, DeleteButton, Button, DataTable, ExportInfo, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { CHUNK, DECIMALS, chunk, differenceText, parseSignedAmount, parseStatement } from '../lib/bank.js';
 import { monthRange } from '../lib/books.js';
 import { CsvError, parseCsv } from '../lib/csv.js';
-import { formatDay } from '../lib/format.js';
+import { formatDay, rangeText } from '../lib/format.js';
 import { formatAmount } from '../lib/money.js';
 import { useSession, useTenantApi } from '../lib/session.jsx';
 
@@ -80,7 +80,7 @@ function ImportPanel({ base, account, currency, onDone, onCancel }) {
       <div className="grid gap-x-4 sm:grid-cols-3">
         <SelectField label="Formato de los importes" value={decimal} onChange={(e) => { setDecimal(e.target.value); setReview(null); }} options={DECIMALS} />
       </div>
-      <Button variant="primary" onClick={check}>Revisar extracto</Button>
+      <ViewButton onClick={check}>Revisar extracto</ViewButton>
       <Button className="ml-2" onClick={onCancel}>Cerrar</Button>
 
       {error ? <div className="mt-3"><Notice kind="error">{error}</Notice></div> : null}
@@ -175,7 +175,7 @@ function BookForm({ base, line, accounts, onDone, onCancel }) {
   );
 }
 
-function LinesView({ base, account, currency, manage, accounts }) {
+function LinesView({ base, account, accountLabel, currency, manage, accounts }) {
   const [range, setRange] = useState(() => monthRange(today()));
   const [status, setStatus] = useState('all');
   const [importing, setImporting] = useState(false);
@@ -241,6 +241,7 @@ function LinesView({ base, account, currency, manage, accounts }) {
       {[auto, undo, remove].map((s, i) => (s.error ? <Notice key={i} kind="error">{errorMessage(s.error)}</Notice> : null))}
       {list.error ? <Notice kind="error">{errorMessage(list.error)}</Notice> : null}
       {list.data ? (
+        <ExportInfo period={rangeText(range.from, range.to)} filters={[['Cuenta bancaria', accountLabel], ['Estado', STATUS.find((x) => x.value === status)?.label]]}>
         <DataTable
           caption="Extracto bancario"
           columns={columns}
@@ -256,12 +257,13 @@ function LinesView({ base, account, currency, manage, accounts }) {
             );
           }}
         />
+        </ExportInfo>
       ) : null}
     </>
   );
 }
 
-function SummaryView({ base, account, currency, manage }) {
+function SummaryView({ base, account, accountLabel, currency, manage }) {
   const [asOf, setAsOf] = useState(today());
   const [balanceText, setBalanceText] = useState('');
   const [result, setResult] = useState(null);
@@ -352,11 +354,20 @@ function SummaryView({ base, account, currency, manage }) {
       </div>
       {errors.map((m) => <Notice key={m} kind="error">{m}</Notice>)}
       {run.error ? <Notice kind="error">{errorMessage(run.error)}</Notice> : null}
-      <Button variant="primary" busy={run.busy} onClick={() => run.run()}>Ver conciliación</Button>
+      <ViewButton busy={run.busy} onClick={() => run.run()}>Ver conciliación</ViewButton>
       {notice ? <div className="mt-3"><Notice kind="success">{notice}</Notice></div> : null}
       {[close, reopen, manual].map((s, i) => (s.error ? <div key={i} className="mt-3"><Notice kind="error">{errorMessage(s.error)}</Notice></div> : null))}
 
       {result ? (
+        <ExportInfo
+          filters={[
+            ['Cuenta bancaria', accountLabel],
+            ['Corte', formatDay(asOf)],
+            ['Saldo del extracto', money(result.statementBalance)],
+            ['Saldo del libro', money(result.bookBalance)],
+            ['Diferencia', money(result.difference)],
+          ]}
+        >
         <div className="mt-6">
           <dl className="mb-4 grid max-w-xl grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm text-tinta">
             <dt>Saldo del extracto</dt>
@@ -390,6 +401,7 @@ function SummaryView({ base, account, currency, manage }) {
           <p className="mb-2 text-sm text-tinta">Líneas del extracto que el libro no tiene: comisiones, intereses, impuestos. Contabilízalas desde la pestaña Extracto.</p>
           <DataTable caption="Pendiente del banco" columns={bankColumns} rows={result.unmatchedBank.items} rowKey={(l) => l._id} empty="No hay nada pendiente en el banco." />
         </div>
+        </ExportInfo>
       ) : null}
 
       <h2 className="mb-2 mt-8 text-lg font-semibold text-tinta">Conciliaciones cerradas</h2>
@@ -408,6 +420,8 @@ export function BankScreen() {
   const [account, setAccount] = useState('');
   const [view, setView] = useState('lines');
   const currency = tenant.currency;
+  const chosen = assets.find((a) => a.code === account);
+  const accountLabel = chosen ? `${chosen.code} · ${chosen.name}` : account;
 
   return (
     <>
@@ -442,7 +456,7 @@ export function BankScreen() {
               </button>
             ))}
           </div>
-          {view === 'lines' ? <LinesView key={account} base={base} account={account} currency={currency} manage={manage} accounts={postable} /> : <SummaryView key={account} base={base} account={account} currency={currency} manage={manage} />}
+          {view === 'lines' ? <LinesView key={account} base={base} account={account} accountLabel={accountLabel} currency={currency} manage={manage} accounts={postable} /> : <SummaryView key={account} base={base} account={account} accountLabel={accountLabel} currency={currency} manage={manage} />}
         </>
       ) : (
         <p className="text-sm text-tinta">Elige la cuenta de bancos para empezar.</p>

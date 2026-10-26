@@ -171,7 +171,7 @@ export function AccountsScreen() {
 
       {list.error ? <Notice kind="error">{errorMessage(list.error)}</Notice> : null}
       {list.loading && !list.data ? <p className="text-sm text-tinta">Cargando el plan de cuentas…</p> : null}
-      {list.data ? <DataTable caption="Plan de cuentas" columns={columns} rows={rows} rowKey={(a) => a.code} empty="Todavía no hay cuentas. Carga el plan inicial o crea la primera." /> : null}
+      {list.data ? <DataTable caption="Plan de cuentas" columns={columns} rows={rows} rowKey={(a) => a.code} rowMeta={(a) => ({ depth: a.depth, kind: a.postable ? undefined : 'group' })} empty="Todavía no hay cuentas. Carga el plan inicial o crea la primera." /> : null}
     </>
   );
 }

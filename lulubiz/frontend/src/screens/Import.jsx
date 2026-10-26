@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import { Button, DataTable, Notice, PageHeader, SelectField, errorMessage, useSubmit } from '../components/ui.jsx';
+import { ViewLink, ViewButton, Button, DataTable, Notice, PageHeader, SelectField, errorMessage, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { CsvError, MAX_CSV_ROWS, parseCsv } from '../lib/csv.js';
 import { prepare, runImport } from '../lib/importer.js';
-import { Link } from '../lib/router.jsx';
 import { useSession, useTenantApi } from '../lib/session.jsx';
 
 const KINDS = {
@@ -120,7 +119,7 @@ export function ImportScreen() {
         rows={6}
         className="mb-3 w-full rounded-sm border border-borde-fuerte bg-papel px-2.5 py-1.5 text-sm text-tinta focus:outline-2 focus:outline-azul"
       />
-      <Button variant="primary" onClick={check}>Revisar archivo</Button>
+      <ViewButton onClick={check}>Revisar archivo</ViewButton>
 
       {error ? <div className="mt-4"><Notice kind="error">{error}</Notice></div> : null}
 
@@ -163,7 +162,7 @@ export function ImportScreen() {
             Se crearon {outcome.created.length} {config.success}
             {outcome.existed.length ? `, ${outcome.existed.length} ya existían` : ''}
             {outcome.failed.length ? ` y ${outcome.failed.length} fallaron` : ''}.{' '}
-            <Link href={`/app/${kind === 'items' ? 'articulos' : 'terceros'}`}>Ver {config.success}</Link>
+            <ViewLink href={`/app/${kind === 'items' ? 'articulos' : 'terceros'}`}>Ver {config.success}</ViewLink>
           </Notice>
           {outcome.existed.length ? (
             <DataTable

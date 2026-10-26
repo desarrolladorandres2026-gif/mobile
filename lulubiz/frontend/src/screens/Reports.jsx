@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ViewButton, Button, DataTable, ExportInfo, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
+import { monthLabel } from '../lib/home.js';
 import { CURRENCY_EXPONENT, formatAmount } from '../lib/money.js';
 import { useSession, useTenantApi } from '../lib/session.jsx';
 
@@ -47,10 +48,11 @@ export function BalancesScreen() {
           <TextField label="Período" type="month" value={period} onChange={(e) => setPeriod(e.target.value)} required />
           <SelectField label="Moneda" value={currency} onChange={(e) => setCurrency(e.target.value)} options={Object.keys(CURRENCY_EXPONENT).map((c) => ({ value: c, label: c }))} />
         </div>
-        <Button type="submit" variant="primary" busy={query.busy}>Consultar saldo</Button>
+        <ViewButton type="submit" busy={query.busy}>Consultar saldo</ViewButton>
       </form>
       {query.error ? <Notice kind="error">{errorMessage(query.error)}</Notice> : null}
       {result ? (
+        <ExportInfo period={monthLabel(result.period)} currency={result.currency}>
         <DataTable
           caption="Saldo de la cuenta"
           columns={[
@@ -63,6 +65,7 @@ export function BalancesScreen() {
           rows={[result]}
           rowKey={() => 'saldo'}
         />
+        </ExportInfo>
       ) : null}
     </>
   );

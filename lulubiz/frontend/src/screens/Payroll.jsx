@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ActionButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { formatAmount, parseAmount } from '../lib/money.js';
@@ -199,7 +199,7 @@ function SalaryEditor({ employee, currency, onDone, onCancel }) {
   return (
     <span className="flex flex-wrap items-center gap-2">
       <input aria-label={`Nuevo salario de ${employee.name}`} value={salary} onChange={(e) => setSalary(e.target.value)} inputMode="decimal" className="w-36 rounded-sm border border-borde-fuerte bg-papel px-2 py-1 text-right text-sm tabular-nums text-tinta focus:outline-2 focus:outline-azul" />
-      <TextButton onClick={() => save.run()}>Guardar</TextButton>
+      <ActionButton kind="save" label="Guardar" onClick={() => save.run()} />
       <TextButton onClick={onCancel}>Cancelar</TextButton>
       {save.error ? <span role="alert" className="text-xs font-semibold text-rojo">{errorMessage(save.error)}</span> : null}
     </span>

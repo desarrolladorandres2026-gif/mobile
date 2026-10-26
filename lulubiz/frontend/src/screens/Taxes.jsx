@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Button, DataTable, Notice, PageHeader, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ViewButton, ActionButton, Button, DataTable, ExportInfo, Notice, PageHeader, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
 import { api } from '../lib/api.js';
-import { formatDay } from '../lib/format.js';
+import { formatDay, rangeText } from '../lib/format.js';
 import { formatPercent } from '../lib/invoicing.js';
 import { formatAmount, parseAmount } from '../lib/money.js';
 import { useSession, useTenantApi } from '../lib/session.jsx';
@@ -40,6 +40,7 @@ function RateTable({ title, side, currency }) {
       empty="Sin documentos en este rango."
       rows={side.rates.length ? rows : []}
       rowKey={(r) => r.key}
+      rowMeta={(r) => (r.total ? { kind: 'total' } : null)}
       columns={[
         { key: 'label', title, render: (r) => (r.total ? <strong>{r.label}</strong> : r.label) },
         { key: 'base', title: 'Base', align: 'right', render: (r) => (r.total ? <strong>{money(r.base)}</strong> : money(r.base)) },
@@ -144,28 +145,30 @@ function VatSection({ currency, canClose }) {
     <Section title="IVA" hint="Lo generado en ventas y lo descontable en compras, por tarifa, con las notas restadas. Sale de los documentos y se compara con el libro. La fecha de cada documento es la de emisión.">
       <RangeFields range={range} setRange={setRange} onChange={() => setResult(null)} />
       {run.error ? <Notice kind="error">{errorMessage(run.error)}</Notice> : null}
-      <Button variant="primary" busy={run.busy} onClick={() => run.run()}>Ver IVA</Button>
+      <ViewButton busy={run.busy} onClick={() => run.run()}>Ver IVA</ViewButton>
       {result ? (
-        <div className="mt-6">
-          <RateTable title="IVA generado" side={result.generated} currency={currency} />
-          <p className="mb-6 mt-1 text-sm text-tinta">
-            {result.generated.documents.invoices} facturas, {result.generated.documents.posSales} ventas de mostrador y {result.generated.documents.creditNotes} notas crédito.
-          </p>
-          <RateTable title="IVA descontable" side={result.deductible} currency={currency} />
-          <p className="mb-4 mt-1 text-sm text-tinta">
-            {result.deductible.documents.purchases} compras (con notas débito) y {result.deductible.documents.supplierNotes} notas de proveedor.
-          </p>
-          <p className="mb-3 text-base font-semibold text-tinta">
-            {verdict.text}: <span className="tabular-nums">{money(Math.abs(result.net))}</span>
-          </p>
-          <LedgerCheck label="Generado" side={result.ledger.generated} currency={currency} />
-          <LedgerCheck label="Descontable" side={result.ledger.deductible} currency={currency} />
-          {canClose ? (
-            <div className="mt-4">
-              {closing ? <VatCloseForm range={range} currency={currency} onDone={(r) => { setClosing(false); setNotice(`Cierre ${r.close.document} registrado.`); closes.reload(); }} /> : <Button onClick={() => setClosing(true)}>Cerrar el IVA de este rango</Button>}
-            </div>
-          ) : null}
-        </div>
+        <ExportInfo period={rangeText(range.from, range.to)}>
+          <div className="mt-6">
+            <RateTable title="IVA generado" side={result.generated} currency={currency} />
+            <p className="mb-6 mt-1 text-sm text-tinta">
+              {result.generated.documents.invoices} facturas, {result.generated.documents.posSales} ventas de mostrador y {result.generated.documents.creditNotes} notas crédito.
+            </p>
+            <RateTable title="IVA descontable" side={result.deductible} currency={currency} />
+            <p className="mb-4 mt-1 text-sm text-tinta">
+              {result.deductible.documents.purchases} compras (con notas débito) y {result.deductible.documents.supplierNotes} notas de proveedor.
+            </p>
+            <p className="mb-3 text-base font-semibold text-tinta">
+              {verdict.text}: <span className="tabular-nums">{money(Math.abs(result.net))}</span>
+            </p>
+            <LedgerCheck label="Generado" side={result.ledger.generated} currency={currency} />
+            <LedgerCheck label="Descontable" side={result.ledger.deductible} currency={currency} />
+            {canClose ? (
+              <div className="mt-4">
+                {closing ? <VatCloseForm range={range} currency={currency} onDone={(r) => { setClosing(false); setNotice(`Cierre ${r.close.document} registrado.`); closes.reload(); }} /> : <Button onClick={() => setClosing(true)}>Cerrar el IVA de este rango</Button>}
+              </div>
+            ) : null}
+  </div>
+        </ExportInfo>
       ) : null}
       {notice ? <div className="mt-4"><Notice kind="success">{notice}</Notice></div> : null}
       {voidClose.error ? <Notice kind="error">{errorMessage(voidClose.error)}</Notice> : null}
@@ -186,22 +189,24 @@ function Certificate({ data, currency }) {
         {data.issuer?.name}, NIT {data.issuer?.taxId}
         {data.issuer?.checkDigit !== null && data.issuer?.checkDigit !== undefined ? `-${data.issuer.checkDigit}` : ''}, certifica que practicó a {data.supplier.name} ({data.supplier.taxIdType} {data.supplier.taxId}) las siguientes retenciones:
       </p>
+      <ExportInfo filters={[['Año', data.year], ['Proveedor', `${data.supplier.name} · ${data.supplier.taxIdType} ${data.supplier.taxId}`]]}>
       <DataTable
         caption="Retenciones del certificado"
         empty="No hubo retenciones en este año."
         columns={[
           { key: 'name', title: 'Concepto', render: (c) => c.name },
-          { key: 'rate', title: 'Tarifa', align: 'right', render: (c) => formatPercent(c.rateBps) },
+          { key: 'rate', title: 'Tarifa', align: 'right', type: 'percent', render: (c) => formatPercent(c.rateBps) },
           { key: 'base', title: 'Base', align: 'right', render: (c) => money(c.base) },
           { key: 'amount', title: 'Valor retenido', align: 'right', render: (c) => money(c.amount) },
         ]}
         rows={data.concepts}
         rowKey={(c) => `${c.accountId}-${c.name}`}
       />
+      </ExportInfo>
       <p className="mt-2 font-semibold">Total retenido: {money(data.totals.amount)}</p>
       <p className="mt-2 text-tinta-segundo">Expedido el {formatDay(data.issuedOn)}.</p>
       <div className="mt-3">
-        <Button onClick={() => window.print()}>Imprimir</Button>
+        <ActionButton kind="print" label="Imprimir" onClick={() => window.print()} />
       </div>
     </section>
   );
@@ -232,48 +237,50 @@ function WithholdingsSection({ currency }) {
     <Section title="Retenciones practicadas" hint="Lo que se retuvo a los proveedores en las compras, por concepto y por proveedor, menos lo que devolvieron las notas de proveedor. La retención de nómina está en los reportes de nómina.">
       <RangeFields range={range} setRange={setRange} onChange={() => setResult(null)} />
       {run.error ? <Notice kind="error">{errorMessage(run.error)}</Notice> : null}
-      <Button variant="primary" busy={run.busy} onClick={() => run.run()}>Ver retenciones</Button>
+      <ViewButton busy={run.busy} onClick={() => run.run()}>Ver retenciones</ViewButton>
       {result ? (
-        <div className="mt-6">
-          <DataTable
-            caption="Retenciones por concepto"
-            empty="No hubo retenciones en este rango."
-            columns={[
-              { key: 'concept', title: 'Concepto', render: (c) => `${c.name} · cuenta ${c.accountId}` },
-              { key: 'rate', title: 'Tarifa', align: 'right', render: (c) => formatPercent(c.rateBps) },
-              { key: 'base', title: 'Base', align: 'right', render: (c) => money(c.base) },
-              { key: 'amount', title: 'Retenido', align: 'right', render: (c) => money(c.amount) },
-            ]}
-            rows={result.concepts}
-            rowKey={(c) => `${c.accountId}-${c.name}-${c.rateBps}`}
-          />
-          <h3 className="mb-1 mt-4 font-semibold text-tinta">Por proveedor</h3>
-          <DataTable
-            caption="Retenciones por proveedor"
-            empty="Sin retenciones."
-            columns={[
-              { key: 'name', title: 'Proveedor', render: (s) => `${s.name} — ${s.taxIdType} ${s.taxId}` },
-              { key: 'base', title: 'Base', align: 'right', render: (s) => money(s.base) },
-              { key: 'amount', title: 'Retenido', align: 'right', render: (s) => money(s.amount) },
-            ]}
-            rows={result.suppliers}
-            rowKey={(s) => String(s.partyId)}
-          />
-          <p className="mt-2 text-sm font-semibold text-tinta">Total retenido: <span className="tabular-nums">{money(result.totals.amount)}</span></p>
-          <h3 className="mb-1 mt-6 font-semibold text-tinta">Retenciones que te practicaron los clientes</h3>
-          <p className="mb-2 text-sm text-tinta">Lo que tus clientes descontaron al pagarte (recibos de caja vigentes): es un impuesto a favor.</p>
-          <DataTable
-            caption="Retenciones practicadas por los clientes"
-            empty="Ningún cliente te practicó retenciones en este rango."
-            columns={[
-              { key: 'concept', title: 'Concepto', render: (c) => `${c.name} · cuenta ${c.accountId}` },
-              { key: 'amount', title: 'Valor', align: 'right', render: (c) => money(c.amount) },
-            ]}
-            rows={result.suffered.concepts}
-            rowKey={(c) => `${c.accountId}-${c.name}`}
-          />
-          {result.suffered.customers.length ? <p className="mt-2 text-sm text-tinta">Por cliente: {result.suffered.customers.map((c) => `${c.name} ${money(c.amount)}`).join(' · ')}. Total {money(result.suffered.total)}.</p> : null}
-        </div>
+        <ExportInfo period={rangeText(range.from, range.to)}>
+          <div className="mt-6">
+            <DataTable
+              caption="Retenciones por concepto"
+              empty="No hubo retenciones en este rango."
+              columns={[
+                { key: 'concept', title: 'Concepto', render: (c) => `${c.name} · cuenta ${c.accountId}` },
+                { key: 'rate', title: 'Tarifa', align: 'right', type: 'percent', render: (c) => formatPercent(c.rateBps) },
+                { key: 'base', title: 'Base', align: 'right', render: (c) => money(c.base) },
+                { key: 'amount', title: 'Retenido', align: 'right', render: (c) => money(c.amount) },
+              ]}
+              rows={result.concepts}
+              rowKey={(c) => `${c.accountId}-${c.name}-${c.rateBps}`}
+            />
+            <h3 className="mb-1 mt-4 font-semibold text-tinta">Por proveedor</h3>
+            <DataTable
+              caption="Retenciones por proveedor"
+              empty="Sin retenciones."
+              columns={[
+                { key: 'name', title: 'Proveedor', render: (s) => `${s.name} — ${s.taxIdType} ${s.taxId}` },
+                { key: 'base', title: 'Base', align: 'right', render: (s) => money(s.base) },
+                { key: 'amount', title: 'Retenido', align: 'right', render: (s) => money(s.amount) },
+              ]}
+              rows={result.suppliers}
+              rowKey={(s) => String(s.partyId)}
+            />
+            <p className="mt-2 text-sm font-semibold text-tinta">Total retenido: <span className="tabular-nums">{money(result.totals.amount)}</span></p>
+            <h3 className="mb-1 mt-6 font-semibold text-tinta">Retenciones que te practicaron los clientes</h3>
+            <p className="mb-2 text-sm text-tinta">Lo que tus clientes descontaron al pagarte (recibos de caja vigentes): es un impuesto a favor.</p>
+            <DataTable
+              caption="Retenciones practicadas por los clientes"
+              empty="Ningún cliente te practicó retenciones en este rango."
+              columns={[
+                { key: 'concept', title: 'Concepto', render: (c) => `${c.name} · cuenta ${c.accountId}` },
+                { key: 'amount', title: 'Valor', align: 'right', render: (c) => money(c.amount) },
+              ]}
+              rows={result.suffered.concepts}
+              rowKey={(c) => `${c.accountId}-${c.name}`}
+            />
+            {result.suffered.customers.length ? <p className="mt-2 text-sm text-tinta">Por cliente: {result.suffered.customers.map((c) => `${c.name} ${money(c.amount)}`).join(' · ')}. Total {money(result.suffered.total)}.</p> : null}
+  </div>
+        </ExportInfo>
       ) : null}
       <h3 className="mb-2 mt-8 font-semibold text-tinta">Certificado de retenciones de un proveedor</h3>
       <PartyPicker base={base} role="supplier" value={supplierId} onChange={(id) => { setSupplierId(id); setCert(null); }} />
@@ -282,7 +289,7 @@ function WithholdingsSection({ currency }) {
       </div>
       {error ? <Notice kind="error">{error}</Notice> : null}
       {certify.error ? <Notice kind="error">{errorMessage(certify.error)}</Notice> : null}
-      <Button busy={certify.busy} onClick={() => certify.run()}>Ver certificado</Button>
+      <ViewButton busy={certify.busy} onClick={() => certify.run()}>Ver certificado</ViewButton>
       {cert ? <Certificate data={cert} currency={currency} /> : null}
     </Section>
   );
@@ -319,30 +326,32 @@ function IcaSection({ currency }) {
       {run.error ? <Notice kind="error">{errorMessage(run.error)}</Notice> : null}
       <Button variant="primary" busy={run.busy} onClick={() => run.run()}>Calcular el ICA</Button>
       {result ? (
-        <div className="mt-6">
-          <DataTable
-            caption="Ingresos del rango"
-            empty="No hubo ingresos en este rango."
-            columns={[
-              { key: 'account', title: 'Cuenta', render: (l) => `${l.account} · ${l.name}` },
-              { key: 'amount', title: 'Ingreso neto', align: 'right', render: (l) => money(l.amount) },
-              { key: 'excluded', title: 'Base', render: (l) => (l.excluded ? 'Excluida' : 'Gravada') },
-            ]}
-            rows={result.lines}
-            rowKey={(l) => l.account}
-          />
-          <dl className="mt-3 grid max-w-lg grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm text-tinta">
-            <dt>Ingresos del libro</dt>
-            <dd className="text-right tabular-nums">{money(result.total)}</dd>
-            <dt>Excluidos</dt>
-            <dd className="text-right tabular-nums">{money(result.excludedTotal)}</dd>
-            <dt>Base gravable</dt>
-            <dd className="text-right tabular-nums">{money(result.base)}</dd>
-            <dt className="font-semibold">ICA a {formatPerMil(result.ratePpm)} por mil</dt>
-            <dd className="text-right font-semibold tabular-nums">{money(result.ica)}</dd>
-          </dl>
-          {result.base < 0 ? <p className="mt-2 text-sm text-tinta">Hubo más devoluciones que ventas: la base es negativa y el ICA se muestra en cero. Este informe no calcula saldos a favor.</p> : null}
-        </div>
+        <ExportInfo period={rangeText(range.from, range.to)} filters={[['Tarifa por mil', formatPerMil(result.ratePpm)], ['Cuentas excluidas', excluded.trim()]]}>
+          <div className="mt-6">
+            <DataTable
+              caption="Ingresos del rango"
+              empty="No hubo ingresos en este rango."
+              columns={[
+                { key: 'account', title: 'Cuenta', render: (l) => `${l.account} · ${l.name}` },
+                { key: 'amount', title: 'Ingreso neto', align: 'right', render: (l) => money(l.amount) },
+                { key: 'excluded', title: 'Base', render: (l) => (l.excluded ? 'Excluida' : 'Gravada') },
+              ]}
+              rows={result.lines}
+              rowKey={(l) => l.account}
+            />
+            <dl className="mt-3 grid max-w-lg grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm text-tinta">
+              <dt>Ingresos del libro</dt>
+              <dd className="text-right tabular-nums">{money(result.total)}</dd>
+              <dt>Excluidos</dt>
+              <dd className="text-right tabular-nums">{money(result.excludedTotal)}</dd>
+              <dt>Base gravable</dt>
+              <dd className="text-right tabular-nums">{money(result.base)}</dd>
+              <dt className="font-semibold">ICA a {formatPerMil(result.ratePpm)} por mil</dt>
+              <dd className="text-right font-semibold tabular-nums">{money(result.ica)}</dd>
+            </dl>
+            {result.base < 0 ? <p className="mt-2 text-sm text-tinta">Hubo más devoluciones que ventas: la base es negativa y el ICA se muestra en cero. Este informe no calcula saldos a favor.</p> : null}
+  </div>
+        </ExportInfo>
       ) : null}
     </Section>
   );
@@ -384,18 +393,20 @@ function ExogenaSection({ currency }) {
       </div>
       {error ? <Notice kind="error">{error}</Notice> : null}
       {run.error ? <Notice kind="error">{errorMessage(run.error)}</Notice> : null}
-      <Button variant="primary" busy={run.busy} onClick={() => run.run()}>Ver la base de exógena</Button>
+      <ViewButton busy={run.busy} onClick={() => run.run()}>Ver la base de exógena</ViewButton>
       {result ? (
-        <div className="mt-6">
-          <PartyTable caption="Ingresos por cliente" empty="Sin ingresos con terceros." rows={result.income.parties} columns={withBase} />
-          <p className="mb-4 mt-2 text-sm text-tinta">Ventas de mostrador (sin tercero): {money(result.income.counterOfSale)}. Ingresos totales: <span className="font-semibold tabular-nums">{money(result.income.total)}</span>.</p>
-          <PartyTable caption="Compras y gastos por proveedor" empty="Sin compras." rows={result.costs.parties} columns={withBase} />
-          <p className="mb-4 mt-2 text-sm text-tinta">Total de compras y gastos: <span className="font-semibold tabular-nums">{money(result.costs.total)}</span>.</p>
-          <PartyTable caption="Retenciones practicadas a proveedores" empty="Sin retenciones." rows={result.withheldFromSuppliers.parties} columns={withAmount} />
-          <p className="mb-4 mt-2 text-sm text-tinta">Total retenido: <span className="font-semibold tabular-nums">{money(result.withheldFromSuppliers.total)}</span>.</p>
-          <PartyTable caption="Retenciones que te practicaron los clientes" empty="Sin retenciones." rows={result.withheldByCustomers.parties} columns={withAmount} />
-          <p className="mt-2 text-sm text-tinta">Total: <span className="font-semibold tabular-nums">{money(result.withheldByCustomers.total)}</span>.</p>
-        </div>
+        <ExportInfo filters={[['Año', year], ['Tope mínimo por tercero', min.trim()]]}>
+          <div className="mt-6">
+            <PartyTable caption="Ingresos por cliente" empty="Sin ingresos con terceros." rows={result.income.parties} columns={withBase} />
+            <p className="mb-4 mt-2 text-sm text-tinta">Ventas de mostrador (sin tercero): {money(result.income.counterOfSale)}. Ingresos totales: <span className="font-semibold tabular-nums">{money(result.income.total)}</span>.</p>
+            <PartyTable caption="Compras y gastos por proveedor" empty="Sin compras." rows={result.costs.parties} columns={withBase} />
+            <p className="mb-4 mt-2 text-sm text-tinta">Total de compras y gastos: <span className="font-semibold tabular-nums">{money(result.costs.total)}</span>.</p>
+            <PartyTable caption="Retenciones practicadas a proveedores" empty="Sin retenciones." rows={result.withheldFromSuppliers.parties} columns={withAmount} />
+            <p className="mb-4 mt-2 text-sm text-tinta">Total retenido: <span className="font-semibold tabular-nums">{money(result.withheldFromSuppliers.total)}</span>.</p>
+            <PartyTable caption="Retenciones que te practicaron los clientes" empty="Sin retenciones." rows={result.withheldByCustomers.parties} columns={withAmount} />
+            <p className="mt-2 text-sm text-tinta">Total: <span className="font-semibold tabular-nums">{money(result.withheldByCustomers.total)}</span>.</p>
+  </div>
+        </ExportInfo>
       ) : null}
     </Section>
   );
