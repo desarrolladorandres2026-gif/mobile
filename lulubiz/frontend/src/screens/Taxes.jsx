@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ViewButton, ActionButton, Button, DataTable, ExportInfo, Notice, PageHeader, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ViewButton, Button, DataTable, ExportInfo, Notice, PageHeader, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
 import { api } from '../lib/api.js';
 import { formatDay, rangeText } from '../lib/format.js';
@@ -206,7 +206,7 @@ function Certificate({ data, currency }) {
       <p className="mt-2 font-semibold">Total retenido: {money(data.totals.amount)}</p>
       <p className="mt-2 text-tinta-segundo">Expedido el {formatDay(data.issuedOn)}.</p>
       <div className="mt-3">
-        <ActionButton kind="print" label="Imprimir" onClick={() => window.print()} />
+        <Button className="print:hidden" onClick={() => window.print()}>Imprimir</Button>
       </div>
     </section>
   );

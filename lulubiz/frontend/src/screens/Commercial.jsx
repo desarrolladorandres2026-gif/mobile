@@ -37,28 +37,30 @@ function Errors({ messages }) {
 
 function LinesReadOnly({ lines, currency }) {
   return (
-    <table className="mb-3 w-full max-w-4xl border-collapse text-sm text-tinta">
-      <thead>
-        <tr className="text-left">
-          <th scope="col" className="pr-4 font-semibold">Descripción</th>
-          <th scope="col" className="pr-4 text-right font-semibold">Cantidad</th>
-          <th scope="col" className="pr-4 text-right font-semibold">Precio</th>
-          <th scope="col" className="pr-4 text-right font-semibold">IVA</th>
-          <th scope="col" className="text-right font-semibold">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        {lines.map((l, i) => (
-          <tr key={i}>
-            <td className="pr-4">{l.description}{l.costCenter ? ` · ${l.costCenter}` : ''}</td>
-            <td className="pr-4 text-right tabular-nums">{formatQuantity(l.quantity)}</td>
-            <td className="pr-4 text-right tabular-nums">{formatAmount(l.unitPrice, currency)}</td>
-            <td className="pr-4 text-right tabular-nums">{formatPercent(l.vatBps)}</td>
-            <td className="text-right tabular-nums">{formatAmount(l.total, currency)}</td>
+    <div className="relative overflow-x-auto">
+      <table className="mb-3 w-full max-w-4xl border-collapse text-sm text-tinta">
+        <thead>
+          <tr className="text-left">
+            <th scope="col" className="pr-4 font-semibold">Descripción</th>
+            <th scope="col" className="pr-4 text-right font-semibold">Cantidad</th>
+            <th scope="col" className="pr-4 text-right font-semibold">Precio</th>
+            <th scope="col" className="pr-4 text-right font-semibold">IVA</th>
+            <th scope="col" className="text-right font-semibold">Total</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {lines.map((l, i) => (
+            <tr key={i}>
+              <td className="pr-4">{l.description}{l.costCenter ? ` · ${l.costCenter}` : ''}</td>
+              <td className="pr-4 text-right tabular-nums">{formatQuantity(l.quantity)}</td>
+              <td className="pr-4 text-right tabular-nums">{formatAmount(l.unitPrice, currency)}</td>
+              <td className="pr-4 text-right tabular-nums">{formatPercent(l.vatBps)}</td>
+              <td className="text-right tabular-nums">{formatAmount(l.total, currency)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

@@ -171,9 +171,16 @@ describe('anticipo de cliente', () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe('SETTINGS_INCOMPLETE');
 
-    const wrongType = await company('Cima SAS', 'cima@cima.co', { ...ACCOUNTS, customerAdvance: '133005' }); // un activo no sirve para anticipos recibidos
-    const bad = await call('POST', `${wrongType.base}/customer-advances`, { cookie: wrongType.cookie, key: true, body: { partyId: wrongType.cust1, date: TODAY, amount: 100_000, account: '110505' } });
-    expect(bad.statusCode).toBe(409);
+    // Una cuenta de tipo equivocado ya no se puede ni configurar: un activo no sirve para anticipos recibidos.
+    const wrongType = await company('Cima SAS', 'cima@cima.co');
+    const bad = await call('PUT', `${wrongType.base}/invoicing/settings`, {
+      cookie: wrongType.cookie,
+      body: {
+        issuer: { name: 'Cima SAS', taxIdType: 'NIT', taxId: '890903938', checkDigit: 8, regime: 'responsable_iva', address: { line: 'Calle 10 # 5-20', city: 'Garzón', region: 'Huila' } },
+        accounts: { ...ACCOUNTS, customerAdvance: '133005' },
+      },
+    });
+    expect(bad.statusCode).toBe(400);
     expect(bad.json().message).toMatch(/pasivo/);
   });
 

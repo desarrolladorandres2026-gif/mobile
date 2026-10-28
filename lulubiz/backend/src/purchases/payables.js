@@ -1,6 +1,6 @@
 import { ObjectId } from 'mongodb';
 import { assertCurrency, assertMinorUnits } from '../core/money.js';
-import { dayOf, parseDay as parseCalendarDay, startOfDay } from '../core/dates.js';
+import { dayOf, parseDay as parseCalendarDay, startOfDay, calendarToday } from '../core/dates.js';
 import { COLLECTIONS } from '../data/db.js';
 import { TenantCollection } from '../data/tenantCollection.js';
 import { isDuplicate } from '../data/tx.js';
@@ -172,7 +172,7 @@ export function createPayablesService({ db, ledger, accounts, parties, now = () 
       const payment = await paymentsOf(tenantId).findOne({ _id: new ObjectId(paymentId) });
       if (!payment) fail('el comprobante no existe', 'NOT_FOUND');
       if (payment.status === 'void') return { payment, replayed: true };
-      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : now();
+      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : calendarToday(now());
       if (dayOf(date) < dayOf(payment.date)) fail('la anulación no puede ser anterior al pago');
 
       await ledger.reverseJournal(

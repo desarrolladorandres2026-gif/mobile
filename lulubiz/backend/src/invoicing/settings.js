@@ -16,6 +16,23 @@ export const MAX_WITHHOLDING_PRESETS = 20;
 export const REGIMES = ['responsable_iva', 'no_responsable'];
 const ACCOUNT_CODE = /^[0-9]{1,12}$/;
 
+/**
+ * Tipo de cuenta que admite cada una de las cuentas de la configuración. Una cuenta de tipo equivocado no falla al guardar sino
+ * mucho después, al contabilizar o al cuadrar la cartera contra el libro. El IVA descontable es de activo o de pasivo según el plan
+ * (en el PUC vive en el grupo 24).
+ */
+export const SETTINGS_ACCOUNT_TYPES = {
+  receivable: ['asset'],
+  income: ['income'],
+  vatPayable: ['liability'],
+  cash: ['asset'],
+  payable: ['liability'],
+  vatDeductible: ['asset', 'liability'],
+  customerAdvance: ['liability'],
+  supplierAdvance: ['asset'],
+};
+const TYPE_LABEL = { asset: 'de activo', liability: 'de pasivo', income: 'de ingresos', equity: 'de patrimonio', expense: 'de gastos', cost: 'de costos' };
+
 const text = (value, label, { required = false, max = 200 } = {}) => {
   const clean = String(value ?? '').trim();
   if (!clean) {
@@ -97,6 +114,12 @@ export function createSettingsService(client, db, accounts) {
       }
       const accountProblems = await accounts.postingProblems(tenantId, Object.values(mapping));
       if (accountProblems.length) throw new InvoicingError(accountProblems.join('; '));
+      for (const [key, code] of Object.entries(mapping)) {
+        const type = (await accounts.get(tenantId, code))?.type;
+        if (!SETTINGS_ACCOUNT_TYPES[key].includes(type)) {
+          throw new InvoicingError(`la cuenta ${code} (${key}) debe ser ${SETTINGS_ACCOUNT_TYPES[key].map((t) => TYPE_LABEL[t]).join(' o ')}`);
+        }
+      }
 
       return withTransaction(client, async (session) => {
         // Las retenciones predefinidas no se tocan aquí: tienen su propia operación.

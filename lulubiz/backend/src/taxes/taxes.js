@@ -364,6 +364,12 @@ export function createTaxService({ db, ledger, accounts, settings, now = () => n
           },
           {
             inTx: async (session, { journal }) => {
+              // El traslape se comprobó antes de la transacción; aquí se vuelve a comprobar dentro de ella. Dos cierres de rangos que se
+              // cruzan asientan en períodos distintos y no chocarían entre sí, así que se serializan tocando un mismo documento
+              // (el de configuración de la empresa): el segundo se repite y ya ve el cierre del primero.
+              await col(COLLECTIONS.settings, tenantId).updateOne({}, { $inc: { '_locks.vatClose': 1 } }, { session });
+              const clash = await closesOf(tenantId).findOne({ currency: preview.currency, status: 'posted', from: { $lte: date }, to: { $gte: parseDay(preview.from, 'la fecha inicial') } }, { session });
+              if (clash) fail(`el rango se traslapa con el cierre ${clash.document} (${dayOf(clash.from)} a ${dayOf(clash.to)})`, 'DUPLICATE');
               await closesOf(tenantId).insertOne(
                 { _id: id, status: 'posted', currency: preview.currency, from: parseDay(preview.from, 'la fecha inicial'), to: date, generated: preview.generated, deductible: preview.deductible, net: diff, result: diff > 0 ? 'payable' : diff < 0 ? 'credit' : 'zero', resultAccount: side?.code ?? null, journalId: journal._id, document: `CI${journal.number}`, createdBy: ctx.userId ?? null, createdAt: now() },
                 session,

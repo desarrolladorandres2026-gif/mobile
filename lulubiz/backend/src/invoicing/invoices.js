@@ -573,6 +573,8 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
       const invoice = await invoicesOf(tenantId).findOne({ _id: new ObjectId(invoiceId) });
       if (!invoice) throw new InvoicingError('la factura no existe', 'NOT_FOUND');
       if (invoice.status !== 'issued') throw new InvoicingError('solo se acreditan facturas ya emitidas', 'INVALID_STATE');
+      // Sin asiento no hay nada que corregir: la nota reversaría ingresos y cartera que el libro todavía no tiene.
+      if (invoice.accounting?.status !== 'posted') throw new InvoicingError('la factura aún no está contabilizada: contabilízala antes de acreditarla', 'INVALID_STATE');
       if (issueDate < invoice.issueDate) throw new InvoicingError('la nota crédito no puede ser anterior a la factura');
 
       const wanted = input.all
@@ -630,8 +632,16 @@ export function createInvoicingService({ client, db, ledger, accounts, parties, 
       });
       const totals = computeTotals(noteLines);
       if (totals.total <= 0) throw new InvoicingError('el valor de la nota crédito debe ser mayor que cero');
+      // La nota no puede superar lo que la factura aún tiene por cobrar: de lo contrario dejaría un saldo negativo (a favor del
+      // cliente) que no tiene devolución, y la cartera dejaría de cuadrar con el libro. Se cobra o se anula el recibo primero.
+      if (invoice.balance < totals.total) {
+        throw new InvoicingError(
+          `la nota crédito (${totals.total}) supera el saldo pendiente de la factura (${invoice.balance}): la factura ya tiene cobros o anticipos aplicados. Anula primero el recibo o la aplicación que corresponda`,
+          'CREDIT_EXCEEDS_BALANCE',
+        );
+      }
 
-      const guard = { _id: invoice._id, status: 'issued' };
+      const guard = { _id: invoice._id, status: 'issued', balance: { $gte: totals.total } };
       const inc = { creditedTotal: totals.total, balance: -totals.total };
       for (const l of noteLines) {
         guard[`credited.quantity.${l.lineIndex}`] = invoice.credited.quantity[l.lineIndex];

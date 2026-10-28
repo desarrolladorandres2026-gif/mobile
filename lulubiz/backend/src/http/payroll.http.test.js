@@ -388,6 +388,44 @@ describe('pagos y anulación', () => {
     expect(await net(c, '250505')).toBe(0);
   });
 
+  it('el pago de la nómina y el de aportes se anulan con su reversa y se pueden volver a hacer; con pago vigente la corrida no se anula', async () => {
+    const c = await company();
+    await hire(c);
+    const { run } = (await runPayroll(c)).json();
+    const date = `${ym(0)}-05`;
+    expect((await post(c, `/payroll/runs/${run._id}/void-payment`)).statusCode).toBe(409); // nada que anular
+    await post(c, `/payroll/runs/${run._id}/pay`, { date, account: '111005' });
+    await post(c, `/payroll/runs/${run._id}/pay-contributions`, { date, account: '111005' });
+    expect((await post(c, `/payroll/runs/${run._id}/void`)).statusCode).toBe(409);
+
+    const voided = await post(c, `/payroll/runs/${run._id}/void-payment`);
+    expect(voided.statusCode, voided.body).toBe(200);
+    expect(voided.json().run.payment).toBeUndefined();
+    expect(voided.json().run.paymentHistory).toHaveLength(1);
+    expect(await net(c, '250505')).toBe(-cop(2_040_000)); // otra vez por pagar
+    expect((await post(c, `/payroll/runs/${run._id}/void-payment`)).statusCode).toBe(409); // ya no hay pago vigente
+    const again = await post(c, `/payroll/runs/${run._id}/pay`, { date, account: '111005' });
+    expect(again.statusCode, again.body).toBe(200); // la clave del nuevo pago lleva su intento: no choca con la del anulado
+    expect(await net(c, '250505')).toBe(0);
+
+    const voidedContrib = await post(c, `/payroll/runs/${run._id}/void-contributions-payment`);
+    expect(voidedContrib.statusCode, voidedContrib.body).toBe(200);
+    expect(voidedContrib.json().run.contributionsPayment).toBeUndefined();
+    expect(await net(c, '237005')).toBeLessThan(0);
+    expect((await post(c, `/payroll/runs/${run._id}/pay-contributions`, { date, account: '111005' })).statusCode).toBe(200);
+    expect(await net(c, '237005')).toBe(0);
+    expect(await net(c, '111005')).toBe(-(cop(2_040_000) + cop(490_440)));
+
+    // Sin pagos vigentes la corrida se anula.
+    await post(c, `/payroll/runs/${run._id}/void-payment`);
+    await post(c, `/payroll/runs/${run._id}/void-contributions-payment`);
+    expect((await post(c, `/payroll/runs/${run._id}/void`)).statusCode).toBe(200);
+    expect(await net(c, '111005')).toBe(0);
+    expect((await get(c, `/payroll/runs/${run._id}`)).json().paymentHistory).toHaveLength(2);
+    const viewer = await joinAs(c, 'lector@andina.co', 'viewer');
+    expect((await post(c, `/payroll/runs/${run._id}/void-payment`, {}, viewer)).statusCode).toBe(403);
+  });
+
   it('el contador liquida y paga; el administrador no hace falta para ello; el lector no entra', async () => {
     const c = await company();
     await hire(c);
@@ -486,6 +524,43 @@ describe('prestaciones sociales', () => {
     expect(journal.totalDebit).toBe(journal.totalCredit);
     expect(await net(c, '261005')).toBe(0);
     expect(await net(c, '261010')).toBe(0);
+  });
+
+  it('una liquidación se anula (reversa su asiento) y se puede rehacer; con pago vigente primero se anula el pago', async () => {
+    const c = await company();
+    await threeMonths(c);
+    const b = (await benefit(c, 'prima', `${PY}-1`)).json().benefit;
+    expect(await net(c, '261020')).toBe(0);
+    const date = `${ym(0)}-05`;
+    await post(c, `/payroll/benefits/${b._id}/pay`, { date, account: '111005' });
+    expect((await post(c, `/payroll/benefits/${b._id}/void`)).statusCode).toBe(409); // tiene pago
+
+    const voidedPay = await post(c, `/payroll/benefits/${b._id}/void-payment`);
+    expect(voidedPay.statusCode, voidedPay.body).toBe(200);
+    expect(voidedPay.json().benefit.payment).toBeUndefined();
+    expect(await net(c, '111005')).toBe(0);
+    expect((await post(c, `/payroll/benefits/${b._id}/void-payment`)).statusCode).toBe(409);
+    // Se vuelve a pagar (clave con intento) y se vuelve a anular el pago.
+    expect((await post(c, `/payroll/benefits/${b._id}/pay`, { date, account: '111005' })).statusCode).toBe(200);
+    expect(await net(c, '111005')).toBe(-cop(550_000));
+    expect((await post(c, `/payroll/benefits/${b._id}/void-payment`)).statusCode).toBe(200);
+
+    const voided = await post(c, `/payroll/benefits/${b._id}/void`);
+    expect(voided.statusCode, voided.body).toBe(200);
+    expect(voided.json().benefit.status).toBe('void');
+    expect(voided.json().replayed).toBe(false);
+    expect(await net(c, '261020')).toBe(-cop(549_780)); // la provisión vuelve
+    expect(await net(c, '250505')).toBe(-3 * cop(2_040_000)); // y lo debido por pagar desaparece
+    expect((await post(c, `/payroll/benefits/${b._id}/void`)).json().replayed).toBe(true);
+    expect((await post(c, `/payroll/benefits/${b._id}/pay`, { date, account: '111005' })).statusCode).toBe(409); // anulada
+
+    // La nómina que estaba dentro ya se puede anular, y el período se puede liquidar otra vez (la clave lleva el intento).
+    const again = await benefit(c, 'prima', `${PY}-1`);
+    expect(again.statusCode, again.body).toBe(201);
+    expect(await net(c, '261020')).toBe(0);
+    expect((await get(c, '/payroll/benefits')).json().items).toHaveLength(2);
+    const viewer = await joinAs(c, 'lector@andina.co', 'viewer');
+    expect((await post(c, `/payroll/benefits/${again.json().benefit._id}/void`, {}, viewer)).statusCode).toBe(403);
   });
 
   it('valida el período y exige que haya nóminas; el lector no entra', async () => {
@@ -654,6 +729,70 @@ describe('liquidación de contrato', () => {
     const r = (await terminate(c, { employeeId: ana._id }, '/payroll/terminations/preview')).json();
     expect(r.lines.prima).toMatchObject({ amount: 0, accrued: 0, skipped: true });
     expect(r.lines.cesantias.skipped).toBe(false);
+  });
+
+  it('tras liquidar el contrato, la prima y las cesantías del período no vuelven a incluir a ese empleado', async () => {
+    const c = await company();
+    expect((await put(c, `/payroll/config/years/${PY}`, { params: PARAMS })).statusCode).toBe(200);
+    const ana = await hire(c);
+    await hire(c, { documentNumber: '1075000002', name: 'Beto Gómez' });
+    for (const m of ['01', '02', '03']) expect((await run(c, `${PY}-${m}`)).statusCode).toBe(201);
+    const benefitPreview = (kind, label) => call('POST', `${c.base}/payroll/benefits/preview`, { cookie: c.cookie, body: { kind, label } });
+    expect((await benefitPreview('prima', `${PY}-1`)).json().items.map((i) => i.name)).toEqual(['Ana Pérez', 'Beto Gómez']);
+
+    const t = (await terminate(c, { employeeId: ana._id })).json().termination;
+    for (const [kind, label] of [['prima', `${PY}-1`], ['cesantias', PY]]) {
+      const p = (await benefitPreview(kind, label)).json();
+      expect(p.items.map((i) => i.name), kind).toEqual(['Beto Gómez']);
+      expect(p.excluded).toEqual([expect.objectContaining({ name: 'Ana Pérez' })]);
+    }
+    // Liquidar la prestación solo toma a quien sigue: lo provisionado de Ana ya lo canceló su liquidación de contrato.
+    const settled = (await call('POST', `${c.base}/payroll/benefits`, { cookie: c.cookie, body: { kind: 'prima', label: `${PY}-1` } })).json().benefit;
+    expect(settled.items.map((i) => i.name)).toEqual(['Beto Gómez']);
+    expect(settled.total).toBe(cop(550_000));
+    // Sin otros empleados, no queda nada que liquidar.
+    expect(t.status).toBe('posted');
+  });
+
+  it('una liquidación de contrato anulada se rehace (la clave lleva el intento) y se paga, se anula el pago y se paga otra vez', async () => {
+    const c = await company();
+    const ana = await setup(c);
+    const first = (await terminate(c, { employeeId: ana._id })).json().termination;
+    expect((await post(c, `/payroll/terminations/${first._id}/void`)).statusCode).toBe(200);
+    const second = await terminate(c, { employeeId: ana._id });
+    expect(second.statusCode, second.body).toBe(201);
+    const t = second.json().termination;
+    expect(t._id).not.toBe(first._id);
+    expect(await db.collection(COLLECTIONS.payrollTerminations).countDocuments({ tenantId: c.tenantId, employeeId: new ObjectId(ana._id) })).toBe(2);
+    const keys = (await db.collection(COLLECTIONS.journals).find({ tenantId: c.tenantId, docType: 'LC', reversesJournalId: { $exists: false } }).toArray()).map((j) => j.idempotencyKey);
+    expect(new Set(keys).size).toBe(2);
+
+    const date = `${ym(0)}-05`;
+    const pay = () => post(c, `/payroll/terminations/${t._id}/pay`, { date, account: '111005' });
+    expect((await pay()).statusCode).toBe(200);
+    expect(await net(c, '111005')).toBe(-t.net);
+    expect((await post(c, `/payroll/terminations/${t._id}/void`)).statusCode).toBe(409); // con pago vigente
+    const voidedPay = await post(c, `/payroll/terminations/${t._id}/void-payment`);
+    expect(voidedPay.statusCode, voidedPay.body).toBe(200);
+    expect(voidedPay.json().termination.payment).toBeUndefined();
+    expect(await net(c, '111005')).toBe(0);
+    expect((await post(c, `/payroll/terminations/${t._id}/void-payment`)).statusCode).toBe(409);
+    expect((await pay()).statusCode).toBe(200); // se vuelve a pagar
+    expect(await net(c, '111005')).toBe(-t.net);
+    expect((await get(c, `/payroll/terminations/${t._id}`)).json().paymentHistory).toHaveLength(1);
+  });
+
+  it('una prestación que la liquidación de contrato dio por liquidada no se anula suelta', async () => {
+    const c = await company();
+    const ana = await setup(c);
+    const b = (await call('POST', `${c.base}/payroll/benefits`, { cookie: c.cookie, body: { kind: 'prima', label: `${PY}-1` } })).json().benefit;
+    const t = (await terminate(c, { employeeId: ana._id })).json().termination; // la prima ya estaba liquidada: la omite
+    expect(t.lines.prima.skipped).toBe(true);
+    const blocked = await post(c, `/payroll/benefits/${b._id}/void`);
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().message).toMatch(/liquidación de contrato/);
+    await post(c, `/payroll/terminations/${t._id}/void`);
+    expect((await post(c, `/payroll/benefits/${b._id}/void`)).statusCode).toBe(200);
   });
 
   it('exige la nómina del mes del retiro, un contrato sin liquidar y datos válidos', async () => {

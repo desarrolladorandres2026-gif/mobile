@@ -154,6 +154,21 @@ describe('configuración del emisor', () => {
     expect(await code(bad({ accounts: { receivable: '130505' } }))).toBe('VALIDATION');
   });
 
+  it('rechaza una cuenta configurada de un tipo que no corresponde a su papel', async () => {
+    await setup({ withSettings: false, withResolutions: false });
+    const bad = async (patch) => {
+      const err = await settings.save(tenant, { ...issuerSettings, accounts: { ...issuerSettings.accounts, ...patch } }).then(() => null, (e) => e);
+      return err && { code: err.code, message: err.message };
+    };
+    // Una cuenta de ingresos no es la cuenta por cobrar; una de activo no es el IVA por pagar ni los ingresos.
+    expect(await bad({ receivable: issuerSettings.accounts.income })).toMatchObject({ code: 'VALIDATION', message: expect.stringMatching(/receivable.*de activo/) });
+    expect(await bad({ income: issuerSettings.accounts.receivable })).toMatchObject({ code: 'VALIDATION', message: expect.stringMatching(/income.*de ingresos/) });
+    expect(await bad({ vatPayable: issuerSettings.accounts.receivable })).toMatchObject({ code: 'VALIDATION', message: expect.stringMatching(/vatPayable.*de pasivo/) });
+    expect(await bad({ cash: issuerSettings.accounts.income })).toMatchObject({ code: 'VALIDATION' });
+    expect(await settings.get(tenant)).toBeNull(); // nada quedó guardado
+    expect(await bad({})).toBeNull();
+  });
+
   it('no mezcla la configuración de empresas distintas', async () => {
     await setup();
     expect(await settings.get(new ObjectId())).toBeNull();
@@ -543,6 +558,18 @@ describe('notas crédito', () => {
     expect(await code(credit(invoicing, invoice, { all: true }, 'w-2-xxxxxxxx'))).toBe('OVER_CREDIT');
     const done = await invoicing.submitCreditNote(tenant, pending.note._id, ctx('w-1-xxxxxxxx'));
     expect(done.note.status).toBe('issued');
+  });
+
+  it('no se acredita una factura emitida cuya contabilización sigue pendiente', async () => {
+    const invoicing = await setup();
+    await ledger.closePeriod(tenant, new Date().toISOString().slice(0, 7), user);
+    const { invoice } = await invoicing.issueInvoice(tenant, invoiceInput(), ctx('np-1-xxxxxxxx'));
+    expect(invoice.accounting.status).toBe('pending');
+    expect(await code(credit(invoicing, invoice, { all: true }, 'np-2-xxxxxxxx'))).toBe('INVALID_STATE');
+    expect((await invoicing.getInvoice(tenant, invoice._id)).creditedTotal).toBe(0);
+    await ledger.reopenPeriod(tenant, new Date().toISOString().slice(0, 7), user);
+    await invoicing.accountInvoice(tenant, invoice._id, ctx('np-1-xxxxxxxx'));
+    expect((await credit(invoicing, invoice, { all: true }, 'np-3-xxxxxxxx')).note.status).toBe('issued');
   });
 
   it('con el período cerrado, la nota queda emitida con la contabilización pendiente, y se contabiliza al reabrir', async () => {

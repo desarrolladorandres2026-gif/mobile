@@ -2,9 +2,7 @@ import { useMemo, useState } from 'react';
 import { ViewLink, DataTable, TextButton, errorMessage, useLoad } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { attentionItems, fillMonths, homeRanges, monthLabel, share, wholeAmount } from '../lib/home.js';
-import { Link } from '../lib/router.jsx';
 import { useSession, useTenantApi } from '../lib/session.jsx';
-import { TASK_ICONS } from '../lib/taskIcons.js';
 
 const skip = () => Promise.resolve(null);
 
@@ -154,7 +152,7 @@ export function HomeScreen() {
               aria-controls={`panel-${t.key}`}
               onClick={() => setTab(t.key)}
               className={`relative -mb-px flex items-center gap-2 px-4 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-azul ${
-                selected ? 'rounded-t-md border border-azul border-b-papel bg-papel text-azul' : `border border-transparent text-tinta hover:text-azul ${k > 0 && TABS[k - 1].key !== tab ? 'before:absolute before:left-0 before:top-1/2 before:h-5 before:-translate-y-1/2 before:border-l before:border-borde' : ''}`
+                selected ? 'rounded-t-sm border border-azul border-b-papel bg-papel text-azul' : `border border-transparent text-tinta hover:text-azul ${k > 0 && TABS[k - 1].key !== tab ? 'before:absolute before:left-0 before:top-1/2 before:h-5 before:-translate-y-1/2 before:border-l before:border-borde' : ''}`
               }`}
             >
               {t.label}
@@ -170,27 +168,23 @@ export function HomeScreen() {
 
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="pt-5">
         {tab === 'accesos' ? (
-          <section className="rounded-md border border-borde bg-papel shadow-sm" aria-labelledby="bienvenida">
-            <h2 id="bienvenida" className="border-b border-borde px-7 py-4 text-lg font-semibold text-tinta">
+          <section aria-labelledby="bienvenida">
+            <h2 id="bienvenida" className="mb-3 text-lg font-semibold text-tinta">
               Te damos la bienvenida, ¿qué deseas hacer?
             </h2>
             {tasks.length === 0 ? (
-              <p className="px-7 py-6 text-sm text-tinta">Tu rol no tiene accesos directos. Usa el menú de la izquierda.</p>
+              <p className="text-sm text-tinta">Tu rol no tiene accesos directos. Usa el menú de la izquierda.</p>
             ) : (
-              <ul className="grid grid-cols-2 gap-y-8 px-4 py-7 sm:grid-cols-3 lg:grid-cols-5">
-                {tasks.map((t) => (
-                  <li key={t.path}>
-                    <Link href={`/app/${t.path}`} className="group mx-auto flex max-w-48 flex-col items-center gap-3 text-center text-sm font-semibold leading-5 text-tinta! no-underline!">
-                      <span className="flex size-16 items-center justify-center rounded-full border border-borde bg-papel text-azul transition-colors duration-200 group-hover:border-azul group-hover:bg-azul-suave group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-azul motion-reduce:transition-none">
-                        <svg className="size-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d={TASK_ICONS[t.path]} />
-                        </svg>
-                      </span>
-                      <span className="group-hover:text-azul">{t.label}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              <DataTable
+                caption="Accesos directos"
+                exportName={false}
+                rows={tasks}
+                rowKey={(t) => t.path}
+                columns={[
+                  { key: 'label', title: 'Tarea', render: (t) => t.label },
+                  { key: 'go', title: 'Ir a', nowrap: true, render: (t) => <ViewLink href={`/app/${t.path}`}>Abrir</ViewLink> },
+                ]}
+              />
             )}
           </section>
         ) : null}

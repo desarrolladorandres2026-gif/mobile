@@ -1,4 +1,5 @@
 import { ObjectId } from 'mongodb';
+import { calendarToday } from '../core/dates.js';
 import { assertCurrency, assertMinorUnits } from '../core/money.js';
 import { COLLECTIONS } from '../data/db.js';
 import { TenantCollection } from '../data/tenantCollection.js';
@@ -202,7 +203,7 @@ export function createReceivablesService({ client, db, ledger, accounts, parties
       const receipt = await receiptsOf(tenantId).findOne({ _id: new ObjectId(receiptId) });
       if (!receipt) throw new ReceivablesError('el recibo no existe', 'NOT_FOUND');
       if (receipt.status === 'void') return { receipt, replayed: true };
-      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : now();
+      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : calendarToday(now());
       if (dayOf(date) < dayOf(receipt.date)) throw new ReceivablesError('la anulación no puede ser anterior al recibo');
 
       await ledger.reverseJournal(

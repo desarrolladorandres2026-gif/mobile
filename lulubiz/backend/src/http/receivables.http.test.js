@@ -185,10 +185,26 @@ describe('asientos generados por documentos', () => {
   it('un asiento manual no puede usar los tipos de documento reservados, pero sí otros', async () => {
     const c = await company();
     const entry = (docType) => ({ docType, date: `${TODAY}T12:00:00Z`, currency: 'COP', lines: [{ accountId: '110505', debit: 100 }, { accountId: '413505', credit: 100 }] });
-    for (const docType of ['RC', 'fv', 'NC', 'CE']) {
+    // Mayúsculas, espacios y caracteres raros no son una forma de saltarse la lista de reservados.
+    for (const docType of ['RC', 'fv', ' FV ', 'NC', 'CE', 'F V', 'a/b', 'ñ']) {
       const res = await call('POST', `${c.base}/journals`, { cookie: c.cookie, key: true, body: entry(docType) });
       expect(res.statusCode, docType).toBe(422);
     }
     expect((await call('POST', `${c.base}/journals`, { cookie: c.cookie, key: true, body: entry('CC') })).statusCode).toBe(201);
+    // El tipo se guarda normalizado.
+    const lower = await call('POST', `${c.base}/journals`, { cookie: c.cookie, key: true, body: entry(' cc ') });
+    expect(lower.json().journal.docType).toBe('CC');
+  });
+
+  it('un asiento manual no mueve la cartera, los proveedores, el IVA ni los anticipos: lo hacen los documentos', async () => {
+    const c = await company();
+    const entry = (accountId) => ({ docType: 'AJ', date: `${TODAY}T12:00:00Z`, currency: 'COP', lines: [{ accountId, debit: 100 }, { accountId: '413505', credit: 100 }] });
+    const res = await call('POST', `${c.base}/journals`, { cookie: c.cookie, key: true, body: entry('130505') });
+    expect(res.statusCode, res.body).toBe(422);
+    expect(res.json()).toMatchObject({ error: 'CONTROL_ACCOUNT' });
+    expect(res.json().message).toMatch(/130505/);
+    expect((await call('GET', `${c.base}/journals?docType=AJ`, { cookie: c.cookie })).json().items).toHaveLength(0);
+    // Una cuenta que no es de control sigue admitiendo asientos manuales.
+    expect((await call('POST', `${c.base}/journals`, { cookie: c.cookie, key: true, body: entry('110505') })).statusCode).toBe(201);
   });
 });

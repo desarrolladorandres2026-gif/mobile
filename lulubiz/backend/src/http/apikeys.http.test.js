@@ -92,7 +92,7 @@ describe('claves de API: creación', () => {
 
     const listed = (await call('GET', `${c.base}/api-keys`, { cookie: c.cookie })).json().items;
     expect(listed).toHaveLength(1);
-    expect(Object.keys(listed[0]).sort()).toEqual(['_id', 'createdAt', 'createdBy', 'name', 'prefix', 'scopes']);
+    expect(Object.keys(listed[0]).sort()).toEqual(['_id', 'createdAt', 'createdBy', 'expiresAt', 'name', 'prefix', 'scopes']);
 
     const stored = await db.collection(COLLECTIONS.apiKeys).findOne({ prefix: apiKey.prefix });
     const secret = token.slice(`lbk_${apiKey.prefix}_`.length);
@@ -121,7 +121,7 @@ describe('claves de API: creación', () => {
     }
     expect((await post({ name: 'x', scopes: ['inventory:read'], expiresAt: '2000-01-01' })).statusCode).toBe(400);
     expect((await post({ name: 'x', scopes: ['inventory:read'], expiresAt: '2999-13-40' })).statusCode).toBe(400);
-    expect((await post({ name: 'x', scopes: ['inventory:read'], expiresAt: '2999-01-01' })).statusCode).toBe(201);
+    expect((await post({ name: 'x', scopes: ['inventory:read'], expiresAt: '2999-01-01' })).statusCode).toBe(400); // más allá del máximo de un año
   });
 
   it('limita las claves activas por empresa, y revocar libera cupo', async () => {

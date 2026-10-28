@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { LoadNotice, DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { formatAmount, parseAmount } from '../lib/money.js';
@@ -99,6 +99,7 @@ function JournalForm({ currency, accounts, onCreated, onCancel }) {
         ))}
       </datalist>
 
+      <LoadNotice load={centers} what="los centros de costo" />
       <div className="relative overflow-x-auto">
         <table className="mb-2 w-full border-collapse text-sm">
           <thead>
@@ -335,26 +336,28 @@ export function JournalsScreen() {
           empty="No hay asientos con estos filtros."
           expandedRow={(j) =>
             open === j._id ? (
-              <table className="mb-1 ml-4 text-sm">
-                <thead>
-                  <tr className="text-left">
-                    <th scope="col" className="pr-6 font-semibold">Cuenta</th>
-                    <th scope="col" className="pr-6 font-semibold">Nombre</th>
-                    <th scope="col" className="pr-6 text-right font-semibold">Débito</th>
-                    <th scope="col" className="text-right font-semibold">Crédito</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {j.lines.map((l, n) => (
-                    <tr key={n}>
-                      <td className="pr-6">{l.accountId}</td>
-                      <td className="pr-6">{accountName(l.accountId)}{l.description ? ` — ${l.description}` : ''}</td>
-                      <td className="pr-6 text-right tabular-nums">{l.debit ? formatAmount(l.debit, j.currency) : ''}</td>
-                      <td className="text-right tabular-nums">{l.credit ? formatAmount(l.credit, j.currency) : ''}</td>
+              <div className="relative overflow-x-auto">
+                <table className="mb-1 ml-4 text-sm">
+                  <thead>
+                    <tr className="text-left">
+                      <th scope="col" className="pr-6 font-semibold">Cuenta</th>
+                      <th scope="col" className="pr-6 font-semibold">Nombre</th>
+                      <th scope="col" className="pr-6 text-right font-semibold">Débito</th>
+                      <th scope="col" className="text-right font-semibold">Crédito</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {j.lines.map((l, n) => (
+                      <tr key={n}>
+                        <td className="pr-6">{l.accountId}</td>
+                        <td className="pr-6">{accountName(l.accountId)}{l.description ? ` — ${l.description}` : ''}</td>
+                        <td className="pr-6 text-right tabular-nums">{l.debit ? formatAmount(l.debit, j.currency) : ''}</td>
+                        <td className="text-right tabular-nums">{l.credit ? formatAmount(l.credit, j.currency) : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : null
           }
         />

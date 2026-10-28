@@ -49,30 +49,32 @@ export function InvoiceDocument({ invoice, issuer }) {
         {c.phone || c.email ? <p>{[c.phone, c.email].filter(Boolean).join(' · ')}</p> : null}
       </section>
 
-      <table className="mb-4 w-full border-collapse">
-        <thead>
-          <tr className="border-b border-tinta text-left">
-            <th scope="col" className="py-1 pr-3 font-semibold">Descripción</th>
-            <th scope="col" className="py-1 pr-3 text-right font-semibold">Cant.</th>
-            <th scope="col" className="py-1 pr-3 text-right font-semibold">Precio</th>
-            <th scope="col" className="py-1 pr-3 text-right font-semibold">Desc.</th>
-            <th scope="col" className="py-1 pr-3 text-right font-semibold">IVA</th>
-            <th scope="col" className="py-1 text-right font-semibold">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {invoice.lines.map((l, i) => (
-            <tr key={i} className="border-b border-borde align-top">
-              <td className="py-1 pr-3">{l.description}</td>
-              <td className="py-1 pr-3 text-right tabular-nums">{formatQuantity(l.quantity)}</td>
-              <td className="py-1 pr-3 text-right tabular-nums">{formatAmount(l.unitPrice, currency)}</td>
-              <td className="py-1 pr-3 text-right tabular-nums">{l.discountBps ? formatPercent(l.discountBps) : ''}</td>
-              <td className="py-1 pr-3 text-right tabular-nums">{formatPercent(l.vatBps)}</td>
-              <td className="py-1 text-right tabular-nums">{formatAmount(l.total, currency)}</td>
+      <div className="relative overflow-x-auto">
+        <table className="mb-4 w-full border-collapse">
+          <thead>
+            <tr className="border-b border-tinta text-left">
+              <th scope="col" className="py-1 pr-3 font-semibold">Descripción</th>
+              <th scope="col" className="py-1 pr-3 text-right font-semibold">Cant.</th>
+              <th scope="col" className="py-1 pr-3 text-right font-semibold">Precio</th>
+              <th scope="col" className="py-1 pr-3 text-right font-semibold">Desc.</th>
+              <th scope="col" className="py-1 pr-3 text-right font-semibold">IVA</th>
+              <th scope="col" className="py-1 text-right font-semibold">Total</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {invoice.lines.map((l, i) => (
+              <tr key={i} className="border-b border-borde align-top">
+                <td className="py-1 pr-3">{l.description}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{formatQuantity(l.quantity)}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{formatAmount(l.unitPrice, currency)}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{l.discountBps ? formatPercent(l.discountBps) : ''}</td>
+                <td className="py-1 pr-3 text-right tabular-nums">{formatPercent(l.vatBps)}</td>
+                <td className="py-1 text-right tabular-nums">{formatAmount(l.total, currency)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <dl className="mb-6 ml-auto grid max-w-xs grid-cols-[1fr_auto] gap-x-6 gap-y-1">
         <dt>Subtotal</dt>

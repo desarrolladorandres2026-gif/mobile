@@ -1,3 +1,4 @@
+import { ObjectId } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createAccountService } from '../accounts/accounts.js';
 import { createAuthService } from '../auth/auth.js';
@@ -104,11 +105,11 @@ beforeEach(async () => {
 });
 
 describe('una base sana', () => {
-  it('pasa las trece comprobaciones, con inventario, mostrador, anulación y cierre de ejercicio', async () => {
+  it('pasa las diecisiete comprobaciones, con inventario, mostrador, anulación y cierre de ejercicio', async () => {
     const report = await verifyIntegrity(db, { tenantId: tenant });
     expect(report.ok).toBe(true);
     expect(report.tenants).toHaveLength(1);
-    expect(report.tenants[0].checks).toHaveLength(13);
+    expect(report.tenants[0].checks).toHaveLength(17);
     expect(failing(report)).toEqual([]);
     expect(check(report, 'saldos por cuenta').detail).toMatch(/saldos revisados/);
     expect(check(report, 'ejercicios cerrados').detail).toBe('1 ejercicios cerrados revisados.');
@@ -252,6 +253,86 @@ describe('detecta lo que se altera por fuera del sistema', () => {
     expect(check(report, 'nómina').ok).toBe(false);
     expect(check(report, 'nómina').detail).toMatch(/2026-01/);
     await db.collection(COLLECTIONS.payrollRuns).deleteMany({ tenantId: tenant });
+  });
+
+  it('una conciliación bancaria cerrada a la que después se le registra un asiento en su tramo', async () => {
+    const rows = await db.collection(COLLECTIONS.balances).find({ tenantId: tenant, accountId: '110505', currency: 'COP' }).toArray();
+    const bookBalance = rows.reduce((acc, r) => acc + r.debit - r.credit, 0);
+    await db.collection(COLLECTIONS.bankReconciliations).insertOne({ tenantId: tenant, accountId: '110505', currency: 'COP', asOf: day(TODAY), statementBalance: bookBalance, bookBalance, status: 'closed', closedAt: new Date() });
+    expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'conciliaciones bancarias cerradas').ok).toBe(true);
+    await ledger.postJournal(tenant, { docType: 'AJ', date: day(TODAY), currency: 'COP', idempotencyKey: fresh(), lines: [{ accountId: '110505', debit: 1_000 }, { accountId: '413505', credit: 1_000 }] });
+    const report = await verifyIntegrity(db, { tenantId: tenant });
+    expect(check(report, 'conciliaciones bancarias cerradas').ok).toBe(false);
+    expect(check(report, 'conciliaciones bancarias cerradas').detail).toMatch(/110505/);
+    // Una conciliación reabierta ya no fija nada.
+    await db.collection(COLLECTIONS.bankReconciliations).updateMany({ tenantId: tenant }, { $set: { status: 'reopened' } });
+    expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'conciliaciones bancarias cerradas').ok).toBe(true);
+  });
+
+  it('una factura cuyo saldo no coincide con sus recibos, anticipos y notas, o que quedó con saldo negativo', async () => {
+    const journal = await db.collection(COLLECTIONS.journals).findOne({ tenantId: tenant });
+    const invoice = (fullNumber, patch = {}) => ({ tenantId: tenant, fullNumber, status: 'issued', totals: { total: 1_000 }, paidTotal: 0, creditedTotal: 0, balance: 1_000, ...patch });
+    const { insertedId } = await db.collection(COLLECTIONS.invoices).insertOne(invoice('FE90'));
+    expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'saldo de cada factura').ok).toBe(true);
+    // Un saldo tocado a mano.
+    await db.collection(COLLECTIONS.invoices).updateOne({ _id: insertedId }, { $set: { balance: 400 } });
+    let report = await verifyIntegrity(db, { tenantId: tenant });
+    expect(check(report, 'saldo de cada factura').ok).toBe(false);
+    expect(check(report, 'saldo de cada factura').detail).toMatch(/FE90/);
+    // Con su recibo vigente, el saldo cuadra.
+    await db.collection(COLLECTIONS.receipts).insertOne({ tenantId: tenant, status: 'posted', journalId: journal._id, allocations: [{ invoiceId: insertedId, amount: 600 }] });
+    await db.collection(COLLECTIONS.invoices).updateOne({ _id: insertedId }, { $set: { paidTotal: 600 } });
+    expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'saldo de cada factura').ok).toBe(true);
+    // Un recibo anulado deja de contar.
+    await db.collection(COLLECTIONS.receipts).updateMany({ tenantId: tenant }, { $set: { status: 'void' } });
+    expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'saldo de cada factura').ok).toBe(false);
+    await db.collection(COLLECTIONS.receipts).deleteMany({ tenantId: tenant });
+    await db.collection(COLLECTIONS.invoices).deleteMany({ tenantId: tenant });
+    // Acreditar más de lo que valía deja un saldo negativo: justo lo que dejaba la nota crédito sobre una factura cobrada.
+    const over = await db.collection(COLLECTIONS.invoices).insertOne(invoice('FE91', { creditedTotal: 1_200, balance: -200 }));
+    await db.collection(COLLECTIONS.creditNotes).insertOne({ tenantId: tenant, invoiceId: over.insertedId, status: 'issued', totals: { total: 1_200 } });
+    report = await verifyIntegrity(db, { tenantId: tenant });
+    expect(check(report, 'saldo de cada factura').ok).toBe(false);
+    expect(check(report, 'saldo de cada factura').detail).toMatch(/negativo/);
+  });
+
+  it('una compra cuyo saldo no coincide con sus pagos y notas de proveedor', async () => {
+    const { insertedId } = await db.collection(COLLECTIONS.purchases).insertOne({ tenantId: tenant, fullNumber: 'FC90', status: 'posted', payable: 1_000, paidTotal: 0, creditedTotal: 0, balance: 1_000 });
+    expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'saldo de cada compra').ok).toBe(true);
+    // Una nota de proveedor vigente baja lo que se debe; si el saldo no lo refleja, se detecta.
+    await db.collection(COLLECTIONS.supplierNotes).insertOne({ tenantId: tenant, purchaseId: insertedId, status: 'posted', totals: { total: 300 }, effect: 300 });
+    let report = await verifyIntegrity(db, { tenantId: tenant });
+    expect(check(report, 'saldo de cada compra').ok).toBe(false);
+    expect(check(report, 'saldo de cada compra').detail).toMatch(/FC90/);
+    await db.collection(COLLECTIONS.purchases).updateOne({ _id: insertedId }, { $set: { creditedTotal: 300, balance: 700 } });
+    report = await verifyIntegrity(db, { tenantId: tenant });
+    expect(check(report, 'saldo de cada compra').ok).toBe(true);
+  });
+
+  it('dos cierres de IVA vigentes que se traslapan, o uno sin asiento', async () => {
+    const journal = await db.collection(COLLECTIONS.journals).findOne({ tenantId: tenant });
+    const close = (document, from, to, patch = {}) => ({ tenantId: tenant, status: 'posted', currency: 'COP', document, from: day(from), to: day(to), generated: 100, deductible: 40, net: 60, journalId: journal._id, ...patch });
+    await db.collection(COLLECTIONS.taxCloses).insertMany([close('CI90', '2026-01-01', '2026-01-31'), close('CI91', '2026-02-01', '2026-02-28')]);
+    expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'cierres de IVA').ok).toBe(true);
+    await db.collection(COLLECTIONS.taxCloses).insertOne(close('CI92', '2026-01-20', '2026-02-10'));
+    let report = await verifyIntegrity(db, { tenantId: tenant });
+    expect(check(report, 'cierres de IVA').ok).toBe(false);
+    expect(check(report, 'cierres de IVA').detail).toMatch(/se traslapa/);
+    await db.collection(COLLECTIONS.taxCloses).deleteOne({ tenantId: tenant, document: 'CI92' });
+    await db.collection(COLLECTIONS.taxCloses).updateOne({ tenantId: tenant, document: 'CI90' }, { $set: { journalId: new ObjectId() } });
+    report = await verifyIntegrity(db, { tenantId: tenant });
+    expect(check(report, 'cierres de IVA').detail).toMatch(/CI90: no tiene asiento/);
+  });
+
+  it('el consecutivo de traspasos no se compara con los asientos', async () => {
+    await db.collection(COLLECTIONS.counters).insertOne({ tenantId: tenant, docType: 'TR', last: 2 });
+    await db.collection(COLLECTIONS.stockDocs).insertMany([
+      { tenantId: tenant, kind: 'transfer', number: 1, idempotencyKey: 't1' },
+      { tenantId: tenant, kind: 'transfer', number: 2, idempotencyKey: 't2' },
+    ]);
+    expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'numeración').ok).toBe(true);
+    await db.collection(COLLECTIONS.counters).updateOne({ tenantId: tenant, docType: 'TR' }, { $set: { last: 5 } });
+    expect(check(await verifyIntegrity(db, { tenantId: tenant }), 'numeración').detail).toMatch(/TR/);
   });
 
   it('un ejercicio reabierto ya no se exige en cero', async () => {

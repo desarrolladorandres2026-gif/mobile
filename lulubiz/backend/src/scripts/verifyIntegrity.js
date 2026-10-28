@@ -52,9 +52,11 @@ async function consecutives(db, tenantId) {
   const counters = await db.collection(COLLECTIONS.counters).find({ tenantId }).toArray();
   const problems = [];
   for (const c of counters) {
+    // El consecutivo de traspasos (TR) numera documentos de inventario, no asientos: se compara con ellos.
+    const source = c.docType === 'TR' ? { collection: COLLECTIONS.stockDocs, filter: { kind: 'transfer' } } : { collection: COLLECTIONS.journals, filter: { docType: c.docType } };
     const [stats] = await db
-      .collection(COLLECTIONS.journals)
-      .aggregate([{ $match: { tenantId, docType: c.docType } }, { $group: { _id: null, count: { $sum: 1 }, max: { $max: '$number' }, min: { $min: '$number' } } }])
+      .collection(source.collection)
+      .aggregate([{ $match: { tenantId, ...source.filter } }, { $group: { _id: null, count: { $sum: 1 }, max: { $max: '$number' }, min: { $min: '$number' } } }])
       .toArray();
     const count = stats?.count ?? 0;
     const max = stats?.max ?? 0;
@@ -300,7 +302,98 @@ async function payrollMatchesJournals(db, tenantId) {
   return { name, ok: problems.length === 0, detail: problems.length ? `${problems.length} diferencias: ${sample(problems, 3).join('; ')}` : `${runs.length} nóminas, ${benefits.length} prestaciones y ${terminations.length} liquidaciones de contrato revisadas.` };
 }
 
-const CHECKS = [balancesMatchJournals, journalsBalanced, consecutives, stockMatchesKardex, inventoryMatchesLedger, documentsHaveJournals, openShiftsMatchSales, closedYearsAreZero, advancesMatchApplications, dimensionsMatchJournals, bankMatchesAreConsistent, fixedAssetsAreConsistent, payrollMatchesJournals];
+/** Una conciliación bancaria cerrada fija el saldo del libro a su fecha: un asiento fechado en ese tramo y registrado después la deja desactualizada. */
+async function closedReconciliationsMatchLedger(db, tenantId) {
+  const name = 'Las conciliaciones bancarias cerradas siguen coincidiendo con el saldo del libro a su fecha';
+  const closed = await db.collection(COLLECTIONS.bankReconciliations).find({ tenantId, status: 'closed' }).toArray();
+  if (!closed.length) return { name, ok: true, detail: 'No hay conciliaciones cerradas.' };
+  const problems = [];
+  for (const rec of closed) {
+    const end = new Date(Date.UTC(rec.asOf.getUTCFullYear(), rec.asOf.getUTCMonth(), rec.asOf.getUTCDate()) + 86_400_000);
+    const [row] = await db
+      .collection(COLLECTIONS.journals)
+      .aggregate([
+        { $match: { tenantId, currency: rec.currency, date: { $lt: end }, 'lines.accountId': rec.accountId } },
+        { $unwind: '$lines' },
+        { $match: { 'lines.accountId': rec.accountId } },
+        { $group: { _id: null, debit: { $sum: '$lines.debit' }, credit: { $sum: '$lines.credit' } } },
+      ])
+      .toArray();
+    const current = row ? Number(row.debit) - Number(row.credit) : 0;
+    if (current !== rec.bookBalance) {
+      problems.push(`cuenta ${rec.accountId} al ${rec.asOf.toISOString().slice(0, 10)}: se cerró con ${rec.bookBalance} y el libro dice ${current} (hay asientos de ese tramo registrados después del cierre)`);
+    }
+  }
+  return { name, ok: problems.length === 0, detail: problems.length ? `${problems.length} conciliaciones: ${sample(problems, 3).join('; ')}` : `${closed.length} conciliaciones cerradas revisadas.` };
+}
+
+const sumBy = async (db, collection, pipeline, key) => new Map((await db.collection(collection).aggregate(pipeline).toArray()).map((r) => [String(r._id), Number(r[key])]));
+
+/** El saldo de cada factura es su total menos lo acreditado y lo cobrado, y lo cobrado y acreditado coincide con los recibos, anticipos y notas vigentes. */
+async function invoicesMatchPayments(db, tenantId) {
+  const name = 'El saldo de cada factura coincide con sus recibos, anticipos aplicados y notas crédito vigentes';
+  const invoices = await db.collection(COLLECTIONS.invoices).find({ tenantId, status: 'issued' }, { projection: { fullNumber: 1, totals: 1, paidTotal: 1, creditedTotal: 1, balance: 1 } }).toArray();
+  const [receipts, applications, notes] = await Promise.all([
+    sumBy(db, COLLECTIONS.receipts, [{ $match: { tenantId, status: 'posted' } }, { $unwind: '$allocations' }, { $group: { _id: '$allocations.invoiceId', amount: { $sum: '$allocations.amount' } } }], 'amount'),
+    sumBy(db, COLLECTIONS.advanceApplications, [{ $match: { tenantId, kind: 'customer', status: 'posted' } }, { $unwind: '$allocations' }, { $group: { _id: '$allocations.documentId', amount: { $sum: '$allocations.amount' } } }], 'amount'),
+    sumBy(db, COLLECTIONS.creditNotes, [{ $match: { tenantId, status: { $in: ['issued', 'pending_provider'] } } }, { $group: { _id: '$invoiceId', amount: { $sum: '$totals.total' } } }], 'amount'),
+  ]);
+  const problems = [];
+  for (const inv of invoices) {
+    const id = String(inv._id);
+    const paid = (receipts.get(id) ?? 0) + (applications.get(id) ?? 0);
+    const credited = notes.get(id) ?? 0;
+    if (inv.paidTotal !== paid) problems.push(`${inv.fullNumber}: cobrado ${inv.paidTotal} y los recibos y anticipos vigentes suman ${paid}`);
+    else if (inv.creditedTotal !== credited) problems.push(`${inv.fullNumber}: acreditado ${inv.creditedTotal} y las notas crédito vigentes suman ${credited}`);
+    else if (inv.balance !== inv.totals.total - credited - paid) problems.push(`${inv.fullNumber}: saldo ${inv.balance} y debería ser ${inv.totals.total - credited - paid}`);
+    else if (inv.balance < 0) problems.push(`${inv.fullNumber}: saldo negativo (${inv.balance}): se acreditó o aplicó más de lo que valía`);
+  }
+  return { name, ok: problems.length === 0, detail: problems.length ? `${problems.length} facturas: ${sample(problems, 3).join('; ')}` : `${invoices.length} facturas revisadas.` };
+}
+
+/** Lo mismo para las compras: saldo = por pagar − pagos − anticipos aplicados − efecto de las notas de proveedor vigentes (puede quedar a favor). */
+async function purchasesMatchPayments(db, tenantId) {
+  const name = 'El saldo de cada compra coincide con sus pagos, anticipos aplicados y notas de proveedor vigentes';
+  const purchases = await db.collection(COLLECTIONS.purchases).find({ tenantId, status: 'posted' }, { projection: { fullNumber: 1, payable: 1, paidTotal: 1, creditedTotal: 1, balance: 1 } }).toArray();
+  const [payments, applications, notes, effects] = await Promise.all([
+    sumBy(db, COLLECTIONS.payments, [{ $match: { tenantId, status: 'posted' } }, { $unwind: '$allocations' }, { $group: { _id: '$allocations.purchaseId', amount: { $sum: '$allocations.amount' } } }], 'amount'),
+    sumBy(db, COLLECTIONS.advanceApplications, [{ $match: { tenantId, kind: 'supplier', status: 'posted' } }, { $unwind: '$allocations' }, { $group: { _id: '$allocations.documentId', amount: { $sum: '$allocations.amount' } } }], 'amount'),
+    sumBy(db, COLLECTIONS.supplierNotes, [{ $match: { tenantId, status: 'posted' } }, { $group: { _id: '$purchaseId', amount: { $sum: '$totals.total' } } }], 'amount'),
+    sumBy(db, COLLECTIONS.supplierNotes, [{ $match: { tenantId, status: 'posted' } }, { $group: { _id: '$purchaseId', amount: { $sum: '$effect' } } }], 'amount'),
+  ]);
+  const problems = [];
+  for (const p of purchases) {
+    const id = String(p._id);
+    const paid = (payments.get(id) ?? 0) + (applications.get(id) ?? 0);
+    const credited = notes.get(id) ?? 0;
+    const expected = p.payable - paid - (effects.get(id) ?? 0);
+    if (p.paidTotal !== paid) problems.push(`${p.fullNumber}: pagado ${p.paidTotal} y los pagos y anticipos vigentes suman ${paid}`);
+    else if (p.creditedTotal !== credited) problems.push(`${p.fullNumber}: acreditado ${p.creditedTotal} y las notas vigentes suman ${credited}`);
+    else if (p.balance !== expected) problems.push(`${p.fullNumber}: saldo ${p.balance} y debería ser ${expected}`);
+  }
+  return { name, ok: problems.length === 0, detail: problems.length ? `${problems.length} compras: ${sample(problems, 3).join('; ')}` : `${purchases.length} compras revisadas.` };
+}
+
+/** Cierres de IVA vigentes: cada uno con su asiento, su resultado cuadrado y sin traslapar con otro de la misma moneda. */
+async function vatClosesAreConsistent(db, tenantId) {
+  const name = 'Los cierres de IVA vigentes tienen su asiento, cuadran y no se traslapan';
+  const closes = await db.collection(COLLECTIONS.taxCloses).find({ tenantId, status: 'posted' }, { sort: { from: 1 } }).toArray();
+  if (!closes.length) return { name, ok: true, detail: 'No hay cierres de IVA.' };
+  const found = new Set((await db.collection(COLLECTIONS.journals).find({ tenantId, _id: { $in: closes.map((c) => c.journalId) } }, { projection: { _id: 1 } }).toArray()).map((j) => String(j._id)));
+  const day = (d) => d.toISOString().slice(0, 10);
+  const problems = [];
+  for (const [i, c] of closes.entries()) {
+    if (!found.has(String(c.journalId))) problems.push(`${c.document}: no tiene asiento`);
+    if (c.net !== c.generated - c.deductible) problems.push(`${c.document}: el resultado ${c.net} no es generado menos descontable`);
+    for (const other of closes.slice(i + 1)) {
+      if (other.currency === c.currency && other.from <= c.to && other.to >= c.from) problems.push(`${c.document} (${day(c.from)} a ${day(c.to)}) se traslapa con ${other.document} (${day(other.from)} a ${day(other.to)})`);
+    }
+  }
+  return { name, ok: problems.length === 0, detail: problems.length ? `${problems.length} problemas: ${sample(problems, 3).join('; ')}` : `${closes.length} cierres revisados.` };
+}
+
+const CHECKS = [balancesMatchJournals, journalsBalanced, consecutives, stockMatchesKardex, inventoryMatchesLedger, documentsHaveJournals, openShiftsMatchSales, closedYearsAreZero, advancesMatchApplications, dimensionsMatchJournals, bankMatchesAreConsistent, fixedAssetsAreConsistent, payrollMatchesJournals,
+  closedReconciliationsMatchLedger, invoicesMatchPayments, purchasesMatchPayments, vatClosesAreConsistent];
 
 /** Revisa una empresa (o todas, si no se indica). Una comprobación que falla por un error propio cuenta como no superada. */
 export async function verifyIntegrity(db, { tenantId } = {}) {

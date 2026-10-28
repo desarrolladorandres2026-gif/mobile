@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { ViewButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { LoadNotice, ViewButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { monthRange } from '../lib/books.js';
 import { formatDay } from '../lib/format.js';
-import { formatAmount } from '../lib/money.js';
+import { formatAmount, parseAmount } from '../lib/money.js';
 import { MONTH_LABELS, SECTION_LABELS, blankBudgetLine, pctText, spreadYear, toForm, validateBudget, varianceTone, ytdRange } from '../lib/planning.js';
 import { useSession, useTenantApi } from '../lib/session.jsx';
 
@@ -107,7 +107,8 @@ function BudgetEditor({ year, currency, canManage, resultAccounts, centers, onSa
     onSaved();
     return setNotice(`Presupuesto de ${year} guardado: ${response.lines.length} líneas.`);
   });
-  const rowTotal = (l) => l.months.reduce((acc, m) => acc + (Number(m.replace(/\./g, '').replace(',', '.')) || 0), 0);
+  // Suma en unidades menores (enteros) con el exponente de la moneda; un mes ilegible cuenta 0 (el servidor lo rechaza al guardar).
+  const rowTotal = (l) => l.months.reduce((acc, m) => acc + (parseAmount(m, currency) ?? 0), 0);
   const nameOf = (code) => resultAccounts.find((a) => a.code === code.trim())?.name;
 
   return (
@@ -170,7 +171,7 @@ function BudgetEditor({ year, currency, canManage, resultAccounts, centers, onSa
                     />
                   </td>
                 ))}
-                <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-tinta">{money(Math.round(rowTotal(l) * 100))}</td>
+                <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-tinta">{money(rowTotal(l))}</td>
               </tr>
             ))}
           </tbody>
@@ -286,6 +287,7 @@ export function BudgetScreen() {
     <>
       <PageHeader title="Presupuesto" />
       <p className="mb-4 text-sm text-tinta">Cuánto esperas vender, costear y gastar cada mes, por cuenta y, si quieres, por centro de costo. Después compáralo con lo real en «Ejecución del presupuesto».</p>
+      <LoadNotice load={centers} what="los centros de costo" />
       <div className="grid gap-x-4 sm:grid-cols-4">
         <TextField label="Año" value={year} onChange={(e) => setYear(e.target.value)} inputMode="numeric" maxLength={4} />
       </div>

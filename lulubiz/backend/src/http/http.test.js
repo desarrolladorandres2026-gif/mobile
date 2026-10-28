@@ -493,6 +493,31 @@ describe('libro contable por la API', () => {
     expect((await post({ ...sale(), date: 'ayer' })).statusCode).toBe(422);
   });
 
+  it('la clave manual lleva su propio prefijo y repetirla con otro contenido es un conflicto, no un reintento', async () => {
+    const { base, cookie } = await readyTenant();
+    const headers = { 'idempotency-key': 'payroll-aaaaaaaaaaaaaaaaaaaaaaaa' };
+    const first = await call('POST', `${base}/journals`, { cookie, body: sale(), headers });
+    expect(first.statusCode).toBe(201);
+    // Una clave de usuario nunca coincide con la de un documento del sistema.
+    expect(first.json().journal.idempotencyKey).toBe('manual:payroll-aaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(first.json().journal.payloadHash).toMatch(/^[a-f0-9]{64}$/);
+    // Mismo contenido: reintento. Otro contenido con la misma clave: 409, y no se asienta nada.
+    expect((await call('POST', `${base}/journals`, { cookie, body: sale(), headers })).json().replayed).toBe(true);
+    const other = await call('POST', `${base}/journals`, { cookie, body: sale(120_000), headers });
+    expect(other.statusCode).toBe(409);
+    expect(other.json().error).toBe('IDEMPOTENCY_CONFLICT');
+    expect((await call('GET', `${base}/journals`, { cookie })).json().items).toHaveLength(1);
+  });
+
+  it('el tipo de documento se normaliza y debe ser de 1 a 10 letras o números', async () => {
+    const { base, cookie } = await readyTenant();
+    const post = (docType, key) => call('POST', `${base}/journals`, { cookie, body: { ...sale(), docType }, headers: { 'idempotency-key': key } });
+    const ok = await post(' aj ', 'tipo-0001-abcdef');
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json().journal.docType).toBe('AJ');
+    for (const [i, bad] of ['A J', 'A-J', 'a/b', '   '].entries()) expect((await post(bad, `tipo-bad${i}-abcdef`)).statusCode, bad).toBe(422);
+  });
+
   it('no contabiliza en una cuenta de agrupación', async () => {
     const { base, cookie } = await readyTenant();
     const body = sale();

@@ -1,5 +1,5 @@
 import { ObjectId } from 'mongodb';
-import { DAY_MS, dayOf, parseDay as parseCalendarDay } from '../core/dates.js';
+import { DAY_MS, dayOf, parseDay as parseCalendarDay, calendarToday } from '../core/dates.js';
 import { vatRatesFor } from '../countries/index.js';
 import { normalizeCenter, requireCostCenters, sumByAccountAndCenter } from '../core/dims.js';
 import { COLLECTIONS } from '../data/db.js';
@@ -326,7 +326,7 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
       if (purchase.status === 'void') return { purchase: present(purchase), replayed: true };
       if (purchase.paidTotal !== 0 || purchase.creditedTotal !== 0) fail('la factura tiene pagos o notas de proveedor: anúlalos primero', 'INVALID_STATE');
       if (await purchasesOf(tenantId).findOne({ relatedPurchaseId: purchase._id, status: 'posted' })) fail('la factura tiene notas débito del proveedor: anúlalas primero', 'INVALID_STATE');
-      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : now();
+      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : calendarToday(now());
       if (dayOf(date) < dayOf(purchase.issueDate)) fail('la anulación no puede ser anterior a la factura');
 
       await ledger.reverseJournal(
@@ -379,7 +379,7 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
 
       const reason = text(input.reason, 'el motivo de la nota', { required: true, max: 200 });
       const supplierDocNumber = text(input.supplierDocNumber, 'el número de la nota del proveedor', { required: true, max: 40 }).toUpperCase();
-      const issueDate = parseDay(input.issueDate ?? dayOf(now()), 'la fecha de la nota');
+      const issueDate = parseDay(input.issueDate ?? dayOf(calendarToday(now())), 'la fecha de la nota');
       if (issueDate.getTime() > now().getTime() + DAY_MS) fail('la fecha de la nota no puede ser futura');
 
       for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -540,7 +540,7 @@ export function createPurchasesService({ client, db, ledger, accounts, parties, 
       const note = await notesOf(tenantId).findOne({ _id: new ObjectId(noteId) });
       if (!note) fail('la nota de proveedor no existe', 'NOT_FOUND');
       if (note.status === 'void') return { note, replayed: true };
-      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : now();
+      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : calendarToday(now());
       if (dayOf(date) < dayOf(note.issueDate)) fail('la anulación no puede ser anterior a la nota');
 
       await ledger.reverseJournal(

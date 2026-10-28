@@ -197,11 +197,17 @@ describe('recibo de caja', () => {
     expect((await ledgerNet('110505')) + (await ledgerNet('111005'))).toBe(100_000);
   });
 
-  it('una nota crédito sobre una factura con abonos reduce lo que falta cobrar', async () => {
+  it('una nota crédito sobre una factura con abonos reduce lo que falta cobrar, sin pasar del saldo pendiente', async () => {
     const inv = await invoice({ amount: 100_000 });
     await receipt([pay(inv, 30_000)]);
-    await invoicing.issueCreditNote(tenant, inv._id, { reasonCode: '1', all: true }, ctx(fresh('nc')));
-    expect((await reload(inv)).balance).toBe(-30_000); // se acreditó todo y 30.000 ya estaban cobrados: saldo a favor del cliente
+    // Acreditar todo dejaría un saldo negativo (30.000 a favor del cliente, sin devolución): se rechaza y no cambia nada.
+    const rejected = await code(invoicing.issueCreditNote(tenant, inv._id, { reasonCode: '1', all: true }, ctx(fresh('nc'))));
+    expect(rejected).toBe('CREDIT_EXCEEDS_BALANCE');
+    expect(await reload(inv)).toMatchObject({ balance: 70_000, creditedTotal: 0 });
+    // Hasta lo que falta por cobrar sí se puede acreditar.
+    const partial = await invoicing.issueCreditNote(tenant, inv._id, { reasonCode: '1', lines: [{ lineIndex: 0, quantity: 700 }] }, ctx(fresh('nc')));
+    expect(partial.note.totals.total).toBe(70_000);
+    expect((await reload(inv)).balance).toBe(0);
     expect(await code(receipt([pay(inv, 1)]))).toBe('OVER_PAYMENT');
   });
 

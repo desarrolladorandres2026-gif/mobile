@@ -1,11 +1,13 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { ObjectId } from 'mongodb';
-import { DAY_MS, parseDay as parseCalendarDay } from '../core/dates.js';
+import { DAY_MS, calendarToday, parseDay as parseCalendarDay } from '../core/dates.js';
 import { COLLECTIONS } from '../data/db.js';
 import { isDuplicate, withTransaction } from '../data/tx.js';
 import { PERMISSIONS, can } from './permissions.js';
 
 export const MAX_ACTIVE_KEYS = 20;
+/** Una clave siempre vence, y no más allá de este plazo: una clave filtrada que nadie recuerda no puede servir para siempre. */
+export const MAX_KEY_LIFETIME_DAYS = 365;
 export const TOKEN_PATTERN = /^lbk_([a-f0-9]{8})_([A-Za-z0-9_-]{43})$/;
 /** Lo que una clave nunca puede hacer, la tenga quien la tenga: administrar la empresa, sus usuarios, sus claves ni reabrir períodos. */
 /** Los salarios son datos personales sensibles: la nómina solo se ve y se maneja con sesión de una persona, no con una clave. */
@@ -47,10 +49,11 @@ const view = (k) => ({
  * Solo se guarda el SHA-256 del secreto: con 256 bits al azar no hace falta un hash lento, y una copia de la base no
  * deja usar ninguna clave. El token completo se muestra una única vez, al crearla.
  *
- * Cada clave lleva sus permisos (`scopes`), un subconjunto de los de quien la crea y nunca los de administración.
+ * Cada clave lleva sus permisos (`scopes`), un subconjunto de los de quien la crea y nunca los de administración. Siempre vence
+ * (a lo sumo en un año) y se revoca sola si quien la creó deja la empresa o su rol pierde alguno de sus permisos.
  * Se autentica sobre las mismas rutas de la API que la sesión, con `Authorization: Bearer <clave>`; cada ruta sigue
- * exigiendo su permiso. Una clave pertenece a la empresa, no a la persona: sigue valiendo si quien la creó se va, y se
- * revoca desde la lista. Las claves no pueden crear ni administrar claves.
+ * exigiendo su permiso. Una clave pertenece a la empresa, no a la persona, pero responde a quien la creó: se revoca desde la lista o,
+ * sola, al quitar o degradar a esa persona. Las claves no pueden crear ni administrar claves.
  */
 export function createApiKeyService({ client, db, now = () => new Date() }) {
   const keys = db.collection(COLLECTIONS.apiKeys);
@@ -66,10 +69,15 @@ export function createApiKeyService({ client, db, now = () => new Date() }) {
         if (!GRANTABLE_SCOPES.includes(scope)) fail(`el permiso ${scope} no se puede dar a una clave de API`);
         if (!can(role, scope)) fail(`no puedes dar a una clave un permiso que no tienes: ${scope}`, 'FORBIDDEN');
       }
+      const latest = new Date(calendarToday(now()).getTime() + MAX_KEY_LIFETIME_DAYS * DAY_MS);
       let expiresAt;
       if (input.expiresAt) {
         expiresAt = parseCalendarDay(input.expiresAt, 'la fecha de vencimiento', fail);
         if (expiresAt.getTime() <= now().getTime() - DAY_MS / 2) fail('la fecha de vencimiento ya pasó');
+        if (expiresAt.getTime() > latest.getTime()) fail(`una clave vence como máximo a los ${MAX_KEY_LIFETIME_DAYS} días: elige una fecha anterior al ${latest.toISOString().slice(0, 10)}`);
+      } else {
+        // Sin fecha, vence al máximo permitido; se puede revocar antes.
+        expiresAt = latest;
       }
       const active = await keys.countDocuments({ tenantId, revokedAt: { $exists: false } });
       if (active >= MAX_ACTIVE_KEYS) fail(`la empresa ya tiene ${MAX_ACTIVE_KEYS} claves activas: revoca alguna`, 'INVALID_STATE');

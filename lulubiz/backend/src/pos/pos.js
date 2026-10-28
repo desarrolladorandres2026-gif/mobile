@@ -1,5 +1,5 @@
 import { ObjectId } from 'mongodb';
-import { DAY_MS, dayOf, parseDay as parseCalendarDay } from '../core/dates.js';
+import { DAY_MS, dayOf, parseDay as parseCalendarDay, calendarToday } from '../core/dates.js';
 import { normalizeCenter, requireCostCenters, sumByAccountAndCenter } from '../core/dims.js';
 import { assertMinorUnits } from '../core/money.js';
 import { vatRatesFor } from '../countries/index.js';
@@ -542,7 +542,7 @@ export function createPosService({ client, db, ledger, accounts, parties, settin
       const shift = await shiftsOf(tenantId).findOne({ _id: sale.shiftId });
       if (shift.status !== 'open') fail('el turno de la venta ya se cerró: no se anula, se corrige con un ajuste', 'SHIFT_CLOSED');
       const reason = text(input.reason, 'el motivo de la anulación', { required: true, max: 200 });
-      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : now();
+      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : calendarToday(now());
       if (dayOf(date) < dayOf(sale.date)) fail('la anulación no puede ser anterior a la venta');
       const cashPaid = sale.payments.find((p) => p.method === 'cash')?.amount ?? 0;
 

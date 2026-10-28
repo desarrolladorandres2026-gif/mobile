@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ViewButton, ActionButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { ViewButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { formatAmount } from '../lib/money.js';
@@ -53,7 +53,7 @@ export function Payslip({ runId, employeeId, onClose }) {
       </p>
       <p className="mt-2 text-tinta-segundo">{data.paid ? `Pagado el ${formatDay(data.paid)}.` : 'Pendiente de pago.'}</p>
       <div className="mt-3 flex gap-3">
-        <ActionButton kind="print" label="Imprimir" onClick={() => window.print()} />
+        <Button className="print:hidden" onClick={() => window.print()}>Imprimir</Button>
         <Button onClick={onClose}>Cerrar</Button>
       </div>
     </section>

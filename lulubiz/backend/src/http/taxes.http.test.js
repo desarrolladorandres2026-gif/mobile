@@ -138,13 +138,14 @@ describe('informe de IVA', () => {
     expect(r.ledger.deductible).toMatchObject({ account: '240810', amount: 190_000, difference: 0 });
   });
 
-  it('un asiento manual sobre la cuenta de IVA se ve como diferencia con el libro', async () => {
+  it('un asiento manual sobre la cuenta de IVA se rechaza: lo mueven los documentos, y el informe sigue cuadrando con el libro', async () => {
     const c = await company();
     await activity(c);
     const manual = await call('POST', `${c.base}/journals`, { cookie: c.cookie, key: true, body: { docType: 'AJ', date: `${iso(-1)}T12:00:00Z`, currency: 'COP', lines: [{ accountId: '110505', debit: 1_000 }, { accountId: '240805', credit: 1_000 }] } });
-    expect(manual.statusCode, manual.body).toBe(201);
+    expect(manual.statusCode, manual.body).toBe(422);
+    expect(manual.json().error).toBe('CONTROL_ACCOUNT');
     const r = (await get(c, `/reports/vat?${vatQuery()}`)).json();
-    expect(r.ledger.generated.difference).toBe(1_000);
+    expect(r.ledger.generated.difference).toBe(0);
     expect(r.ledger.deductible.difference).toBe(0);
   });
 
@@ -315,6 +316,15 @@ describe('cierre de IVA', () => {
     expect(await net(c, '240805')).toBe(-167_500); // el IVA vuelve al libro
     expect((await call('POST', `${c.base}/taxes/vat-closes/${first._id}/void`, { cookie: c.cookie })).json().replayed).toBe(true);
     expect((await close(c, { creditAccount: '135515' })).statusCode).toBe(201);
+  });
+
+  it('dos cierres simultáneos de rangos que se cruzan: solo uno prospera (el traslape se comprueba dentro de la transacción)', async () => {
+    const c = await company();
+    await activity(c);
+    const accounts = { creditAccount: '135515', dueAccount: '241005' };
+    const results = await Promise.all([close(c, { from: iso(-5), to: iso(-1), ...accounts }), close(c, { from: iso(-3), to: iso(0), ...accounts })]);
+    expect(results.map((r) => r.statusCode).sort()).toEqual([201, 409]);
+    expect((await get(c, '/taxes/vat-closes')).json().items.filter((x) => x.status === 'posted')).toHaveLength(1);
   });
 
   it('no cierra un rango sin IVA, valida el rango y exige permiso; el lector ve el estado', async () => {

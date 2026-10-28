@@ -95,12 +95,18 @@ export function createInventoryService({ client, db, ledger, accounts, now = () 
     return tenant.currency;
   }
 
+  /** El contador debe existir antes de la transacción: un upsert dentro de ella chocaría entre concurrentes (mismo patrón que el libro). */
+  async function ensureCounter(tenantId, docType) {
+    try {
+      await db.collection(COLLECTIONS.counters).updateOne({ tenantId, docType }, { $setOnInsert: { last: 0 } }, { upsert: true });
+    } catch (err) {
+      if (!isDuplicate(err, 'tenant_doctype')) throw err;
+    }
+  }
+
   async function nextNumber(tenantId, docType, session) {
-    const doc = await db.collection(COLLECTIONS.counters).findOneAndUpdate(
-      { tenantId, docType },
-      { $inc: { last: 1 } },
-      { upsert: true, returnDocument: 'after', session },
-    );
+    const doc = await db.collection(COLLECTIONS.counters).findOneAndUpdate({ tenantId, docType }, { $inc: { last: 1 } }, { returnDocument: 'after', session });
+    if (!doc) throw new Error('contador inexistente: falta ensureCounter');
     return doc.last;
   }
 
@@ -620,6 +626,7 @@ export function createInventoryService({ client, db, ledger, accounts, now = () 
       const to = await resolveWarehouse(tenantId, input.toWarehouseId);
       if (String(from._id) === String(to._id)) fail('la bodega de origen y la de destino son la misma');
       const note = text(input.note, 'la nota', { max: 200 });
+      await ensureCounter(tenantId, 'TR');
 
       const run = async () => {
         const plan = await planOut(tenantId, [{ itemId: item._id, warehouseId: from._id, quantity: input.quantity }]);

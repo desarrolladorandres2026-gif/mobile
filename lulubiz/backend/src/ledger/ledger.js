@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import { ObjectId } from 'mongodb';
 import { createAccountService } from '../accounts/accounts.js';
+import { calendarToday } from '../core/dates.js';
 import { createKeyedLimiter } from '../core/limiter.js';
 import { addMinor, assertCurrency, assertMinorUnits } from '../core/money.js';
 import { COLLECTIONS } from '../data/db.js';
@@ -32,6 +34,27 @@ export class LedgerImbalanceError extends Error {
     this.totalDebit = totalDebit;
     this.totalCredit = totalCredit;
   }
+}
+
+/** Se repitió una clave de idempotencia con un contenido distinto: no es un reintento, es otra operación. */
+export class IdempotencyConflictError extends Error {
+  constructor() {
+    super('esa clave de idempotencia ya se usó con un contenido distinto: usa una clave nueva para un asiento nuevo');
+    this.name = 'IdempotencyConflictError';
+    this.code = 'IDEMPOTENCY_CONFLICT';
+  }
+}
+
+/** Huella del contenido de un asiento manual (lo que el cliente envía), para detectar una clave repetida con otro cuerpo. */
+export function journalPayloadHash(body) {
+  const canonical = JSON.stringify([
+    String(body.docType ?? '').trim().toUpperCase(),
+    String(body.date ?? ''),
+    String(body.currency ?? ''),
+    body.description ?? '',
+    (body.lines ?? []).map((l) => [String(l.accountId ?? '').trim(), l.debit ?? 0, l.credit ?? 0, l.description ?? '', String(l.costCenter ?? '').trim().toUpperCase(), String(l.partyId ?? '')]),
+  ]);
+  return createHash('sha256').update(canonical).digest('hex');
 }
 
 export class JournalNotFoundError extends Error {
@@ -69,6 +92,10 @@ export class PeriodClosedError extends Error {
  *
  * Todo método que escribe acepta `{ inTx }`: se invoca con `(session, resultado)` dentro de la
  * misma transacción, y solo si se escribió algo nuevo. Así la auditoría se confirma con la operación.
+ * También acepta `{ prepare }`: se invoca con `(session)` dentro de la misma transacción, antes de escribir y solo si no es
+ * una repetición. En `postJournal` puede devolver `{ lines, description, source }` que reemplazan los de la entrada (las líneas
+ * se calculan leyendo con la misma sesión que escribe; así lo leído y lo asentado no se separan). Sirve también para
+ * preparar el terreno de forma atómica (p. ej. reabrir períodos antes de revertir).
  */
 
 export function periodOf(date) {
@@ -83,6 +110,16 @@ export function assertPeriod(period) {
     throw new LedgerValidationError('el período debe tener el formato AAAA-MM');
   }
   return period;
+}
+
+const DOC_TYPE = /^[A-Z0-9]{1,10}$/;
+
+/** El tipo de documento se guarda en mayúsculas y sin espacios: «fv» o « FV » no son otro tipo que escape de `MODULE_DOC_TYPES`. */
+export function normalizeDocType(value) {
+  const docType = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  if (!docType) throw new LedgerValidationError('falta el tipo de documento');
+  if (!DOC_TYPE.test(docType)) throw new LedgerValidationError('el tipo de documento debe tener de 1 a 10 letras o números');
+  return docType;
 }
 
 const COST_CENTER = /^[A-Z0-9][A-Z0-9_-]{0,9}$/;
@@ -250,23 +287,43 @@ export function createLedger(client, db, options = {}) {
     }
   }
 
+  /** Repetir una clave devuelve el asiento original, salvo que traiga otro contenido (si ambos tienen huella). */
+  function replay(existing, payloadHash) {
+    if (payloadHash && existing.payloadHash && existing.payloadHash !== payloadHash) throw new IdempotencyConflictError();
+    return { journal: existing, replayed: true };
+  }
+
   const api = {
-    async postJournal(tenantId, input, { inTx } = {}) {
+    async postJournal(tenantId, input, { inTx, prepare } = {}) {
       if (!input.idempotencyKey?.trim()) throw new LedgerValidationError('falta la clave de idempotencia');
-      if (!input.docType?.trim()) throw new LedgerValidationError('falta el tipo de documento');
+      const docType = normalizeDocType(input.docType);
       const currency = assertCurrency(input.currency);
       const period = periodOf(input.date);
-      const { lines, totalDebit, totalCredit } = normalizeLines(input.lines);
-      await checkDimensions(tenantId, lines);
+      // Con `prepare` las líneas pueden venir de la propia transacción; se validan allí.
+      const early = prepare && !input.lines ? null : normalizeLines(input.lines);
+      if (early) await checkDimensions(tenantId, early.lines);
 
-      await ensureCounter(tenantId, input.docType);
+      await ensureCounter(tenantId, docType);
       await ensurePeriod(tenantId, period);
       const find = () => journalsOf(tenantId).findOne({ idempotencyKey: input.idempotencyKey });
 
       try {
         return await withTransaction(client, async (session) => {
           const existing = await journalsOf(tenantId).findOne({ idempotencyKey: input.idempotencyKey }, { session });
-          if (existing) return { journal: existing, replayed: true };
+          if (existing) return replay(existing, input.payloadHash);
+          let { lines, totalDebit, totalCredit } = early ?? {};
+          let description = input.description;
+          let source = input.source;
+          if (prepare) {
+            const built = await prepare(session);
+            if (built?.lines) {
+              ({ lines, totalDebit, totalCredit } = normalizeLines(built.lines));
+              await checkDimensions(tenantId, lines);
+              if (built.description !== undefined) description = built.description;
+              if (built.source !== undefined) source = built.source;
+            }
+          }
+          if (!lines) throw new LedgerValidationError('un asiento necesita al menos dos líneas');
           const problems = await accounts.postingProblems(
             tenantId,
             lines.map((l) => l.accountId),
@@ -276,7 +333,7 @@ export function createLedger(client, db, options = {}) {
           const journal = await commit(
             tenantId,
             {
-              docType: input.docType,
+              docType,
               date: input.date,
               period,
               currency,
@@ -284,8 +341,9 @@ export function createLedger(client, db, options = {}) {
               totalDebit,
               totalCredit,
               idempotencyKey: input.idempotencyKey,
-              ...(input.description ? { description: input.description } : {}),
-              ...(input.source ? { source: input.source } : {}),
+              ...(description ? { description } : {}),
+              ...(source ? { source } : {}),
+              ...(input.payloadHash ? { payloadHash: input.payloadHash } : {}),
             },
             session,
           );
@@ -297,19 +355,19 @@ export function createLedger(client, db, options = {}) {
         // Dos peticiones con la misma clave a la vez: la que pierde relee y repite el resultado.
         if (isDuplicate(err, 'tenant_idempotency')) {
           const existing = await find();
-          if (existing) return { journal: existing, replayed: true };
+          if (existing) return replay(existing, input.payloadHash);
         }
         throw err;
       }
     },
 
-    async reverseJournal(tenantId, journalId, input, { inTx } = {}) {
+    async reverseJournal(tenantId, journalId, input, { inTx, prepare } = {}) {
       if (!input.idempotencyKey?.trim()) throw new LedgerValidationError('falta la clave de idempotencia');
       const original = await journalsOf(tenantId).findOne({ _id: journalId });
       if (!original) throw new JournalNotFoundError(journalId.toHexString());
       if (original.reversesJournalId) throw new LedgerValidationError('no se revierte un asiento de reversión');
 
-      const date = input.date ?? new Date();
+      const date = input.date ?? calendarToday();
       const period = periodOf(date);
       await ensureCounter(tenantId, original.docType);
       await ensurePeriod(tenantId, period);
@@ -319,6 +377,7 @@ export function createLedger(client, db, options = {}) {
         return await withTransaction(client, async (session) => {
           const existing = await journalsOf(tenantId).findOne({ idempotencyKey: input.idempotencyKey }, { session });
           if (existing) return { journal: existing, replayed: true };
+          if (prepare) await prepare(session);
           const journal = await commit(
             tenantId,
             {
@@ -368,7 +427,7 @@ export function createLedger(client, db, options = {}) {
       const size = Math.min(Math.max(Number(limit) || 25, 1), MAX_JOURNAL_PAGE);
       const filter = {};
       if (period) filter.period = assertPeriod(period);
-      if (docType) filter.docType = String(docType);
+      if (docType) filter.docType = String(docType).trim().toUpperCase();
       if (accountId) filter['lines.accountId'] = String(accountId);
       if (cursor) filter._id = { $lt: new ObjectId(cursor) };
 

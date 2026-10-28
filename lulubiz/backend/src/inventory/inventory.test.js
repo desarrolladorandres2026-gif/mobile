@@ -306,6 +306,19 @@ describe('traspasos', () => {
     expect(valuation.accounts).toEqual([{ account: '143505', stockValue: 3_000, ledgerBalance: 3_000, difference: 0 }]);
   });
 
+  it('los dos primeros traspasos de una empresa a la vez no chocan al crear el contador, y se numeran TR1 y TR2', async () => {
+    const item = await newItem();
+    const north = await inventory.createWarehouse(tenant, { code: 'NORTE', name: 'Norte' });
+    const main = await inventory.ensureDefaultWarehouse(tenant);
+    await adjust(item, 'in', 10);
+    expect(await db.collection(COLLECTIONS.counters).countDocuments({ tenantId: tenant, docType: 'TR' })).toBe(0);
+    const move = () => inventory.transfer(tenant, { itemId: String(item._id), fromWarehouseId: String(main._id), toWarehouseId: String(north._id), date: TODAY, quantity: units(1) }, ctx());
+    const results = await Promise.allSettled([move(), move(), move()]);
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled', 'fulfilled']);
+    expect(results.map((r) => r.value.doc.fullNumber).sort()).toEqual(['TR1', 'TR2', 'TR3']);
+    expect((await db.collection(COLLECTIONS.counters).findOne({ tenantId: tenant, docType: 'TR' })).last).toBe(3);
+  });
+
   it('repite sin duplicar, y rechaza bodegas iguales, existencias insuficientes y servicios', async () => {
     const item = await newItem();
     const north = await inventory.createWarehouse(tenant, { code: 'NORTE', name: 'Norte' });

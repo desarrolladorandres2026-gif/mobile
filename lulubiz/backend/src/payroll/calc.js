@@ -105,7 +105,8 @@ export function monthlyWithholding({ income, mandatory, uvt, exponent = 2 }) {
     }
   }
   const step = 1000 * 10 ** exponent;
-  return Math.round(tax / step) * step;
+  // Entero con BigInt: dividir y redondear con coma flotante pierde exactitud en importes grandes.
+  return Number(roundDiv(BigInt(tax), BigInt(step)) * BigInt(step));
 }
 
 /**

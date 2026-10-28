@@ -23,7 +23,7 @@ export class AuthError extends Error {
  * users:       { _id, email, name, passwordHash, failedAttempts, lockedUntil, emailVerifiedAt|null,
  *                mfa? { enabled, secretEnc, pendingSecretEnc, lastStep, recoveryHashes[], enrolledAt }, createdAt }
  * memberships: { _id, tenantId, userId, role, createdAt }   (un usuario puede pertenecer a varias empresas)
- * sessions:    { _id, userId, tokenHash, createdAt, lastSeenAt, expiresAt }
+ * sessions:    { _id, userId, tokenHash, createdAt, lastSeenAt, expiresAt, stepUpAt? }
  * tokens:      { _id, purpose 'verify_email'|'password_reset'|'invite'|'mfa_login', tokenHash, userId?, email?,
  *                tenantId?, role?, invitedBy?, attempts?, createdAt, expiresAt, usedAt|null }
  *
@@ -61,6 +61,12 @@ export function createAuthService(client, db, options = {}) {
   const absoluteMs = options.absoluteMs ?? 12 * HOUR;
   const maxFailedAttempts = options.maxFailedAttempts ?? 5;
   const lockMs = options.lockMs ?? 15 * MINUTE;
+  // `lastSeenAt` se escribe como mucho una vez por `touchMs`: escribir en cada petición era una escritura por llamada de cada usuario.
+  // El costo es que el vencimiento por inactividad tiene esa precisión (un minuto sobre 30).
+  const touchMs = options.touchMs ?? MINUTE;
+  // Cuánto dura la confirmación reciente de la contraseña (y del segundo factor) para operaciones delicadas.
+  const stepUpMs = options.stepUpMs ?? 10 * MINUTE;
+  const membershipCacheMs = options.membershipCacheMs ?? 5000;
   const { mailer = null, appBaseUrl = 'http://localhost:3100', mfaKey = null, issuer = 'Lulubiz', onMailError } = options;
 
   const tenants = db.collection(COLLECTIONS.tenants);
@@ -68,6 +74,13 @@ export function createAuthService(client, db, options = {}) {
   const memberships = db.collection(COLLECTIONS.memberships);
   const sessions = db.collection(COLLECTIONS.sessions);
   const tokens = db.collection(COLLECTIONS.tokens);
+  const apiKeys = db.collection(COLLECTIONS.apiKeys);
+
+  // Pertenencia (rol) en memoria unos segundos: `authorize` corre en cada petición. Se invalida al cambiar o quitar un rol en
+  // este proceso; entre procesos la diferencia máxima es `membershipCacheMs`. Solo guarda pertenencias que existen.
+  const memberCache = new Map();
+  const cacheKey = (tenantId, userId) => `${tenantId}|${userId}`;
+  const forgetMember = (tenantId, userId) => memberCache.delete(cacheKey(tenantId, userId));
 
   const forbidden = () => new AuthError('no tienes permiso para esta operación', 'FORBIDDEN');
   const invalidCredentials = () => new AuthError('credenciales inválidas', 'INVALID_CREDENTIALS');
@@ -126,8 +139,9 @@ export function createAuthService(client, db, options = {}) {
     const t = now();
     const token = newToken();
     const expiresAt = new Date(t.getTime() + absoluteMs);
+    // Iniciar sesión verificó la contraseña (y el segundo factor): cuenta como confirmación reciente desde ese instante.
     await sessions.insertOne(
-      { userId, tokenHash: hashToken(token), createdAt: t, lastSeenAt: t, expiresAt },
+      { userId, tokenHash: hashToken(token), createdAt: t, lastSeenAt: t, stepUpAt: t, expiresAt },
       { session },
     );
     return { token, expiresAt };
@@ -349,8 +363,60 @@ export function createAuthService(client, db, options = {}) {
         await sessions.deleteOne({ _id: found._id });
         throw invalidSession();
       }
-      await sessions.updateOne({ _id: found._id }, { $set: { lastSeenAt: t } });
-      return { userId: found.userId };
+      if (t.getTime() - found.lastSeenAt.getTime() >= touchMs) await sessions.updateOne({ _id: found._id }, { $set: { lastSeenAt: t } });
+      return { userId: found.userId, sessionId: found._id, stepUpAt: found.stepUpAt ?? found.createdAt };
+    },
+
+    /**
+     * Confirma de nuevo la identidad de quien tiene la sesión: contraseña y, si la cuenta tiene dos pasos, un código vigente.
+     * Marca la sesión (`stepUpAt`) y desde ahí valen `stepUpMs` las operaciones que lo exigen (exportar, crear claves de API,
+     * cambiar roles y quitar miembros). Un fallo cuenta contra la cuenta como cualquier otro fallo de autenticación.
+     */
+    async stepUp(token, userId, { password, code } = {}, { inTx } = {}) {
+      const user = await accountOf(userId);
+      const t = now();
+      if (user.lockedUntil && user.lockedUntil > t) throw invalidCredentials();
+      if (!(await verifyPassword(String(password ?? ''), user.passwordHash))) {
+        await registerFailure(user, t);
+        throw invalidCredentials();
+      }
+      let factor = null;
+      if (user.mfa?.enabled) {
+        if (!String(code ?? '').trim()) throw new AuthError('indica el código de verificación en dos pasos', 'VALIDATION');
+        factor = checkSecondFactor(user, code, t);
+        if (!factor.ok) {
+          await registerFailure(user, t);
+          throw invalidMfa();
+        }
+      }
+      await withTransaction(client, async (session) => {
+        if (factor && !(await spendSecondFactor(user, factor, session))) throw invalidMfa();
+        const marked = await sessions.updateOne({ tokenHash: hashToken(String(token ?? '')), userId }, { $set: { stepUpAt: t } }, { session });
+        if (marked.matchedCount === 0) throw invalidSession();
+        if (inTx) await inTx(session, { userId });
+      });
+      return { stepUpAt: t, validUntil: new Date(t.getTime() + stepUpMs) };
+    },
+
+    /** Sesiones abiertas de la cuenta, la más reciente primero. Nunca devuelve el token ni su huella. */
+    async listSessions(userId, currentToken) {
+      const t = now();
+      const current = typeof currentToken === 'string' ? hashToken(currentToken) : null;
+      const rows = await sessions.find({ userId, expiresAt: { $gt: t } }, { sort: { createdAt: -1 }, limit: 50 }).toArray();
+      return rows.map((r) => ({ id: r._id, createdAt: r.createdAt, lastSeenAt: r.lastSeenAt, expiresAt: r.expiresAt, current: r.tokenHash === current }));
+    },
+
+    /** Cierra una sesión propia (otro dispositivo, o la actual). Una sesión de otra persona responde como inexistente. */
+    async revokeSession(userId, sessionId, currentToken, { inTx } = {}) {
+      if (!/^[a-f0-9]{24}$/.test(String(sessionId))) throw new AuthError('la sesión no existe', 'NOT_FOUND');
+      const current = typeof currentToken === 'string' ? hashToken(currentToken) : null;
+      return withTransaction(client, async (session) => {
+        const found = await sessions.findOneAndDelete({ _id: new ObjectId(String(sessionId)), userId }, { session });
+        if (!found) throw new AuthError('la sesión no existe', 'NOT_FOUND');
+        const result = { userId, sessionId: found._id, current: found.tokenHash === current };
+        if (inTx) await inTx(session, result);
+        return result;
+      });
     },
 
     async logout(token) {
@@ -417,6 +483,42 @@ export function createAuthService(client, db, options = {}) {
       const user = await users.findOne({ _id: userId });
       await sendMail(user.email, templates.passwordChanged());
       return { userId };
+    },
+
+    /**
+     * Cambia la contraseña de quien ya tiene sesión. Exige la actual (y un código si hay dos pasos). Cierra las demás sesiones; con
+     * `logoutAll` cierra también esta. Un enlace de recuperación pendiente deja de servir.
+     */
+    async changePassword(userId, currentToken, { currentPassword, newPassword, code, logoutAll = false } = {}, { inTx } = {}) {
+      const user = await accountOf(userId);
+      const t = now();
+      if (user.lockedUntil && user.lockedUntil > t) throw invalidCredentials();
+      if (!(await verifyPassword(String(currentPassword ?? ''), user.passwordHash))) {
+        await registerFailure(user, t);
+        throw invalidCredentials();
+      }
+      let factor = null;
+      if (user.mfa?.enabled) {
+        if (!String(code ?? '').trim()) throw new AuthError('indica el código de verificación en dos pasos', 'VALIDATION');
+        factor = checkSecondFactor(user, code, t);
+        if (!factor.ok) {
+          await registerFailure(user, t);
+          throw invalidMfa();
+        }
+      }
+      validatePasswordStrength(newPassword);
+      if (newPassword === currentPassword) throw new AuthError('la contraseña nueva debe ser distinta de la actual', 'VALIDATION');
+      const passwordHash = await hashPassword(newPassword, passwordParams);
+      await withTransaction(client, async (session) => {
+        if (factor && !(await spendSecondFactor(user, factor, session))) throw invalidMfa();
+        await users.updateOne({ _id: userId }, { $set: { passwordHash, failedAttempts: 0, lockedUntil: null } }, { session });
+        const keep = !logoutAll && typeof currentToken === 'string' ? { tokenHash: { $ne: hashToken(currentToken) } } : {};
+        await sessions.deleteMany({ userId, ...keep }, { session });
+        await tokens.updateMany({ purpose: 'password_reset', userId, usedAt: null }, { $set: { usedAt: t } }, { session });
+        if (inTx) await inTx(session, { userId, loggedOut: Boolean(logoutAll) });
+      });
+      await sendMail(user.email, templates.passwordChanged());
+      return { loggedOut: Boolean(logoutAll) };
     },
 
     // ------------------------------------------------------------------ dos pasos (TOTP)
@@ -499,9 +601,21 @@ export function createAuthService(client, db, options = {}) {
     // --------------------------------------------------------------------------- permisos
 
     /** Punto único de autorización: sesión válida, pertenencia a la empresa y permiso del rol. */
-    async authorize(token, tenantId, permission) {
-      const { userId } = await this.verifySession(token);
-      const member = await requireMember(tenantId, userId, permission);
+    async authorize(token, tenantId, permission, { stepUp = false } = {}) {
+      const { userId, stepUpAt } = await this.verifySession(token);
+      // Una operación delicada exige haber confirmado la contraseña hace poco (el inicio de sesión cuenta).
+      if (stepUp && now().getTime() - stepUpAt.getTime() > stepUpMs) {
+        throw new AuthError('confirma tu contraseña para continuar con esta operación', 'STEP_UP_REQUIRED');
+      }
+      const key = cacheKey(tenantId, userId);
+      const cached = memberCache.get(key);
+      let member = cached && cached.until > now().getTime() ? cached.member : null;
+      if (!member) {
+        member = await memberships.findOne({ tenantId, userId });
+        if (member) memberCache.set(key, { member, until: now().getTime() + membershipCacheMs });
+        else memberCache.delete(key);
+      }
+      if (!member || !can(member.role, permission)) throw forbidden();
       return { userId, tenantId, role: member.role };
     },
 
@@ -676,21 +790,45 @@ export function createAuthService(client, db, options = {}) {
 
     async changeRole(actor, targetUserId, newRole, { inTx } = {}) {
       if (!isRole(newRole)) throw new AuthError(`rol inválido: ${newRole}`, 'VALIDATION');
-      await withTransaction(client, async (session) => {
-        await guardOwners(actor, targetUserId, newRole, session);
-        await memberships.updateOne({ tenantId: actor.tenantId, userId: targetUserId }, { $set: { role: newRole } }, { session });
-        if (inTx) await inTx(session, { userId: targetUserId, role: newRole });
-      });
+      try {
+        await withTransaction(client, async (session) => {
+          await guardOwners(actor, targetUserId, newRole, session);
+          await memberships.updateOne({ tenantId: actor.tenantId, userId: targetUserId }, { $set: { role: newRole } }, { session });
+          // Una clave creada por esa persona con permisos que su nuevo rol ya no tiene seguiría sirviendo: se revoca.
+          const revokedApiKeys = await revokeKeysOf(actor.tenantId, targetUserId, newRole, session);
+          if (inTx) await inTx(session, { userId: targetUserId, role: newRole, revokedApiKeys });
+        });
+      } finally {
+        forgetMember(actor.tenantId, targetUserId);
+      }
     },
 
     async removeMember(actor, targetUserId, { inTx } = {}) {
-      await withTransaction(client, async (session) => {
-        await guardOwners(actor, targetUserId, null, session);
-        await memberships.deleteOne({ tenantId: actor.tenantId, userId: targetUserId }, { session });
-        if (inTx) await inTx(session, { userId: targetUserId });
-      });
+      try {
+        await withTransaction(client, async (session) => {
+          await guardOwners(actor, targetUserId, null, session);
+          await memberships.deleteOne({ tenantId: actor.tenantId, userId: targetUserId }, { session });
+          // Las claves que creó se van con ella: ya no hay quien responda de lo que hagan.
+          const revokedApiKeys = await revokeKeysOf(actor.tenantId, targetUserId, null, session);
+          if (inTx) await inTx(session, { userId: targetUserId, revokedApiKeys });
+        });
+      } finally {
+        forgetMember(actor.tenantId, targetUserId);
+      }
     },
   };
+
+  /**
+   * Revoca las claves de API activas que creó `userId` en la empresa: todas si deja de ser miembro (`role` null), o las que tienen
+   * algún permiso que su nuevo rol ya no concede. Devuelve cuántas.
+   */
+  async function revokeKeysOf(tenantId, userId, role, session) {
+    const active = await apiKeys.find({ tenantId, createdBy: userId, revokedAt: { $exists: false } }, { session, projection: { scopes: 1 } }).toArray();
+    const ids = active.filter((k) => role === null || k.scopes.some((scope) => !can(role, scope))).map((k) => k._id);
+    if (!ids.length) return 0;
+    await apiKeys.updateMany({ _id: { $in: ids } }, { $set: { revokedAt: now(), revokedReason: role === null ? 'member_removed' : 'role_downgraded' } }, { session });
+    return ids.length;
+  }
 
   /**
    * Reglas para tocar a un miembro: solo un propietario puede nombrar, degradar o quitar a otro,

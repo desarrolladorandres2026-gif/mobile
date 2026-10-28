@@ -2,3 +2,4 @@ node_modules
 dist
 src/output.css
 .env
+test-results

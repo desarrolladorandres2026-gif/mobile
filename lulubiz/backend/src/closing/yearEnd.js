@@ -2,7 +2,7 @@ import { assertCurrency, assertMinorUnits } from '../core/money.js';
 import { DAY_MS, parseDay as parseCalendarDay } from '../core/dates.js';
 import { COLLECTIONS } from '../data/db.js';
 import { TenantCollection } from '../data/tenantCollection.js';
-import { withTransaction } from '../data/tx.js';
+import { isDuplicate } from '../data/tx.js';
 
 export const YEAR_CLOSE_TYPE = 'CA';
 const RESULT_TYPES = ['income', 'cost', 'expense'];
@@ -24,10 +24,10 @@ const fail = (message, code) => {
  * Los reportes lo restan para mostrar la actividad real del año: sin esto, el estado de resultados de diciembre
  * saldría en cero justo después de cerrar.
  */
-export async function closingEffects(db, tenantId, currency, toPeriod) {
+export async function closingEffects(db, tenantId, currency, toPeriod, session) {
   const journals = await db
     .collection(COLLECTIONS.journals)
-    .find({ tenantId, docType: YEAR_CLOSE_TYPE, currency, period: { $lte: toPeriod } }, { projection: { period: 1, lines: 1 } })
+    .find({ tenantId, docType: YEAR_CLOSE_TYPE, currency, period: { $lte: toPeriod } }, { projection: { period: 1, lines: 1 }, ...(session ? { session } : {}) })
     .toArray();
   return journals.flatMap((j) => j.lines.map((l) => ({ period: j.period, accountId: l.accountId, debit: l.debit, credit: l.credit })));
 }
@@ -49,13 +49,22 @@ export async function closingEffects(db, tenantId, currency, toPeriod) {
  *  - Reabrir el ejercicio reversa el asiento de cierre y reabre los períodos que cerró el cierre. Solo si no hay un
  *    ejercicio posterior cerrado.
  */
-export function createYearEndService({ client, db, ledger, accounts, now = () => new Date() }) {
+export function createYearEndService({ db, ledger, accounts, now = () => new Date() }) {
   const balancesOf = (tenantId) => new TenantCollection(db.collection(COLLECTIONS.balances), tenantId);
   const journalsOf = (tenantId) => new TenantCollection(db.collection(COLLECTIONS.journals), tenantId);
   const periodsOf = (tenantId) => new TenantCollection(db.collection(COLLECTIONS.periods), tenantId);
 
   const periodsOfYear = (year) => Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
   const sourceId = (year, currency) => `${year}-${currency}`;
+
+  /** Garantiza que exista el documento del período antes de la transacción: el upsert dentro de ella chocaría entre concurrentes. */
+  async function ensurePeriod(tenantId, period) {
+    try {
+      await periodsOf(tenantId).updateOne({ period }, { $setOnInsert: { status: 'open', seq: 0, createdAt: now() } }, { upsert: true });
+    } catch (err) {
+      if (!isDuplicate(err, 'tenant_period')) throw err;
+    }
+  }
 
   function checkYear(year) {
     if (!Number.isInteger(year) || year < 2000 || year > 2100) fail('el año debe estar entre 2000 y 2100');
@@ -68,34 +77,35 @@ export function createYearEndService({ client, db, ledger, accounts, now = () =>
   }
 
   /** Cierres vigentes (no reversados) de una moneda, con su año. */
-  async function activeCloses(tenantId, { currency, year } = {}) {
+  async function activeCloses(tenantId, { currency, year } = {}, session) {
+    const opts = session ? { session } : {};
     const filter = {
       docType: YEAR_CLOSE_TYPE,
       'source.kind': 'year_close',
       ...(currency ? { currency } : {}),
       ...(year ? { 'source.year': year } : {}),
     };
-    const originals = await journalsOf(tenantId).find(filter, { sort: { _id: 1 } }).toArray();
+    const originals = await journalsOf(tenantId).find(filter, { sort: { _id: 1 }, ...opts }).toArray();
     if (!originals.length) return { active: [], all: [] };
     const reversals = await journalsOf(tenantId)
-      .find({ reversesJournalId: { $in: originals.map((j) => j._id) } }, { projection: { reversesJournalId: 1 } })
+      .find({ reversesJournalId: { $in: originals.map((j) => j._id) } }, { projection: { reversesJournalId: 1 }, ...opts })
       .toArray();
     const reversed = new Set(reversals.map((r) => r.reversesJournalId.toHexString()));
     return { active: originals.filter((j) => !reversed.has(j._id.toHexString())), all: originals };
   }
 
   /** Movimiento del año por cuenta de resultados, sin contar los asientos de cierre. */
-  async function yearActivity(tenantId, year, currency) {
+  async function yearActivity(tenantId, year, currency, session) {
     const { chart, codes } = await resultCodes(tenantId);
     const periods = periodsOfYear(year);
     const rows = await balancesOf(tenantId)
       .aggregate([
         { $match: { currency, accountId: { $in: codes }, period: { $in: periods } } },
         { $group: { _id: '$accountId', debit: { $sum: '$debit' }, credit: { $sum: '$credit' } } },
-      ])
+      ], session)
       .toArray();
     const net = new Map(rows.map((r) => [r._id, { debit: Number(r.debit), credit: Number(r.credit) }]));
-    for (const e of await closingEffects(db, tenantId, currency, periods.at(-1))) {
+    for (const e of await closingEffects(db, tenantId, currency, periods.at(-1), session)) {
       if (e.period < periods[0] || !net.has(e.accountId)) continue;
       const cur = net.get(e.accountId);
       cur.debit -= e.debit;
@@ -123,13 +133,13 @@ export function createYearEndService({ client, db, ledger, accounts, now = () =>
     return years.filter((y) => !closed.has(y)).sort();
   }
 
-  async function activityCurrencies(tenantId, year) {
+  async function activityCurrencies(tenantId, year, session) {
     const { codes } = await resultCodes(tenantId);
     const rows = await balancesOf(tenantId)
       .aggregate([
         { $match: { accountId: { $in: codes }, period: { $in: periodsOfYear(year) } } },
         { $group: { _id: '$currency', movement: { $sum: { $add: ['$debit', '$credit'] } } } },
-      ])
+      ], session)
       .toArray();
     return rows.filter((r) => Number(r.movement) > 0).map((r) => r._id);
   }
@@ -190,29 +200,13 @@ export function createYearEndService({ client, db, ledger, accounts, now = () =>
         if ((await accounts.get(tenantId, code)).type !== 'equity') fail(`la cuenta ${code} debe ser de patrimonio`);
       }
 
-      const activity = await yearActivity(tenantId, year, currency);
-      if (activity.length === 0) fail('el ejercicio no tiene movimiento de ingresos, costos ni gastos: no hay nada que cerrar', 'INVALID_STATE');
-      // Cada cuenta de resultados se lleva a cero: su saldo (débitos − créditos) pasa al lado contrario.
-      const lines = [];
-      let debit = 0;
-      let credit = 0;
-      for (const a of activity) {
-        if (a.net > 0) {
-          lines.push({ accountId: a.code, credit: a.net });
-          credit = assertMinorUnits(credit + a.net, 'total de créditos');
-        } else if (a.net < 0) {
-          lines.push({ accountId: a.code, debit: 0 - a.net });
-          debit = assertMinorUnits(debit + (0 - a.net), 'total de débitos');
-        }
-      }
-      // Lo que no cuadra entre los cierres es el resultado: utilidad al crédito del patrimonio, pérdida al débito.
-      const result = debit - credit;
-      if (result > 0) lines.push({ accountId: profitAccount, credit: result });
-      else if (result < 0) lines.push({ accountId: lossAccount, debit: 0 - result });
-      if (lines.length === 0) fail('el ejercicio ya está en cero: no hay nada que cerrar', 'INVALID_STATE');
+      // Aviso temprano, sin transacción. Lo que se asienta se vuelve a leer dentro de la transacción de escritura (`prepare`).
+      if ((await yearActivity(tenantId, year, currency)).length === 0) fail('el ejercicio no tiene movimiento de ingresos, costos ni gastos: no hay nada que cerrar', 'INVALID_STATE');
 
       const attempt = existing.all.length + 1;
       const periods = periodsOfYear(year);
+      // Los documentos de período son la compuerta de cada asiento: deben existir antes de la transacción.
+      for (const period of periods) await ensurePeriod(tenantId, period);
       const closedPeriods = [];
       let pendingCurrencies = [];
       const { journal, replayed } = await ledger.postJournal(
@@ -222,27 +216,61 @@ export function createYearEndService({ client, db, ledger, accounts, now = () =>
           date,
           currency,
           idempotencyKey: `year-close-${sourceId(year, currency)}-${attempt}`,
-          description: `Cierre del ejercicio ${year} (${currency}): ${result >= 0 ? 'utilidad' : 'pérdida'} de ${Math.abs(result)}`,
-          source: { kind: 'year_close', id: sourceId(year, currency), year, result },
-          lines,
         },
         {
+          // La actividad del año se lee en la misma transacción que escribe el asiento, y se toma la compuerta de cada período
+          // abierto del año: un asiento tardío en cualquiera de ellos choca con este cierre y uno de los dos se repite, así que
+          // lo cerrado es exactamente lo leído. Leer antes y asentar después dejaba una ventana donde un asiento quedaba fuera.
+          prepare: async (session) => {
+            for (const period of periods) {
+              await periodsOf(tenantId).updateOne({ period, status: 'open' }, { $inc: { seq: 1 } }, { session });
+            }
+            const activity = await yearActivity(tenantId, year, currency, session);
+            if (activity.length === 0) fail('el ejercicio no tiene movimiento de ingresos, costos ni gastos: no hay nada que cerrar', 'INVALID_STATE');
+            // Cada cuenta de resultados se lleva a cero: su saldo (débitos − créditos) pasa al lado contrario.
+            const lines = [];
+            let debit = 0;
+            let credit = 0;
+            for (const a of activity) {
+              if (a.net > 0) {
+                lines.push({ accountId: a.code, credit: a.net });
+                credit = assertMinorUnits(credit + a.net, 'total de créditos');
+              } else if (a.net < 0) {
+                lines.push({ accountId: a.code, debit: 0 - a.net });
+                debit = assertMinorUnits(debit + (0 - a.net), 'total de débitos');
+              }
+            }
+            // Lo que no cuadra entre los cierres es el resultado: utilidad al crédito del patrimonio, pérdida al débito.
+            const result = debit - credit;
+            if (result > 0) lines.push({ accountId: profitAccount, credit: result });
+            else if (result < 0) lines.push({ accountId: lossAccount, debit: 0 - result });
+            if (lines.length === 0) fail('el ejercicio ya está en cero: no hay nada que cerrar', 'INVALID_STATE');
+            return {
+              lines,
+              description: `Cierre del ejercicio ${year} (${currency}): ${result >= 0 ? 'utilidad' : 'pérdida'} de ${Math.abs(result)}`,
+              source: { kind: 'year_close', id: sourceId(year, currency), year, result },
+            };
+          },
           inTx: async (session, posted) => {
-            await ctx.auditTx?.(session, { action: 'year.close', target: posted.journal._id, details: { year, currency, result } });
+            await ctx.auditTx?.(session, { action: 'year.close', target: posted.journal._id, details: { year, currency, result: posted.journal.source.result } });
             // Con este cierre, ¿quedan cerradas todas las monedas que tuvieron resultados este año? Entonces se cierra el año.
-            const currencies = await activityCurrencies(tenantId, year);
-            const closedNow = new Set((await activeCloses(tenantId, { year })).active.map((j) => j.currency));
+            const currencies = await activityCurrencies(tenantId, year, session);
+            const closedNow = new Set((await activeCloses(tenantId, { year }, session)).active.map((j) => j.currency));
             closedNow.add(currency);
             pendingCurrencies = currencies.filter((c) => !closedNow.has(c));
+            closedPeriods.length = 0;
             if (pendingCurrencies.length === 0) {
               for (const period of periods) {
+                // Un período que ya estaba cerrado a mano se queda como está: no lo marca el cierre, así que reabrir el ejercicio no lo toca.
+                const doc = await periodsOf(tenantId).findOne({ period }, { session });
+                if (doc?.status === 'closed') continue;
                 await periodsOf(tenantId).updateOne(
                   { period },
                   { $setOnInsert: { seq: 0, createdAt: now() }, $set: { status: 'closed', closedAt: now(), closedBy: ctx.userId ?? null, closedByYear: year } },
                   { upsert: true, session },
                 );
+                closedPeriods.push(period);
               }
-              closedPeriods.push(...periods);
             }
           },
         },
@@ -261,34 +289,22 @@ export function createYearEndService({ client, db, ledger, accounts, now = () =>
 
       const closing = active[0];
       const flagged = await periodsOf(tenantId).find({ closedByYear: year }).toArray();
-      const reopen = () =>
-        withTransaction(client, async (session) => {
-          for (const p of flagged) {
-            await periodsOf(tenantId).updateOne({ period: p.period }, { $set: { status: 'open', reopenedAt: now(), reopenedBy: ctx.userId ?? null }, $unset: { closedByYear: '' } }, { session });
-          }
-        });
-      const restore = () =>
-        withTransaction(client, async (session) => {
-          for (const p of flagged) {
-            await periodsOf(tenantId).updateOne({ period: p.period }, { $set: { status: 'closed', closedByYear: year } }, { session });
-          }
-        });
-
-      // La reversión se fecha el 31 de diciembre, así que el período de diciembre tiene que estar abierto antes.
-      if (flagged.length) await reopen();
-      try {
-        const { journal } = await ledger.reverseJournal(
-          tenantId,
-          closing._id,
-          { idempotencyKey: `year-reopen-${closing._id}`, date: closing.date, description: `Reapertura del ejercicio ${year} (${currency})` },
-          { inTx: async (session, posted) => ctx.auditTx?.(session, { action: 'year.reopen', target: posted.journal._id, details: { year, currency } }) },
-        );
-        return { journal, periodsReopened: flagged.map((p) => p.period) };
-      } catch (err) {
-        // Si no se pudo reversar, los períodos vuelven a quedar cerrados como estaban.
-        if (flagged.length) await restore().catch(() => {});
-        throw err;
-      }
+      // Todo en una sola transacción: la reversión se fecha el 31 de diciembre, así que el período tiene que estar abierto antes
+      // de asentarla, y si la reversión falla (o cualquier otra cosa), los períodos no llegan a abrirse. Sin estados intermedios.
+      const { journal } = await ledger.reverseJournal(
+        tenantId,
+        closing._id,
+        { idempotencyKey: `year-reopen-${closing._id}`, date: closing.date, description: `Reapertura del ejercicio ${year} (${currency})` },
+        {
+          prepare: async (session) => {
+            for (const p of flagged) {
+              await periodsOf(tenantId).updateOne({ period: p.period, closedByYear: year }, { $set: { status: 'open', reopenedAt: now(), reopenedBy: ctx.userId ?? null }, $unset: { closedByYear: '' } }, { session });
+            }
+          },
+          inTx: async (session, posted) => ctx.auditTx?.(session, { action: 'year.reopen', target: posted.journal._id, details: { year, currency } }),
+        },
+      );
+      return { journal, periodsReopened: flagged.map((p) => p.period) };
     },
 
     /** Un período que cerró el cierre del ejercicio no se reabre suelto: se reabre el ejercicio. */

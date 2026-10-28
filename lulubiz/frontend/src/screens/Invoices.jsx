@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { ActionButton, DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { LoadNotice, DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { ItemPicker } from '../components/ItemPicker.jsx';
 import { InvoiceDocument } from '../components/InvoiceDocument.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
@@ -137,7 +137,7 @@ function InvoiceForm({ status, onCreated, onCancel }) {
   const [key, setKey] = useState(newIdempotencyKey);
   const accounts = useLoad(() => api.get(`${base}/accounts?activeOnly=true`), [base]);
   const centers = useCostCenters(base);
-  const warehouses = useLoad(() => api.get(`${base}/warehouses`).catch(() => ({ items: [] })), [base]);
+  const warehouses = useLoad(() => api.get(`${base}/warehouses`), [base]);
   const activeWarehouses = (warehouses.data?.items ?? []).filter((w) => w.active);
   const postable = (accounts.data?.items ?? []).filter((a) => a.postable);
 
@@ -210,6 +210,8 @@ function InvoiceForm({ status, onCreated, onCancel }) {
         ))}
       </datalist>
 
+      <LoadNotice load={centers} what="los centros de costo" />
+      <LoadNotice load={warehouses} what="las bodegas" />
       <div className="relative overflow-x-auto">
         <table className="mb-2 w-full border-collapse text-sm">
           <thead>
@@ -384,32 +386,34 @@ function CreditNoteForm({ invoice, status, currency, onDone, onCancel }) {
         options={[{ value: 'all', label: 'Todo lo que queda de la factura' }, { value: 'lines', label: 'Solo algunas cantidades' }]}
       />
       {mode === 'lines' ? (
-        <table className="mb-3 text-sm">
-          <thead>
-            <tr className="text-left">
-              <th scope="col" className="pr-4 font-semibold">Línea</th>
-              <th scope="col" className="pr-4 text-right font-semibold">Por acreditar</th>
-              <th scope="col" className="font-semibold">Cantidad a acreditar</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoice.lines.map((l, i) => (
-              <tr key={i}>
-                <td className="pr-4">{l.description}</td>
-                <td className="pr-4 text-right tabular-nums">{formatQuantity(remaining[i])}</td>
-                <td>
-                  <input
-                    aria-label={`Cantidad a acreditar de la línea ${i + 1}`}
-                    value={quantities[i]}
-                    disabled={remaining[i] === 0}
-                    onChange={(e) => setQuantities((qs) => qs.map((q, n) => (n === i ? e.target.value : q)))}
-                    className="w-28 rounded-sm border border-borde-fuerte bg-papel px-2 py-1 text-right text-sm tabular-nums text-tinta focus:outline-2 focus:outline-azul"
-                  />
-                </td>
+        <div className="relative overflow-x-auto">
+          <table className="mb-3 text-sm">
+            <thead>
+              <tr className="text-left">
+                <th scope="col" className="pr-4 font-semibold">Línea</th>
+                <th scope="col" className="pr-4 text-right font-semibold">Por acreditar</th>
+                <th scope="col" className="font-semibold">Cantidad a acreditar</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {invoice.lines.map((l, i) => (
+                <tr key={i}>
+                  <td className="pr-4">{l.description}</td>
+                  <td className="pr-4 text-right tabular-nums">{formatQuantity(remaining[i])}</td>
+                  <td>
+                    <input
+                      aria-label={`Cantidad a acreditar de la línea ${i + 1}`}
+                      value={quantities[i]}
+                      disabled={remaining[i] === 0}
+                      onChange={(e) => setQuantities((qs) => qs.map((q, n) => (n === i ? e.target.value : q)))}
+                      className="w-28 rounded-sm border border-borde-fuerte bg-papel px-2 py-1 text-right text-sm tabular-nums text-tinta focus:outline-2 focus:outline-azul"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <p className="mb-3 text-sm text-tinta">
           Se acredita lo que falte de {invoice.fullNumber}: hasta {formatAmount(invoice.totals.total - invoice.creditedTotal, currency)}.
@@ -428,32 +432,34 @@ function CreditNoteForm({ invoice, status, currency, onDone, onCancel }) {
 function InvoiceDetail({ invoice, currency }) {
   return (
     <div className="mb-2 ml-4 mt-1 max-w-4xl text-sm text-tinta">
-      <table className="mb-3 w-full">
-        <thead>
-          <tr className="text-left">
-            <th scope="col" className="pr-4 font-semibold">Descripción</th>
-            <th scope="col" className="pr-4 text-right font-semibold">Cantidad</th>
-            <th scope="col" className="pr-4 text-right font-semibold">Precio</th>
-            <th scope="col" className="pr-4 text-right font-semibold">Descuento</th>
-            <th scope="col" className="pr-4 text-right font-semibold">IVA</th>
-            <th scope="col" className="pr-4 text-right font-semibold">Neto</th>
-            <th scope="col" className="text-right font-semibold">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {invoice.lines.map((l, i) => (
-            <tr key={i}>
-              <td className="pr-4">{l.description}</td>
-              <td className="pr-4 text-right tabular-nums">{formatQuantity(l.quantity)}</td>
-              <td className="pr-4 text-right tabular-nums">{formatAmount(l.unitPrice, currency)}</td>
-              <td className="pr-4 text-right tabular-nums">{l.discountBps ? formatPercent(l.discountBps) : ''}</td>
-              <td className="pr-4 text-right tabular-nums">{formatPercent(l.vatBps)}</td>
-              <td className="pr-4 text-right tabular-nums">{formatAmount(l.net, currency)}</td>
-              <td className="text-right tabular-nums">{formatAmount(l.total, currency)}</td>
+      <div className="relative overflow-x-auto">
+        <table className="mb-3 w-full">
+          <thead>
+            <tr className="text-left">
+              <th scope="col" className="pr-4 font-semibold">Descripción</th>
+              <th scope="col" className="pr-4 text-right font-semibold">Cantidad</th>
+              <th scope="col" className="pr-4 text-right font-semibold">Precio</th>
+              <th scope="col" className="pr-4 text-right font-semibold">Descuento</th>
+              <th scope="col" className="pr-4 text-right font-semibold">IVA</th>
+              <th scope="col" className="pr-4 text-right font-semibold">Neto</th>
+              <th scope="col" className="text-right font-semibold">Total</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {invoice.lines.map((l, i) => (
+              <tr key={i}>
+                <td className="pr-4">{l.description}</td>
+                <td className="pr-4 text-right tabular-nums">{formatQuantity(l.quantity)}</td>
+                <td className="pr-4 text-right tabular-nums">{formatAmount(l.unitPrice, currency)}</td>
+                <td className="pr-4 text-right tabular-nums">{l.discountBps ? formatPercent(l.discountBps) : ''}</td>
+                <td className="pr-4 text-right tabular-nums">{formatPercent(l.vatBps)}</td>
+                <td className="pr-4 text-right tabular-nums">{formatAmount(l.net, currency)}</td>
+                <td className="text-right tabular-nums">{formatAmount(l.total, currency)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <dl className="mb-3 grid max-w-sm grid-cols-[1fr_auto] gap-x-6">
         <dt>Subtotal</dt>
         <dd className="text-right tabular-nums">{formatAmount(invoice.totals.subtotal, currency)}</dd>
@@ -493,7 +499,7 @@ function InvoicePrintView({ invoice, onClose }) {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-borde pb-3 print:hidden">
         <h1 className="text-xl font-semibold text-tinta">Factura {invoice.fullNumber}</h1>
         <div className="flex gap-2">
-          <ActionButton kind="print" label="Imprimir o guardar como PDF" onClick={() => window.print()} />
+          <Button className="print:hidden" onClick={() => window.print()}>Imprimir o guardar como PDF</Button>
           <Button onClick={onClose}>Volver a las facturas</Button>
         </div>
       </div>

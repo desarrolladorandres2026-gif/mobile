@@ -288,3 +288,53 @@ describe('reabrir el ejercicio', () => {
     expect((await yearEnd.list(tenant)).map((c) => c.year)).toEqual([2025]);
   });
 });
+
+describe('atomicidad del cierre y la reapertura', () => {
+  it('un asiento tardío que entra tras la vista previa queda dentro del cierre (lo leído y lo asentado van juntos)', async () => {
+    await year(2025, { income: 1_000_000 });
+    const racing = createYearEndService({
+      db,
+      accounts,
+      ledger: {
+        ...ledger,
+        postJournal: async (...args) => {
+          // Entra después de que el servicio miró el año y antes de que asiente el cierre.
+          await post('2025-06-15', [{ accountId: '110505', debit: 5_000 }, { accountId: '413505', credit: 5_000 }]);
+          return ledger.postJournal(...args);
+        },
+      },
+    });
+    const { journal } = await racing.close(tenant, { year: 2025, currency: 'COP', profitAccount: '360505' }, ctx);
+    expect(journal.source.result).toBe(1_005_000);
+    expect(await net('413505')).toBe(0);
+    expect(await net('360505')).toBe(-1_005_000);
+  });
+
+  it('reabrir es todo o nada: si la transacción falla, los períodos siguen cerrados y el cierre vigente', async () => {
+    await year(2025, { income: 1_000_000 });
+    await close(2025);
+    const failing = { userId: null, auditTx: async () => Promise.reject(new Error('auditoría caída')) };
+    await expect(yearEnd.reopen(tenant, { year: 2025, currency: 'COP' }, failing)).rejects.toThrow('auditoría caída');
+    expect((await periodDoc('2025-06')).status).toBe('closed');
+    expect((await periodDoc('2025-12')).closedByYear).toBe(2025);
+    expect((await yearEnd.list(tenant)).map((c) => c.year)).toEqual([2025]);
+    expect(await net('413505')).toBe(0);
+    // Y con la auditoría sana, reabre completo.
+    expect((await yearEnd.reopen(tenant, { year: 2025, currency: 'COP' }, ctx)).periodsReopened).toHaveLength(12);
+    expect(await net('413505')).toBe(-1_000_000);
+  });
+
+  it('un período cerrado a mano antes del cierre no se marca como cerrado por el ejercicio ni se reabre con él', async () => {
+    await year(2025, { income: 1_000_000 });
+    await ledger.closePeriod(tenant, '2025-06', null);
+    const { periodsClosed } = await close(2025);
+    expect(periodsClosed).toHaveLength(11);
+    expect(periodsClosed).not.toContain('2025-06');
+    expect((await periodDoc('2025-06')).closedByYear).toBeUndefined();
+    expect((await periodDoc('2025-07')).closedByYear).toBe(2025);
+    const { periodsReopened } = await yearEnd.reopen(tenant, { year: 2025, currency: 'COP' }, ctx);
+    expect(periodsReopened).toHaveLength(11);
+    expect((await periodDoc('2025-06')).status).toBe('closed');
+    expect((await periodDoc('2025-07')).status).toBe('open');
+  });
+});

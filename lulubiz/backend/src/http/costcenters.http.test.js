@@ -49,6 +49,7 @@ async function company(name = 'Andina SAS', email = 'ana@andina.co') {
   await make({ code: '1', name: 'Activo', type: 'asset', postable: false });
   await make({ code: '110505', name: 'Caja', type: 'asset', parentCode: '1' });
   await make({ code: '130505', name: 'Clientes', type: 'asset', parentCode: '1' });
+  await make({ code: '130510', name: 'Deudores varios', type: 'asset', parentCode: '1' }); // no es cuenta de control: admite asientos manuales
   await make({ code: '2', name: 'Pasivo', type: 'liability', postable: false });
   await make({ code: '280505', name: 'Anticipos de clientes', type: 'liability', parentCode: '2' });
   await make({ code: '220505', name: 'Proveedores', type: 'liability', parentCode: '2' });
@@ -182,12 +183,12 @@ describe('centro de costo y tercero en los asientos', () => {
   it('el tercero de una línea tiene que existir en la empresa', async () => {
     const a = await company('Andina SAS', 'ana@andina.co');
     const b = await company('Boreal SAS', 'bea@boreal.co');
-    const lines = (partyId) => [{ accountId: '130505', debit: 100, partyId }, { accountId: '413505', credit: 100 }];
+    const lines = (partyId) => [{ accountId: '130510', debit: 100, partyId }, { accountId: '413505', credit: 100 }];
     expect((await journal(a, lines(a.cust1))).statusCode).toBe(201);
     expect((await journal(a, lines('a'.repeat(24)))).statusCode).toBe(422);
     expect((await journal(a, lines(b.cust1))).statusCode).toBe(422); // de otra empresa
     expect((await journal(a, lines('nope'))).statusCode).toBe(400);
-    expect(await dims(a, 'party', a.cust1, '130505', YESTERDAY.slice(0, 7))).toEqual({ debit: 100, credit: 0 });
+    expect(await dims(a, 'party', a.cust1, '130510', YESTERDAY.slice(0, 7))).toEqual({ debit: 100, credit: 0 });
   });
 
   it('reversar un asiento reversa también sus saldos por dimensión', async () => {
@@ -353,10 +354,10 @@ describe('auxiliar por tercero', () => {
   it('el saldo inicial es lo anterior al primer mes del rango', async () => {
     const c = await company();
     const last = `${YEAR - 1}-12-15`;
-    await journal(c, [{ accountId: '130505', debit: 500_000, partyId: c.cust1 }, { accountId: '413505', credit: 500_000 }], last);
-    await journal(c, [{ accountId: '110505', debit: 200_000 }, { accountId: '130505', credit: 200_000, partyId: c.cust1 }], TODAY);
+    await journal(c, [{ accountId: '130510', debit: 500_000, partyId: c.cust1 }, { accountId: '413505', credit: 500_000 }], last);
+    await journal(c, [{ accountId: '110505', debit: 200_000 }, { accountId: '130510', credit: 200_000, partyId: c.cust1 }], TODAY);
     const res = (await report(c, 'party-ledger', { partyId: c.cust1, from: TODAY.slice(0, 7), to: TODAY.slice(0, 7), currency: 'COP' })).json();
-    expect(res.accounts).toEqual([expect.objectContaining({ code: '130505', opening: 500_000, debit: 0, credit: 200_000, closing: 300_000 })]);
+    expect(res.accounts).toEqual([expect.objectContaining({ code: '130510', opening: 500_000, debit: 0, credit: 200_000, closing: 300_000 })]);
     expect(res.movements).toHaveLength(1);
   });
 

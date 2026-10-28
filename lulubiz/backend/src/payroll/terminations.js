@@ -158,10 +158,12 @@ export function createTerminationService({ db, ledger, accounts, payroll, now = 
       const lines = [...[...debits].map(([accountId, debit]) => ({ accountId, debit })), ...[...credits].map(([accountId, credit]) => ({ accountId, credit }))];
       const id = new ObjectId();
       const date = parseCalendarDay(dayOf(calc.endDate), 'la fecha', fail);
+      // Una liquidación anulada se puede rehacer: la clave lleva el número de intento (las anuladas también cuentan).
+      const attempt = (await terminationsOf(tenantId).countDocuments({ employeeId: calc.employee._id })) + 1;
       try {
         const posted = await ledger.postJournal(
           tenantId,
-          { docType: 'LC', date, currency: tenant.currency, idempotencyKey: `termination-${calc.employee._id}`, description: `Liquidación de contrato de ${calc.employee.name}`, source: { kind: 'payroll_termination', id: String(id) }, lines },
+          { docType: 'LC', date, currency: tenant.currency, idempotencyKey: `termination-${calc.employee._id}-${attempt}`, description: `Liquidación de contrato de ${calc.employee.name}`, source: { kind: 'payroll_termination', id: String(id) }, lines },
           {
             inTx: async (session, { journal }) => {
               await terminationsOf(tenantId).insertOne(
@@ -211,7 +213,7 @@ export function createTerminationService({ db, ledger, accounts, payroll, now = 
           docType: 'PL',
           date,
           currency: tenant.currency,
-          idempotencyKey: `termination-pay-${t._id}`,
+          idempotencyKey: `termination-pay-${t._id}${t.paymentHistory?.length ? `-${t.paymentHistory.length + 1}` : ''}`,
           description: `Pago de la liquidación de contrato de ${t.employee.name}`,
           source: { kind: 'payroll_termination_payment', id: String(t._id) },
           lines: [{ accountId: acc.payrollPayable, debit: t.net }, { accountId: account, credit: t.net }],
@@ -225,6 +227,32 @@ export function createTerminationService({ db, ledger, accounts, payroll, now = 
             );
             if (res.matchedCount === 0) fail('el pago ya se hizo', 'INVALID_STATE');
             await ctx.auditTx?.(session, { action: 'payroll.termination_pay', target: t._id, details: { employee: t.employee.documentNumber, total: t.net } });
+          },
+        },
+      );
+      return { termination: await api.get(tenantId, id) };
+    },
+
+    /** Anula el pago de la liquidación: reversa su asiento y la deja otra vez por pagar (se puede pagar de nuevo). */
+    async voidPayment(tenantId, id, ctx = {}) {
+      const t = await api.get(tenantId, id);
+      if (!t) fail('la liquidación no existe', 'NOT_FOUND');
+      const payment = t.payment;
+      if (!payment) fail('la liquidación no tiene pago que anular', 'INVALID_STATE');
+      const attempt = (t.paymentHistory?.length ?? 0) + 1;
+      await ledger.reverseJournal(
+        tenantId,
+        payment.journalId,
+        { idempotencyKey: `termination-pay-void-${t._id}-${attempt}`, date: payment.date, description: `Anulación del pago de la liquidación de contrato de ${t.employee.name}` },
+        {
+          inTx: async (session, { journal }) => {
+            const res = await terminationsOf(tenantId).updateOne(
+              { _id: t._id, status: 'posted', 'payment.journalId': payment.journalId },
+              { $push: { paymentHistory: { ...payment, voidedAt: now(), voidedBy: ctx.userId ?? null, voidJournalId: journal._id } }, $unset: { payment: '' } },
+              { session },
+            );
+            if (res.matchedCount === 0) fail('el pago cambió mientras se anulaba', 'INVALID_STATE');
+            await ctx.auditTx?.(session, { action: 'payroll.termination_pay_void', target: t._id, details: { employee: t.employee.documentNumber, total: payment.total } });
           },
         },
       );

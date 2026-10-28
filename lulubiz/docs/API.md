@@ -13,9 +13,10 @@ Authorization: Bearer lbk_1a2b3c4d_<secreto de 43 caracteres>
 - El token completo **se muestra una sola vez**, al crearla. Lulubiz guarda únicamente una huella del secreto: una copia de la base de datos no permite usar ninguna clave. Si se pierde, se revoca y se crea otra.
 - Cada clave pertenece a **una empresa** y lleva sus propios **permisos** (columna «Permiso» de la tabla de rutas). Es un subconjunto de los de quien la crea; nunca incluye administrar la empresa, sus miembros ni sus claves, cambiar la configuración de facturación, reabrir períodos ni ver o manejar la nómina (los salarios son datos sensibles: solo con sesión de una persona).
 - Cada ruta exige su permiso: con uno que falta, `403`. Una clave inexistente, equivocada, vencida, revocada o de otra empresa responde igual, `401 INVALID_CREDENTIALS`, sin decir cuál de los casos fue.
-- Una clave puede vencer (fecha opcional, vale hasta el final de ese día) y se revoca al instante. Sigue valiendo aunque quien la creó deje la empresa: es de la empresa, no de la persona.
+- Una clave siempre vence: a lo sumo a los 365 días (sin fecha, vence al máximo; vale hasta el final de ese día) y se revoca al instante. Es de la empresa, pero se revoca sola si quien la creó deja la empresa o su rol pierde algún permiso de la clave.
 - Lo que hace una clave queda en la auditoría a nombre de la clave. Hay un máximo de 20 claves activas por empresa.
 - Las rutas de sesión (`/v1/auth/*`, `/v1/me`, `/v1/invitations/*`) no admiten claves.
+- Crear claves, exportar los datos, cambiar roles y quitar miembros exigen una sesión con la contraseña confirmada en los últimos 10 minutos (el inicio de sesión cuenta; si no, `POST /v1/auth/step-up`): de lo contrario responden `403 STEP_UP_REQUIRED`.
 - Una clave en la cabecera `Authorization` tiene prioridad sobre la cookie de sesión. La cookie es para la interfaz y no debe usarse desde otros sistemas.
 
 ## Convenciones
@@ -89,6 +90,10 @@ La tabla se genera desde las rutas registradas y una prueba falla si una ruta nu
 | POST | `/v1/auth/mfa/verify` | pública |
 | POST | `/v1/auth/logout` | sesión |
 | GET | `/v1/me` | sesión |
+| GET | `/v1/auth/sessions` | sesión |
+| DELETE | `/v1/auth/sessions/:id` | sesión |
+| POST | `/v1/auth/password/change` | sesión |
+| POST | `/v1/auth/step-up` | sesión |
 | POST | `/v1/auth/verify-email` | pública |
 | POST | `/v1/auth/resend-verification` | sesión |
 | POST | `/v1/auth/password/forgot` | pública |
@@ -182,11 +187,15 @@ La tabla se genera desde las rutas registradas y una prueba falla si una ruta nu
 | POST | `/v1/tenants/{tenantId}/payroll/runs/:id/void` | `payroll:manage` |
 | POST | `/v1/tenants/{tenantId}/payroll/runs/:id/pay` | `payroll:manage` |
 | POST | `/v1/tenants/{tenantId}/payroll/runs/:id/pay-contributions` | `payroll:manage` |
+| POST | `/v1/tenants/{tenantId}/payroll/runs/:id/void-payment` | `payroll:manage` |
+| POST | `/v1/tenants/{tenantId}/payroll/runs/:id/void-contributions-payment` | `payroll:manage` |
 | POST | `/v1/tenants/{tenantId}/payroll/benefits/preview` | `payroll:read` |
 | POST | `/v1/tenants/{tenantId}/payroll/benefits` | `payroll:manage` |
 | GET | `/v1/tenants/{tenantId}/payroll/benefits` | `payroll:read` |
 | GET | `/v1/tenants/{tenantId}/payroll/benefits/:id` | `payroll:read` |
 | POST | `/v1/tenants/{tenantId}/payroll/benefits/:id/pay` | `payroll:manage` |
+| POST | `/v1/tenants/{tenantId}/payroll/benefits/:id/void-payment` | `payroll:manage` |
+| POST | `/v1/tenants/{tenantId}/payroll/benefits/:id/void` | `payroll:manage` |
 | GET | `/v1/tenants/{tenantId}/payroll/reports/contributions` | `payroll:read` |
 | GET | `/v1/tenants/{tenantId}/payroll/reports/provisions` | `payroll:read` |
 | GET | `/v1/tenants/{tenantId}/payroll/runs/:id/payslips/:employeeId` | `payroll:read` |
@@ -195,6 +204,7 @@ La tabla se genera desde las rutas registradas y una prueba falla si una ruta nu
 | GET | `/v1/tenants/{tenantId}/payroll/terminations` | `payroll:read` |
 | GET | `/v1/tenants/{tenantId}/payroll/terminations/:id` | `payroll:read` |
 | POST | `/v1/tenants/{tenantId}/payroll/terminations/:id/pay` | `payroll:manage` |
+| POST | `/v1/tenants/{tenantId}/payroll/terminations/:id/void-payment` | `payroll:manage` |
 | POST | `/v1/tenants/{tenantId}/payroll/terminations/:id/void` | `payroll:manage` |
 
 ### Impuestos

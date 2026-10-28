@@ -4,23 +4,21 @@ import { downloadXlsx } from '../lib/exportXlsx.js';
 import { Link } from '../lib/router.jsx';
 import { useOptionalSession } from '../lib/session.jsx';
 
-function ArrowIcon() {
-  return (
-      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path
-          fillRule="evenodd"
-          d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm4.28 10.28a.75.75 0 000-1.06l-3-3a.75.75 0 10-1.06 1.06l1.72 1.72H8.25a.75.75 0 000 1.5h5.69l-1.72 1.72a.75.75 0 101.06 1.06l3-3z"
-          clipRule="evenodd"
-        />
-      </svg>
-  );
-}
+// Botones: rectangulares, solo texto, sin sombra ni animación. El estado deshabilitado cambia de color, no de opacidad.
+const BUTTON_BASE =
+  'inline-flex items-center justify-center rounded-sm border font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-azul disabled:cursor-wait disabled:border-borde disabled:bg-papel-fondo disabled:text-tinta-segundo';
+const BUTTON_VARIANTS = {
+  primary: 'border-azul bg-azul text-white hover:border-azul-oscuro hover:bg-azul-oscuro',
+  danger: 'border-rojo bg-rojo text-white hover:border-rojo-oscuro hover:bg-rojo-oscuro',
+  secondary: 'border-borde-fuerte bg-papel text-tinta hover:bg-azul-suave',
+};
+const BUTTON_SMALL = 'px-2 py-0.5 text-xs';
+const BUTTON_LINK = 'rounded-sm border border-azul bg-papel px-3 py-1 text-xs font-semibold text-azul hover:bg-azul-suave disabled:cursor-wait disabled:border-borde disabled:bg-papel-fondo disabled:text-tinta-segundo focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-azul';
 
 export function Button({ variant = 'secondary', busy = false, type = 'button', className = '', children, ...props }) {
   return (
-    <button type={type} disabled={busy || props.disabled} className={`btn-flecha btn-flecha-${variant} ${className}`} {...props}>
+    <button type={type} {...props} disabled={busy || props.disabled} className={`${BUTTON_BASE} px-4 py-1.5 text-sm ${BUTTON_VARIANTS[variant] ?? BUTTON_VARIANTS.secondary} ${className}`}>
       {busy ? 'Procesando…' : children}
-      <ArrowIcon />
     </button>
   );
 }
@@ -28,11 +26,8 @@ export function Button({ variant = 'secondary', busy = false, type = 'button', c
 /** Botón de «ver», «revisar» o «consultar»: lanza una consulta o un chequeo, no guarda nada. */
 export function ViewButton({ busy = false, type = 'button', className = '', children, ...props }) {
   return (
-    <button type={type} disabled={busy || props.disabled} className={`ver-mas ${className}`} {...props}>
-      <span className="ver-mas-circulo" aria-hidden="true">
-        <span className="ver-mas-flecha" />
-      </span>
-      <span className="ver-mas-texto">{busy ? 'Procesando…' : children}</span>
+    <button type={type} {...props} disabled={busy || props.disabled} className={`inline-block ${BUTTON_LINK} ${className}`}>
+      {busy ? 'Procesando…' : children}
     </button>
   );
 }
@@ -40,73 +35,37 @@ export function ViewButton({ busy = false, type = 'button', className = '', chil
 /** Lo mismo que `ViewButton`, pero navega: para «Revisar», «Hacerlo ahora», «Ver…» que llevan a otra pantalla. */
 export function ViewLink({ href, className = '', children, ...props }) {
   return (
-    <Link href={href} className={`ver-mas no-underline! ${className}`} {...props}>
-      <span className="ver-mas-circulo" aria-hidden="true">
-        <span className="ver-mas-flecha" />
-      </span>
-      <span className="ver-mas-texto">{children}</span>
+    <Link href={href} className={`inline-block ${BUTTON_LINK} text-azul! no-underline! ${className}`} {...props}>
+      {children}
     </Link>
-  );
-}
-
-const ACTION_ICONS = {
-  save: (
-    <>
-      <path d="m19,21H5c-1.1,0-2-.9-2-2V5c0-1.1.9-2,2-2h11l5,5v11c0,1.1-.9,2-2,2Z" data-path="box" />
-      <path d="M7 3L7 8L15 8" data-path="line-top" />
-      <path d="M17 20L17 13L7 13L7 20" data-path="line-bottom" />
-    </>
-  ),
-  print: (
-    <>
-      <path d="M6 9V2h12v7" />
-      <path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" />
-      <path d="M6 14h12v8H6z" data-path="paper" />
-    </>
-  ),
-  export: (
-    <>
-      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-      <path d="M7 10l5 5 5-5M12 15V3" data-path="arrow" />
-    </>
-  ),
-};
-
-/** Botón de solo icono para guardar, imprimir o exportar. `label` es obligatorio: es su nombre accesible y su tooltip. */
-export function ActionButton({ kind = 'save', label, className = '', type = 'button', ...props }) {
-  return (
-    <button type={type} aria-label={label} title={label} className={`accion accion-${kind} print:hidden ${className}`} {...props}>
-      <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-        {ACTION_ICONS[kind]}
-      </svg>
-    </button>
   );
 }
 
 /** Botón compacto para acciones dentro de una fila de tabla o de un aviso. Siempre visible. */
 export function TextButton({ danger = false, className = '', children, ...props }) {
   return (
-    <button type="button" className={`btn-flecha btn-flecha-sm btn-flecha-${danger ? 'danger' : 'secondary'} ${className}`} {...props}>
+    <button type="button" {...props} className={`${BUTTON_BASE} ${BUTTON_SMALL} ${BUTTON_VARIANTS[danger ? 'danger' : 'secondary']} ${className}`}>
       {children}
-      <ArrowIcon />
     </button>
   );
 }
 
-/** Botón de eliminar: círculo con papelera que al pasar el cursor se ensancha y muestra `children`. */
-export function DeleteButton({ children = 'Quitar', className = '', ...props }) {
+/** Botón de eliminar o quitar una fila: destructivo, con texto (`children`) y siempre visible. */
+export function DeleteButton({ children = 'Eliminar', className = '', ...props }) {
   return (
-    <button type="button" aria-label={typeof children === 'string' ? children : undefined} data-label={children} className={`btn-eliminar ${className}`} {...props}>
-      <svg viewBox="0 0 448 512" aria-hidden="true">
-        <path d="M135.2 17.7L128 32H32C14.3 32 0 46.3 0 64S14.3 96 32 96H416c17.7 0 32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 6.8-28.6 17.7zM416 128H32L53.2 467c1.6 25.3 22.6 45 47.9 45H346.9c25.3 0 46.3-19.7 47.9-45L416 128z" />
-      </svg>
+    <button
+      type="button"
+      {...props}
+      className={`${BUTTON_BASE} ${BUTTON_SMALL} border-rojo bg-papel text-rojo hover:bg-rojo-suave ${className}`}
+    >
+      {children}
     </button>
   );
 }
 
 const INPUT =
-  'w-full rounded-full border-2 bg-papel px-3.5 py-1.5 text-sm text-tinta shadow-md transition-all duration-300 placeholder:text-tinta-segundo focus:border-azul focus:outline-none motion-reduce:transition-none';
-const INPUT_BORDER = 'border-borde';
+  'w-full rounded-sm border bg-papel px-3 py-1.5 text-sm text-tinta placeholder:text-tinta-segundo focus:border-azul focus:outline-2 focus:outline-azul disabled:bg-papel-fondo disabled:text-tinta-segundo';
+const INPUT_BORDER = 'border-borde-fuerte';
 
 export function Field({ label, error, hint, children, htmlFor }) {
   return (
@@ -143,7 +102,7 @@ export function TextField({ label, error, hint, className = '', inputClassName =
 }
 
 /**
- * Barra de búsqueda: píldora gris con lupa, sombra y botón integrado.
+ * Barra de búsqueda: campo rectangular con botón integrado.
  * Con `onSubmit` muestra el botón (Enter también lo dispara); sin él es un filtro en vivo y no hay botón.
  */
 export function SearchBox({ onSubmit, buttonLabel = 'Buscar', compact = false, className = '', inputClassName = '', onKeyDown, placeholder = 'Buscar…', ...props }) {
@@ -157,14 +116,7 @@ export function SearchBox({ onSubmit, buttonLabel = 'Buscar', compact = false, c
     el.focus();
   };
   return (
-    <div
-      className={`relative w-full max-w-[480px] rounded-2xl bg-papel-fondo ${compact ? 'p-1' : 'p-1.5'} shadow-md transition-all duration-150 ease-in-out focus-within:ring-2 focus-within:ring-azul hover:scale-105 hover:shadow-lg motion-reduce:transition-none motion-reduce:hover:scale-100 ${className}`}
-    >
-      <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2.5">
-        <svg className="size-5 text-tinta-segundo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-        </svg>
-      </div>
+    <div className={`flex w-full max-w-[480px] items-stretch rounded-sm border border-borde-fuerte bg-papel focus-within:outline-2 focus-within:outline-azul ${className}`}>
       <input
         ref={inputRef}
         type="search"
@@ -173,24 +125,22 @@ export function SearchBox({ onSubmit, buttonLabel = 'Buscar', compact = false, c
           if (onSubmit && e.key === 'Enter') onSubmit();
           onKeyDown?.(e);
         }}
-        className={`w-full rounded-lg bg-transparent ${compact ? 'py-1.5 text-sm' : 'py-2.5 text-base'} pl-8 text-tinta peer placeholder:text-tinta-segundo focus:outline-none [&::-webkit-search-cancel-button]:appearance-none ${onSubmit ? (compact ? 'pr-28' : 'pr-32') : 'pr-8'} ${inputClassName}`}
+        className={`peer min-w-0 flex-1 rounded-sm bg-transparent px-3 ${compact ? 'py-1.5 text-sm' : 'py-2 text-base'} text-tinta placeholder:text-tinta-segundo focus:outline-none [&::-webkit-search-cancel-button]:appearance-none ${inputClassName}`}
         {...props}
       />
       <button
         type="button"
         onClick={clear}
         aria-label="Borrar búsqueda"
-        className={`absolute top-1/2 -translate-y-1/2 p-1 text-tinta-segundo hover:text-tinta peer-placeholder-shown:hidden focus-visible:outline-2 focus-visible:outline-azul ${onSubmit ? (compact ? 'right-[4.75rem]' : 'right-[5.75rem]') : 'right-2'}`}
+        className="px-2 text-xs font-semibold text-azul hover:text-azul-oscuro peer-placeholder-shown:hidden focus-visible:outline-2 focus-visible:outline-azul"
       >
-        <svg className="size-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
+        Borrar
       </button>
       {onSubmit ? (
         <button
           type="button"
           onClick={onSubmit}
-          className={`absolute inset-y-1 right-1 rounded-xl bg-azul ${compact ? 'px-4 text-xs' : 'px-5 text-sm'} font-semibold text-white hover:bg-azul-oscuro focus:outline-none focus-visible:ring-2 focus-visible:ring-azul focus-visible:ring-offset-2`}
+          className={`rounded-r-sm bg-azul ${compact ? 'px-4 text-xs' : 'px-5 text-sm'} font-semibold text-white hover:bg-azul-oscuro focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-azul`}
         >
           {buttonLabel}
         </button>
@@ -244,13 +194,28 @@ export function Notice({ kind = 'info', title, children }) {
   );
 }
 
+/**
+ * Aviso de una carga que falló, con reintento. Un fallo de red no es «no hay datos»: se dice y se deja reintentar.
+ * Un 403 no se avisa (el rol simplemente no ve ese dato) salvo que `forbidden` sea verdadero.
+ */
+export function LoadNotice({ load, what, forbidden = false }) {
+  if (!load.error || (!forbidden && load.error.status === 403)) return null;
+  return (
+    <div className="col-span-full">
+      <Notice kind="error" title={`No se pudo cargar ${what}`}>
+        {errorMessage(load.error)} <TextButton onClick={load.reload}>Reintentar</TextButton>
+      </Notice>
+    </div>
+  );
+}
+
 export function PageHeader({ title, children }) {
   return (
     <div className="sticky top-0 z-10 -mt-5 mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-borde bg-papel pb-3 pt-5 print:static">
       <h1 className="text-xl font-semibold text-tinta">{title}</h1>
       <div className="flex flex-wrap items-center gap-2">
         {children}
-        <ActionButton kind="print" label="Imprimir" onClick={() => window.print()} />
+        <Button className="print:hidden" onClick={() => window.print()}>Imprimir</Button>
       </div>
     </div>
   );
@@ -304,7 +269,7 @@ export function DataTable({ columns, rows, rowKey, empty = 'No hay registros.', 
     <div>
       {fileName && rows.length > 0 ? (
         <div className="mb-1 flex justify-end print:hidden">
-          <ActionButton kind="export" label="Exportar a Excel" disabled={exporting} onClick={exportTable} />
+          <Button disabled={exporting} onClick={exportTable}>Exportar a Excel</Button>
         </div>
       ) : null}
     <div className="relative overflow-x-auto">

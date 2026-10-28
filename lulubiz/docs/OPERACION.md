@@ -43,7 +43,7 @@ Manual para desplegar Lulubiz, vigilarlo, respaldarlo y dar de alta a un cliente
 | `INVOICING_PROVIDER` | para facturar | proveedor real. **`sandbox` no arranca en producción** |
 | `ERROR_WEBHOOK_URL` | no | adónde se envían los errores no controlados |
 | `METRICS_TOKEN` | no | habilita `/metrics` (con `Authorization: Bearer <token>`) |
-| `TRUST_PROXY=true` | no | detrás de un proxy, para que los límites vean la IP real |
+| `TRUST_PROXY` | no | detrás de un proxy, para que los límites vean la IP real: el número de saltos de proxy de confianza (`1`) o la lista de direcciones o rangos CIDR de esos proxies (`10.0.0.0/8,172.16.0.0/12`). `true` confía en cualquier cabecera `X-Forwarded-For` y no se admite en producción |
 | `PORT` | no (`3000`) | puerto de la API |
 
 Sin proveedor configurado en producción, la facturación queda deshabilitada y la interfaz lo explica; el resto funciona.

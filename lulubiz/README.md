@@ -50,7 +50,7 @@ La interfaz compila su CSS con la herramienta de línea de comandos de Tailwind 
 | `SMTP_URL`, `MAIL_FROM` | sí | envío de correo (`smtps://usuario:clave@servidor:465`) |
 | `ERROR_WEBHOOK_URL` | no | destino de los errores no controlados |
 | `METRICS_TOKEN` | no | habilita `/metrics` |
-| `TRUST_PROXY=true` | no | detrás de un balanceador, para que la IP real cuente en los límites |
+| `TRUST_PROXY` | no | detrás de un balanceador, para que la IP real cuente en los límites: número de saltos (`1`) o lista de CIDR; `true` no se admite en producción |
 | `INVOICING_PROVIDER` | sí, para facturar | proveedor de facturación electrónica. Fuera de producción el predeterminado es `sandbox` (documentos sin validez); **`sandbox` no arranca en producción** |
 | `PORT` | no (`3000`) | puerto |
 

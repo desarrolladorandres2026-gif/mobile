@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ItemPicker } from '../components/ItemPicker.jsx';
-import { Button, DataTable, Notice, PageHeader, SearchField, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { Button, DataTable, LoadNotice, Notice, PageHeader, SearchField, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { formatPercent, formatQuantity } from '../lib/invoicing.js';
@@ -52,7 +52,7 @@ function ItemForm({ item, onDone, onCancel }) {
   const currency = tenant.currency;
   const editing = Boolean(item);
   const accounts = useAccounts();
-  const status = useLoad(() => api.get(`${base}/purchasing/status`).catch(() => null), [base]);
+  const status = useLoad(() => api.get(`${base}/purchasing/status`), [base]);
   const rates = status.data?.vatRatesBps ?? FALLBACK_RATES;
   const [form, setForm] = useState(() => (item ? itemToForm(item, currency) : blankItem()));
   const [showErrors, setShowErrors] = useState(false);
@@ -78,6 +78,7 @@ function ItemForm({ item, onDone, onCancel }) {
     >
       <h2 className="mb-3 text-lg font-semibold text-tinta">{editing ? `Editar ${item.sku}` : 'Nuevo artículo'}</h2>
       {submit.error ? <Notice kind="error">{errorMessage(submit.error)}</Notice> : null}
+      <LoadNotice load={status} what="las tarifas de IVA" />
       <AccountList id="cuentas-inventario" accounts={accounts.assets} />
       <AccountList id="cuentas-costo" accounts={accounts.costs} />
       <AccountList id="cuentas-ingreso-articulo" accounts={accounts.incomes} />
@@ -360,7 +361,7 @@ export function StockScreen() {
   const warehouses = useLoad(() => api.get(`${base}/warehouses`), [base]);
   const valuation = useLoad(() => api.get(`${base}/inventory/valuation${warehouseId ? `?warehouseId=${warehouseId}` : ''}`), [base, warehouseId]);
   const low = useLoad(() => api.get(`${base}/inventory/low-stock`), [base]);
-  const preset = useLoad(() => (presetId && /^[a-f0-9]{24}$/.test(presetId) ? api.get(`${base}/items/${presetId}`).catch(() => null) : Promise.resolve(null)), [base, presetId]);
+  const preset = useLoad(() => (presetId && /^[a-f0-9]{24}$/.test(presetId) ? api.get(`${base}/items/${presetId}`) : Promise.resolve(null)), [base, presetId]);
   const list = warehouses.data?.items ?? [];
 
   const rowColumns = [
@@ -397,6 +398,7 @@ export function StockScreen() {
       <PageHeader title="Existencias" />
       <p className="mb-4 text-sm text-tinta">Lo que hay en cada bodega, a qué costo, y si el valor de las existencias coincide con el saldo contable de su cuenta de inventario.</p>
       {warehouses.error ? <Notice kind="error">{errorMessage(warehouses.error)}</Notice> : null}
+      <LoadNotice load={preset} what="el artículo" forbidden />
       {valuation.error ? <Notice kind="error">{errorMessage(valuation.error)}</Notice> : null}
       {unbalanced ? <Notice kind="error" title="El inventario no cuadra con el libro">Revisa la tabla de cuadre: alguna cuenta de inventario tiene un saldo distinto al valor de sus existencias.</Notice> : null}
 

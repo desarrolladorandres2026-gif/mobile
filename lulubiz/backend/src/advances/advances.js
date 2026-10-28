@@ -1,5 +1,5 @@
 import { ObjectId } from 'mongodb';
-import { DAY_MS, dayOf, parseDay as parseCalendarDay } from '../core/dates.js';
+import { DAY_MS, dayOf, parseDay as parseCalendarDay, calendarToday } from '../core/dates.js';
 import { assertCurrency, assertMinorUnits } from '../core/money.js';
 import { COLLECTIONS } from '../data/db.js';
 import { TenantCollection } from '../data/tenantCollection.js';
@@ -295,7 +295,7 @@ export function createAdvancesService({ client, db, ledger, accounts, parties, s
       const application = await applicationsOf(tenantId).findOne({ _id: new ObjectId(applicationId), kind });
       if (!application) fail('la aplicación no existe', 'NOT_FOUND');
       if (application.status === 'void') return { application, replayed: true };
-      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : now();
+      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : calendarToday(now());
       if (dayOf(date) < dayOf(application.date)) fail('la anulación no puede ser anterior a la aplicación');
 
       await ledger.reverseJournal(
@@ -328,7 +328,7 @@ export function createAdvancesService({ client, db, ledger, accounts, parties, s
       if (!advance) fail('el anticipo no existe', 'NOT_FOUND');
       if (advance.status === 'void') return { advance, replayed: true };
       if (advance.balance !== advance.amount) fail('el anticipo tiene aplicaciones: anúlalas primero', 'INVALID_STATE');
-      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : now();
+      const date = input.date ? parseDay(input.date, 'la fecha de la anulación') : calendarToday(now());
       if (dayOf(date) < dayOf(advance.date)) fail('la anulación no puede ser anterior al anticipo');
 
       await ledger.reverseJournal(

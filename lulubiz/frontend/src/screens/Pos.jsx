@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ItemPicker } from '../components/ItemPicker.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { LoadNotice, DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { formatPercent } from '../lib/invoicing.js';
@@ -294,7 +294,7 @@ export function PosScreen() {
   const { tenant, can } = useSession();
   const currency = tenant.currency;
   const registers = useLoad(() => api.get(`${base}/pos/registers`), [base]);
-  const status = useLoad(() => api.get(`${base}/purchasing/status`).catch(() => null), [base]);
+  const status = useLoad(() => api.get(`${base}/purchasing/status`), [base]);
   const rates = status.data?.vatRatesBps ?? FALLBACK_RATES;
   const [registerId, setRegisterId] = useState('');
   const [closing, setClosing] = useState(false);
@@ -310,6 +310,7 @@ export function PosScreen() {
         {shift && !closing ? <Button onClick={() => { setClosing(true); setNotice(null); }}>Cerrar turno</Button> : null}
       </PageHeader>
       {registers.error ? <Notice kind="error">{errorMessage(registers.error)}</Notice> : null}
+      <LoadNotice load={status} what="las tarifas de IVA" />
       {notice ? <Notice kind={notice.kind}>{notice.text}</Notice> : null}
       {registers.data && list.length === 0 ? (
         <Notice kind="info" title="No hay cajas">
@@ -509,7 +510,7 @@ function RegisterForm({ register, onDone, onCancel }) {
   const base = useTenantApi();
   const editing = Boolean(register);
   const accounts = useLoad(() => api.get(`${base}/accounts?activeOnly=true`), [base]);
-  const warehouses = useLoad(() => api.get(`${base}/warehouses`).catch(() => ({ items: [] })), [base]);
+  const warehouses = useLoad(() => api.get(`${base}/warehouses`), [base]);
   const postable = (accounts.data?.items ?? []).filter((a) => a.postable);
   const [code, setCode] = useState(register?.code ?? '');
   const [name, setName] = useState(register?.name ?? '');
@@ -564,6 +565,8 @@ function RegisterForm({ register, onDone, onCancel }) {
           options={[{ value: '', label: 'Principal' }, ...(warehouses.data?.items ?? []).filter((w) => w.active && !w.isDefault).map((w) => ({ value: w._id, label: `${w.code} — ${w.name}` }))]}
         />
       </div>
+      <LoadNotice load={centers} what="los centros de costo" />
+      <LoadNotice load={warehouses} what="las bodegas" />
       {centers.length || costCenter ? (
         <SelectField
           label="Centro de costo de la caja"

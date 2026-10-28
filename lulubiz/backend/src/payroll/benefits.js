@@ -54,6 +54,7 @@ export function windowOf(kind, label) {
 export function createBenefitsService({ db, ledger, accounts, payroll, now = () => new Date() }) {
   const runsOf = (tenantId) => new TenantCollection(db.collection(COLLECTIONS.payrollRuns), tenantId);
   const benefitsOf = (tenantId) => new TenantCollection(db.collection(COLLECTIONS.payrollBenefits), tenantId);
+  const terminationsOf = (tenantId) => new TenantCollection(db.collection(COLLECTIONS.payrollTerminations), tenantId);
   const tenants = db.collection(COLLECTIONS.tenants);
 
   const lastDayOf = (period) => {
@@ -67,10 +68,15 @@ export function createBenefitsService({ db, ledger, accounts, payroll, now = () 
   async function compute(tenantId, kind, label) {
     const { from, to } = windowOf(kind, label);
     const runs = await runsOf(tenantId).find({ status: 'posted', period: { $gte: from, $lte: to } }, { sort: { period: 1 } }).toArray();
+    // Quien ya tiene una liquidación de contrato vigente dentro de la ventana la cobró allí (prima y cesantías hasta el retiro):
+    // incluirlo aquí pagaría dos veces lo mismo.
+    const terminated = await terminationsOf(tenantId).find({ status: 'posted', period: { $gte: from, $lte: to } }, { projection: { employeeId: 1, employee: 1 } }).toArray();
+    const excludedIds = new Set(terminated.map((t) => String(t.employeeId)));
     const byEmployee = new Map();
     for (const run of runs) {
       for (const item of run.items) {
         const key = String(item.employeeId);
+        if (excludedIds.has(key)) continue;
         const row = byEmployee.get(key) ?? { employeeId: item.employeeId, name: item.name, documentType: item.documentType, documentNumber: item.documentNumber, base: 0, days: 0, accrued: 0, accruedInterest: 0, months: 0 };
         // El salario integral no genera prima ni cesantías: su provisión es cero y su base no cuenta.
         if (item.salaryType !== 'integral') row.base += item.salaryEarned + item.salaryExtras + item.transportAid;
@@ -110,7 +116,8 @@ export function createBenefitsService({ db, ledger, accounts, payroll, now = () 
     };
     const monthsWithRuns = new Set(runs.map((r) => r.period)).size;
     const monthsInWindow = kind === 'prima' ? 6 : 12;
-    return { kind, label, from, to, items, totals, monthsCovered: monthsWithRuns, monthsInWindow };
+    const excluded = terminated.map((t) => ({ employeeId: t.employeeId, name: t.employee?.name ?? null, reason: 'liquidación de contrato' }));
+    return { kind, label, from, to, items, totals, monthsCovered: monthsWithRuns, monthsInWindow, excluded };
   }
 
   const api = {
@@ -145,6 +152,8 @@ export function createBenefitsService({ db, ledger, accounts, payroll, now = () 
       lines.push({ accountId: acc.payrollPayable, credit: owed });
       const benefitId = new ObjectId();
       const date = lastDayOf(calc.to);
+      // Una liquidación anulada se puede rehacer: la clave lleva el número de intento (las anuladas también cuentan).
+      const attempt = (await benefitsOf(tenantId).countDocuments({ kind, label })) + 1;
       try {
         const posted = await ledger.postJournal(
           tenantId,
@@ -152,7 +161,7 @@ export function createBenefitsService({ db, ledger, accounts, payroll, now = () 
             docType: 'PR',
             date,
             currency: tenant.currency,
-            idempotencyKey: `benefit-${kind}-${label}`,
+            idempotencyKey: `benefit-${kind}-${label}-${attempt}`,
             description: kind === 'prima' ? `Prima de servicios ${label}` : `Cesantías e intereses ${label}`,
             source: { kind: 'payroll_benefit', id: String(benefitId) },
             lines,
@@ -190,6 +199,7 @@ export function createBenefitsService({ db, ledger, accounts, payroll, now = () 
     async pay(tenantId, id, input, ctx = {}) {
       const benefit = await api.get(tenantId, id);
       if (!benefit) fail('la liquidación no existe', 'NOT_FOUND');
+      if (benefit.status !== 'posted') fail('la liquidación está anulada', 'INVALID_STATE');
       if (benefit.payment) fail('el pago ya se hizo', 'INVALID_STATE');
       const date = parseCalendarDay(input.date, 'la fecha del pago', fail);
       if (date.getTime() > now().getTime() + DAY_MS) fail('la fecha del pago no puede ser futura');
@@ -206,7 +216,7 @@ export function createBenefitsService({ db, ledger, accounts, payroll, now = () 
           docType: 'PB',
           date,
           currency: tenant.currency,
-          idempotencyKey: `benefit-pay-${benefit._id}`,
+          idempotencyKey: `benefit-pay-${benefit._id}${benefit.paymentHistory?.length ? `-${benefit.paymentHistory.length + 1}` : ''}`,
           description: `Pago de ${benefit.kind === 'prima' ? 'prima de servicios' : 'cesantías e intereses'} ${benefit.label}`,
           source: { kind: 'payroll_benefit_payment', id: String(benefit._id) },
           lines: [{ accountId: acc.payrollPayable, debit: benefit.total }, { accountId: account, credit: benefit.total }],
@@ -224,6 +234,61 @@ export function createBenefitsService({ db, ledger, accounts, payroll, now = () 
         },
       );
       return { benefit: await api.get(tenantId, id) };
+    },
+
+    /** Anula el pago de una liquidación: reversa su asiento y la deja otra vez por pagar (se puede pagar de nuevo). */
+    async voidPayment(tenantId, id, ctx = {}) {
+      const benefit = await api.get(tenantId, id);
+      if (!benefit) fail('la liquidación no existe', 'NOT_FOUND');
+      const payment = benefit.payment;
+      if (!payment) fail('la liquidación no tiene pago que anular', 'INVALID_STATE');
+      const attempt = (benefit.paymentHistory?.length ?? 0) + 1;
+      await ledger.reverseJournal(
+        tenantId,
+        payment.journalId,
+        { idempotencyKey: `benefit-pay-void-${benefit._id}-${attempt}`, date: payment.date, description: `Anulación del pago de ${benefit.kind === 'prima' ? 'prima de servicios' : 'cesantías e intereses'} ${benefit.label}` },
+        {
+          inTx: async (session, { journal }) => {
+            const res = await benefitsOf(tenantId).updateOne(
+              { _id: benefit._id, status: 'posted', 'payment.journalId': payment.journalId },
+              { $push: { paymentHistory: { ...payment, voidedAt: now(), voidedBy: ctx.userId ?? null, voidJournalId: journal._id } }, $unset: { payment: '' } },
+              { session },
+            );
+            if (res.matchedCount === 0) fail('el pago cambió mientras se anulaba', 'INVALID_STATE');
+            await ctx.auditTx?.(session, { action: 'payroll.benefit_pay_void', target: benefit._id, details: { kind: benefit.kind, label: benefit.label, total: payment.total } });
+          },
+        },
+      );
+      return { benefit: await api.get(tenantId, id) };
+    },
+
+    /** Anula una liquidación sin pago vigente: reversa el asiento y deja el período libre para liquidarlo de nuevo. */
+    async void(tenantId, id, ctx = {}) {
+      const benefit = await api.get(tenantId, id);
+      if (!benefit) fail('la liquidación no existe', 'NOT_FOUND');
+      if (benefit.status === 'void') return { benefit, replayed: true };
+      if (benefit.payment) fail('la liquidación tiene un pago: anúlalo primero', 'INVALID_STATE');
+      // Una liquidación de contrato que dio por cobrada esta prestación se quedaría sin ella.
+      const skippedKey = benefit.kind === 'prima' ? 'lines.prima.skipped' : 'lines.cesantias.skipped';
+      const covered = await terminationsOf(tenantId).findOne({ status: 'posted', period: { $gte: benefit.fromPeriod, $lte: benefit.toPeriod }, employeeId: { $in: benefit.items.map((i) => i.employeeId) }, [skippedKey]: true });
+      if (covered) fail(`la liquidación de contrato de ${covered.employee?.name ?? 'un empleado'} dio por liquidada esta prestación: anúlala primero`, 'INVALID_STATE');
+      await ledger.reverseJournal(
+        tenantId,
+        benefit.journalId,
+        { idempotencyKey: `benefit-void-${benefit._id}`, date: lastDayOf(benefit.toPeriod), description: `Anulación de ${benefit.kind === 'prima' ? 'prima de servicios' : 'cesantías e intereses'} ${benefit.label}` },
+        {
+          inTx: async (session, { journal }) => {
+            const res = await benefitsOf(tenantId).updateOne(
+              { _id: benefit._id, status: 'posted', payment: { $exists: false } },
+              { $set: { status: 'void', voidJournalId: journal._id, voidedAt: now(), voidedBy: ctx.userId ?? null } },
+              { session },
+            );
+            if (res.matchedCount === 0) fail('la liquidación cambió mientras se anulaba: revisa su pago', 'INVALID_STATE');
+            await ctx.auditTx?.(session, { action: 'payroll.benefit_void', target: benefit._id, details: { kind: benefit.kind, label: benefit.label } });
+          },
+        },
+      );
+      return { benefit: await api.get(tenantId, id), replayed: false };
     },
   };
   return api;

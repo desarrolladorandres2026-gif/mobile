@@ -26,7 +26,7 @@ import { createAuthService } from '../auth/auth.js';
 import { parseKey } from '../auth/secretbox.js';
 import { COUNTRY_PACKS } from '../countries/index.js';
 import { COLLECTIONS } from '../data/db.js';
-import { MODULE_DOC_TYPES, createLedger } from '../ledger/ledger.js';
+import { MODULE_DOC_TYPES, createLedger, journalPayloadHash, normalizeDocType } from '../ledger/ledger.js';
 import { createLogMailer, createSmtpMailer } from '../mail/mailer.js';
 import { combineReporters, createLogReporter, createWebhookReporter } from '../observability/errorReporter.js';
 import { createPartyService } from '../parties/parties.js';
@@ -130,6 +130,12 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
   const yearEnd = createYearEndService({ client, db, ledger, accounts, ...(now ? { now } : {}) });
   const metrics = createMetrics();
   const settingsService = createSettingsService(client, db, accounts);
+  /** Cuentas que mantienen los documentos y no admiten asientos manuales: código → nombre del documento que las mueve. */
+  const controlAccounts = async (tenantId) => {
+    const cfg = await settingsService.get(tenantId);
+    const names = { receivable: 'cartera', payable: 'proveedores', vatPayable: 'IVA por pagar', vatDeductible: 'IVA descontable', customerAdvance: 'anticipos de clientes', supplierAdvance: 'anticipos a proveedores' };
+    return new Map(Object.entries(names).filter(([key]) => cfg?.accounts?.[key]).map(([key, name]) => [cfg.accounts[key], name]));
+  };
   const exporter = createExportService({ db, ...(now ? { now } : {}) });
   const resolutionService = createResolutionService(client, db);
   const provider = invoicingProvider !== undefined ? invoicingProvider : config.invoicingProvider === 'sandbox' ? createSandboxProvider() : null;
@@ -218,14 +224,18 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
   /** Clave de API de la cabecera `Authorization: Bearer ...`, si viene; la sesión por cookie no la necesita. */
   const bearerOf = (request) => /^Bearer\s+(\S+)$/i.exec(request.headers.authorization ?? '')?.[1] ?? null;
 
-  const guard = (permission) => Object.assign(async (request) => {
+  /**
+   * `stepUp`: la operación es delicada y exige haber confirmado la contraseña hace poco (el inicio de sesión cuenta; si no,
+   * `POST /v1/auth/step-up`). Solo aplica a sesiones: una clave de API nunca tiene estos permisos.
+   */
+  const guard = (permission, { stepUp = false } = {}) => Object.assign(async (request) => {
     const tenantId = new ObjectId(request.params.tenantId);
     const token = bearerOf(request);
     // Una clave de API se prueba contra la empresa de la ruta y el permiso de la ruta, como una sesión.
-    request.ctx = token ? await apiKeys.authenticate(token, tenantId, permission) : await auth.authorize(request.cookies[config.cookieName], tenantId, permission);
+    request.ctx = token ? await apiKeys.authenticate(token, tenantId, permission) : await auth.authorize(request.cookies[config.cookieName], tenantId, permission, { stepUp });
     // Desde aquí, cada línea del log de esta petición lleva la empresa y el usuario.
     request.log = request.log.child({ tenantId: String(request.ctx.tenantId), userId: String(request.ctx.userId) });
-  }, { permission });
+  }, { permission, stepUp });
 
   /** Exige una sesión válida, sin empresa: para operaciones sobre la propia cuenta. */
   const session = async (request) => {
@@ -357,6 +367,52 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     account: await auth.getAccount(request.ctx.userId),
     memberships: await auth.listMemberships(request.ctx.userId),
   }));
+
+  // ---- Sesiones abiertas y contraseña ----
+  app.get('/v1/auth/sessions', { preValidation: session }, async (request) => ({
+    items: await auth.listSessions(request.ctx.userId, request.cookies[config.cookieName]),
+  }));
+
+  app.delete('/v1/auth/sessions/:id', { preValidation: session, schema: { params: { type: 'object', required: ['id'], properties: { id: OBJECT_ID } } } }, async (request, reply) => {
+    const result = await auth.revokeSession(request.ctx.userId, request.params.id, request.cookies[config.cookieName], {
+      inTx: tx(request, 'auth.session_revoked', (r) => ({ userId: r.userId, target: r.sessionId, details: { current: r.current } })),
+    });
+    if (result.current) reply.clearCookie(config.cookieName, { path: '/' });
+    return reply.status(204).send();
+  });
+
+  app.post(
+    '/v1/auth/password/change',
+    {
+      preValidation: session,
+      config: { rateLimit: config.rateLimit.mfa },
+      schema: {
+        body: bodyOf(
+          { currentPassword: { type: 'string', maxLength: 128 }, newPassword: { type: 'string', maxLength: 128 }, code: { type: 'string', maxLength: 32 }, logoutAll: { type: 'boolean' } },
+          ['currentPassword', 'newPassword'],
+        ),
+      },
+    },
+    async (request, reply) => {
+      const result = await auth.changePassword(request.ctx.userId, request.cookies[config.cookieName], request.body, {
+        inTx: tx(request, 'auth.password_changed', (r) => ({ userId: r.userId, details: { loggedOutEverywhere: r.loggedOut } })),
+      });
+      if (result.loggedOut) reply.clearCookie(config.cookieName, { path: '/' });
+      return reply.status(204).send();
+    },
+  );
+
+  // Confirmar de nuevo la identidad antes de una operación delicada (exportar, claves de API, roles, quitar miembros).
+  app.post(
+    '/v1/auth/step-up',
+    {
+      preValidation: session,
+      config: { rateLimit: config.rateLimit.mfa },
+      schema: { body: bodyOf({ password: { type: 'string', maxLength: 128 }, code: { type: 'string', maxLength: 32 } }, ['password']) },
+    },
+    async (request) =>
+      auth.stepUp(request.cookies[config.cookieName], request.ctx.userId, request.body, { inTx: tx(request, 'auth.step_up', (r) => ({ userId: r.userId })) }),
+  );
 
   // ---- Verificación de correo ----
   app.post(
@@ -723,12 +779,23 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
       },
     },
     async (request, reply) => {
-      if (MODULE_DOC_TYPES.includes(request.body.docType.toUpperCase())) {
-        throw Object.assign(new Error(`el tipo ${request.body.docType} lo generan los documentos (facturas, cobros, compras…); usa otro tipo para un asiento manual`), { code: 'IMMUTABLE' });
+      // El tipo se normaliza antes de compararlo con los reservados: « fv » o «Fv» no pueden colarse por la comparación.
+      const docType = normalizeDocType(request.body.docType);
+      if (MODULE_DOC_TYPES.includes(docType)) {
+        throw Object.assign(new Error(`el tipo ${docType} lo generan los documentos (facturas, cobros, compras…); usa otro tipo para un asiento manual`), { code: 'IMMUTABLE' });
       }
+      // Los asientos de las cuentas que mantienen los documentos (cartera, proveedores, IVA y anticipos) los mueven esos documentos:
+      // a mano dejarían la factura o la compra con un saldo que ya no cuadra con el libro.
+      const control = await controlAccounts(request.ctx.tenantId);
+      const touched = [...new Set(request.body.lines.map((l) => l.accountId.trim()).filter((code) => control.has(code)))];
+      if (touched.length) {
+        throw Object.assign(new Error(`la cuenta ${touched.join(', ')} la mueven los documentos (${[...new Set(touched.map((c) => control.get(c)))].join(', ')}): regístralo desde la factura, la compra, el recibo, el pago o el anticipo`), { code: 'CONTROL_ACCOUNT' });
+      }
+      // La clave lleva un prefijo propio: una clave manual nunca coincide con la de un documento (p. ej. la de una nómina o un cierre),
+      // y repetirla con otro contenido es un error, no un reintento.
       const { journal, replayed } = await ledger.postJournal(
         request.ctx.tenantId,
-        { ...request.body, date: new Date(request.body.date), idempotencyKey: request.headers['idempotency-key'] },
+        { ...request.body, docType, date: new Date(request.body.date), idempotencyKey: `manual:${request.headers['idempotency-key']}`, payloadHash: journalPayloadHash(request.body) },
         {
           inTx: tx(request, 'journal.post', (r) => ({ target: r.journal._id, details: { docType: r.journal.docType, number: r.journal.number } })),
         },
@@ -769,7 +836,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
         request.ctx.tenantId,
         new ObjectId(request.params.id),
         {
-          idempotencyKey: request.headers['idempotency-key'],
+          idempotencyKey: `manual-reverse:${request.headers['idempotency-key']}`,
           ...(body.date ? { date: new Date(body.date) } : {}),
           ...(body.description ? { description: body.description } : {}),
         },
@@ -1914,6 +1981,10 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     );
   }
 
+  for (const [path, method] of [['void-payment', 'voidPayment'], ['void-contributions-payment', 'voidContributionsPayment']]) {
+    app.post(`${base}/payroll/runs/:id/${path}`, { preValidation: guard('payroll:manage'), schema: { params: idParams } }, async (request) => payroll[method](request.ctx.tenantId, request.params.id, invoicingContext(request)));
+  }
+
   // Prestaciones sociales: prima y cesantías.
   const benefitKind = { type: 'string', enum: ['prima', 'cesantias'] };
   const benefitLabel = { type: 'string', pattern: '^[0-9]{4}(-[12])?$' };
@@ -1937,6 +2008,13 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     `${base}/payroll/benefits/:id/pay`,
     { preValidation: guard('payroll:manage'), schema: { params: idParams, body: bodyOf({ date: DAY, account: { type: 'string', pattern: '^[0-9]{1,12}$' } }, ['date', 'account']) } },
     async (request) => benefits.pay(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request)),
+  );
+
+  app.post(`${base}/payroll/benefits/:id/void-payment`, { preValidation: guard('payroll:manage'), schema: { params: idParams } }, async (request) =>
+    benefits.voidPayment(request.ctx.tenantId, request.params.id, invoicingContext(request)),
+  );
+  app.post(`${base}/payroll/benefits/:id/void`, { preValidation: guard('payroll:manage'), schema: { params: idParams } }, async (request) =>
+    benefits.void(request.ctx.tenantId, request.params.id, invoicingContext(request)),
   );
 
   // Reportes de nómina.
@@ -1981,6 +2059,9 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
     `${base}/payroll/terminations/:id/pay`,
     { preValidation: guard('payroll:manage'), schema: { params: idParams, body: bodyOf({ date: DAY, account: { type: 'string', pattern: '^[0-9]{1,12}$' } }, ['date', 'account']) } },
     async (request) => terminations.pay(request.ctx.tenantId, request.params.id, request.body, invoicingContext(request)),
+  );
+  app.post(`${base}/payroll/terminations/:id/void-payment`, { preValidation: guard('payroll:manage'), schema: { params: idParams } }, async (request) =>
+    terminations.voidPayment(request.ctx.tenantId, request.params.id, invoicingContext(request)),
   );
   app.post(`${base}/payroll/terminations/:id/void`, { preValidation: guard('payroll:manage'), schema: { params: idParams } }, async (request) =>
     terminations.void(request.ctx.tenantId, request.params.id, invoicingContext(request)),
@@ -2173,20 +2254,20 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
   app.patch(
     `${base}/members/:userId`,
     {
-      preValidation: guard('users:manage'),
+      preValidation: guard('users:manage', { stepUp: true }),
       schema: { params: memberParams, body: bodyOf({ role: { type: 'string', maxLength: 20 } }, ['role']) },
     },
     async (request, reply) => {
       await auth.changeRole(request.ctx, new ObjectId(request.params.userId), request.body.role, {
-        inTx: tx(request, 'member.change_role', (r) => ({ target: r.userId, details: { role: r.role } })),
+        inTx: tx(request, 'member.change_role', (r) => ({ target: r.userId, details: { role: r.role, revokedApiKeys: r.revokedApiKeys } })),
       });
       return reply.status(204).send();
     },
   );
 
-  app.delete(`${base}/members/:userId`, { preValidation: guard('users:manage'), schema: { params: memberParams } }, async (request, reply) => {
+  app.delete(`${base}/members/:userId`, { preValidation: guard('users:manage', { stepUp: true }), schema: { params: memberParams } }, async (request, reply) => {
     await auth.removeMember(request.ctx, new ObjectId(request.params.userId), {
-      inTx: tx(request, 'member.remove', (r) => ({ target: r.userId })),
+      inTx: tx(request, 'member.remove', (r) => ({ target: r.userId, details: { revokedApiKeys: r.revokedApiKeys } })),
     });
     return reply.status(204).send();
   });
@@ -2474,7 +2555,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
   app.post(
     `${base}/api-keys`,
     {
-      preValidation: guard('apikeys:manage'),
+      preValidation: guard('apikeys:manage', { stepUp: true }),
       schema: {
         params: tenantParams,
         body: bodyOf(
@@ -2512,7 +2593,7 @@ export async function buildApp({ client, db, config, logger = false, passwordPar
 
   // ---- Datos de la empresa ----
   // Solo el propietario (`tenant:manage`); las claves de API no pueden tener ese permiso. Queda en la auditoría.
-  app.get(`${base}/export`, { preValidation: guard('tenant:manage'), schema: { params: tenantParams } }, async (request, reply) => {
+  app.get(`${base}/export`, { preValidation: guard('tenant:manage', { stepUp: true }), schema: { params: tenantParams } }, async (request, reply) => {
     const { lines, release } = exporter.start(request.ctx.tenantId);
     try {
       await auditLog.record({ tenantId: request.ctx.tenantId, userId: request.ctx.userId, action: 'tenant.export', ip: request.ip, requestId: request.id });

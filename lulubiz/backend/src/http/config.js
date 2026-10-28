@@ -1,3 +1,30 @@
+const IPV4 = /^[0-9]{1,3}(\.[0-9]{1,3}){3}(\/([0-9]|[12][0-9]|3[0-2]))?$/;
+const IPV6 = /^[0-9a-fA-F:]+(\/([0-9]{1,2}|1[01][0-9]|12[0-8]))?$/;
+const MAX_PROXY_HOPS = 10;
+
+/**
+ * `TRUST_PROXY`: qué proxies pueden decir cuál es la IP del cliente (cabecera `X-Forwarded-For`). `true` confía en todas las
+ * cabeceras y cualquiera puede falsificar su IP (y saltarse los límites por IP): solo se admite fuera de producción. En producción,
+ * un número (saltos de proxy de confianza delante de la aplicación) o una lista de direcciones o rangos CIDR de esos proxies.
+ */
+export function parseTrustProxy(raw) {
+  const value = String(raw ?? '').trim();
+  if (!value || value === 'false' || value === '0') return false;
+  if (value === 'true') return true;
+  if (/^-?[0-9]+$/.test(value)) {
+    const hops = Number(value);
+    if (hops < 0 || hops > MAX_PROXY_HOPS) throw new Error(`TRUST_PROXY: los saltos de proxy van de 1 a ${MAX_PROXY_HOPS}`);
+    return hops;
+  }
+  const list = value.split(',').map((x) => x.trim()).filter(Boolean);
+  for (const entry of list) {
+    const octets = entry.split('/')[0].split('.');
+    const valid = IPV4.test(entry) ? octets.every((o) => Number(o) <= 255) : entry.includes(':') && IPV6.test(entry);
+    if (!valid) throw new Error(`TRUST_PROXY: «${entry}» no es un número de saltos ni una dirección o rango CIDR`);
+  }
+  return list;
+}
+
 /**
  * Configuración desde variables de entorno. En producción todo lo sensible debe venir de aquí,
  * nunca del código, y lo imprescindible se exige al arrancar: es mejor no iniciar que iniciar mal.
@@ -18,6 +45,11 @@ export function loadConfig(env = process.env) {
       .filter(([, value]) => !value)
       .map(([name]) => name);
     if (missing.length) throw new Error(`faltan variables de entorno obligatorias en producción: ${missing.join(', ')}`);
+  }
+
+  const trustProxy = parseTrustProxy(env.TRUST_PROXY);
+  if (production && trustProxy === true) {
+    throw new Error('TRUST_PROXY=true no se permite en producción: usa el número de saltos de proxy (p. ej. 1) o la lista de direcciones o rangos CIDR de tu balanceador');
   }
 
   // El simulador no tiene validez ante ninguna autoridad: en producción no puede usarse. Sin proveedor real configurado,
@@ -46,7 +78,7 @@ export function loadConfig(env = process.env) {
     ensureIndexesOnStart: !production && env.ENSURE_INDEXES !== 'false',
     cookieName: 'lulubiz_session',
     cookieSecure: production,
-    trustProxy: env.TRUST_PROXY === 'true',
+    trustProxy,
     rateLimit: {
       global: { max: 300, timeWindow: '1 minute' },
       login: { max: 10, timeWindow: '1 minute' },

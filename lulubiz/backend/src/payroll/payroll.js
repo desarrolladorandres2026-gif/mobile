@@ -449,6 +449,16 @@ export function createPayrollService({ client, db, ledger, accounts, now = () =>
       return { run: await runsOf(tenantId).findOne({ _id: run._id }), replayed: false };
     },
 
+    /** Anula el pago del neto: reversa su asiento y deja la corrida otra vez por pagar (se puede pagar de nuevo). */
+    async voidPayment(tenantId, id, ctx = {}) {
+      return voidPaymentCommon(tenantId, id, ctx, { field: 'payment', action: 'payroll.pay_void', label: 'el pago de la nómina' });
+    },
+
+    /** Anula el pago de aportes: reversa su asiento y deja los aportes otra vez por pagar. */
+    async voidContributionsPayment(tenantId, id, ctx = {}) {
+      return voidPaymentCommon(tenantId, id, ctx, { field: 'contributionsPayment', action: 'payroll.pay_contributions_void', label: 'el pago de aportes' });
+    },
+
     /** Paga el neto de la corrida con una sola salida de caja o bancos. */
     async pay(tenantId, id, input, ctx = {}) {
       return payCommon(tenantId, id, input, ctx, {
@@ -484,6 +494,32 @@ export function createPayrollService({ client, db, ledger, accounts, now = () =>
     },
   };
 
+  async function voidPaymentCommon(tenantId, id, ctx, cfg) {
+    const run = await runsOf(tenantId).findOne({ _id: objectId(id, 'la corrida') });
+    if (!run) fail('la corrida no existe', 'NOT_FOUND');
+    const payment = run[cfg.field];
+    if (!payment) fail(`la corrida no tiene ${cfg.label} que anular`, 'INVALID_STATE');
+    const history = `${cfg.field}History`;
+    const attempt = (run[history]?.length ?? 0) + 1;
+    await ledger.reverseJournal(
+      tenantId,
+      payment.journalId,
+      { idempotencyKey: `payroll-${cfg.field}-void-${run._id}-${attempt}`, date: payment.date, description: `Anulación de ${cfg.label.replace(/^el /, '')} de ${run.period}` },
+      {
+        inTx: async (session, { journal }) => {
+          const res = await runsOf(tenantId).updateOne(
+            { _id: run._id, [`${cfg.field}.journalId`]: payment.journalId },
+            { $push: { [history]: { ...payment, voidedAt: now(), voidedBy: ctx.userId ?? null, voidJournalId: journal._id } }, $unset: { [cfg.field]: '' } },
+            { session },
+          );
+          if (res.matchedCount === 0) fail(`${cfg.label} cambió mientras se anulaba`, 'INVALID_STATE');
+          await ctx.auditTx?.(session, { action: cfg.action, target: run._id, details: { period: run.period, total: payment.total } });
+        },
+      },
+    );
+    return { run: await runsOf(tenantId).findOne({ _id: run._id }) };
+  }
+
   async function payCommon(tenantId, id, input, ctx, cfg) {
     const run = await runsOf(tenantId).findOne({ _id: objectId(id, 'la corrida') });
     if (!run) fail('la corrida no existe', 'NOT_FOUND');
@@ -503,7 +539,7 @@ export function createPayrollService({ client, db, ledger, accounts, now = () =>
     const lines = [...parts.map((p) => ({ accountId: p.accountId, debit: p.amount })), { accountId: account, credit: total }];
     await ledger.postJournal(
       tenantId,
-      { docType: cfg.docType, date, currency: run.currency, idempotencyKey: `payroll-${cfg.field}-${run._id}`, description: cfg.description(run), source: { kind: `payroll_${cfg.field}`, id: String(run._id) }, lines },
+      { docType: cfg.docType, date, currency: run.currency, idempotencyKey: `payroll-${cfg.field}-${run._id}${run[`${cfg.field}History`]?.length ? `-${run[`${cfg.field}History`].length + 1}` : ''}`, description: cfg.description(run), source: { kind: `payroll_${cfg.field}`, id: String(run._id) }, lines },
       {
         inTx: async (session, { journal }) => {
           const res = await runsOf(tenantId).updateOne(

@@ -107,6 +107,16 @@ describe('liquidación de un empleado', () => {
     expect(r.provisions.prima).toBe(pct(cop(2_500_000), 833));
   });
 
+  it('la retención se redondea al millar con enteros exactos, también con importes enormes', () => {
+    const uvt = cop(49_799);
+    const step = 1000 * 100;
+    for (const income of [cop(12_000_000), cop(60_000_000), cop(900_000_000), cop(90_000_000_000)]) {
+      const tax = monthlyWithholding({ income, mandatory: Math.round(income * 0.09), uvt });
+      expect(Number.isSafeInteger(tax)).toBe(true);
+      expect(tax % step).toBe(0);
+    }
+  });
+
   it('un mes parcial prorratea el salario y el auxilio; cero días no cotiza', () => {
     const r = calculateEmployee(employee({ hireDate: new Date('2026-10-11T12:00:00Z') }), {}, params, '2026-10');
     expect(r.days).toBe(20);

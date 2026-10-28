@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Notice, SearchBox, TextButton, errorMessage, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { Link, Redirect, useRouter } from '../lib/router.jsx';
-import { TASK_ICONS as CREATE_ICONS } from '../lib/taskIcons.js';
 import { useSession } from '../lib/session.jsx';
 import { AccountsScreen } from './Accounts.jsx';
 import { CustomerAdvancesScreen, SupplierAdvancesScreen } from './Advances.jsx';
@@ -246,11 +245,9 @@ function SectionSearch({ groups, go }) {
   );
 }
 
-const SLOT = 68; // px entre accesos; las animaciones parten del centro con este paso
-
 /**
- * Botón «Crear»: al apuntarlo o pulsarlo, los accesos se abren hacia la izquierda y el «+» se queda donde está.
- * La fila crece en el flujo de la barra (la búsqueda se encoge si hace falta): nada se superpone.
+ * Botón «Crear»: al pulsarlo o apuntarlo se despliega la lista de accesos, uno por documento, debajo del botón.
+ * Es un panel plano de texto, sin animación.
  */
 function CreateMenu({ visiblePaths, open, setOpen }) {
   const ref = useRef(null);
@@ -259,39 +256,28 @@ function CreateMenu({ visiblePaths, open, setOpen }) {
   const items = CREATE.filter((c) => visiblePaths.has(c.path));
   if (items.length === 0) return null;
   return (
-    <div ref={ref} className="flex h-10 items-center gap-x-1" onMouseEnter={() => setOpen(true)} onMouseLeave={close}>
-      {open ? (
-        <ul aria-label="Crear" className="flex items-center gap-x-1">
-          {items.map((c, k) => {
-            const dist = items.length - k;
-            const move = { '--desde': `${dist * SLOT}px`, animationDelay: `${dist * 30}ms` };
-            return (
-              <li key={c.path} style={move} className="crear-sale w-16">
-                <Link href={`/app/${c.path}`} onClick={close} className="group flex flex-col items-center gap-0.5 text-center text-[10px] font-semibold leading-3 text-tinta! no-underline!">
-                  <span className="flex size-7 items-center justify-center rounded-full border border-borde bg-papel text-tinta-segundo shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:bg-azul-suave group-hover:text-azul group-focus-visible:outline-2 group-focus-visible:outline-azul">
-                    <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d={CREATE_ICONS[c.path]} />
-                    </svg>
-                  </span>
-                  {c.label}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
+    <div ref={ref} className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={close}>
       <button
         type="button"
         aria-expanded={open}
         aria-haspopup="true"
         aria-label="Crear"
         onClick={() => setOpen(!open)}
-        className="flex size-10 items-center justify-center rounded-full bg-azul text-white shadow-xl transition-all duration-300 hover:scale-110 hover:bg-azul-oscuro focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-azul motion-reduce:transition-none"
+        className="rounded-sm border border-azul bg-azul px-4 py-1.5 text-sm font-semibold text-white hover:border-azul-oscuro hover:bg-azul-oscuro focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-azul"
       >
-        <svg className={`size-6 transition-transform duration-500 ease-in-out motion-reduce:transition-none ${open ? 'rotate-45' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-        </svg>
+        Crear
       </button>
+      {open ? (
+        <ul aria-label="Crear" className={`${panel} right-0 top-full w-56`}>
+          {items.map((c) => (
+            <li key={c.path}>
+              <Link href={`/app/${c.path}`} onClick={close} className={`${panelLink} text-tinta! no-underline!`}>
+                {c.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -367,17 +353,12 @@ export function Shell() {
         <div className="ml-auto flex flex-wrap items-center gap-4 text-sm text-tinta md:ml-0">
           <CreateMenu visiblePaths={visiblePaths} open={createOpen} setOpen={setCreateOpen} />
           {canConfigure ? (
-            <Link href="/app/facturacion" aria-label="Configuración" data-label="Configuración" className="btn-ajustes">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
+            <Link href="/app/facturacion" className="rounded-sm border border-borde-fuerte bg-papel px-3 py-1.5 text-sm font-semibold text-tinta! no-underline! hover:bg-azul-suave">
+              Configuración
             </Link>
           ) : null}
-          <button type="button" onClick={logout} aria-label="Cerrar sesión" data-label="Cerrar sesión" className="btn-ajustes">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
-            </svg>
+          <button type="button" onClick={logout} className="rounded-sm border border-borde-fuerte bg-papel px-3 py-1.5 text-sm font-semibold text-tinta hover:bg-azul-suave focus-visible:outline-2 focus-visible:outline-azul">
+            Cerrar sesión
           </button>
         </div>
       </header>

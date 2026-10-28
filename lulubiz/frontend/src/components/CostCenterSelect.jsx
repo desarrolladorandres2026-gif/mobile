@@ -1,13 +1,15 @@
+import { useMemo } from 'react';
 import { api } from '../lib/api.js';
 import { useLoad } from './ui.jsx';
 
 /**
- * Los centros de costo activos de la empresa. Quien no puede leerlos (o la empresa no usa ninguno) recibe una lista vacía:
- * los formularios entonces no muestran la columna.
+ * Los centros de costo activos de la empresa. Quien no puede leerlos (403) o la empresa no usa ninguno recibe una lista
+ * vacía: los formularios entonces no muestran la columna. Cualquier otro fallo (red, servidor) no se disfraza de lista
+ * vacía: el arreglo trae `error` y `reload` para mostrarlo con `<LoadNotice load={centers} what="los centros de costo" />`.
  */
 export function useCostCenters(base) {
-  const load = useLoad(() => api.get(`${base}/cost-centers?activeOnly=true`).catch(() => ({ items: [] })), [base]);
-  return load.data?.items ?? [];
+  const load = useLoad(() => api.get(`${base}/cost-centers?activeOnly=true`), [base]);
+  return useMemo(() => Object.assign([...(load.data?.items ?? [])], { error: load.error, reload: load.reload }), [load.data, load.error, load.reload]);
 }
 
 /** Selector de centro de costo para una línea. `centers` viene de `useCostCenters`; el valor vacío es «sin centro». */

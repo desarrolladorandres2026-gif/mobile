@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useCostCenters } from '../components/CostCenterSelect.jsx';
-import { ViewButton, Button, DataTable, Notice, PageHeader, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { LoadNotice, ViewButton, Button, DataTable, Notice, PageHeader, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { CsvError, parseCsv } from '../lib/csv.js';
 import { formatAmount } from '../lib/money.js';
@@ -104,6 +104,7 @@ export function OpeningBalancesScreen() {
         Los saldos por tercero quedan en los estados de cuenta y en el libro auxiliar del tercero. Las facturas y compras pendientes una por una (con vencimientos) no se cargan aquí, por lo que no aparecen en la cartera por edades; los artículos con existencias entran con un ajuste de inventario.
       </Notice>
 
+      <LoadNotice load={centers} what="los centros de costo" />
       <h2 className="mb-2 mt-6 text-lg font-semibold text-tinta">Columnas del archivo</h2>
       <p className="mb-2 text-sm text-tinta">La primera fila es el encabezado, con estos nombres (sin importar mayúsculas ni tildes). Admite coma, punto y coma o tabulador.</p>
       <DataTable

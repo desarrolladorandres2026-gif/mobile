@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { LoadNotice, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api } from '../lib/api.js';
 import { firstInstallment, validateAsset, validateDisposal } from '../lib/fixedAssets.js';
 import { formatDay } from '../lib/format.js';
@@ -69,6 +69,7 @@ function AssetForm({ accounts, onCreated, onCancel }) {
       </div>
       <div className="grid gap-x-4 sm:grid-cols-4">
         <TextField label="Empieza a depreciarse en (opcional)" value={form.depreciationStart} onChange={set('depreciationStart')} placeholder="AAAA-MM" error={err('depreciationStart')} hint="Sin mes, el de la adquisición." />
+        <LoadNotice load={centers} what="los centros de costo" />
         {centers.length ? (
           <div className="mb-4">
             <p className="mb-1 text-sm font-semibold text-tinta">Centro de costo</p>

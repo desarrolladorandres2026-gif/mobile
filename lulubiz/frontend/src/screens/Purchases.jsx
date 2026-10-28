@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ItemPicker } from '../components/ItemPicker.jsx';
 import { PartyPicker } from '../components/PartyPicker.jsx';
 import { CostCenterSelect, useCostCenters } from '../components/CostCenterSelect.jsx';
-import { DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
+import { LoadNotice, DeleteButton, Button, DataTable, Notice, PageHeader, SelectField, TextButton, TextField, errorMessage, useLoad, useSubmit } from '../components/ui.jsx';
 import { api, newIdempotencyKey } from '../lib/api.js';
 import { formatDay } from '../lib/format.js';
 import { computeLine, formatPercent, formatQuantity, parsePercent, parseQuantity } from '../lib/invoicing.js';
@@ -53,8 +53,8 @@ function PurchaseForm({ status, onCreated, onCancel }) {
   const accounts = useLoad(() => api.get(`${base}/accounts?activeOnly=true`), [base]);
   const centers = useCostCenters(base);
   // Quien no puede leer la configuración (otro rol) simplemente no ve la lista de predefinidas.
-  const presets = useLoad(() => api.get(`${base}/invoicing/settings`).then((r) => r.settings?.withholdingPresets ?? []).catch(() => []), [base]);
-  const warehouses = useLoad(() => api.get(`${base}/warehouses`).catch(() => ({ items: [] })), [base]);
+  const presets = useLoad(() => api.get(`${base}/invoicing/settings`).then((r) => r.settings?.withholdingPresets ?? []), [base]);
+  const warehouses = useLoad(() => api.get(`${base}/warehouses`), [base]);
   const activeWarehouses = (warehouses.data?.items ?? []).filter((w) => w.active);
   const postable = (accounts.data?.items ?? []).filter((a) => a.postable);
   const expenseAccounts = postable.filter((a) => ['asset', 'expense', 'cost'].includes(a.type));
@@ -127,6 +127,9 @@ function PurchaseForm({ status, onCreated, onCancel }) {
         ))}
       </datalist>
 
+      <LoadNotice load={centers} what="los centros de costo" />
+      <LoadNotice load={warehouses} what="las bodegas" />
+      <LoadNotice load={presets} what="las retenciones predefinidas" />
       <div className="relative overflow-x-auto">
         <table className="mb-2 w-full border-collapse text-sm">
           <thead>
@@ -369,32 +372,34 @@ function SupplierNoteForm({ purchase, currency, onDone, onCancel }) {
         options={[{ value: 'all', label: 'Todo lo que queda de la factura' }, { value: 'lines', label: 'Solo algunas cantidades' }]}
       />
       {mode === 'lines' ? (
-        <table className="mb-3 text-sm">
-          <thead>
-            <tr className="text-left">
-              <th scope="col" className="pr-4 font-semibold">Línea</th>
-              <th scope="col" className="pr-4 text-right font-semibold">Por acreditar</th>
-              <th scope="col" className="font-semibold">Cantidad a acreditar</th>
-            </tr>
-          </thead>
-          <tbody>
-            {purchase.lines.map((l, i) => (
-              <tr key={i}>
-                <td className="pr-4">{l.description}</td>
-                <td className="pr-4 text-right tabular-nums">{formatQuantity(remaining[i])}</td>
-                <td>
-                  <input
-                    aria-label={`Cantidad a acreditar de la línea ${i + 1}`}
-                    value={quantities[i]}
-                    disabled={remaining[i] === 0}
-                    onChange={(e) => setQuantities((qs) => qs.map((q, n) => (n === i ? e.target.value : q)))}
-                    className="w-28 rounded-sm border border-borde-fuerte bg-papel px-2 py-1 text-right text-sm tabular-nums text-tinta focus:outline-2 focus:outline-azul"
-                  />
-                </td>
+        <div className="relative overflow-x-auto">
+          <table className="mb-3 text-sm">
+            <thead>
+              <tr className="text-left">
+                <th scope="col" className="pr-4 font-semibold">Línea</th>
+                <th scope="col" className="pr-4 text-right font-semibold">Por acreditar</th>
+                <th scope="col" className="font-semibold">Cantidad a acreditar</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {purchase.lines.map((l, i) => (
+                <tr key={i}>
+                  <td className="pr-4">{l.description}</td>
+                  <td className="pr-4 text-right tabular-nums">{formatQuantity(remaining[i])}</td>
+                  <td>
+                    <input
+                      aria-label={`Cantidad a acreditar de la línea ${i + 1}`}
+                      value={quantities[i]}
+                      disabled={remaining[i] === 0}
+                      onChange={(e) => setQuantities((qs) => qs.map((q, n) => (n === i ? e.target.value : q)))}
+                      className="w-28 rounded-sm border border-borde-fuerte bg-papel px-2 py-1 text-right text-sm tabular-nums text-tinta focus:outline-2 focus:outline-azul"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
       <p className="mb-3 text-sm text-tinta">Saldo actual con el proveedor por esta factura: {formatAmount(purchase.balance, currency)}.</p>
       <Button type="submit" variant="primary" busy={submit.busy}>Registrar nota</Button>
@@ -457,6 +462,7 @@ function DebitNoteForm({ purchase, rates, currency, onDone, onCancel }) {
         <TextField label={`Valor antes de IVA (${currency})`} value={line.unitPrice} onChange={set('unitPrice')} inputMode="decimal" error={lineErrors.unitPrice} />
         <TextField label="Cuenta del gasto, costo o activo" list="cuentas-nota-debito" value={line.accountId} onChange={set('accountId')} error={showErrors && lineErrors.accountId ? lineErrors.accountId : undefined} hint={chargeAccounts.find((a) => a.code === line.accountId.trim())?.name} />
         <SelectField label="IVA" value={line.vatBps} onChange={set('vatBps')} options={rates.map((r) => ({ value: r, label: formatPercent(r) }))} />
+        <LoadNotice load={centers} what="los centros de costo" />
         {centers.length ? (
           <SelectField label="Centro de costo" value={line.costCenter} onChange={set('costCenter')} options={[{ value: '', label: 'Sin centro' }, ...centers.map((c) => ({ value: c.code, label: `${c.code} · ${c.name}` }))]} />
         ) : null}
@@ -478,30 +484,32 @@ function DebitNoteForm({ purchase, rates, currency, onDone, onCancel }) {
 function PurchaseDetail({ purchase, currency }) {
   return (
     <div className="my-2 text-sm text-tinta">
-      <table className="mb-3 w-full max-w-4xl border-collapse">
-        <thead>
-          <tr className="text-left">
-            <th scope="col" className="pr-4 font-semibold">Descripción</th>
-            <th scope="col" className="pr-4 text-right font-semibold">Cantidad</th>
-            <th scope="col" className="pr-4 text-right font-semibold">Precio</th>
-            <th scope="col" className="pr-4 text-right font-semibold">IVA</th>
-            <th scope="col" className="pr-4 font-semibold">Cuenta</th>
-            <th scope="col" className="text-right font-semibold">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {purchase.lines.map((l, i) => (
-            <tr key={i}>
-              <td className="pr-4">{l.description}</td>
-              <td className="pr-4 text-right tabular-nums">{formatQuantity(l.quantity)}</td>
-              <td className="pr-4 text-right tabular-nums">{formatAmount(l.unitPrice, currency)}</td>
-              <td className="pr-4 text-right tabular-nums">{formatPercent(l.vatBps)}</td>
-              <td className="pr-4">{l.accountId}</td>
-              <td className="text-right tabular-nums">{formatAmount(l.total, currency)}</td>
+      <div className="relative overflow-x-auto">
+        <table className="mb-3 w-full max-w-4xl border-collapse">
+          <thead>
+            <tr className="text-left">
+              <th scope="col" className="pr-4 font-semibold">Descripción</th>
+              <th scope="col" className="pr-4 text-right font-semibold">Cantidad</th>
+              <th scope="col" className="pr-4 text-right font-semibold">Precio</th>
+              <th scope="col" className="pr-4 text-right font-semibold">IVA</th>
+              <th scope="col" className="pr-4 font-semibold">Cuenta</th>
+              <th scope="col" className="text-right font-semibold">Total</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {purchase.lines.map((l, i) => (
+              <tr key={i}>
+                <td className="pr-4">{l.description}</td>
+                <td className="pr-4 text-right tabular-nums">{formatQuantity(l.quantity)}</td>
+                <td className="pr-4 text-right tabular-nums">{formatAmount(l.unitPrice, currency)}</td>
+                <td className="pr-4 text-right tabular-nums">{formatPercent(l.vatBps)}</td>
+                <td className="pr-4">{l.accountId}</td>
+                <td className="text-right tabular-nums">{formatAmount(l.total, currency)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <p>Subtotal {formatAmount(purchase.totals.subtotal, currency)} · IVA {formatAmount(purchase.totals.tax, currency)} · Total {formatAmount(purchase.totals.total, currency)}</p>
       {purchase.withholdings.map((w) => (
         <p key={`${w.name}-${w.accountId}`}>{w.name}: {formatAmount(w.amount, currency)} ({formatPercent(w.rateBps)} del {w.basis === 'vat' ? 'IVA' : 'subtotal'}, cuenta {w.accountId})</p>

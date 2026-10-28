@@ -4,9 +4,9 @@ import { computeLine, formatPercent, parsePercent, parseQuantity } from '../lib/
 import { formatAmount, parseAmount } from '../lib/money.js';
 import { CostCenterSelect } from './CostCenterSelect.jsx';
 import { ItemPicker } from './ItemPicker.jsx';
-import { DeleteButton, TextButton } from './ui.jsx';
+import { DeleteButton, LoadNotice, TextButton } from './ui.jsx';
 
-const cell = 'w-full rounded-sm border bg-papel px-2 py-1.5 text-sm text-tinta focus:outline-2 focus:outline-azul';
+const cell = 'w-full rounded-sm border bg-papel px-2 py-1.5 text-sm text-tinta focus:outline-2 focus:outline-azul disabled:bg-papel-fondo disabled:text-tinta-segundo';
 
 /**
  * Tabla de líneas de una cotización, una orden de compra o una factura recurrente. `accountMode` es `income` (cuenta de
@@ -41,6 +41,7 @@ export function DocLinesEditor({ base, lines, setLines, rates, currency, errors 
           </option>
         ))}
       </datalist>
+      <LoadNotice load={centers} what="los centros de costo" />
       <div className="relative overflow-x-auto">
         <table className="mb-2 w-full border-collapse text-sm">
           <thead>
